@@ -169,7 +169,7 @@ mounts that file unchanged.
        unit: A
      - name: SR:DIAG:BPM:01:POSITION:X
        pv: SR:DIAG:BPM:01:POSITION:X
-       unit: m
+       unit: mm
 
 The file has two lists:
 

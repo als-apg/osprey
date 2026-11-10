@@ -485,15 +485,18 @@
 <span id="reference-guarded-run"></span><h1>Guarded Run Contract<a class="headerlink" href="#guarded-run-contract" title="Link to this heading">#</a></h1>
 <p>A guarded run is the lock a read-write <code class="docutils literal notranslate"><span class="pre">execute</span></code> or <code class="docutils literal notranslate"><span class="pre">execute_file</span></code> run and
 a <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> run hold on their control target, so two runs never drive
-one machine at once. No other write path takes part.
+one machine at once. No other write path takes part, except the command write,
+which fires only under a held lock.
 <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-guarded-run"><span class="std std-ref">Guarded Runs</span></a> places it among
 the write paths and says what it does not cover. This page is the exact
 behaviour: where the lock lives, who holds it, whose run its record names,
-what a second run is told, and what a stopped run leaves.</p>
+what a second run is told, what a command write admits, and what a stopped run
+leaves.</p>
 <p>Every write made under the lock is an ordinary write. It goes through the
 connector like any other, so the kill switch, the limits check and the
 control-target check of <a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a> all apply to it. The
-lock adds no check of its own to those writes; it replaces none of them.</p>
+lock adds no check of its own to those writes, beyond what it admits a command
+write on; it replaces none of them.</p>
 <section id="one-run-per-target">
 <h2>One run per target<a class="headerlink" href="#one-run-per-target" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table" id="id1">
@@ -576,13 +579,51 @@ record whose target or admitted target is not the target the lock resolves to
 is refused before anything is opened, so a run is never admitted on one target
 and driven on another. Joining the process’s hold with no record runs under
 the held one; joining with a different record is refused.</p>
+<p>The record also says whether limits checking is off for its target. That is
+the target’s fact, never the caller’s: it is off only when the target’s limits
+posture is complete and states <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code>; silence or an unreadable
+limits block is not off. A record that says otherwise is refused before
+anything is opened.</p>
 <ul class="simple">
 <li><p>A read-write <code class="docutils literal notranslate"><span class="pre">execute</span></code> or <code class="docutils literal notranslate"><span class="pre">execute_file</span></code> run fills the record once, as
 its sandbox starts: the stamped target, the account the write path names
-(nobody when it names none) and that same target as the admitted one, which
-the executor checked before it started the sandbox. Nothing about the
-sandbox’s writes changes.</p></li>
+(nobody when it names none), that same target as the admitted one, which
+the executor checked before it started the sandbox, and the target’s limits
+posture. Nothing about the sandbox’s writes changes.</p></li>
 </ul>
+</section>
+<section id="command-write">
+<h2>Command write<a class="headerlink" href="#command-write" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey.runtime.guarded_run.command_write(connector,</span> <span class="pre">addresses,</span> <span class="pre">value)</span></code>
+fires one value at a batch of commands (arm a monitor, request a shot) under
+the run lock. A command is the facility’s word, never the caller’s: a channel
+of the rendered facility definition whose role is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code> and whose
+signal ends in <code class="docutils literal notranslate"><span class="pre">command</span></code>. With no rendered facility definition, no command
+fires.</p>
+<p>The whole batch is refused, before anything is written, unless:</p>
+<ul class="simple">
+<li><p>the process holds the run lock with a record;</p></li>
+<li><p>the account the write path names is the record’s account, and the record
+names one;</p></li>
+<li><p>the batch names each command once;</p></li>
+<li><p>the connector drives the record’s target;</p></li>
+<li><p>the record’s limits state is still the target’s;</p></li>
+<li><p>the connector carries a limits validator that is not the fail-safe one, or
+limits checking is off for the target;</p></li>
+<li><p>every address is a command, and passes the validator in its own mode, as a
+setpoint write does.</p></li>
+</ul>
+<p>The approval of the call that leads here is its caller’s to check; a command
+write reads none. The batch then goes out through the connector in one call,
+unconfirmed, so the kill switch and the control-target check apply to it as to
+any write. Its phases reach <code class="docutils literal notranslate"><span class="pre">osprey.runtime.record_writes</span></code> as a batch
+write’s do, but the commands fired are the call’s own, never read back from
+that recorder. A channel error the batch raises names the commands of the batch
+not refused, which went out or may have (<code class="docutils literal notranslate"><span class="pre">commands_fired</span></code>). Every call, refused or not,
+files one audit record on the <code class="docutils literal notranslate"><span class="pre">command_write</span></code> surface whose <code class="docutils literal notranslate"><span class="pre">detail</span></code> is
+<code class="docutils literal notranslate"><span class="pre">commands_fired=&lt;address&gt;,…</span></code>. When the batch call itself raises, what went
+out is unknown: the record’s reason is <code class="docutils literal notranslate"><span class="pre">outcome_unknown</span></code> and its <code class="docutils literal notranslate"><span class="pre">detail</span></code>
+is <code class="docutils literal notranslate"><span class="pre">commands_attempted=&lt;address&gt;,…</span></code>, the whole batch.</p>
 </section>
 <section id="the-process-holds-it">
 <h2>The process holds it<a class="headerlink" href="#the-process-holds-it" title="Link to this heading">#</a></h2>
@@ -800,6 +841,7 @@ ledger.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-run-per-target">One run per target</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#who-holds-it">Who holds it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#whose-run-it-is">Whose run it is</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-write">Command write</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-process-holds-it">The process holds it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-lock-file">The lock file</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refusals">Refusals</a></li>

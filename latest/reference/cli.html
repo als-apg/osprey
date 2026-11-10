@@ -512,6 +512,7 @@ osprey<span class="w"> </span>health<span class="w">             </span><span cl
 osprey<span class="w"> </span>channel-finder<span class="w">     </span><span class="c1"># Channel finder CLI</span>
 osprey<span class="w"> </span>knowledge<span class="w">          </span><span class="c1"># Facility knowledge bundles and graph corpus</span>
 osprey<span class="w"> </span>facility<span class="w">           </span><span class="c1"># Check and show the facility description under data/facility/</span>
+osprey<span class="w"> </span>app<span class="w">                </span><span class="c1"># Make and check a deployment&#39;s apps</span>
 osprey<span class="w"> </span>sim<span class="w">                </span><span class="c1"># Simulation scenario commands</span>
 osprey<span class="w"> </span>eject<span class="w">              </span><span class="c1"># Copy framework components for customization</span>
 osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
@@ -829,8 +830,11 @@ previous build exactly as it was and still able to stop the stack it started.</p
 takes effect at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code> — Stream lifecycle step output in real time.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code> — Skip the profile’s <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">validate</span></code> steps.</p>
-<p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code> — Skip venv creation and dependency installation (CI mode).</p>
+<code class="docutils literal notranslate"><span class="pre">validate</span></code> steps; deployment-package wheels are still built and installed.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code> — Skip venv creation and dependency installation (CI mode);
+deployment-package wheels are still built, for the image. Building a wheel runs
+the package’s own build code, which can read <code class="docutils literal notranslate"><span class="pre">HOME</span></code> and <code class="docutils literal notranslate"><span class="pre">PIP_*</span></code>/<code class="docutils literal notranslate"><span class="pre">UV_*</span></code>
+variables.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code> — Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config, for
 a build whose output runs somewhere other than where it was made.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> — Render a dev build: bake the local osprey checkout into the service
@@ -1055,8 +1059,9 @@ with.</p></td>
 <p><code class="docutils literal notranslate"><span class="pre">--purge</span></code> – Permanently delete a user’s workspace without archiving it (mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--archive</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> – Assume yes to confirmation prompts.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> – Show what would happen without making changes.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">list</span></code> joins the rendered roster, shared apps and each render’s
-<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> by the rules the render and the login service apply.
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">list</span></code> joins the rendered roster, shared logins and each
+render’s <code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> by the rules the render and the login service
+apply.
 <code class="docutils literal notranslate"><span class="pre">--live</span></code> adds container state and last sign-in from the running stack; off the
 host, or with the stack down, those read as a dash. Sign-ins come from the agent
 record, in UTC, so a dash there means the record holds none, not that the person
@@ -1494,6 +1499,34 @@ osprey<span class="w"> </span>knowledge<span class="w"> </span>validate
 </pre></div>
 </div>
 </section>
+<section id="osprey-app">
+<span id="cli-osprey-app"></span><h2>osprey app<a class="headerlink" href="#osprey-app" title="Link to this heading">#</a></h2>
+<p>Make and check a deployment’s apps without building anything; the walkthrough
+is <a class="reference internal" href="../how-to/apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>.</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span> <span class="pre">NAME</span> <span class="pre">[--force]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Copy the shipped scaffold — one container, a panel with a state route, one read
+tool, one approval write tool — into <code class="docutils literal notranslate"><span class="pre">apps/NAME/</span></code>; it passes <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span>
+<span class="pre">check</span></code> as copied. Its names are rewritten to <code class="docutils literal notranslate"><span class="pre">NAME</span></code> (the Python package to
+<code class="docutils literal notranslate"><span class="pre">NAME</span></code> with underscores), and it is listed as
+<code class="docutils literal notranslate"><span class="pre">NAME:</span> <span class="pre">{}</span></code> in the <code class="docutils literal notranslate"><span class="pre">apps:</span></code> block of <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>; <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> gains
+<code class="docutils literal notranslate"><span class="pre">/apps/*/panel/vendor/</span></code> when it lacks it. No port is pinned. A name whose
+package would be a Python keyword or shadow a standard-library or OSPREY module
+is refused, and whatever exists at <code class="docutils literal notranslate"><span class="pre">apps/NAME/</span></code> unless <code class="docutils literal notranslate"><span class="pre">--force</span></code> replaces it.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Run what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks of the applications the <code class="docutils literal notranslate"><span class="pre">apps:</span></code> block of
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> names, then the import boundary over each of their Python
+packages, that <code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code> loads the design-system <code class="docutils literal notranslate"><span class="pre">tokens.css</span></code>,
+<code class="docutils literal notranslate"><span class="pre">base.css</span></code> and <code class="docutils literal notranslate"><span class="pre">primitives.css</span></code> and every class the panel sets has a CSS
+rule, ESLint over <code class="docutils literal notranslate"><span class="pre">panel/</span></code> when it holds JS, and Vitest over
+<code class="docutils literal notranslate"><span class="pre">tests/**/*.test.{js,mjs}</span></code> when that matches a file. Prints every violation
+with its application, field and rule, and exits 1. An <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> the block
+does not name is reported and not checked. The JS checks execute the
+application’s JS tests, with none of the shell’s secrets; they need Node and
+install a pinned toolchain into the user’s cache once; an application with no
+JS needs neither.</p>
+</dd>
+</dl>
+</section>
 <section id="osprey-facility">
 <span id="cli-osprey-facility"></span><h2>osprey facility<a class="headerlink" href="#osprey-facility" title="Link to this heading">#</a></h2>
 <p>Check and show the facility description under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and import
@@ -1894,12 +1927,6 @@ untouched; one that differs is reported and left alone unless <code class="docut
 is given. <code class="docutils literal notranslate"><span class="pre">--from</span></code> names the preset (default: the preset this repo was
 created from).</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">apps</span> <span class="pre">[--from</span> <span class="pre">PRESET]</span> <span class="pre">[--force]</span></code></dt><dd><p>Write <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;.yml</span></code> for every app the preset’s roster shares, as
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> does. A file that already matches is left untouched; one
-that differs is reported and left alone unless <code class="docutils literal notranslate"><span class="pre">--force</span></code> is given.
-<code class="docutils literal notranslate"><span class="pre">--from</span></code> names the preset (default: the preset this repo was created
-from).</p>
-</dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">pull</span> <span class="pre">PRESET[:PATH]</span> <span class="pre">[--list]</span> <span class="pre">[--force]</span> <span class="pre">[--with-content]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Copy a preset’s packaged content into this repo, each file at the same path,
 for you to edit and commit: <code class="docutils literal notranslate"><span class="pre">demo</span></code> copies the whole app
 template, <code class="docutils literal notranslate"><span class="pre">demo:data/facility/knowledge</span></code> one subtree of it.
@@ -1956,7 +1983,6 @@ gets an error naming what replaced it (<code class="docutils literal notranslate
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>ci<span class="w">                             </span><span class="c1"># Re-emit the CI files</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>systemd<span class="w">                        </span><span class="c1"># Write the boot unit</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>tiers<span class="w">                          </span><span class="c1"># Write the tier files</span>
-osprey<span class="w"> </span>scaffold<span class="w"> </span>apps<span class="w">                           </span><span class="c1"># Write the app files</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>pull<span class="w"> </span>demo<span class="w"> </span>--list<span class="w">               </span><span class="c1"># Show what a preset offers</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
@@ -1980,6 +2006,8 @@ switch the interfaces over to local bundles.</p>
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> with <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE=1</span></code>. In default CDN mode this command
 is optional.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-q,</span> <span class="pre">--quiet</span></code> — Suppress per-file output.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-t,</span> <span class="pre">--target</span> <span class="pre">DIR</span></code> — Fetch only the assets for this manifest target
+directory, e.g. <code class="docutils literal notranslate"><span class="pre">tuning/static/vendor/</span></code> (repeatable). Default: every target.</p>
 <p>Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
 fails cert verification until it is pointed at the site’s CA bundle.
 That is the first remedy to reach for — verification stays on:</p>
@@ -2098,6 +2126,7 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-eject">osprey eject</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-channel-finder">osprey channel-finder</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-knowledge">osprey knowledge</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-app">osprey app</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-facility">osprey facility</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-sim">osprey sim</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-ariel">osprey ariel</a></li>

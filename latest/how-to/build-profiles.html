@@ -397,6 +397,11 @@
 <li class="toctree-l2"><a class="reference internal" href="llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="apps/build-your-own-app.html">Build Your Own App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="apps/orbit-bump.html">Example: Orbit Bump</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -541,7 +546,7 @@ and safe to delete and rebuild at any time.</p>
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text">Creating a deployment repository and rendering its <code class="docutils literal notranslate"><span class="pre">build/</span></code> zone</p></li>
-<li><p class="sd-card-text">What lives in a profile: the convention directories, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, secrets, tiers and apps</p></li>
+<li><p class="sd-card-text">What lives in a profile: the convention directories, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, secrets, logins</p></li>
 <li><p class="sd-card-text">Moving an artifact you want to own out of <code class="docutils literal notranslate"><span class="pre">build/</span></code> and into the profile</p></li>
 <li><p class="sd-card-text">Shipping and wiring your own hook scripts</p></li>
 <li><p class="sd-card-text">Keeping a profile and its build in step</p></li>
@@ -640,8 +645,9 @@ preset does not reach an existing deployment.</p>
   .env.lock       keeps two writers from editing .env at once; leave it be
   README.md       explains the layout, for whoever opens the repository next
   triggers.yml    the events the agent runs on (dispatch profiles only)
-  tiers/          one delta per web-terminal access level (multi-user presets only)
-  apps/           one complete agent per shared card (multi-user presets only)
+  tiers/          one file per web-terminal login (multi-user presets only)
+  apps/           one directory per application the profile lists, with a
+                  .provenance sidecar (only when it lists one)
   web-terminal-context/  the shared base.md baseline, plus one seeded
                   directory per operator on the roster
   rules/          rules/facility.md, the facility description, to rewrite in
@@ -649,15 +655,20 @@ preset does not reach an existing deployment.</p>
   watchdogs/      one directory per watchdog the profile declares
   mcp_servers/    the MCP server packages the preset ships
   ci-extra.yml    the facility&#39;s own CI jobs; never regenerated
-  .gitignore      keeps build/, var/ and the .env files out of version control
+  .gitignore      keeps build/, var/, the .env files and apps/*/panel/vendor/
+                  out of version control
   build/          rendered by `osprey build`; disposable
   var/            agent memory and audit log; durable
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, <code class="docutils literal notranslate"><span class="pre">rules/</span></code>,
+<p><code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, <code class="docutils literal notranslate"><span class="pre">rules/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">watchdogs/</span></code> and <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code> appear only when the preset calls for them. A
 <code class="docutils literal notranslate"><span class="pre">demo</span></code> deployment has all of them except <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>; a
 <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> deployment has only <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>.</p>
+<p>No bundled preset lists an application, so <code class="docutils literal notranslate"><span class="pre">apps/</span></code> appears only when you list
+one: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">demo</span> <span class="pre">--set</span> <span class="pre">'apps.orbit-bump={}'</span></code> writes
+<code class="docutils literal notranslate"><span class="pre">apps/orbit-bump/</span></code>. A preset’s applications come with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, never
+through <code class="docutils literal notranslate"><span class="pre">extends:</span></code>: a profile runs the applications it lists and holds.</p>
 <p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and an initial commit run at the end. There is no CI pipeline yet:
 the profile ships its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no
 coordinates to render one from. Fill the block in and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code>
@@ -777,8 +788,8 @@ the same list. Name one with its directory as a prefix:</p>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hooks/osprey_limits.py</span><span class="w">    </span><span class="c1"># only a file replacing an OSPREY hook</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s lists select for the deployment and every tier, a tier adds to
-them, and an app’s lists are its whole selection. A bare entry always means
+<p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s lists select for the deployment and every login, a login adds
+to them, and a <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code> login’s lists are its whole selection. A bare entry always means
 OSPREY’s artifact. A file named like one (<code class="docutils literal notranslate"><span class="pre">rules/facility.md</span></code>) replaces it
 only where its path, <code class="docutils literal notranslate"><span class="pre">rules/facility</span></code>, is named: there it counts as that
 artifact for wiring, checks and the brief, and supplies only the content.
@@ -786,7 +797,7 @@ Listing both in one render is a build error. A path naming no file fails the bui
 reaches no render, and the build warns. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> names the facility
 description it seeds by its path. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> turns a bare
 entry into the path wherever the repo ships the file, and names every other
-unnamed one in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and each app, so an existing deployment’s renders
+unnamed one in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and each login, so an existing deployment’s renders
 stay as they were.</p>
 <p>A <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list names a <code class="docutils literal notranslate"><span class="pre">hooks/&lt;file&gt;</span></code> only to replace an OSPREY hook; any
 other entry is refused. Your own hooks are wired, and copied, by their
@@ -884,7 +895,7 @@ edit it.</p></li>
 becomes their <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>.</p></li>
 </ul>
 <p>Unlike the per-operator directories, the baseline is <strong>not</strong> roster-derived. It
-is copied on every build, including a tier or app render that has no roster at all,
+is copied on every build, including a login render that has no roster at all,
 and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it whenever the profile stands up web terminals
 (<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.enabled</span></code>) — even when the roster is still empty, so a
 profile that names no operators yet still starts from text it can see. A
@@ -896,11 +907,11 @@ other profile-shipped file:</p>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">web-terminal-context/base.md</span><span class="w">   </span><span class="c1"># the framework fallback renders instead</span>
 </pre></div>
 </div>
-<p>A tier or app render has no web terminals of its own, so it resolves an empty
+<p>A login render has no web terminals of its own, so it resolves an empty
 roster and copies no operator directories.</p>
-<p>To keep the baseline in the deployment but leave it out of one tier’s or app’s
-terminals, set <code class="docutils literal notranslate"><span class="pre">seed_base:</span> <span class="pre">false</span></code> at the top of that file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> or
-<code class="docutils literal notranslate"><span class="pre">apps/</span></code>: its users are seeded from their own <code class="docutils literal notranslate"><span class="pre">extra.md</span></code> alone.</p>
+<p>To keep the baseline in the deployment but leave it out of one login’s
+terminals, set <code class="docutils literal notranslate"><span class="pre">seed_base:</span> <span class="pre">false</span></code> at the top of its file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>: its
+users are seeded from their own <code class="docutils literal notranslate"><span class="pre">extra.md</span></code> alone.</p>
 <div class="important admonition">
 <p class="admonition-title"><code class="docutils literal notranslate"><span class="pre">base.md</span></code> is the only loose file</p>
 <p>Any other file directly in <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> is refused at build
@@ -918,7 +929,7 @@ operator who has left — and nothing in it would ever be read.</p>
 what keeps a build reproducible: clone the deployment repository anywhere, and
 the same project renders.</p>
 <p>That includes its name. The compose project, the volumes, the images and the
-tier and app renders are all named from the tracked <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> field, never
+login renders are all named from the tracked <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> field, never
 from the folder the clone sits in, so a clone under any folder name renders and
 deploys the same deployment. The flip side is that two clones on one host are
 the same deployment until one of them says otherwise. A second clone that runs
@@ -964,8 +975,8 @@ osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="
 slot of the repository’s profile — <code class="docutils literal notranslate"><span class="pre">rules/safety</span></code> lands at
 <code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/rules/safety.md</span></code>, <code class="docutils literal notranslate"><span class="pre">services/postgresql</span></code> at
 <code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/services/postgresql/</span></code>. A claimed skill, agent, rule, output style
-or hook is named by its path (<code class="docutils literal notranslate"><span class="pre">rules/safety</span></code>) wherever <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or an
-app listed its bare name. Edit it there, then rebuild:</p>
+or hook is named by its path (<code class="docutils literal notranslate"><span class="pre">rules/safety</span></code>) wherever <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or a
+login listed its bare name. Edit it there, then rebuild:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
 </pre></div>
 </div>
@@ -1048,11 +1059,11 @@ Never list it in <code class="docutils literal notranslate"><span class="pre">ho
 </div>
 <p>Guards are a floor. Every <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook in force on the deployment’s
 render — OSPREY’s (approval, <code class="docutils literal notranslate"><span class="pre">writes-check</span></code>, <code class="docutils literal notranslate"><span class="pre">limits</span></code>, <code class="docutils literal notranslate"><span class="pre">memory-guard</span></code>) or
-one <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> declares — reaches every tier and app render, inert where
-no tool it matches is present. A tier or app adds guards; it never drops one by
-leaving it out. A declaration on any other event reaches a tier with
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s config, and an app only when the app’s own <code class="docutils literal notranslate"><span class="pre">config:</span></code>
-declares it.</p>
+one <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> declares — reaches every login render, inert where no tool
+it matches is present. A login adds guards; it never drops one by leaving it
+out or by a <code class="docutils literal notranslate"><span class="pre">--set</span></code> edit. A declaration on any other event reaches a <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">add</span></code> login with
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s config, and a <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code> login only when its own
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> declares it.</p>
 <p>Declared wiring is <strong>added</strong> to the framework’s, never put in its place. Your
 declaration cannot remove, alter, or displace anything the generated settings
 already wire — the write-safety gate and the rest render unchanged. Every hook
@@ -1101,17 +1112,15 @@ the built-in was. This is the one <code class="docutils literal notranslate"><sp
 the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> selection, so a declaration naming one would invoke it
 twice. Select or unselect a built-in through <code class="docutils literal notranslate"><span class="pre">hooks:</span></code>; never through
 <code class="docutils literal notranslate"><span class="pre">claude_code.hooks</span></code>. A built-in guard the deployment selects reaches every
-tier and app all the same, in the spelling <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> gives it.</p>
+login all the same, in the spelling <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> gives it.</p>
 </section>
 </section>
-<section id="tiers-and-apps">
-<h2>Tiers and Apps<a class="headerlink" href="#tiers-and-apps" title="Link to this heading">#</a></h2>
-<p>Some presets give each operator their own web terminal. Each operator’s
-terminal runs the deployment’s agent at a <strong>tier</strong> — an access level such as
-read-only, write-capable or admin. Cards everyone on the roster can open run an
-<strong>app</strong> — a second, complete agent, such as the logbook research assistant.
-For those presets (<code class="docutils literal notranslate"><span class="pre">demo</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one file per
-tier and per app:</p>
+<section id="logins">
+<h2>Logins<a class="headerlink" href="#logins" title="Link to this heading">#</a></h2>
+<p>Some presets give each operator their own web terminal. Every card on the
+landing page opens a <strong>login</strong>: one file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, laid over
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and rendered as its own project. For those presets
+(<code class="docutils literal notranslate"><span class="pre">demo</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes six:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   profile.yml
   data/
@@ -1119,45 +1128,72 @@ tier and per app:</p>
     readonly.yml       # a read-only terminal
     readwrite.yml      # a write-capable terminal
     admin.yml          # the one terminal that may edit the deployment
-  apps/
-    logbook.yml        # logbook research
-    knowledge.yml      # facility knowledge
-    channel-finder.yml # channel search
+    logbook.yml        # logbook research, shared
+    knowledge.yml      # facility knowledge, shared
+    channel-finder.yml # channel search, shared
 </pre></div>
 </div>
-<p>A tier holds only its <strong>differences</strong> from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — for <code class="docutils literal notranslate"><span class="pre">readonly</span></code>,
-chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code>; for <code class="docutils literal notranslate"><span class="pre">admin</span></code>, the
-privileges the profile deliberately withholds. The build lays it over the
-profile: lists are added by name, <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys win. A tier never subtracts
-and never carries a deployment fact, so it has no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>, <code class="docutils literal notranslate"><span class="pre">exclude:</span></code>,
-<code class="docutils literal notranslate"><span class="pre">data:</span></code>, <code class="docutils literal notranslate"><span class="pre">machine:</span></code> or <code class="docutils literal notranslate"><span class="pre">services:</span></code>.</p>
-<p>An app is a whole agent definition — its own skills, rules, brief and tool
-servers — composed over the deployment’s services, data and provider. Every app
-render is read-only on the machine.</p>
-<p>An app runs the deployment’s model unless its file names its own with a
+<p>A login file says what its card’s agent is: <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">model</span></code>,
+<code class="docutils literal notranslate"><span class="pre">claude_md_template</span></code>, <code class="docutils literal notranslate"><span class="pre">default_panel</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code>, the
+<code class="docutils literal notranslate"><span class="pre">hooks</span></code>, <code class="docutils literal notranslate"><span class="pre">rules</span></code>, <code class="docutils literal notranslate"><span class="pre">skills</span></code>, <code class="docutils literal notranslate"><span class="pre">agents</span></code>, <code class="docutils literal notranslate"><span class="pre">output_styles</span></code>,
+<code class="docutils literal notranslate"><span class="pre">web_panels</span></code> and <code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code> lists, <code class="docutils literal notranslate"><span class="pre">panel_presets</span></code>, <code class="docutils literal notranslate"><span class="pre">config:</span></code>,
+the per-render keys <code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code>, <code class="docutils literal notranslate"><span class="pre">seed_base</span></code> and <code class="docutils literal notranslate"><span class="pre">image</span></code>, and the
+<code class="docutils literal notranslate"><span class="pre">provenance:</span></code> block <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes. A deployment fact — the
+connector, the provider, <code class="docutils literal notranslate"><span class="pre">port_base</span></code>, a service block, <code class="docutils literal notranslate"><span class="pre">data:</span></code>,
+<code class="docutils literal notranslate"><span class="pre">machine:</span></code>, <code class="docutils literal notranslate"><span class="pre">services:</span></code> — is refused on a login, naming <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as
+its home, and so are <code class="docutils literal notranslate"><span class="pre">extends:</span></code> and <code class="docutils literal notranslate"><span class="pre">exclude:</span></code>. A login never subtracts.</p>
+<p><code class="docutils literal notranslate"><span class="pre">lists:</span></code> says how the file’s lists meet the deployment’s:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">add</span></code> (the default) adds them by name, and its <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys win.
+<code class="docutils literal notranslate"><span class="pre">readonly</span></code> holds chiefly <code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code>; <code class="docutils literal notranslate"><span class="pre">admin</span></code> the
+privileges the profile deliberately withholds.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code> takes the lists, <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">default_panel</span></code>,
+<code class="docutils literal notranslate"><span class="pre">claude_md_template</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code> from the file alone;
+nothing the deployment selects is inherited. Its <code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code> are added
+to the deployment’s, but none of the deployment’s server switches reach it,
+so the file switches off each server it does without. The guards still reach
+it (see <a class="reference internal" href="#profile-custom-hooks"><span class="std std-ref">Custom hooks</span></a>). The bundled <code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>
+and <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> logins are written this way.</p></li>
+</ul>
+<p>A login’s write posture is its tier, <code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code>
+(<a class="reference internal" href="web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>). A login named by
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.shared</span></code> opens from a shared card everyone on the
+roster can use, and a shared card never writes: the build seals that render
+<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code>, closes every deployment-edit door and adds
+the <code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook, whatever its file says; no <code class="docutils literal notranslate"><span class="pre">--set</span></code> edit unseals
+it.</p>
+<p><code class="docutils literal notranslate"><span class="pre">apps:</span></code> picks the applications the deployment lists in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> that
+this login’s card shows: <code class="docutils literal notranslate"><span class="pre">apps:</span> <span class="pre">{&lt;name&gt;:</span> <span class="pre">{shown:</span> <span class="pre">true}}</span></code>. A listed
+application is shown under <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">add</span></code> and hidden under <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code>
+unless the entry says otherwise. Whether one is on is <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s to say,
+never a login’s. A shown application writes only where the login’s tier arms
+it — <code class="docutils literal notranslate"><span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code>, never <code class="docutils literal notranslate"><span class="pre">never</span></code> — and then only on a machine
+whose switch the operator has turned on; whether a write still asks for
+approval is decided per write at run time.</p>
+<p>A login runs the deployment’s model unless its file names its own with a
 top-level <code class="docutils literal notranslate"><span class="pre">model:</span></code>, such as a cheaper model for a research card:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># apps/logbook.yml</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># tiers/logbook.yml</span>
 <span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-5</span>
 </pre></div>
 </div>
-<p>The id must be one the deployment’s provider serves; the provider itself is
-always <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s. As for <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, an id the provider’s
-<code class="docutils literal notranslate"><span class="pre">models</span></code> list does not carry is used as written, and the build warns that the
-provider does not list it. A tier may set <code class="docutils literal notranslate"><span class="pre">model:</span></code> the same way. Neither
-spells <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">claude_code.default_model</span></code>; the build renders that key from
-<code class="docutils literal notranslate"><span class="pre">model:</span></code> and refuses it in the file that spells it.</p>
-<p>Both kinds may set <code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code>, <code class="docutils literal notranslate"><span class="pre">seed_base</span></code> and <code class="docutils literal notranslate"><span class="pre">image</span></code> at the top of
-the file. Edit a file to change what its terminals can do, and see the merged
-result with:</p>
+<p>The provider is always <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s: a login may name its own model, never
+its own provider. As for <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, an id the provider’s <code class="docutils literal notranslate"><span class="pre">models</span></code> list
+does not carry is used as written, and the build warns that the provider does
+not list it. A login never spells <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">claude_code.default_model</span></code>; the
+build renders that key from <code class="docutils literal notranslate"><span class="pre">model:</span></code> and refuses it in the file that spells
+it.</p>
+<p>Edit a file to change what its terminals can do, and see the merged result
+with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span>tiers/readonly.yml
 </pre></div>
 </div>
-<p>The file name is the name: <code class="docutils literal notranslate"><span class="pre">users[].tier</span></code> and <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> pick a file in
-<code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">shared:</span></code> picks one in <code class="docutils literal notranslate"><span class="pre">apps/</span></code>. Each renders to
-<code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;name&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> renders nothing: a tier or app
-missing from <code class="docutils literal notranslate"><span class="pre">build/</span></code> stops the start and points at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">tiers</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">apps</span></code> write the preset’s
-files again, leaving any you edited alone.</p>
+<p>The file name is the name: <code class="docutils literal notranslate"><span class="pre">users[].tier</span></code>, <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> and <code class="docutils literal notranslate"><span class="pre">shared:</span></code>
+each pick a file in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>. Each renders to
+<code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;name&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> renders nothing: a login missing
+from <code class="docutils literal notranslate"><span class="pre">build/</span></code> stops the start and points at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">tiers</span></code> writes the preset’s login files again, leaving any
+you edited alone. A repository that still keeps a login in <code class="docutils literal notranslate"><span class="pre">apps/</span></code> moves it
+with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> (<a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a>).</p>
 <section id="removing-something-a-profile-brings">
 <span id="profile-exclude"></span><h3>Removing something a profile brings<a class="headerlink" href="#removing-something-a-profile-brings" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">exclude:</span></code> subtracts entries, and the spelling decides what it removes:</p>
@@ -1188,8 +1224,8 @@ spelling and lists what to take out of it:</p>
 <p>This is how a profile deploys fewer services than the one it extends. Lists
 under <code class="docutils literal notranslate"><span class="pre">config:</span></code> union across <code class="docutils literal notranslate"><span class="pre">extends</span></code> and across a host-variant overlay,
 so an overlay cannot state a shorter list; it names the entries it drops instead.
-<code class="docutils literal notranslate"><span class="pre">exclude:</span></code> belongs to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and its variant overlays; a tier or app
-that spells it is refused.
+<code class="docutils literal notranslate"><span class="pre">exclude:</span></code> belongs to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and its variant overlays; a login that
+spells it is refused.
 A key the profile does not carry is a silent no-op; a key that holds anything
 other than a list is refused.</p>
 <p>An excluded <code class="docutils literal notranslate"><span class="pre">web_panels</span></code> entry renders no tab, whatever the render still
@@ -1200,7 +1236,7 @@ but <code class="docutils literal notranslate"><span class="pre">web_panels</spa
 <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;</span></code> block a render carries, <code class="docutils literal notranslate"><span class="pre">true</span></code> for a selected panel and
 <code class="docutils literal notranslate"><span class="pre">false</span></code> for any other, and the web terminal, the health probe and the
 credential grants all read that one flag. The facts stay so the Reach Contract
-can keep copying a host’s addresses into the tiers and apps that <em>do</em> select the tab.
+can keep copying a host’s addresses into the logins that <em>do</em> select the tab.
 A <code class="docutils literal notranslate"><span class="pre">config:</span></code> line that says <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.enabled</span></code> and contradicts the
 selection is refused at validation, as two spellings of one fact disagreeing.</p>
 <p>Excluding a <strong>declared hook</strong> takes one more line: the same delta has to unwire
@@ -1265,10 +1301,10 @@ uses:</p>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> merges that overlay over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> before it renders
-anything, and says which variant it used in its output. Tiers and apps are rendered
+anything, and says which variant it used in its output. Logins are rendered
 for the same host, so a stack cannot come up half-configured for another one: each
 sees the overlay through the <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> it merges over. An overlay that adds a
-<code class="docutils literal notranslate"><span class="pre">services:</span></code> entry therefore adds it to the deployment, and the tier and app renders
+<code class="docutils literal notranslate"><span class="pre">services:</span></code> entry therefore adds it to the deployment, and the login renders
 stay attached to it like any other service the deployment runs.</p>
 <p>The overlays are committed: which hosts a deployment has is part of what the
 deployment is. The choice between them is not — <code class="docutils literal notranslate"><span class="pre">.env.variant</span></code> is covered by
@@ -1461,10 +1497,12 @@ to <code class="docutils literal notranslate"><span class="pre">profile.yml</spa
 <td><p>Stream lifecycle step output in real time.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code></p></td>
-<td><p>Skip <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and <code class="docutils literal notranslate"><span class="pre">validate</span></code>.</p></td>
+<td><p>Skip <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and <code class="docutils literal notranslate"><span class="pre">validate</span></code>; deployment-package
+wheels are still built and installed.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code></p></td>
-<td><p>Skip venv creation and dependency installation (CI mode).</p></td>
+<td><p>Skip venv creation and dependency installation (CI mode); deployment-package
+wheels are still built, for the image.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code></p></td>
 <td><p>Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config, for a build whose
@@ -1722,7 +1760,7 @@ relax the constraint in the profile.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#replacing-a-built-in-hook">Replacing a built-in hook</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tiers-and-apps">Tiers and Apps</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#logins">Logins</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-something-a-profile-brings">Removing something a profile brings</a></li>
 </ul>
 </li>

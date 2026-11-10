@@ -397,6 +397,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/build-your-own-app.html">Build Your Own App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/orbit-bump.html">Example: Orbit Bump</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
@@ -1131,17 +1136,17 @@ deploy no services of their own — so they have to be told which port that
 store is published on. Per-user web terminal containers run with
 <code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so a container’s <code class="docutils literal notranslate"><span class="pre">localhost</span></code> <em>is</em> the deployment
 host, and the build copies the bolt port from the hosting deployment’s own
-render into each tier and app. The corpus is the one thing about the store a
+render into each login. The corpus is the one thing about the store a
 render is <em>not</em> told: <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names the graph view
 every render writes for itself, so each render keeps the key as its own and
 the build derives that render’s search index from it.</p>
 <p>Two consequences worth knowing before you move anything:</p>
 <ul class="simple">
 <li><p><strong>Move the port on the hosting deployment and every render follows.</strong> A
-tier or app built beside its deployment is told the store’s bolt port from the
+login built beside its deployment is told the store’s bolt port from the
 deployment’s own render — the same way it is told the qmd sidecar’s port,
 the Postgres the logbook lives in and the rest (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>) — so
-nothing in a tier or app file restates it, and one that restates it
+nothing in a login file restates it, and one that restates it
 with a different number is refused at build time.</p></li>
 <li><p>A <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> pinned to a specific non-loopback interface
 publishes the store there and not on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, so the renders would no

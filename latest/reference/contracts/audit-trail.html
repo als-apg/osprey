@@ -582,22 +582,27 @@ rather than on an actor</p></td>
 <td><p>Control-system writes a notebook cell was refused — a write posture, a
 limit, a target that moved while the cell ran</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">canopy</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">command_write</span></code></p></td>
+<td><p>Each command batch a guarded run fired under its lock, and each it was
+refused, with the commands in <code class="docutils literal notranslate"><span class="pre">detail</span></code> — see
+<a class="reference internal" href="guarded-run.html#reference-guarded-run"><span class="std std-ref">Guarded Run Contract</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">canopy</span></code></p></td>
 <td><p>Each CANOPY panel write and each panel write refused, under the person
 who clicked — see <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-panel-write"><span class="std std-ref">A panel write</span></a>. Its
 <code class="docutils literal notranslate"><span class="pre">detail</span></code> holds the value sent: see <a class="reference internal" href="#audit-trail-payloads"><span class="std std-ref">What the trail is not</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">preflight</span></code> (written as <code class="docutils literal notranslate"><span class="pre">queueserver</span></code> and as each lane’s
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">preflight</span></code> (written as <code class="docutils literal notranslate"><span class="pre">queueserver</span></code> and as each lane’s
 <code class="docutils literal notranslate"><span class="pre">&lt;lane&gt;-queueserver</span></code>)</p></td>
 <td><p>Whether a queued plan’s declared channels answered before it moved, per
 run: <code class="docutils literal notranslate"><span class="pre">allowed</span></code> (<code class="docutils literal notranslate"><span class="pre">all_responded</span></code> or <code class="docutils literal notranslate"><span class="pre">skipped</span></code>) or <code class="docutils literal notranslate"><span class="pre">refused</span></code>
 (<code class="docutils literal notranslate"><span class="pre">unresponsive</span></code>), with the lane, the target and the counts in
 <code class="docutils literal notranslate"><span class="pre">detail</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
 <td><p>Logins and login refusals, where a deployment has a login wall</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
 <td><p>Each watchdog’s verdict on a prompt, its failures, and the operator’s
 answer to a flag — see <a class="reference internal" href="watchdog.html#reference-watchdog"><span class="std std-ref">Watchdog Contract</span></a></p></td>
 </tr>

@@ -574,6 +574,9 @@ may move to it now. Read-only: it connects to nothing.</p></li>
 The target belongs to the deployment, so every session on it moves too (requires human
 approval).</p></li>
 </ul>
+<p>An application’s write tools take the same path: they enter the gate as their server’s
+<code class="docutils literal notranslate"><span class="pre">writes:</span></code> list, the switch’s position decides each call, and no per-tool approval policy exists
+for them. See <a class="reference internal" href="../how-to/apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>.</p>
 </section>
 </section>
 <section id="channel-finding">
@@ -896,9 +899,8 @@ does not run one, or an attached render whose host publishes no
 loopback, or <code class="docutils literal notranslate"><span class="pre">OPTIMIZER_URL</span></code> when that is set.</p>
 <p>The server holds no launch token and cannot start a run: a person starts
 every run. A tool that reads a machine (<code class="docutils literal notranslate"><span class="pre">environment_status</span></code>,
-<code class="docutils literal notranslate"><span class="pre">read_observables</span></code>, <code class="docutils literal notranslate"><span class="pre">initial_bounds</span></code>) asks about the session’s current
-control target unless it is given a <code class="docutils literal notranslate"><span class="pre">target</span></code>; the optimizer serves only the
-targets its profile lists (<code class="docutils literal notranslate"><span class="pre">va</span></code> and <code class="docutils literal notranslate"><span class="pre">standin</span></code> today), and refuses any other.</p>
+<code class="docutils literal notranslate"><span class="pre">read_observables</span></code>, <code class="docutils literal notranslate"><span class="pre">initial_bounds</span></code>) asks about the session’s control
+target, as every app does.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_environments</span></code> – List the optimization environments the service offers.</p></li>

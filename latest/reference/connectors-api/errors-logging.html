@@ -539,8 +539,16 @@ connector-host boundary alike. No supervisor recovers from a channel
 error: it is reported against its channel and nothing is restarted. It has
 no builtin base that another root shares, so no <code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">ConnectionError</span></code>
 or <code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">TimeoutError</span></code> reads it as a lost connector.</p>
+<p><code class="docutils literal notranslate"><span class="pre">commands_fired</span></code> is set in process by a batch command writer when the
+batch raised: the addresses, in order, that may have gone out. It is
+<code class="docutils literal notranslate"><span class="pre">None</span></code> when no batch writer set it, and it is not a wire field.</p>
 <dl class="field-list simple">
 </dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.ChannelError.commands_fired">
+<span class="sig-name descname"><span class="pre">commands_fired</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.errors.ChannelError.commands_fired" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.errors.ChannelError.__init__">
 <span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/errors.html#ChannelError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.errors.ChannelError.__init__" title="Link to this definition">#</a></dt>
@@ -1275,6 +1283,7 @@ or list of strings for multiple loggers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RAW_CLIENT_WRITE_MARKER"><code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE_MARKER</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.BuildProfileError"><code class="docutils literal notranslate"><span class="pre">BuildProfileError</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelError"><code class="docutils literal notranslate"><span class="pre">ChannelError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelError.commands_fired"><code class="docutils literal notranslate"><span class="pre">ChannelError.commands_fired</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.ChannelError.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelError.__init__()</span></code></a></li>
 </ul>
 </li>

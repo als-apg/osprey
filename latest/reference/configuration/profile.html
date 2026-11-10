@@ -747,6 +747,19 @@ Written into the rendered <code class="docutils literal notranslate"><span class
 <code class="docutils literal notranslate"><span class="pre">watchdogs/&lt;name&gt;/</span></code> beside the profile
 (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-watchdogs-block"><span class="std std-ref">The watchdogs: block</span></a>).</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">apps</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
+<td><p>The applications the deployment runs, by name; each one’s files live in
+<code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> beside the profile (see <a class="reference internal" href="../../how-to/apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>). In
+a login file, which of them the login’s card shows.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lists</span></code></p></td>
+<td><p>string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">add</span></code></p></td>
+<td><p>Login files only: <code class="docutils literal notranslate"><span class="pre">add</span></code> lays the login’s lists over the deployment’s,
+<code class="docutils literal notranslate"><span class="pre">own</span></code> takes them from the file alone (see <a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
@@ -1258,6 +1271,17 @@ A list beside the <code class="docutils literal notranslate"><span class="pre">w
 asks the server for its tool list, so a name it does not serve is not
 caught.</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">condition</span></code></p></td>
+<td><p>absent</p></td>
+<td><p>A render-context key that must be truthy for the server to render. A
+server an application projects with <code class="docutils literal notranslate"><span class="pre">shown_when:</span> <span class="pre">panel</span></code> carries
+<code class="docutils literal notranslate"><span class="pre">panel:&lt;panel</span> <span class="pre">id&gt;</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">app</span></code></p></td>
+<td><p>absent</p></td>
+<td><p>The application the server is projected for, by name (<code class="docutils literal notranslate"><span class="pre">[a-z0-9-]+</span></code>);
+absent for any other server.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -1686,9 +1710,9 @@ DSN).</p>
 where the host’s services are</strong>. Every client-facing fact — the sidecar’s port,
 the graph store’s bolt port, the Postgres the logbook lives in, the Bluesky
 bridge, the EVENTS and BLUESKY tab URLs — is copied
-from the hosting deployment’s own render into each tier and app built beside
+from the hosting deployment’s own render into each login built beside
 it, so a service moved on the hosting profile moves every render with it, and
-the bundled tier and app files pin none of them. A tier or app that spells one
+the bundled login files pin none of them. A login that spells one
 of these keys with a <em>different</em> value is refused — the two copies would dial
 different places, and the build names both. (A tier inherits the hosting
 profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys, so a port moved there is spelled in every tier as
@@ -2244,7 +2268,7 @@ what the stack looks like when it is up.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">optimizer:</span></code> section deploys the optimizer service, which tunes machine
 variables against an objective with Bayesian optimization (Xopt), and the Redis
 store that keeps its jobs. The block’s presence is the switch. It accepts
-exactly three keys; a misspelled or unknown key <strong>fails the build</strong> and prints
+exactly two keys; a misspelled or unknown key <strong>fails the build</strong> and prints
 the valid set:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -2261,14 +2285,7 @@ the valid set:</p>
 <td><p>The service’s port. Defaults to its slot in the port layout, <code class="docutils literal notranslate"><span class="pre">10082</span></code>
 at the default base (<a class="reference internal" href="../ports.html#reference-ports"><span class="std std-ref">Ports</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">targets</span></code></p></td>
-<td><p>The control targets the optimizer may drive (default <code class="docutils literal notranslate"><span class="pre">[va]</span></code>): <code class="docutils literal notranslate"><span class="pre">va</span></code>,
-<code class="docutils literal notranslate"><span class="pre">standin</span></code>, or both. A run naming any other target is refused. The
-<code class="docutils literal notranslate"><span class="pre">live</span></code> machine is <strong>refused at build time</strong> until the optimizer
-supports it. Each target also needs its connector block in the
-project’s <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> section.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">environments_dir</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">environments_dir</span></code></p></td>
 <td><p>A directory of optimizer environment files (YAML), mounted read-only
 into the service. Unset, only installed environment plugins are
 offered.</p></td>

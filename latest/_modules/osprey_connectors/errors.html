@@ -496,7 +496,13 @@
 <span class="sd">    error: it is reported against its channel and nothing is restarted. It has</span>
 <span class="sd">    no builtin base that another root shares, so no ``except ConnectionError``</span>
 <span class="sd">    or ``except TimeoutError`` reads it as a lost connector.</span>
+
+<span class="sd">    ``commands_fired`` is set in process by a batch command writer when the</span>
+<span class="sd">    batch raised: the addresses, in order, that may have gone out. It is</span>
+<span class="sd">    ``None`` when no batch writer set it, and it is not a wire field.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">commands_fired</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
 <div class="viewcode-block" id="ChannelError.__init__">
 <a class="viewcode-back" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelError.__init__">[docs]</a>

@@ -397,6 +397,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/build-your-own-app.html">Build Your Own App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/orbit-bump.html">Example: Orbit Bump</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
@@ -737,7 +742,7 @@ serve, before anything is built.</p>
 <h2>Sharing the knowledge bundle<a class="headerlink" href="#sharing-the-knowledge-bundle" title="Link to this heading">#</a></h2>
 <p>The OKF bundle is different from the other corpora: web terminals write to it.
 So the <em>deployment’s</em> bundle is bind-mounted <strong>read-write</strong> into every
-<code class="docutils literal notranslate"><span class="pre">web-&lt;user&gt;</span></code> service whose tier or app enables facility knowledge, at a target
+<code class="docutils literal notranslate"><span class="pre">web-&lt;user&gt;</span></code> service whose login enables facility knowledge, at a target
 computed from that render’s own project directory inside its container. There
 is one directory, not a copy per user — and it deliberately <strong>shadows the
 copy baked into each terminal image</strong>, because the bundle is operational

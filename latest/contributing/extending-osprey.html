@@ -719,8 +719,10 @@ transverse plane, else <code class="docutils literal notranslate"><span class="p
 <li><p><code class="docutils literal notranslate"><span class="pre">refresh</span></code> is <code class="docutils literal notranslate"><span class="pre">pass</span></code> for a value each write’s solve updates, or
 <code class="docutils literal notranslate"><span class="pre">periodic</span></code> for one only the periodic solve publishes.</p></li>
 </ul>
-<p>The build stamps the description into each wiring record of the simulator
-view, so no reader re-derives it from engine attributes.</p>
+<p>It may add <code class="docutils literal notranslate"><span class="pre">marks</span></code>, a list: <code class="docutils literal notranslate"><span class="pre">command</span></code> marks a write record whose write
+is a command. The words are the facility schema’s, and a word it does not
+state stops the build. The build writes the description onto each wiring
+record, so no reader re-derives it from engine attributes.</p>
 </li>
 <li><p><strong>Build.</strong> The composite calls the module’s
 <code class="docutils literal notranslate"><span class="pre">build(model,</span> <span class="pre">wiring,</span> <span class="pre">deck,</span> <span class="pre">settings,</span> <span class="pre">active=...)</span></code> once per served model.
@@ -745,7 +747,8 @@ rest of the namespace is still served.</p></li>
 the five functions above, and <code class="docutils literal notranslate"><span class="pre">isinstance(module,</span> <span class="pre">EnginePlugin)</span></code> checks a
 module states them. Its docstring lists the optional functions —
 <code class="docutils literal notranslate"><span class="pre">error_text</span></code>, <code class="docutils literal notranslate"><span class="pre">fault_variables</span></code>, <code class="docutils literal notranslate"><span class="pre">polynomial_kicks</span></code>,
-<code class="docutils literal notranslate"><span class="pre">response_matrix</span></code> — and what a model whose engine lacks each gets.</p></li>
+<code class="docutils literal notranslate"><span class="pre">response_matrix</span></code>, <code class="docutils literal notranslate"><span class="pre">scenario_stops</span></code> — and what a model whose engine
+lacks each gets.</p></li>
 </ul>
 <p>What the container keeps the same for every engine:</p>
 <ul class="simple">

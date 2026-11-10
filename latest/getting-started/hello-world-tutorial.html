@@ -510,7 +510,7 @@ deleting it is safe.</p></li>
 <p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. This one file is the manifest for the whole deployment,
 and the preset deliberately leaves most of it unset — because every key it
 leaves unset is emitted into your copy as a <strong>commented block</strong> you can turn on
-later. The hello-world preset’s minimalism yields exactly <strong>15</strong> such blocks,
+later. The hello-world preset’s minimalism yields exactly <strong>16</strong> such blocks,
 covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.</p>
@@ -529,7 +529,7 @@ write-safety chain), three rules, and one output style:</p>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limits</span><span class="w">         </span><span class="c1"># Enforce per-channel min/max limits, from data/facility/limits.yaml</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">build/.claude/hooks/</span></code> also holds four helper scripts. The hooks import
+<p><code class="docutils literal notranslate"><span class="pre">build/.claude/hooks/</span></code> also holds five helper scripts. The hooks import
 them; they are not hooks themselves.</p>
 <p>And all remaining configuration lives in the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, one dotted key
 per line:</p>
@@ -843,7 +843,7 @@ archive, sub-agents, and operator skills — on the same safety model.</p></li>
 <li><p><strong>How it works</strong>: <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">How OSPREY works</span></a> explains the MCP server
 architecture, the connector system, and the safety mechanisms in depth.</p></li>
 <li><p><strong>The profile format</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> documents every key
-those 15 commented blocks can hold.</p></li>
+those 16 commented blocks can hold.</p></li>
 <li><p><strong>CLI reference</strong>: <a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a> covers all <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
 commands.</p></li>
 </ul>

@@ -472,6 +472,8 @@ checks. All six end at the same connector and leave the same audit record. A dep
 enables the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server and sets <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code> has one more:
 <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> passes the checks and then the Phoebus product writes the value through its
 own connections, not through the connector — see <a class="reference internal" href="#architecture-safety-chain-phoebus-drive"><span class="std std-ref">A Phoebus drive</span></a>.</p>
+<p>A deployment that runs an application has one more, whose writes meet the same chain and
+connector — see <a class="reference internal" href="../how-to/apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>.</p>
 <p>A write also carries a name — whose write it is. A machine’s write switch is one login’s,
 so the name decides whose tier and whose switch a write is judged against. <a class="reference internal" href="#architecture-safety-chain-owner"><span class="std std-ref">Whose write is it</span></a>, at the foot of
 this page, says where the name comes from and what it does not cover.</p>
@@ -783,6 +785,12 @@ in every position and refused where nothing can ask, as in a dispatch run. The e
 checks it again before the code runs, read-only runs included.</p>
 </li>
 </ol>
+<p><strong>An application’s write tool</strong> is judged by the same chain: the login’s
+<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> ceiling (<code class="docutils literal notranslate"><span class="pre">never</span></code>, <code class="docutils literal notranslate"><span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code>), the owner’s per-machine
+switch position, then the approval record, whose approver is <code class="docutils literal notranslate"><span class="pre">human</span></code>, <code class="docutils literal notranslate"><span class="pre">dispatch_policy</span></code> or
+<code class="docutils literal notranslate"><span class="pre">write_switch</span></code>. The switch’s position decides whether a person is asked; the application’s
+declaration only describes and binds the call, and no per-tool approval policy exists for it. An
+application arms on a login whose tier is <code class="docutils literal notranslate"><span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code>. See <a class="reference internal" href="../how-to/apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>.</p>
 <p>Which machine the deployment points at, and the login’s switch position for it, come
 from the records the deployment keeps — one per login — read fresh on every call, so a
 flip reaches the agent’s next tool call. The tier is rendered at build time and takes a
@@ -805,7 +813,9 @@ with only a write gateway has the software layers alone, and the build says so.<
 names the same reason.</p>
 <p>Where a watchdog has flagged the session, the hook’s verdict (gate 2), the server (gate 3) and
 the connector (gate 4) each refuse the write with <code class="docutils literal notranslate"><span class="pre">session_held</span></code>, and so does a CANOPY
-panel’s connector for a click (<a class="reference internal" href="#architecture-safety-chain-panel-write"><span class="std std-ref">A panel write</span></a>). The approval prompt does
+panel’s connector for a click (<a class="reference internal" href="#architecture-safety-chain-panel-write"><span class="std std-ref">A panel write</span></a>). The terminal’s
+panel proxy refuses an application panel’s write, before it reaches the container: the
+agent’s, which names its session, and the operator’s. The approval prompt does
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 <a class="reference internal" href="#architecture-safety-watchdogs"><span class="std std-ref">Safety watchdogs</span></a>.</p>
 </section>
@@ -966,10 +976,10 @@ the checks above, including the approval prompt.</p>
 <li><p><strong>Only the prompt.</strong> A watchdog judges when a prompt arrives, not after each tool call or
 at the end of a turn. The decision engine sees only about the last 30,000 tokens of a
 session, and it does not treat what a tool returned as hostile.</p></li>
-<li><p><strong>Only the agent’s writes, and CANOPY’s.</strong> A write the operator makes from a notebook cell or
-the BLUESKY panel is not held. CANOPY is the one held operator surface: the agent opens and
-arranges its screens and drafts, so a held agent could stage a click. A CANOPY panel is held
-while any live session of its terminal is.</p></li>
+<li><p><strong>Only the agent’s writes, CANOPY’s and the applications’.</strong> A write the operator makes from
+a notebook cell or the BLUESKY panel is not held. CANOPY and the application panels are the
+held operator surfaces: the agent drives them too, so a held agent could stage a click. Such
+a panel is held while any live session of its terminal is.</p></li>
 <li><p><strong>Not motion already running.</strong> A plan the agent started keeps running; stop it with the
 existing tools.</p></li>
 <li><p><strong>Only the web terminal holds.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> or a bare <code class="docutils literal notranslate"><span class="pre">claude</span></code> in a built project

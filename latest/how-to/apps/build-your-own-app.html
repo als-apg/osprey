@@ -1,0 +1,1314 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Build Your Own App &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/apps/build-your-own-app';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/apps/build-your-own-app.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Example: Orbit Bump" href="orbit-bump.html" />
+    <link rel="prev" title="Build Your Own OSPREY Apps" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 10, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Build Your Own OSPREY Apps</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Build Your Own App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="orbit-bump.html">Example: Orbit Bump</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/slack.html">Slack</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../control-systems/machine-repository.html">Serve the Virtual Accelerator from a Machine Repository</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Build Your Own OSPREY Apps</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Build Your Own App</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="build-your-own-app">
+<span id="how-to-apps-build"></span><h1>Build Your Own App<a class="headerlink" href="#build-your-own-app" title="Link to this heading">#</a></h1>
+<p>This page takes an app from nothing to running on your deployment. It starts
+from the scaffold <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> writes — a working app whose panel shows
+one channel and whose agent tools read it and set it behind an approval — and
+then goes through each part you will change to make it your own. The example
+app is called <code class="docutils literal notranslate"><span class="pre">corrector-trim</span></code> and shows and sets one horizontal corrector’s
+current; use any name of lower-case letters, digits and dashes.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">The six commands from <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> to a panel in the sidebar</p></li>
+<li><p class="sd-card-text">What each file of the scaffold does and where your code goes</p></li>
+<li><p class="sd-card-text">How the manifest’s <code class="docutils literal notranslate"><span class="pre">approval</span></code> entry turns a tool into a write the
+operator approves</p></li>
+<li><p class="sd-card-text">Which logins show the app, and which may write with it</p></li>
+<li><p class="sd-card-text">How to give the agent a skill, and the same reach as the operator</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> a deployment repository made with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
+(<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>) that builds and starts; Node and npm on the
+machine where you run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code>, for the panel’s JavaScript
+checks and tests. Read <a class="reference internal" href="index.html"><span class="doc">Build Your Own OSPREY Apps</span></a> first for what the three parts are.</p>
+</div>
+</details><section id="make-it-run">
+<h2>Make it run<a class="headerlink" href="#make-it-run" title="Link to this heading">#</a></h2>
+<section id="make-it">
+<h3>1. Make it<a class="headerlink" href="#make-it" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>app<span class="w"> </span>new<span class="w"> </span>corrector-trim
+</pre></div>
+</div>
+<p>This copies the scaffold into <code class="docutils literal notranslate"><span class="pre">apps/corrector-trim/</span></code>, rewrites every name in
+it (<code class="docutils literal notranslate"><span class="pre">scaffold-app</span></code> to <code class="docutils literal notranslate"><span class="pre">corrector-trim</span></code>, the Python package to
+<code class="docutils literal notranslate"><span class="pre">corrector_trim</span></code>), and lists the app in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">apps</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">corrector-trim</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</pre></div>
+</div>
+<p>Listing an app is what turns it on; delete the entry to turn it off while the
+directory stays. The command also adds <code class="docutils literal notranslate"><span class="pre">/apps/*/panel/vendor/</span></code> to
+<code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>, for files a build fetches into a panel (<a class="reference internal" href="#manifest-keys">Manifest keys</a>,
+<code class="docutils literal notranslate"><span class="pre">vendor</span></code>).</p>
+</section>
+<section id="point-it-at-a-channel">
+<h3>2. Point it at a channel<a class="headerlink" href="#point-it-at-a-channel" title="Link to this heading">#</a></h3>
+<p>The scaffold names no channel of its own — which channel to show is the
+deployment’s choice. Until <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> gives it one, the panel says so and
+a write is refused. The <code class="docutils literal notranslate"><span class="pre">config:</span></code> block under the app’s entry is free-form;
+the build writes it to a file the backend reads at start:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">apps</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">corrector-trim</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:SP</span>
+</pre></div>
+</div>
+<p>In the example facility that is the current setpoint of horizontal corrector
+01, in amperes, with a range of ±10 A and a readback pair the connector
+compares it against. Any key you put there reaches your backend the same way, so a facility-specific
+setting — a device list, a tolerance, a model name — goes here rather than into
+the code.</p>
+</section>
+<section id="check-it">
+<h3>3. Check it<a class="headerlink" href="#check-it" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>app<span class="w"> </span>check
+</pre></div>
+</div>
+<p>This runs what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks of every listed app — the manifest,
+each login’s selection, ports, pinned versions — and then what only the app’s
+own source can tell: the import rule over its Python, ESLint over <code class="docutils literal notranslate"><span class="pre">panel/</span></code>
+and its JavaScript tests under <code class="docutils literal notranslate"><span class="pre">tests/</span></code>. It builds nothing and prints every
+violation with the app and the field it is in. The scaffold passes as copied.
+The first run installs a pinned JavaScript toolchain into your user cache,
+which needs <code class="docutils literal notranslate"><span class="pre">npm</span></code> and network access once.</p>
+</section>
+<section id="build-and-start">
+<h3>4. Build and start<a class="headerlink" href="#build-and-start" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> builds the app’s Python package into a wheel, renders its
+container, assigns its port, writes its config file and adds the panel and
+the tool server to every login that shows the app. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds the
+project image with the wheel installed and starts the container with the rest
+of the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> lists it beside the other services.</p>
+</section>
+<section id="open-it">
+<h3>5. Open it<a class="headerlink" href="#open-it" title="Link to this heading">#</a></h3>
+<p>Open a terminal and look at the sidebar: under <strong>Apps</strong> there is a
+<strong>Scaffold</strong> row — the label is <code class="docutils literal notranslate"><span class="pre">panel.label</span></code> in <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>, which
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> leaves for you to change to <em>Corrector trim</em>. Click it: the
+panel shows the channel’s name, its readback and the machine the readback came
+from — the one on your <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>. Switch the chip to another machine and the
+panel follows at its next refresh.</p>
+<p>Then ask the agent: <em>what is corrector HCM01 set to?</em> It calls
+<code class="docutils literal notranslate"><span class="pre">mcp__corrector-trim__read_channel</span></code> and answers from the same backend. Ask
+it to <em>set the corrector-trim channel to 0.5 A</em>:</p>
+<ul class="simple">
+<li><p>with the switch for that machine <em>off</em>, the call is refused and the agent
+says to arm the switch from the chip;</p></li>
+<li><p>at <em>asked</em>, an approval card appears in the chat: the app, the tool, the
+machine, and the line <em>Set SR:MAG:HCM:01:CURRENT:SP to 0.5, now 0.32</em> —
+the scaffold’s prompt, filled from the call and from the backend’s state.
+Approve it and the backend writes through the connector;</p></li>
+<li><p>at <em>allowed</em>, the write runs without a card.</p></li>
+</ul>
+<p>Try the same on a read-only login (<code class="docutils literal notranslate"><span class="pre">bob</span></code> in the <code class="docutils literal notranslate"><span class="pre">demo</span></code>
+preset): the panel shows the readback, and the agent’s write tool is denied.</p>
+</section>
+<section id="make-it-yours">
+<h3>6. Make it yours<a class="headerlink" href="#make-it-yours" title="Link to this heading">#</a></h3>
+<p>From here the app is ordinary code. The sections below go through the parts
+in the order you will touch them: the manifest, the backend, the tool server,
+the panel and its tests, then writes, logins and skills. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span>
+<span class="pre">check</span></code> as you go and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> to see a change in the
+terminal.</p>
+</section>
+</section>
+<section id="the-manifest">
+<h2>The manifest<a class="headerlink" href="#the-manifest" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">app.yml</span></code> is the one file OSPREY reads about your app. The scaffold’s, as
+copied:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># The starting point of a new application: one panel over one channel, one read tool,</span>
+<span class="c1"># one write tool. The channel is the deployment&#39;s: apps.scaffold-app.config.channel.</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scaffold-app</span>
+<span class="nt">summary</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Shows one channel of the control target and sets it on approval.</span>
+<span class="nt">containers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">scaffold-app</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">runtime</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">python</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">-m</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">scaffold_app.server</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">health</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/health</span>
+<span class="w">    </span><span class="nt">drives_target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">var/scaffold-app</span>
+<span class="nt">panel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Scaffold</span>
+<span class="w">  </span><span class="nt">container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scaffold-app</span>
+<span class="w">  </span><span class="nt">launch_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">agent_routes</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">GET</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">/api/state</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">POST</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">/api/write</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">roster_grant</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">single_user_alias</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span>
+<span class="nt">tools</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">module</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scaffold_app.tools</span>
+<span class="w">  </span><span class="nt">read</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read_channel</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">approval</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">tool</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">set_channel</span>
+<span class="w">      </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Set {{ state.channel }} to {{ input.value }}, now {{ state.readback }}.</span>
+<span class="w">      </span><span class="nt">state_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/api/state</span>
+<span class="w">      </span><span class="nt">bind</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">state_fields</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">field</span><span class="p">:</span><span class="w"> </span><span class="nv">approved_readback</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">readback</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">require</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">all_of</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">approved_target</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">approved_readback</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">errors</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">unreachable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The panel&#39;s backend is not answering; check its container with osprey health.</span>
+<span class="w">    </span><span class="nt">refused</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The value was not written. Read the channel again and ask for a new approval.</span>
+<span class="nt">skills</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">scaffold-app</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Three blocks, one per part:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">containers</span></code></dt><dd><p>The backend. <code class="docutils literal notranslate"><span class="pre">runtime:</span> <span class="pre">osprey</span></code> runs the app’s Python package on the
+deployment’s own image, where OSPREY and its dependencies are already
+installed; <code class="docutils literal notranslate"><span class="pre">command</span></code> is what it runs. <code class="docutils literal notranslate"><span class="pre">drives_target:</span> <span class="pre">true</span></code> gives the
+container the connection to the control system — without it the container
+cannot reach the machine. <code class="docutils literal notranslate"><span class="pre">health</span></code> is the route the terminal polls to
+light the sidebar row. <code class="docutils literal notranslate"><span class="pre">state</span></code> names a directory that survives restarts,
+for files the app keeps (orbit bump keeps its plans there).</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">panel</span></code></dt><dd><p>The sidebar entry: its <code class="docutils literal notranslate"><span class="pre">label</span></code>, the container that serves it, and
+<code class="docutils literal notranslate"><span class="pre">agent_routes</span></code>, the backend routes the agent’s tools may call. A route
+with <code class="docutils literal notranslate"><span class="pre">GET</span></code> reads; any other method is a write route, and the terminal
+hands write routes to the agent only on a login that arms the app.
+<code class="docutils literal notranslate"><span class="pre">launch_token:</span> <span class="pre">true</span></code> makes the write route demand a token the terminal
+adds on an armed login only, so nothing else inside the stack can call it.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">tools</span></code></dt><dd><p>The tool server: the Python module to run beside the agent, the tools that
+only read, and the tools that write under <code class="docutils literal notranslate"><span class="pre">approval</span></code>. <code class="docutils literal notranslate"><span class="pre">errors</span></code> are the
+two sentences the agent sees when the backend does not answer or refuses.</p>
+</dd>
+</dl>
+<p>Every key is listed under <a class="reference internal" href="#manifest-keys">Manifest keys</a>. Unknown keys are refused, and a
+key that belongs to the container’s compose file (<code class="docutils literal notranslate"><span class="pre">volumes</span></code>, <code class="docutils literal notranslate"><span class="pre">ports</span></code>,
+<code class="docutils literal notranslate"><span class="pre">depends_on</span></code>) is refused with the place it lives instead.</p>
+</section>
+<section id="the-backend">
+<h2>The backend<a class="headerlink" href="#the-backend" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">corrector_trim/server.py</span></code> is a FastAPI service. Four routes matter:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/</span></code> serves <code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code>; the panel’s other files are served
+from <code class="docutils literal notranslate"><span class="pre">static/</span></code> by <code class="docutils literal notranslate"><span class="pre">configure_app</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/health</span></code> answers the terminal’s poll;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/state</span></code> is what the panel and the read tool show: the channel,
+the readback and the machine it came from;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/write</span></code> performs the write.</p></li>
+</ul>
+<p>Two things the backend does on every request are worth seeing in the source,
+because your own routes will do the same:</p>
+<p><strong>It answers for the login that asked.</strong> The terminal passes the login’s name
+to the backend; <code class="docutils literal notranslate"><span class="pre">owner_from_header</span></code> reads it and <code class="docutils literal notranslate"><span class="pre">owner_target</span></code> turns it
+into that login’s control target, the machine its chip points at. The backend
+never chooses a machine itself, and the same route answers two operators from
+two machines when their chips differ.</p>
+<p><strong>It writes through the connector, under that login.</strong> <code class="docutils literal notranslate"><span class="pre">build_connector</span></code>
+asks OSPREY for a connector to the target; <code class="docutils literal notranslate"><span class="pre">bind_owner</span></code> names whose write it
+is; <code class="docutils literal notranslate"><span class="pre">write_channel_checked</span></code> is the write. The connector asks the write
+verdict (tier, switch, session), applies the limits and records the write —
+your code does none of that. A refusal arrives as <code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code>
+and the backend passes its sentence on.</p>
+<p>The scaffold adds one check of its own, and it is the pattern for every
+write you add: the write request carries the readback the operator saw on the
+card (<code class="docutils literal notranslate"><span class="pre">readback</span></code>), and the backend re-reads the channel and refuses when the
+value has moved. The approval was for a write <em>over</em> a known state; a state
+that changed since is a new decision.</p>
+<p>Reading the machine is <code class="docutils literal notranslate"><span class="pre">read_channel</span></code> on the connector. For more than one
+channel, <code class="docutils literal notranslate"><span class="pre">read_multiple_channels</span></code>. The facility description — which elements
+exist, their channels, a model’s BPMs and correctors — comes from the SDK
+(<code class="docutils literal notranslate"><span class="pre">facility_file</span></code>, <code class="docutils literal notranslate"><span class="pre">read_facts</span></code>, <code class="docutils literal notranslate"><span class="pre">model_members</span></code>,
+<code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code>), so the app carries no facility knowledge of its
+own and moves to another facility with the deployment.</p>
+</section>
+<section id="the-tool-server">
+<h2>The tool server<a class="headerlink" href="#the-tool-server" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">corrector_trim/tools.py</span></code> runs beside the agent as an MCP server. <code class="docutils literal notranslate"><span class="pre">register</span></code>
+adds one function per tool; the function’s docstring is the tool description
+the agent reads, so write it for the agent: what the tool does, what each
+argument means, what it answers.</p>
+<p>A tool does not import the backend. It calls the backend’s routes through the
+terminal (<code class="docutils literal notranslate"><span class="pre">_panel_call</span></code>), at <code class="docutils literal notranslate"><span class="pre">/panel/&lt;app&gt;/&lt;route&gt;</span></code>, with the headers
+<code class="docutils literal notranslate"><span class="pre">agent_panel_headers</span></code> provides — so the call carries the login’s name and
+reaches only the routes <code class="docutils literal notranslate"><span class="pre">agent_routes</span></code> declares. The terminal is the one door
+to the backend for the panel and the agent alike.</p>
+<p>A write tool starts with <code class="docutils literal notranslate"><span class="pre">check_approved_call</span></code>. It runs the write chain for
+this one call on the tool’s side — is the tool offered on this login, does the
+write verdict allow it, is there an approval record for exactly these
+arguments, is the approved machine still the session’s — and returns the state
+values the approval bound (<code class="docutils literal notranslate"><span class="pre">approved_readback</span></code> for the scaffold). The tool
+sends those to the backend, never what the agent typed. The <code class="docutils literal notranslate"><span class="pre">approved_*</span></code>
+arguments in the tool’s signature exist for the approval hook to fill in; the
+agent leaves them unset, and a value it sends is replaced.</p>
+<p><code class="docutils literal notranslate"><span class="pre">make_error</span></code> and <code class="docutils literal notranslate"><span class="pre">ApprovalRefused</span></code> are how a tool reports: an unreachable
+backend becomes the manifest’s <code class="docutils literal notranslate"><span class="pre">errors.unreachable</span></code> sentence, a refusal the
+<code class="docutils literal notranslate"><span class="pre">errors.refused</span></code> one, each with the detail appended.</p>
+</section>
+<section id="the-panel">
+<h2>The panel<a class="headerlink" href="#the-panel" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code> is a plain page. It loads the terminal’s
+<code class="docutils literal notranslate"><span class="pre">/design-system/</span></code> <code class="docutils literal notranslate"><span class="pre">tokens.css</span></code>, <code class="docutils literal notranslate"><span class="pre">base.css</span></code> and <code class="docutils literal notranslate"><span class="pre">primitives.css</span></code> first,
+so it follows the theme, and then its own <code class="docutils literal notranslate"><span class="pre">static/panel.css</span></code>. Buttons,
+toggles, chips and cards use the <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> classes from <code class="docutils literal notranslate"><span class="pre">primitives.css</span></code>;
+<code class="docutils literal notranslate"><span class="pre">panel.css</span></code> holds only what is the app’s own. <code class="docutils literal notranslate"><span class="pre">panel/panel.js</span></code> fetches
+<code class="docutils literal notranslate"><span class="pre">api/state</span></code> every two seconds and writes the fields into the page. Addresses are relative
+(<code class="docutils literal notranslate"><span class="pre">api/state</span></code>, not <code class="docutils literal notranslate"><span class="pre">/api/state</span></code>) because the page is served under the
+terminal’s <code class="docutils literal notranslate"><span class="pre">/panel/&lt;id&gt;/</span></code> prefix.</p>
+<p>The scaffold’s panel only shows; the write is the agent’s tool. A panel that
+writes — orbit bump’s <em>Apply…</em> — posts to a write route the same way the tool
+does, and the terminal refuses the request on a login that does not arm the
+app, before it reaches the backend. Show that state rather than hiding the
+control: orbit bump reads the backend’s posture and says <em>Writes are off</em>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">tests/panel.test.js</span></code> is a Vitest test of the page’s functions in a DOM;
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> runs it. A JavaScript library the panel needs is not
+committed: list it under <code class="docutils literal notranslate"><span class="pre">vendor</span></code> with its exact version and SHA-256, and the
+build fetches it to the path you name — <code class="docutils literal notranslate"><span class="pre">panel/vendor/…</span></code>, which
+<code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> already covers.</p>
+</section>
+<section id="writes-and-approvals">
+<span id="how-to-apps-writes"></span><h2>Writes and approvals<a class="headerlink" href="#writes-and-approvals" title="Link to this heading">#</a></h2>
+<p>A tool under <code class="docutils literal notranslate"><span class="pre">tools.approval</span></code> is a write tool. The build lists it in the
+tool server’s <code class="docutils literal notranslate"><span class="pre">writes:</span></code>, so every call is judged as a write, in this order:</p>
+<ol class="arabic">
+<li><p><strong>The tier</strong> — the login’s <code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code>. <code class="docutils literal notranslate"><span class="pre">never</span></code> denies the
+tool outright; <code class="docutils literal notranslate"><span class="pre">asked</span></code> and <code class="docutils literal notranslate"><span class="pre">allowed</span></code> arm the app on that login
+(<a class="reference internal" href="../web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>).</p></li>
+<li><p><strong>The write switch</strong> — the operator’s position for the session’s machine,
+set from the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>.
+<em>Off</em> refuses; <em>asked</em> shows the approval card and waits for a person;
+<em>allowed</em> runs without asking.</p></li>
+<li><p><strong>The approval entry</strong> — what the card shows and what the call is held to:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">prompt</span></code></dt><dd><p>The card’s text. <code class="docutils literal notranslate"><span class="pre">{{</span> <span class="pre">input.&lt;arg&gt;</span> <span class="pre">}}</span></code> is a call argument;
+<code class="docutils literal notranslate"><span class="pre">{{</span> <span class="pre">state.&lt;key&gt;</span> <span class="pre">}}</span></code> a value of the backend’s state, fetched from
+<code class="docutils literal notranslate"><span class="pre">state_path</span></code> when the card is built. The card also always carries the
+app, the tool, the machine and the switch position.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">state_path</span></code></dt><dd><p>The backend route whose answer is <code class="docutils literal notranslate"><span class="pre">state</span></code>. Orbit bump uses a route
+made for the card, <code class="docutils literal notranslate"><span class="pre">/api/approval</span></code>, which answers only while a plan is
+ready to apply.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">display_lines_key</span></code></dt><dd><p>A key of that state holding lines to show under the prompt — one per
+corrector for orbit bump — so the operator sees every setpoint the write
+will make.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">bind.state_fields</span></code></dt><dd><p>Values of the state copied into the call as <code class="docutils literal notranslate"><span class="pre">approved_*</span></code> fields: the
+readback the person saw, the plan id, a digest of the setpoints. The
+tool sends these to the backend, and the backend refuses when they no
+longer match what it holds.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">bind.input_digests</span></code></dt><dd><p>A digest over named call arguments, so the arguments the agent sends
+after approval must be the ones that were approved.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">require</span></code></dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">approved_*</span></code> fields a call must carry (<code class="docutils literal notranslate"><span class="pre">all_of</span></code>, or exactly one
+of each <code class="docutils literal notranslate"><span class="pre">one_of</span></code> group). A <code class="docutils literal notranslate"><span class="pre">one_of</span></code> group holds readback
+(<code class="docutils literal notranslate"><span class="pre">bind.state_fields</span></code>) names only, never a digest. A call that cannot
+be bound is refused, not asked.</p>
+</dd>
+</dl>
+</li>
+<li><p><strong>The connector</strong> judges the write once more and records it.</p></li>
+</ol>
+<p>Under <em>allowed</em> the same binding happens with no person asked: the card’s
+content is stamped by the switch, and the tool and backend check it the same
+way. The approver on the record is <code class="docutils literal notranslate"><span class="pre">human</span></code>, <code class="docutils literal notranslate"><span class="pre">write_switch</span></code> or
+<code class="docutils literal notranslate"><span class="pre">dispatch_policy</span></code>.</p>
+<p>The approval hook reads the entry from the render and never runs app code;
+the tool server re-checks with <code class="docutils literal notranslate"><span class="pre">check_approved_call</span></code>; the backend checks the
+bound values against its state. Three checks, one declaration.</p>
+<p><strong>Dispatch jobs.</strong> An agent run the event dispatcher starts has nobody to show
+a card to. A write tool that binds the backend’s state never runs in such a
+job, and <code class="docutils literal notranslate"><span class="pre">deny_in_jobs:</span> <span class="pre">true</span></code> under <code class="docutils literal notranslate"><span class="pre">tools</span></code> keeps a job from running any of
+the app’s tools. Orbit bump sets it: a bump is an operator’s decision.</p>
+</section>
+<section id="logins">
+<h2>Logins<a class="headerlink" href="#logins" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> says which apps the deployment runs. Each login’s file under
+<code class="docutils literal notranslate"><span class="pre">tiers/</span></code> says which of them its card shows, and its tier says whether it may
+write with them:</p>
+<ul class="simple">
+<li><p>a login shows every listed app unless its file says otherwise; under
+<code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code> it shows none it does not name (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>);</p></li>
+<li><p>a login <strong>arms</strong> an app when it shows it and its tier is <code class="docutils literal notranslate"><span class="pre">asked</span></code> or
+<code class="docutils literal notranslate"><span class="pre">allowed</span></code>. On an armed login the agent gets the write routes and the
+panel’s launch token; on any other login the agent gets the read routes
+only and the terminal refuses the panel’s write requests;</p></li>
+<li><p>a <strong>shared</strong> login (<code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>, <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> in the
+preset) arms nothing, whatever its file says.</p></li>
+</ul>
+<p>Hide an app from one login in that login’s file:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># tiers/readonly.yml</span>
+<span class="nt">apps</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">corrector-trim</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">shown</span><span class="p">:</span><span class="w"> </span><span class="nv">false</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+</section>
+<section id="skills-and-agent-parity">
+<span id="how-to-apps-skills"></span><h2>Skills and agent parity<a class="headerlink" href="#skills-and-agent-parity" title="Link to this heading">#</a></h2>
+<p>A skill is a <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code> the agent reads to know when and how to use a set of
+tools. An app carries its own: list the name under <code class="docutils literal notranslate"><span class="pre">skills:</span></code> in <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>
+and write <code class="docutils literal notranslate"><span class="pre">skills/&lt;name&gt;/SKILL.md</span></code> in the app’s directory. The scaffold
+ships one, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> renames with the app. The build installs
+it into every login that shows the app, so the agent that has the tools also
+has the instructions. A listed skill without its file, or a skill name two
+apps share, fails the build.</p>
+<p><strong>The parity rule.</strong> Everything the operator sees in the panel, the agent can
+read through a tool; everything the operator can press, the agent can do
+through a tool or an argument. The panel and the tool server are two front
+ends to one backend, so parity needs no second implementation: each panel
+element maps to a backend route, and each route the panel uses has a tool.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 680 300" role="img" aria-labelledby="parity-title parity-desc">
+  <title id="parity-title">Agent parity: the panel and the tool server are two front ends to the same backend routes</title>
+  <desc id="parity-desc">The operator sees the panel and presses its controls. The agent reads the app's skill and calls its tools. What the panel shows, a read tool answers from the same state route. A control that changes no channel, such as compute, clear or recompute, is a tool or an argument on the same route, classified read. The control that writes a channel is the write tool on the same write route, behind the approval. A parity table lists every panel element with its tool and route.</desc>
+  <defs>
+    <marker id="parity-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
+    </marker>
+  </defs>
+
+  <!-- the two users -->
+  <rect class="mask" x="10" y="20" width="120" height="48" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="10" y="20" width="120" height="48" rx="6"/>
+  <text class="tn" x="70" y="40" text-anchor="middle">Operator</text>
+  <text class="ts" x="70" y="56" text-anchor="middle">sees · presses</text>
+
+  <rect class="mask" x="550" y="20" width="120" height="48" rx="6"/>
+  <rect class="nb-in" x="550" y="20" width="120" height="48" rx="6"/>
+  <text class="tn" x="610" y="40" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="610" y="56" text-anchor="middle">reads the skill</text>
+
+  <!-- the two front ends -->
+  <rect class="zone" x="10" y="88" width="200" height="190" rx="6"/>
+  <text class="te" x="24" y="106">PANEL</text>
+  <rect class="zone" x="470" y="88" width="200" height="190" rx="6"/>
+  <text class="te" x="484" y="106">TOOL SERVER</text>
+
+  <line class="e" x1="70" y1="68" x2="70" y2="84" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="610" y1="68" x2="610" y2="84" marker-end="url(#parity-arr)"/>
+
+  <!-- row 1: what is shown -->
+  <rect class="mask" x="24" y="118" width="172" height="40" rx="6"/>
+  <rect class="nb" x="24" y="118" width="172" height="40" rx="6"/>
+  <text class="tn" x="110" y="135" text-anchor="middle">what it shows</text>
+  <text class="ts" x="110" y="150" text-anchor="middle">values · statuses · why held</text>
+
+  <rect class="mask" x="484" y="118" width="172" height="40" rx="6"/>
+  <rect class="nb" x="484" y="118" width="172" height="40" rx="6"/>
+  <text class="tn" x="570" y="135" text-anchor="middle">read tool</text>
+  <text class="ts" x="570" y="150" text-anchor="middle">tools.read</text>
+
+  <!-- row 2: controls that write no channel -->
+  <rect class="mask" x="24" y="172" width="172" height="40" rx="6"/>
+  <rect class="nb" x="24" y="172" width="172" height="40" rx="6"/>
+  <text class="tn" x="110" y="189" text-anchor="middle">controls</text>
+  <text class="ts" x="110" y="204" text-anchor="middle">compute · clear · recompute</text>
+
+  <rect class="mask" x="484" y="172" width="172" height="40" rx="6"/>
+  <rect class="nb" x="484" y="172" width="172" height="40" rx="6"/>
+  <text class="tn" x="570" y="189" text-anchor="middle">tools and arguments</text>
+  <text class="ts" x="570" y="204" text-anchor="middle">tools.read</text>
+
+  <!-- row 3: the write -->
+  <rect class="mask" x="24" y="226" width="172" height="40" rx="6"/>
+  <rect class="nb-foc" x="24" y="226" width="172" height="40" rx="6"/>
+  <text class="tn" x="110" y="243" text-anchor="middle">the write control</text>
+  <text class="ts" x="110" y="258" text-anchor="middle">confirmed by the operator</text>
+
+  <rect class="mask" x="484" y="226" width="172" height="40" rx="6"/>
+  <rect class="nb-foc" x="484" y="226" width="172" height="40" rx="6"/>
+  <text class="tn" x="570" y="243" text-anchor="middle">write tool</text>
+  <text class="ts" x="570" y="258" text-anchor="middle">tools.approval</text>
+
+  <!-- the shared routes -->
+  <text class="te" x="340" y="106" text-anchor="middle">SAME BACKEND ROUTE</text>
+  <rect class="mask" x="262" y="118" width="156" height="40" rx="6"/>
+  <rect class="nb-ext" x="262" y="118" width="156" height="40" rx="6"/>
+  <text class="tn" x="340" y="143" text-anchor="middle">GET state</text>
+  <rect class="mask" x="262" y="172" width="156" height="40" rx="6"/>
+  <rect class="nb-ext" x="262" y="172" width="156" height="40" rx="6"/>
+  <text class="tn" x="340" y="189" text-anchor="middle">POST, no channel</text>
+  <text class="ts" x="340" y="204" text-anchor="middle">armed login only</text>
+  <rect class="mask" x="262" y="226" width="156" height="40" rx="6"/>
+  <rect class="nb-ext" x="262" y="226" width="156" height="40" rx="6"/>
+  <text class="tn" x="340" y="243" text-anchor="middle">POST write</text>
+  <text class="ts" x="340" y="258" text-anchor="middle">behind the approval</text>
+
+  <line class="e" x1="196" y1="138" x2="258" y2="138" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="484" y1="138" x2="422" y2="138" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="196" y1="192" x2="258" y2="192" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="484" y1="192" x2="422" y2="192" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="196" y1="246" x2="258" y2="246" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="484" y1="246" x2="422" y2="246" marker-end="url(#parity-arr)"/>
+
+  <text class="ts" x="340" y="290" text-anchor="middle">one row per panel element: the parity table</text>
+</svg>
+</div>
+<p>Design the skill from a parity table, one row per panel element:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 30.0%" />
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Panel element</p></th>
+<th class="head"><p>Tool or argument</p></th>
+<th class="head"><p>Route</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">tools</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>a value it shows</p></td>
+<td><p>the read tool, and the field it answers</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">GET</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">read</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>a control that writes no channel</p></td>
+<td><p>a tool, or an argument of one</p></td>
+<td><p>any</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">read</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>a control that writes a channel</p></td>
+<td><p>the write tool</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">POST</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">approval</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Then:</p>
+<ol class="arabic simple">
+<li><p><strong>One read tool answers the whole screen</strong>, in the panel’s terms: the
+values per element, the statuses, and why a control is disabled, in the
+sentence the panel shows. The agent then answers <em>what does the panel
+say</em> and <em>why can’t I apply</em> without guessing.</p></li>
+<li><p><strong>Every control is a tool or an argument.</strong> Toggles and menus become
+arguments (orbit bump’s <em>Other BPMs</em> is <code class="docutils literal notranslate"><span class="pre">plan_bump</span></code>’s <code class="docutils literal notranslate"><span class="pre">others</span></code>);
+buttons become tools. A gesture that only edits input — drag,
+nudge — needs no tool when the agent can pass the resulting values. A
+convenience the operator relies on is an argument, so the agent builds the
+same input the same way (orbit bump’s amplitude and shape).</p></li>
+<li><p><strong>Publish the operator’s input.</strong> What the operator has set but not yet
+sent is on screen too. The panel posts it to a route that writes no
+channel, and the read tool returns it, so the agent never has to ask what
+the operator is looking at. The route is the operator’s: leave it out of
+<code class="docutils literal notranslate"><span class="pre">agent_routes</span></code>.</p></li>
+<li><p><strong>Classify by what is written, not by the method.</strong> A route that writes
+no channel — compute a plan, drop it, rebuild a model — backs a <code class="docutils literal notranslate"><span class="pre">read</span></code>
+tool even when its method is <code class="docutils literal notranslate"><span class="pre">POST</span></code>; the terminal still hands <code class="docutils literal notranslate"><span class="pre">POST</span></code>
+routes to the agent only on a login that arms the app. A route that
+writes a channel backs an <code class="docutils literal notranslate"><span class="pre">approval</span></code> tool, bound to what the operator
+saw (<a class="reference internal" href="#writes-and-approvals">Writes and approvals</a>).</p></li>
+<li><p><strong>Write the skill from the table</strong>: which tool for which request, the
+arguments in the facility’s terms, how to read each status, what each
+refusal means, and the order — look, plan, show, then ask to write. Name
+each tool’s panel equivalent, so the agent can tell the operator where to
+look. Say what the agent does not get (view settings such as zoom) and
+why.</p></li>
+</ol>
+<p>Orbit bump’s skill is the worked example (<a class="reference internal" href="orbit-bump.html#how-to-orbit-bump-agent"><span class="std std-ref">From the agent</span></a>);
+<a class="reference internal" href="../../contributing/agent-skills.html"><span class="doc">Agent Skills</span></a> gives the format.</p>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> is the app’s package. The scaffold lists no dependencies:
+FastAPI, uvicorn, httpx and the connectors are already in the image. Add what
+your app needs under <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> — orbit bump adds <code class="docutils literal notranslate"><span class="pre">numpy</span></code> — and the
+build installs it with the wheel. A package that would change a version the
+framework pins is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code>.</p>
+<p>The panel’s files and the skill are included in the wheel by the
+<code class="docutils literal notranslate"><span class="pre">force-include</span></code> block, so the installed package carries them; leave that
+block as it is.</p>
+</section>
+<section id="manifest-keys">
+<h2>Manifest keys<a class="headerlink" href="#manifest-keys" title="Link to this heading">#</a></h2>
+<p>Every level refuses unknown keys. Defaults in brackets.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 66.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>The app’s name, <code class="docutils literal notranslate"><span class="pre">[a-z0-9-]+</span></code>; also its directory, its panel id and
+its tool server’s name.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">summary</span></code></p></td>
+<td><p>One sentence about the app.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;</span></code></p></td>
+<td><p>One container; the key is its service name. Exactly one of
+<code class="docutils literal notranslate"><span class="pre">runtime:</span> <span class="pre">osprey</span></code> (the app’s package on the project image) or
+<code class="docutils literal notranslate"><span class="pre">image:</span></code> (any image, with its compose fragment under
+<code class="docutils literal notranslate"><span class="pre">compose/&lt;key&gt;/</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.command</span></code></p></td>
+<td><p>What a <code class="docutils literal notranslate"><span class="pre">runtime:</span> <span class="pre">osprey</span></code> container runs.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.health</span></code></p></td>
+<td><p>The health route, polled by the terminal.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.drives_target</span></code> [false]</p></td>
+<td><p>The container reaches the control system.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.control_identity</span></code> [false]</p></td>
+<td><p>The container’s process identity names the person behind the write
+to the control system (the Channel Access user), instead of the
+shared <code class="docutils literal notranslate"><span class="pre">osprey</span></code> account.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.state</span></code></p></td>
+<td><p>A directory kept across restarts, relative to the deployment’s state
+zone.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.env</span></code></p></td>
+<td><p>Host environment variable names passed into the container.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.port</span></code></p></td>
+<td><p>A fixed port; otherwise the build assigns one.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.label</span></code></p></td>
+<td><p>The sidebar row’s text.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.container</span></code></p></td>
+<td><p>The container that serves the panel.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.entry</span></code> [<code class="docutils literal notranslate"><span class="pre">/</span></code>]</p></td>
+<td><p>The route the panel opens at.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.launch_token</span></code> [false]</p></td>
+<td><p>The write routes demand a token the terminal adds on an armed login.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.read_timeout_s</span></code></p></td>
+<td><p>Seconds a proxied request may take; for a route that performs a long
+action (orbit bump’s apply, 90).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.agent_routes</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[METHOD,</span> <span class="pre">/path]</span></code> pairs the agent’s tools may call; <code class="docutils literal notranslate"><span class="pre">GET</span></code>,
+<code class="docutils literal notranslate"><span class="pre">HEAD</span></code> and <code class="docutils literal notranslate"><span class="pre">OPTIONS</span></code> read, every other method writes.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant.single_user_alias</span></code> [false]</p></td>
+<td><p>The panel works for the alias login of a single-user deployment,
+which has no roster.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.module</span></code></p></td>
+<td><p>The Python module run as the tool server.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.read</span></code></p></td>
+<td><p>Tools that only read.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.approval</span></code></p></td>
+<td><p>Write tools, each with its approval entry (<a class="reference internal" href="#writes-and-approvals">Writes and approvals</a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.deny_in_jobs</span></code> [false]</p></td>
+<td><p>No dispatch job runs any of the app’s tools.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.shown_when</span></code> [<code class="docutils literal notranslate"><span class="pre">always</span></code>]</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">panel</span></code>: the tool server is present only where the login shows the
+panel.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.errors.unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">tools.errors.refused</span></code></p></td>
+<td><p>The sentences the agent sees for a backend that does not answer, and
+for a refused call.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
+<td><p>Files fetched into the app at build: <code class="docutils literal notranslate"><span class="pre">{url,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> or
+<code class="docutils literal notranslate"><span class="pre">{package,</span> <span class="pre">version,</span> <span class="pre">file,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> (an npm package through
+the CDN).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
+<td><p>The skills the app carries, each <code class="docutils literal notranslate"><span class="pre">skills/&lt;name&gt;/SKILL.md</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The command reference is <a class="reference internal" href="../../reference/cli.html#cli-osprey-app"><span class="std std-ref">osprey app</span></a>; the SDK’s names
+are listed in <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk</span></code>.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Build Your Own OSPREY Apps</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="orbit-bump.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Example: Orbit Bump</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#make-it-run">Make it run</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#make-it">1. Make it</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#point-it-at-a-channel">2. Point it at a channel</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#check-it">3. Check it</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#build-and-start">4. Build and start</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#open-it">5. Open it</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#make-it-yours">6. Make it yours</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-manifest">The manifest</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-backend">The backend</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-tool-server">The tool server</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-panel">The panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#writes-and-approvals">Writes and approvals</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#logins">Logins</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skills-and-agent-parity">Skills and agent parity</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependencies">Dependencies</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#manifest-keys">Manifest keys</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/apps/build-your-own-app.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -432,9 +432,9 @@
 
 <span class="sd">The hooks place every hooked call before they judge it: the stdlib twin&#39;s</span>
 <span class="sd">``hook_write_target`` (``osprey_target_state.py``) answers ``None`` for a call</span>
-<span class="sd">that writes nothing, the real machine for a facility write tool, the lane&#39;s</span>
-<span class="sd">target for a lane-addressed tool, and the session&#39;s target for every other</span>
-<span class="sd">framework write tool. :func:`write_target_for_tool` is the package restatement</span>
+<span class="sd">that writes nothing, the session&#39;s target for an application tool, the real</span>
+<span class="sd">machine for a facility write tool, the lane&#39;s target for a lane-addressed tool,</span>
+<span class="sd">and the session&#39;s target for every other framework write tool. :func:`write_target_for_tool` is the package restatement</span>
 <span class="sd">of that placement, for a surface that has to name the machine before the hook</span>
 <span class="sd">has run — the operator chat&#39;s approval card (C-FRAME). A parity test</span>
 <span class="sd">(``tests/hooks/test_write_target_parity.py``) pins the two against each other</span>
@@ -512,6 +512,10 @@
 <span class="c1">#: The hook_config key naming the facility (custom-server) write set: exact</span>
 <span class="c1">#: names for a declaring server, ``mcp__&lt;name&gt;__.*`` for one with no list.</span>
 <span class="n">_FACILITY_WRITES_KEY</span> <span class="o">=</span> <span class="s2">&quot;facility_write_tools&quot;</span>
+
+<span class="c1">#: The hook_config key holding every application tool&#39;s approval declaration,</span>
+<span class="c1">#: keyed by full tool name: an application writes to the session&#39;s target.</span>
+<span class="n">_APP_APPROVALS_KEY</span> <span class="o">=</span> <span class="s2">&quot;app_approvals&quot;</span>
 
 <span class="c1">#: The hook_config keys naming server prefixes, longest match stripped.</span>
 <span class="n">_PREFIX_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;server_prefixes&quot;</span><span class="p">,</span> <span class="s2">&quot;approval_prefixes&quot;</span><span class="p">)</span>
@@ -692,6 +696,7 @@
 <span class="sd">    * ``None`` for a call that writes nothing: a tool outside the render&#39;s</span>
 <span class="sd">      ``write_tools`` (the fallback list when the render names none), or a</span>
 <span class="sd">      readonly execution.</span>
+<span class="sd">    * The session&#39;s target for an application tool (``app_approvals``).</span>
 <span class="sd">    * ``live`` for a facility write tool the deployment declared.</span>
 <span class="sd">    * The lane&#39;s target for a lane-addressed tool.</span>
 <span class="sd">    * The session&#39;s target for every other framework write tool.</span>
@@ -721,6 +726,9 @@
             <span class="n">short_name</span> <span class="o">=</span> <span class="n">_short_tool_name</span><span class="p">(</span><span class="n">tool_name</span><span class="p">,</span> <span class="n">_hook_prefixes</span><span class="p">(</span><span class="n">hooks</span><span class="p">))</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_write_call</span><span class="p">(</span><span class="n">tool_input</span><span class="p">,</span> <span class="n">short_name</span><span class="p">):</span>
             <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">apps</span> <span class="o">=</span> <span class="n">hooks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_APP_APPROVALS_KEY</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">apps</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">and</span> <span class="n">tool_name</span> <span class="ow">in</span> <span class="n">apps</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_session_machine</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">record_path</span><span class="p">,</span> <span class="n">stamped</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">_is_facility_tool</span><span class="p">(</span><span class="n">tool_name</span><span class="p">,</span> <span class="n">hooks</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">TARGET_LIVE</span>
         <span class="k">if</span> <span class="n">short_name</span> <span class="ow">in</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">hooks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_LANE_ADDRESSED_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()):</span>

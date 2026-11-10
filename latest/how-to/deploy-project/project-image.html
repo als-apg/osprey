@@ -397,6 +397,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/build-your-own-app.html">Build Your Own App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/orbit-bump.html">Example: Orbit Bump</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
@@ -1233,15 +1238,15 @@ with.</p></li>
 of OSPREY’s dependency chain ship prebuilt wheels for <code class="docutils literal notranslate"><span class="pre">linux/amd64</span></code> only.
 So an arm64 build must compile them from source, which is where it breaks.
 Build (and run) the amd64 image under Docker Desktop’s emulation instead; it
-matches the usual amd64 deployment target:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-f<span class="w"> </span>build/.image/my-project/build/Dockerfile<span class="w"> </span>build/.image/my-project
-docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/.env.agent-record.login.</span><span class="nv">$USER</span><span class="s2">:/app/my-project/.env.agent-record.login.</span><span class="nv">$USER</span><span class="s2">:ro&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>my-project
+matches the usual amd64 deployment target. State the platform in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
+and rebuild:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">images.platform</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">linux/amd64</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> judges the deployment’s wheels against it and names it on the
+Dockerfile’s <code class="docutils literal notranslate"><span class="pre">FROM</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds every image it builds for it.
+Unset, images are built for this host.</p>
 </section>
 <section id="customizing">
 <h2>Customizing<a class="headerlink" href="#customizing" title="Link to this heading">#</a></h2>

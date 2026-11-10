@@ -397,6 +397,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../apps/build-your-own-app.html">Build Your Own App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../apps/orbit-bump.html">Example: Orbit Bump</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../index.html">Web Terminal</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="../operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../theming.html">Theming</a></li>
@@ -758,9 +763,10 @@ rebuilding.</p>
 </tbody>
 </table>
 </div>
-<p class="sd-card-text">The apps — <code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> — are not in
-the table: every app render is read-only on the machine and closed to
-deployment editing, whatever the host sets.</p>
+<p class="sd-card-text">The shared logins — <code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> — are
+not in the table: every login <code class="docutils literal notranslate"><span class="pre">shared:</span></code> names renders
+<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code> and closed to deployment editing, whatever
+its file or the host sets.</p>
 </div>
 </details></section>
 <section id="a-tier-is-a-file-under-tiers">
@@ -853,10 +859,18 @@ are three of them, belong to the preset. Rename a tier and nothing in the
 framework notices; add a fourth and it inherits
 the floor until its file says otherwise. <a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> covers what a tier file may contain and how the floor
 is written so that a tier can lift it.</p>
-<p>An <strong>app</strong> is different: a second, complete agent under <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, opened from
-a shared card by everyone on the roster and read-only on the machine by
-construction. The tiers decide what the deployment’s own agent may do; the
-apps sit beside it.</p>
+<p>A <strong>shared login</strong> is the same kind of file, named by
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.shared</span></code> and opened from a card everyone on the roster
+can use. A shared card never writes: the build seals its render
+<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code> whatever the file says. The bundled
+<code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> logins say <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code>, so
+their lists are the whole selection rather than additions to the
+deployment’s. A login’s <code class="docutils literal notranslate"><span class="pre">apps:</span></code> block picks which of the deployment’s
+applications its card shows; a shown application writes only where the
+login’s tier is <code class="docutils literal notranslate"><span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code> and the operator’s switch is on for
+that machine. <a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> lists every key a
+login file may carry, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> moves a login an older
+repository keeps under <code class="docutils literal notranslate"><span class="pre">apps/</span></code> into <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>.</p>
 <p>A roster entry can also name a <strong>role</strong> instead of a tier, and let the role
 carry the mapping — <code class="docutils literal notranslate"><span class="pre">operator:</span> <span class="pre">{tier:</span> <span class="pre">readwrite}</span></code> written once, rather than
 a tier pinned on every entry. A role resolves to a tier before anything is
@@ -1060,8 +1074,9 @@ profile drew a tier split: a profile that floors none of them hands every
 one to every tier it has, so a shared card there is the most exposed
 version of this rather than an exempt one. The remedy is the card’s own
 key — <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">own</span></code>, or dropping the key — or pointing the entry at a
-tier that holds none of them. An app card never reaches this rule: the
-build closes all three surfaces on every app, whatever the host sets.</p>
+tier that holds none of them. A <code class="docutils literal notranslate"><span class="pre">shared:</span></code> card never reaches this rule:
+the build closes all three surfaces on every shared login, whatever the
+host sets.</p>
 <p class="sd-card-text">A privileged <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> is refused too, in a deployment that draws
 a privilege split at all — one whose profile floors those surfaces and lets
 a single tier lift them, which is what this preset ships. On a floorless
@@ -1122,7 +1137,7 @@ container does with file ownership, and what a bare host does not.</p></li>
 <li><p><a class="reference internal" href="../operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a> — how an
 operator takes writes away from one control target for their own session,
 and can never gain more than the tier permits.</p></li>
-<li><p><a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> — tiers and apps: what a tier file may contain,
+<li><p><a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> — logins: what a login file may contain,
 and how the floor is written so that one tier can lift it.</p></li>
 </ul>
 </section>

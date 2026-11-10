@@ -4422,9 +4422,9 @@ an epoch to move past.</p>
 <p id="module-osprey_connectors.write_target">Which machine a write tool call writes to, as the hooks place it.</p>
 <p>The hooks place every hooked call before they judge it: the stdlib twin’s
 <code class="docutils literal notranslate"><span class="pre">hook_write_target</span></code> (<code class="docutils literal notranslate"><span class="pre">osprey_target_state.py</span></code>) answers <code class="docutils literal notranslate"><span class="pre">None</span></code> for a call
-that writes nothing, the real machine for a facility write tool, the lane’s
-target for a lane-addressed tool, and the session’s target for every other
-framework write tool. <a class="reference internal" href="#osprey_connectors.write_target.write_target_for_tool" title="osprey_connectors.write_target.write_target_for_tool"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_target_for_tool()</span></code></a> is the package restatement
+that writes nothing, the session’s target for an application tool, the real
+machine for a facility write tool, the lane’s target for a lane-addressed tool,
+and the session’s target for every other framework write tool. <a class="reference internal" href="#osprey_connectors.write_target.write_target_for_tool" title="osprey_connectors.write_target.write_target_for_tool"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_target_for_tool()</span></code></a> is the package restatement
 of that placement, for a surface that has to name the machine before the hook
 has run — the operator chat’s approval card (C-FRAME). A parity test
 (<code class="docutils literal notranslate"><span class="pre">tests/hooks/test_write_target_parity.py</span></code>) pins the two against each other
@@ -4494,6 +4494,7 @@ server has not vouched for reads as the real machine.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">None</span></code> for a call that writes nothing: a tool outside the render’s
 <code class="docutils literal notranslate"><span class="pre">write_tools</span></code> (the fallback list when the render names none), or a
 readonly execution.</p></li>
+<li><p>The session’s target for an application tool (<code class="docutils literal notranslate"><span class="pre">app_approvals</span></code>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">live</span></code> for a facility write tool the deployment declared.</p></li>
 <li><p>The lane’s target for a lane-addressed tool.</p></li>
 <li><p>The session’s target for every other framework write tool.</p></li>

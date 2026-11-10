@@ -1151,8 +1151,8 @@ container as <code class="docutils literal notranslate"><span class="pre">OSPREY
 <p>The control-target block in the sidebar names the machine this terminal stands on
 and opens the popover that switches it. The default is <code class="docutils literal notranslate"><span class="pre">true</span></code>. Set it to
 <code class="docutils literal notranslate"><span class="pre">false</span></code> only for a terminal that reaches no machine: no control-system tool
-server and no JUPYTER panel. The bundled <code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> and
-<code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> apps do.</p>
+server and no JUPYTER panel. The bundled shared logins <code class="docutils literal notranslate"><span class="pre">logbook</span></code>,
+<code class="docutils literal notranslate"><span class="pre">knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> do.</p>
 <p>The setting changes what the page shows, not what the agent may do. With it
 off, the sidebar has no control-target block. A value that is not a boolean is
 reported in the log and <code class="docutils literal notranslate"><span class="pre">true</span></code> is used.</p>
@@ -1279,7 +1279,9 @@ trusted operator and no live machine behind it:</p>
 </pre></div>
 </div>
 <p>It takes the boolean <code class="docutils literal notranslate"><span class="pre">true</span></code> and nothing else — any other value is a config
-error. Absent, the refusal stands exactly as before. When set, every
+error. Absent, the refusal stands exactly as before. It never waives the
+refusal of a tier that holds an application’s launch token or a write agent
+route beside an open shell. When set, every
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints a warning naming the tiers it waved through, and the
 closing card carries a <code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> row. The key belongs to
 <a class="reference internal" href="#config-protected-set"><span class="std std-ref">the protected set</span></a>, so the running agent cannot
@@ -1297,8 +1299,10 @@ Each entry has a <code class="docutils literal notranslate"><span class="pre">ty
 <li><p><code class="docutils literal notranslate"><span class="pre">users</span></code> — one card per person on the roster. <code class="docutils literal notranslate"><span class="pre">names:</span> <span class="pre">hidden</span></code> replaces the
 name cards with one sign-in button; it needs <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> <code class="docutils literal notranslate"><span class="pre">password</span></code> or
 <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, and only a <code class="docutils literal notranslate"><span class="pre">users</span></code> entry takes it.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">apps</span></code> — one card per app in <code class="docutils literal notranslate"><span class="pre">shared</span></code>, titled by the app’s <code class="docutils literal notranslate"><span class="pre">name:</span></code>,
-opened by anyone on the roster (<a class="reference internal" href="../../how-to/web-terminal/multi-user/login.html#multi-user-shared-card"><span class="std std-ref">Share a card with more than one person</span></a>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">shared</span></code> — one card per login in <code class="docutils literal notranslate"><span class="pre">shared</span></code>, titled by the login’s
+<code class="docutils literal notranslate"><span class="pre">name:</span></code>, opened by anyone on the roster (<a class="reference internal" href="../../how-to/web-terminal/multi-user/login.html#multi-user-shared-card"><span class="std std-ref">Share a card with more than one person</span></a>).
+The retired <code class="docutils literal notranslate"><span class="pre">apps</span></code> reads as <code class="docutils literal notranslate"><span class="pre">shared</span></code> for one release, with a lint
+warning.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">links</span></code> — your own cards, each a <code class="docutils literal notranslate"><span class="pre">label</span></code> and a <code class="docutils literal notranslate"><span class="pre">url</span></code>.</p></li>
 </ul>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
@@ -1307,22 +1311,22 @@ opened by anyone on the roster (<a class="reference internal" href="../../how-to
 <span class="w">      </span><span class="nt">groups</span><span class="p">:</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">users</span>
 <span class="w">          </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Users</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">apps</span>
-<span class="w">          </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Apps</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shared</span>
+<span class="w">          </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Shared logins</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">links</span>
 <span class="w">          </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Facility</span>
 <span class="w">          </span><span class="nt">links</span><span class="p">:</span>
 <span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">Elog</span><span class="p p-Indicator">,</span><span class="nt"> url</span><span class="p">:</span><span class="w"> </span><span class="nv">https</span><span class="p p-Indicator">:</span><span class="nv">//elog.example.org</span><span class="p p-Indicator">}</span>
 </pre></div>
 </div>
-<p>Left out, the page shows <code class="docutils literal notranslate"><span class="pre">[{type:</span> <span class="pre">users},</span> <span class="pre">{type:</span> <span class="pre">apps}]</span></code>. A section with no
+<p>Left out, the page shows <code class="docutils literal notranslate"><span class="pre">[{type:</span> <span class="pre">users},</span> <span class="pre">{type:</span> <span class="pre">shared}]</span></code>. A section with no
 cards shows no heading.</p>
 <p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.renders</span></code> is the render catalog: one entry per file in
-<code class="docutils literal notranslate"><span class="pre">tiers/</span></code> and <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, keyed by that file’s name, with its <code class="docutils literal notranslate"><span class="pre">kind</span></code>,
-<code class="docutils literal notranslate"><span class="pre">project</span></code> and <code class="docutils literal notranslate"><span class="pre">project_path</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes it into
-<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a profile that spells it is refused. Set a render’s
-<code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code>, <code class="docutils literal notranslate"><span class="pre">seed_base</span></code> or <code class="docutils literal notranslate"><span class="pre">image</span></code> at the top of its tier or app file
-instead.</p>
+<code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, keyed by that file’s name, with its <code class="docutils literal notranslate"><span class="pre">kind</span></code> (<code class="docutils literal notranslate"><span class="pre">tier</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">shared</span></code> for a login only <code class="docutils literal notranslate"><span class="pre">shared:</span></code> names), <code class="docutils literal notranslate"><span class="pre">project</span></code> and
+<code class="docutils literal notranslate"><span class="pre">project_path</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes it into <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a
+profile that spells it is refused. Set a render’s <code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code>,
+<code class="docutils literal notranslate"><span class="pre">seed_base</span></code> or <code class="docutils literal notranslate"><span class="pre">image</span></code> at the top of its login file instead.</p>
 </section>
 <section id="artifact-server-the-workspace-gallery-s-extension-types">
 <span id="config-artifact-server"></span><h2><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s extension types<a class="headerlink" href="#artifact-server-the-workspace-gallery-s-extension-types" title="Link to this heading">#</a></h2>
@@ -1765,6 +1769,11 @@ the sixteen rows above:</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_TAG</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">images.tag</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Platform</p></td>
+<td><p>none: set in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> only</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.platform</span></code> (<code class="docutils literal notranslate"><span class="pre">linux/amd64</span></code> or <code class="docutils literal notranslate"><span class="pre">linux/arm64</span></code>)</p></td>
+<td><p>built for this host</p></td>
 </tr>
 </tbody>
 </table>

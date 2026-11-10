@@ -505,8 +505,12 @@ run also names the CI lanes your diff touches. <code class="docutils literal not
 that judge a range without scoping the tier, so <code class="docutils literal notranslate"><span class="pre">full</span> <span class="pre">--base</span> <span class="pre">origin/main</span></code>
 judges the whole tree and the range in one verdict. Before any check runs, the
 command puts the tree’s pins in place: the pinned Claude Code first on <code class="docutils literal notranslate"><span class="pre">PATH</span></code>
-for the test sweep, and <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">ci</span></code> when <code class="docutils literal notranslate"><span class="pre">node_modules</span></code> differs from
-<code class="docutils literal notranslate"><span class="pre">package-lock.json</span></code>. When it cannot, it refuses and names what to install.</p>
+for the test sweep, <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">ci</span></code> when <code class="docutils literal notranslate"><span class="pre">node_modules</span></code> differs from
+<code class="docutils literal notranslate"><span class="pre">package-lock.json</span></code>, and <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> when an editable install predates the
+tree’s tags. When it cannot, it refuses and names what to install. A machine
+that cannot judge (too little free disk, an install the sync left stale, Docker
+storage that fails) prints <code class="docutils literal notranslate"><span class="pre">check:</span> <span class="pre">environment:</span> <span class="pre">&lt;probe&gt;:</span> <span class="pre">&lt;fact&gt;</span></code>, runs
+nothing and exits 3.</p>
 <p>A check is declared by the code that owns it, in a <code class="docutils literal notranslate"><span class="pre">repo_checks.py</span></code> module
 beside that code: <code class="docutils literal notranslate"><span class="pre">scripts/repo_checks.py</span></code> holds the framework’s and the
 repository-wide checks, and a package that brings checks of its own, such as
