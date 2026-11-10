@@ -890,7 +890,7 @@ def test_preflight_report_lists_an_unset_image_tag_variable(monkeypatch, tmp_pat
     config = _unset_image_tag_config(monkeypatch)
 
     # Act
-    problems = provision.web_terminal_preflight_problems(config, repo_root=tmp_path)
+    problems = provision.web_terminal_preflight_report(config, repo_root=tmp_path)[0]
 
     # Assert
     assert any("OSPREY_IMAGE_TAG is not set" in problem for problem, _remedy in problems)
