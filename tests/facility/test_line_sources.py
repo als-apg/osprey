@@ -129,9 +129,11 @@ def test_the_line_mode_is_idempotent(tmp_path: Path) -> None:
         assert (tree / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel
 
 
-def test_no_limits_record_names_the_line(stripped: Path) -> None:
+def test_no_limits_record_names_the_line_but_its_correctors(stripped: Path) -> None:
     limits = read_yaml((EXAMPLE / "limits.yaml").read_text(encoding="utf-8"))
-    assert [r["address"] for r in limits["records"] if r["address"].startswith("LINE:")] == []
+    line = [r["address"] for r in limits["records"] if r["address"].startswith("LINE:")]
+    assert len(line) == 8
+    assert all(":MAG:HCM:" in a or ":MAG:VCM:" in a for a in line)
     before = (stripped / "limits.yaml").read_bytes()
     _run_line(stripped)
     assert (stripped / "limits.yaml").read_bytes() == before

@@ -23,10 +23,10 @@ services:
     depends_on:
       optimizer-redis:
         condition: service_healthy
-      # Only when the Virtual Accelerator is co-deployed and this optimizer may
-      # drive it: a run must not open its connector before the VA's Channel
-      # Access server answers. Compose errors on a depends_on naming a service
-      # no document defines, hence the co-deployment test.
+      # Only when the Virtual Accelerator is co-deployed: a run must not open
+      # its connector before the VA's Channel Access server answers. Compose
+      # errors on a depends_on naming a service no document defines, hence the
+      # co-deployment test.
       virtual-accelerator:
         condition: service_healthy
     # container_name is a HOST-GLOBAL docker identifier: namespaced per project.
@@ -67,9 +67,6 @@ services:
       OPTIMIZER_ENVIRONMENTS_DIR: /app/environments
       # Where runs are written: the results volume mounted below.
       OPTIMIZER_RESULTS_DIR: /app/results
-      # The control targets this deployment's optimizer may drive. The live
-      # machine is refused at build time until the optimizer supports it.
-      OPTIMIZER_TARGETS: "va"
       # No :-default — an unset token stays EMPTY, so the routes that move
       # hardware refuse rather than accept a guessable secret. `osprey up`
       # mints it into the project .env when unset (container_lifecycle's

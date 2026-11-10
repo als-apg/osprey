@@ -177,16 +177,16 @@ def _stub_host_interface_addresses():
 def reset_rendered_config_memo():
     """Isolate every test from the process-wide parsed-render memo.
 
-    ``routes.websocket`` parses the rendered ``config.yml`` once and memoizes
+    ``config_view`` parses the rendered ``config.yml`` once and memoizes
     it on ``(path, stat signature)``. Two tests that write a render at the same
     path within one mtime tick share a signature, so the second would be
     answered the first one's parse — its posture, its targets, its labels.
     """
-    from osprey.interfaces.web_terminal.routes import websocket
+    from osprey.interfaces.web_terminal import config_view
 
-    websocket.reset_rendered_config_memo()
+    config_view.reset_rendered_config_memo()
     yield
-    websocket.reset_rendered_config_memo()
+    config_view.reset_rendered_config_memo()
 
 
 @pytest.fixture(autouse=True)

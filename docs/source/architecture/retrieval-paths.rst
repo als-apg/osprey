@@ -30,17 +30,21 @@ Four things are worth reading off the map:
 **Only one stack needs an embedding provider on the host.** :doc:`ARIEL's
 </how-to/ariel/search-modes>` ``semantic`` mode embeds both the corpus at ingest
 and the *query* at query time, so Ollama (or OpenAI) has to be reachable when an
-operator searches, not just when entries are ingested. The qmd sidecar carries
-its own embedder inside the image. The channel finder and the facility graph use
-no embeddings anywhere: the finder ranks with BM25 or lets the agent walk a
-hierarchy, and the graph answers Cypher (Neo4j's query language), with a
-substring index for phrases.
+operator searches, not just when entries are ingested. The qmd sidecar (a
+search service that indexes a markdown corpus and answers combined keyword and
+semantic queries) carries its own embedder inside the image. The channel finder
+and the facility graph use no embeddings anywhere. The finder ranks with BM25
+(a standard keyword-relevance score) or lets the agent walk a hierarchy. The
+graph answers Cypher (Neo4j's query language), with a substring index for
+phrases.
 
 **The qmd sidecar is the one cross-stack component at query time.** It answers
 ARIEL's ``hybrid`` mode and backs :doc:`facility-knowledge </how-to/facility-knowledge/index>`
-search, from one sidecar per corpus — one for the markdown mirror ARIEL exports,
-one for the OKF bundle, one for each corpus a deployment declares. Its internals,
-and the ``rerank`` tradeoff, are covered under :ref:`qmd-search-sidecar`.
+search. A deployment runs one sidecar per corpus — one for the markdown mirror
+ARIEL exports, one for the
+:doc:`Open Knowledge Format (OKF) </how-to/facility-knowledge/okf-bundle>`
+bundle, and one for each other corpus it declares. Its internals, and the
+``rerank`` tradeoff, are covered under :ref:`qmd-search-sidecar`.
 
 **The facility graph answers questions about relations.** The other stacks find
 a text or an address. The :doc:`graph </how-to/facility-knowledge/use-facility-graph>`

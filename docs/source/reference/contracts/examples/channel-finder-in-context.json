@@ -1,0 +1,9 @@
+{
+  "schema": "osprey.facility.channel_finder/1",
+  "count": 1,
+  "channels": [
+    {"channel": "TerminalVoltageReadBack",
+     "address": "TerminalVoltageReadBack",
+     "description": "Actual value of the terminal potential"}
+  ]
+}

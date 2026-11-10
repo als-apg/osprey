@@ -39,7 +39,6 @@ class _SiteGatewayAdapter(BaseProvider):
     description = "A gateway a site registers for itself"
     requires_api_key = True
     requires_base_url = False
-    requires_model_id = False
     supports_proxy = False
     api_key_env_var = "SITE_GATEWAY_TOKEN"
 
@@ -49,7 +48,6 @@ class _SiteCborgAdapter(BaseProvider):
     description = "A site's own class registered under a built-in name"
     requires_api_key = True
     requires_base_url = False
-    requires_model_id = False
     supports_proxy = False
     api_key_env_var = "SITE_CBORG_TOKEN"
     api_protocol = "anthropic"
@@ -60,7 +58,6 @@ class _SiteEmbeddingOnlyAdapter(BaseProvider):
     description = "A site's embedding endpoint with no chat route"
     requires_api_key = True
     requires_base_url = False
-    requires_model_id = False
     supports_proxy = False
     api_key_env_var = "SITE_EMBEDDER_TOKEN"
 

@@ -12,7 +12,7 @@ These tests pin the contract at the template level, where both spellings live:
   copied verbatim into the ``PreToolUse`` matcher
   (``osprey.cli.templates.claude_code`` builds the rule from it), so the
   frontmatter *is* the matcher;
-* the ``NotebookEdit`` scope agrees with the ``Edit(<agent_data_root>/<subdir>/**)``
+* the ``NotebookEdit`` scope agrees with the ``Edit(//<agent_data_root>/<subdir>/**)``
   allow rules ``settings.json.j2`` renders — two independent spellings of one
   policy, which is exactly the pair that silently forks. The rule is spelled
   ``Edit(...)`` because Claude Code checks every file-editing tool, ``NotebookEdit``
@@ -34,7 +34,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -57,11 +57,14 @@ ARTIFACTS_SUBDIR = "artifacts"
 NOTEBOOKS_SUBDIR = "notebooks"
 NOTEBOOK_SUBDIRS = frozenset({ARTIFACTS_SUBDIR, NOTEBOOKS_SUBDIR})
 
-#: Both spellings of the allow rule, as they appear in the two files. The
-#: template renders one Jinja append per subdirectory; the hook declares the
-#: same set as a tuple. The leading quote anchors the tool name so that a
-#: ``NotebookEdit(`` rule cannot pass as an ``Edit(`` one.
-_TEMPLATE_ALLOW_RE = re.compile(r""""Edit\(' ~ agent_data_root ~ '/([^/]+)/\*\*\)""")
+#: The template renders one absolute ``Edit(//<root>/<subdir>/**)`` rule per glob
+#: of ``agent_output_edit_globs``; the hook declares the same subdirectories as a
+#: tuple. The leading quote anchors the tool name so that a ``NotebookEdit(``
+#: rule cannot pass as an ``Edit(`` one.
+_TEMPLATE_ALLOW_RE = re.compile(
+    r"""\{%- for glob in agent_output_edit_globs -%\}\s*"""
+    r"""\{%- set _ = allow_entries\.append\('"Edit\(/' ~ glob ~ '\)"'\) -%\}"""
+)
 #: The rule form Claude Code does not consult for file-editing tools, as the
 #: template would render it (quote-anchored, so a comment naming the form is
 #: not a rendered rule).
@@ -70,8 +73,20 @@ _HOOK_SUBDIRS_RE = re.compile(r"_NOTEBOOK_SUBDIRS = \(([^)]*)\)")
 
 
 def _template_notebook_subdirs() -> set[str]:
-    """Every agent-data subdirectory the rendered ``Edit(...)`` allows name."""
-    return set(_TEMPLATE_ALLOW_RE.findall(SETTINGS_TEMPLATE.read_text(encoding="utf-8")))
+    """Every agent-data subdirectory the rendered ``Edit(...)`` allows name.
+
+    The template renders each glob of ``agent_output_edit_globs`` as an absolute
+    ``Edit`` rule, so the subdirectories are read from that function, once the
+    template is shown to render exactly those globs.
+    """
+    from osprey.cli.templates.claude_code import agent_output_edit_globs
+
+    assert _TEMPLATE_ALLOW_RE.search(SETTINGS_TEMPLATE.read_text(encoding="utf-8")), (
+        "settings.json.j2 no longer renders agent_output_edit_globs as Edit rules"
+    )
+    root = Path("/srv/osprey")
+    globs = agent_output_edit_globs({"project_root": str(root)}, root)
+    return {PurePosixPath(glob).parent.name for glob in globs}
 
 
 def _hook_notebook_subdirs() -> set[str]:

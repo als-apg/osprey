@@ -26,6 +26,9 @@ from typing import Any
 
 from osprey_connectors.safety_file import atomic_replace
 
+#: Read back only by the bridge that wrote it, from its own volume, when it restarts.
+_STORE_FILE_MODE = 0o600
+
 
 class JsonFileStore:
     def __init__(self, path: str):
@@ -60,6 +63,6 @@ class JsonFileStore:
         atomic_replace(
             Path(self.path),
             json.dumps(snapshot, indent=2).encode("utf-8"),
-            mode=0o600,
+            mode=_STORE_FILE_MODE,
             sync="best_effort",
         )

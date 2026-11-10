@@ -12,7 +12,6 @@ from fastapi import Depends, Query, Request
 
 from osprey_optimizer.api.job_status import load_job_meta
 from osprey_optimizer.api.job_tracker import JobMeta, JobTracker
-from osprey_optimizer.api.security import check_target_allowed
 from osprey_optimizer.models.config import ControlTarget, ExecutionMode, machine_config
 from osprey_optimizer.services.plugin_registry import EnvironmentRegistry
 
@@ -55,9 +54,5 @@ def require_machine(
         default=None, description="readonly: reads only; every write is refused."
     ),
 ) -> Machine:
-    """Every endpoint that reaches a machine names it; there is no ambient target.
-
-    403 for a target this deployment's optimizer may not drive.
-    """
-    check_target_allowed(target)
+    """Every endpoint that reaches a machine names it; there is no ambient target."""
     return Machine(target=target, execution_mode=execution_mode)

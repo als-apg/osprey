@@ -1,0 +1,70 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 680 320" role="img" aria-labelledby="apps-title apps-desc">
+  <title id="apps-title">An app: a panel for the operator and a tool server for the agent, over one backend container that reaches the machine through the connector</title>
+  <desc id="apps-desc">The operator opens the app's panel, a page in the web terminal's sidebar. The OSPREY agent calls the app's tool server, an MCP server that runs beside the agent. Both reach the app's backend container, which reads and writes the machine and holds the app's state. Every write the backend makes goes through the connector, which asks the write verdict, checks the limits and records the write. A write from the panel or from a tool meets the login's tier, the machine's write switch and the approval before it reaches the connector.</desc>
+  <defs>
+    <marker id="apps-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
+    </marker>
+  </defs>
+
+  <!-- who uses the app -->
+  <rect class="mask" x="10" y="50" width="120" height="48" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="10" y="50" width="120" height="48" rx="6"/>
+  <text class="tn" x="70" y="70" text-anchor="middle">Operator</text>
+  <text class="ts" x="70" y="86" text-anchor="middle">at the web terminal</text>
+
+  <rect class="mask" x="10" y="150" width="120" height="48" rx="6"/>
+  <rect class="nb-in" x="10" y="150" width="120" height="48" rx="6"/>
+  <text class="tn" x="70" y="170" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="70" y="186" text-anchor="middle">acts by calling tools</text>
+
+  <line class="e" x1="130" y1="74" x2="154" y2="74" marker-end="url(#apps-arr)"/>
+  <line class="e" x1="130" y1="174" x2="154" y2="174" marker-end="url(#apps-arr)"/>
+
+  <!-- the app -->
+  <rect class="zone" x="144" y="14" width="426" height="208" rx="6"/>
+  <text class="te" x="158" y="32">YOUR APP · apps/&lt;name&gt;/</text>
+
+  <rect class="mask" x="158" y="50" width="150" height="48" rx="6"/>
+  <rect class="nb" x="158" y="50" width="150" height="48" rx="6"/>
+  <text class="tn" x="233" y="70" text-anchor="middle">panel</text>
+  <text class="ts" x="233" y="86" text-anchor="middle">a page in the sidebar</text>
+
+  <rect class="mask" x="158" y="150" width="150" height="48" rx="6"/>
+  <rect class="nb" x="158" y="150" width="150" height="48" rx="6"/>
+  <text class="tn" x="233" y="170" text-anchor="middle">tool server</text>
+  <text class="ts" x="233" y="186" text-anchor="middle">MCP tools for the agent</text>
+
+  <path class="e" d="M308 74 H330 V133"/>
+  <path class="e" d="M308 174 H330 V133"/>
+  <line class="e" x1="330" y1="133" x2="350" y2="133" marker-end="url(#apps-arr)"/>
+
+  <rect class="mask" x="354" y="100" width="200" height="66" rx="6"/>
+  <rect class="nb" x="354" y="100" width="200" height="66" rx="6"/>
+  <text class="tn" x="454" y="124" text-anchor="middle">backend container</text>
+  <text class="ts" x="454" y="142" text-anchor="middle">reads and writes the machine</text>
+  <text class="ts" x="454" y="156" text-anchor="middle">holds the app's state</text>
+
+  <!-- the write path -->
+  <line class="e" x1="454" y1="166" x2="454" y2="236" marker-end="url(#apps-arr)"/>
+  <text class="ta" x="462" y="205">every write</text>
+
+  <rect class="mask" x="354" y="240" width="200" height="66" rx="6"/>
+  <rect class="nb-foc" x="354" y="240" width="200" height="66" rx="6"/>
+  <text class="tn" x="454" y="264" text-anchor="middle">connector</text>
+  <text class="ts" x="454" y="282" text-anchor="middle">the write verdict · the limits</text>
+  <text class="ts" x="454" y="296" text-anchor="middle">the audit record</text>
+
+  <line class="e" x1="554" y1="273" x2="586" y2="273" marker-end="url(#apps-arr)"/>
+
+  <rect class="mask" x="590" y="249" width="80" height="48" rx="6"/>
+  <rect class="nb-ext" x="590" y="249" width="80" height="48" rx="6"/>
+  <text class="tn" x="630" y="277" text-anchor="middle">machine</text>
+
+  <!-- what every write meets -->
+  <text class="ts" x="10" y="258">a write from the panel or from a tool meets</text>
+  <text class="ts" x="10" y="272">the login's tier, the machine's write switch</text>
+  <text class="ts" x="10" y="286">and the approval before it reaches the connector</text>
+</svg>
+</div>

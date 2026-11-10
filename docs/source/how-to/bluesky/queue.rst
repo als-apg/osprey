@@ -102,6 +102,8 @@ One queue, three ways to drive it
                                     the queue it means — expected_plan_queue_uid)
          POST   /queue/stop         stop after the running item, and disarm
          POST   /queue/abort        abort the running plan, and disarm — never gated
+         POST   /queue/items/<uid>/move
+                                    move one waiting item (reorder; ungated)
          DELETE /queue/items/<uid>  drop one waiting item
          DELETE /queue/items        drop every waiting item
          GET    /queue              what is queued and running, and the queue's own
@@ -109,7 +111,9 @@ One queue, three ways to drive it
          GET    /queue/removals     what was taken off the queue, newest first,
                                     and who asked (X-Osprey-Owner names the asker)
          GET    /runs               recent runs; /runs/<id>/data for the numbers,
-                                    /runs/<id>/figure for the plotted view
+                                    /runs/<id>/figure for the plotted view,
+                                    /runs/<id>/export for the whole run as a
+                                    CSV or parquet file
          DELETE /runs/<id>          remove one finished run from the list
          DELETE /history            remove every finished run from the list
 

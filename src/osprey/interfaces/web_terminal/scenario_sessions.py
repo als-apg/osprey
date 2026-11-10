@@ -246,6 +246,10 @@ def _lay_down_session(
         )
 
 
+#: Read by the web terminal and its agent CLI under the same uid, as the CLI's own transcripts are.
+_TRANSCRIPT_FILE_MODE = 0o600
+
+
 def _write_transcript(target: Path, lines: list[dict[str, Any]]) -> None:
     """Write *lines* to *target* whole, its mtime set to the last line's time.
 
@@ -253,7 +257,7 @@ def _write_transcript(target: Path, lines: list[dict[str, Any]]) -> None:
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     data = "".join(json.dumps(line) + "\n" for line in lines).encode("utf-8")
-    atomic_replace(target, data, mode=0o600, sync="best_effort")
+    atomic_replace(target, data, mode=_TRANSCRIPT_FILE_MODE, sync="best_effort")
     stamps = [line["timestamp"] for line in lines if isinstance(line.get("timestamp"), str)]
     if stamps:
         moment = datetime.fromisoformat(stamps[-1]).timestamp()
