@@ -39,6 +39,8 @@ FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "previous_release_r
 #: Exemplar files the previous release wrote differently; the fixture holds those. It held
 #: no application, and revalidating adds none: a deployment holds what it chose to.
 _MIGRATED = (
+    # The saved copy of the presets is newer than the previous release.
+    ".osprey/",
     "apps/",
     "profile.yml",
     "tiers/readonly.yml",
@@ -338,7 +340,7 @@ _RETIRED_PROFILE_SWAPS: tuple[tuple[str, str], ...] = (
         "requires_osprey_version: '>=2026.9.0'\n",
     ),
     (
-        "# `osprey init --revalidate` adds the packaged entries and keys it lacks.\n",
+        "# `osprey init --revalidate` applies what the presets changed since.\n",
         "# `osprey profile expand --providers` refreshes the packaged entries in it.\n",
     ),
 )

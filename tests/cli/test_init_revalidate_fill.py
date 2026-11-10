@@ -183,6 +183,11 @@ def _to_old_shape(
 
     if not keep_provenance:
         text = _without_top_level_block(text, "provenance")
+    else:
+        # An old profile's preset has moved on since it was written.
+        text = text.replace("  preset_hash: sha256:", "  preset_hash: sha256:01d", 1)
+    # And it predates the saved copy of what its preset produced.
+    shutil.rmtree(profile.parent / ".osprey", ignore_errors=True)
     if template is not None:
         text = text.replace("\nconfig:\n", f"\n{PRESET_DATA_BUNDLE_KEY}: {template}\nconfig:\n", 1)
     profile.write_text(text, encoding="utf-8")
@@ -367,7 +372,7 @@ def test_a_whole_missing_branch_comes_back_as_its_leaves(runner: CliRunner, tmp_
         for key in removed
         if _comment_block_above(text, key) != _comment_block_above(reference, key)
     ] == []
-    assert f"Filled {len(removed)} key(s) from preset 'hello-world'" in result.output
+    assert f"Applied {len(removed)} change(s) the presets made" in result.output
     assert invoke_build(repo).exit_code == 0
 
 
@@ -968,23 +973,19 @@ def test_authorization_roles_are_never_filled(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A preset that spelled role tiers would still not hand them to a profile."""
-    from osprey.cli import build_profile_drift, init_revalidate
+    from osprey.cli import build_profile_emit
 
     roles = "modules.web_terminals.authorization.roles"
-    lacking = [roles, f"{roles}.operator"]
-    monkeypatch.setattr(build_profile_drift, "lacking_config_keys", lambda _doc, _preset: lacking)
-    real_reference = init_revalidate._reference_document
+    real = build_profile_emit.materialized_profile
 
-    def reference_with_roles(preset: str, **kwargs):
-        from ruamel.yaml.comments import CommentedMap
-
-        document = real_reference(preset, **kwargs)
-        document["config"][roles] = CommentedMap(operator="readwrite")
+    def with_roles(preset: str, **kwargs):
+        document = real(preset, **kwargs)
+        document["config"][f"{roles}.operator"] = "readwrite"
         return document
 
-    monkeypatch.setattr(init_revalidate, "_reference_document", reference_with_roles)
     repo = tmp_path / "facility"
     _init(runner, repo, "demo")
+    monkeypatch.setattr(build_profile_emit, "materialized_profile", with_roles)
     profile = repo / "profile.yml"
 
     result = _revalidate(runner, repo)
@@ -992,9 +993,8 @@ def test_authorization_roles_are_never_filled(
 
     flattened = dict(_flatten(_profile_data(profile)["config"]))
     assert [key for key in flattened if "authorization.roles" in key] == []
-    for key in lacking:
-        assert f"Left for you: {key}:" in result.output
-    assert "Filled" not in result.output
+    assert f"Left for you: {roles}.operator:" in result.output
+    assert "Applied" not in result.output
 
 
 def test_the_header_prose_names_the_preset_provenance_now_names(

@@ -17,9 +17,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.cli.build_profile import list_presets
-from osprey.cli.build_profile_drift import app_tree_digest
 from osprey.cli.build_profile_merge import _hash_resolved_profile, compute_preset_hash
 from osprey.cli.build_profile_presets import list_tiers
+from osprey.cli.build_profile_updates import app_tree_digest
 from osprey.profiles import presets
 
 PRESET_APPS_DIR = Path(presets.__file__).parent / "apps"

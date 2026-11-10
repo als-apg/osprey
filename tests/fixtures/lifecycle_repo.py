@@ -165,6 +165,7 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #          +---- edit -> osprey build -> osprey up --------------+
 #
 #   SOURCE   yours to edit, kept in git: this file, data/, tiers/, apps/
+#   RECORD   .osprey/, what the presets produced. Kept in git. Not edited
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept
@@ -1444,10 +1445,10 @@ data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
 requires_osprey_version: '>=2026.10.0'
 # What this profile was materialized from. Emitted, not hand-written: a
-# build compares it against the installed preset and mentions it when the
-# preset has moved on. This profile is the source of truth: edit it freely.
+# build mentions it when the preset has changed since the repo last took
+# it. This profile is the source of truth: edit it freely.
 # `providers_hash` is the same record for providers.yml beside this file;
-# `osprey init --revalidate` adds the packaged entries and keys it lacks.
+# `osprey init --revalidate` applies what the presets changed since.
 provenance:
   preset: demo
   preset_hash: @PRESET_HASH:demo@
@@ -1651,8 +1652,8 @@ config:
   control_system.writes: never
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and mentions it when
-# the tier has moved on. This file is the source of truth: edit it freely.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: readonly
   preset_hash: @PRESET_HASH:tiers/readonly@
@@ -1692,8 +1693,8 @@ config:
   control_system.writes: asked
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and mentions it when
-# the tier has moved on. This file is the source of truth: edit it freely.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: readwrite
   preset_hash: @PRESET_HASH:tiers/readwrite@
@@ -1758,8 +1759,8 @@ config:
   web.scaffold_gallery.write_enabled: true
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and mentions it when
-# the tier has moved on. This file is the source of truth: edit it freely.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: admin
   preset_hash: @PRESET_HASH:tiers/admin@
@@ -1878,8 +1879,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and mentions it when
-# the tier has moved on. This file is the source of truth: edit it freely.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: logbook
   preset_hash: @PRESET_HASH:tiers/logbook@
@@ -1987,8 +1988,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and mentions it when
-# the tier has moved on. This file is the source of truth: edit it freely.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: knowledge
   preset_hash: @PRESET_HASH:tiers/knowledge@
@@ -2094,8 +2095,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and mentions it when
-# the tier has moved on. This file is the source of truth: edit it freely.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: channel-finder
   preset_hash: @PRESET_HASH:tiers/channel-finder@
@@ -3225,8 +3226,8 @@ def packaged_application_files() -> dict[str, str]:
     these files, and what the comparison downstream is for is that init copies
     them through unchanged.
     """
-    from osprey.cli.build_profile_drift import APP_PROVENANCE_FILENAME, app_provenance_text
     from osprey.cli.build_profile_merge import compute_preset_hash
+    from osprey.cli.build_profile_updates import APP_PROVENANCE_FILENAME, app_provenance_text
     from osprey.profiles import presets
 
     app_dir = Path(presets.__file__).parent / "apps" / "orbit-bump"
@@ -3256,10 +3257,24 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
             shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
     """
-    return {
+    files = {
         path: expand_sentinels(text)
         for path, text in _exemplar_source_texts(with_ci=with_ci).items()
     }
+    files.update(saved_preset_copy(files))
+    return files
+
+
+def saved_preset_copy(files: dict[str, str]) -> dict[str, str]:
+    """The saved copy ``osprey init`` writes under ``.osprey/preset-base/`` for *files*.
+
+    Computed from the package, for the reason ``providers.yml`` is read rather
+    than frozen: it is what the installed presets produce for this repo.
+    """
+    from osprey.cli.build_profile_updates import covered_files, saved_copy_texts
+
+    nowhere = Path("/nonexistent-exemplar-root")
+    return saved_copy_texts(nowhere, covered_files(nowhere, texts=files))
 
 
 def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:

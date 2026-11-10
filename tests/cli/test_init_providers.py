@@ -273,37 +273,29 @@ def test_the_packaged_catalog_agrees_with_the_registry() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Catalog drift is a note, never a refusal
+# The catalog is the facility's to extend
 # ---------------------------------------------------------------------------
 
 
-def _drift(repo: Path):
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.cli.build_profile_drift import preset_drift_report
+def _note(repo: Path) -> str | None:
+    from osprey.cli.build_profile_updates import preset_update_note
 
-    profile_path = (repo / "profile.yml").resolve()
-    resolved, _ = resolve_build_profile(profile_path, None)
-    assert resolved.provenance is not None
-    return preset_drift_report(profile_path, resolved.provenance)
+    return preset_update_note((repo / "profile.yml").resolve())
 
 
 def test_a_stock_catalog_draws_no_note(runner: CliRunner, tmp_path: Path) -> None:
-    """A repo whose catalog is the one OSPREY ships has not parted from it."""
+    """A repo whose catalog is the one OSPREY ships has nothing to take."""
     target = tmp_path / "my-facility"
     assert _new(runner, target).exit_code == 0
 
-    assert _drift(target).note is None
+    assert _note(target) is None
 
 
-def test_an_added_gateway_is_not_drift(runner: CliRunner, tmp_path: Path) -> None:
-    """Adding a gateway is the feature working: only the entries OSPREY ships
-    are compared, and `osprey init --revalidate` adds the ones a later release
-    ships, so the catalog having its own entries says nothing."""
+def test_an_added_gateway_draws_no_note(runner: CliRunner, tmp_path: Path) -> None:
+    """Adding a gateway is the feature working: the catalog's own entries are
+    the operator's, and only what OSPREY changed in its own is ever offered."""
     target = tmp_path / "my-facility"
     assert _new(runner, target).exit_code == 0
     _add_gateway(target)
 
-    report = _drift(target)
-
-    assert report.note is None
-    assert report.findings == []
+    assert _note(target) is None
