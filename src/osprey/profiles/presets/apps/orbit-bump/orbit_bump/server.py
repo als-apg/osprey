@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mappin
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import numpy as np
 import uvicorn
@@ -44,7 +44,7 @@ from orbit_bump.plans import (
     PlanNotFound,
     PlanStore,
 )
-from orbit_bump.ring import PlaneView, RingView, build_ring
+from orbit_bump.ring import PlaneView, RingView, build_ring, position_addr, setpoint_addr
 from orbit_bump.solver import (
     CLOSURE,
     MANUAL,
@@ -94,11 +94,11 @@ APPLY_ROUTE = "/api/apply"
 #: The prefix the panel's MML signed-index rules carry; the solver takes the list bare.
 MML_RULE_PREFIX = "mml:"
 #: The other BPMs (every BPM of the plane not in the bump) are left out of the solve.
-FREE = "free"
+FREE: Final = "free"
 #: The other BPMs aim at their orbit at compute: a local bump.
-HOLD = "hold"
+HOLD: Final = "hold"
 #: The other BPMs aim at their golden orbit.
-ZERO = "zero"
+ZERO: Final = "zero"
 #: A bump BPM is missed when its predicted position is off its aim by more than this
 #: (in the BPM unit) or by ``MISS_FRACTION`` of the largest target offset, the larger.
 MISS_FLOOR = 0.001
@@ -450,7 +450,7 @@ def _bump_reads(
     golden = []
     for b in bump:
         bpm = plane.bpms[b]
-        if values.get(bpm.position_addr) is None:
+        if values.get(position_addr(bpm)) is None:
             raise ComputeRefused(
                 409, f"bump BPM {bpm.element} ({bpm.position_addr}) is unreadable or not finite"
             )
@@ -478,20 +478,21 @@ def _delta_bounds(
     lower = np.full(len(selected), -np.inf)
     upper = np.full(len(selected), np.inf)
     for i, c in enumerate(selected):
-        cor = plane.correctors[c]
-        now = values[cor.setpoint_addr]
+        address = setpoint_addr(plane.correctors[c])
+        now = values[address]
         if now is None:
             continue
-        limits = prewrite_verdict(cor.setpoint_addr, now, target=target, current=now).limits
+        limits = prewrite_verdict(address, now, target=target, current=now).limits
         if not limits:
             continue
         lo, hi = -np.inf, np.inf
-        if limits.get("min") is not None:
-            lo = limits["min"] - now
-        if limits.get("max") is not None:
-            hi = limits["max"] - now
-        if limits.get("max_step") is not None:
-            lo, hi = max(lo, -limits["max_step"]), min(hi, limits["max_step"])
+        low, high, step = limits.get("min"), limits.get("max"), limits.get("max_step")
+        if low is not None:
+            lo = low - now
+        if high is not None:
+            hi = high - now
+        if step is not None:
+            lo, hi = max(lo, -step), min(hi, step)
         if lo <= hi:
             lower[i], upper[i] = lo, hi
     return lower, upper
@@ -520,11 +521,11 @@ def solve_plan(
     golden = _bump_reads(plane, bump, values)
     for c in picked.selected:
         cor = plane.correctors[c]
-        if values.get(cor.setpoint_addr) is None:
+        if values.get(setpoint_addr(cor)) is None:
             raise ComputeRefused(
                 409, f"the setpoint of corrector {cor.element} ({cor.setpoint_addr}) is unreadable"
             )
-    orbit = {bpm.element: values.get(bpm.position_addr) for bpm in plane.bpms}
+    orbit = {bpm.element: values.get(position_addr(bpm)) for bpm in plane.bpms}
     # The orbit each other BPM aims at: its orbit at compute, or its golden orbit.
     aim: dict[str, float | None] = dict(orbit)
     if body.others == ZERO:
@@ -548,8 +549,8 @@ def solve_plan(
         raise ComputeRefused(409, f"no other BPM is readable to {verb}; set other BPMs free")
     try:
         matrix = snapshot.slice(
-            [plane.bpms[b].position_addr for b in used],
-            [plane.correctors[c].setpoint_addr for c in picked.selected],
+            [position_addr(plane.bpms[b]) for b in used],
+            [setpoint_addr(plane.correctors[c]) for c in picked.selected],
         )
     except KeyError as exc:
         raise ComputeRefused(409, str(exc.args[0])) from None
@@ -598,11 +599,11 @@ def solve_plan(
     predicted: dict[str, float | None] = {bpm.element: None for bpm in plane.bpms}
     for b in used:
         predicted[plane.bpms[b].element] = float(solved.predicted[row_of[b]])
-    leakage = []
+    leakage: list[dict[str, Any]] = []
     for b in leak:
-        element = plane.bpms[b].element
-        residual = predicted[element] - aim[element]  # type: ignore[operator]
-        leakage.append({"element": element, "predicted_residual": residual})
+        # A held row's goal is its BPM's aim.
+        residual = float(solved.predicted[row_of[b]] - goal[row_of[b]])
+        leakage.append({"element": plane.bpms[b].element, "predicted_residual": residual})
     miss = {
         plane.bpms[b].element: float(solved.predicted[row_of[b]] - goal[row_of[b]]) for b in bump
     }
@@ -817,7 +818,7 @@ def residual_after(
         bpm = bpms.get(element)
         if bpm is None or bpm.golden_addr is None:
             continue
-        position = values.get(bpm.position_addr)
+        position = values.get(position_addr(bpm))
         golden = values.get(bpm.golden_addr)
         if position is not None and golden is not None:
             residual[element] = position - (golden + offset)
@@ -827,7 +828,7 @@ def residual_after(
         bpm = bpms.get(element)
         if bpm is None:
             continue
-        position = values.get(bpm.position_addr)
+        position = values.get(position_addr(bpm))
         if plan.get("others") == ZERO:
             aim = values.get(bpm.golden_addr) if bpm.golden_addr else None
         else:
@@ -913,12 +914,13 @@ def create_app(
         if model not in rings:
             try:
                 members = sdk.model_members(model)
+                view = build_ring(members)
             except ValueError as exc:
                 refused[model] = exc
                 _log.warning("model %s is not shown: %s", model, exc)
                 raise
             members_of[model] = members
-            rings[model] = build_ring(members)
+            rings[model] = view
         return members_of[model], rings[model]
 
     def owner_of(request: Request) -> str | None:
@@ -1129,7 +1131,7 @@ def create_app(
         except PlanNotFound:
             current = store.current(owner)
             raise HTTPException(
-                409, str(PlanNotCurrent(body.plan_id, owner, current and current["id"]))
+                409, str(PlanNotCurrent(body.plan_id, owner, current["id"] if current else None))
             ) from None
         if plan.get("owner") != owner:
             raise HTTPException(403, f"plan {body.plan_id} is {plan.get('owner')}'s, not {owner}'s")

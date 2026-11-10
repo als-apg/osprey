@@ -74,7 +74,7 @@ class PlanConflict(PlanStoreError):
 class PlanNotCurrent(PlanStoreError):
     """The id is not the owner's current plan; ``current_id`` names the one that is."""
 
-    def __init__(self, plan_id: str, owner: str, current_id: str | None) -> None:
+    def __init__(self, plan_id: str, owner: str | None, current_id: str | None) -> None:
         self.plan_id = plan_id
         self.owner = owner
         self.current_id = current_id
@@ -87,16 +87,19 @@ def _new_id() -> str:
 
 
 class PlanStore:
-    """One current plan per owner, every plan kept by id, all moves under one lock."""
+    """One current plan per owner, every plan kept by id, all moves under one lock.
+
+    The owner ``None`` is the owner-less caller (no owner header), one more owner.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._plans: dict[str, dict[str, Any]] = {}
-        self._current: dict[str, str] = {}
+        self._current: dict[str | None, str] = {}
 
     # -- queries -----------------------------------------------------------------
 
-    def current(self, owner: str) -> dict[str, Any] | None:
+    def current(self, owner: str | None) -> dict[str, Any] | None:
         """The owner's current plan, or None when there is none or it was discarded."""
         with self._lock:
             plan = self._current_plan(owner)
@@ -109,7 +112,7 @@ class PlanStore:
 
     # -- moves -------------------------------------------------------------------
 
-    def set_current(self, owner: str, plan: dict[str, Any]) -> dict[str, Any]:
+    def set_current(self, owner: str | None, plan: dict[str, Any]) -> dict[str, Any]:
         """Store ``plan`` as the owner's current one under a new id and return it.
 
         The previous current plan becomes ``superseded``; refused while it is
@@ -135,7 +138,7 @@ class PlanStore:
             self._current[owner] = stored["id"]
             return copy.deepcopy(stored)
 
-    def discard(self, owner: str) -> dict[str, Any] | None:
+    def discard(self, owner: str | None) -> dict[str, Any] | None:
         """Discard the owner's current plan and return it; None when there is none.
 
         Refused while it is ``applying``.
@@ -166,7 +169,7 @@ class PlanStore:
                 self._move(plan, DISCARDED)
             return [plan["id"] for plan in hit]
 
-    def claim(self, plan_id: str, owner: str) -> dict[str, Any]:
+    def claim(self, plan_id: str, owner: str | None) -> dict[str, Any]:
         """Move the owner's current plan ``ready -> applying`` (phase ``writing``).
 
         Raises PlanNotCurrent for any id that is not the owner's current plan, and
@@ -217,7 +220,7 @@ class PlanStore:
         except KeyError:
             raise PlanNotFound(f"no plan {plan_id}") from None
 
-    def _current_plan(self, owner: str) -> dict[str, Any] | None:
+    def _current_plan(self, owner: str | None) -> dict[str, Any] | None:
         plan_id = self._current.get(owner)
         if plan_id is None:
             return None

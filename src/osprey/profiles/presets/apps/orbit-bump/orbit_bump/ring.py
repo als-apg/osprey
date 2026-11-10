@@ -138,13 +138,38 @@ def ring_view(model: str, render_root: Path | None = None) -> RingView:
     """The ring view of ``model``, read through the SDK.
 
     Raises:
-        ValueError: The SDK refuses the model (see ``model_members``).
+        ValueError: The SDK refuses the model (see ``model_members``), or
+            :func:`build_ring` does.
     """
     return build_ring(model_members(model, render_root=render_root))
 
 
+def position_addr(bpm: Member) -> str:
+    """A BPM's position readback; ``ValueError`` when it has none."""
+    if bpm.position_addr is None:
+        raise ValueError(f"the BPM {bpm.element} has no position readback")
+    return bpm.position_addr
+
+
+def setpoint_addr(corrector: Member) -> str:
+    """A corrector's setpoint; ``ValueError`` when it has none."""
+    if corrector.setpoint_addr is None:
+        raise ValueError(f"the corrector {corrector.element} has no setpoint")
+    return corrector.setpoint_addr
+
+
 def build_ring(members: ModelMembers) -> RingView:
-    """The ring view of already-read ``members``."""
+    """The ring view of already-read ``members``.
+
+    Raises:
+        ValueError: A BPM without a position readback or a corrector without a
+            setpoint; the view holds none, so :func:`position_addr` and
+            :func:`setpoint_addr` never raise on its members.
+    """
+    for bpm in members.bpms:
+        position_addr(bpm)
+    for corrector in members.correctors:
+        setpoint_addr(corrector)
     everything = [*members.bpms, *members.correctors]
     n_index = max((m.index for m in everything), default=-1) + 1
     planes = {}

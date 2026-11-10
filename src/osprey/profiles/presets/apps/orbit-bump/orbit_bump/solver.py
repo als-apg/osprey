@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Final
 
 import numpy as np
 from scipy.optimize import lsq_linear
@@ -165,9 +166,9 @@ def split_rows(bpm_idx: list[int], selected_cor_idx: list[int], n: int) -> Split
 
 
 #: Close the bump first: bump rows weigh ``0.5 · n_leak / n_bump`` against leakage rows.
-CLOSURE = "closure"
+CLOSURE: Final = "closure"
 #: Hit the bump BPMs exactly when the correctors can, then hold the leakage rows.
-TARGETS = "targets"
+TARGETS: Final = "targets"
 #: The solve priorities, the default first.
 PRIORITIES = (CLOSURE, TARGETS)
 #: A bump row's weight against a leakage row when a limit turns the targets priority's

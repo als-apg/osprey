@@ -143,7 +143,7 @@ def shape_weights(count: int, shape: str) -> list[float]:
 
 def _model_entry(state: Mapping[str, Any], model: str) -> Mapping[str, Any]:
     """The state's entry for ``model``; ``ValueError`` naming the offered ones."""
-    models = state.get("models") or []
+    models: list[Mapping[str, Any]] = state.get("models") or []
     for entry in models:
         if entry.get("name") == model:
             return entry
@@ -238,7 +238,12 @@ def digest(
         if posture.get("allowed")
         else posture.get("phrase") or posture.get("reason"),
     }
-    on_view = plan is not None and plan.get("model") == model and plan.get("plane") == plane
+    # The plan, when it was computed on the model and plane the answer shows.
+    on_view = (
+        plan
+        if plan is not None and plan.get("model") == model and plan.get("plane") == plane
+        else None
+    )
     if model is not None:
         entry = _model_entry(state, model)
         position = (state.get("orbit") or {}).get("position") or {}
@@ -261,10 +266,10 @@ def digest(
                 "golden": gold,
                 "from_golden": None if orbit is None or gold is None else orbit - gold,
             }
-            if on_view:
-                row["target"] = (plan.get("targets") or {}).get(m["element"])
+            if on_view is not None:
+                row["target"] = (on_view.get("targets") or {}).get(m["element"])
                 for key in _PER_BPM:
-                    row[key] = (plan.get(key) or {}).get(m["element"])
+                    row[key] = (on_view.get(key) or {}).get(m["element"])
             rows.append(row)
         answer["unit"] = members[0].get("unit") if members else None
         answer["bpms"] = rows

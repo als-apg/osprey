@@ -144,7 +144,7 @@ class OrmCache:
         *,
         timeout_s: float = DEFAULT_TIMEOUT_S,
         clock: Callable[[], float] = time.time,
-        on_ready: Callable[[str], None] | None = None,
+        on_ready: Callable[[str], object] | None = None,
     ) -> None:
         self._sdk = _default_sdk() if sdk is None else sdk
         self._timeout_s = timeout_s
@@ -155,7 +155,7 @@ class OrmCache:
 
     def start(self) -> str | None:
         """Start the first closed-orbit model's build; its name, or None when there is none."""
-        models = list(self._sdk.closed_orbit_models())
+        models: list[str] = list(self._sdk.closed_orbit_models())
         if not models:
             return None
         self.ensure(models[0])

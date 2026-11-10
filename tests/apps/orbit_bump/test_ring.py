@@ -1,5 +1,7 @@
 """The ring view: per-plane members in lattice order, ``next_cor`` and the unsolved map."""
 
+import dataclasses
+
 import pytest
 from orbit_bump import ring
 from orbit_bump.ring import PlaneView, RingView, UnsolvedCorrector, build_ring
@@ -105,6 +107,15 @@ def test_order_is_by_lattice_index_whatever_the_input_order():
     shuffled = build_ring(_members(bpms=BPMS[::-1], correctors=CORRECTORS[::-1]))
     assert shuffled.plane("x").bpm_idx == [4, 8, 9, 12, 16]
     assert shuffled.plane("x").cor_idx == [2, 5, 7, 11, 14]
+
+
+def test_a_member_without_its_address_refuses_the_view():
+    no_position = dataclasses.replace(BPMS[0], position_addr=None)
+    with pytest.raises(ValueError, match="BPM m4 has no position readback"):
+        build_ring(_members(bpms=[no_position, *BPMS[1:]]))
+    no_setpoint = dataclasses.replace(CORRECTORS[0], setpoint_addr=None)
+    with pytest.raises(ValueError, match=f"corrector {CORRECTORS[0].element} has no setpoint"):
+        build_ring(_members(correctors=[no_setpoint, *CORRECTORS[1:]]))
 
 
 def test_lattice_indices_for_split_rows(view):
