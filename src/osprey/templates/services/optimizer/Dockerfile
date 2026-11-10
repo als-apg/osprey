@@ -176,7 +176,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && { [ -z "${extra_indexes# }" ] || export UV_INDEX="$extra_indexes"; } \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
-    && pip install "uv==0.12.21" \
+    && pip install "uv==0.13.7" \
     && if [ -f /tmp/deps-ctx/osprey-lock-constraints.txt ]; then \
            echo "Source build: installing the staged wheels' dependencies at the checkout's uv.lock versions" \
            && mkdir -p /opt/osprey \
