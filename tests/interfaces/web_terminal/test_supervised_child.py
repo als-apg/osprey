@@ -203,6 +203,36 @@ class Harness:
             child.stop()
 
 
+class Backoffs:
+    """The supervisor's backoff waits, in place of the real clock's.
+
+    Each call notes the seconds asked and how many children had been started by
+    then, then ends at once (``hold=False``) or only when the stop event it was
+    handed is set or the test lets it go (:meth:`release`). No assertion reads
+    wall time: the children are still real processes that really exit.
+    """
+
+    def __init__(self, harness: Harness, *, hold: bool = False) -> None:
+        self._harness = harness
+        self._released = threading.Event()
+        if not hold:
+            self._released.set()
+        #: (seconds asked, children started before the wait) per backoff.
+        self.asked: list[tuple[float, int]] = []
+        #: The stop event each wait was handed.
+        self.stops: list[threading.Event] = []
+
+    def __call__(self, stop: threading.Event, seconds: float) -> bool:
+        self.stops.append(stop)
+        self.asked.append((seconds, len(self._harness.spawn_times)))
+        while not (stop.is_set() or self._released.is_set()):
+            stop.wait(0.01)
+        return stop.is_set()
+
+    def release(self) -> None:
+        self._released.set()
+
+
 @pytest.fixture
 def harness(script: Path, held: HeldSocket) -> Iterator[Harness]:
     h = Harness(script, held)
@@ -309,20 +339,31 @@ class TestRespawn:
         assert child.exit_status == 3
 
     def test_a_crash_is_respawned_after_the_backoff(self, harness: Harness) -> None:
-        child = harness.supervise("exit", 1, backoff_s=(0.3,), give_up_after=3)
+        backoffs = Backoffs(harness)
+        child = harness.supervise("exit", 1, backoff_s=(0.3,), give_up_after=3, wait=backoffs)
         child.start()
-        wait_until(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
         assert child.starts == 3
-        gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
-        assert all(gap >= 0.3 for gap in gaps)
+        # Each respawn came after a backoff of the configured length, asked once
+        # the child before it had been started and had crashed.
+        assert backoffs.asked == [(0.3, 1), (0.3, 2)]
 
     def test_crashes_outside_the_window_are_forgotten(self, harness: Harness) -> None:
+        # Every clock read is a second after the one before, so consecutive
+        # crashes are always further apart than the 0.1 s window.
+        ticks = itertools.count()
         child = harness.supervise(
-            "exit", 1, backoff_s=(0.2,), give_up_after=2, give_up_window_s=0.1
+            "exit",
+            1,
+            backoff_s=(0.2,),
+            give_up_after=2,
+            give_up_window_s=0.1,
+            clock=lambda: float(next(ticks)),
+            wait=Backoffs(harness),
         )
         child.start()
         # Each crash is alone in its window, so the count never reaches two.
-        wait_until(lambda: child.starts >= 5)
+        wait_until(lambda: child.starts >= 5 or harness.give_ups, timeout=None)
         assert harness.give_ups == 0
 
     def test_a_child_that_cannot_be_started_counts_as_a_crash(
@@ -533,17 +574,19 @@ class TestStop:
         time.sleep(0.3)
         assert child.starts == 1
 
-    @pytest.mark.wallclock
     def test_stop_during_a_backoff_cancels_the_respawn(self, harness: Harness) -> None:
-        child = harness.supervise("exit", 1, backoff_s=(1.0,))
+        backoffs = Backoffs(harness, hold=True)
+        child = harness.supervise("exit", 1, backoff_s=(1.0,), wait=backoffs)
         child.start()
-        wait_until(lambda: child.exit_status == 1 and child.pid is None)
+        wait_until(lambda: backoffs.asked, timeout=None)
+        watchers = _watcher_threads()
 
-        began = time.monotonic()
         child.stop()
-        assert time.monotonic() - began < 0.9, "stop does not wait the backoff out"
+        # The backoff waits on the event stop() sets, so a stop ends it.
+        assert backoffs.stops[0].is_set(), "stop does not wait the backoff out"
 
-        time.sleep(1.5)
+        backoffs.release()
+        wait_until(lambda: not any(thread.is_alive() for thread in watchers), timeout=None)
         assert child.starts == 1
         assert harness.give_ups == 0
         assert not child.running
@@ -630,7 +673,7 @@ class TestExitedChild:
         try:
             with caplog.at_level(logging.WARNING, logger=supervised_child.__name__):
                 child.start()
-                wait_until(lambda: harness.give_ups == 1)
+                wait_until(lambda: harness.give_ups == 1, timeout=None)
             member = int(member_file.read_text())
             assert child.exit_status == START_REFUSED
             warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
