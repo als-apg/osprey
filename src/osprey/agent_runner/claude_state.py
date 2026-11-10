@@ -258,6 +258,10 @@ def _state_file(env: Mapping[str, str] | None) -> Path | None:
     return Path(base) / CLAUDE_STATE_FILENAME
 
 
+#: Read only by Claude Code under the same account: it holds account state and API-key digests.
+_STATE_FILE_MODE = 0o600
+
+
 def _write_state(target: Path, state: dict) -> None:
     """Replace the state file whole, creating its directory if needed."""
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -267,7 +271,7 @@ def _write_state(target: Path, state: dict) -> None:
     atomic_replace(
         target,
         (json.dumps(state, indent=2) + "\n").encode("utf-8"),
-        mode=0o600,
+        mode=_STATE_FILE_MODE,
         sync="best_effort",
     )
 

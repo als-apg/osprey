@@ -28,16 +28,18 @@ class SlashCommand:
         description: A one-line summary, or ``""``.
         argument_hint: The frontmatter ``argument-hint``, or ``""``.
         kind: ``"skill"`` for a project skill, ``"command"`` for a command file,
-            ``"builtin"`` for one of the CLI's own commands (:data:`BUILTIN_COMMANDS`).
+            ``"builtin"`` for one of the CLI's own commands (:data:`BUILTIN_COMMANDS`),
+            ``"browser"`` for one the chat runs itself (:data:`BROWSER_COMMANDS`).
         agent_invocable: Whether the agent may also run it on its own: true for a
             skill unless its frontmatter sets ``disable-model-invocation: true``,
-            false for a command file and a built-in, which only the operator runs.
+            false for a command file, a built-in and a browser command, which only
+            the operator runs.
     """
 
     name: str
     description: str
     argument_hint: str
-    kind: Literal["skill", "command", "builtin"]
+    kind: Literal["skill", "command", "builtin", "browser"]
     agent_invocable: bool = False
 
 
@@ -55,6 +57,17 @@ BUILTIN_COMMANDS: tuple[SlashCommand, ...] = (
         description="Summarise the conversation to free up context",
         argument_hint="[instructions]",
         kind="builtin",
+    ),
+)
+
+#: The commands the chat runs in the browser, without sending a prompt: the
+#: agent never sees them, so ``POST /api/chat`` refuses one that reaches it.
+BROWSER_COMMANDS: tuple[SlashCommand, ...] = (
+    SlashCommand(
+        name="mcp",
+        description="List the MCP servers and their tools",
+        argument_hint="",
+        kind="browser",
     ),
 )
 
@@ -191,11 +204,14 @@ def list_project_slash_commands(project_dir: Path) -> list[SlashCommand]:
 
 
 def list_chat_slash_commands(project_dir: Path) -> list[SlashCommand]:
-    """List the commands the chat offers in the project: its own and the CLI's built-ins.
+    """List the commands the chat offers in the project: its own, the CLI's built-ins
+    and the browser's.
 
-    The built-ins (:data:`BUILTIN_COMMANDS`) sit beside the project's commands,
-    sorted by name with them. A project command that shares a built-in's name is
-    listed once, under the project's entry.
+    The built-ins (:data:`BUILTIN_COMMANDS`) and the browser commands
+    (:data:`BROWSER_COMMANDS`) sit beside the project's commands, sorted by name
+    with them. A project command that shares a built-in's name is listed once,
+    under the project's entry; one that shares a browser command's name is listed
+    once, under the browser's, which the chat runs before any prompt is sent.
 
     Args:
         project_dir: The directory the chat agent runs in.
@@ -203,10 +219,11 @@ def list_chat_slash_commands(project_dir: Path) -> list[SlashCommand]:
     Returns:
         The commands, sorted by name.
     """
-    project = list_project_slash_commands(project_dir)
-    taken = {c.name for c in project}
+    browser = {c.name for c in BROWSER_COMMANDS}
+    project = [c for c in list_project_slash_commands(project_dir) if c.name not in browser]
+    taken = {c.name for c in project} | browser
     builtins = [c for c in BUILTIN_COMMANDS if c.name not in taken]
-    return sorted(project + builtins, key=lambda c: c.name)
+    return sorted(project + builtins + list(BROWSER_COMMANDS), key=lambda c: c.name)
 
 
 #: A prompt that is one slash command: ``/name``, then any arguments.
@@ -267,13 +284,14 @@ def unavailable_command(prompt: str, project_dir: Path) -> str | None:
 
     The chat offers what :func:`list_chat_slash_commands` lists. Any other
     command (``/login``, ``/model``, ``/config``) the CLI would run itself, so
-    the chat route refuses the prompt. A prompt whose first token is not a
+    the chat route refuses the prompt. A browser command (``/mcp``) is the
+    browser's to run and never meant for the agent, so it is named here too. A prompt whose first token is not a
     command name is text: a path such as ``/home/x is full`` (a ``/`` inside
     the token), or ``/10 of them`` (not a name), goes to the agent.
 
     Returns:
-        The name typed after ``/`` when *prompt* opens with an unlisted
-        command name, else ``None``.
+        The name typed after ``/`` when *prompt* opens with an unlisted or a
+        browser command name, else ``None``.
     """
     match = _SLASH_PROMPT_RE.match(strip_attachment_block(prompt).strip())
     if match is None:
@@ -281,6 +299,8 @@ def unavailable_command(prompt: str, project_dir: Path) -> str | None:
     name = match["name"]
     if _COMMAND_NAME_RE.fullmatch(name) is None:
         return None
+    if any(c.name == name for c in BROWSER_COMMANDS):
+        return name
     if any(c.name == name for c in list_chat_slash_commands(project_dir)):
         return None
     return name

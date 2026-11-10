@@ -22,6 +22,7 @@ api:
   - llama-cpp
   - ollama
   - openai
+  - openrouter
   - stanford
 approval:
   default_policy: always
@@ -30,10 +31,8 @@ approval:
     add_panel_to_rail: always
     archiver_read: skip
     channel_read: skip
-    channel_write: always
     entry_create: always
     entry_publish: always
-    execute: selective
     register_panel: always
     remove_panel_from_rail: always
     setup_patch: always
@@ -213,8 +212,8 @@ modules:
       groups:
       - label: Users
         type: users
-      - label: Apps
-        type: apps
+      - label: Shared logins
+        type: shared
       notices:
       - data/landing/working-safely.md
     shared:
@@ -276,6 +275,7 @@ web:
     max_channels: 50000
   config_panel:
     enabled: true
+  default_panel: canopy
   panels:
     ariel:
       enabled: true
@@ -284,6 +284,10 @@ web:
       label: BLUESKY
       path: /bluesky/
       url: ${BLUESKY_WEB_URL:-http://localhost:10071}
+    canopy:
+      enabled: true
+      home_screen: facility/overview
+      vole_bytes_max: 268435456
     channel-finder:
       enabled: true
     events:
@@ -293,8 +297,6 @@ web:
       path: /dashboard
       url: http://localhost:10010
     jupyter:
-      enabled: true
-    lattice:
       enabled: true
     okf:
       enabled: true

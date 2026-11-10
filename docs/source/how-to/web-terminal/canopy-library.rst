@@ -31,7 +31,7 @@ the source tree directly. Both end in the same kind of commit.
    use ``~/my-assistant`` for the deployment.
 
 The library and its report
-==========================
+--------------------------
 
 ``data/canopy/library`` holds:
 
@@ -61,7 +61,7 @@ They are a starting point to replace with your facility's own.
    library included. Commit the library first.
 
 Accept a screen a user shared
-=============================
+-----------------------------
 
 A user asks the agent to share a screen. The agent's ``request_push`` files a
 **push request** in that user's own data: the screen, every screen and image
@@ -129,7 +129,7 @@ refusal lists the files that differ and prints two ways out: discard the
 half-written files, or keep them and regenerate the report. Follow it.
 
 Build screens on your own machine
-=================================
+---------------------------------
 
 A developer can edit the library directly, with Claude Code and a CANOPY server
 on their own machine. No OSPREY stack runs: channels show mock values, so a
@@ -203,7 +203,7 @@ screenshot shows the layout, not the machine.
 .. _canopy-library-report:
 
 Regenerate the report
-=====================
+---------------------
 
 Run this after every change to the screens, and after every CANOPY upgrade
 even when no screen changed, because a newer CANOPY may compute the report
@@ -221,7 +221,7 @@ library, so look at the files first. Then read the diff of
 diff needs no commit.
 
 Remove, restore or undo a screen
-================================
+--------------------------------
 
 There is no push command for these. Each is a change to the source tree: make
 it with git, regenerate the report, commit and build as above.
@@ -255,7 +255,7 @@ hold and ``git add`` it before the next revert. Going back to an older image
 is not a rollback: the next build ships what git holds.
 
 Facility collections
-====================
+--------------------
 
 A **collection** opens several screens and tools together in one view. The
 deployment's own collections are JSON files in ``data/canopy/collections``,
@@ -268,7 +268,7 @@ and Trace, the correlation plot and the waveform view, each already showing
 channels of the example facility.
 
 When the build refuses the library
-==================================
+----------------------------------
 
 ``osprey build`` refuses a library, with one line per problem and its fix,
 when:

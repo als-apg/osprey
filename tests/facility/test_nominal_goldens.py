@@ -91,8 +91,8 @@ WIRED_CAVITY = ("SR:RF:CAVITY:01:FREQUENCY:RB", "SR:RF:CAVITY:01:FREQUENCY:SP")
 DECK_RF_MHZ = 500.417
 DECK_RF_TOLERANCE_MHZ = 1e-3
 
-#: The largest closed-orbit offset a monitor of the ideal deck reads, in metres.
-CLOSED_ORBIT_BOUND_M = 1e-4
+#: The largest closed-orbit offset a monitor of the ideal deck reads, in millimetres.
+CLOSED_ORBIT_BOUND_MM = 0.1
 
 #: The largest trajectory offset a ``BTS`` monitor of the ideal deck reads, in millimetres.
 TRAJECTORY_BOUND_MM = 1e-4
@@ -199,7 +199,7 @@ def test_the_rebaselined_channels_read_the_physics_model(served: Served) -> None
     monitors = sorted(a for a in rebaselined() if SR_BPM_X.fullmatch(a))
     assert len(monitors) == 72
     for address in monitors:
-        assert abs(float(served.held[address])) < CLOSED_ORBIT_BOUND_M, address
+        assert abs(float(served.held[address])) < CLOSED_ORBIT_BOUND_MM, address
     assert len(bts_monitors()) == 12
     for address in sorted(bts_monitors()):
         assert abs(float(served.held[address])) < TRAJECTORY_BOUND_MM, address
@@ -242,4 +242,4 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
         expected = sigma * series.keyed_normals(key, counters_ms)
         np.testing.assert_allclose(reading, expected, rtol=1e-9, atol=TOLERANCE, err_msg=address)
         checked += 1
-    assert checked == 713
+    assert checked == 725

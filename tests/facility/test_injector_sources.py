@@ -109,6 +109,12 @@ def _is_standin(record_id: str) -> bool:
     return record_id.split(":", 1)[0].split("/", 1)[0] in STANDIN_SECTIONS
 
 
+def _is_corrector_setpoint(address: str) -> bool:
+    """Every corrector setpoint carries a limits record, whatever its section."""
+    parts = address.split(":")
+    return parts[1:3] in (["MAG", "HCM"], ["MAG", "VCM"]) and address.endswith(":CURRENT:SP")
+
+
 def _is_transfer(record_id: str) -> bool:
     """An LTB or BTS record the generator emits: any but the frozen BTS ones."""
     section = record_id.split(":", 1)[0].split("/", 1)[0]
@@ -526,9 +532,10 @@ def test_the_gun_on_offs_and_the_paddles_are_writable_bool_setpoints() -> None:
         assert address not in limited, address
 
 
-def test_no_gtl_or_ln_channel_has_a_limits_record() -> None:
+def test_no_gtl_or_ln_channel_but_a_corrector_has_a_limits_record() -> None:
     addresses = [record["address"] for record in _committed("limits.yaml")["records"]]
-    assert [address for address in addresses if _is_standin(address)] == []
+    standin = [address for address in addresses if _is_standin(address)]
+    assert standin and all(_is_corrector_setpoint(address) for address in standin)
 
 
 def test_every_gtl_and_ln_setpoint_carries_its_nominal() -> None:
@@ -784,9 +791,10 @@ def test_each_new_ltb_and_bts_setpoint_pairs_and_carries_its_nominal_unless_wire
         assert "nominal" not in seeds.get(channel["pair"], {}), channel["pair"]
 
 
-def test_no_ltb_or_bts_channel_has_a_limits_record() -> None:
+def test_no_ltb_or_bts_channel_but_a_corrector_has_a_limits_record() -> None:
     addresses = [record["address"] for record in _committed("limits.yaml")["records"]]
-    assert [a for a in addresses if a.split(":")[0] in TRANSFER_SECTIONS] == []
+    transfer = [a for a in addresses if a.split(":")[0] in TRANSFER_SECTIONS]
+    assert transfer and all(_is_corrector_setpoint(a) for a in transfer)
 
 
 def test_the_wired_frozen_bts_seeds_carry_no_nominal_and_keep_their_motion() -> None:

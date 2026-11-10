@@ -47,7 +47,6 @@ from osprey.interfaces.web_terminal.chat_session_pool import (
     ChatSessionPool,
 )
 from osprey.interfaces.web_terminal.operator_session import (
-    _NOT_ARMED_MESSAGE,
     OperatorRegistry,
     OperatorSession,
     TurnInProgressError,
@@ -580,13 +579,26 @@ class TestTierVerdictDeny:
 
         assert result.message == refusal_text("tier_never")
 
-    async def test_an_ask_that_is_not_a_write_keeps_todays_deny(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("tool", "tool_input"),
+        [
+            pytest.param("mcp__weather__forecast", {}, id="mcp-read"),
+            pytest.param("Read", {"file_path": "/tmp/x.png"}, id="read"),
+            pytest.param("Glob", {"pattern": "**/*.png"}, id="glob"),
+        ],
+    )
+    async def test_an_ask_that_is_not_a_write_gets_the_approval_card(
+        self, tmp_path, tool, tool_input
+    ):
+        """No tier arms writes here, but a read is not a write: the operator answers it."""
         async with _chat_on(tmp_path, writes="never") as chat:
-            result = await chat.can_use_tool("mcp__weather__forecast", {}, SimpleNamespace())
+            answer, card = await chat.ask(tool, tool_input)
+            assert await chat.session.resolve_permission(card["request_id"], allow=True)
+            result = await asyncio.wait_for(answer, timeout=2.0)
 
-        assert isinstance(result, PermissionResultDeny)
-        assert result.message == _NOT_ARMED_MESSAGE
-        assert "[osprey-refusal:" not in result.message
+        assert card["type"] == "permission_request"
+        assert card["kind"] == "tool"
+        assert isinstance(result, PermissionResultAllow)
 
 
 class TestStandingRules:

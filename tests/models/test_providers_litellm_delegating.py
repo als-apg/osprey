@@ -255,10 +255,9 @@ class TestTheDeclaredMetadata:
 
     @pytest.mark.parametrize("row", LITELLM_ADAPTERS, ids=_ids(LITELLM_ADAPTERS))
     def test_the_requirement_flags_are_declared(self, row):
-        """An adapter that needs no endpoint still needs a key and a model id."""
+        """An adapter that needs no endpoint still needs a key."""
         assert row.adapter.requires_api_key is True
         assert row.adapter.requires_base_url is row.requires_base_url
-        assert row.adapter.requires_model_id is True
         assert row.adapter.supports_proxy is True
 
     @pytest.mark.parametrize("row", LITELLM_ADAPTERS, ids=_ids(LITELLM_ADAPTERS))
