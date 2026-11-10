@@ -8,7 +8,8 @@ tools via stdio JSON-RPC. This page lists every server that ships in-tree,
 with every tool each one can register. The **10 core servers** are the ones a
 deployment normally renders: ``control_system``, the four channel-finder
 variants, ``workspace``, ``python_executor``, ``ariel``,
-``osprey_facility_knowledge`` and ``graph``. Four more ship in-tree but are off
+``osprey_facility_knowledge`` and ``graph``. ``pv-directory`` renders only
+when the config has a ``pv_directory`` section. Four more ship in-tree but are off
 by default: ``phoebus``, ``optimizer``, ``bluesky`` and ``health``. A profile
 enables one with ``claude_code.servers.<name>.enabled: true``. The
 ``demo`` preset enables ``bluesky`` and ``health``; ``phoebus`` and
@@ -20,8 +21,8 @@ these.
 
 The four channel-finder variants count as four of the ten, but a deployment
 serves exactly one of them — whichever ``channel_finder.pipeline_mode`` names —
-under the single ``channel-finder`` name, which is why the map shows seven
-running processes.
+under the single ``channel-finder`` name. The map shows those seven running
+processes and ``pv-directory``.
 
 
 Control System
@@ -168,7 +169,9 @@ Package: ``osprey.mcp_server.pv_directory``
 Reads the control system's own directory of channel addresses for the session's
 current control target. It is present only when the config has a
 ``pv_directory`` section; the alarm and put-log tools are present only when
-that section configures their source. Every tool is a read.
+that section configures their source. Every tool is a read and is pre-approved.
+The ``channel-finder`` shared login carries the server; the ``logbook`` and
+``knowledge`` logins switch it off. See :doc:`/how-to/use-pv-directory`.
 
 **Tools:**
 
