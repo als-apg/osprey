@@ -47,7 +47,9 @@ _GROUPS_KEY = "osprey-sidebar-groups"
 @contextmanager
 def _page(browser: Browser, workspace_dir: Path, stored: dict | None = None) -> Iterator[Page]:
     """A real web-terminal hub over an empty project, opened at 1280×800, with
-    ``stored`` seeded as the sidebar groups when given."""
+    ``stored`` seeded as the sidebar groups when given, handed over once the hub
+    is ready: the rail's groups are drawn during the panel manager's start-up,
+    and a heading can show before the last of them is."""
     shared_root = patch(
         "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace_dir
     )
@@ -61,7 +63,7 @@ def _page(browser: Browser, workspace_dir: Path, stored: dict | None = None) -> 
             )
         try:
             page.goto(base_url, wait_until="domcontentloaded")
-            expect(page.locator(_TOOLS_HEAD)).to_be_visible(timeout=10_000)
+            wait_for_hub_ready(page)
             yield page
         finally:
             ctx.close()
@@ -168,9 +170,6 @@ def test_a_stored_layout_that_renamed_or_lowered_workspace_still_leads_headless(
         "placement": {},
     }
     with _page(chromium_browser, tmp_path, stored=stored) as page:
-        # The rail is rendered from the stored groups during the panel
-        # manager's start-up; the tools heading alone can show before it ends.
-        wait_for_hub_ready(page)
         groups = page.eval_on_selector_all(
             "#panel-rail > .sidebar-group[data-group]", "els => els.map(e => e.dataset.group)"
         )
@@ -213,7 +212,7 @@ def test_dragging_a_heading_moves_its_whole_group_and_survives_reload(tmp_path, 
         expect(page.locator("#panel-rail > .sidebar-group.dragging")).to_have_count(0)
 
         page.reload(wait_until="domcontentloaded")
-        expect(page.locator(_TOOLS_HEAD)).to_be_visible(timeout=10_000)
+        wait_for_hub_ready(page)
         assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
             "workspace",
             "system",
