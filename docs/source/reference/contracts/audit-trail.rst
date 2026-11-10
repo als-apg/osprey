@@ -96,6 +96,11 @@ refusal never share one.
      - Each CANOPY panel write and each panel write refused, under the person
        who clicked --- see :ref:`architecture-safety-chain-panel-write`. Its
        ``detail`` holds the value sent: see :ref:`audit-trail-payloads`
+   * - ``channels``
+     - Each batch of live values the channel finder's value reader fetched,
+       one allowed entry per batch: ``subject`` ``channel_values_read``,
+       ``reason`` ``batch_read``, ``detail`` ``target=<target> pv_count=<n>``,
+       ``session`` ``channels:<pid>``
    * - ``preflight`` (written as ``queueserver`` and as each lane's
        ``<lane>-queueserver``)
      - Whether a queued plan's declared channels answered before it moved, per
