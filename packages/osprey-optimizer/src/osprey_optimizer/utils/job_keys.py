@@ -30,9 +30,7 @@ def meta_key(job_id: str) -> str:
 def state_prefix(job_id: str) -> str:
     """Prefix for the job's state store; it appends ``:{suffix}`` per field.
 
-    Every job type shares this prefix — a job is exactly one type (chosen by
-    ``create_job_state(job_type, ...)``) and ``job_id`` is unique, so types never
-    collide.
+    ``job_id`` is unique, so prefixes never collide.
     """
     return f"{_JOB_NAMESPACE}{job_id}:state"
 
