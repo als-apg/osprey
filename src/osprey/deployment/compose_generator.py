@@ -44,6 +44,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.deployment.graphdb_service import DEFAULT_IMAGE as GRAPHDB_DEFAULT_IMAGE
 from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS, is_loopback_bind
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
@@ -1837,8 +1838,8 @@ def _image_axis_block(config):
 #:
 #: These are the knobs a site network needs and the public internet does not: a
 #: TLS-intercepting proxy's CA, the proxy bypass list pip is given, an internal
-#: package index, and the registry path the recipes pull their base images from,
-#: for a site that mirrors Docker Hub. They are axes in the same sense
+#: package index, and the registry that stands in for docker.io, for a site that
+#: mirrors Docker Hub. They are axes in the same sense
 #: ``images.registry`` and ``images.tag`` are — one value per deployment,
 #: carried by every image OSPREY builds — which is why they share the block and
 #: its precedence rules rather than growing a section of their own.
@@ -1856,6 +1857,85 @@ SITE_IMAGE_AXES = {
 }
 
 
+#: The registry Docker Hub references name, spelled out or implied.
+DOCKER_HUB = "docker.io"
+
+
+def hub_image(reference: str, base_registry: str) -> str:
+    """A Docker Hub image reference, moved onto the registry standing in for docker.io.
+
+    The mirror must keep Docker Hub's paths: an official image is served under
+    ``library/`` and a namespaced one under its own namespace, exactly as
+    Docker Hub files them. So ``redis:7.4-alpine`` becomes
+    ``<mirror>/library/redis:7.4-alpine``, ``pgvector/pgvector:pg16`` becomes
+    ``<mirror>/pgvector/pgvector:pg16``, and ``ghcr.io/bluesky/tiled:0.2.18``,
+    which names another registry, is returned unchanged.
+
+    :param reference: An image reference, short or fully qualified.
+    :type reference: str
+    :param base_registry: The registry standing in for docker.io, ``""`` when
+        the deployment declares none.
+    :type base_registry: str
+    :return: *reference* on the mirror, or *reference* itself when there is no
+        mirror or it names a registry other than Docker Hub.
+    :rtype: str
+    """
+    if not base_registry:
+        return reference
+    first, slash, rest = reference.partition("/")
+    if slash and first != DOCKER_HUB and ("." in first or ":" in first or first == "localhost"):
+        return reference
+    path = rest if slash and first == DOCKER_HUB else reference
+    if "/" not in path:
+        path = f"library/{path}"
+    return f"{base_registry}/{path}"
+
+
+def resolve_base_registry(config):
+    """The registry standing in for docker.io this deployment declares.
+
+    The ``OSPREY_BASE_REGISTRY`` member of :func:`resolve_site_image_axes`, so
+    the environment-over-config layering and the trailing-``/`` drop are the
+    axis's own.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: The registry, or ``""`` when the deployment declares none.
+    :rtype: str
+    :raises ValueError: If ``images`` is not a block, or an axis declares a
+        value no build arg can carry.
+    """
+    return resolve_site_image_axes(config).get("OSPREY_BASE_REGISTRY", "")
+
+
+#: The Docker Hub image each pulled service runs when nothing names its image,
+#: keyed as the compose templates read them from ``upstream_images``.
+UPSTREAM_IMAGES = {
+    "postgres": "pgvector/pgvector:pg16",
+    "mongodb": "mongo:7",
+    "graphdb": GRAPHDB_DEFAULT_IMAGE,
+    "redis": "redis:7.4-alpine",
+}
+
+
+def resolve_upstream_images(config):
+    """The default reference of every pulled upstream image this deployment renders.
+
+    Each :data:`UPSTREAM_IMAGES` entry passed through :func:`hub_image` with
+    :func:`resolve_base_registry`, so a declared Docker Hub mirror moves every
+    one and an undeclared one leaves each spelled as Docker Hub names it.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: Template key -> image reference.
+    :rtype: dict[str, str]
+    :raises ValueError: If ``images`` is not a block, or an axis declares a
+        value no build arg can carry.
+    """
+    base_registry = resolve_base_registry(config)
+    return {key: hub_image(ref, base_registry) for key, ref in UPSTREAM_IMAGES.items()}
+
+
 def resolve_site_image_axes(config):
     """The site build-arg values this deployment declares, keyed by ARG name.
 
@@ -1869,8 +1949,9 @@ def resolve_site_image_axes(config):
     Dockerfiles declare each ARG with a default that means "no site setting",
     so an unset axis leaves the argv a deployment produces today unchanged.
 
-    ``base_registry`` loses any trailing ``/``, so both spellings of a mirror
-    path resolve alike and ``/`` alone counts as unset.
+    ``base_registry`` names the registry that stands in for docker.io and loses
+    any trailing ``/``, so both spellings of a mirror resolve alike and ``/``
+    alone counts as unset.
 
     ``site_ca`` is a HOST path here — the file the operator points at. Staging
     it into a build context and rewriting the value to the name COPY can reach
@@ -2467,7 +2548,10 @@ def _inject_project_metadata(config):
     to its entry — ``<project>:local`` until the registry or tag axis moves it,
     the tag ``osprey up`` builds from the project ``Dockerfile`` — unless the
     profile pinned an explicit ``services.dispatch_worker.image``, or the
-    worker runs at a tier, whose render image it then runs. The
+    worker runs at a tier, whose render image it then runs. It injects the
+    default reference of every pulled upstream image as ``upstream_images``
+    (:func:`resolve_upstream_images`), moved onto ``images.base_registry`` when
+    the deployment declares one. The
     event-dispatcher's own image is left to its template (it builds its tag via
     a compose ``build:`` block; the worker deliberately has none). It also injects
     the lane registry's second-lane keys (``bluesky_second_lane_keys``), so every
@@ -2823,6 +2907,12 @@ def _inject_project_metadata(config):
     # line reads a value rather than restating how a name is built, and so a
     # stack cannot end up half on the registry and half on ``:local``.
     config_with_labels["osprey_images"] = image_defaults = resolve_image_defaults(config)
+
+    # The default reference of each pulled upstream image, already moved onto
+    # the site's Docker Hub mirror when one is declared
+    # (:func:`resolve_upstream_images`). A template's own image override still
+    # names its image outright.
+    config_with_labels["upstream_images"] = resolve_upstream_images(config)
 
     # Default the dispatch worker's image to the project image that
     # ``osprey up`` builds. The worker compose template renders

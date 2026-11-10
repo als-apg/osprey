@@ -455,6 +455,47 @@ def test_the_override_reaches_the_pull_and_the_copy():
     assert any(argv[:2] == ["docker", "run"] and mirror in argv for argv in fake.calls)
 
 
+def test_the_copy_image_comes_from_the_base_registry(monkeypatch):
+    """A deployment that mirrors Docker Hub pulls the copy image from the mirror."""
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    mirrored = "mirror.example.org/dockerhub/library/alpine:3.20"
+    assert TRANSCRIPTS_COPY_IMAGE == "docker.io/library/alpine:3.20"
+    fake = FakeRuntime("docker")
+    fake.volumes["proj_alice-claude-config"] = {}
+
+    copy_transcripts_once(
+        _deploy_config(images={"base_registry": "mirror.example.org/dockerhub"}),
+        runtime=fake.runtime,
+        run=fake,
+        env={},
+    )
+
+    assert ["docker", "pull", mirrored] in fake.calls
+    assert any(argv[:2] == ["docker", "run"] and mirrored in argv for argv in fake.calls)
+
+
+def test_the_copy_image_override_wins_over_the_base_registry(monkeypatch):
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    pinned = "pinned.example.org/alpine:3.20"
+    fake = FakeRuntime("docker")
+    fake.volumes["proj_alice-claude-config"] = {}
+
+    copy_transcripts_once(
+        _deploy_config(images={"base_registry": "mirror.example.org/dockerhub"}),
+        runtime=fake.runtime,
+        run=fake,
+        env={"OSPREY_TRANSCRIPTS_COPY_IMAGE": pinned},
+    )
+
+    assert ["docker", "pull", pinned] in fake.calls
+    assert (
+        transcripts_copy_image(
+            {"OSPREY_TRANSCRIPTS_COPY_IMAGE": pinned}, base_registry="mirror.example.org/dockerhub"
+        )
+        == pinned
+    )
+
+
 def test_the_podman_form_stamps_the_podman_compose_project():
     fake = FakeRuntime("podman")
     fake.volumes["proj_alice-claude-config"] = {}

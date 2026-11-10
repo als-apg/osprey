@@ -366,6 +366,34 @@ def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
     assert compose["services"]["nginx"]["image"] == custom
 
 
+def test_the_default_nginx_image_comes_from_the_base_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deployment that mirrors Docker Hub pulls the front door from the mirror."""
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["images"] = {"base_registry": "mirror.example.org/dockerhub"}
+
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    assert compose["services"]["nginx"]["image"] == (
+        "mirror.example.org/dockerhub/library/nginx:1.31-alpine"
+    )
+
+
+def test_a_named_nginx_image_ignores_the_base_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["images"] = {"base_registry": "mirror.example.org/dockerhub"}
+    config["modules"]["web_terminals"]["nginx_image"] = "pinned.example.org/nginx:1"
+
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    assert compose["services"]["nginx"]["image"] == "pinned.example.org/nginx:1"
+
+
 def test_compose_service_env_has_terminal_user_and_web_slot_commentary_per_service() -> None:
     """Each per-user service sets OSPREY_TERMINAL_USER, and the healthcheck
     commentary names the layout's ``web`` slot — the fallback a bare

@@ -83,6 +83,50 @@ def test_a_profile_with_no_block_gets_the_defaults() -> None:
     assert agent_record_errors(cfg) == []
 
 
+_HUB_MIRROR = "mirror.example.org/dockerhub"
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        None,
+        {"backend": "clickhouse"},
+        {"backend": "clickhouse", "clickhouse": {"memory": "4g"}},
+    ],
+    ids=["no-block", "no-clickhouse-block", "no-image-key"],
+)
+def test_the_default_clickhouse_image_comes_from_the_base_registry(
+    block: dict[str, Any] | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record's store image is pulled from the site's Docker Hub mirror."""
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    mirrored = f"{_HUB_MIRROR}/{DEFAULT_CLICKHOUSE_IMAGE}"
+    raw: dict[str, Any] = {"images": {"base_registry": _HUB_MIRROR}}
+    if block is not None:
+        raw["agent_record"] = block
+
+    assert parse_agent_record_block(raw).clickhouse.image == mirrored
+    # The build parses the profile, whose `images.base_registry` sits under
+    # `config:`, and hands the registry in.
+    del raw["images"]
+    assert parse_agent_record_block(raw, base_registry=_HUB_MIRROR).clickhouse.image == mirrored
+
+
+def test_a_named_clickhouse_image_ignores_the_base_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    raw = {
+        "images": {"base_registry": _HUB_MIRROR},
+        "agent_record": {
+            "backend": "clickhouse",
+            "clickhouse": {"image": "pinned.example.org/ch:1"},
+        },
+    }
+
+    assert parse_agent_record_block(raw).clickhouse.image == "pinned.example.org/ch:1"
+
+
 def test_an_unspelled_port_lands_at_the_profiles_base() -> None:
     assert parse_agent_record_block({}, base=30000).port == default_port("agent_record", base=30000)
     stated = parse_agent_record_block({"agent_record": {"port": 4321}}, base=30000)
@@ -127,6 +171,28 @@ def test_a_profile_without_the_block_parses_to_the_defaults() -> None:
 
     assert profile.agent_record.backend == BACKEND_EMBEDDED
     assert profile.agent_record.retention_days == DEFAULT_RETENTION_DAYS
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"images.base_registry": "mirror.example.org/dockerhub/"},
+        {"images": {"base_registry": "mirror.example.org/dockerhub"}},
+    ],
+    ids=["dotted", "nested"],
+)
+def test_the_profiles_base_registry_reaches_the_clickhouse_default(
+    config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The build's parse reads the registry from the profile's ``config:`` block."""
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    profile = _parse_profile(
+        {"name": "site", "config": config, "agent_record": {"backend": "clickhouse"}}
+    )
+
+    assert profile.agent_record.clickhouse.image == (
+        f"mirror.example.org/dockerhub/{DEFAULT_CLICKHOUSE_IMAGE}"
+    )
 
 
 def test_structural_problems_are_reported_together() -> None:
