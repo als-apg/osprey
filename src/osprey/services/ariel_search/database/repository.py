@@ -252,18 +252,27 @@ def _subject_upsert_sql(has_subject: bool, placeholder: str) -> tuple[str, str, 
     )
 
 
+#: The metadata keys a re-upsert that omits them keeps from the stored row.
+#: ``follows_up``: a facility read-back or re-ingest that cannot store the link must
+#: not erase the one ARIEL wrote. ``sync_status``: a writer that does not say
+#: whether the facility holds the entry must not turn a local-only entry into a
+#: facility one, so an omission fails toward "no link".
+CARRIED_METADATA_KEYS = ("follows_up", "sync_status")
+
 #: The ON CONFLICT metadata update shared by both upserts. The incoming metadata
-#: replaces the stored one, except that a stored ``follows_up`` is kept when the
-#: incoming metadata has no such key: a facility read-back or re-ingest that cannot
-#: store the link must not erase the one ARIEL wrote. A present key, even ``null``,
-#: wins. Consequence: deleting the key upstream never clears a stored value.
-_METADATA_UPSERT_SQL = """metadata = CASE
+#: replaces the stored one, except that each stored :data:`CARRIED_METADATA_KEYS`
+#: key is kept when the incoming metadata has no such key. A present key, even
+#: ``null``, wins. Consequence: deleting the key upstream never clears a stored value.
+_METADATA_UPSERT_SQL = f"""metadata = CASE
         WHEN jsonb_typeof(EXCLUDED.metadata) = 'object'
             AND jsonb_typeof(enhanced_entries.metadata) = 'object'
-            AND NOT (EXCLUDED.metadata ? 'follows_up')
-            AND enhanced_entries.metadata ? 'follows_up'
-        THEN EXCLUDED.metadata
-            || jsonb_build_object('follows_up', enhanced_entries.metadata -> 'follows_up')
+        THEN EXCLUDED.metadata || (
+            SELECT COALESCE(jsonb_object_agg(carried.key, enhanced_entries.metadata -> carried.key),
+                            '{{}}'::jsonb)
+            FROM unnest(ARRAY{list(CARRIED_METADATA_KEYS)!r}::text[]) AS carried(key)
+            WHERE enhanced_entries.metadata ? carried.key
+              AND NOT (EXCLUDED.metadata ? carried.key)
+        )
         ELSE EXCLUDED.metadata
     END"""
 

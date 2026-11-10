@@ -33,16 +33,16 @@ _UNRESOLVED = object()
 
 
 def _needs_lookup(row: dict[str, Any]) -> bool:
-    """Whether the row lacks what build_entry_url needs to tell a local-only entry."""
-    return "source_system" not in row or not isinstance(row.get("metadata"), Mapping)
+    """Whether the row lacks the ``metadata`` build_entry_url reads ``sync_status`` from."""
+    return not isinstance(row.get("metadata"), Mapping)
 
 
 async def _add_entry_urls(service: Any, rows: list[Any]) -> None:
     """Add ``entry_url`` to every row that selects an ``entry_id``.
 
-    A query may select ``entry_id`` without ``metadata`` or ``source_system``,
-    the two columns that tell a local-only entry from a facility one. The ids of
-    such rows are resolved in one batched lookup; when that lookup fails, those
+    A query may select ``entry_id`` without ``metadata``, whose ``sync_status``
+    tells a local-only entry from a facility one. The ids of such rows are
+    resolved in one batched lookup; when that lookup fails, those
     rows get no URL rather than one that may point at a page that does not exist.
     """
     keyed = [row for row in rows if isinstance(row, dict) and row.get("entry_id")]
@@ -68,18 +68,14 @@ async def _add_entry_urls(service: Any, rows: list[Any]) -> None:
             }
 
     for row in keyed:
-        source_system = row.get("source_system")
         metadata = row.get("metadata")
         if _needs_lookup(row):
             entry = resolved.get(str(row["entry_id"]))
             if entry is _UNRESOLVED:
                 continue
             if entry is not None:
-                if "source_system" not in row:
-                    source_system = entry.get("source_system")
-                if not isinstance(metadata, Mapping):
-                    metadata = entry.get("metadata")
-        entry_url = build_entry_url(row["entry_id"], source_system, metadata=metadata)
+                metadata = entry.get("metadata")
+        entry_url = build_entry_url(row["entry_id"], metadata=metadata)
         if entry_url is not None:
             row["entry_url"] = entry_url
 
