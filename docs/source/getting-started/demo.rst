@@ -151,6 +151,8 @@ same safety hooks, then adds production capabilities. The most visible additions
    * - **Web terminal**
      - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
+       The CHANNELS panel's **All PVs** view lists every PV the simulator
+       serves (:doc:`../how-to/use-pv-directory`).
 
 The **safety model is unchanged**: limits checking, the pre-write check, and the
 human-approval prompt all behave exactly as in the Hello World Tutorial. Refer
@@ -216,7 +218,7 @@ transformer); the second resolves to the ``SR:MAG:HCM:*:CURRENT:SP`` family.
 
 **How it works.** The preset runs the ``graph`` channel finder. It answers
 from the facility knowledge graph that ``osprey build`` writes from the
-facility file. The channel-finder agent works with five tools:
+facility file. The channel-finder agent works with eleven tools:
 
 - **Keyword lookup.** ``search_channels`` reads the search index that
   ``osprey build`` derives from the graph. It matches your words against each
@@ -229,9 +231,12 @@ facility file. The channel-finder agent works with five tools:
   with ``read_cypher``.
 - **The rules.** ``capabilities`` tells the agent how addresses are spelled and
   which tool fits which question.
+- **All PVs.** When the graph has no answer, ``directory_search``,
+  ``directory_properties``, ``pv_record``, ``ioc_record``, ``alarm_state`` and
+  ``alarm_config`` read the simulator's own directory and its replayed alarms.
 
 The agent **never fabricates PV names**: every address it returns is one the
-graph holds. For the other search strategies, see
+graph or the directory holds. For the other search strategies, see
 :doc:`../how-to/use-channel-finder`.
 
 Step 4: Search the Electronic Logbook
