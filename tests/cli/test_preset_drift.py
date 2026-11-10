@@ -3,14 +3,11 @@
 ``osprey init`` stamps ``provenance:`` into the profile it writes and nothing
 read it back: a profile could lack a line the preset gained, and every build
 stayed green. These tests pin the comparison
-(:func:`~osprey.cli.build_profile_drift.preset_drift_report`) and the two
-surfaces that print it — ``osprey validate`` refuses the unmarked STRUCTURAL
-differences and only reports the value ones, ``osprey build`` names both under
-``-v``. Which kind a finding is, and so what it costs, is
-:attr:`~osprey.cli.build_profile_drift.DriftFinding.kind`; the policy that maps
-kinds to costs is :data:`~osprey.cli.build_profile_drift.REFUSAL_KINDS` and
-:data:`~osprey.cli.build_profile_drift.NOTE_KINDS`, exercised end to end in
-tests/cli/test_drift_refusal.py.
+(:func:`~osprey.cli.build_profile_drift.preset_drift_report`) and what the two
+verbs print of it: ``osprey validate`` and ``osprey build`` say only when the
+preset has moved on, and refuse and list no difference. Which sort a finding is
+is :attr:`~osprey.cli.build_profile_drift.DriftFinding.kind`;
+tests/cli/test_preset_edits_never_refuse.py runs each kind through validate.
 
 The fixture is a real ``osprey init`` of the ``demo`` preset,
 made once per module and copied per test: the first assertion of the suite is
@@ -65,6 +62,16 @@ def _report(profile_file: Path) -> DriftReport:
     return preset_drift_report(profile_file, profile.provenance)
 
 
+def _structural(report: DriftReport) -> list:
+    """The findings where one document has a key, block or member the other has not."""
+    return [f for f in report.findings if f.kind != "value"]
+
+
+def _values(report: DriftReport) -> list:
+    """The findings where both documents carry a key with different values."""
+    return [f for f in report.findings if f.kind == "value"]
+
+
 def _edit(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert text.count(old) == 1, f"{old!r} must occur exactly once in {path}"
@@ -90,8 +97,7 @@ def _line_of(path: Path, needle: str) -> int:
 def test_fresh_materialization_reports_nothing(repo: Path) -> None:
     report = _report(repo / PROFILE)
 
-    assert report.unmarked == []
-    assert report.stale_markers == []
+    assert report.findings == []
     assert report.note is None
 
 
@@ -130,7 +136,7 @@ def test_fresh_hello_world_reports_nothing(tmp_path: Path) -> None:
 
     report = _report(root / PROFILE)
 
-    assert report.unmarked == []
+    assert report.findings == []
     assert report.note is None
 
 
@@ -147,9 +153,9 @@ def test_member_the_preset_selects_and_the_profile_lacks(repo: Path) -> None:
 
     report = _report(profile)
 
-    assert [f.subject for f in report.refusals] == ["web_panels: system-health"]
-    assert report.unmarked[0].kind == "missing_member"
-    rendered = report.unmarked[0].render()
+    assert [f.subject for f in _structural(report)] == ["web_panels: system-health"]
+    assert report.findings[0].kind == "missing_member"
+    rendered = report.findings[0].render()
     assert "profile.yml" in rendered
     preset_line = _line_of(_presets_dir() / "demo.yml", "- system-health")
     assert f"demo.yml:{preset_line}" in rendered
@@ -161,10 +167,10 @@ def test_scalar_that_differs_names_both_values_and_both_lines(repo: Path) -> Non
 
     report = _report(profile)
 
-    assert [f.subject for f in report.notes] == ["config.web.theme"]
-    assert report.refusals == []
-    assert report.unmarked[0].kind == "value"
-    rendered = report.unmarked[0].render()
+    assert [f.subject for f in _values(report)] == ["config.web.theme"]
+    assert _structural(report) == []
+    assert report.findings[0].kind == "value"
+    rendered = report.findings[0].render()
     assert "'dark'" in rendered and "'light'" in rendered
     assert f"profile.yml:{_line_of(profile, 'web.theme: dark')}" in rendered
     preset_line = _line_of(_presets_dir() / "demo.yml", "web.theme: light")
@@ -177,8 +183,8 @@ def test_member_the_profile_adds(repo: Path) -> None:
 
     report = _report(profile)
 
-    assert [f.subject for f in report.refusals] == ["web_panels: artifacts"]
-    assert report.unmarked[0].kind == "extra_member"
+    assert [f.subject for f in _structural(report)] == ["web_panels: artifacts"]
+    assert report.findings[0].kind == "extra_member"
 
 
 def test_config_knob_a_facility_turns_is_a_note_not_a_refusal(repo: Path) -> None:
@@ -194,8 +200,8 @@ def test_config_knob_a_facility_turns_is_a_note_not_a_refusal(repo: Path) -> Non
 
     report = _report(profile)
 
-    assert [f.subject for f in report.notes] == ["config.web.channel_suggestions.max_channels"]
-    assert report.refusals == []
+    assert [f.subject for f in _values(report)] == ["config.web.channel_suggestions.max_channels"]
+    assert _structural(report) == []
 
 
 def test_config_key_nothing_knows_is_reported_once_at_its_root(repo: Path) -> None:
@@ -208,8 +214,8 @@ def test_config_key_nothing_knows_is_reported_once_at_its_root(repo: Path) -> No
 
     report = _report(profile)
 
-    assert [f.subject for f in report.refusals] == ["config.web.no_such_block"]
-    assert report.unmarked[0].kind == "extra"
+    assert [f.subject for f in _structural(report)] == ["config.web.no_such_block"]
+    assert report.findings[0].kind == "extra"
 
 
 def test_top_level_block_the_profile_dropped(repo: Path) -> None:
@@ -221,104 +227,8 @@ def test_top_level_block_the_profile_dropped(repo: Path) -> None:
 
     report = _report(profile)
 
-    assert [f.subject for f in report.refusals] == ["bluesky"]
-    assert report.unmarked[0].kind == "missing"
-
-
-# ---------------------------------------------------------------------------
-# Markers
-# ---------------------------------------------------------------------------
-
-
-def test_marker_within_three_lines_above_silences_the_line(repo: Path) -> None:
-    profile = repo / PROFILE
-    _edit(
-        profile,
-        "  web.theme: light",
-        "  # DEVIATION: facility — the control room is dark\n  #\n  #\n  web.theme: dark",
-    )
-
-    report = _report(profile)
-
-    assert report.unmarked == []
-    assert [f.subject for f in report.findings] == ["config.web.theme"]
-    assert report.stale_markers == []
-
-
-def test_marker_four_lines_above_does_not_reach(repo: Path) -> None:
-    profile = repo / PROFILE
-    _edit(
-        profile,
-        "  web.theme: light",
-        "  # DEVIATION: facility — too far up\n  #\n  #\n  #\n  web.theme: dark",
-    )
-
-    report = _report(profile)
-
-    assert [f.subject for f in report.unmarked] == ["config.web.theme"]
-    assert len(report.stale_markers) == 1
-
-
-def test_absence_is_silenced_by_a_marker_that_names_it(repo: Path) -> None:
-    """A line the profile lacks has nothing to write a marker above, so the
-    marker names what is missing instead — anywhere in the file."""
-    profile = repo / PROFILE
-    _edit(profile, "  - system-health   # Health tab, a framework health dashboard\n", "")
-    with profile.open("a", encoding="utf-8") as fh:
-        fh.write("\n# DEVIATION: facility — no system-health tab; the SYSTEM view is elsewhere\n")
-
-    report = _report(profile)
-
-    assert report.unmarked == []
-    assert report.stale_markers == []
-
-
-def test_dropped_block_is_silenced_by_naming_it(repo: Path) -> None:
-    profile = repo / PROFILE
-    text = profile.read_text(encoding="utf-8")
-    start = text.index("\nbluesky:\n")
-    end = text.index("\n", text.index("tiled_enabled", start))
-    text = text[:start] + "\n# DEVIATION: facility — bluesky is not run here" + text[end:]
-    profile.write_text(text, encoding="utf-8")
-
-    assert _report(profile).unmarked == []
-
-
-def test_marker_tag_is_configurable(repo: Path) -> None:
-    profile = repo / PROFILE
-    _edit(
-        profile,
-        "  preset: demo\n",
-        "  preset: demo\n  deviation_marker: SITE-DEVIATION\n",
-    )
-    _edit(
-        profile,
-        "  web.theme: light",
-        "  # DEVIATION: facility — wrong tag\n  web.theme: dark",
-    )
-
-    assert [f.subject for f in _report(profile).unmarked] == ["config.web.theme"]
-
-    _edit(
-        profile, "  # DEVIATION: facility — wrong tag", "  # SITE-DEVIATION: facility — right tag"
-    )
-
-    assert _report(profile).unmarked == []
-
-
-def test_stale_marker_is_reported(repo: Path) -> None:
-    profile = repo / PROFILE
-    _edit(
-        profile,
-        "  web.theme: light",
-        "  # DEVIATION: facility — nothing differs here\n  web.theme: light",
-    )
-
-    report = _report(profile)
-
-    assert report.unmarked == []
-    assert len(report.stale_markers) == 1
-    assert f"profile.yml:{_line_of(profile, 'nothing differs here')}" in report.stale_markers[0]
+    assert [f.subject for f in _structural(report)] == ["bluesky"]
+    assert report.findings[0].kind == "missing"
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +246,7 @@ def test_moved_preset_hash_is_noted_with_both_versions(repo: Path) -> None:
     assert "sha256:0000dead" in report.note
     assert "demo" in report.note
     assert "OSPREY" in report.note
-    assert report.unmarked == []
+    assert report.findings == []
 
 
 def test_unbundled_preset_cannot_be_compared(repo: Path) -> None:
@@ -360,8 +270,8 @@ def test_layer_delta_is_compared_with_its_own_preset(repo: Path) -> None:
 
     report = _report(repo / PROFILE)
 
-    assert [f.subject for f in report.unmarked] == ["config.control_system"]
-    rendered = report.unmarked[0].render()
+    assert [f.subject for f in report.findings] == ["config.control_system"]
+    rendered = report.findings[0].render()
     assert f"{TIERS_DIRNAME}/readonly.yml" in rendered
     preset_line = _line_of(
         _presets_dir() / TIERS_DIRNAME / "readonly.yml", "  control_system.writes: never"
@@ -375,28 +285,20 @@ def test_validating_a_delta_reports_that_render_only(repo: Path) -> None:
 
     report = _report(repo / READONLY)
 
-    assert [f.subject for f in report.unmarked] == ["config.control_system"]
+    assert [f.subject for f in report.findings] == ["config.control_system"]
 
 
 def test_profile_exclude_of_something_the_preset_keeps(repo: Path) -> None:
-    """A tier only adds, so a subtraction is spelled in ``profile.yml`` — and is drift."""
+    """A tier only adds, so a subtraction is spelled in ``profile.yml`` — and is a finding."""
     profile = repo / PROFILE
     with profile.open("a", encoding="utf-8") as fh:
         fh.write("\nexclude:\n  skills:\n    - diagnose\n")
 
     report = _report(profile)
 
-    assert [f.subject for f in report.refusals] == ["skills: diagnose"]
-    assert report.unmarked[0].kind == "exclude"
-    assert f"{PROFILE}:{_line_of(profile, '    - diagnose')}" in report.unmarked[0].render()
-
-    _edit(
-        profile,
-        "\n    - diagnose",
-        "\n    # DEVIATION: facility — this deployment does not diagnose\n    - diagnose",
-    )
-
-    assert _report(profile).unmarked == []
+    assert [f.subject for f in _structural(report)] == ["skills: diagnose"]
+    assert report.findings[0].kind == "exclude"
+    assert f"{PROFILE}:{_line_of(profile, '    - diagnose')}" in report.findings[0].render()
 
 
 def test_a_tier_from_a_source_osprey_does_not_bundle_is_noted_once(repo: Path) -> None:
@@ -425,48 +327,35 @@ def test_a_tier_from_a_source_osprey_does_not_bundle_is_noted_once(repo: Path) -
 @pytest.mark.parametrize(
     ("before", "after", "named"),
     [
-        ("  - system-health", "  # - system-health", "web_panels: system-health"),
-        # A key the preset carries and this copy does not is the silent kind — it
-        # builds green forever — so it still refuses, and the refusal names the key.
+        ("  - system-health", "  # - system-health", "system-health"),
         ("  web.theme: light\n", "", "config.web.theme"),
+        ("  web.theme: light", "  web.theme: dark", "config.web.theme"),
     ],
-    ids=["commented-out-entry", "preset-gained-key"],
+    ids=["commented-out-entry", "dropped-key", "changed-value"],
 )
-def test_validate_refuses_unmarked_drift(repo: Path, before: str, after: str, named: str) -> None:
+def test_validate_neither_refuses_nor_lists_an_edit(
+    repo: Path, before: str, after: str, named: str
+) -> None:
+    """The profile is the operator's: an edit is not a fault, so the verb
+    that gates CI passes it, and says nothing about it."""
     _edit(repo / PROFILE, before, after)
 
     result = CliRunner().invoke(validate, ["--repo", str(repo)])
 
-    assert result.exit_code == 2, result.output
-    assert named in result.output
-    assert "# DEVIATION:" in result.output
-
-
-def test_validate_drift_warn_demotes_to_a_warning(repo: Path) -> None:
-    _edit(repo / PROFILE, "  - system-health", "  # - system-health")
-
-    result = CliRunner().invoke(validate, ["--repo", str(repo), "--drift=warn"])
-
     assert result.exit_code == 0, result.output
-    assert "web_panels: system-health" in result.output
     assert "Profile is valid" in result.output
+    assert named not in result.output
+    assert "DEVIATION" not in result.output
 
 
 def test_set_knob_then_validate_green(repo: Path) -> None:
-    """Turning a documented knob with `osprey set` leaves the repo valid.
-
-    The whole point of the value/structure split: a facility changing a value
-    the preset documents is what the emitted profile is for, so the verb that
-    gates CI must report it and pass rather than demand a marker comment for
-    every edit.
-    """
+    """Turning a documented knob with `osprey set` leaves the repo valid."""
     setting = CliRunner().invoke(set_cmd, ["--repo", str(repo), "config.web.theme=dark"])
     assert setting.exit_code == 0, setting.output
 
     result = CliRunner().invoke(validate, ["--repo", str(repo)])
 
     assert result.exit_code == 0, result.output
-    assert "preset drift: config.web.theme" in result.output
     assert "Profile is valid" in result.output
 
 
@@ -477,33 +366,25 @@ def test_validate_passes_a_fresh_materialization(repo: Path) -> None:
     assert "drift" not in result.output.lower()
 
 
-def test_validate_prints_stale_markers_and_the_hash_note(repo: Path) -> None:
+def test_validate_prints_the_hash_note(repo: Path) -> None:
     profile = repo / PROFILE
-    _edit(
-        profile,
-        "  web.theme: light",
-        "  # DEVIATION: facility — nothing differs here\n  web.theme: light",
-    )
     _edit(profile, "  preset_hash: sha256:", "  preset_hash: sha256:0000dead")
 
     result = CliRunner().invoke(validate, ["--repo", str(repo)])
 
     assert result.exit_code == 0, result.output
-    assert "marks no difference" in result.output
     assert "sha256:0000dead" in result.output
+    assert "has moved on" in result.output
 
 
-def test_build_names_drift_under_verbose_only(repo: Path) -> None:
+def test_build_never_lists_an_edit(repo: Path) -> None:
     _edit(repo / PROFILE, "  - system-health", "  # - system-health")
     args = ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
 
-    quiet = CliRunner().invoke(cli, args)
-    assert quiet.exit_code == 0, quiet.output
-    assert "system-health" not in quiet.output
-
-    verbose = CliRunner().invoke(cli, ["-v", *args])
-    assert verbose.exit_code == 0, verbose.output
-    assert "web_panels: system-health" in verbose.output
+    for verbosity in ([], ["-v"]):
+        result = CliRunner().invoke(cli, [*verbosity, *args])
+        assert result.exit_code == 0, result.output
+        assert "web_panels: system-health" not in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -522,17 +403,17 @@ def test_two_checkouts_of_one_profile_report_the_same_thing(
     shutil.copytree(materialized, first)
     shutil.copytree(materialized, second)
 
-    assert _report(first / PROFILE).unmarked == []
-    assert _report(second / PROFILE).unmarked == []
-    assert [f.render() for f in _report(first / PROFILE).unmarked] == [
-        f.render() for f in _report(second / PROFILE).unmarked
+    assert _report(first / PROFILE).findings == []
+    assert _report(second / PROFILE).findings == []
+    assert [f.render() for f in _report(first / PROFILE).findings] == [
+        f.render() for f in _report(second / PROFILE).findings
     ]
 
     for copy in (first, second):
         _edit(copy / PROFILE, "  web.theme: light", "  web.theme: dark")
 
-    assert [f.subject for f in _report(first / PROFILE).unmarked] == ["config.web.theme"]
-    assert [f.subject for f in _report(second / PROFILE).unmarked] == ["config.web.theme"]
+    assert [f.subject for f in _report(first / PROFILE).findings] == ["config.web.theme"]
+    assert [f.subject for f in _report(second / PROFILE).findings] == ["config.web.theme"]
 
 
 def test_a_deployment_name_of_its_own_is_not_preset_content(repo: Path) -> None:
@@ -540,4 +421,4 @@ def test_a_deployment_name_of_its_own_is_not_preset_content(repo: Path) -> None:
     profile = repo / PROFILE
     _edit(profile, f"project_name: {repo.name}", "project_name: elsewhere")
 
-    assert _report(profile).unmarked == []
+    assert _report(profile).findings == []

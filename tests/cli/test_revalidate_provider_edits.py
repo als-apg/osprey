@@ -71,13 +71,13 @@ def test_a_packaged_key_the_file_lacks_is_added(tmp_path: Path) -> None:
     assert text.replace(PACKAGED_CBORG_HEALTH, "", 1) == before
 
 
-def test_validate_names_the_differing_entry_and_key(tmp_path: Path) -> None:
+def test_validate_accepts_an_edited_entry_without_listing_it(tmp_path: Path) -> None:
     repo = _repo(tmp_path, PACKAGED_OLLAMA_URL, FACILITY_OLLAMA_URL)
 
     with preserved_environ():
         result = CliRunner().invoke(validate, ["--repo", str(repo)])
 
-    # A value the facility turned is a note, as it is in profile.yml.
+    # The catalog is the facility's to edit, as profile.yml is: a value it
+    # turned is neither refused nor listed.
     assert result.exit_code == 0, result.output
-    assert "providers.ollama.base_url" in result.output
-    assert "http://doudna:11434" in result.output
+    assert "providers.ollama.base_url" not in result.output

@@ -3,9 +3,9 @@
 ``osprey init`` writes every login as an explicit file under ``tiers/`` with a
 ``provenance:`` block naming the bundled source it was made from, exactly as
 ``profile.yml`` names its preset. ``osprey validate`` compares each of them
-with what ``init`` would write from that source today, so a facility edit to a
-shared login is reported the way an edit to the profile is —
-and a file whose source no longer ships is named rather than crashed on.
+with what ``init`` would write from that source today. A facility edit to a
+shared login is found the way an edit to the profile is, and neither refused
+nor listed; a file whose source no longer ships, or that has moved on, is noted.
 
 The fixture is one real ``osprey init`` of ``demo``, copied per
 test so each test edits its own repo the way an operator would.
@@ -72,7 +72,6 @@ def test_fresh_init_repo_reports_no_drift(repo: Path) -> None:
     assert (repo / LOGBOOK).is_file() and (repo / READONLY).is_file()
     report = _report(repo)
     assert report.findings == []
-    assert report.stale_markers == []
     result = _validate(str(repo / PROFILE))
     assert result.exit_code == 0, result.output
     assert _drift_lines(result.output) == []
@@ -102,53 +101,36 @@ def test_every_login_file_is_paired(repo: Path) -> None:
     assert subjects == layers
 
 
-def test_one_edited_shared_login_key_is_one_drift_line(repo: Path) -> None:
+def test_one_edited_shared_login_key_is_one_finding(repo: Path) -> None:
     _edit(repo / LOGBOOK, PICKER, "web.control_target_picker: true")
     report = _report(repo)
-    assert len(report.unmarked) == 1
-    finding = report.unmarked[0]
+    assert len(report.findings) == 1
+    finding = report.findings[0]
     assert finding.kind == "value"
     assert finding.subject == "config.web.control_target_picker"
     assert finding.profile_ref.startswith("tiers/logbook.yml:")
 
     result = _validate(str(repo / PROFILE))
-    assert result.exit_code == 0, result.output  # a value difference is a note
-    lines = _drift_lines(result.output)
-    assert len(lines) == 1, result.output
-    assert "tiers/logbook.yml" in lines[0]
-    assert "web.control_target_picker" in lines[0]
+    assert result.exit_code == 0, result.output
+    assert _drift_lines(result.output) == []
 
 
 def test_validating_the_shared_login_file_reports_that_login_only(repo: Path) -> None:
     _edit(repo / LOGBOOK, PICKER, "web.control_target_picker: true")
     _edit(repo / READONLY, "control_system.writes: never", "control_system.writes: asked")
-    refs = [f.profile_ref for f in _report(repo, repo / LOGBOOK).unmarked]
+    refs = [f.profile_ref for f in _report(repo, repo / LOGBOOK).findings]
     assert len(refs) == 1 and refs[0].startswith("tiers/logbook.yml:")
-    refs = [f.profile_ref for f in _report(repo, repo / READONLY).unmarked]
+    refs = [f.profile_ref for f in _report(repo, repo / READONLY).findings]
     assert len(refs) == 1 and refs[0].startswith("tiers/readonly.yml:")
 
 
-def test_structural_shared_login_drift_is_refused(repo: Path) -> None:
+def test_structural_shared_login_drift_is_not_refused(repo: Path) -> None:
     _edit(repo / LOGBOOK, "  - logbook-deep-research", "")
+    assert [f.kind for f in _report(repo).findings] == ["missing_member"]
+
     result = _validate(str(repo / PROFILE))
-    assert result.exit_code == 2, result.output
-    assert "tiers/logbook.yml" in result.output
-    assert "logbook-deep-research" in result.output
-
-    passed = _validate(str(repo / PROFILE), "--drift=warn")
-    assert passed.exit_code == 0, passed.output
-    assert len(_drift_lines(passed.output)) == 1
-
-
-def test_a_marker_claims_a_layer_difference(repo: Path) -> None:
-    _edit(
-        repo / LOGBOOK,
-        PICKER,
-        "# DEVIATION: our logbook shows the picker\n  web.control_target_picker: true",
-    )
-    report = _report(repo)
-    assert report.unmarked == []
-    assert [f.marked for f in report.findings] == [True]
+    assert result.exit_code == 0, result.output
+    assert "logbook-deep-research" not in result.output
 
 
 def test_pairing_follows_provenance_not_the_file_name(repo: Path) -> None:

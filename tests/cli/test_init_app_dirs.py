@@ -172,20 +172,6 @@ def test_an_edited_application_is_a_drift_note(repo: Path) -> None:
 
     assert finding.subject == f"apps/{APP}/"
     assert finding.kind == "value"
-    assert not finding.marked
-
-
-def test_a_marker_in_the_sidecar_claims_the_edit(repo: Path) -> None:
-    (repo / "apps" / APP / "panel" / "index.html").write_text("<p>mine</p>\n", encoding="utf-8")
-    sidecar = repo / "apps" / APP / APP_PROVENANCE_FILENAME
-    sidecar.write_text(
-        f"# DEVIATION: apps/{APP} carries our own panel\n" + sidecar.read_text(),
-        encoding="utf-8",
-    )
-
-    (finding,) = _app_findings(repo)
-
-    assert finding.marked
 
 
 def test_files_the_build_writes_into_the_application_are_not_drift(repo: Path) -> None:

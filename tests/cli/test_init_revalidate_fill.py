@@ -821,7 +821,7 @@ def test_a_deploy_block_keeps_image_source_out_of_the_config_block(
     config = _profile_data(profile)["config"]
     assert config_image_source_spelling(config) is None
     assert IMAGE_SOURCE_CONFIG_KEY in result.output  # the skip is reported
-    validated = runner.invoke(validate, ["--repo", str(repo), "--drift", "warn"])
+    validated = runner.invoke(validate, ["--repo", str(repo)])
     assert validated.exit_code == 0, validated.output
 
 
@@ -883,7 +883,7 @@ def test_the_exemplar_validates_after_revalidate(runner: CliRunner, tmp_path: Pa
 
     assert _revalidate(runner, repo, "--preset", "demo").exit_code == 0
 
-    validated = runner.invoke(validate, ["--repo", str(repo), "--drift", "warn"])
+    validated = runner.invoke(validate, ["--repo", str(repo)])
     assert validated.exit_code == 0, validated.output
 
 
@@ -900,25 +900,17 @@ def test_revalidating_the_exemplar_twice_changes_nothing(runner: CliRunner, tmp_
     assert "nothing to rewrite" in again.output
 
 
-def test_a_re_pointed_profile_warns_about_the_drift_it_turns_on(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """Stamping provenance turns the preset-drift lint on, so the verb says so."""
+def test_a_re_pointed_profile_still_validates(runner: CliRunner, tmp_path: Path) -> None:
+    """Stamping provenance makes no difference from the preset a refusal, and no marker hint."""
     repo = _exemplar(tmp_path)
 
     result = _revalidate(runner, repo, "--preset", "demo")
     assert result.exit_code == 0, result.output
 
-    assert "DEVIATION" in result.output
-    assert "--drift=warn" in result.output
-    if "Left for you to do by hand" in result.output:
-        assert result.output.index("--drift=warn") < result.output.index(
-            "Left for you to do by hand"
-        )
-    refused = runner.invoke(validate, ["--repo", str(repo)])
-    assert refused.exit_code != 0
-    warned = runner.invoke(validate, ["--repo", str(repo), "--drift", "warn"])
-    assert warned.exit_code == 0, warned.output
+    assert "DEVIATION" not in result.output
+    assert "--drift" not in result.output
+    validated = runner.invoke(validate, ["--repo", str(repo)])
+    assert validated.exit_code == 0, validated.output
 
 
 def test_an_old_demo_profile_without_shared_does_not_gain_it(

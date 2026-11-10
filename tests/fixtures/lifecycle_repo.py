@@ -1445,9 +1445,7 @@ data: data
 requires_osprey_version: '>=2026.10.0'
 # What this profile was materialized from. Emitted, not hand-written: a
 # build compares it against the installed preset and mentions it when the
-# preset has moved on; `osprey validate` refuses every difference from the
-# preset that no `# DEVIATION: <why>` comment above the line claims (tag set
-# by `deviation_marker:`). This profile is the source of truth either way.
+# preset has moved on. This profile is the source of truth: edit it freely.
 # `providers_hash` is the same record for providers.yml beside this file;
 # `osprey init --revalidate` adds the packaged entries and keys it lacks.
 provenance:
@@ -1653,8 +1651,8 @@ config:
   control_system.writes: never
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` compares it against the installed tier and mentions it when
+# the tier has moved on. This file is the source of truth: edit it freely.
 provenance:
   preset: readonly
   preset_hash: @PRESET_HASH:tiers/readonly@
@@ -1694,8 +1692,8 @@ config:
   control_system.writes: asked
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` compares it against the installed tier and mentions it when
+# the tier has moved on. This file is the source of truth: edit it freely.
 provenance:
   preset: readwrite
   preset_hash: @PRESET_HASH:tiers/readwrite@
@@ -1760,8 +1758,8 @@ config:
   web.scaffold_gallery.write_enabled: true
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` compares it against the installed tier and mentions it when
+# the tier has moved on. This file is the source of truth: edit it freely.
 provenance:
   preset: admin
   preset_hash: @PRESET_HASH:tiers/admin@
@@ -1880,8 +1878,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` compares it against the installed tier and mentions it when
+# the tier has moved on. This file is the source of truth: edit it freely.
 provenance:
   preset: logbook
   preset_hash: @PRESET_HASH:tiers/logbook@
@@ -1989,8 +1987,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` compares it against the installed tier and mentions it when
+# the tier has moved on. This file is the source of truth: edit it freely.
 provenance:
   preset: knowledge
   preset_hash: @PRESET_HASH:tiers/knowledge@
@@ -2096,8 +2094,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` compares it against the installed tier and mentions it when
+# the tier has moved on. This file is the source of truth: edit it freely.
 provenance:
   preset: channel-finder
   preset_hash: @PRESET_HASH:tiers/channel-finder@
