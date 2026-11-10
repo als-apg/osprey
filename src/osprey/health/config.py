@@ -400,13 +400,7 @@ def _parse_category(name: str, raw: Any) -> tuple[CategoryRecord | None, Categor
     _validate_requires(checks, name)
 
     cost = override_cost if override_cost is not None else Cost.POLL
-    timeout_s = (
-        override_timeout_s
-        if override_timeout_s is not None
-        else (
-            DEFAULT_SUITE_TIMEOUT_S if cost is Cost.POLL else DEFAULT_ON_DEMAND_CALLABLE_TIMEOUT_S
-        )
-    )
+    timeout_s = resolve_callable_timeout_s(cost, override_timeout_s, DEFAULT_SUITE_TIMEOUT_S)
     return (
         CategoryRecord(name=name, cost=cost, timeout_s=timeout_s, checks=checks),
         None,
