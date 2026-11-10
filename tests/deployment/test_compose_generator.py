@@ -2375,7 +2375,9 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(
     bpms = _orm_stack.select_bpms(repo, count=None, model=model)
     assert bpms, f"model {model} serves no monitor the worker registered"
     view = _facility_select.repo_view(repo)
-    model_monitors = {binding.address for binding in view.bindings(role="monitor", model=model)}
+    model_monitors = {
+        binding.address for binding in view.bindings(engine_role="monitor", model=model)
+    }
     assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
 
 

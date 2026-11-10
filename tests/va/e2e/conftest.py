@@ -354,8 +354,8 @@ def _monitor_addresses(facility: Path) -> list[str]:
         describe = metadata.entry_points(group=ENTRY_POINT_GROUP)[str(model["engine"])].load()
         for record in model["wiring"]:
             described = describe.describe({**record, "direction": "read"})
-            if described["role"] == "monitor" or (
-                described["role"] == "output" and described["plane"] is not None
+            if described["engine_role"] == "monitor" or (
+                described["engine_role"] == "output" and described["plane"] is not None
             ):
                 monitors.add(str(record["address"]))
     return sorted(monitors)
@@ -1144,7 +1144,7 @@ def corrector_at_slot(slot: int) -> Corrector:
     model = lane_model(view)
     kicks = [
         binding.address
-        for binding in view.bindings(role="setpoint", model=model)
+        for binding in view.bindings(engine_role="setpoint", model=model)
         if binding.plane is not None
     ]
     assert len(kicks) > slot, (

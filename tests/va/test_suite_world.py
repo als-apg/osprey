@@ -61,7 +61,7 @@ def test_lane_selection_is_the_lane_model_s_bounded_corrector(limits: dict[str, 
     record = limits[LANE.setpoint]
 
     assert binding is not None and binding.model == LANE.model
-    assert binding.role == "setpoint" and binding.plane is not None
+    assert binding.engine_role == "setpoint" and binding.plane is not None
     assert LANE.band == tuple(VIEW.channel(LANE.setpoint).value_range or ())
     assert LANE.band == (record["min_value"], record["max_value"])
     assert VIEW.channel(LANE.setpoint).pair == LANE.readback != LANE.setpoint
@@ -85,13 +85,13 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
 
     kick = VIEW.binding(e2e_conftest.KICK_CORRECTOR)
     assert kick is not None
-    assert (kick.model, kick.role, kick.plane) == (lane, "setpoint", "y")
+    assert (kick.model, kick.engine_role, kick.plane) == (lane, "setpoint", "y")
     assert e2e_conftest.KICK_MONITOR in monitor_addresses(VIEW, plane="y", model=lane)
     assert e2e_conftest.SEEDED_READOUT_BPM in monitor_addresses(VIEW, plane="x", model=lane)
 
     quadrupole = VIEW.binding(e2e_conftest.UNSTABLE_QUADRUPOLE)
     assert quadrupole is not None
-    assert (quadrupole.model, quadrupole.role, quadrupole.plane) == (lane, "setpoint", None)
+    assert (quadrupole.model, quadrupole.engine_role, quadrupole.plane) == (lane, "setpoint", None)
     on = VIEW.channel(e2e_conftest.UNSTABLE_QUADRUPOLE).on
     assert on is not None and "device" in on
     devices = {device["id"]: device for device in e2e_conftest.PRESET_DOCUMENT["devices"]}
@@ -120,7 +120,9 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
         for address in e2e_conftest.OPERATING_POINT
         if (binding := VIEW.binding(address)) is not None
     }
-    assert sorted((binding.model, binding.role, binding.plane) for binding in wired.values()) == [
+    assert sorted(
+        (binding.model, binding.engine_role, binding.plane) for binding in wired.values()
+    ) == [
         (lane, "setpoint", "x"),
         (lane, "setpoint", "y"),
     ]
@@ -137,7 +139,7 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
     for address in e2e_conftest.CHROMATICITY:
         output = VIEW.binding(address)
         assert output is not None
-        assert (output.model, output.role) == (lane, "output")
+        assert (output.model, output.engine_role) == (lane, "output")
 
 
 def test_the_second_model_is_a_served_line_without_dispersion() -> None:
@@ -160,7 +162,7 @@ def test_the_bench_world_names_bench_records() -> None:
     assert VIEW.channel(bench.WRITABLE_SP).role == "setpoint"
     assert VIEW.channel(bench.PROTECTED_SP).role == "setpoint"
     shared = VIEW.binding(bench.SHARED_BPM_X)
-    assert shared is not None and shared.role == "monitor"
+    assert shared is not None and shared.engine_role == "monitor"
     writable = VIEW.channel(bench.WRITABLE_SP)
     assert writable.writable and writable.value_range is not None
     low, high = writable.value_range

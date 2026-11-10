@@ -1,0 +1,1 @@
+`Binding.engine_role`, `SimulatorView.bindings(engine_role=...)` and `ENGINE_ROLES` name what a model's engine says a wiring record is, apart from a channel's own `role`; the view file is schema `osprey.facility.simulator/3`.

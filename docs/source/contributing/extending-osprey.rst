@@ -305,9 +305,9 @@ What a plug-in is given and asked for:
     deck.
   - ``describe(record)`` says what one wiring record is.
 
-  ``describe`` returns ``{role, plane, refresh}``:
+  ``describe`` returns ``{engine_role, plane, refresh}``:
 
-  - ``role`` is ``setpoint``, ``readback``, ``monitor`` or ``output``.
+  - ``engine_role`` is ``setpoint``, ``readback``, ``monitor`` or ``output``.
   - ``plane`` is ``x`` or ``y`` for a record that steers or reads one
     transverse plane, else ``None``.
   - ``refresh`` is ``pass`` for a value each write's solve updates, or
