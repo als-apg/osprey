@@ -49,6 +49,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "transitional: its framework user lands with the connectors floor bump to "
         ">=2026.11.8 (#2592)"
     ),
+    "osprey_connectors.ipc.GATEWAYS_ROWS": (
+        "a caller names the verdict that a target declares gateway rows"
+    ),
     "osprey_connectors.ipc.declared_gateways": (
         "transitional: its framework user lands with the connectors floor bump to "
         ">=2026.11.8 (#2592)"

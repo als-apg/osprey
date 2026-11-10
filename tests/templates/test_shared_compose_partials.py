@@ -123,3 +123,51 @@ def test_elect_never_reads_a_key_after_the_builder() -> None:
     rendered = _env().from_string(_ELECT).render(keys=["a", "b"], services={"a": {}})
 
     assert rendered == "a"
+
+
+#: The builder election as bluesky and virtual_accelerator spelled it inline
+#: before ``own.elect`` (qmd's was its one-key case), kept here as the oracle.
+_INLINE_ELECTION = (
+    "{% set b = namespace(key=none) %}{% for c in keys %}"
+    "{% if b.key is none and (not services[c].image or services[c].image == own_image) %}"
+    "{% set b.key = c %}{% endif %}{% endfor %}{{ b.key }}"
+)
+_IMAGE_KINDS = {"unset": {}, "null": None, "own": {"image": "OWN"}, "foreign": {"image": "x/y:1"}}
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [(a, None) for a in _IMAGE_KINDS] + [(a, b) for a in _IMAGE_KINDS for b in _IMAGE_KINDS],
+)
+@pytest.mark.parametrize(
+    ("keys", "own_image"),
+    [
+        (["virtual_accelerator", "live_standin"], "osprey-va"),
+        (["bluesky", "bluesky_va"], "osprey-bluesky-bridge"),
+        (["qmd"], "osprey-qmd"),
+    ],
+    ids=["va", "bluesky", "qmd"],
+)
+def test_elect_matches_the_inline_predicate_it_replaced(
+    keys: list[str], own_image: str, first: str, second: str | None
+) -> None:
+    def block(kind: str) -> dict | None:
+        spec = _IMAGE_KINDS[kind]
+        return None if spec is None else {"image": own_image} if kind == "own" else dict(spec)
+
+    services = {keys[0]: block(first)}
+    if second is not None and len(keys) > 1:
+        services[keys[1]] = block(second)
+    elect_keys = list(services)
+    context = {"keys": elect_keys, "services": services, "own_image": own_image}
+    elected = (
+        _env()
+        .from_string(
+            '{% import "services/_own_image.j2" as own %}'
+            "{% set ns = namespace(key=none) %}"
+            "{{ own.elect(ns, keys, services, own_image) }}{{ ns.key }}"
+        )
+        .render(context)
+    )
+
+    assert elected == _env().from_string(_INLINE_ELECTION).render(context)

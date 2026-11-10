@@ -1,9 +1,11 @@
 """A Channel Access block says "nothing to probe" only by an explicit ``gateways: []``.
 
-:func:`declared_gateways` is the one reader of that statement; the derivation,
-target eligibility and the switch gate's reachability rung all take its verdict.
-The derivation carries it to child verification, which names it in plain words. A missing table is not the same statement: a forgotten table must
-never read as a direct connection, so it derives exactly what it did before.
+:func:`declared_gateways` is the one reader of that statement, and the
+derivation takes its verdict (target eligibility and the switch gate's
+reachability rung move onto it with the connectors floor bump, #2592). The
+derivation carries it to child verification, which names it in plain words. A
+missing table is not the same statement: a forgotten table must never read as a
+direct connection, so it derives exactly what it did before.
 """
 
 from __future__ import annotations
@@ -15,11 +17,11 @@ import pytest
 from osprey_connectors.ipc import (
     GATEWAYS_MISSING,
     GATEWAYS_NONE_DECLARED,
+    GATEWAYS_ROWS,
     declared_gateways,
     derive_endpoints,
     verify_host_report,
 )
-from osprey_connectors.ipc._verification import GATEWAYS_ROWS
 
 _NOTHING_CONFIGURED = {
     "selected_role": None,
