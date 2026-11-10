@@ -156,6 +156,10 @@ one of five forms:
        families state a DeviceList, so the named family may carry more; slot by
        slot otherwise.
 
+This fragment of ``mapping.yaml`` shows one ``devices`` answer per family; the
+family's other keys (``aliases``, ``description``, ``provenance``,
+``channels`` and ``fields``, all required) stay as drafted:
+
 .. code-block:: yaml
 
    families:
@@ -187,6 +191,16 @@ both families, both ids and the fix.
 
 ``models.<name>.wiring`` lists the families the model drives or reads, each
 with the field, engine attribute and calibration that bind it to the deck.
+The optional ``models.<name>.tune`` names the channels the model's tunes are
+read on: one address per plane, ``{x: <address>, y: <address>}`` and
+optionally ``s``, or one waveform, ``{address: <address>, planes: [x, y]}``,
+its planes optionally ending in ``s``.
+
+The optional top-level ``branches:`` block declares classes the shared
+vocabulary lacks, each as ``<class>: {parent, description}``. A family whose
+``class`` is neither a vocabulary class nor a declared branch names the class
+it extends as its ``branch``. The import writes each class the vocabulary
+lacks to ``classes.yaml``.
 
 The ``facility:`` block seeds ``data/facility/identity.yaml`` on the first
 import and is then removed from the mapping.
@@ -234,7 +248,9 @@ Places from ``DeviceList``
 The import writes places only for a model whose mapping entry answers
 ``places``; a mapping with no such answer writes no ``places.yaml`` and no
 device ``place``. The model is a place, and each sector ``sectors`` lists is a
-place under it, named by ``token`` formatted with the sector number:
+place under it, named by ``token`` formatted with the sector number. This
+fragment of ``mapping.yaml`` shows only the ``places`` answer; the model's
+``description`` and ``provenance`` are required and stay as drafted:
 
 .. code-block:: yaml
 
