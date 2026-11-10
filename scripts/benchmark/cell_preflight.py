@@ -4,8 +4,9 @@
 A refused call stops the cell: it writes the cell's summary with a ``setup_error``
 naming the provider, the model and the reason, and exits 1, so no further tokens are
 spent and the board shows why the cell did not run. ``matrix.py`` runs such a cell
-again on resume. A rate limit or a 5xx is retried first; one that outlasts the retries
-counts as a refusal too, since no model turn has happened.
+again on resume. What counts as a refusal is the rule the mid-session path applies
+(``tests/e2e/refusals.py``), with no model turn yet: a rate limit or a 5xx is retried
+first and is a refusal once it outlasts the retries, and an ordinary 400 is not one.
 """
 
 from __future__ import annotations
@@ -55,13 +56,13 @@ def _request(protocol: str, base_url: str, key: str, model: str) -> tuple[str, d
     return f"{base.removesuffix('/v1')}/v1/messages", headers, body
 
 
-def _scrub():
-    """The one scrubber the mid-session path uses too (tests/e2e/provider_refusal.py)."""
-    path = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "provider_refusal.py"
-    spec = importlib.util.spec_from_file_location("benchmark_provider_refusal", path)
+def _refusals():
+    """The one refusal rule and scrubber the mid-session path uses too (tests/e2e/refusals.py)."""
+    path = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "refusals.py"
+    spec = importlib.util.spec_from_file_location("benchmark_refusals", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.scrub
+    return module
 
 
 def _readable(text: str, key: str) -> str:
@@ -71,7 +72,7 @@ def _readable(text: str, key: str) -> str:
         text = str(error.get("message", text)) if isinstance(error, dict) else str(error)
     except (ValueError, AttributeError):
         pass
-    return _scrub()(text, key=key)[:300].strip()
+    return _refusals().scrub(text, key=key)[:300].strip()
 
 
 def check(
@@ -82,7 +83,8 @@ def check(
     post: Callable[[str, dict, dict], tuple[int | None, str]] = _post,
     sleep: Callable[[float], None] = time.sleep,
 ) -> str | None:
-    """Why the endpoint refused *model*, or None when it answered."""
+    """Why the endpoint refused *model*, or None when it answered or failed in a way
+    that is not a refusal (an ordinary 400 stays the cell's own outcome)."""
     url, headers, body = _request(protocol, base_url, key, model)
     status, text = None, ""
     for delay in (*RETRY_DELAYS_S, None):
@@ -93,7 +95,11 @@ def check(
             break
         if delay is not None:
             sleep(delay)
-    return f"{status if status is not None else 'unreachable'}: {_readable(text, key)}"
+    text = _readable(text, key)
+    if status is None:
+        # No response at all: name it the way the agent CLI does, so the rule reads it.
+        text = f"connection error: {text}"
+    return _refusals().refusal_reason(status=status, text=text, model_turns=False)
 
 
 def _parse_cell(argv: list[str] | None) -> argparse.Namespace:

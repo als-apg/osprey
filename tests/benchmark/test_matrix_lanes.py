@@ -493,6 +493,38 @@ class TestCellPreflight:
         assert reason.startswith("400: Invalid model name")
         assert len(calls) == 1
 
+    def test_a_plain_400_is_not_a_refusal(self):
+        """The shared rule (tests/e2e/refusals.py): a 400 that names no unserved model
+        is the cell's own outcome, so the preflight lets the cell run."""
+        body = json.dumps({"error": {"message": "prompt is too long: 210000 tokens > 200000"}})
+        reason, calls = self._check([(400, body)])
+        assert reason is None
+        assert len(calls) == 1
+
+    def test_a_refusal_shaped_400_is_refused(self):
+        body = json.dumps({"error": {"message": "model_not_found: m does not exist"}})
+        reason, calls = self._check([(400, body)])
+        assert reason.startswith("400: model_not_found")
+        assert len(calls) == 1
+
+    def test_the_preflight_decides_by_the_mid_session_rule(self):
+        """One producer: what check() calls a refusal is what refusal_reason says with
+        no model turn, for every status the rule distinguishes."""
+        rule = self._module()._refusals().refusal_reason
+        for status, text in [
+            (400, "bad request"),
+            (400, "Invalid model name"),
+            (401, "no"),
+            (404, "gone"),
+            (409, "conflict"),
+            (422, "unprocessable"),
+            (429, "slow"),
+            (503, "down"),
+        ]:
+            reason, _calls = self._check([(status, text)])
+            expected = rule(status=status, text=text, model_turns=False)
+            assert (reason is None) == (expected is None), (status, text)
+
     def test_a_403_is_refused_at_once(self):
         reason, calls = self._check([(403, "Access denied: IP address not recognized")])
         assert reason.startswith("403: Access denied")
@@ -601,6 +633,14 @@ class TestCellPreflight:
     def test_a_cell_runs_it_before_anything_else(self):
         runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
         assert runner.index("cell_preflight.py") < runner.index("per-cell ARIEL database")
+
+    def test_the_free_gates_run_before_the_paid_call(self):
+        """The preflight spends a model call and a judge call; the local lane and
+        image gates cost nothing, so a cell they refuse never pays for the probe."""
+        runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+        preflight = runner.index("cell_preflight.py")
+        assert runner.index("--check-lanes") < preflight
+        assert runner.index("--check-board-images") < preflight
 
 
 def test_the_docs_tier_list_matches_the_tests_markers():

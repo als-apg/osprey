@@ -1,4 +1,4 @@
-"""A provider's refusal is not the model's failure (tests/e2e/provider_refusal.py)."""
+"""A provider's refusal is not the model's failure (tests/e2e/refusals.py)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.e2e import provider_refusal
+from tests.e2e import refusals
 
 UNSERVED = (
     "API Error: 400 anthropic_messages: Invalid model name passed in model=claude-sonnet-5-5. "
@@ -20,7 +20,7 @@ def _on_the_board(monkeypatch):
     monkeypatch.setenv("OSPREY_E2E_LANES", "lanes.json")
     monkeypatch.setenv("OSPREY_E2E_FORCE_PROVIDER", "als-apg")
     monkeypatch.setenv("OSPREY_E2E_FORCE_MODEL", "m")
-    provider_refusal.take()
+    refusals.take()
 
 
 @pytest.mark.parametrize(
@@ -44,7 +44,7 @@ def _on_the_board(monkeypatch):
     ],
 )
 def test_the_rule(status, text, model_turns, refused):
-    reason = provider_refusal.refusal_reason(status=status, text=text, model_turns=model_turns)
+    reason = refusals.refusal_reason(status=status, text=text, model_turns=model_turns)
     assert (reason is not None) is refused
 
 
@@ -59,10 +59,10 @@ def _report(when: str, outcome: str) -> SimpleNamespace:
 
 def test_a_refusal_after_real_turns_makes_the_test_a_setup_error():
     result = _result(result=FORBIDDEN, usage={"output_tokens": 900})
-    provider_refusal.note_session(result, tool_calls=4)
+    refusals.note_session(result, tool_calls=4)
 
     report = _report("call", "failed")
-    provider_refusal.apply_to_report(report)
+    refusals.apply_to_report(report)
 
     assert report.when == "setup"
     assert report.outcome == "failed"
@@ -70,53 +70,53 @@ def test_a_refusal_after_real_turns_makes_the_test_a_setup_error():
 
 
 def test_a_test_that_passed_through_a_refused_session_is_not_a_pass():
-    provider_refusal.note_session(_result(result=UNSERVED), tool_calls=0)
+    refusals.note_session(_result(result=UNSERVED), tool_calls=0)
     report = _report("call", "passed")
-    provider_refusal.apply_to_report(report)
+    refusals.apply_to_report(report)
     assert (report.when, report.outcome) == ("setup", "failed")
 
 
 def test_a_rate_limit_after_real_turns_keeps_the_tests_outcome():
     result = _result(api_error_status=429, result="rate limited", usage={"output_tokens": 50})
-    provider_refusal.note_session(result, tool_calls=2)
+    refusals.note_session(result, tool_calls=2)
     report = _report("call", "failed")
-    provider_refusal.apply_to_report(report)
+    refusals.apply_to_report(report)
     assert report.when == "call"
 
 
 def test_a_session_that_did_not_error_notes_nothing():
-    provider_refusal.note_session(_result(is_error=False, result=FORBIDDEN), tool_calls=0)
-    assert provider_refusal.take() is None
+    refusals.note_session(_result(is_error=False, result=FORBIDDEN), tool_calls=0)
+    assert refusals.take() is None
 
 
 def test_a_refusal_does_not_carry_over_to_the_next_test():
-    provider_refusal.note_session(_result(result=FORBIDDEN), tool_calls=0)
-    provider_refusal.apply_to_report(_report("setup", "passed"))
-    assert provider_refusal.take() is None
+    refusals.note_session(_result(result=FORBIDDEN), tool_calls=0)
+    refusals.apply_to_report(_report("setup", "passed"))
+    assert refusals.take() is None
 
 
 def test_off_the_board_nothing_changes(monkeypatch):
     monkeypatch.delenv("OSPREY_E2E_LANES")
-    provider_refusal.note_session(_result(result=FORBIDDEN), tool_calls=0)
-    provider_refusal.note_judge_error(
+    refusals.note_session(_result(result=FORBIDDEN), tool_calls=0)
+    refusals.note_judge_error(
         SimpleNamespace(status_code=403) and RuntimeError("API Error: 403"),
         provider="p",
         model="j",
     )
-    assert provider_refusal.take() is None
+    assert refusals.take() is None
 
 
 def test_a_judge_call_the_provider_refused_is_noted():
     class Forbidden(Exception):
         status_code = 403
 
-    provider_refusal.note_judge_error(Forbidden("denied"), provider="als-apg", model="j")
-    assert "als-apg refused judge j: 403" in provider_refusal.take()
+    refusals.note_judge_error(Forbidden("denied"), provider="als-apg", model="j")
+    assert "als-apg refused judge j: 403" in refusals.take()
 
 
 def test_a_judge_that_returned_something_unreadable_is_not_a_refusal():
-    provider_refusal.note_judge_error(ValueError("bad json"), provider="als-apg", model="j")
-    assert provider_refusal.take() is None
+    refusals.note_judge_error(ValueError("bad json"), provider="als-apg", model="j")
+    assert refusals.take() is None
 
 
 @pytest.mark.parametrize(
@@ -140,7 +140,7 @@ def test_a_judge_that_returned_something_unreadable_is_not_a_refusal():
     ],
 )
 def test_the_scrubber_keeps_the_reason_and_drops_what_identifies(text, kept, gone):
-    scrubbed = provider_refusal.scrub(text)
+    scrubbed = refusals.scrub(text)
     assert kept in scrubbed
     assert gone not in scrubbed
 
@@ -149,17 +149,17 @@ def test_the_scrubber_keeps_the_reason_and_drops_what_identifies(text, kept, gon
     "text", ["at 12:30:45", "model qwen2.5:32b", "claude-sonnet-5-5", "gpt-4.1"]
 )
 def test_the_scrubber_leaves_times_and_model_names_alone(text):
-    assert provider_refusal.scrub(text) == text
+    assert refusals.scrub(text) == text
 
 
 def test_the_scrubber_drops_the_exact_key():
-    assert provider_refusal.scrub("bad key abc123xyz", key="abc123xyz") == "bad key ***"
+    assert refusals.scrub("bad key abc123xyz", key="abc123xyz") == "bad key ***"
 
 
 def test_a_refusal_after_real_turns_is_scrubbed_before_it_reaches_the_report():
     text = "API Error: 403 Access denied: IP address 2001:5a8::36b8 not recognized, sk-live-9f2c"
-    provider_refusal.note_session(_result(result=text, usage={"output_tokens": 300}), tool_calls=3)
+    refusals.note_session(_result(result=text, usage={"output_tokens": 300}), tool_calls=3)
     report = _report("call", "failed")
-    provider_refusal.apply_to_report(report)
+    refusals.apply_to_report(report)
     assert "2001:5a8" not in report.longrepr and "sk-live" not in report.longrepr
     assert "403" in report.longrepr and "<address>" in report.longrepr

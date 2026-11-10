@@ -76,9 +76,41 @@ export OSPREY_E2E_QUERY_LOG="$RESULTS/${SAFE}__seed${SEED}.queries.jsonl"
 echo ">> model=$MODEL seed=$SEED provider=$OSPREY_E2E_FORCE_PROVIDER route=$ROUTE" >&2
 echo ">> junit=$XML" >&2
 
-# --- one small call to the model and the judge, before anything else ------
-# A refusal stops the cell here: the summary names who refused and why, and no
-# further tokens are spent.
+# --- free local gates, before any paid call -------------------------------
+# Model-matrix scope (issue #259): run the LLM-driven e2e tests that route
+# through the forced model-under-test, excluding files that measure nothing
+# about the model (own provider axis, no-LLM smokes, hardcoded-model tests).
+# The exclusion list with per-file reasons is single-sourced in
+# matrix_e2e_config.json — do not enumerate it here (it drifts).
+# Still `pytest tests/e2e/` (path) for registry-safe collection; --ignore prunes.
+# The selection beside the exclusions is the board's own: the tiered agentic
+# tests only (-m agentic), each scored on its first attempt (-p no:rerunfailures
+# switches off the `flaky` reruns PR CI keeps). check_e2e_coverage.py holds both.
+RUN_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+  --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-run-args | tr '\n' ' ')"
+# Lane gate: refuse to run (and score) a suite where any in-scope test is
+# missing its agentic/harness_benchmark marker, or carries an incomplete tier
+# marker — an unmarked test would silently fall out of the board's run set.
+if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
+    --check-lanes >/dev/null; then
+  echo "FATAL: benchmark lane markers incomplete (see LANE-GATE lines above)." >&2
+  exit 2
+fi
+# Image gate: the machine-switch tests need images they never build, and an
+# image from another revision dies in their setup. Refuse before any model runs;
+# a smoke run (OSPREY_BENCH_SELECT) is refused only if it selects one of them.
+if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
+    --check-board-images --select "${OSPREY_BENCH_SELECT:-}" >/dev/null; then
+  echo "FATAL: the board's images are missing or stale (see IMAGE-GATE lines above)." >&2
+  exit 2
+fi
+
+# --- one small call to the model and the judge, before the cell spends more ---
+# It costs a model call and a judge call, so it runs only once the free local
+# gates above have passed. A refusal stops the cell here: the summary names who
+# refused and why, and no further tokens are spent.
 if ! "$PY" "$REPO/scripts/benchmark/cell_preflight.py" --model "$MODEL" --seed "$SEED" \
     --provider "$OSPREY_E2E_FORCE_PROVIDER" --route "$ROUTE" \
     --judge "${OSPREY_E2E_JUDGE_MODEL:-}" --out "$JSON"; then
@@ -168,35 +200,6 @@ START=$(date +%s)
 # the session CONTINUE — the thread method instead hard-kills the whole pytest
 # process on the first overrun, leaving an empty junit (total=0). The e2e async
 # tests run via pytest-asyncio in the main thread, so SIGALRM interrupts them.
-# Model-matrix scope (issue #259): run the LLM-driven e2e tests that route
-# through the forced model-under-test, excluding files that measure nothing
-# about the model (own provider axis, no-LLM smokes, hardcoded-model tests).
-# The exclusion list with per-file reasons is single-sourced in
-# matrix_e2e_config.json — do not enumerate it here (it drifts).
-# Still `pytest tests/e2e/` (path) for registry-safe collection; --ignore prunes.
-# The selection beside the exclusions is the board's own: the tiered agentic
-# tests only (-m agentic), each scored on its first attempt (-p no:rerunfailures
-# switches off the `flaky` reruns PR CI keeps). check_e2e_coverage.py holds both.
-RUN_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
-  --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-run-args | tr '\n' ' ')"
-# Lane gate: refuse to run (and score) a suite where any in-scope test is
-# missing its agentic/harness_benchmark marker, or carries an incomplete tier
-# marker — an unmarked test would silently fall out of the board's run set.
-if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
-    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
-    --check-lanes >/dev/null; then
-  echo "FATAL: benchmark lane markers incomplete (see LANE-GATE lines above)." >&2
-  exit 2
-fi
-# Image gate: the machine-switch tests need images they never build, and an
-# image from another revision dies in their setup. Refuse before any model runs;
-# a smoke run (OSPREY_BENCH_SELECT) is refused only if it selects one of them.
-if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
-    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
-    --check-board-images --select "${OSPREY_BENCH_SELECT:-}" >/dev/null; then
-  echo "FATAL: the board's images are missing or stale (see IMAGE-GATE lines above)." >&2
-  exit 2
-fi
 # OSPREY_BENCH_SELECT narrows the cell to the tests a pytest -k expression
 # selects (a smoke run); unset, the cell runs the whole in-scope suite.
 SELECT_ARGS=()

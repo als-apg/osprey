@@ -12,7 +12,7 @@ from typing import TypeVar
 from pydantic import BaseModel, Field
 
 from osprey.models import get_chat_completion
-from tests.e2e import provider_refusal
+from tests.e2e import refusals
 
 #: How many times the judge is asked for a verdict before an unreadable reply
 #: is the answer. Two retries absorb a model that formats one reply in three
@@ -199,7 +199,7 @@ class LLMJudge:
                 if self.verbose:
                     print(f"judge verdict did not parse (attempt {attempt}), asking again")
             except Exception as error:
-                provider_refusal.note_judge_error(error, provider=self.provider, model=self.model)
+                refusals.note_judge_error(error, provider=self.provider, model=self.model)
                 raise
         raise AssertionError("unreachable: the loop returns or raises")  # pragma: no cover
 

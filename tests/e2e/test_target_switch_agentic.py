@@ -106,7 +106,7 @@ from osprey_connectors.control_context import (
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import TARGET_LIVE, TARGET_VA
 from osprey_connectors_tests._harness._ports import reserved_port
-from tests.e2e import provider_refusal
+from tests.e2e import refusals
 from tests.e2e._facility_select import repo_view
 from tests.e2e.judge import LLMJudge
 from tests.e2e.profile_edits import set_pairs
@@ -1420,7 +1420,7 @@ async def run_switch_conversation(
                         workflow.system_messages.append(message)
                     elif isinstance(message, ResultMessage):
                         workflow.result = message
-                        provider_refusal.note_session(message, tool_calls=len(workflow.tool_traces))
+                        refusals.note_session(message, tool_calls=len(workflow.tool_traces))
                 if between is not None and index < len(prompts) - 1:
                     between(index)
     except AssertionError:
