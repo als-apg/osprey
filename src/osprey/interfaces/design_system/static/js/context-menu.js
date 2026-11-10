@@ -54,10 +54,13 @@
  * A surface may redraw while its menu is open, replacing the element focus came
  * from: the hand-back then finds the element drawn in its place by the same
  * identity (its `id` and the {@link IDENTITY} data attributes, or, lacking
- * any, its classes under the nearest ancestor that has one), searching from
- * the nearest of its former ancestors still on the page outward. With no
- * replacement, focus goes to the nearest of those ancestors that takes focus,
- * and stays put when none does. No surface opts in.
+ * any, its classes), under the nearest ancestor with an identity of its own,
+ * so a button keeps to the copy of the row it sat in. The search runs from the
+ * nearest of its former ancestors still on the page outward; of several
+ * matches, the one sharing most classes with the old element wins (Approve
+ * and Dismiss on one card carry one key). With no replacement, focus goes to
+ * the nearest of those ancestors that takes focus; with none, it is not moved
+ * and falls to the body, as any removed focus does. No surface opts in.
  *
  * DOM contract, for the default class prefix `osprey-context` (base.css skins
  * it; a caller passing `classPrefix` gets the same structure under its own
@@ -210,9 +213,9 @@ let previousFocus = null;
 
 /**
  * How to find `previousFocus` again once a redraw has replaced it: its
- * ancestors when the menu opened, nearest first, and a selector for the
- * element drawn in its place.
- * @typedef {{ancestors: Element[], selector: string | null}} FocusTrail
+ * ancestors when the menu opened, nearest first, a selector for the
+ * element drawn in its place, and the classes that tell copies of it apart.
+ * @typedef {{ancestors: Element[], selector: string | null, classes: string[]}} FocusTrail
  * @type {FocusTrail | null}
  */
 let focusTrail = null;
@@ -226,6 +229,7 @@ const IDENTITY = [
   'data-tree-pin',
   'data-group-head',
   'data-group',
+  'data-where',
 ];
 
 /** @type {Document | null} the document the open menu lives in */
@@ -488,13 +492,11 @@ function trailOf(el) {
     a = a.parentElement;
   }
   const tag = el.tagName.toLowerCase();
-  const own = identityOf(el);
-  if (own) return { ancestors, selector: tag + own };
-  const classes = [...el.classList].map((c) => `.${CSS.escape(c)}`).join('');
-  if (!classes) return { ancestors, selector: null };
+  const classes = [...el.classList];
   const named = ancestors.find((a) => identityOf(a));
   const scope = named ? `${named.tagName.toLowerCase()}${identityOf(named)} ` : '';
-  return { ancestors, selector: scope + tag + classes };
+  const key = identityOf(el) || classes.map((c) => `.${CSS.escape(c)}`).join('');
+  return { ancestors, selector: key ? scope + tag + key : null, classes };
 }
 
 /**
@@ -506,9 +508,13 @@ function trailOf(el) {
 function standIn(trail) {
   const alive = trail.ancestors.filter((a) => a.isConnected);
   if (trail.selector) {
+    const shared = (/** @type {Element} */ m) =>
+      trail.classes.filter((c) => m.classList.contains(c)).length;
     for (const a of alive) {
-      const found = a.querySelector(trail.selector);
-      if (found) return /** @type {HTMLElement} */ (found);
+      const found = [...a.querySelectorAll(trail.selector)];
+      if (!found.length) continue;
+      const best = found.reduce((b, m) => (shared(m) > shared(b) ? m : b));
+      return /** @type {HTMLElement} */ (best);
     }
   }
   const takesFocus = (/** @type {any} */ a) =>

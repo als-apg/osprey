@@ -388,6 +388,43 @@ describe('focus hand-back', () => {
     expect(document.activeElement?.textContent).toBe('B');
   });
 
+  test('of two copies of one key in one container, focus goes back to the copy it came from', () => {
+    // The collapsed sidebar's flyout draws a pinned session twice: in the
+    // Pinned group and in Sessions, told apart only by data-where.
+    document.body.innerHTML = `
+      <div id="flyout">
+        <div data-session-id="t1" data-where="pinned"><button type="button" data-tree-pin="t1">pin</button></div>
+        <div data-session-id="t1" data-where="sessions"><button type="button" data-tree-pin="t1">pin</button></div>
+      </div>`;
+    const flyout = /** @type {HTMLElement} */ (document.getElementById('flyout'));
+    /** @type {HTMLElement} */ (flyout.querySelector('[data-where="sessions"] button')).focus();
+    openServiceMenu();
+
+    flyout.replaceChildren(...[...flyout.children].map((c) => c.cloneNode(true)));
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(flyout.querySelector('[data-where="sessions"] button'));
+  });
+
+  test('of two buttons with one key on one card, focus goes back to the one it came from', () => {
+    // A pending-feedback card: Approve and Dismiss both carry the item's data-id.
+    document.body.innerHTML = `
+      <div id="pending">
+        <div class="card" data-id="f1">
+          <button type="button" class="btn approve" data-id="f1">Approve</button>
+          <button type="button" class="btn dismiss" data-id="f1">Dismiss</button>
+        </div>
+      </div>`;
+    const pending = /** @type {HTMLElement} */ (document.getElementById('pending'));
+    /** @type {HTMLElement} */ (pending.querySelector('.dismiss')).focus();
+    openServiceMenu();
+
+    pending.replaceChildren(...[...pending.children].map((c) => c.cloneNode(true)));
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(pending.querySelector('.dismiss'));
+  });
+
   test('an element gone with no replacement hands focus to the nearest container that takes it', () => {
     document.body.innerHTML = `
       <div id="tree" tabindex="-1"><div class="list"><button type="button" data-id="x">x</button></div></div>`;
