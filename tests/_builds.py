@@ -43,13 +43,14 @@ from click.testing import CliRunner, Result
 from tests._scoped_temp import shared_dir
 
 
-def init_project(parent: Path, preset: str, name: str) -> Path:
+def init_project(parent: Path, preset: str, name: str, *sets: str) -> Path:
     """Run ``osprey init`` for a preset into ``parent/name``.
 
     Args:
         parent: The directory the repo is created in.
         preset: The preset name.
         name: The repo's directory name, which is the project name.
+        sets: ``--set`` assignments, each ``KEY=VALUE``.
 
     Returns:
         The repo.
@@ -57,7 +58,8 @@ def init_project(parent: Path, preset: str, name: str) -> Path:
     from osprey.cli.init_cmd import init
 
     repo = parent / name
-    result = CliRunner().invoke(init, [str(repo), "--preset", preset, "--no-git"])
+    edits = [arg for assignment in sets for arg in ("--set", assignment)]
+    result = CliRunner().invoke(init, [str(repo), "--preset", preset, "--no-git", *edits])
     assert result.exit_code == 0, result.output
     return repo
 
@@ -178,6 +180,9 @@ SHARED_BUILD_RECORD = "built-ca.pickle"
 #: Under xdist, the same for the build with the preset's watchdog on.
 SHARED_WATCHDOG_BUILD_RECORD = "built-ca-watchdog-on.pickle"
 
+#: Under xdist, the same for the build with orbit bump turned on.
+SHARED_ORBIT_BUMP_BUILD_RECORD = "built-ca-orbit-bump.pickle"
+
 
 @contextmanager
 def _exclusive(lock_path: Path) -> Iterator[None]:
@@ -190,18 +195,19 @@ def _exclusive(lock_path: Path) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def build_demo(parent: Path) -> BuiltProject:
+def build_demo(parent: Path, *sets: str) -> BuiltProject:
     """Initialise and build the demo preset under ``parent``.
 
     Args:
         parent: The directory the repo is created in.
+        sets: ``--set`` assignments for the init, each ``KEY=VALUE``.
 
     Returns:
         The built repo and what each render's facility outputs were.
     """
     from osprey.facility import render
 
-    repo = init_project(parent, "demo", "demo")
+    repo = init_project(parent, "demo", "demo", *sets)
     built = BuiltProject(repo)
     real = render.render_facility_outputs
 
@@ -343,6 +349,24 @@ def built_demo(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
     under xdist the workers share one build in the run's base temp directory.
     """
     built: BuiltProject = _built_once(tmp_path_factory, "built-ca", SHARED_BUILD_RECORD, build_demo)
+    return built
+
+
+@pytest.fixture(scope="session")
+def built_demo_orbit_bump(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
+    """The demo preset with orbit bump turned on at init, built once per run.
+
+    The demo preset ships no application; this is the build its tests read.
+    Tests read it and never write to it.
+    """
+    from tests.fixtures.lifecycle_repo import ENABLE_ORBIT_BUMP
+
+    built: BuiltProject = _built_once(
+        tmp_path_factory,
+        "built-ca-orbit-bump",
+        SHARED_ORBIT_BUMP_BUILD_RECORD,
+        lambda parent: build_demo(parent, ENABLE_ORBIT_BUMP),
+    )
     return built
 
 

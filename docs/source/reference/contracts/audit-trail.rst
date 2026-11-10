@@ -92,6 +92,10 @@ refusal never share one.
    * - ``notebook_kernel``
      - Control-system writes a notebook cell was refused --- a write posture, a
        limit, a target that moved while the cell ran
+   * - ``command_write``
+     - Each command batch a guarded run fired under its lock, and each it was
+       refused, with the commands in ``detail`` --- see
+       :ref:`reference-guarded-run`
    * - ``canopy``
      - Each CANOPY panel write and each panel write refused, under the person
        who clicked --- see :ref:`architecture-safety-chain-panel-write`. Its

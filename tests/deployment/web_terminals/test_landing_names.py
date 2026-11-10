@@ -88,10 +88,10 @@ def test_sign_in_button_opens_the_card_less_sign_in_route() -> None:
     assert href == ENTRY_PATH
 
 
-def test_hidden_names_leave_the_apps_tray_as_it_is() -> None:
-    """The shared apps' tray still renders its cards beside a hidden roster."""
+def test_hidden_names_leave_the_shared_tray_as_it_is() -> None:
+    """The shared logins' tray still renders its cards beside a hidden roster."""
     # Arrange
-    config = _apps_config([{"type": "users", "names": "hidden"}, {"type": "apps"}])
+    config = _apps_config([{"type": "users", "names": "hidden"}, {"type": "shared"}])
 
     # Act
     landing_html = _landing(config)
@@ -100,9 +100,9 @@ def test_hidden_names_leave_the_apps_tray_as_it_is() -> None:
     # Assert
     assert _sections(landing_html) == [
         ("landing-group", "Terminals"),
-        ("landing-group landing-tray", "Apps"),
+        ("landing-group landing-tray", "Shared logins"),
     ]
-    apps = _section(landing_html, "Apps")
+    apps = _section(landing_html, "Shared logins")
     for app in APPS:
         assert f'<span class="landing-card-label">{app}</span>' in apps
     for person in PEOPLE:
@@ -132,7 +132,7 @@ def test_hidden_names_leave_links_sections_as_they_are() -> None:
 def test_hidden_names_with_no_people_render_no_button() -> None:
     """A button that hides nobody is never shown; the empty users section renders nothing."""
     # Arrange
-    config = _apps_config([{"type": "users", "names": "hidden"}, {"type": "apps"}])
+    config = _apps_config([{"type": "users", "names": "hidden"}, {"type": "shared"}])
     config["modules"]["web_terminals"]["users"] = []
 
     # Act
@@ -140,7 +140,7 @@ def test_hidden_names_with_no_people_render_no_button() -> None:
 
     # Assert
     assert "landing-sign-in" not in _body(landing_html)
-    assert _sections(landing_html) == [("landing-group landing-tray", "Apps")]
+    assert _sections(landing_html) == [("landing-group landing-tray", "Shared logins")]
 
 
 def _with_names(config: dict, names: str | None) -> dict:
