@@ -36,7 +36,9 @@ Invoke a skill by its namespaced name, for example ``/osprey:contribute``.
 .. warning::
 
    Registering a marketplace named ``osprey`` from a second source --- a local
-   clone, say --- silently repoints the name to that source.
+   clone, say --- silently repoints the name to that source. To restore it, run
+   the first command above again to re-add the marketplace from
+   ``als-apg/osprey``.
 
 Inside a deployment repository
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -48,10 +50,11 @@ Install the plugin a second time at project scope:
    claude plugin install osprey@osprey --scope project
 
 Sessions launched by ``osprey chat`` and by the web terminal run with
-``--setting-sources project``. Those sessions cannot see user-scope plugins
-(verified 2026-09-01), so without the project-scope install the skills never
-load there. The install writes ``enabledPlugins`` into the repository's
-``.claude/settings.json``.
+``--setting-sources project``. Those sessions cannot see user-scope plugins,
+so without the project-scope install the skills never load there. The install
+writes ``enabledPlugins`` into the repository's ``.claude/settings.json``.
+
+.. Verified 2026-09-01: --setting-sources project hides user-scope plugins.
 
 Updating
 ^^^^^^^^
@@ -89,11 +92,10 @@ Install in Codex
 Codex invokes a skill with a leading ``$``, for example ``$contribute``. The
 skills themselves are the same files the Claude Code plugin serves.
 
-.. note::
+Command syntax: `learn.chatgpt.com/docs/developer-commands
+<https://learn.chatgpt.com/docs/developer-commands>`_.
 
-   Command syntax per `learn.chatgpt.com/docs/developer-commands
-   <https://learn.chatgpt.com/docs/developer-commands>`_, retrieved 2026-09-01,
-   and verified against codex-cli 0.149 on 2026-09-02.
+.. Retrieved 2026-09-01, and verified against codex-cli 0.149 on 2026-09-02.
 
 The ten skills
 ----------------

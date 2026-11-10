@@ -5,8 +5,8 @@ A **panel** is a self-contained, themed mini-app the Web Terminal shows
 beside the chat. OSPREY's own tools — Channel Finder, the Logbook, the
 knowledge reader, the artifact gallery — are all panels, and you can add your own.
 A panel that takes its colors from the shared design tokens (:doc:`theming`)
-matches your theme automatically, in light and dark, with no extra work. A
-service that brings its own colors — most facility dashboards do — follows
+matches your theme automatically, in light and dark, with no extra work.
+Most facility dashboards bring their own colors. A service like that follows
 the theme only once it opts in; `Theming a URL-backed panel`_ is what it needs
 to do.
 
@@ -24,10 +24,10 @@ Panels that need a section as well as a tick
 --------------------------------------------
 
 For most panels that line is the whole gesture. Two of them need a second
-one: they are tabs onto a service that has to be configured before there is
-anything to show, and OSPREY will not guess at its address. Listing the panel
-without its section leaves the tab **dark** — no error, one line in the log
-saying the panel is unavailable.
+one, a config section of their own. Each is a tab onto a service that has to
+be configured before there is anything to show, and OSPREY will not guess at
+its address. Listing the panel without its section leaves the tab **dark** —
+no error, one line in the log saying the panel is unavailable.
 
 .. list-table::
    :header-rows: 1
@@ -60,11 +60,13 @@ with **+ Add panel**. See :ref:`web-terminal-sidebar`.
 Dragging sidebar rows
 ---------------------
 
-Drag a Apps row up or down to change the order. The order is the same for
-everyone on the same terminal, and it stays after a reload. Drag a row onto
-the work pane instead to open the panel as a new tile where you drop it: on a
-tile's edge, or along an edge of the work pane; a drop on a tile's header or
-centre does nothing (see :ref:`web-terminal-tiles`).
+Drag an Apps row up or down to change the order. The order is the same for
+everyone on the same terminal, and it stays after a reload.
+
+To open the panel as a new tile instead, drag its row onto the work pane. The
+tile opens where you drop it: on a tile's edge, or along an edge of the work
+pane. A drop on a tile's header or centre does nothing (see
+:ref:`web-terminal-tiles`).
 
 Taking panels out of the sidebar
 --------------------------------
@@ -82,12 +84,12 @@ When a panel stops answering
 Panels with a health check are polled every 10 seconds. One that has answered
 and then misses two polls in a row dims its sidebar row, which stays clickable
 and reads "not answering since <time>" in its tooltip. Its open tile shows a
-warning strip with the same time across the top and greys the page below it,
-so the out-of-date view is not mistaken for a live one. The page underneath is
-left exactly as it was, stays readable, and can still be scrolled and clicked,
-because a slow backend often still serves what is loaded. Both clear on the
-next answer. A panel that has not answered since the page loaded keeps its
-greyed-out entry and does not open.
+warning strip with the same time across the top. The tile greys the page below
+the strip, so the out-of-date view is not mistaken for a live one. The page
+underneath is left exactly as it was, stays readable, and can still be
+scrolled and clicked, because a slow backend often still serves what is
+loaded. Both clear on the next answer. A panel that has not answered since
+the page loaded keeps its greyed-out entry and does not open.
 
 This applies to panels that have a health check: Jupyter, CANOPY, Health, and any
 URL-backed panel whose entry names a ``health_endpoint``.
@@ -116,23 +118,24 @@ the entries for you):
          path: /dashboard              # optional: page the tab opens (default /)
          health_endpoint: /healthz     # optional: lets the hub report status
 
-The key you write the entry under (``events`` here) is the panel's id, and the
-terminal serves the tab under that id, so it has to be spellable in a URL:
-letters, digits, ``.``, ``_`` and ``-``, beginning with a letter or a digit. An
-id outside that is refused when the terminal starts, and ``osprey validate``
-names it in the profile first.
+The key you write the entry under (``events`` here) is the panel's id. The
+terminal serves the tab under that id, so the id has to be spellable in a URL.
+It may hold letters, digits, ``.``, ``_`` and ``-``, and must begin with a
+letter or a digit. An id outside that is refused when the terminal starts,
+and ``osprey validate`` names it in the profile first.
 
 The hub shows the service as a tab and proxies requests to it from the same
 origin, so the browser never needs direct access to the backing port. The tab
-is the named path: where the backing service is also reachable at an address of
-its own, a login there names nobody, and what it does is governed by nobody's
-chip — see :ref:`service door, not a terminal <web-terminal-service-door>`.
+is the named path. The backing service may also be reachable at an address of
+its own. Where it is, a login there names nobody, and what it does is
+governed by nobody's chip; see
+:ref:`service door, not a terminal <web-terminal-service-door>`.
 
 A service hosted under a sub-path of its own writes its asset and API
-references root-absolute, and in the tab those would resolve against the
-terminal's address rather than the service's. The proxy rewrites them into the
-tab instead. The ``path`` you configured is rewritten for you; name any further
-prefix the service serves with ``rewrite_prefixes``:
+references root-absolute. In the tab, those references would resolve against
+the terminal's address rather than the service's. The proxy rewrites them
+into the tab instead. The ``path`` you configured is rewritten for you; name
+any further prefix the service serves with ``rewrite_prefixes``:
 
 .. code-block:: yaml
 
@@ -152,7 +155,7 @@ Theming a URL-backed panel
 A service you did not write for OSPREY keeps its own colors when you hang it
 in a tab, and the terminal will not restyle it for you. What the terminal does
 do is tell the service, at every moment, which theme the operator is looking
-at — and it is then a small change in the service to follow along. This is the
+at. It is then a small change in the service to follow along. This is the
 whole of what it is told. Everything below is **version 1** of the contract
 (``CONTRACT_VERSION`` in the design system's ``frame-params.js``), so a service
 that follows it keeps working as later versions add to it.
@@ -165,8 +168,8 @@ you configured with two parameters added:
    ?embedded=true&theme=retro-dark
 
 ``theme`` is the theme to paint with. ``embedded=true`` says the page is
-running inside the terminal rather than on its own, which is the cue to hide
-your own logo and page chrome — the terminal already draws a header around the
+running inside the terminal rather than on its own. That is the cue to hide
+your own logo and page chrome. The terminal already draws a header around the
 tab, and without this you get two. Read both *before the page first paints*, or the operator sees
 your default colors flash before yours settle on theirs.
 
@@ -174,9 +177,10 @@ your default colors flash before yours settle on theirs.
 family, then ``desy-light``, ``desy-dark``, ``high-contrast-light``,
 ``high-contrast-dark``, ``retro-light`` and ``retro-dark`` (:doc:`theming`
 describes the families). OSPREY's own pages put the name on the ``<html>``
-element as ``data-theme="retro-dark"`` and let their stylesheet key off it;
-a service is free to map the eight names onto whatever its own styling
-expects, and to treat an unfamiliar name as its nearest light or dark default.
+element as ``data-theme="retro-dark"`` and let their stylesheet key off it.
+A service is free to map the eight names onto whatever its own styling
+expects. It is also free to treat an unfamiliar name as its nearest light or
+dark default.
 
 **A change while the tab is open arrives as a message.** When the operator
 switches theme, the terminal posts to the panel's frame:
@@ -199,10 +203,10 @@ a panel can load OSPREY's design tokens with a plain root-absolute reference:
 
    <link rel="stylesheet" href="/design-system/css/tokens.css">
 
-The proxy rewrites that to the terminal's own copy of the design system, so
-the colors a panel paints with are the ones the terminal is running — not
+The proxy rewrites that to the terminal's own copy of the design system. So
+the colors a panel paints with are the ones the terminal is running, not
 whichever ones the service's own build happened to ship. Every OSPREY color is
-a CSS variable there, and all eight themes are defined in that one file, so a
+a CSS variable there. All eight themes are defined in that one file, so a
 service that restates its colors in terms of those variables gets the whole
 theme switch for free.
 
@@ -219,10 +223,10 @@ Two boundaries are worth saying out loud:
 - **Nothing happens on its own.** The terminal only *tells* the panel the
   theme. A service that never reads the parameter, the message, or the tokens
   is embedded successfully and stays exactly the color it always was.
-- **No credentials cross the proxy.** The terminal strips the operator's
-  cookies and ``Authorization`` header on the way to your service, and strips
-  headers that would act on the terminal's address on the way back — see the
-  note under `Adding your own panel`_. A service that authenticates its own
+- **No credentials cross the proxy.** On the way to your service, the
+  terminal strips the operator's cookies and ``Authorization`` header. On the
+  way back, it strips headers that would act on the terminal's address; see
+  the note under `Adding your own panel`_. A service that authenticates its own
   callers that way cannot be driven as a panel, themed or not.
 
 Handing keyboard focus back
@@ -240,7 +244,8 @@ element:
      window.location.origin,
    );
 
-The terminal also reads the older ``osprey-focus-exit`` for one release. It then
+The terminal also reads the older ``osprey-focus-exit`` until
+canopy-screen-runtime 0.2.0, whose viewers stop sending it. It then
 focuses the next (or previous) element of its own page, in
 document order relative to the panel's tile — after ``backward``, that is the
 tile's header. It acts only on a message from its own origin and from the
@@ -270,15 +275,15 @@ The Bluesky panel
 
 One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
 **BLUESKY** (``/bluesky/``) has three views behind the **Plans** | **Queue** |
-**Results** switch in its toolbar. The queue's state stays on screen in all
-three as a status chip in that toolbar, with **Stop** and **Abort** beside it
-whenever a plan is moving or the state is in doubt:
+**Results** switch in its toolbar. In all three, the queue's state stays on
+screen as a status chip in that toolbar. **Stop** and **Abort** sit beside the
+chip whenever a plan is moving or the state is in doubt.
 
 **Plans** is where a plan is composed. It binds to the same shared draft the
-OSPREY agent edits, so a field the agent sets glows in the form as it lands,
-and a field you change by hand flows back to the agent. **Run** puts the
-exact revision on screen into the plan queue, and on an armed queue that runs
-it at once; on a stopped queue the button reads **Add to queue**.
+OSPREY agent edits. A field the agent sets glows in the form as it lands, and
+a field you change by hand flows back to the agent. **Run** puts the exact
+revision on screen into the plan queue. On an armed queue, that runs it at
+once. On a stopped queue, the button reads **Add to queue**.
 
 **Queue** is the control panel: **Start**, **Stop** and **Abort** in the
 toolbar, the waiting plans with their reorder/remove controls, and the runs
@@ -299,9 +304,9 @@ when those run dry. Arrow keys move through the list, **Enter** takes the
 highlighted name, **Escape** dismisses it. The suggestions only suggest — a
 name typed in full is accepted whether or not it appears in the list.
 
-The names come from the project's facility file (``data/facility/``), in
-every channel-finder mode: ``osprey build`` writes a snapshot of its channels
-next to the generated config, and the panel reads that snapshot — no
+In every channel-finder mode, the names come from the project's facility
+file (``data/facility/``). ``osprey build`` writes a snapshot of its channels
+next to the generated config, and the panel reads that snapshot. There is no
 control-system traffic, and nothing to keep in sync at run time. A project
 with no facility file shows no suggestions and is otherwise unchanged.
 
@@ -315,13 +320,13 @@ The feature is on by default, tuned under ``web.channel_suggestions`` in
        enabled: true         # the default
        max_channels: 50000   # the default
 
-``max_channels`` guards the browser, not the build: every panel load fetches
+``max_channels`` guards the browser, not the build. Every panel load fetches
 the whole snapshot, so a catalog holding more channels than the limit is
-skipped instead of shipped — the build log names the limit it hit, and the
+skipped instead of shipped. The build log names the limit it hit, and the
 form falls back to plain fields. Raise the limit to cover a larger facility,
 or set ``enabled: false`` to turn the feature off and write no snapshot at
 all. A build profile overrides these keys from its ``config:`` block in the
-dotted form, e.g. ``web.channel_suggestions.max_channels: 200000``.
+dotted form, for example ``web.channel_suggestions.max_channels: 200000``.
 
 One staleness rule to know: editing the facility tree changes the build
 fingerprint, so ``osprey up`` refuses until you rebuild — the snapshot cannot
@@ -337,16 +342,19 @@ plugin; installing it is on :doc:`/contributing/agent-skills`.
 What the skill produces, and the test that pins panel discovery, are the panel
 seam in :doc:`/contributing/extending-osprey`.
 
-Once the panel is written and validated, drop its folder under your project's
-``panels/`` directory and turn on discovery:
+Once the panel is written and validated:
 
-.. code-block:: yaml
+#. Drop its folder under your project's ``panels/`` directory.
+#. Turn on discovery:
 
-   web:
-     allow_runtime_panels: true    # off by default
+   .. code-block:: yaml
 
-On the next start, every valid panel under ``panels/`` shows up as a tab. Invalid
-ones are skipped and logged, so one bad panel never breaks the others.
+      web:
+        allow_runtime_panels: true    # off by default
+
+   On the next start, every valid panel under ``panels/`` shows up as a tab.
+   Invalid ones are skipped and logged, so one bad panel never breaks the
+   others.
 
 .. warning::
 
@@ -360,28 +368,34 @@ ones are skipped and logged, so one bad panel never breaks the others.
 
    A panel that reaches a backend does so through the web terminal's panel
    proxy, and the proxy is deliberately strict about credentials. On every
-   request it forwards to a panel backend it strips the ``cookie``,
-   ``authorization``, and ``x-osprey-terminal-secret`` headers, and it
-   re-injects the operator secret *only* toward backends declared as loopback
-   in your config. The practical consequence: a backend that authenticates its
-   own callers with a cookie or an ``Authorization`` header — Grafana, for
-   example — cannot be driven as a custom panel, because the proxy will never
-   pass those credentials through to it. A panel OSPREY starts itself is the
-   one exception, and it is served rather than granted: the notebook sidecar
-   (:doc:`notebooks`) mints a token per launch, and the proxy attaches it to
-   each request on the way to the loopback backend, so the token never reaches
-   the browser.
+   request it forwards to a panel backend, it strips the ``cookie``,
+   ``authorization``, and ``x-osprey-terminal-secret`` headers. It re-injects
+   the operator secret *only* toward backends declared as loopback in your
+   config.
+
+   The practical consequence: a backend that authenticates its own callers
+   with a cookie or an ``Authorization`` header cannot be driven as a custom
+   panel. Grafana is one example. The proxy will never pass those credentials
+   through to it.
+
+   A panel OSPREY starts itself is the one exception, and it is served rather
+   than granted. The notebook sidecar (:doc:`notebooks`) mints a token per
+   launch. The proxy attaches it to each request on the way to the loopback
+   backend, so the token never reaches the browser.
 
    The return direction is just as strict. A panel's response is served from
-   the terminal's own address, so any header that would act on *that* address
+   the terminal's own address. So any header that would act on *that* address
    rather than on the panel is stripped: ``Set-Cookie``, ``Clear-Site-Data``,
    ``Refresh``, ``WWW-Authenticate``, and CORS (``Access-Control-*``). A backend
    therefore cannot log the operator out, send them off to another site, or pop
-   a login box that looks like the terminal's own. A redirect is relayed rather
-   than followed, so the browser re-requests the new address and that request is
-   authenticated like any other — unless the redirect points at a third site,
-   which is refused with a ``502`` so that a terminal URL never forwards an
-   operator somewhere the panel picked.
+   a login box that looks like the terminal's own.
+
+   A redirect is relayed rather than followed. The browser re-requests the new
+   address, and that request is authenticated like any other. The exception is
+   a redirect that points at a third site. It is refused with a ``502``, so
+   that a terminal URL never forwards an operator somewhere the panel picked.
+
+.. _web-terminal-panels-opaque-origin:
 
 Panels you add run at an opaque origin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -389,31 +403,31 @@ Panels you add run at an opaque origin
 A panel under ``panels/`` and a panel registered while the terminal runs are
 bytes an agent can write, so the terminal never runs them as itself. Which
 panels this covers is decided by where they come from, not by anything the
-panel declares; panels OSPREY ships, and URL-backed panels declared under
+panel declares. Panels OSPREY ships, and URL-backed panels declared under
 ``web.panels``, keep their usual frame.
 
 - **It cannot reach operator routes.** The panel is framed without
   ``allow-same-origin`` or ``allow-forms`` and served with a sandboxing
-  ``Content-Security-Policy``, so it runs at an opaque origin and the
+  ``Content-Security-Policy``. So it runs at an opaque origin, and the
   operator's cookie never rides its requests. A request to an operator route
   is refused, and so is a form post.
 - **It uses relative URLs for its own files.** The terminal frames the panel at
-  a capability address bound to the operator's login, and only URLs relative to
-  the entry page (``./app.js``, ``data.json``) are sure to stay under it. A
-  root-absolute reference to the panel's own files can leave that address, and
-  is refused there.
+  a capability address bound to the operator's login. Only URLs relative to
+  the entry page (``./app.js``, ``data.json``) are sure to stay under that
+  address. A root-absolute reference to the panel's own files can leave that
+  address, and is refused there.
 - **The terminal's own assets still load.** ``/design-system/…`` and
-  ``/static/fonts/…`` are served to an opaque panel, so it imports the theme
+  ``/static/fonts/…`` are served to an opaque panel. So it imports the theme
   module and links the tokens exactly as above, and the theme still follows the
   operator's.
 
 Panel layouts ("presets")
 -------------------------
 
-A **layout** is a named arrangement of panels an operator applies in one click
-— "the machine-setup view is these panels, in these tiles." Define them under
-``web.presets`` (``panel_presets`` in a build profile), where each key is the
-menu label and each value is the tiles:
+A **layout** is a named arrangement of panels an operator applies in one
+click. A layout says, for example, "the machine-setup view is these panels, in
+these tiles." Define layouts under ``web.presets`` (``panel_presets`` in a
+build profile). Each key is the menu label and each value is the tiles:
 
 .. code-block:: yaml
 
@@ -453,7 +467,7 @@ skipped. When no ``web.presets`` are configured — the default — the ``+`` me
 unchanged, so layouts never add clutter to a deployment that has not opted in.
 
 The OSPREY agent applies the same layouts with ``arrange_workspace``, by name
-and without asking; the ``add_panel_to_rail`` / ``remove_panel_from_rail``
+and without asking. The ``add_panel_to_rail`` / ``remove_panel_from_rail``
 tools ask the operator to approve each call on a stock build.
 ``list_panels`` reports the configured layouts so the agent can honor a request
 like "set up for machine setup."
@@ -462,28 +476,32 @@ Panel tools the agent uses
 --------------------------
 
 The agent changes the dock the way you do, with the same rules: every drop you
-can make, it can make. The panel tools come in two kinds: the ones that say
-what is on screen, which are auto-allowed, and the ones that add or remove a
-sidebar row, which ask the operator first.
+can make, it can make. The panel tools come in two kinds. The ones that say
+what is on screen are auto-allowed. The ones that add or remove a sidebar row
+ask the operator first.
 
 What is on screen:
 
-- ``list_panels`` — the panels this deployment has, the dock's tiles with
-  the panel each shows (the terminal included), the panes in windows of
-  their own (the Agent pane included), and the configured layouts.
-- ``open_panel`` — put a panel on screen: by default in a new tile split off
-  the service tile used last; ``place="replace"`` puts it in that tile instead
-  (the replaced panel keeps its sidebar row), and ``tile``/``edge`` choose
-  where. A panel already open is brought forward where it is. It gets a
-  sidebar row if it had none.
+- ``list_panels`` — report four things:
+
+  - the panels this deployment has
+  - the dock's tiles, with the panel each shows (the terminal included)
+  - the panes in windows of their own (the Agent pane included)
+  - the configured layouts
+
+- ``open_panel`` — put a panel on screen. By default it opens in a new tile
+  split off the service tile used last. ``place="replace"`` puts it in that
+  tile instead, and the replaced panel keeps its sidebar row. ``tile`` and
+  ``edge`` choose where. A panel already open is brought forward where it is.
+  It gets a sidebar row if it had none.
 - ``open_panel_set`` — open several panels in one call, side by side in tiles
   of their own.
 - ``arrange_workspace`` — apply a configured layout, or an exact one, in place
   of the service tiles; the terminal keeps its place. A layout tile holds one
   panel: one with several is refused ``one_panel_per_tile``.
-- ``drop_panel`` — drop a new panel, an open panel or a whole tile on a tile's
-  edge, along a whole side of the dock, or between two tiles. A drop on a
-  tile's centre is refused ``one_panel_per_tile``.
+- ``drop_panel`` — drop a new panel, an open panel or a whole tile. It can
+  land on a tile's edge, along a whole side of the dock, or between two tiles.
+  A drop on a tile's centre is refused ``one_panel_per_tile``.
 - ``close_panel`` — close a panel's tile, leaving its sidebar row.
 
 The agent never moves or closes the terminal, and never moves or closes a
@@ -522,12 +540,14 @@ server's tools.
 
       .. tab-item:: Serving & discovery
 
-         Discovered panels are served straight from disk, from the same origin as
-         the terminal — no proxy. Discovery is **fail-closed**: only a fully valid
-         panel is ever served. The ``allow_runtime_panels`` switch is deliberately
-         off by default because it is also what lets the agent register panels at
-         runtime — turning it on is your explicit decision to trust the panels the
-         terminal makes available.
+         Discovered panels are served straight from disk, with no proxy. They
+         run at an opaque origin, not the terminal's own; see
+         :ref:`web-terminal-panels-opaque-origin`. Discovery is
+         **fail-closed**: only a fully valid panel is ever served. The
+         ``allow_runtime_panels`` switch is deliberately off by default because
+         it is also what lets the agent register panels at runtime. Turning it
+         on is your explicit decision to trust the panels the terminal makes
+         available.
 
       .. tab-item:: Embedding contract
 

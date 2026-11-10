@@ -91,6 +91,34 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     return _spellable(str(_resolved_agent_data_root(config, project_dir) / CHAT_UPLOADS_SUBDIR))
 
 
+def agent_output_read_globs(config: dict, project_dir: Path) -> list[str]:
+    """The absolute globs over the agent's own output that settings.json lets it Read.
+
+    The artifact store (``artifacts/``) and the executors' working folders
+    (``data/``, or ``sessions/<id>/data/`` for a session-scoped run), under the
+    agent-data root as the runtime resolves it. Absolute for the reason
+    :func:`chat_uploads_dir` is: the agent runs in ``build/``, the root sits beside
+    it. Never the root itself, which also holds the control-context store and the
+    dispatch worker's Claude config; a read there still raises a card.
+    """
+    root = _spellable(str(_resolved_agent_data_root(config, project_dir)))
+    return [f"{root}/artifacts/**", f"{root}/data/**", f"{root}/sessions/*/data/**"]
+
+
+def agent_output_edit_globs(config: dict, project_dir: Path) -> list[str]:
+    """The absolute globs settings.json lets the agent's file-editing tools write.
+
+    The artifact store (``artifacts/``) and the tree the Jupyter panel serves
+    (``notebooks/``), under the agent-data root spelled as
+    :func:`agent_output_read_globs` spells it, so the template names that root one
+    way. Claude Code checks every file-editing tool (``NotebookEdit`` included)
+    against ``Edit(path)`` rules, and the memory guard holds ``NotebookEdit`` to the
+    same two trees.
+    """
+    root = _spellable(str(_resolved_agent_data_root(config, project_dir)))
+    return [f"{root}/artifacts/**", f"{root}/notebooks/**"]
+
+
 def _resolved_agent_data_root(config: dict, project_dir: Path) -> Path:
     """The render's agent-data root as an absolute path, as the runtime resolves it.
 
@@ -444,16 +472,22 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
             for event in CLAUDE_CODE_HOOK_EVENTS
             if event in declared_hooks and event not in FRAMEWORK_WIRED_EVENTS
         ],
-        # The agent-data root the rendered artifacts must agree with.
-        # settings.json grants the agent Read access to its own artifacts
-        # through it, so a literal in that template would silently stop covering
-        # the directory the moment a project relocated `agent_data.base_dir` —
-        # and the agent would be refused the files it had just written.
+        # The agent-data root the rendered artifacts must agree with, as the
+        # config spells it (relative to the repo). The prose names the root
+        # through it; settings.json names it absolutely instead, through the
+        # agent_output_*_globs below, because the agent runs in the render and a
+        # relative rule would match nothing there.
         "agent_data_root": agent_data_base_dir(config),
         # Where the operator chat stores the files operators attach, as the absolute
         # path the agent reads them by; settings.json allows exactly that
         # directory (see chat_uploads_dir).
         "chat_uploads_dir": chat_uploads_dir(config, project_dir),
+        # The agent's own output it may Read, as absolute globs (see
+        # agent_output_read_globs).
+        "agent_output_read_globs": agent_output_read_globs(config, project_dir),
+        # The agent's own trees it may Edit, spelled like the Read globs (see
+        # agent_output_edit_globs).
+        "agent_output_edit_globs": agent_output_edit_globs(config, project_dir),
         # Write tools blocked by the writes kill switch (for hook_config.json)
         "control_system_write_tools": control_system.get("write_tools", []),
         # Write tools the kill switch stops short of gating on the session's
