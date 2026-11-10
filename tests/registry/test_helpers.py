@@ -1,9 +1,8 @@
 """Unit tests for registry helper functions.
 
-Covers ``extend_framework_registry`` (the declarative extend-mode builder),
-``get_framework_defaults`` (framework baseline), and
-``generate_explicit_registry_code`` (source-code generator). All are pure
-functions — no registry initialization or I/O — so they run without fixtures.
+Covers ``extend_framework_registry`` (the declarative extend-mode builder).
+It is a pure function — no registry initialization or I/O — so the tests run
+without fixtures.
 """
 
 from __future__ import annotations
@@ -14,11 +13,7 @@ from osprey.registry.base import (
     RegistryConfig,
     ServiceRegistration,
 )
-from osprey.registry.helpers import (
-    extend_framework_registry,
-    generate_explicit_registry_code,
-    get_framework_defaults,
-)
+from osprey.registry.helpers import extend_framework_registry
 
 
 class TestExtendFrameworkRegistry:
@@ -110,84 +105,3 @@ class TestExtendFrameworkRegistry:
             ServiceRegistration(name="s2", module_path="m2", class_name="C2", description="d2")
         )
         assert len(cfg.services) == 1
-
-
-class TestGetFrameworkDefaults:
-    """The framework baseline registry."""
-
-    def test_returns_plain_registry_config_not_extended(self):
-        cfg = get_framework_defaults()
-
-        assert isinstance(cfg, RegistryConfig)
-        # Framework baseline is standalone, not an extend-mode marker.
-        assert not isinstance(cfg, ExtendedRegistryConfig)
-
-    def test_baseline_ships_services(self):
-        cfg = get_framework_defaults()
-
-        # The framework always ships its core internal services.
-        assert len(cfg.services) > 0
-        assert all(isinstance(s, ServiceRegistration) for s in cfg.services)
-
-
-class TestGenerateExplicitRegistryCode:
-    """Source-code generation for explicit-style registries."""
-
-    def test_generated_code_is_valid_python(self):
-        code = generate_explicit_registry_code(
-            app_class_name="MyRegistry",
-            app_display_name="My App",
-            package_name="my_app",
-        )
-
-        # Must compile — the whole point is a runnable registry module.
-        compile(code, "<generated>", "exec")
-
-    def test_generated_code_names_the_class_and_app(self):
-        code = generate_explicit_registry_code(
-            app_class_name="MyRegistry",
-            app_display_name="My App",
-            package_name="my_app",
-        )
-
-        assert "class MyRegistry(RegistryConfigProvider):" in code
-        assert "My App" in code
-        assert "def get_registry_config(self):" in code
-
-    def test_framework_providers_are_emitted(self):
-        code = generate_explicit_registry_code(
-            app_class_name="R", app_display_name="A", package_name="a"
-        )
-
-        # Every framework provider should appear as a ProviderRegistration line.
-        framework = get_framework_defaults()
-        assert code.count("ProviderRegistration(") == len(framework.providers)
-
-    def test_application_services_section_included_when_services_given(self):
-        svc = ServiceRegistration(
-            name="my_service",
-            module_path="my_app.services",
-            class_name="MyService",
-            description="Does a thing",
-            provides=["result"],
-            requires=["input"],
-        )
-
-        code = generate_explicit_registry_code(
-            app_class_name="R",
-            app_display_name="A",
-            package_name="a",
-            services=[svc],
-        )
-
-        compile(code, "<generated>", "exec")
-        assert "Application Services" in code
-        assert 'name="my_service"' in code
-        assert 'class_name="MyService"' in code
-
-    def test_no_application_services_section_when_omitted(self):
-        code = generate_explicit_registry_code(
-            app_class_name="R", app_display_name="A", package_name="a"
-        )
-
-        assert "Application Services" not in code

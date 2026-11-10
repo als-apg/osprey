@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Restart the FULL CBORG e2e model matrix FRESH on the benchmark box, with every
-# bug-fix in place: Postgres up (ARIEL), judge routed to cborg (runner sets
+# bug-fix in place: Postgres up (ARIEL), judge on als-apg (runner sets
 # ALS_APG_BASE_URL + OSPREY_E2E_JUDGE_MODEL). Archives the prior results first.
 #
 # Run from the worktree (drives the remote over ssh):
@@ -10,7 +10,7 @@
 #   OSPREY_BENCH_REMOTE        ssh host                       (default: macstudio)
 #   OSPREY_BENCH_REMOTE_REPO   remote OSPREY checkout          (default: $HOME/projects/osprey)
 #   OSPREY_BENCH_PG_BIN        remote Postgres bin dir         (default: $HOME/bin/pg16-edb/pgsql/bin)
-#   MATRIX_PARALLEL_SUBJ/REF/DS4   per-lane parallelism            (default: 4 / 1 / 1)
+#   MATRIX_PARALLEL_SUBJ/REF/VLLM  per-lane parallelism            (default: 4 / 1 / 1)
 # The OSPREY_BENCH_REMOTE_REPO/PG_BIN overrides are read on the REMOTE shell.
 set -uo pipefail
 
@@ -31,14 +31,13 @@ if [ -d results ]; then mv results "results_prefix_$TS" && echo "archived old re
 mkdir -p results
 
 # clear any stale matrix sessions
-for s in e2e_matrix qwen_matrix matrix_subjects matrix_refs matrix_ds4 \
-         ref_claude-haiku-4-5 ref_claude-sonnet-4-6 ref_claude-opus-4-6; do
+for s in e2e_matrix qwen_matrix matrix_subjects matrix_refs matrix_ds4 matrix_vllm; do
   tmux kill-session -t "$s" 2>/dev/null
 done
 
 # The whole grid (models, providers, seeds, routes, budgets, judges) lives in
 # scripts/benchmark/matrix.yaml. Here we just launch the lanes — cborg subjects,
-# als-apg refs, and the local ds4 server — each at its own parallelism via the
+# als-apg refs, and a local vLLM server — each at its own parallelism via the
 # launcher's --provider filter. They share results/ and resume independently.
 #
 # Concurrency: each full-suite run fans out to ~3-4 subagents, so total concurrent
@@ -59,19 +58,17 @@ tmux new-session -d -s matrix_refs \
   "cd '$REPO' && .venv/bin/python scripts/benchmark/matrix.py \
    --provider als-apg --parallel ${MATRIX_PARALLEL_REF:-1}"
 
-# Local DeepSeek V4 on the SHARED ds4 server (keyless localhost). 1-wide: the
-# 153 GB model serves serially on one GPU, so concurrent cells would only thrash
-# it. cborg/als-apg lanes are network calls and don't contend for the local GPU,
-# so this lane runs alongside them fine. Skip the lane (with a loud note) if the
-# shared server isn't answering — don't queue cells that will all fail.
-if curl -fsS -m 10 http://127.0.0.1:8000/v1/models >/dev/null 2>&1; then
-  tmux new-session -d -s matrix_ds4 \
+# Self-hosted vLLM (keyless): runs the vllm rows uncommented in matrix.yaml.
+# 1-wide: one GPU serves the cells serially, so concurrent cells would only
+# thrash it. Skipped when the server does not answer — don't queue cells that
+# will all fail.
+VLLM_URL="${VLLM_BASE_URL:-http://127.0.0.1:8000/v1}"
+if curl -fsS -m 10 "$VLLM_URL/models" >/dev/null 2>&1; then
+  tmux new-session -d -s matrix_vllm \
     "cd '$REPO' && .venv/bin/python scripts/benchmark/matrix.py \
-     --provider ds4 --parallel ${MATRIX_PARALLEL_DS4:-1}"
+     --provider vllm --parallel ${MATRIX_PARALLEL_VLLM:-1}"
 else
-  echo "WARNING: ds4 server not answering on http://127.0.0.1:8000 — skipping" >&2
-  echo "         the ds4 lane. Check: sudo launchctl print system/com.ds4.server" >&2
-  echo "         and /Users/Shared/ds4-setup.md" >&2
+  echo "NOTE: no vLLM server answering at $VLLM_URL — skipping the vllm lane" >&2
 fi
 
 sleep 3

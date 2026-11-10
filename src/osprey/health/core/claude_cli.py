@@ -32,7 +32,7 @@ _CATEGORY_PINNED = "claude_cli_pinned"
 _POLL_TIMEOUT_S = 5.0
 
 
-async def _run_version_command(argv: list[str], timeout_s: float) -> tuple[int | None, str, str]:
+async def _run_command(argv: list[str], timeout_s: float) -> tuple[int | None, str, str]:
     """Run ``argv`` and return ``(returncode, stdout, stderr)``.
 
     Args:
@@ -90,9 +90,7 @@ async def _check_claude_cli() -> list[CheckResult]:
     from osprey.agent_runner.launcher import parse_claude_version
 
     try:
-        returncode, stdout, stderr = await _run_version_command(
-            ["claude", "--version"], _POLL_TIMEOUT_S
-        )
+        returncode, stdout, stderr = await _run_command(["claude", "--version"], _POLL_TIMEOUT_S)
     except FileNotFoundError:
         return [
             CheckResult(

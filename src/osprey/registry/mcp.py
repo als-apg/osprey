@@ -703,7 +703,9 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             # the rendered config's services.optimizer.port wins.
             "OPTIMIZER_URL": "${OPTIMIZER_URL:-}",
         },
-        # Every tool only reads, so there is nothing to gate.
+        # The stops ask, as bluesky's stop_run does: the agent must not decide on
+        # its own to stop a person's run, and a cancel cannot be undone and skips
+        # on_complete. Approval only, no _WRITES_CHECK: the kill switch never blocks a stop.
         permissions_allow=[
             "list_environments",
             "get_environment",
@@ -715,11 +717,21 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             "get_job",
             "current_job",
             "get_job_config",
+            "create_draft",
+            "update_draft",
             "list_results",
             "get_result",
+            "preview_restore",
             "list_models",
         ],
+        permissions_ask=["pause_job", "cancel_job"],
+        hooks_pre=[
+            HookRule(matcher="mcp__optimizer__pause_job", hooks=[_APPROVAL]),
+            HookRule(matcher="mcp__optimizer__cancel_job", hooks=[_APPROVAL]),
+        ],
         hooks_post=[_post_error("mcp__optimizer__.*")],
+        # Pausing and cancelling stop motion, never start it.
+        plan_mode_allowed=["pause_job", "cancel_job"],
     ),
     "health": ServerDefinition(
         name="health",

@@ -126,7 +126,12 @@ async def _assert_approval_hook_fires(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.harness_benchmark
+@pytest.mark.agentic(
+    tier=1,
+    title="Read one channel",
+    asks="Read this channel and report its value.",
+    passes_if="the channel-read tool runs and the value is reported",
+)
 @pytest.mark.asyncio
 async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     """Hello-world preset: agent reads a seeded facility channel.
@@ -159,7 +164,12 @@ async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     assert eval.passed, eval.reasoning
 
 
-@pytest.mark.agentic_benchmark
+@pytest.mark.agentic(
+    tier=1,
+    title="Find a BPM address",
+    asks="Help me find the address of a BPM channel for sector 5.",
+    passes_if="a channel-finder tool runs and the answer names a channel",
+)
 @pytest.mark.asyncio
 async def test_demo_channel_finder_flow(tmp_path: Path) -> None:
     """Demo preset: agent uses the channel-finder pipeline.

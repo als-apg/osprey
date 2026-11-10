@@ -12,8 +12,13 @@ proxy's per-process singleton gets its own OS-allocated port (parallel-safe).
 Usage:
     .venv/bin/python scripts/benchmark/matrix_run.py --model cborg-coder
     .venv/bin/python scripts/benchmark/matrix_run.py --model lbl/gpt-oss-120b --timeout 300
+    .venv/bin/python scripts/benchmark/matrix_run.py --model kolibri-1 --provider vllm \
+        --base-url http://127.0.0.1:8000/v1 --key-file /dev/null
 
 Key resolution (first hit wins): --key-file, $CBORG_API_KEY, ~/.cborg_key
+(``--key-file /dev/null`` sends an empty key, for a keyless local server).
+``--provider`` names the provider behind the upstream, whose adapter decides the
+request shape the proxy sends, as it does for a matrix cell.
 Emits exactly one JSON object as the LAST line of stdout (machine-parseable);
 all human/diagnostic logging goes to stderr.
 
@@ -25,6 +30,7 @@ Result schema (one JSON object):
       "result_relayed": true,     # "3.14159" present in final assistant text
       "tool_calls": ["mcp__controls__read_pv"],
       "num_turns": 2,             # from ResultMessage (null if absent)
+      "output_tokens": 57,        # ResultMessage usage, as the proxy reported it
       "final_text": "...",        # joined assistant text blocks (truncated)
       "latency_s": 12.4,
       "error": null,              # error string, or "timeout", or null
@@ -75,8 +81,8 @@ def _claude_cli_ok() -> bool:
         return False
 
 
-async def _drive(base_url: str, key: str, model: str):
-    """Reproduces test_e2e_open_model_harness._drive_harness, capturing num_turns too."""
+async def _drive(base_url: str, key: str, model: str, provider: str):
+    """Reproduces test_proxy_open_model_harness_e2e._drive_harness, capturing turns and usage."""
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
@@ -97,7 +103,9 @@ async def _drive(base_url: str, key: str, model: str):
         return {"content": [{"type": "text", "text": f"{args['name']} = {SENTINEL} mm"}]}
 
     server = create_sdk_mcp_server(name="controls", version="1.0.0", tools=[_read_pv])
-    port = start_proxy(base_url, key)
+    # Called as tests/e2e/conftest.py calls it for a matrix cell: the provider
+    # decides the request shape, and a probe declares no attribution headers.
+    port = start_proxy(base_url, key, provider=provider, forward_headers=(), supports_images=None)
     options = ClaudeAgentOptions(
         model=model,
         cli_path=agent_cli_path({"cli_version": _DEFAULT_CLAUDE_CLI_VERSION}),
@@ -118,6 +126,7 @@ async def _drive(base_url: str, key: str, model: str):
     tool_calls: list[str] = []
     texts: list[str] = []
     num_turns = None
+    output_tokens = None
     try:
         async for msg in query(
             prompt="Use the read_pv tool to read the value of the PV named BPM:01:X, then report the value.",
@@ -131,15 +140,17 @@ async def _drive(base_url: str, key: str, model: str):
                         texts.append(b.text)
             elif isinstance(msg, ResultMessage):
                 num_turns = getattr(msg, "num_turns", None)
+                output_tokens = (getattr(msg, "usage", None) or {}).get("output_tokens")
     finally:
         stop_proxy()
-    return tool_calls, " ".join(texts), num_turns
+    return tool_calls, " ".join(texts), num_turns, output_tokens
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
     ap.add_argument("--base-url", default=CBORG_BASE)
+    ap.add_argument("--provider", default="cborg", help="provider behind --base-url")
     ap.add_argument("--key-file", default=None)
     ap.add_argument("--timeout", type=float, default=420.0, help="per-run wall-clock seconds")
     args = ap.parse_args()
@@ -151,6 +162,7 @@ def main() -> int:
         "result_relayed": False,
         "tool_calls": [],
         "num_turns": None,
+        "output_tokens": None,
         "final_text": "",
         "latency_s": None,
         "error": None,
@@ -166,12 +178,15 @@ def main() -> int:
     _log(f"[{args.model}] driving harness via proxy -> {args.base_url}")
     t0 = time.monotonic()
     try:
-        tool_calls, final_text, num_turns = asyncio.run(
-            asyncio.wait_for(_drive(args.base_url, key, args.model), timeout=args.timeout)
+        tool_calls, final_text, num_turns, output_tokens = asyncio.run(
+            asyncio.wait_for(
+                _drive(args.base_url, key, args.model, args.provider), timeout=args.timeout
+            )
         )
         result["tool_calls"] = tool_calls
         result["final_text"] = final_text[:2000]
         result["num_turns"] = num_turns
+        result["output_tokens"] = output_tokens
         result["tool_called"] = any("read_pv" in t for t in tool_calls)
         result["result_relayed"] = SENTINEL in final_text
         result["ok"] = result["tool_called"] and result["result_relayed"]
@@ -184,6 +199,7 @@ def main() -> int:
     _log(
         f"[{args.model}] ok={result['ok']} tool_called={result['tool_called']} "
         f"relayed={result['result_relayed']} turns={result['num_turns']} "
+        f"output_tokens={result['output_tokens']} "
         f"latency={result['latency_s']}s err={result['error']}"
     )
     print(json.dumps(result))

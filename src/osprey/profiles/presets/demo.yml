@@ -85,6 +85,7 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  - operating-optimizer  # Draft an optimizer run for a person to start (needs the optimizer server)
   - canopy-panel-builder  # Build, port and check CANOPY screens (goes with the canopy panel)
   - canopy-operator  # Open, arrange and close what the CANOPY panel shows (goes with the panel)
   - canopy-screens  # Which CANOPY screen shows which device, built from the library (goes with the panel)

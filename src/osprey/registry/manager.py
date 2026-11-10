@@ -25,22 +25,20 @@ logger = get_logger(name="registry", color="sky_blue2")
 
 
 class RegistryManager:
-    """Centralized registry for all Osprey Agentic Framework components.
+    """Centralized registry of Osprey services, AI providers and ARIEL modules.
 
-    This class provides the single point of access for capabilities, context classes,
-    services, providers, and connectors throughout the framework. One unified
-    registry eliminates circular imports through lazy loading and provides
-    dependency-ordered initialization.
+    Holds five name-keyed tables: services, AI model providers, and the ARIEL
+    search modules, enhancement modules and ingestion adapters. Connectors are
+    registered with ``osprey_connectors.ConnectorFactory`` rather than held
+    here.
 
-    The registry system follows a strict initialization order to handle dependencies:
-    1. Context classes (required by capabilities)
-    2. Providers (AI model backends)
-    3. Services (shared infrastructure)
-    4. Capabilities (domain-specific functionality)
-    5. Connectors (control system adapters)
-
-    All components are loaded lazily using module path and class name metadata,
-    preventing circular import issues while maintaining full introspection capabilities.
+    :meth:`initialize` walks ``config.initialization_order`` and hands each
+    component type to its initializer in ``INITIALIZER_DISPATCH``. Each
+    registration names a module path and class name; the module is imported
+    only when its component type is initialized. Building the merged
+    configuration imports only the registry modules themselves (the framework
+    builtins and the application's ``registry.py``), not the components they
+    name.
 
     .. note::
        The registry is typically accessed through the global functions get_registry()

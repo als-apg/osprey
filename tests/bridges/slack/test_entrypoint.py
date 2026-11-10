@@ -35,16 +35,14 @@ import httpx
 import pytest
 
 import osprey.bridges.slack.__main__ as main_module
-from osprey.bridges.core import CoreConfig, PipelineDeps
+from osprey.bridges.core import CoreConfig, PipelineDeps, install_signal_handlers
 from osprey.bridges.slack.__main__ import (
     CANNOT_START,
     QUIET_LIBRARIES,
     Wiring,
     build_wiring,
     config_from_env,
-    configure_logging,
     default_inbox_dir,
-    install_signal_handlers,
     main,
     run,
 )
@@ -544,8 +542,12 @@ def test_both_signals_set_the_wirings_stop_event(
 def test_the_chatty_libraries_are_demoted(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in QUIET_LIBRARIES:
         monkeypatch.setattr(logging.getLogger(name), "level", logging.NOTSET)
+    monkeypatch.setattr(os, "environ", {})
 
-    configure_logging()
+    # Through ``main`` — which sets up logging before it refuses the empty environment —
+    # so what is proven is that this bridge hands core its own list.
+    with pytest.raises(SystemExit):
+        main()
 
     assert "websockets" in QUIET_LIBRARIES
     assert all(logging.getLogger(name).level == logging.WARNING for name in QUIET_LIBRARIES)

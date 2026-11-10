@@ -8,7 +8,6 @@ from types import MappingProxyType
 from typing import NoReturn
 
 from fastmcp.exceptions import ToolError
-from mcp.types import CallToolResult
 
 
 def make_error(
@@ -168,27 +167,3 @@ class NothingAnsweredError(Exception):
         self.results = [dict(row) for row in results] if results is not None else None
         self.errors = tuple(errors)
         super().__init__(str(cause) if cause is not None else "nothing answered")
-
-
-def extract_error_envelope(result: CallToolResult) -> dict | None:
-    """Pull the structured envelope out of a wire-form error CallToolResult.
-
-    Returns ``None`` when the result is not an error or its content cannot be
-    parsed as the envelope dict. Useful for tests and hooks that need to
-    inspect the structured payload behind ``isError=True``.
-    """
-    if not isinstance(result, CallToolResult):
-        return None
-    if result.isError is not True:
-        return None
-    for block in result.content or []:
-        text = getattr(block, "text", None)
-        if not text:
-            continue
-        try:
-            parsed = json.loads(text)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if isinstance(parsed, dict) and parsed.get("error") is True:
-            return parsed
-    return None

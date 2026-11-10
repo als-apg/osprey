@@ -117,10 +117,9 @@ def test_control_system_addressed_at_two_depths_names_both_lines() -> None:
 def test_a_deeper_pair_below_control_system_passes() -> None:
     """Two dotted keys at different depths merge at render, so they are not refused.
 
-    ``config_update_fields`` writes each entry through ``_set_dotted_anchored``
-    with ``create_only=True``, which walks into whatever an existing
-    intermediate key holds. Only the bare top-level key, having no dots to
-    walk, replaces a subtree.
+    ``config_update_fields`` writes each entry through ``_set_dotted_anchored``,
+    which walks into whatever an existing intermediate key holds. Only the bare
+    top-level key, having no dots to walk, replaces a subtree.
     """
     config = {
         "control_system.connector": {"virtual_accelerator": {"limits_checking": _complete()}},

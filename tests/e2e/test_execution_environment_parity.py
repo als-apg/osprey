@@ -84,7 +84,7 @@ def _docker_installed() -> bool:
     return shutil.which("docker") is not None
 
 
-# harness_benchmark, not agentic_benchmark: no model runs here at all. Every
+# harness_benchmark, not agentic: no model runs here at all. Every
 # assertion is model-independent OSPREY plumbing (see tests/e2e/README.md).
 pytestmark = [
     pytest.mark.harness_benchmark,

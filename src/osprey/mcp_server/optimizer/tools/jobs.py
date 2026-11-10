@@ -1,4 +1,4 @@
-"""MCP tools: read the optimizer's jobs.
+"""MCP tools: read the optimizer's jobs, write drafts, and stop runs.
 
 ==========================  ===================================================
 Tool                        Optimizer route
@@ -7,15 +7,20 @@ list_jobs                   GET  /jobs
 get_job                     GET  /jobs/{job_id}?detail=summary|full
 current_job                 GET  /jobs/current
 get_job_config              GET  /jobs/{job_id}/config
+create_draft                POST /optimizations
+update_draft                PUT  /jobs/{job_id}/config
+pause_job                   POST /jobs/{job_id}/pause
+cancel_job                  POST /jobs/{job_id}/cancel
 ==========================  ===================================================
 """
 
 import json
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote
 
+from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.optimizer.server import mcp
-from osprey.mcp_server.optimizer.server_context import request
+from osprey.mcp_server.optimizer.server_context import control_target, request
 
 #: The response header carrying a stored config's revision, when the service sends one.
 CONFIG_REVISION_HEADER = "X-Config-Revision"
@@ -23,6 +28,25 @@ CONFIG_REVISION_HEADER = "X-Config-Revision"
 
 def _job(job_id: str) -> str:
     return f"/jobs/{quote(job_id, safe='')}"
+
+
+def _on_control_target(config: dict[str, Any]) -> dict[str, Any]:
+    """*config* with the session's control target, refused unsent when it names another."""
+    target = control_target()
+    named = config.get("control_target")
+    if named is not None and named != target:
+        make_error(
+            "validation_error",
+            f"The config names control_target {named!r}, but this session's control "
+            f"target is {target!r}: a draft is always for the session's control target.",
+            [
+                "Leave control_target out, or name the session's.",
+                "To draft for another machine, the session's control target has to be "
+                "switched first: ask the operator.",
+            ],
+            details={"named": named, "control_target": target},
+        )
+    return {**config, "control_target": target}
 
 
 @mcp.tool()
@@ -62,3 +86,53 @@ async def get_job_config(job_id: str) -> str:
     """
     config, revision = await request("GET", f"{_job(job_id)}/config", header=CONFIG_REVISION_HEADER)
     return json.dumps({"config": config, "revision": revision})
+
+
+@mcp.tool()
+async def create_draft(config: dict[str, Any]) -> str:
+    """Create a draft optimization job from a config. Nothing moves: a person starts it.
+
+    Start from a preset where one fits (``list_presets``): name it in ``preset`` and set only what should differ. ``objective_name`` is always required, even with a preset and even when the environment declares a default objective. The fields that matter: ``environment_name``; ``preset``; ``variables`` (names to tune); ``variable_overrides`` (per variable: ``min``/``max``, or ``window_abs``/``window_fraction`` centred on the current setpoint, and ``step_size``); ``objective_name`` and ``objective_direction``; ``algorithm``; ``n_iterations``; ``n_initial_samples``; ``constraints`` (observable -> ``{"type", "value"}``); ``on_complete`` (``apply_best``, ``restore`` or ``hold``). The draft is for the session's control target: a config naming another is refused. The service resolves the bounds against that target's current setpoints and points its current job at the new draft.
+
+    Returns the new job (its ``job_id``, status ``created``) and the ``control_target`` the draft is for. Read the stored draft back with get_job_config before telling the operator what they would be starting.
+
+    Args:
+        config: The optimization config, as a JSON object.
+    """
+    body = _on_control_target(config)
+    job = await request("POST", "/optimizations", json_body=body)
+    return json.dumps({**job, "control_target": body["control_target"]})
+
+
+@mcp.tool()
+async def update_draft(job_id: str, config: dict[str, Any]) -> str:
+    """Replace a draft job's whole config. Refused once the job has started, and when the draft has expired.
+
+    Read the current config with get_job_config, edit it, and send the whole of it back: a field left out returns to its default. The draft stays on the session's control target: ``control_target`` may be left out, and a config naming another is refused. The stored draft holds every window already resolved to a fixed ``min``/``max`` around the setpoint it was written against: to change a variable's range, edit that ``min``/``max``; to re-centre on the current setpoint, drop them and give ``window_abs`` or ``window_fraction`` instead. Both at once is refused.
+
+    Args:
+        job_id: Job id of a draft (status ``created``).
+        config: The full optimization config, as a JSON object.
+    """
+    body = _on_control_target(config)
+    return json.dumps(await request("PUT", f"{_job(job_id)}/config", json_body=body))
+
+
+@mcp.tool()
+async def pause_job(job_id: str) -> str:
+    """Pause a running optimization job. The machine stays at the last point it evaluated; a person resumes it.
+
+    Args:
+        job_id: Job id of a running optimization job.
+    """
+    return json.dumps(await request("POST", f"{_job(job_id)}/pause"))
+
+
+@mcp.tool()
+async def cancel_job(job_id: str) -> str:
+    """Cancel a job that has not finished, a draft or a run. A cancelled run leaves the machine at the last point it evaluated: nothing is restored.
+
+    Args:
+        job_id: Job id, from list_jobs or current_job.
+    """
+    return json.dumps(await request("POST", f"{_job(job_id)}/cancel"))

@@ -307,29 +307,12 @@ class TestDescribeRunArtifacts:
         assert d["delivered_mime"] == "image/png"
 
 
-class TestResolveRunArtifacts:
-    """The public bulk resolver: created-by scoped, lenient about missing files."""
-
-    async def test_resolves_only_this_runs_artifacts(self, tmp_path, monkeypatch):
+class TestResolveSingleRunArtifact:
+    async def test_missing_file_is_none(self, tmp_path, monkeypatch):
         store = _rooted_store(tmp_path, monkeypatch)
-        a1 = _save(store, "run-1", title="a", filename="a.png", mime="image/png", body=PNG_BYTES)
-        _save(store, "run-1", title="b", filename="b.png", mime="image/png", body=PNG_BYTES)
-        _save(store, "run-2", title="c", filename="c.png", mime="image/png", body=PNG_BYTES)
-        refs = await resolve_mod.resolve_run_artifacts("run-1")
-        assert {r.artifact_id for r in refs} == {a1, refs[1].artifact_id}
-        assert len(refs) == 2  # run-2's artifact excluded
-
-    async def test_unknown_run_is_empty(self, tmp_path, monkeypatch):
-        _rooted_store(tmp_path, monkeypatch)
-        assert await resolve_mod.resolve_run_artifacts("nope") == []
-
-    async def test_skips_artifact_whose_file_was_deleted(self, tmp_path, monkeypatch):
-        store = _rooted_store(tmp_path, monkeypatch)
-        keep = _save(store, "run-1", title="k", filename="k.png", mime="image/png", body=PNG_BYTES)
         gone = _save(store, "run-1", title="g", filename="g.png", mime="image/png", body=PNG_BYTES)
         (store.get_file_path(gone)).unlink()  # tag survives, file removed
-        refs = await resolve_mod.resolve_run_artifacts("run-1")
-        assert [r.artifact_id for r in refs] == [keep]
+        assert await resolve_mod.resolve_single_run_artifact("run-1", gone) is None
 
 
 # ---------------------------------------------------------------------------
