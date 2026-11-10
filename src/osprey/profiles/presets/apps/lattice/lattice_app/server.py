@@ -55,10 +55,13 @@ def read_app_config() -> dict[str, Any]:
 
 
 def cache_dir() -> Path:
-    """Where results are kept: the declared state directory, else a temporary one."""
+    """Where results are kept: the declared state directory, else a private temporary one."""
     declared = [entry for entry in os.environ.get(STATE_DIRS_ENV, "").split(":") if entry]
-    root = Path(declared[0]) if declared else Path(tempfile.gettempdir()) / f"osprey-{APP_NAME}"
-    return root / "cache"
+    if declared:
+        return Path(declared[0]) / "cache"
+    # Never a fixed name under the shared temporary directory: on a shared host another
+    # user could create it first and plant the results this backend then serves.
+    return Path(tempfile.mkdtemp(prefix=f"osprey-{APP_NAME}-")) / "cache"
 
 
 def _energy(model: Model, asked: float | None) -> float | None:
