@@ -26,7 +26,8 @@ lookup material; the how-to guides link here for every value they mention.
       :link-type: doc
 
       The JSON and tool shapes services exchange: health reports, connectors,
-      the Python executor, ARIEL, Channel Finder, and the facility graph.
+      the Python executor, ARIEL, Channel Finder, the facility graph, and six
+      more.
 
    .. grid-item-card:: osprey-connectors API
       :link: connectors-api/index
