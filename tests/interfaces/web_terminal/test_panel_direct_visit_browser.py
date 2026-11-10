@@ -26,6 +26,7 @@ from docs.screenshots.contact_sheet import SEEDED_SESSIONS, hermetic_hub
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 try:
+    from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import Page, expect
 
     _PLAYWRIGHT_AVAILABLE = True
@@ -118,15 +119,31 @@ def _tile(page: Page, panel_id: str):
     return page.locator(f'.tile-tab[data-panel-id="iframe:{panel_id}"]')
 
 
+#: What a read in a frame raises when the frame navigates under it.
+_NAVIGATED = "Execution context was destroyed"
+
+
 def _frame_location(page: Page, panel_id: str) -> dict:
-    """Where the panel's frame is, once it has loaded a document of this panel."""
+    """Where the panel's frame is, read from a settled document.
+
+    The frame may still be leaving one page for another (the stored page for the
+    visited one); a read that lands in that navigation is not an answer, so it
+    is taken again once the frame has a document to read.
+    """
     frame = page.locator(f'iframe.panel-iframe[data-panel-id="{panel_id}"]')
     expect(frame).to_be_attached(timeout=_TIMEOUT_MS)
-    return (
-        frame.element_handle()
-        .content_frame()
-        .evaluate("() => ({path: location.pathname, hash: location.hash, query: location.search})")
-    )
+    for _ in range(100):
+        content = frame.element_handle().content_frame()
+        if content is not None:
+            try:
+                return content.evaluate(
+                    "() => ({path: location.pathname, hash: location.hash, query: location.search})"
+                )
+            except PlaywrightError as exc:
+                if _NAVIGATED not in str(exc):
+                    raise
+        page.wait_for_timeout(100)
+    raise AssertionError(f"the {panel_id} frame never settled on a document")
 
 
 def _expect_on_screen_at(page: Page, panel_id: str, path: str, hash_: str) -> None:
