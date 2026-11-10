@@ -423,12 +423,11 @@ does not run one, or an attached render whose host publishes no
 loopback, or ``OPTIMIZER_URL`` when that is set.
 
 The server holds no launch token, so it cannot start, resume or restore a run:
-a person does. Drafts need no approval; ``pause_job`` and ``cancel_job`` ask
-for the operator's. A tool that reads a machine (``environment_status``,
-``read_observables``, ``initial_bounds``) asks about the session's control
-target, as every app does, and a draft is always for that target:
-``create_draft`` and ``update_draft`` refuse a config naming another. The
-``operating-optimizer`` skill walks the agent through drafting a run.
+the agent drafts a run and a person starts it. A tool that reads a machine
+(``environment_status``, ``read_observables``, ``initial_bounds``) asks about
+the session's control target, as every app does, and a draft is always for
+that target: ``create_draft`` and ``update_draft`` refuse a config naming
+another.
 
 **Tools:**
 
@@ -445,8 +444,9 @@ target, as every app does, and a draft is always for that target:
 - ``create_draft`` -- Create a draft optimization job from a config; the current-job
   pointer moves to it.
 - ``update_draft`` -- Replace a draft's whole config; refused once it has started.
-- ``pause_job`` -- Pause a running optimization job.
-- ``cancel_job`` -- Cancel a draft or a run; the machine stays where the run left it.
+- ``pause_job`` -- Pause a running optimization job (requires human approval).
+- ``cancel_job`` -- Cancel a draft or a run; the machine stays where the run left it
+  (requires human approval).
 - ``list_results`` -- List the stored runs.
 - ``get_result`` -- Read one stored run: config, best point and evaluated records.
 - ``preview_restore`` -- Show the values restoring a run would write, without writing them.
