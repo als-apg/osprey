@@ -784,6 +784,39 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         permissions_ask=[],
         hooks_post=[_post_error("mcp__graph__.*")],
     ),
+    "pv-directory": ServerDefinition(
+        name="pv-directory",
+        module="osprey.mcp_server.pv_directory",
+        env={
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+        },
+        # Conditional on a configured ``pv_directory`` section: without one there
+        # is no directory to read, so the server is left out of the render.
+        condition="pv_directory_configured",
+        # Read-only directory lookups: every tool reads, so there is no approval
+        # or writes-check hook, permissions_ask stays empty and every tool is
+        # auto-allowed. A gated tool's allow row follows its sub-block's key.
+        permissions_allow=[
+            "alarm_config",
+            "alarm_history",
+            "alarm_state",
+            "directory_properties",
+            "directory_search",
+            "ioc_record",
+            "put_history",
+            "pv_record",
+        ],
+        permissions_ask=[],
+        optional_tools={
+            "alarm_state": OptionalTool("pv_directory_alarm_state"),
+            "alarm_history": OptionalTool("pv_directory_alarm_log"),
+            "alarm_config": OptionalTool("pv_directory_alarm_config"),
+            "put_history": OptionalTool("pv_directory_put_log"),
+        },
+        hooks_post=[_post_error("mcp__pv-directory__.*")],
+    ),
     "event_dispatcher": ServerDefinition(
         name="event_dispatcher",
         # A URL server — the first framework one. Nothing is launched here, so
