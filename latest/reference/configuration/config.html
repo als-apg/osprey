@@ -937,13 +937,13 @@ to adjust a built-in, and a new category name for your own probe checks.</p>
 <h3>Suite timing<a class="headerlink" href="#suite-timing" title="Link to this heading">#</a></h3>
 <p>Three scalar settings tune the suite as a whole:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">suite_timeout_s</span></code> (default 30) — the wall-clock budget bounding all
+<li><p><code class="docutils literal notranslate"><span class="pre">health.suite_timeout_s</span></code> (default 30) — the wall-clock budget bounding all
 poll-class categories collectively. It is also the default budget for a
 poll-class callable category.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">on_demand_timeout_s</span></code> — the wall-clock budget bounding all on_demand
+<li><p><code class="docutils literal notranslate"><span class="pre">health.on_demand_timeout_s</span></code> — the wall-clock budget bounding all on_demand
 categories collectively (only relevant under <code class="docutils literal notranslate"><span class="pre">--full</span></code>). When omitted it
 defaults to the sum of the selected on_demand categories’ budgets.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">interval_s</span></code> — the minimum interval between server-side re-runs. When
+<li><p><code class="docutils literal notranslate"><span class="pre">health.interval_s</span></code> — the minimum interval between server-side re-runs. When
 omitted it derives as <code class="docutils literal notranslate"><span class="pre">max(60,</span> <span class="pre">2</span> <span class="pre">×</span> <span class="pre">suite_timeout_s)</span></code>; an explicit value must
 be greater than <code class="docutils literal notranslate"><span class="pre">suite_timeout_s</span></code> or the config is rejected. This value is
 validated but not yet enforced by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> itself.</p></li>
