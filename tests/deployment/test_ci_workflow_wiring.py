@@ -7566,10 +7566,14 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 #: benchmark (pinned by ``test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it``
 #: and ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), ``qmd-cache-warmup``
 #: runs on main pushes only, whose own run its failure already turns red (needed,
-#: it failed every revalidation as a skipped lane), and the gate cannot depend on itself. Anything else that is not in
+#: it failed every revalidation as a skipped lane), ``stop-on-failed-cheap-lane`` only cancels
+#: the run (pinned by ``test_cheap_lanes_cancel_a_failed_pull_request_run``), and the gate
+#: cannot depend on itself. Anything else that is not in
 #: ``needs`` can go red forever inside a green check — the 17 privilege-split
 #: Docker tests did exactly that for a phase.
-JOBS_OUTSIDE_THE_GATE = frozenset({BENCHMARKS_JOB, TIER2_JOB, QMD_WARMUP_JOB, GATE_JOB})
+JOBS_OUTSIDE_THE_GATE = frozenset(
+    {BENCHMARKS_JOB, TIER2_JOB, QMD_WARMUP_JOB, GATE_JOB, "stop-on-failed-cheap-lane"}
+)
 
 
 def _jobs_missing_from_the_gate(wf: dict[str, Any]) -> list[str]:
@@ -13630,8 +13634,9 @@ def test_the_unit_shards_cover_the_test_tree__mutation_cli_globs_disagree() -> N
 # the `revalidate_secret_lanes` dispatch. Each such lane carries the dispatch
 # arm beside its pull-request arm, and the set of lanes that must carry it is
 # derived from the workflow, not listed: a new pull-request-only lane without
-# the arm fails here. The benchmark lanes run on their own dispatch input and
-# the roll-up gate runs on every event, so neither is in the set.
+# the arm fails here. The benchmark lanes run on their own dispatch input, the
+# roll-up gate runs on every event, and the cheap-lane canceller is no lane, so
+# none of them is in the set.
 
 REVALIDATION_ARM = "(github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)"
 #: e2e-tests runs on every dispatch that is not a benchmark run, which
@@ -13640,13 +13645,13 @@ _E2E_DISPATCH_ARM = "(github.event_name == 'workflow_dispatch' && !inputs.run_be
 
 
 def _lanes_a_push_skips(wf: dict[str, Any]) -> set[str]:
-    """Jobs whose `if:` names no push arm, minus the benchmarks and the gate."""
+    """Jobs whose `if:` names no push arm, minus the benchmarks, the gate and the canceller."""
     return {
         name
         for name, job in _jobs(wf).items()
         if "if" in job
         and "push" not in str(job["if"])
-        and name not in {BENCHMARKS_JOB, TIER2_JOB, GATE_JOB}
+        and name not in {BENCHMARKS_JOB, TIER2_JOB, GATE_JOB, CANCEL_JOB}
     }
 
 
@@ -14930,6 +14935,7 @@ _SETUP_RUN_RES = (
     re.compile(r"uv sync --locked(?: --extra [\w-]+)*"),
     re.compile(r"npm ci"),
     re.compile(r'gh run cancel "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY"'),
+    re.compile(r'echo "value=true" >> "\$GITHUB_OUTPUT"'),
     re.compile(r"sudo apt-get update && sudo apt-get install -y --no-install-recommends [\w -]+"),
     re.compile(
         r"python3 scripts/ci/diag_summary\.py ci-diag >> \"\$GITHUB_STEP_SUMMARY\" \|\| true"
@@ -16010,46 +16016,62 @@ def test_every_qmd_deploying_step_starts_the_shared_image__mutation_unlisted_cal
 # ---------------------------------------------------------------------------
 #
 # Only on a pull request: on a push or a dispatch every lane's signal matters.
-# The gate runs `if: !cancelled()`, so a cancelled run leaves it unreported and
-# the merge blocked. The docs lane stops before its link check, which fails with
-# external sites.
+# The cancel is a job of its own, so the failed lane keeps its red conclusion
+# (cancelling from inside it would mark it cancelled and hide the failure). The
+# gate runs `if: !cancelled()`, so a cancelled run leaves it unreported and the
+# merge blocked. The docs lane counts only a failed build, not its link check,
+# which fails with external sites.
 
-CANCEL_STEP = "Stop the run on a failed cheap lane"
-CANCELLING_LANES = {
-    "lint": [],
-    "docs": ["Check for broken links"],
-    "package": [],
-    "frontend-js": [],
-    "plugin-smoke": [],
-}
+CANCEL_JOB = "stop-on-failed-cheap-lane"
+CANCELLING_LANES = ("docs", "frontend-js", "lint", "package", "plugin-smoke")
+DOCS_BUILD_FAILED_STEP = "build-failed"
 
 
-def _cancel_step_problems(wf: dict[str, Any]) -> list[str]:
-    holders = sorted(
-        name
-        for name, job in _jobs(wf).items()
-        if any(step.get("name") == CANCEL_STEP for step in job.get("steps", []))
-    )
-    problems = [] if holders == sorted(CANCELLING_LANES) else [f"cancelling lanes: {holders}"]
-    for name in set(holders) & set(CANCELLING_LANES):
-        job = _jobs(wf)[name]
-        names = [step.get("name") for step in job["steps"]]
-        step = job["steps"][names.index(CANCEL_STEP)]
-        if "".join(str(step.get("if", "")).split()) != (
-            "failure()&&github.event_name=='pull_request'"
+def _cancel_job_problems(wf: dict[str, Any]) -> list[str]:
+    jobs = _jobs(wf)
+    if CANCEL_JOB not in jobs:
+        return [f"no {CANCEL_JOB} job"]
+    job = jobs[CANCEL_JOB]
+    problems = []
+    if sorted(job.get("needs", [])) != sorted(CANCELLING_LANES):
+        problems.append(f"cancelling lanes: {sorted(job.get('needs', []))}")
+    cond = "".join(str(job.get("if", "")).split())
+    if not cond.startswith("always()&&github.event_name=='pull_request'&&"):
+        problems.append("the cancel is not limited to a pull-request run that reached its lanes")
+    for lane in CANCELLING_LANES:
+        if lane == "docs":
+            if "needs.docs.outputs.build-failed=='true'" not in cond or "needs.docs.result" in cond:
+                problems.append("docs: the cancel does not read the build-failed output alone")
+        elif f"needs.{lane}.result=='failure'" not in cond:
+            problems.append(f"{lane}: its failure does not cancel the run")
+    if (job.get("permissions") or {}).get("actions") != "write":
+        problems.append(f"{CANCEL_JOB}: no actions: write")
+    if not any('gh run cancel "$GITHUB_RUN_ID"' in str(st.get("run", "")) for st in job["steps"]):
+        problems.append(f"{CANCEL_JOB}: no step cancels the run")
+    for name, other in jobs.items():
+        if name != CANCEL_JOB and any(
+            "gh run cancel" in str(st.get("run", "")) for st in other.get("steps", [])
         ):
-            problems.append(f"{name}: the cancel is not limited to a failed pull-request run")
-        if 'gh run cancel "$GITHUB_RUN_ID"' not in step.get("run", ""):
-            problems.append(f"{name}: the step does not cancel the run")
-        if (job.get("permissions") or {}).get("actions") != "write":
-            problems.append(f"{name}: no actions: write")
-        if names[names.index(CANCEL_STEP) + 1 :] != CANCELLING_LANES[name]:
-            problems.append(f"{name}: steps after the cancel step")
+            problems.append(f"{name}: cancels the run from inside a lane")
+    docs = jobs["docs"]
+    ids = [st.get("id") for st in docs["steps"]]
+    names = [st.get("name") for st in docs["steps"]]
+    if DOCS_BUILD_FAILED_STEP not in ids:
+        problems.append("docs: no build-failed step")
+    else:
+        step = docs["steps"][ids.index(DOCS_BUILD_FAILED_STEP)]
+        if str(step.get("if")) != "failure()":
+            problems.append("docs: build-failed is not set on failure")
+        if ids.index(DOCS_BUILD_FAILED_STEP) > names.index("Check for broken links"):
+            problems.append("docs: build-failed comes after the link check")
+        expected = f"${{{{ steps.{DOCS_BUILD_FAILED_STEP}.outputs.value }}}}"
+        if (docs.get("outputs") or {}).get("build-failed") != expected:
+            problems.append("docs: build-failed is not a job output")
     return sorted(problems)
 
 
 def test_cheap_lanes_cancel_a_failed_pull_request_run(workflow: dict[str, Any]) -> None:
-    assert _cancel_step_problems(workflow) == []
+    assert _cancel_job_problems(workflow) == []
     assert _gate_stands_down_only_when_cancelled(workflow)
 
 
@@ -16057,23 +16079,40 @@ def test_cheap_lanes_cancel__mutations() -> None:
     def mutated(edit: Any) -> list[str]:
         wf = _load_workflow()
         edit(_jobs(wf))
-        return _cancel_step_problems(wf)
+        return _cancel_job_problems(wf)
 
-    cancel = _find_named_step(_load_workflow(), "lint", CANCEL_STEP)
-    assert mutated(lambda jobs: jobs["static-checks"]["steps"].append(dict(cancel))) == [
+    assert mutated(lambda jobs: jobs[CANCEL_JOB]["needs"].append("static-checks")) == [
         "cancelling lanes: ['docs', 'frontend-js', 'lint', 'package', 'plugin-smoke', "
         "'static-checks']"
     ]
-    assert mutated(lambda jobs: jobs["package"]["steps"].pop()) == [
-        "cancelling lanes: ['docs', 'frontend-js', 'lint', 'plugin-smoke']"
-    ]
-    # A new dict, not .update(): every lane's step is the one parsed anchor.
     assert mutated(
-        lambda jobs: jobs["lint"]["steps"].__setitem__(-1, {**cancel, "if": "failure()"})
-    ) == ["lint: the cancel is not limited to a failed pull-request run"]
-    assert mutated(lambda jobs: jobs["package"].update({"permissions": {"contents": "read"}})) == [
-        "package: no actions: write"
+        lambda jobs: jobs[CANCEL_JOB].update(
+            {"if": jobs[CANCEL_JOB]["if"].replace("github.event_name == 'pull_request'", "true")}
+        )
+    ) == ["the cancel is not limited to a pull-request run that reached its lanes"]
+    assert mutated(
+        lambda jobs: jobs[CANCEL_JOB].update(
+            {"if": jobs[CANCEL_JOB]["if"].replace("needs.package.result == 'failure'", "false")}
+        )
+    ) == ["package: its failure does not cancel the run"]
+    assert mutated(
+        lambda jobs: jobs[CANCEL_JOB].update(
+            {
+                "if": jobs[CANCEL_JOB]["if"].replace(
+                    "needs.docs.outputs.build-failed == 'true'", "needs.docs.result == 'failure'"
+                )
+            }
+        )
+    ) == ["docs: the cancel does not read the build-failed output alone"]
+    assert mutated(lambda jobs: jobs[CANCEL_JOB].update({"permissions": {}})) == [
+        f"{CANCEL_JOB}: no actions: write"
     ]
-    assert mutated(lambda jobs: jobs["docs"]["steps"].pop()) == [
-        "docs: steps after the cancel step"
-    ]
+    assert mutated(
+        lambda jobs: jobs["lint"]["steps"].append({"run": 'gh run cancel "$GITHUB_RUN_ID"'})
+    ) == ["lint: cancels the run from inside a lane"]
+
+    def link_check_first(jobs: dict[str, Any]) -> None:
+        steps = jobs["docs"]["steps"]
+        steps.append(steps.pop([st.get("id") for st in steps].index(DOCS_BUILD_FAILED_STEP)))
+
+    assert mutated(link_check_first) == ["docs: build-failed comes after the link check"]

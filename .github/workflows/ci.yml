@@ -438,10 +438,6 @@ jobs:
     name: Lint and Code Quality + Tier 0 config-key guard
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # actions: write for the step that cancels the run; a job `permissions:` replaces the defaults.
-    permissions: &cancel-run-permissions
-      contents: read
-      actions: write
 
     steps:
     - *checkout-full-history
@@ -490,19 +486,12 @@ jobs:
         BASE: ${{ format('origin/{0}', github.event.pull_request.base.ref) }}
       run: python3 scripts/check.py run gitleaks --base "$BASE"
 
-    - &stop-on-failed-cheap-lane
-      # A deterministic cheap lane failed: the rest of the run's runner time would be spent for nothing.
-      name: Stop the run on a failed cheap lane
-      if: failure() && github.event_name == 'pull_request'
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
-
   docs:
     name: Documentation Build (Check Only)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    permissions: *cancel-run-permissions
+    outputs:
+      build-failed: ${{ steps.build-failed.outputs.value }}
 
     steps:
     - *checkout-full-history
@@ -526,8 +515,11 @@ jobs:
         path: docs/build/html
         retention-days: 7
 
-    # Before the link check: an external site's outage must not stop the run.
-    - *stop-on-failed-cheap-lane
+    # Read by stop-on-failed-cheap-lane; set before the link check, so an external site's outage stops nothing.
+    - name: Record a failed docs build
+      id: build-failed
+      if: failure()
+      run: echo "value=true" >> "$GITHUB_OUTPUT"
 
     - name: Check for broken links
       run: python3 scripts/check.py run linkcheck
@@ -536,7 +528,6 @@ jobs:
     name: Package Build (framework + lean connectors wheel)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    permissions: *cancel-run-permissions
 
     steps:
     - *checkout-full-history
@@ -553,7 +544,6 @@ jobs:
         path: dist/osprey_framework-*
         retention-days: 7
 
-    - *stop-on-failed-cheap-lane
 
   static-checks:
     name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
@@ -868,7 +858,6 @@ jobs:
     name: Frontend JS (typecheck + lint + vitest)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    permissions: *cancel-run-permissions
 
     steps:
     - *checkout-full-history
@@ -890,13 +879,11 @@ jobs:
     - name: Run tsc, eslint, prettier, vitest and the app check over a panel
       run: python3 scripts/check.py run tsc eslint prettier vitest app-check-js
 
-    - *stop-on-failed-cheap-lane
 
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions: *cancel-run-permissions
     # No `if:`: changes outside `plugins/` can break the install.
     steps:
     - *checkout-full-history
@@ -923,7 +910,26 @@ jobs:
         grep -q 'Skills (11)' /tmp/details.txt
         for s in build-app contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
-    - *stop-on-failed-cheap-lane
+
+  stop-on-failed-cheap-lane:
+    # A deterministic cheap lane failed, so the run cannot pass: cancel the rest. A job of its own, so the
+    # failed lane keeps its own red conclusion instead of being cancelled with the run.
+    name: Stop the run on a failed cheap lane
+    needs: [lint, docs, package, frontend-js, plugin-smoke]
+    if: >-
+      always() && github.event_name == 'pull_request'
+      && (needs.lint.result == 'failure' || needs.package.result == 'failure'
+        || needs.frontend-js.result == 'failure' || needs.plugin-smoke.result == 'failure'
+        || needs.docs.outputs.build-failed == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+    - name: Cancel the run
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
 
   build-boot-smoke:
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
