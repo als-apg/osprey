@@ -80,6 +80,25 @@ class TestDraftConceptWrite:
         assert (fixture_bundle / "accelerator_overview.md").exists()
 
     @pytest.mark.asyncio
+    async def test_a_drafted_concept_is_readable_through_the_bundle_group(
+        self, fixture_bundle: Path
+    ):
+        # Every entitled web terminal reads the shared bundle under its own uid,
+        # through the directory's setgid group; owner-only would hide the draft.
+        from osprey.mcp_server.facility_knowledge.server import draft_concept
+
+        await get_tool_fn(draft_concept)(
+            concept_id="accelerator_overview",
+            doc_type="facility_overview",
+            title="Accelerator Overview",
+            description="Overview of the accelerator complex.",
+            body="The facility uses a synchrotron ring.\n",
+        )
+
+        mode = (fixture_bundle / "accelerator_overview.md").stat().st_mode & 0o777
+        assert mode == 0o640
+
+    @pytest.mark.asyncio
     async def test_written_file_is_valid_okf_doc(self, fixture_bundle: Path):
         from osprey.mcp_server.facility_knowledge.server import draft_concept
         from osprey.services.facility_knowledge.okf.document import OKFDocument

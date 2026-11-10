@@ -289,6 +289,10 @@ def _prune_pointers(directory, own, now):
                 os.unlink(path)
 
 
+#: Read by the host launch's own MCP processes (``artifact_scope``), under the same account.
+_POINTER_FILE_MODE = 0o600
+
+
 def write_cli_pointer(root, launch, transcript):
     """Atomically write *transcript* as *launch*'s pointer under *root*.
 
@@ -307,7 +311,10 @@ def write_cli_pointer(root, launch, transcript):
     from osprey_safety_file import atomic_replace
 
     atomic_replace(
-        Path(target), (transcript + "\n").encode("utf-8"), mode=0o600, sync="best_effort"
+        Path(target),
+        (transcript + "\n").encode("utf-8"),
+        mode=_POINTER_FILE_MODE,
+        sync="best_effort",
     )
     _prune_pointers(directory, launch, time.time())
     return target

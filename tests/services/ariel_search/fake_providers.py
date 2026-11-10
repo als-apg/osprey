@@ -30,7 +30,6 @@ class _FakeEmbeddingProviderBase(BaseProvider):
     description = "Fake embedding provider for tests"
     requires_api_key = False
     requires_base_url = True
-    requires_model_id = False
     supports_proxy = False
     default_base_url = "http://fake-embeddings.invalid:11434"
     default_model_id = "nomic-embed-text"
