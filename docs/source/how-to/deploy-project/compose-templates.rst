@@ -215,11 +215,11 @@ fails at ``up`` on the image it forgot:
      - Set the registry axis once — ``images.registry``, or
        ``OSPREY_IMAGE_REGISTRY`` for a single build.
    * - The upstream pins
-     - ``images.base_registry`` (or ``OSPREY_BASE_REGISTRY``) names a Docker
-       Hub mirror for all of them at once; a ``services.<name>.image`` row (or
-       its ``OSPREY_..._IMAGE``) still names one image outright. tiled is on
+     - ``images.base_registry`` (or ``OSPREY_BASE_REGISTRY``) moves every
+       Docker Hub pin onto your mirror at once; a ``services.<name>.image`` row
+       (or its ``OSPREY_..._IMAGE``) still names one outright. tiled is on
        ghcr.io and needs its row. The agent record's ClickHouse store has no
-       variable: ``agent_record.clickhouse.image`` names it outright.
+       variable: the profile's ``agent_record.clickhouse.image`` names it.
    * - The web tier's images, auth sidecar included
      - ``registry.url`` plus ``modules.web_terminals.image_tag``.
    * - nginx

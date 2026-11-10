@@ -1384,7 +1384,7 @@ Two things about *when* and *where* this applies are worth having straight:
 
 The axes never touch an upstream pin. Prefixing ``mongo:7`` with your
 registry would name an image that exists in no registry.
-``images.base_registry`` moves the Docker Hub ones onto a mirror; a row moves one.
+``images.base_registry`` moves the Docker Hub ones onto a mirror; a ``services.<name>.image`` pin moves one.
 
 .. _compose-interpolation-precedence:
 

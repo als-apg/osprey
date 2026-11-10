@@ -59,20 +59,18 @@ deployment, which is why none of them is a config key.
        ``images.pip_index_url`` / ``images.pip_extra_index_url`` /
        ``images.base_registry`` exactly as the two image axes outrank
        ``images.registry`` / ``images.tag``. Whichever layer wins is handed to
-       every image ``osprey up`` builds: the project image, each web-terminal
-       image, the login sidecar and the managed service images, and every
-       Docker Hub image it pulls — see
+       every image ``osprey up`` builds, service images included; the registry
+       also moves every Docker Hub image it pulls — see
        :doc:`/how-to/deploy-project/project-image`.
    * - ``OSPREY_OFFLINE``
      - ``1`` switches the web interfaces from CDN-hosted libraries to the local
        bundles ``osprey vendor fetch`` downloads. The equivalent config key is
        ``offline``; use the variable for a single run, the key for a
        deployment that is always firewalled. Whichever layer wins is also
-       passed to every image ``osprey up`` builds, the managed service images
-       among them, as the ``OSPREY_OFFLINE`` build argument; the recipes that
-       serve web assets (the project image and the bluesky-web image) run
-       ``osprey vendor fetch`` under it, so the mode an image was built for and
-       the mode it serves in cannot disagree.
+       passed to every image ``osprey up`` builds as the ``OSPREY_OFFLINE``
+       build argument; the recipes that serve web assets (the project image and
+       the bluesky-web image) run ``osprey vendor fetch`` under it, so the mode
+       an image was built for and the mode it serves in cannot disagree.
    * - ``OSPREY_CA_BUNDLE``
      - Path to a CA bundle for hosts behind a TLS-intercepting proxy, so
        ``osprey vendor fetch`` verifies rather than skips. ``SSL_CERT_FILE``

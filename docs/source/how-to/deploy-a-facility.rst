@@ -513,16 +513,6 @@ whoever presses the deploy button, and ``host.project_path`` is where this
 repository is checked out on that server. Credentials are *named* here, never
 written here.
 
-``images.base_registry`` under ``config:`` names the registry standing in for
-Docker Hub. The pipeline's jobs, the facility image build and every image
-``osprey up`` builds or pulls come from it. Leave it out on a runner with
-internet access.
-
-.. code-block:: yaml
-
-   config:
-     images.base_registry: mirror.example.org/dockerhub
-
 ``image_source: local`` says the deploy host builds the web-terminal images
 itself from the rendered login projects, rather than pulling them from a
 registry.
@@ -541,6 +531,17 @@ push those images. The names and what has to push them:
    config for you. Saying it in both places is refused by name — the two are
    free to disagree, and the disagreement decides whether the host builds images
    or pulls them.
+
+A runner or deploy host with no route to Docker Hub names a site mirror of it
+under ``config:``; leave the key out where Docker Hub is reachable:
+
+.. code-block:: yaml
+
+   config:
+     images.base_registry: mirror.example.org/dockerhub
+
+The pipeline's job images, the base image of every image this repository
+builds, and the Docker Hub images ``osprey up`` pulls then come from it.
 
 
 Step 6 — Add the secrets
