@@ -95,8 +95,8 @@ What ``osprey init`` writes
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
      tiers/          one file per web-terminal login (multi-user presets only)
-     apps/           one directory per application the preset lists, with a
-                     .provenance sidecar (presets that list applications only)
+     apps/           one directory per application the profile lists, with a
+                     .provenance sidecar (only when it lists one)
      web-terminal-context/  the shared base.md baseline, plus one seeded
                      directory per operator on the roster
      rules/          rules/facility.md, the facility description, to rewrite in
@@ -109,12 +109,15 @@ What ``osprey init`` writes
      build/          rendered by `osprey build`; disposable
      var/            agent memory and audit log; durable
 
-``triggers.yml``, ``tiers/``, ``apps/``, ``web-terminal-context/``, ``rules/``,
+``triggers.yml``, ``tiers/``, ``web-terminal-context/``, ``rules/``,
 ``watchdogs/`` and ``mcp_servers/`` appear only when the preset calls for them. A
-``demo`` deployment has all of them except ``apps/`` and ``mcp_servers/``; a
-``hello-world`` deployment has only ``mcp_servers/``. A preset's applications
-come with ``osprey init``, never through ``extends:``: a profile runs the
-applications it lists and holds.
+``demo`` deployment has all of them except ``mcp_servers/``; a
+``hello-world`` deployment has only ``mcp_servers/``.
+
+No bundled preset lists an application, so ``apps/`` appears only when you list
+one: ``osprey init --preset demo --set 'apps.orbit-bump={}'`` writes
+``apps/orbit-bump/``. A preset's applications come with ``osprey init``, never
+through ``extends:``: a profile runs the applications it lists and holds.
 
 ``git init`` and an initial commit run at the end. There is no CI pipeline yet:
 the profile ships its ``deploy:`` block commented out, so there are no

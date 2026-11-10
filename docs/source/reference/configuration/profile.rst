@@ -232,6 +232,17 @@ Profile YAML reference
      - The deployment's watchdogs, by name; each one's files live in
        ``watchdogs/<name>/`` beside the profile
        (see :ref:`profile-watchdogs-block`).
+   * - ``apps``
+     - mapping
+     - ``{}``
+     - The applications the deployment runs, by name; each one's files live in
+       ``apps/<name>/`` beside the profile (see :doc:`/how-to/apps/index`). In
+       a login file, which of them the login's card shows.
+   * - ``lists``
+     - string
+     - ``add``
+     - Login files only: ``add`` lays the login's lists over the deployment's,
+       ``own`` takes them from the file alone (see :doc:`/how-to/build-profiles`).
    * - ``lifecycle``
      - mapping
      - ``{}``
@@ -719,6 +730,15 @@ Each entry under ``mcp_servers:`` takes these keys:
        A list beside the ``writes_check`` preset is refused. The build never
        asks the server for its tool list, so a name it does not serve is not
        caught.
+   * - ``condition``
+     - absent
+     - A render-context key that must be truthy for the server to render. A
+       server an application projects with ``shown_when: panel`` carries
+       ``panel:<panel id>``.
+   * - ``app``
+     - absent
+     - The application the server is projected for, by name (``[a-z0-9-]+``);
+       absent for any other server.
 
 A key the entry does not define is ignored with a warning that names the release
 from which it is refused.

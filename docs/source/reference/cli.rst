@@ -1745,6 +1745,9 @@ switch the interfaces over to local bundles.
 
    ``-q, --quiet`` — Suppress per-file output.
 
+   ``-t, --target DIR`` — Fetch only the assets for this manifest target
+   directory, e.g. ``tuning/static/vendor/`` (repeatable). Default: every target.
+
    Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
    fails cert verification until it is pointed at the site's CA bundle.
    That is the first remedy to reach for — verification stays on:
