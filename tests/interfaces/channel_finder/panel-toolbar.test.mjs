@@ -2,7 +2,7 @@
 /**
  * Unit tests for the Channel Finder's panel toolbar (panel-toolbar.js): the
  * view switch, the controls a view claims or leaves disabled with a reason,
- * and the sidebar toggle a drawn sidebar drives. The
+ * the search a PV or IOC page hands to All PVs, and the sidebar toggle a drawn sidebar drives. The
  * toolbar markup is the real one, read from index.html:
  *   npx vitest run tests/interfaces/channel_finder/panel-toolbar.test.mjs
  */
@@ -113,6 +113,46 @@ describe('a claimed toolbar', () => {
     expect(search().disabled).toBe(true);
     expect(search().value).toBe('');
     expect(byId('cf-result-count').hidden).toBe(true);
+  });
+});
+
+describe('the search on a PV or IOC page', () => {
+  /** @param {string} words */
+  function enter(words) {
+    search().value = words;
+    search().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+  }
+
+  test.each(['pv', 'ioc'])('is enabled on %s and Enter searches All PVs', (view) => {
+    initToolbar();
+    state.setActiveView(view);
+    expect(search().disabled).toBe(false);
+    expect(byId('cf-search-field').title).toBe('');
+
+    enter(' BPM01 ');
+    expect(location.hash).toBe('#/allpvs?q=BPM01');
+    enter('beam current');
+    expect(location.hash).toBe('#/allpvs?q=beam%20current');
+    enter('  ');
+    expect(location.hash).toBe('#/allpvs');
+  });
+
+  test('is disabled on a view outside All PVs, and Enter does nothing', () => {
+    initToolbar();
+    state.setActiveView('explore');
+    expect(search().disabled).toBe(true);
+    enter('BPM01');
+    expect(location.hash).toBe('');
+  });
+
+  test('while a view holds the field, the toolbar Enter does nothing', () => {
+    initToolbar();
+    state.setActiveView('pv');
+    const release = claimToolbar();
+    enter('BPM01');
+    expect(location.hash).toBe('');
+    release();
+    expect(search().disabled).toBe(false);
   });
 });
 

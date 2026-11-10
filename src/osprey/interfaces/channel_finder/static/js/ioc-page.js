@@ -13,14 +13,14 @@
  * `yes`, an equal value or a read without an answer is `no`, and a page with
  * no second read yet or no HEARTBEAT PV is `unknown`.
  *
- * The page is part of All PVs: the toolbar search searches All PVs.
+ * The page is part of All PVs: the toolbar search opens All PVs
+ * (panel-toolbar.js).
  */
 
 import { icon } from '/design-system/js/icons.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { renderState } from '/design-system/js/panel-state.js';
 import { fetchIocFacts, readValues } from './directory-api.js';
-import { claimToolbar, searchInput } from './panel-toolbar.js';
 
 /** @typedef {import('./directory-api.js').IocFacts} IocFacts */
 /** @typedef {import('./directory-api.js').ValueRow} ValueRow */
@@ -43,17 +43,6 @@ const READING = '…';
 let generation = 0;
 /** @type {ReturnType<typeof setTimeout>|null} */
 let heartbeatTimer = null;
-/** @type {(() => void)|null} */
-let releaseToolbar = null;
-/** @type {HTMLInputElement|null} */
-let searchField = null;
-
-/** @param {KeyboardEvent} event */
-function onSearchKey(event) {
-  if (event.key !== 'Enter' || !searchField) return;
-  const text = searchField.value.trim();
-  location.hash = text ? `#/allpvs?q=${encodeURIComponent(text)}` : '#/allpvs';
-}
 
 /**
  * @template {keyof HTMLElementTagNameMap} K
@@ -261,10 +250,6 @@ export function mountIocPage(container, params) {
   const mounted = ++generation;
   const name = params.name ?? '';
 
-  releaseToolbar = claimToolbar();
-  searchField = searchInput();
-  searchField?.addEventListener('keydown', onSearchKey);
-
   renderState(container, { icon: 'refresh', message: `Loading IOC ${name}` });
   fetchIocFacts(name).then(
     (facts) => {
@@ -307,8 +292,4 @@ export function unmountIocPage() {
   generation += 1;
   if (heartbeatTimer) clearTimeout(heartbeatTimer);
   heartbeatTimer = null;
-  searchField?.removeEventListener('keydown', onSearchKey);
-  searchField = null;
-  releaseToolbar?.();
-  releaseToolbar = null;
 }
