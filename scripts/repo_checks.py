@@ -681,12 +681,13 @@ def _is_pytest_file(name: str) -> bool:
     return (name.startswith("test_") and name.endswith(".py")) or name.endswith("_test.py")
 
 
-def _in_test_tree(path: str) -> bool:
-    """Whether *path* lies under ``tests/`` or a package's ``packages/<name>/tests/``."""
-    parts = PurePosixPath(path).parts
-    return parts[0] == "tests" or (
-        len(parts) > 3 and parts[0] == "packages" and parts[2] == "tests"
-    )
+def _sweep_root(path: str) -> str | None:
+    """The ``UNIT_SELECTION.roots`` tree *path* lies under, without its slash, if any."""
+    for root in UNIT_SELECTION.roots:
+        root = root.rstrip("/")
+        if path.startswith(root + "/"):
+            return root
+    return None
 
 
 def _holds_test_module(directory: str, files: Sequence[str]) -> bool:
@@ -747,15 +748,21 @@ def _select_pytest(
         if _hosted_outside_sweep(path):
             continue
         if suffix == ".py":
-            if _in_test_tree(path) and _is_pytest_file(name):
+            root = _sweep_root(path)
+            if root is not None and _is_pytest_file(name):
                 chosen.append(path)
                 continue
-            if _in_test_tree(path) and name == "__init__.py":
+            if root == "tests" and name == "__init__.py":
                 directory = PurePosixPath(path).parent.as_posix()
                 if directory == "tests" or not _holds_test_module(directory, files):
                     return Selection(WHOLE, cause=path)
                 chosen.append(directory)
                 continue
+            if root is not None and root != "tests":
+                # A non-test module under any other sweep root (the connectors
+                # test package's helpers and inits) is imported by framework
+                # tests too, so it widens.
+                return Selection(WHOLE, cause=path)
             if path in shaping:
                 chosen.append("tests/scripts")
                 continue
