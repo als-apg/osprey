@@ -18,7 +18,6 @@ import yaml
 from osprey.agent_record.config import (
     BACKEND_CLICKHOUSE,
     BACKEND_EMBEDDED,
-    DEFAULT_CLICKHOUSE_IMAGE,
     DEFAULT_RETENTION_DAYS,
     HISTORY_SERVICE,
     STORE_HTTP_CONTAINER_PORT,
@@ -39,6 +38,7 @@ from osprey.cli.build_profile_deploy import (
     deploy_aware_config_warnings,
 )
 from osprey.cli.build_profile_load import _parse_profile, load_profile_document
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
 
@@ -78,8 +78,8 @@ def test_a_profile_with_no_block_gets_the_defaults() -> None:
     assert cfg.retention_days == DEFAULT_RETENTION_DAYS == 14
     assert cfg.readers == ()
     assert cfg.port == default_port("agent_record")
-    assert cfg.clickhouse.image == DEFAULT_CLICKHOUSE_IMAGE
-    assert DEFAULT_CLICKHOUSE_IMAGE == "clickhouse/clickhouse-server:26.8.18.2"
+    assert cfg.clickhouse.image == UPSTREAM_IMAGES["clickhouse"]
+    assert UPSTREAM_IMAGES["clickhouse"] == "clickhouse/clickhouse-server:26.8.18.2"
     assert agent_record_errors(cfg) == []
 
 
@@ -100,7 +100,7 @@ def test_the_default_clickhouse_image_comes_from_the_base_registry(
 ) -> None:
     """The record's store image is pulled from the site's Docker Hub mirror."""
     monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
-    mirrored = f"{_HUB_MIRROR}/{DEFAULT_CLICKHOUSE_IMAGE}"
+    mirrored = f"{_HUB_MIRROR}/{UPSTREAM_IMAGES['clickhouse']}"
     raw: dict[str, Any] = {"images": {"base_registry": _HUB_MIRROR}}
     if block is not None:
         raw["agent_record"] = block
@@ -191,7 +191,7 @@ def test_the_profiles_base_registry_reaches_the_clickhouse_default(
     )
 
     assert profile.agent_record.clickhouse.image == (
-        f"mirror.example.org/dockerhub/{DEFAULT_CLICKHOUSE_IMAGE}"
+        f"mirror.example.org/dockerhub/{UPSTREAM_IMAGES['clickhouse']}"
     )
 
 
@@ -382,6 +382,19 @@ def test_value_rules(block: dict[str, Any], fragment: str) -> None:
     assert any(fragment in error for error in errors), errors
 
 
+def test_an_empty_image_with_a_mirror_names_the_mirrored_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal names the image the deployment would run without the key."""
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    cfg = _parse({"backend": "clickhouse", "clickhouse": {"image": " "}})
+
+    (error,) = agent_record_errors(cfg, {"images": {"base_registry": "m"}})
+
+    assert "m/clickhouse/clickhouse-server:26.8.18.2" in error
+    assert "run clickhouse/clickhouse-server" not in error
+
+
 @pytest.mark.parametrize(
     "config", [{"agent_record.backend": "clickhouse"}, {"agent_record": {"backend": "x"}}]
 )
@@ -405,7 +418,7 @@ def test_the_resolved_block_renders_every_key() -> None:
         "agent_record.readers": [{"name": "ops", "kinds": ["prompt"]}],
         "agent_record.port": default_port("agent_record"),
         "agent_record.memory": "1g",
-        "agent_record.clickhouse.image": DEFAULT_CLICKHOUSE_IMAGE,
+        "agent_record.clickhouse.image": UPSTREAM_IMAGES["clickhouse"],
         "agent_record.clickhouse.memory": "2g",
     }
 
@@ -422,7 +435,7 @@ def test_the_rendered_block_is_what_the_credential_table_reads(tmp_path: Path) -
     rendered = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert rendered["agent_record"]["backend"] == "embedded"
-    assert rendered["agent_record"]["clickhouse"]["image"] == DEFAULT_CLICKHOUSE_IMAGE
+    assert rendered["agent_record"]["clickhouse"]["image"] == UPSTREAM_IMAGES["clickhouse"]
     grant = credential_table(rendered)["reader.ops"]
     assert grant.scope.kinds == frozenset({"prompt"})
     assert grant.scope.days_back == 3

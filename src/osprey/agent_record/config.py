@@ -39,6 +39,7 @@ from dataclasses import dataclass, field, fields
 from typing import Any
 
 from osprey.agent_record.contract import KINDS
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES, upstream_image
 from osprey.port_layout import default_port, resolve_port_base
 from osprey_connectors.errors import BuildProfileError
 
@@ -60,9 +61,6 @@ DEFAULT_RETENTION_DAYS = 14
 
 #: The agent-record container's memory limit.
 DEFAULT_MEMORY = "1g"
-
-#: The ClickHouse server image a ``backend: clickhouse`` deployment runs.
-DEFAULT_CLICKHOUSE_IMAGE = "clickhouse/clickhouse-server:26.8.18.2"
 
 #: The ClickHouse container's memory limit.
 DEFAULT_CLICKHOUSE_MEMORY = "2g"
@@ -96,12 +94,27 @@ _READERS = f"{AGENT_RECORD_BLOCK}.readers"
 _WEB = "modules.web_terminals"
 
 
+def default_clickhouse_image(base_registry: str) -> str:
+    """The ClickHouse server image a ``backend: clickhouse`` deployment runs by default.
+
+    Args:
+        base_registry: The registry standing in for docker.io, ``""`` when the
+            deployment declares none.
+
+    Returns:
+        The catalogue's ``clickhouse`` entry, moved onto *base_registry*.
+    """
+    return upstream_image("clickhouse", base_registry)
+
+
 @dataclass(frozen=True)
 class ClickHouseConfig:
     """The ``agent_record.clickhouse:`` sub-block — read only with ``backend: clickhouse``."""
 
-    image: str = DEFAULT_CLICKHOUSE_IMAGE
-    """The ClickHouse server image the store container runs."""
+    image: str = UPSTREAM_IMAGES["clickhouse"]
+    """The ClickHouse server image the store container runs. The parser fills
+    an unspelled key with :func:`default_clickhouse_image` on the deployment's
+    base registry."""
 
     memory: str | int = DEFAULT_CLICKHOUSE_MEMORY
     """The store container's memory limit, as compose's ``mem_limit`` takes it."""
@@ -241,11 +254,10 @@ def parse_agent_record_block(
     """
     # Imported here: compose_generator imports this module at import time.
     from osprey.deployment.compose_generator import resolve_base_registry
-    from osprey.deployment.upstream_images import hub_image
 
     if base_registry is None:
         base_registry = resolve_base_registry(raw)
-    clickhouse_image = hub_image(DEFAULT_CLICKHOUSE_IMAGE, base_registry)
+    clickhouse_image = default_clickhouse_image(base_registry)
     block = raw.get(AGENT_RECORD_BLOCK)
     defaults: dict[str, Any] = (
         {} if base is None else {"port": default_port("agent_record", base=base)}
@@ -329,9 +341,13 @@ def agent_record_errors(agent_record: AgentRecordConfig, config: Any = None) -> 
         except ValueError as exc:
             errors.append(str(exc))
     if not cfg.clickhouse.image.strip():
+        # Imported here: build_profile_load imports this module at import time.
+        from osprey.cli.build_profile_load import config_base_registry
+
+        default_image = default_clickhouse_image(config_base_registry(config))
         errors.append(
             f"agent_record.clickhouse.image must be a non-empty image reference. Remove "
-            f"the key to run {DEFAULT_CLICKHOUSE_IMAGE}"
+            f"the key to run {default_image}"
         )
     errors.extend(_duplicate_config_key_errors(config))
     return errors
