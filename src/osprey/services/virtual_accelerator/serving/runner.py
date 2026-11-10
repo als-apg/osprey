@@ -11,6 +11,18 @@ package (``lume_pva_apg``) it builds on. It is reached lazily
 (``serving.runner``, never an eager re-export) precisely so that importing
 the serving package stays cheap; see the package docstring.
 
+**Timed passes.** A view holding a ``fast`` or ``event`` channel gets one
+scheduler thread beside the base class's ticker. It queues a timed pass at
+the earlier of the next fast period and the composite's next deadline, never
+more than one at a time, as a jobs-only queue item: the run loop runs the job
+and no pass of its own. The job advances the composite, reads the names the
+composite emitted and, when the fast period fell due, the ``fast`` names, and
+posts them with a forced Channel
+Access event (:mod:`~osprey.services.virtual_accelerator.serving.publication`).
+Every other pass posts the two classes changed-only, except the names it
+drained as emitted, so a step is published once, by whichever pass advanced
+over it.
+
 Every model access happens on the run loop's thread. The composite is not
 thread-safe, so a model RPC call taken on a p4p worker thread is answered by
 a job the run loop runs, never on the thread that received it; that rule is
@@ -20,6 +32,11 @@ kept by the RPC handler,
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
+from collections.abc import Collection
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -34,10 +51,18 @@ from osprey.services.virtual_accelerator.serving.model_rpc_handler import (
     pva_endpoint,
 )
 from osprey.services.virtual_accelerator.serving.model_surface import ModelSurface
-from osprey.services.virtual_accelerator.serving.publication import changed_outputs
+from osprey.services.virtual_accelerator.serving.publication import (
+    changed_outputs,
+    forced_names,
+    next_wake,
+    timed_pass_names,
+    untimed_outputs,
+)
 from osprey.services.virtual_accelerator.serving.runner_config import (
     HEALTH_KEYS,
     apply_safety,
+    event_addresses,
+    fast_addresses,
     pass_readback,
     periodic_addresses,
     setting_records,
@@ -47,6 +72,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel
 
     from osprey_connectors.simulation.view import SimulatorView
+
+LOG = logging.getLogger(__name__)
+
+#: The name of the thread that queues timed passes.
+SCHEDULER_THREAD = "osprey-va-timed-passes"
 
 
 class ModelRunner(Runner):
@@ -66,12 +96,16 @@ class ModelRunner(Runner):
     published; a pass with no input values reads and publishes them all.
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
-    composite as it was. The model RPC's write verbs reply only after a
-    publishing pass has run. Every publishing pass's outcome, success or
-    failure, is recorded in the surface's health record, which ``status``
-    reports and which is rewritten to the health file after every pass when
-    one is named.
+    composite as it was, and a model with ``restore`` takes the cached state
+    back through it, so no engine sees the rollback as a client write. The
+    model RPC's write verbs reply only after a publishing pass has run. Every
+    publishing pass's outcome, success or failure, is recorded in the
+    surface's health record, which ``status`` reports and which is rewritten
+    to the health file after every pass when one is named. A timed pass
+    records its outcome only when it differs from the last one recorded.
     """
+
+    _cycle_requested_names: tuple[str, ...]
 
     def __init__(
         self,
@@ -83,6 +117,7 @@ class ModelRunner(Runner):
         instance: str | None = None,
         health_file: Path | None = None,
         failed_pass_tolerance: int | None = None,
+        fast_interval_s: float = 0.1,
     ) -> None:
         """Serve ``composite``, built from the simulator view ``view``.
 
@@ -102,7 +137,22 @@ class ModelRunner(Runner):
                 passes the health record still counts as ``degraded``, or
                 ``None`` for the default of
                 :data:`~osprey.services.virtual_accelerator.serving.runner_config.HEALTH_KEYS`.
+            fast_interval_s: the fast period in seconds, the longest a timed
+                pass waits for the next; used only when the view holds a
+                ``fast`` or ``event`` channel.
+
+        Raises:
+            ValueError: ``fast_interval_s`` is not a number greater than zero.
         """
+        if (
+            isinstance(fast_interval_s, bool)
+            or not isinstance(fast_interval_s, int | float)
+            or not fast_interval_s > 0
+        ):
+            raise ValueError(
+                f"the fast period must be a number greater than zero, got {fast_interval_s!r}"
+            )
+        self._fast_interval_s = float(fast_interval_s)
         self._view = view
         self._instance = instance
         self._health_file = health_file
@@ -116,6 +166,17 @@ class ModelRunner(Runner):
         self._pass_started = False
         self._passes_run = 0
         self._first_pass_error: str | None = None
+        self._fast = fast_addresses(view)
+        self._timed_names = self._fast | event_addresses(view)
+        self._needs_timed = bool(self._timed_names)
+        self._forced: frozenset[str] = frozenset()
+        self._last_ok: bool | None = None
+        self._deadline: float | None = None
+        self._timed_lock = threading.Lock()
+        self._timed_pending = False
+        self._scheduler: threading.Thread | None = None
+        self._scheduler_stop: threading.Event | None = None
+        self._rearm = threading.Event()
         config = apply_safety(Runner.generate_config(composite, prefix=""), view)
         if tick_interval_s is not None:
             config["tick_interval_s"] = tick_interval_s
@@ -141,8 +202,7 @@ class ModelRunner(Runner):
 
     def _run_cycle(self, item: dict[str, Any]) -> None:
         """Note the input values this pass writes, then run it and record its outcome."""
-        self._written = frozenset(item["values"])
-        self._write_pass = bool(self._written)
+        self._values = item["values"]
         self._set_landed = False
         self._pass_started = False
         item["done"].append(self._record_pass)
@@ -160,6 +220,11 @@ class ModelRunner(Runner):
         if self._passes_run == 0:
             self._first_pass_error = error
         self._passes_run += 1
+        self._write_health(error)
+
+    def _write_health(self, error: str | None) -> None:
+        """Record ``error`` as the latest pass outcome and rewrite the health file."""
+        self._last_ok = error is None
         document = self._surface.record_pass(error)
         if self._health_file is not None:
             write_document(self._health_file, document)
@@ -168,9 +233,13 @@ class ModelRunner(Runner):
         """The roster read after ``model.set``, narrowed for a write pass.
 
         A write pass leaves the periodic addresses out; one of physics settings
-        alone reads only the records those settings can change.
+        alone reads only the records those settings can change. The input
+        values are read again here, after the base class merged the batch, so
+        a write merged behind a jobs-only item still makes a write pass.
         """
         self._set_landed = True
+        self._written = frozenset(getattr(self, "_values", ()))
+        self._write_pass = bool(self._written)
         roster: list[str] = super()._cycle_output_names()
         if not self._write_pass:
             return roster
@@ -186,20 +255,204 @@ class ModelRunner(Runner):
 
         A write pass posts the written channels and those whose value or
         undefined condition changed since they were last posted; any other
-        pass posts every value. A name is recorded as posted only once the
-        base class has published the pass, so a pass that fails before it
-        publishes leaves the record as the wire is.
+        pass posts every value but the ``fast`` and ``event`` ones, which it
+        posts only when changed. Either way the names the composite emitted
+        are drained here, read when the pass did not, posted, and forced as a
+        Channel Access event, unless a read fault holds them; this pass
+        published their step, so no timed pass posts it again. A name is
+        recorded as posted only once the base class has published the pass,
+        so a pass that fails before it publishes leaves the record as the
+        wire is.
         """
+        emitted = self._drain_emitted()
+        missing = sorted(name for name in emitted if name not in out_values)
+        if missing:
+            out_values = {**out_values, **self.model.get(missing)}
+            self._cycle_requested_names = (*self._cycle_requested_names, *missing)
+        faulted = self._read_faulted()
         posting = out_values
-        if self._write_pass:
+        if self._write_pass or self._timed_names or emitted:
             udf_now = self._evaluate_severity(list(out_values))
-            posting = changed_outputs(out_values, self._served, self._written, udf_now, self._udf)
-        super()._post_outputs(posting, ts)
-        self._served.update(posting)
+            posting = untimed_outputs(
+                out_values,
+                self._served,
+                self._timed_names,
+                emitted - faulted,
+                udf_now,
+                self._udf,
+                written=self._written if self._write_pass else None,
+            )
+        self._post_forced(posting, ts, forced_names((), emitted, faulted))
+        self._note_deadline()
+
+    def _post_forced(self, values: dict[str, Any], ts: float, forced: frozenset[str]) -> None:
+        """Post ``values`` through the base class, forcing ``forced``; record them as served."""
+        self._forced = forced
+        try:
+            Runner._post_outputs(self, values, ts)
+        finally:
+            self._forced = frozenset()
+        self._served.update(values)
+
+    def _ca_forced_names(self) -> Collection[str]:
+        """The names this post forces a Channel Access event for: set per post, else none."""
+        return self._forced
+
+    def _drain_emitted(self) -> frozenset[str]:
+        """The names the composite emitted since it was last asked; none for a model without."""
+        emitted = getattr(self.model, "emitted", None)
+        return frozenset(emitted()) if callable(emitted) else frozenset()
+
+    def _read_faulted(self) -> frozenset[str]:
+        """The served names a ``frozen`` or ``disconnected`` read fault holds now.
+
+        The composite keeps its active channel faults by address; a fault
+        with a ``read`` changes the reading. A model without them has none.
+        """
+        faulted = getattr(self.model, "_faulted", None) or {}
+        return frozenset(
+            address for address, fault in faulted.items() if getattr(fault, "read", None)
+        )
+
+    def _note_deadline(self) -> None:
+        """Take the composite's next deadline on the run loop; wake the scheduler if it moved."""
+        if not self._needs_timed:
+            return
+        next_deadline = getattr(self.model, "next_deadline", None)
+        deadline = next_deadline() if callable(next_deadline) else None
+        if deadline != self._deadline:
+            self._deadline = deadline
+            self._rearm.set()
+
+    def _timed_pass(self, fast_due: bool = True) -> None:
+        """One timed pass, run on the run loop as a job: advance, read, post, record.
+
+        Reads the names the composite emitted and, when ``fast_due``, the
+        ``fast`` names; a pass queued for a deadline alone leaves the ``fast``
+        names to the fast period, so their rate is the fast period's. It posts
+        them
+        through the base class, and forces a Channel Access event for each
+        but those a read fault holds, which are posted only when changed. It
+        caches no settable state, since it writes nothing. Its own errors are
+        caught here, since the run loop only logs a job's; the outcome is
+        recorded only when it differs from the last one recorded.
+        """
+        error: str | None = None
+        try:
+            self.model.advance()
+            emitted = self._drain_emitted()
+            fast = self._fast if fast_due else frozenset()
+            names = sorted(timed_pass_names(fast, emitted))
+            values = self.model.get(names) if names else {}
+            faulted = self._read_faulted() & values.keys()
+            if faulted:
+                held = {name: values[name] for name in sorted(faulted)}
+                udf_now = self._evaluate_severity(list(held))
+                changed = changed_outputs(held, self._served, (), udf_now, self._udf)
+                values = {
+                    name: value
+                    for name, value in values.items()
+                    if name not in faulted or name in changed
+                }
+            self._cycle_requested_names = tuple(values)
+            self._post_forced(values, time.time(), forced_names(fast, emitted, faulted))
+            self._note_deadline()
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+            LOG.exception("Timed pass failed: (%s)", error)
+        finally:
+            with self._timed_lock:
+                self._timed_pending = False
+            self._rearm.set()
+        if (error is None) != self._last_ok:
+            self._write_health(error)
+
+    def _queue_timed_pass(self, fast_due: bool) -> None:
+        """Queue one timed pass, unless one is already waiting."""
+        with self._timed_lock:
+            if self._timed_pending:
+                return
+            self._timed_pending = True
+        self._enqueue({}, jobs=[partial(self._timed_pass, fast_due)])
+
+    def _start_ticker(self) -> None:
+        """Start the base class's ticker, and the timed-pass scheduler when the view needs one.
+
+        A view with neither a ``fast`` nor an ``event`` channel starts no
+        scheduler. The stop event is held in the thread's closure, as the
+        ticker's is, so a restart cannot leave an old thread waiting on an
+        event nobody will set.
+        """
+        super()._start_ticker()
+        if not self._needs_timed:
+            return
+        scheduler, stop = self._scheduler, self._scheduler_stop
+        if scheduler is not None and scheduler.is_alive():
+            if stop is not None and not stop.is_set():
+                return
+            scheduler.join(timeout=self._ticker_join_timeout())
+        with self._timed_lock:
+            self._timed_pending = False
+        stop = threading.Event()
+        rearm = self._rearm
+        period = self._fast_interval_s
+
+        def schedule() -> None:
+            # Fast passes fall on a grid one period apart, so the rate holds
+            # however long each pass takes; a grid fallen a period behind
+            # starts again from now.
+            grid = time.time()
+            while True:
+                rearm.clear()
+                if stop.is_set():
+                    return
+                with self._timed_lock:
+                    pending = self._timed_pending
+                if pending:
+                    rearm.wait(max(period, 1.0))
+                    continue
+                now = time.time()
+                fast_due = grid + period
+                due = next_wake(grid, period, self._deadline)
+                if due > now:
+                    rearm.wait(due - now)
+                    continue
+                is_fast = fast_due <= now
+                if is_fast:
+                    grid = fast_due if fast_due > now - period else now
+                self._queue_timed_pass(is_fast)
+
+        scheduler = threading.Thread(target=schedule, name=SCHEDULER_THREAD, daemon=True)
+        self._scheduler_stop = stop
+        self._scheduler = scheduler
+        scheduler.start()
+
+    def _stop_ticker(self) -> None:
+        """Stop the timed-pass scheduler, if there is one, then the base class's ticker."""
+        scheduler, stop = self._scheduler, self._scheduler_stop
+        if scheduler is not None:
+            if stop is not None:
+                stop.set()
+            self._rearm.set()
+            scheduler.join(timeout=self._ticker_join_timeout())
+            if scheduler.is_alive():
+                LOG.warning("timed-pass scheduler did not stop within its join timeout")
+            else:
+                self._scheduler = None
+                self._scheduler_stop = None
+        super()._stop_ticker()
 
     def _reset_to_cached_state(self) -> None:
-        """Restore the cached state only when the pass failed after ``model.set`` succeeded."""
-        if self._set_landed:
+        """Restore the cached state only when the pass failed after ``model.set`` succeeded.
+
+        A model with ``restore`` takes it back without a client write.
+        """
+        if not self._set_landed:
+            return
+        restore = getattr(self.model, "restore", None)
+        if callable(restore):
+            restore(self._cached_state)
+        else:
             super()._reset_to_cached_state()
 
     def _create_model_info(self) -> None:
