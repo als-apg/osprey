@@ -13,3 +13,6 @@ On a pull request, a failed lint, docs build, package build, frontend JS or plug
 cancels the rest of the run.
 The e2e lanes no longer wait for a changed-path classifier, so they start sooner and run on
 docs-only pull requests too; the classifier and `scripts/ci/docs_only.py` are gone.
+ci.yml sets Python through setup-uv, runs lint's and frontend-js's base-free checks in one call
+each, and drops steps that did nothing: Docker Compose setup, a never-saving uv cache, checks the
+unit sweep already runs, and duplicated two-shape pre-boot and podman-compose install steps.

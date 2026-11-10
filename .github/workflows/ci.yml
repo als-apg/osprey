@@ -88,14 +88,12 @@ jobs:
       with:
         fetch-depth: 0
 
-    - &install-uv
+    - &install-uv-matrix-python
       name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
-
-    - name: Set up Python ${{ matrix.python-version }}
-      run: uv python install ${{ matrix.python-version }}
+        python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
       # virtual-accelerator: the live CA suites SKIP without it (test_live_ca_venue_guard.py reds that).
@@ -109,7 +107,6 @@ jobs:
       # Below the job cap: a job timeout is a hard cancel that skips the diagnostics steps.
       timeout-minutes: 70
       env:
-        OSPREY_CI_DIAG_DIR: ci-diag
         COVERAGE_CORE: sysmon
         # Not /tmp: on Ubuntu 26.04 it is a ~6.3 GB tmpfs quota (runner-images#14777) the suite's venvs overflow.
         TMPDIR: ${{ runner.temp }}
@@ -165,8 +162,8 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   serial-suites:
-    name: Serial suites Python ${{ matrix.python-version }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Serial suites Python ${{ matrix.python-version }} on ubuntu-latest
+    runs-on: ubuntu-latest
     # Suites that must not share a runner (they time the box or need their own process). The job cap is
     # the step caps plus setup; test_ci_workflow_wiring.py holds the sum.
     timeout-minutes: 50
@@ -174,16 +171,12 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.14']
-        os: [ubuntu-latest]
         exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
 
     steps:
     - *checkout-full-history
 
-    - *install-uv
-
-    - name: Set up Python ${{ matrix.python-version }}
-      run: uv python install ${{ matrix.python-version }}
+    - *install-uv-matrix-python
 
     - name: Install dependencies
       run: uv sync --locked --extra dev --extra virtual-accelerator
@@ -191,18 +184,16 @@ jobs:
     - *install-pinned-cli
 
     - name: Run real-terminal pty suite serially
-      if: matrix.os == 'ubuntu-latest'
       timeout-minutes: 10
       run: uv run python scripts/check.py run pytest-pty
 
     - name: Run the wall-clock budgets serially
-      if: matrix.os == 'ubuntu-latest'
       timeout-minutes: 15
       run: uv run python scripts/check.py run pytest-wallclock-unit
 
     - name: Run live Channel Access suites in isolation
       # After the timing steps, so its load is not measured.
-      if: matrix.os == 'ubuntu-latest'
+      if: runner.os == 'Linux'
       timeout-minutes: 15
       run: uv run python scripts/check.py run live-ca
 
@@ -215,11 +206,13 @@ jobs:
       name: Checkout repository
       uses: actions/checkout@v7
 
-    - *install-uv
-
-    - &python-3-11
-      name: Set up Python
-      run: uv python install 3.11
+    # `python-version` sets UV_PYTHON for every later step of the job.
+    - &install-uv
+      name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        python-version: '3.11'
 
     - &sync-dev-deps
       name: Install dependencies
@@ -256,8 +249,6 @@ jobs:
     - *checkout
 
     - *install-uv
-
-    - *python-3-11
 
     - name: Install redis-server
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends redis-server
@@ -297,8 +288,6 @@ jobs:
     - *checkout-full-history
 
     - *install-uv
-
-    - *python-3-11
 
     - name: Install the connectors package alone
       run: uv sync --locked --package osprey-connectors
@@ -370,10 +359,7 @@ jobs:
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
-
-    - name: Set up Python
-      if: matrix.framework != ''
-      run: uv python install 3.11
+        python-version: '3.11'
 
     - name: Build the connectors wheel at HEAD
       if: matrix.framework != ''
@@ -418,15 +404,12 @@ jobs:
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
-
-    - name: Set up Python
-      if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
-      run: uv python install 3.11
+        python-version: '3.11'
 
     - name: Install the framework with the floor connectors
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
       run: |
-        uv venv --python 3.11
+        uv venv
         uv pip install --no-sources -e ".[dev]" -e ./packages/pyaml-cs-osprey -e ./packages/osprey-optimizer "osprey-connectors==$FLOOR"
 
     - name: Hold the lane to the floor connectors from site-packages
@@ -465,40 +448,18 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - name: Lockfile is current with pyproject
       run: python3 scripts/check.py run lockfile
 
     - *sync-dev-deps
 
-    - name: Run ruff (linting)
-      run: uv run python scripts/check.py run ruff
-
-    - name: Run ruff (formatting)
-      run: uv run python scripts/check.py run ruff-format
-
-    - name: Run lint-imports (import boundaries)
-      # `!cancelled()` here and below: an earlier failure must not hide this one.
-      if: ${{ !cancelled() }}
-      run: uv run python scripts/check.py run import-contracts
-
-    - name: Run ruff import-private-name on the framework
-      if: ${{ !cancelled() }}
-      run: uv run python scripts/check.py run private-imports
-
-    - name: Run the connectors public-names check
-      if: ${{ !cancelled() }}
-      run: uv run python scripts/check.py run connectors-public-names
-
-    - name: Run config-key resurrection guard (with back-test)
-      if: ${{ !cancelled() }}
-      # Needs full history: the unit-lane copy of this proof skips when the baseline is unreachable.
-      run: uv run python scripts/check.py run config-keys
+    - name: Run ruff, import boundaries, tracked-ignored, mypy and actionlint
+      # One call: check.py runs every check it names, whatever the earlier ones did.
+      run: uv run python scripts/check.py run ruff ruff-format import-contracts private-imports tracked-ignored mypy actionlint
 
     - name: Run changelog-fragment guard
-      # The base reaches the shell through `env:`, never `${{ }}` in `run:`: a branch name is
-      # attacker-controlled text. Needs fetch-depth: 0.
+      # `!cancelled()` here and below: an earlier failure must not hide this one. The base reaches the
+      # shell through `env:`, never `${{ }}` in `run:` (attacker-controlled text). Needs fetch-depth: 0.
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
         BASE: ${{ format('origin/{0}', github.event.pull_request.base.ref) }}
@@ -511,17 +472,9 @@ jobs:
         BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || 'HEAD^1' }}
       run: python3 scripts/check.py run plugin-version --base "$BASE"
 
-    - name: No tracked file is gitignored
-      if: ${{ !cancelled() }}
-      run: python3 scripts/check.py run tracked-ignored
-
-    - name: No document hand-types the parallel sweep
-      if: ${{ !cancelled() }}
-      run: python3 scripts/check.py run hand-typed-sweeps
-
     - name: Install gitleaks
       # Same version as the pre-commit hook (the wiring test holds them equal).
-      if: ${{ !cancelled() }}
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
         GITLEAKS_VERSION: 8.30.0
         GITLEAKS_SHA256: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
@@ -536,13 +489,6 @@ jobs:
       env:
         BASE: ${{ format('origin/{0}', github.event.pull_request.base.ref) }}
       run: python3 scripts/check.py run gitleaks --base "$BASE"
-
-    - name: Run mypy (type checking)
-      run: uv run python scripts/check.py run mypy
-
-    - name: Run actionlint (workflow lint)
-      if: ${{ !cancelled() }}
-      run: uv run python scripts/check.py run actionlint
 
     - &stop-on-failed-cheap-lane
       # A deterministic cheap lane failed: the rest of the run's runner time would be spent for nothing.
@@ -562,8 +508,6 @@ jobs:
     - *checkout-full-history
 
     - *install-uv
-
-    - *python-3-11
 
     - name: Install graphviz
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz
@@ -599,8 +543,6 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - name: Build and check the packages
       run: python3 scripts/check.py run package
 
@@ -622,8 +564,6 @@ jobs:
     - *checkout-full-history
 
     - *install-uv
-
-    - *python-3-11
 
     - *sync-dev-deps
 
@@ -766,8 +706,6 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - *sync-dev-deps
 
     - name: Fetch vendor assets
@@ -804,7 +742,8 @@ jobs:
         Acquire::Retries "3";
         EOF
 
-    - name: Restore Playwright browsers and apt debs
+    - &playwright-cache-restore
+      name: Restore Playwright browsers and apt debs
       id: playwright-cache
       uses: actions/cache/restore@v6
       with:
@@ -922,8 +861,6 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - *sync-dev-deps
 
     - name: Fetch vendor assets
@@ -934,15 +871,7 @@ jobs:
 
     - *playwright-apt
 
-    - name: Restore Playwright browsers and apt debs
-      uses: actions/cache/restore@v6
-      with:
-        path: |
-          ~/.cache/ms-playwright
-          ~/apt-archives
-        key: ${{ steps.playwright-key.outputs.key }}
-        restore-keys: |
-          ${{ steps.playwright-key.outputs.prefix }}
+    - *playwright-cache-restore
 
     - *playwright-chromium
 
@@ -1009,25 +938,12 @@ jobs:
       # Regenerate the lock with `npm install --package-lock-only`, which is platform-neutral.
       run: npm ci
 
-    - name: Typecheck (tsc --noEmit)
-      run: python3 scripts/check.py run tsc
-
-    - name: Lint (eslint)
-      run: python3 scripts/check.py run eslint
-
-    - name: Format (prettier)
-      run: python3 scripts/check.py run prettier
-
-    - name: Run JS tests (vitest)
-      run: python3 scripts/check.py run vitest
-
     - *install-uv
 
-    - name: Install Python dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
-    - name: Run osprey app check over a panel (pinned JS toolchain)
-      run: python3 scripts/check.py run app-check-js
+    - name: Run tsc, eslint, prettier, vitest and the app check over a panel
+      run: python3 scripts/check.py run tsc eslint prettier vitest app-check-js
 
     - *stop-on-failed-cheap-lane
 
@@ -1045,8 +961,6 @@ jobs:
       run: echo "CLAUDE_CONFIG_DIR=$RUNNER_TEMP/claude-cfg" >> "$GITHUB_ENV"
 
     - *install-uv
-
-    - *python-3-11
 
     - name: Install dependencies
       run: uv sync --locked
@@ -1080,17 +994,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - *sync-dev-deps
-
-    - name: Cache uv project-venv downloads
-      uses: actions/cache@v6
-      with:
-        path: ~/.cache/uv
-        key: uv-buildboot-${{ runner.os }}-${{ hashFiles('uv.lock') }}
-        restore-keys: |
-          uv-buildboot-${{ runner.os }}-
 
     - name: Run Tier 1 boot smoke for preset
       env:
@@ -1119,8 +1023,6 @@ jobs:
     - *checkout-full-history
 
     - *install-uv
-
-    - *python-3-11
 
     - *sync-dev-deps
 
@@ -1186,8 +1088,6 @@ jobs:
     - *checkout-full-history
 
     - *install-uv
-
-    - *python-3-11
 
     - *sync-dev-deps
 
@@ -1312,8 +1212,6 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - *sync-dev-deps
 
     - &assert-container-runtime
@@ -1379,8 +1277,6 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - *sync-dev-deps
 
     - *assert-container-runtime
@@ -1423,8 +1319,6 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - *sync-dev-deps
 
     - *llm-preflight-probe
@@ -1459,8 +1353,6 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - *sync-dev-deps
 
     - *llm-preflight-probe
@@ -1491,15 +1383,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - &setup-compose
-      name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
-
-    - &install-osprey
-      name: Install osprey
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     - name: Create hello_world deployment repo
       env:
@@ -1553,11 +1437,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *llm-preflight-probe
 
@@ -1596,11 +1476,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *llm-preflight-probe
 
@@ -1637,11 +1513,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *llm-preflight-probe
 
@@ -1681,11 +1553,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *llm-preflight-probe
 
@@ -1726,11 +1594,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run bluesky deploy E2E
       timeout-minutes: 55
@@ -1758,11 +1622,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run optimizer deploy E2E
       timeout-minutes: 55
@@ -1786,11 +1646,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run bluesky web deploy E2E
       timeout-minutes: 40
@@ -1818,11 +1674,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run VA substrate equivalence E2E
       timeout-minutes: 40
@@ -1865,11 +1717,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run ORM roundtrip E2E
       timeout-minutes: 45
@@ -1916,11 +1764,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run Bluesky queue E2E
       timeout-minutes: 70
@@ -1949,11 +1793,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *llm-preflight-probe
 
@@ -1966,7 +1806,6 @@ jobs:
       env:
         OSPREY_QMD_IMAGE: osprey-qmd:ci
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        OSPREY_CI_DIAG_DIR: ci-diag
       run: |
         uv run pytest tests/e2e/test_plan_stack_agentic.py -v --tb=short \
           --junitxml=junit-scan-agentic-e2e.xml
@@ -1999,11 +1838,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run archiver world E2E
       timeout-minutes: 40
@@ -2036,9 +1871,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Fetch the pinned neosemantics (n10s) jar
       # As in channel-finder-benchmarks: a fixture download failure would skip.
@@ -2071,11 +1904,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run Tiled roundtrip E2E
       timeout-minutes: 25
@@ -2103,11 +1932,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run bluesky catalog E2E
       timeout-minutes: 55
@@ -2135,11 +1960,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run bluesky sandbox escape E2E
       timeout-minutes: 40
@@ -2178,11 +1999,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *install-pinned-cli
 
@@ -2222,8 +2039,6 @@ jobs:
     - *checkout-full-history
 
     - *install-uv
-
-    - *python-3-11
 
     - name: Install osprey
       run: uv sync --locked --extra dev --extra gchat
@@ -2275,8 +2090,6 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - name: Install osprey
       run: uv sync --locked --extra dev --extra teams
 
@@ -2314,9 +2127,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *install-pinned-cli
 
@@ -2351,9 +2162,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run privilege split E2E
       timeout-minutes: 85
@@ -2404,9 +2213,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run Dockerfile E2E
       timeout-minutes: 55
@@ -2576,9 +2383,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run execution environment parity E2E
       timeout-minutes: 35
@@ -2602,11 +2407,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run deploy write-back E2E
       timeout-minutes: 35
@@ -2649,11 +2450,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run multi-user deploy lifecycle E2E
       timeout-minutes: 55
@@ -2700,11 +2497,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run auth perimeter E2E
       timeout-minutes: 55
@@ -2748,11 +2541,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run terminal auth multi-user E2E
       timeout-minutes: 65
@@ -2805,25 +2594,13 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *playwright-cache-key
 
     - *playwright-apt
 
-    - name: Restore Playwright browsers and apt debs
-      uses: actions/cache/restore@v6
-      with:
-        path: |
-          ~/.cache/ms-playwright
-          ~/apt-archives
-        key: ${{ steps.playwright-key.outputs.key }}
-        restore-keys: |
-          ${{ steps.playwright-key.outputs.prefix }}
+    - *playwright-cache-restore
 
     - *playwright-chromium
 
@@ -2876,13 +2653,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
-
-    - *assert-container-runtime
+    - *sync-dev-deps
 
     - name: Run notebook panel E2E
       timeout-minutes: 65
@@ -2925,12 +2696,9 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
     - name: Set up rootless Podman
       run: |
         podman --version
-        pip install --user podman-compose==1.0.6
         podman compose version
         # Rootless podman verifies TLS even on localhost (docker does not), so the test's plain-HTTP stub
         # registry on localhost:19081 is marked insecure in a merged drop-in.
@@ -2941,7 +2709,7 @@ jobs:
         insecure = true
         EOF
 
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Run multi-user deploy lifecycle E2E (podman)
       timeout-minutes: 55
@@ -2991,9 +2759,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       run: |
@@ -3037,45 +2803,6 @@ jobs:
         print("✅ compose provider is podman-compose 1.0.6")
         PY
 
-    - name: Pre-flight — the module's host ports must be free on the runner
-      run: |
-        for port in 21781 21791; do
-          if ss -ltnH "sport = :$port" 2>/dev/null | grep -q .; then
-            echo "❌ port $port is already bound on this runner:"
-            ss -ltnp "sport = :$port" || true
-            exit 1
-          fi
-        done
-        echo "✅ 21781 and 21791 are free"
-
-    - name: Diagnostic — podman's inspect .State schema (health-field spelling)
-      # Informational; never reds the lane. Before the boot: a step after a failed one does not run.
-      run: |
-        PROBE=osprey-e2e-two-shape-schema-probe
-        report_field() {
-          # A Go template naming a missing field is an ERROR, not an empty render, so rc is the answer.
-          if podman inspect --type container -f "{{json $1}}" "$PROBE" >/dev/null 2>&1; then
-            echo "schema: podman DOES expose $1"
-          else
-            echo "schema: podman does NOT expose $1"
-          fi
-        }
-        podman rm -f "$PROBE" >/dev/null 2>&1 || true
-        if podman run -d --name "$PROBE" \
-             --health-cmd true --health-interval 2s --health-retries 2 \
-             docker.io/library/busybox:1.37 sleep 60 >/dev/null 2>&1; then
-          sleep 6
-          echo "--- podman inspect .State ---"
-          podman inspect --type container -f '{{json .State}}' "$PROBE" 2>/dev/null | head -c 900
-          echo
-          report_field .State.Health
-          report_field .State.Healthcheck
-          podman rm -f "$PROBE" >/dev/null 2>&1 || true
-        else
-          echo "(schema probe unavailable — the throwaway container did not start)"
-        fi
-        exit 0
-
     - name: Run two-shape boot E2E (podman)
       timeout-minutes: 70
       env:
@@ -3098,7 +2825,6 @@ jobs:
       run: |
         podman rm -f osprey-e2e-two-shape-event-dispatcher || true
         podman rm -f osprey-e2e-two-shape-dispatch-worker-1 || true
-        podman rm -f osprey-e2e-two-shape-schema-probe || true
         podman rm -f osprey-e2e-two-shape-agent-record || true
         podman rm -f osprey-e2e-two-shape-agent-record-clickhouse || true
         podman volume rm osprey-e2e-two-shape_dispatch_workspace_1 || true
@@ -3119,13 +2845,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
-
-    - *setup-compose
-
-    - *assert-container-runtime
+    - *sync-dev-deps
 
     - name: Build the sidecar image
       # Restore only: a PR-saved cache would be readable by that PR alone.
@@ -3228,9 +2948,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *assert-container-runtime
 
@@ -3238,7 +2956,8 @@ jobs:
       name: Build the virtual accelerator image
       uses: ./.github/actions/build-virtual-accelerator-image
 
-    - name: Build the bench IOC image
+    - &build-bench-ioc-image
+      name: Build the bench IOC image
       # After the VA image: it reuses that action's Buildx builder.
       uses: ./.github/actions/build-bench-ioc-image
 
@@ -3280,9 +2999,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *llm-preflight-probe
 
@@ -3290,9 +3007,7 @@ jobs:
 
     - *build-va-image
 
-    - name: Build the bench IOC image
-      # After the VA image: it reuses that action's Buildx builder.
-      uses: ./.github/actions/build-bench-ioc-image
+    - *build-bench-ioc-image
 
     - *install-pinned-cli
 
@@ -3300,7 +3015,6 @@ jobs:
       timeout-minutes: 35
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        OSPREY_CI_DIAG_DIR: ci-diag
       run: |
         uv run pytest tests/e2e/test_target_switch_agentic.py -v --tb=short \
           --junitxml=junit-target-switch-agentic-e2e.xml
@@ -3356,9 +3070,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *assert-container-runtime
 
@@ -3412,11 +3124,7 @@ jobs:
 
     - *install-uv
 
-    - *python-3-11
-
-    - *setup-compose
-
-    - *install-osprey
+    - *sync-dev-deps
 
     - *assert-container-runtime
 
@@ -3471,33 +3179,19 @@ jobs:
 
     - name: Decide whether the change needs the contract
       id: decide
+      # The triggers admit only integration bases (main, epic/**), so only a fork pull request skips.
       env:
         EVENT_NAME: ${{ github.event_name }}
-        BASE_REF: ${{ github.base_ref }}
-        REF_NAME: ${{ github.ref_name }}
         HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         REPO: ${{ github.repository }}
       run: |
         set -euo pipefail
-        case "$EVENT_NAME" in
-          pull_request) base="$BASE_REF" ;;
-          push) base="$REF_NAME" ;;
-          *) base="" ;;
-        esac
         run=true
-        reason=""
-        case "$base" in
-          ""|main|epic/*) ;;
-          *) run=false; reason="$base is not an integration base" ;;
-        esac
-        if [[ "$run" == "true" && "$EVENT_NAME" == "pull_request" && "$HEAD_REPO" != "$REPO" ]]; then
+        if [[ "$EVENT_NAME" == "pull_request" && "$HEAD_REPO" != "$REPO" ]]; then
           run=false
-          reason="a pull request from a fork has no CANOPY read credential; a maintainer runs the contract through a workflow dispatch"
+          echo "CANOPY contract not run: a pull request from a fork has no CANOPY read credential; a maintainer runs the contract through a workflow dispatch" >> "$GITHUB_STEP_SUMMARY"
         fi
         echo "run=$run" >> "$GITHUB_OUTPUT"
-        if [[ "$run" == "false" ]]; then
-          echo "CANOPY contract not run: $reason" >> "$GITHUB_STEP_SUMMARY"
-        fi
 
     - name: Require the CANOPY read credential
       id: credential
