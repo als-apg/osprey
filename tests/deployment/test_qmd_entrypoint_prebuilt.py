@@ -60,6 +60,12 @@ def test_a_prebuilt_index_from_this_embedder_is_served(tmp_path):
     assert "CHECKED" in result.stdout
 
 
+def test_a_prebuilt_index_with_a_build_record_is_served(tmp_path):
+    result = _check(tmp_path, stamp=EMBEDDER + "\nembed=1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "CHECKED" in result.stdout
+
+
 def test_a_prebuilt_index_keeps_its_own_config(tmp_path):
     result = _check(tmp_path, stamp=EMBEDDER)
     assert result.returncode == 0, result.stdout + result.stderr

@@ -401,9 +401,15 @@ add_env_collections() {
     done
 }
 
-# The embedder that produced the stored vectors, versus the one baked into this
-# image. A mismatch means every vector in the index is in a different embedding
-# space and comparing them is meaningless, so the index has to be rebuilt.
+# What this index was built with: the embedder and whether it embedded. The
+# stamp holds the embedder on its first line and the embed mode on an
+# `embed=0|1` line; a stamp without that line comes from an index that always
+# embedded. A different embedder means every stored vector is in another
+# embedding space and comparing them is meaningless, so the index is rebuilt.
+# An index that embedded, on a corpus with embedding now off, holds vectors
+# this corpus must not serve, so it is rebuilt as a keyword index. An index
+# that did not embed, on a corpus with embedding now on, only has every
+# document pending, which the incremental pass embeds.
 decide_build_mode() {
     _want="${OSPREY_QMD_EMBED_MODEL_ID:-}"
     [ -n "$_want" ] || die "no embedder identity available (OSPREY_QMD_EMBED_MODEL_ID is unset and ${OSPREY_QMD_MODEL_IDENTITY_FILE:-the identity file} was not readable); refusing to index against an unknown embedder"
@@ -418,13 +424,21 @@ decide_build_mode() {
         BUILD_MODE=full
         BUILD_REASON="index exists but records no embedder identity"
     else
-        _have=$(cat "$IDENTITY_STAMP" 2>/dev/null || printf '')
-        if [ "$_have" = "$_want" ]; then
-            BUILD_MODE=incremental
-            BUILD_REASON="embedder unchanged ($_want)"
-        else
+        _have=$(sed -n 1p "$IDENTITY_STAMP" 2>/dev/null || printf '')
+        _had_embed=$(sed -n 's/^embed=//p' "$IDENTITY_STAMP" 2>/dev/null || printf '')
+        [ -n "$_had_embed" ] || _had_embed=1
+        if [ "$_have" != "$_want" ]; then
             BUILD_MODE=full
             BUILD_REASON="embedder changed: index was built with '$_have', image supplies '$_want'"
+        elif [ "$_had_embed" != 0 ] && [ "$EMBED" = 0 ]; then
+            BUILD_MODE=full
+            BUILD_REASON="embedding turned off: the index holds vectors from an earlier pass and this corpus has embedding off"
+        elif [ "$_had_embed" = 0 ] && [ "$EMBED" != 0 ]; then
+            BUILD_MODE=incremental
+            BUILD_REASON="embedding turned on; embedding the pending documents"
+        else
+            BUILD_MODE=incremental
+            BUILD_REASON="embedder unchanged ($_want)"
         fi
     fi
     EMBED_IDENTITY=$_want
@@ -529,7 +543,7 @@ run_startup_pass() {
     log "startup pass finished in $(fmt_duration "$_pass_elapsed")"
 
     assert_index_populated
-    printf '%s\n' "$EMBED_IDENTITY" > "$IDENTITY_STAMP"
+    printf '%s\nembed=%s\n' "$EMBED_IDENTITY" "$EMBED" > "$IDENTITY_STAMP"
 }
 
 # A prebuilt index is served as it arrived, so the checks a build would have
@@ -541,7 +555,7 @@ check_prebuilt_index() {
     _want="${OSPREY_QMD_EMBED_MODEL_ID:-}"
     [ -n "$_want" ] || die "no embedder identity available (OSPREY_QMD_EMBED_MODEL_ID is unset); refusing to serve a prebuilt index against an unknown embedder"
     if [ -f "$IDENTITY_STAMP" ]; then
-        _have=$(cat "$IDENTITY_STAMP" 2>/dev/null || printf '')
+        _have=$(sed -n 1p "$IDENTITY_STAMP" 2>/dev/null || printf '')
         [ "$_have" = "$_want" ] \
             || die "prebuilt index was built with embedder '$_have', this image queries with '$_want'; rebuild the index with this image"
     else
