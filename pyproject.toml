@@ -508,6 +508,7 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 # plug-in contract; a facility build reaches an engine only through this group.
 [project.entry-points."osprey.simulation.engines"]
 pyat = "osprey.simulation.engines.pyat"
+injection = "osprey.simulation.engines.injection"
 
 # Resolver exemptions for packages published more recently than the
 # ambient `exclude-newer` window some developer machines set (a rolling
