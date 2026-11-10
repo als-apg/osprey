@@ -779,6 +779,26 @@ describe('fetchCommands', () => {
   });
 });
 
+describe('fetchMcpServers', () => {
+  test('GETs the MCP servers through the prefix and returns them', async () => {
+    window.__OSPREY_PREFIX__ = '/u/a';
+    const servers = [{ name: 'controls', tool_count: 3, tools: [], error: null }];
+    const fetchMock = vi.fn(async () => jsonResponse(servers));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(chat.fetchMcpServers()).resolves.toEqual(servers);
+    expect(firstUrl(fetchMock)).toBe('/u/a/api/mcp-servers');
+  });
+
+  test('a body that is not an array yields an empty list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({}))
+    );
+    await expect(chat.fetchMcpServers()).resolves.toEqual([]);
+  });
+});
+
 describe('followChat', () => {
   afterEach(() => {
     vi.useRealTimers();

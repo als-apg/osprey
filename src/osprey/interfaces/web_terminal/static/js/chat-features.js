@@ -15,6 +15,7 @@ import { initChatAttachments } from './chat-attach.js';
 import { initChatAttention } from './chat-attention.js';
 import { initChatContext } from './chat-context.js';
 import { exportConversation, initChatExport } from './chat-export.js';
+import { initChatMcp } from './chat-mcp.js';
 import { installChatMenus } from './chat-menus.js';
 import { initChatTasks } from './chat-tasks.js';
 
@@ -29,6 +30,9 @@ import { initChatTasks } from './chat-tasks.js';
  * @property {(transform: (prompt: string) => string) => void} onBeforeSend -
  *   register a transform applied, in registration order, to each prompt as it
  *   is sent. The operator's bubble shows the text as typed.
+ * @property {(answer: (prompt: string) => boolean) => void} onLocalCommand -
+ *   register a command the chat answers itself: *answer* takes the submitted
+ *   prompt and returns true when it handled it, and the prompt is not sent.
  * @property {() => void} scrollToBottom - scrolls the log to its latest entry
  * @property {() => void} onNewSession - starts a conversation on a new session
  */
@@ -45,6 +49,7 @@ export function initChatFeatures(ctx) {
   initChatContext(ctx);
   initChatAttachments(ctx);
   initChatTasks(ctx);
+  initChatMcp(ctx);
   // Message and log context menus: Copy, Quote in prompt; Scroll to latest,
   // Export conversation, New session.
   installChatMenus({ ...ctx, onExport: exportConversation });

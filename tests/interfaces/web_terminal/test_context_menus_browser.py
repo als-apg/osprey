@@ -467,6 +467,35 @@ def test_the_menu_key_opens_the_rail_tile_and_dock_menus(tmp_path, chromium_brow
         assert dock.errors == []
 
 
+def test_escape_gives_focus_to_the_rail_entry_a_redraw_drew_while_its_menu_was_open(
+    tmp_path, chromium_browser
+):
+    with _hub(tmp_path) as dock:
+        page = _open_dock_hub(chromium_browser, dock)
+        entry = rail_entry(page, "svc-a", enabled_only=True)
+        expect(entry).to_have_count(1, timeout=10_000)
+        _focus(entry)
+        page.evaluate("() => { window.__railEntryBefore = document.activeElement; }")
+        page.keyboard.press("Shift+F10")
+        menu = page.locator(_MENU)
+        expect(menu).to_have_count(1, timeout=5_000)
+
+        # The rail's full render builds every row anew while the menu is open.
+        page.evaluate(
+            """async () => {
+              const { renderRail } = await import('/static/js/panel-lifecycle.js');
+              renderRail();
+            }"""
+        )
+        assert page.evaluate("() => !window.__railEntryBefore.isConnected"), (
+            "the render kept the old row"
+        )
+        page.keyboard.press("Escape")
+        expect(menu).to_have_count(0, timeout=5_000)
+        expect(rail_entry(page, "svc-a")).to_be_focused(timeout=5_000)
+        assert dock.errors == []
+
+
 def test_the_menu_key_opens_the_sidebar_menus(hub, page):
     _boot_hermetic(page, hub)
     tree_session = page.locator(
@@ -491,8 +520,11 @@ def test_the_menu_key_opens_the_sidebar_menus(hub, page):
         "data-session-id", sid, timeout=_TIMEOUT_MS
     )
     _open_all(page)
-    artifact = page.locator(f"{_TREE} .osprey-list-row[data-id]:not(.osprey-tree-run)").first
-    expect(artifact).to_be_visible(timeout=_TIMEOUT_MS)
+    first = page.locator(f"{_TREE} .osprey-list-row[data-id]:not(.osprey-tree-run)").first
+    expect(first).to_be_visible(timeout=_TIMEOUT_MS)
+    # Pinned by its id: `.first` is re-run on every use, and a redraw can put
+    # another row first.
+    artifact = page.locator(f'{_TREE} .osprey-list-row[data-id="{first.get_attribute("data-id")}"]')
     assert _menu_key(page, artifact), "the artifact row's menu has rows"
 
     # A pinned session draws the Pinned group, whose heading has a menu.

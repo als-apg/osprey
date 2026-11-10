@@ -108,6 +108,19 @@ FAMILY_AGGREGATES: dict[str, tuple[tuple[str, str], ...]] = {
     ),
 }
 
+#: The storage ring BPM channels whose unit moved from metres to millimetres
+#: after the pre-LINE capture: their field sentence names the unit, and the
+#: frozen capture keeps the old word.
+SR_BPM_MM = re.compile(r"SR:DIAG:BPM:\d+:(POSITION|GOLDEN|OFFSET):[XY]")
+
+
+def restated(address: str, sentence: str) -> str:
+    """A pre-LINE sentence as the build states it: an SR BPM's unit in millimetres."""
+    if SR_BPM_MM.fullmatch(address):
+        return sentence.replace("(meters)", "(millimeters)")
+    return sentence
+
+
 FINGERPRINT_SHA256 = "644f41850784e0251ac4be0081c6891b7f933b119efc037a7455ebe89c54e9c0"
 FINGERPRINT_ROW_KEYS = ["address", "role", "value_type", "names", "description"]
 
@@ -449,8 +462,9 @@ def test_limits_name_only_setpoints_of_the_fingerprint() -> None:
     golden = load_golden("limits.json")
     channels = golden["channels"]
     assert "defaults" not in golden
-    assert golden["count"] == len(channels) == 3
-    setpoints = {row["address"] for row in fingerprint_rows() if row["role"] == "setpoint"}
+    assert golden["count"] == len(channels) == 193
+    rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
+    setpoints = {row["address"] for row in rows if row["role"] == "setpoint"}
     assert set(channels) <= setpoints
     assert all(
         list(record) == ["min_value", "max_value", "max_step", "writable", "confirm"]
@@ -604,7 +618,7 @@ def test_every_pre_line_field_sentence_survives_on_its_channels(
         (address, sentence)
         for address, pair in golden_leaf_sentences().items()
         for sentence in pair
-        if sentence not in channels[address]["description"]
+        if restated(address, sentence) not in channels[address]["description"]
         and sentence != roles.get(channels[address].get("signal"))
     ]
     assert lost == []

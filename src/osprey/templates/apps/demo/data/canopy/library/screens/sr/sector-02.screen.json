@@ -42,7 +42,7 @@
     {
       "name": "bpm07_x_bar_y",
       "kind": "scalar",
-      "expression": "442 - clip({p} * 360000, 0, 18)",
+      "expression": "442 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:07:POSITION:X"
       }
@@ -50,7 +50,7 @@
     {
       "name": "bpm07_x_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:07:POSITION:X"
       }
@@ -58,7 +58,7 @@
     {
       "name": "bpm08_x_bar_y",
       "kind": "scalar",
-      "expression": "442 - clip({p} * 360000, 0, 18)",
+      "expression": "442 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:08:POSITION:X"
       }
@@ -66,7 +66,7 @@
     {
       "name": "bpm08_x_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:08:POSITION:X"
       }
@@ -74,7 +74,7 @@
     {
       "name": "bpm09_x_bar_y",
       "kind": "scalar",
-      "expression": "442 - clip({p} * 360000, 0, 18)",
+      "expression": "442 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:09:POSITION:X"
       }
@@ -82,7 +82,7 @@
     {
       "name": "bpm09_x_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:09:POSITION:X"
       }
@@ -90,7 +90,7 @@
     {
       "name": "bpm10_x_bar_y",
       "kind": "scalar",
-      "expression": "442 - clip({p} * 360000, 0, 18)",
+      "expression": "442 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:10:POSITION:X"
       }
@@ -98,7 +98,7 @@
     {
       "name": "bpm10_x_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:10:POSITION:X"
       }
@@ -106,7 +106,7 @@
     {
       "name": "bpm11_x_bar_y",
       "kind": "scalar",
-      "expression": "442 - clip({p} * 360000, 0, 18)",
+      "expression": "442 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:11:POSITION:X"
       }
@@ -114,7 +114,7 @@
     {
       "name": "bpm11_x_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:11:POSITION:X"
       }
@@ -122,7 +122,7 @@
     {
       "name": "bpm12_x_bar_y",
       "kind": "scalar",
-      "expression": "442 - clip({p} * 360000, 0, 18)",
+      "expression": "442 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:12:POSITION:X"
       }
@@ -130,7 +130,7 @@
     {
       "name": "bpm12_x_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:12:POSITION:X"
       }
@@ -138,7 +138,7 @@
     {
       "name": "bpm07_y_bar_y",
       "kind": "scalar",
-      "expression": "488 - clip({p} * 360000, 0, 18)",
+      "expression": "488 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:07:POSITION:Y"
       }
@@ -146,7 +146,7 @@
     {
       "name": "bpm07_y_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:07:POSITION:Y"
       }
@@ -154,7 +154,7 @@
     {
       "name": "bpm08_y_bar_y",
       "kind": "scalar",
-      "expression": "488 - clip({p} * 360000, 0, 18)",
+      "expression": "488 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:08:POSITION:Y"
       }
@@ -162,7 +162,7 @@
     {
       "name": "bpm08_y_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:08:POSITION:Y"
       }
@@ -170,7 +170,7 @@
     {
       "name": "bpm09_y_bar_y",
       "kind": "scalar",
-      "expression": "488 - clip({p} * 360000, 0, 18)",
+      "expression": "488 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:09:POSITION:Y"
       }
@@ -178,7 +178,7 @@
     {
       "name": "bpm09_y_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:09:POSITION:Y"
       }
@@ -186,7 +186,7 @@
     {
       "name": "bpm10_y_bar_y",
       "kind": "scalar",
-      "expression": "488 - clip({p} * 360000, 0, 18)",
+      "expression": "488 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:10:POSITION:Y"
       }
@@ -194,7 +194,7 @@
     {
       "name": "bpm10_y_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:10:POSITION:Y"
       }
@@ -202,7 +202,7 @@
     {
       "name": "bpm11_y_bar_y",
       "kind": "scalar",
-      "expression": "488 - clip({p} * 360000, 0, 18)",
+      "expression": "488 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:11:POSITION:Y"
       }
@@ -210,7 +210,7 @@
     {
       "name": "bpm11_y_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:11:POSITION:Y"
       }
@@ -218,7 +218,7 @@
     {
       "name": "bpm12_y_bar_y",
       "kind": "scalar",
-      "expression": "488 - clip({p} * 360000, 0, 18)",
+      "expression": "488 - clip({p} * 360, 0, 18)",
       "bindings": {
         "p": "SR:DIAG:BPM:12:POSITION:Y"
       }
@@ -226,7 +226,7 @@
     {
       "name": "bpm12_y_bar_h",
       "kind": "scalar",
-      "expression": "abs(clip({p} * 360000, -18, 18)) + 1",
+      "expression": "abs(clip({p} * 360, -18, 18)) + 1",
       "bindings": {
         "p": "SR:DIAG:BPM:12:POSITION:Y"
       }
@@ -330,7 +330,7 @@
     {
       "name": "bpm07_x_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:07:POSITION:X"
       }
@@ -338,7 +338,7 @@
     {
       "name": "bpm07_y_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:07:POSITION:Y"
       }
@@ -346,7 +346,7 @@
     {
       "name": "bpm08_x_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:08:POSITION:X"
       }
@@ -354,7 +354,7 @@
     {
       "name": "bpm08_y_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:08:POSITION:Y"
       }
@@ -362,7 +362,7 @@
     {
       "name": "bpm09_x_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:09:POSITION:X"
       }
@@ -370,7 +370,7 @@
     {
       "name": "bpm09_y_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:09:POSITION:Y"
       }
@@ -378,7 +378,7 @@
     {
       "name": "bpm10_x_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:10:POSITION:X"
       }
@@ -386,7 +386,7 @@
     {
       "name": "bpm10_y_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:10:POSITION:Y"
       }
@@ -394,7 +394,7 @@
     {
       "name": "bpm11_x_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:11:POSITION:X"
       }
@@ -402,7 +402,7 @@
     {
       "name": "bpm11_y_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:11:POSITION:Y"
       }
@@ -410,7 +410,7 @@
     {
       "name": "bpm12_x_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:12:POSITION:X"
       }
@@ -418,7 +418,7 @@
     {
       "name": "bpm12_y_um",
       "kind": "scalar",
-      "expression": "floor(({p} * 1e6) * 10 + 0.5) / 10",
+      "expression": "floor(({p} * 1000) * 10 + 0.5) / 10",
       "bindings": {
         "p": "SR:DIAG:BPM:12:POSITION:Y"
       }
@@ -8034,7 +8034,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8042,7 +8042,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8121,7 +8121,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8129,7 +8129,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8208,7 +8208,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8216,7 +8216,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8295,7 +8295,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8303,7 +8303,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8382,7 +8382,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8390,7 +8390,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8469,7 +8469,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8477,7 +8477,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8635,7 +8635,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8643,7 +8643,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8722,7 +8722,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8730,7 +8730,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8809,7 +8809,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8817,7 +8817,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8896,7 +8896,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8904,7 +8904,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -8983,7 +8983,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -8991,7 +8991,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",
@@ -9070,7 +9070,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 5e-05",
+                "expression": "abs({1}) < 0.05",
                 "value": {
                   "$role": "OK",
                   "fallback": "#56a64b",
@@ -9078,7 +9078,7 @@
                 }
               },
               {
-                "expression": "abs({1}) < 0.0001",
+                "expression": "abs({1}) < 0.1",
                 "value": {
                   "$role": "MINOR",
                   "fallback": "#e0b400",

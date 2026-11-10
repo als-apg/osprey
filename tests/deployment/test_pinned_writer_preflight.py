@@ -58,18 +58,18 @@ def _repo(tmp_path: Path, *pinned: str) -> Path:
     ],
 )
 def test_every_minted_token_is_in_the_census(name):
-    assert name in _deploy_written_env_vars()
+    assert name in _deploy_written_env_vars({})
 
 
 def test_the_control_socket_keypair_is_in_the_census():
     """Minted outside the token map, because the two halves have to pair."""
-    census = _deploy_written_env_vars()
+    census = _deploy_written_env_vars({})
     assert {"BLUESKY_QSERVER_ZMQ_PRIVATE_KEY", "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY"} <= census
 
 
 def test_the_census_covers_every_registered_writer():
     """Read off the maps themselves, so a new entry cannot be added unpoliced."""
-    census = _deploy_written_env_vars()
+    census = _deploy_written_env_vars({})
     for names in container_lifecycle._SERVICE_TOKEN_VARS.values():
         assert set(names) <= census
     # The --reuse-stores adopter restores exactly these into `.env`.
@@ -77,7 +77,7 @@ def test_the_census_covers_every_registered_writer():
 
 
 def test_a_name_no_writer_touches_is_not_in_the_census():
-    assert "FACILITY_UPSTREAM_URL" not in _deploy_written_env_vars()
+    assert "FACILITY_UPSTREAM_URL" not in _deploy_written_env_vars({})
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ def test_a_pin_on_a_minted_token_refuses(tmp_path, caplog):
     repo = _repo(tmp_path, "ARIEL_DB_PASSWORD")
 
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
-        _preflight_pinned_writers(repo)
+        _preflight_pinned_writers(repo, {})
 
     assert "unpin ARIEL_DB_PASSWORD; it is machine-minted." in caplog.text
     assert "unpin ARIEL_DB_PASSWORD; it is machine-minted." in str(excinfo.value)
@@ -99,7 +99,7 @@ def test_the_remedy_names_every_offender(tmp_path, caplog):
     repo = _repo(tmp_path, "ARIEL_DB_PASSWORD", "MONGO_ROOT_PASSWORD", "FACILITY_UPSTREAM_URL")
 
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
-        _preflight_pinned_writers(repo)
+        _preflight_pinned_writers(repo, {})
 
     assert "unpin ARIEL_DB_PASSWORD; it is machine-minted." in str(excinfo.value)
     assert "unpin MONGO_ROOT_PASSWORD; it is machine-minted." in str(excinfo.value)
@@ -108,16 +108,31 @@ def test_the_remedy_names_every_offender(tmp_path, caplog):
 
 def test_a_pin_on_a_name_no_writer_touches_is_allowed(tmp_path):
     """The whole point of the feature must survive the guard on it."""
-    assert _preflight_pinned_writers(_repo(tmp_path, "FACILITY_UPSTREAM_URL")) == []
+    assert _preflight_pinned_writers(_repo(tmp_path, "FACILITY_UPSTREAM_URL"), {}) == []
 
 
 def test_a_repo_that_declares_nothing_is_silent(tmp_path):
-    assert _preflight_pinned_writers(_repo(tmp_path)) == []
+    assert _preflight_pinned_writers(_repo(tmp_path), {}) == []
 
 
 def test_a_repo_with_no_profile_is_silent(tmp_path):
     """Same "nothing declared" answer the reader gives for every broken shape."""
-    assert _preflight_pinned_writers(tmp_path) == []
+    assert _preflight_pinned_writers(tmp_path, {}) == []
+
+
+def test_a_pin_on_a_projected_launch_token_refuses(tmp_path, caplog):
+    """A projected name is a property of the profile too, through its ``apps:`` block."""
+    repo = _repo(tmp_path, "KNOB_LAUNCH_TOKEN")
+    config = {
+        "deployed_services": ["knob"],
+        "services": {"knob": {"app": "knob", "launch_token_env": "KNOB_LAUNCH_TOKEN"}},
+    }
+
+    assert _preflight_pinned_writers(repo, {}) == []
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
+        _preflight_pinned_writers(repo, config)
+
+    assert "unpin KNOB_LAUNCH_TOKEN; it is machine-minted." in str(excinfo.value)
 
 
 def test_the_answer_does_not_depend_on_the_deployed_services(tmp_path, caplog):
@@ -129,9 +144,9 @@ def test_the_answer_does_not_depend_on_the_deployed_services(tmp_path, caplog):
     """
     repo = _repo(tmp_path, "MONGO_ROOT_PASSWORD")
 
-    # No config is passed at all: nothing about this check can consult one.
+    # An empty config deploys nothing: the static names stay in the census anyway.
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError):
-        _preflight_pinned_writers(repo)
+        _preflight_pinned_writers(repo, {})
 
 
 # ---------------------------------------------------------------------------
