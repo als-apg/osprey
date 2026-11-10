@@ -434,6 +434,17 @@
 <span class="sd">sees the old file or the new one and never a mix, a crash never leaves half a</span>
 <span class="sd">file, and the file&#39;s mode never depends on the process umask.</span>
 
+<span class="sd">It also states, once, the shape of a group-shared location: a place written</span>
+<span class="sd">and read under several uids that reach one another through the setgid group</span>
+<span class="sd">of its directory. Such a directory is :data:`SHARED_DIR_MODE`, created through</span>
+<span class="sd">:func:`ensure_shared_dir`; a file in it is :data:`SHARED_FILE_MODE`, and a lock</span>
+<span class="sd">in it :data:`SHARED_LOCK_MODE`::</span>
+
+<span class="sd">    &lt;location&gt;/             2770  setgid: every entry below takes its group</span>
+<span class="sd">      &lt;identity&gt;/           2770  every level a writer creates, set exactly</span>
+<span class="sd">        record.json         0640  read by the group, written by its owner</span>
+<span class="sd">        record.json.lock    0660  taken by every writer in the group</span>
+
 <span class="sd">This module uses the standard library only. The Claude Code hooks run under</span>
 <span class="sd">the system ``python3`` and import nothing from OSPREY, so they ship this file</span>
 <span class="sd">beside them as ``.claude/hooks/osprey_safety_file.py``, a byte-identical copy</span>
@@ -451,7 +462,27 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Literal</span>
 
-<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;atomic_replace&quot;</span><span class="p">]</span>
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;SHARED_DIR_MODE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SHARED_FILE_MODE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;SHARED_LOCK_MODE&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;atomic_replace&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ensure_shared_dir&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1">#: A directory of a group-shared location. Setgid, so every entry created in it</span>
+<span class="c1">#: takes its group whatever uid created it; group-write, so a writer under one</span>
+<span class="c1">#: uid can replace what another wrote; nothing for ``other``, which would let it</span>
+<span class="c1">#: list the names inside.</span>
+<span class="n">SHARED_DIR_MODE</span> <span class="o">=</span> <span class="mo">0o2770</span>
+
+<span class="c1">#: A file in a group-shared location: written by its owner, read through the</span>
+<span class="c1">#: directory&#39;s group by the uids that never coordinate with that owner.</span>
+<span class="n">SHARED_FILE_MODE</span> <span class="o">=</span> <span class="mo">0o640</span>
+
+<span class="c1">#: A lock file in a group-shared location: whichever writer creates it first</span>
+<span class="c1">#: sets its mode, and every writer in the group has to be able to open it.</span>
+<span class="n">SHARED_LOCK_MODE</span> <span class="o">=</span> <span class="mo">0o660</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_fsync_directory</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -514,6 +545,66 @@
         <span class="n">Path</span><span class="p">(</span><span class="n">temporary</span><span class="p">)</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
         <span class="k">raise</span>
     <span class="n">_fsync_directory</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">parent</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_set_shared_mode</span><span class="p">(</span><span class="n">level</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Set :data:`SHARED_DIR_MODE` on *level*, never through a symbolic link.</span>
+
+<span class="sd">    The parent is group-writable by parties other than this writer, so the</span>
+<span class="sd">    level just made could be swapped for a link before its mode is set; the</span>
+<span class="sd">    open refuses a link at the last component (``O_NOFOLLOW``) and anything</span>
+<span class="sd">    but a directory (``O_DIRECTORY``), and the mode goes on the descriptor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">fd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">O_RDONLY</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">O_DIRECTORY</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">O_NOFOLLOW</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">fchmod</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">SHARED_DIR_MODE</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ensure_shared_dir">
+<a class="viewcode-back" href="../../reference/connectors-api/utilities.html#osprey_connectors.safety_file.ensure_shared_dir">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">ensure_shared_dir</span><span class="p">(</span>
+    <span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">modes</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;required&quot;</span><span class="p">,</span> <span class="s2">&quot;best_effort&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;required&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create *directory* and the levels above it at :data:`SHARED_DIR_MODE`.</span>
+
+<span class="sd">    Every level this call creates — the levels above the leaf as much as the</span>
+<span class="sd">    leaf — is set to exactly :data:`SHARED_DIR_MODE` rather than merely widened:</span>
+<span class="sd">    ``mkdir`` honours the umask and drops the setgid bit, so a level left as it</span>
+<span class="sd">    made it is 0755 (``other`` lists the names inside) or, under umask 077,</span>
+<span class="sd">    0700 (the group cannot reach the files inside at all). A level that already</span>
+<span class="sd">    exists is not this writer&#39;s: deployment provisioned it, or another uid made</span>
+<span class="sd">    it, and it keeps the mode it has. The levels are made one at a time from</span>
+<span class="sd">    the top, so a level another writer makes first, between the look and the</span>
+<span class="sd">    make, is left to that writer while the levels this call does make still</span>
+<span class="sd">    get their mode. A mode is never set through a symbolic link.</span>
+
+<span class="sd">    ``modes=&quot;required&quot;`` raises when a mode cannot be set;</span>
+<span class="sd">    ``modes=&quot;best_effort&quot;`` keeps the directory as made, for a writer whose</span>
+<span class="sd">    record is worth more in a narrower directory than not written at all.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        OSError: A level could not be created, or (``modes=&quot;required&quot;``) a</span>
+<span class="sd">            level&#39;s mode could not be set, a link included (``errno.ELOOP``).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">missing</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">probe</span> <span class="o">=</span> <span class="n">directory</span>
+    <span class="k">while</span> <span class="n">probe</span> <span class="o">!=</span> <span class="n">probe</span><span class="o">.</span><span class="n">parent</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">probe</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">missing</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">probe</span><span class="p">)</span>
+        <span class="n">probe</span> <span class="o">=</span> <span class="n">probe</span><span class="o">.</span><span class="n">parent</span>
+    <span class="k">for</span> <span class="n">level</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">missing</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">FileExistsError</span><span class="p">:</span>
+            <span class="c1"># Another writer got there first: that level is not this writer&#39;s.</span>
+            <span class="k">continue</span>
+        <span class="k">if</span> <span class="n">modes</span> <span class="o">==</span> <span class="s2">&quot;required&quot;</span><span class="p">:</span>
+            <span class="n">_set_shared_mode</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">OSError</span><span class="p">):</span>
+                <span class="n">_set_shared_mode</span><span class="p">(</span><span class="n">level</span><span class="p">)</span></div>
 
 </pre></div>
 

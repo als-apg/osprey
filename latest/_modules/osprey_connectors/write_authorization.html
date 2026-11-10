@@ -576,7 +576,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.identity</span><span class="w"> </span><span class="kn">import</span> <span class="n">acting_identity</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_store</span><span class="w"> </span><span class="kn">import</span> <span class="n">NO_OWNER</span><span class="p">,</span> <span class="n">NoOwner</span><span class="p">,</span> <span class="n">WriteVerdict</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.refusals</span><span class="w"> </span><span class="kn">import</span> <span class="n">refusal_phrase</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.safety_file</span><span class="w"> </span><span class="kn">import</span> <span class="n">atomic_replace</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.safety_file</span><span class="w"> </span><span class="kn">import</span> <span class="n">SHARED_FILE_MODE</span><span class="p">,</span> <span class="n">atomic_replace</span><span class="p">,</span> <span class="n">ensure_shared_dir</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.write_authorization&quot;</span><span class="p">)</span>
 
@@ -694,7 +694,6 @@
 
 <span class="n">_LOCK_TIMEOUT_S</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mf">5.0</span>
 <span class="n">_LOCK_POLL_S</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mf">0.01</span>
-<span class="n">_FILE_MODE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mo">0o640</span>
 
 <span class="n">_PROC_STAT</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;/proc/</span><span class="si">{pid}</span><span class="s2">/stat&quot;</span>
 <span class="n">_PID_NS_LINK</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;/proc/self/ns/pid&quot;</span>
@@ -1766,7 +1765,7 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_write_json</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
-    <span class="n">atomic_replace</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">_FILE_MODE</span><span class="p">)</span>
+    <span class="n">atomic_replace</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">SHARED_FILE_MODE</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_ledger_lock_path</span><span class="p">(</span><span class="n">place</span><span class="p">:</span> <span class="n">_Place</span><span class="p">,</span> <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
@@ -2076,7 +2075,7 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_prepare_directory</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Create *directory* (0o2770, as the record&#39;s) when absent; refuse a link or a file.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">lexists</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
-        <span class="n">control_context</span><span class="o">.</span><span class="n">_ensure_directory</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
+        <span class="n">ensure_shared_dir</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
     <span class="n">mode</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">lstat</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span><span class="o">.</span><span class="n">st_mode</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">stat</span><span class="o">.</span><span class="n">S_ISDIR</span><span class="p">(</span><span class="n">mode</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="n">errno</span><span class="o">.</span><span class="n">ENOTDIR</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">directory</span><span class="si">}</span><span class="s2"> is not a plain directory; nothing was written&quot;</span><span class="p">)</span>

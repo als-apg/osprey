@@ -681,6 +681,17 @@ for generic ingestion it is the ingest-time “now”.</p></li>
 <p>Every writer that rewrites a file calls <a class="reference internal" href="#osprey_connectors.safety_file.atomic_replace" title="osprey_connectors.safety_file.atomic_replace"><code class="xref py py-func docutils literal notranslate"><span class="pre">atomic_replace()</span></code></a>, so a reader
 sees the old file or the new one and never a mix, a crash never leaves half a
 file, and the file’s mode never depends on the process umask.</p>
+<p>It also states, once, the shape of a group-shared location: a place written
+and read under several uids that reach one another through the setgid group
+of its directory. Such a directory is <a class="reference internal" href="#osprey_connectors.safety_file.SHARED_DIR_MODE" title="osprey_connectors.safety_file.SHARED_DIR_MODE"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHARED_DIR_MODE</span></code></a>, created through
+<a class="reference internal" href="#osprey_connectors.safety_file.ensure_shared_dir" title="osprey_connectors.safety_file.ensure_shared_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">ensure_shared_dir()</span></code></a>; a file in it is <a class="reference internal" href="#osprey_connectors.safety_file.SHARED_FILE_MODE" title="osprey_connectors.safety_file.SHARED_FILE_MODE"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHARED_FILE_MODE</span></code></a>, and a lock
+in it <a class="reference internal" href="#osprey_connectors.safety_file.SHARED_LOCK_MODE" title="osprey_connectors.safety_file.SHARED_LOCK_MODE"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHARED_LOCK_MODE</span></code></a>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">&lt;</span><span class="n">location</span><span class="o">&gt;/</span>             <span class="mi">2770</span>  <span class="n">setgid</span><span class="p">:</span> <span class="n">every</span> <span class="n">entry</span> <span class="n">below</span> <span class="n">takes</span> <span class="n">its</span> <span class="n">group</span>
+  <span class="o">&lt;</span><span class="n">identity</span><span class="o">&gt;/</span>           <span class="mi">2770</span>  <span class="n">every</span> <span class="n">level</span> <span class="n">a</span> <span class="n">writer</span> <span class="n">creates</span><span class="p">,</span> <span class="nb">set</span> <span class="n">exactly</span>
+    <span class="n">record</span><span class="o">.</span><span class="n">json</span>         <span class="mi">0640</span>  <span class="n">read</span> <span class="n">by</span> <span class="n">the</span> <span class="n">group</span><span class="p">,</span> <span class="n">written</span> <span class="n">by</span> <span class="n">its</span> <span class="n">owner</span>
+    <span class="n">record</span><span class="o">.</span><span class="n">json</span><span class="o">.</span><span class="n">lock</span>    <span class="mi">0660</span>  <span class="n">taken</span> <span class="n">by</span> <span class="n">every</span> <span class="n">writer</span> <span class="ow">in</span> <span class="n">the</span> <span class="n">group</span>
+</pre></div>
+</div>
 <p>This module uses the standard library only. The Claude Code hooks run under
 the system <code class="docutils literal notranslate"><span class="pre">python3</span></code> and import nothing from OSPREY, so they ship this file
 beside them as <code class="docutils literal notranslate"><span class="pre">.claude/hooks/osprey_safety_file.py</span></code>, a byte-identical copy
@@ -688,6 +699,39 @@ that <code class="docutils literal notranslate"><span class="pre">tests/hooks/te
 change is made here and copied there. That hooks catalog row is also the copy
 the build stages beside the control-identity script that containers run by
 path, so the byte pin keeps that copy equal to this module too.</p>
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.safety_file.SHARED_DIR_MODE">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.safety_file.</span></span><span class="sig-name descname"><span class="pre">SHARED_DIR_MODE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1528</span></span><a class="headerlink" href="#osprey_connectors.safety_file.SHARED_DIR_MODE" title="Link to this definition">#</a></dt>
+<dd><p>A directory of a group-shared location. Setgid, so every entry created in it
+takes its group whatever uid created it; group-write, so a writer under one
+uid can replace what another wrote; nothing for <code class="docutils literal notranslate"><span class="pre">other</span></code>, which would let it
+list the names inside.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.safety_file.SHARED_FILE_MODE">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.safety_file.</span></span><span class="sig-name descname"><span class="pre">SHARED_FILE_MODE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">416</span></span><a class="headerlink" href="#osprey_connectors.safety_file.SHARED_FILE_MODE" title="Link to this definition">#</a></dt>
+<dd><p>written by its owner, read through the
+directory’s group by the uids that never coordinate with that owner.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A file in a group-shared location</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.safety_file.SHARED_LOCK_MODE">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.safety_file.</span></span><span class="sig-name descname"><span class="pre">SHARED_LOCK_MODE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">432</span></span><a class="headerlink" href="#osprey_connectors.safety_file.SHARED_LOCK_MODE" title="Link to this definition">#</a></dt>
+<dd><p>whichever writer creates it first
+sets its mode, and every writer in the group has to be able to open it.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A lock file in a group-shared location</p>
+</dd>
+</dl>
+</dd></dl>
+
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.safety_file.atomic_replace">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.safety_file.</span></span><span class="sig-name descname"><span class="pre">atomic_replace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sync</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'required'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/safety_file.html#atomic_replace"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.safety_file.atomic_replace" title="Link to this definition">#</a></dt>
@@ -707,6 +751,31 @@ someone who can retry (an operator, a CLI, a build); choose
 <code class="docutils literal notranslate"><span class="pre">sync=&quot;best_effort&quot;</span></code> when the caller swallows the error, because then a
 file replaced without its flush is more durable than the old file kept.</p>
 <dl class="field-list simple">
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.safety_file.ensure_shared_dir">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.safety_file.</span></span><span class="sig-name descname"><span class="pre">ensure_shared_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">directory</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">modes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'required'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/safety_file.html#ensure_shared_dir"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.safety_file.ensure_shared_dir" title="Link to this definition">#</a></dt>
+<dd><p>Create <em>directory</em> and the levels above it at <a class="reference internal" href="#osprey_connectors.safety_file.SHARED_DIR_MODE" title="osprey_connectors.safety_file.SHARED_DIR_MODE"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHARED_DIR_MODE</span></code></a>.</p>
+<p>Every level this call creates — the levels above the leaf as much as the
+leaf — is set to exactly <a class="reference internal" href="#osprey_connectors.safety_file.SHARED_DIR_MODE" title="osprey_connectors.safety_file.SHARED_DIR_MODE"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHARED_DIR_MODE</span></code></a> rather than merely widened:
+<code class="docutils literal notranslate"><span class="pre">mkdir</span></code> honours the umask and drops the setgid bit, so a level left as it
+made it is 0755 (<code class="docutils literal notranslate"><span class="pre">other</span></code> lists the names inside) or, under umask 077,
+0700 (the group cannot reach the files inside at all). A level that already
+exists is not this writer’s: deployment provisioned it, or another uid made
+it, and it keeps the mode it has. The levels are made one at a time from
+the top, so a level another writer makes first, between the look and the
+make, is left to that writer while the levels this call does make still
+get their mode. A mode is never set through a symbolic link.</p>
+<p><code class="docutils literal notranslate"><span class="pre">modes=&quot;required&quot;</span></code> raises when a mode cannot be set;
+<code class="docutils literal notranslate"><span class="pre">modes=&quot;best_effort&quot;</span></code> keeps the directory as made, for a writer whose
+record is worth more in a narrower directory than not written at all.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>OSError</strong> – A level could not be created, or (<code class="docutils literal notranslate"><span class="pre">modes=&quot;required&quot;</span></code>) a
+    level’s mode could not be set, a link included (<code class="docutils literal notranslate"><span class="pre">errno.ELOOP</span></code>).</p>
+</dd>
 </dl>
 </dd></dl>
 
@@ -772,7 +841,11 @@ file replaced without its flush is more durable than the old file kept.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.relative_time.resolve_relative_timestamp"><code class="docutils literal notranslate"><span class="pre">resolve_relative_timestamp()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.safety_file.SHARED_DIR_MODE"><code class="docutils literal notranslate"><span class="pre">SHARED_DIR_MODE</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.safety_file.SHARED_FILE_MODE"><code class="docutils literal notranslate"><span class="pre">SHARED_FILE_MODE</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.safety_file.SHARED_LOCK_MODE"><code class="docutils literal notranslate"><span class="pre">SHARED_LOCK_MODE</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.safety_file.atomic_replace"><code class="docutils literal notranslate"><span class="pre">atomic_replace()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.safety_file.ensure_shared_dir"><code class="docutils literal notranslate"><span class="pre">ensure_shared_dir()</span></code></a></li>
 </ul>
   </nav></div>
 

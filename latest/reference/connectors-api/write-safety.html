@@ -4334,7 +4334,7 @@ owner can read makes every owned lane write refuse
 sees it. Every directory this writer creates — the
 levels above the leaf as much as the leaf — is set to exactly 0o2770 rather
 than merely widened, because a directory left at the umask 0755 would let
-<code class="docutils literal notranslate"><span class="pre">other</span></code> list the identity names.</p>
+<code class="docutils literal notranslate"><span class="pre">other</span></code> list the identity names (<code class="docutils literal notranslate"><span class="pre">safety_file.ensure_shared_dir</span></code>).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>OSError</strong> – The write itself failed.</p>
