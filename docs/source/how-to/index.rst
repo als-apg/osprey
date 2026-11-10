@@ -119,6 +119,13 @@ Facility services
       Search, filter, and explore control system channels using the Channel Finder
       service and its web interface.
 
+   .. grid-item-card:: Look Up Any PV
+      :link: use-pv-directory
+      :link-type: doc
+
+      All PVs: every PV the control system announces, with read-only PV and
+      IOC pages for alarms, put history and logbook mentions.
+
    .. grid-item-card:: Facility Knowledge
       :link: facility-knowledge/index
       :link-type: doc
@@ -158,6 +165,7 @@ Facility services
    describe-your-facility
    measure-with-pyaml
    use-channel-finder
+   use-pv-directory
    import-mml-export
    run-scenarios
    facility-knowledge/index
