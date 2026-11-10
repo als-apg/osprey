@@ -53,18 +53,30 @@ The entrypoint, the runner and the model surface read the view through
 ``osprey_connectors.simulation.view.SimulatorView``, the one reader every
 consumer of a view opens it with. Each wiring record of ``variables.json``
 states what its engine's ``describe()`` said of it at build time, written
-into the facility file: its ``role``
-(``setpoint``, ``readback``, ``monitor`` or ``output``), the transverse
-``plane`` it steers or reads (``x``, ``y`` or none) and its ``refresh``. A
-write's pass reads what the write can change, and never a channel whose binding
-refreshes ``periodic``, which the next periodic pass publishes: a physics
-setting reads itself, its readback and what its model computes from its
-settings; any other write reads every served channel. Of what it reads, a
-write's pass posts the written channels and those whose value or undefined
-condition changed; an unchanged channel keeps the timestamp of its last post.
-The start-up pass and every periodic pass post every channel. Each channel
-also names the node it is ``on``. A view an older OSPREY wrote is refused
-before the ready line, with a message asking for ``osprey build``.
+into the facility file:
+
+- its ``role``: ``setpoint``, ``readback``, ``monitor`` or ``output``;
+- the transverse ``plane`` it steers or reads: ``x``, ``y`` or none;
+- its ``refresh``.
+
+Each channel also names the node it is ``on``.
+
+The server publishes channel values in *passes*: one after each write, one at
+start-up, and the periodic passes:
+
+- **What a write's pass reads.** It reads what the write can change, and
+  never a channel whose binding refreshes ``periodic``; the next periodic pass
+  publishes those. A physics setting reads itself, its readback and what its
+  model computes from its settings. Any other write reads every served
+  channel.
+- **What a write's pass posts.** Of what it reads, it posts the written
+  channels and those whose value or undefined condition changed. An unchanged
+  channel keeps the timestamp of its last post.
+- **What the periodic pass does.** The start-up pass and every periodic pass
+  post every channel.
+
+A view an older OSPREY wrote is refused before the ready line, with a message
+asking for ``osprey build``.
 
 Two transports, one write path
 ==============================
@@ -120,17 +132,25 @@ still settling:
    * - ``lume-pva-apg[ca,pva]``
      - ``0.1.5``
      - The serving stack ``runner.py`` subclasses --- ``pcaspy`` for Channel
-       Access, ``p4p`` for PVAccess. 0.1.3 adds the two hooks the model
-       surface is built on: ``_enqueue(..., jobs=)``, which runs a callable on
-       the run loop's own thread batched with the writes already queued there,
-       and ``_cycle_output_names()``, which lets a subclass narrow the set of
-       variables re-read after each cycle. 0.1.4 makes the model info the
-       server announces follow the configuration it was given, so a variable
-       held back from the channel namespace is not advertised as one. 0.1.5
-       takes each variable's display precision and description from the
-       runner configuration, raises an alarm on an output the model names as
-       failed, serves integer variables as integers on PVAccess, and exposes a
-       public tick period whose ticks coalesce.
+       Access, ``p4p`` for PVAccess.
+
+       Releases 0.1.3 to 0.1.5 add the features OSPREY relies on, listed
+       below the table.
+
+OSPREY relies on these ``lume-pva-apg`` features, by the release that added
+them:
+
+- **0.1.3** adds the two hooks the model surface is built on:
+  ``_enqueue(..., jobs=)``, which runs a callable on the run loop's own thread
+  batched with the writes already queued there, and ``_cycle_output_names()``,
+  which lets a subclass narrow the set of variables re-read after each cycle.
+- **0.1.4** makes the model info the server announces follow the
+  configuration it was given, so a variable held back from the channel
+  namespace is not advertised as one.
+- **0.1.5** takes each variable's display precision and description from the
+  runner configuration, raises an alarm on an output the model names as
+  failed, serves integer variables as integers on PVAccess, and exposes a
+  public tick period whose ticks coalesce.
 
 ``pcaspy`` publishes wheels for linux-x86_64 only, so the ``lume-pva-apg``
 entry that brings it is marked accordingly, and ``serving/runner.py`` alone is

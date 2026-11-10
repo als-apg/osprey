@@ -16,6 +16,7 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { openContextMenu } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-context-menu.js';
+import { menuFocusReturn, retargetMenuFocusReturn } from '/design-system/js/context-menu.js';
 
 /** Whether a menu is on screen — the DOM contract, not module state. */
 function isContextMenuOpen() {
@@ -351,6 +352,28 @@ describe('focus hand-back', () => {
     pressKey('Escape');
 
     expect(document.activeElement).toBe(entry);
+  });
+
+  test('a redraw that replaces the element focus came from retargets the hand-back', () => {
+    const { entry } = mountSurfaces();
+    entry.focus();
+    openServiceMenu({ anchorEl: entry });
+    expect(menuFocusReturn()).toBe(entry);
+
+    // The surface redraws: the entry is replaced by an equal one.
+    const redrawn = /** @type {HTMLElement} */ (entry.cloneNode(true));
+    entry.replaceWith(redrawn);
+    retargetMenuFocusReturn(redrawn);
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(redrawn);
+    expect(menuFocusReturn()).toBeNull();
+  });
+
+  test('with no menu open there is no hand-back, and retargeting is a no-op', () => {
+    const { entry } = mountSurfaces();
+    retargetMenuFocusReturn(entry);
+    expect(menuFocusReturn()).toBeNull();
   });
 
   test('pointer, blur, scroll and resize dismissals leave focus alone', () => {
