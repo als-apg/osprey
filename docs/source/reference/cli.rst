@@ -45,7 +45,6 @@ names another one explicitly.
    osprey facility           # Check and show the facility description under data/facility/
    osprey app                # Make and check a deployment's apps
    osprey sim                # Simulation scenario commands
-   osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy artifacts and plan-queue history into var/archive
    osprey history            # Serve the history page (the history service's entry)
@@ -1071,25 +1070,6 @@ provider is not configured).
    osprey query "What PVs are used for beam current?"
    osprey query --repo ~/my-assistant "List vacuum sections"
    osprey query --json "Summarise recent alarms"
-
-osprey eject
-============
-
-Copy framework services to your project for customization.
-
-``osprey eject list``
-   List all ejectable framework capabilities and services.
-
-``osprey eject service NAME [-o, --output PATH] [--include-tests]``
-   Copy a framework service directory locally, sub-modules included.
-   ``-o, --output PATH`` names the destination (default:
-   ``./src/<package>/services/<name>/``); ``--include-tests`` also copies the
-   service's test files.
-
-.. code-block:: bash
-
-   osprey eject list
-   osprey eject service channel_finder --include-tests
 
 osprey channel-finder
 =====================
