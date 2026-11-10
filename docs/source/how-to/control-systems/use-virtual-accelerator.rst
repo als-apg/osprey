@@ -470,6 +470,9 @@ The signals:
 - ``current``: the stored current, raised by the shot at ``offset_s`` by the
   final charge times ``current_per_charge``. Nothing saturates or decays it.
 - ``current_fast``: the stored current again, read at the fast period.
+  A ``current`` or ``current_fast`` may state a ``scale``, the factor from
+  the stored current's unit to its own: ``{signal: current_fast, scale:
+  0.001}`` reads a stored current in mA as A.
 - ``busy``: the free-running cycle signal, ``width_s`` high every
   ``period_s``.
 

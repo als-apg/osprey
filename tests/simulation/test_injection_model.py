@@ -131,6 +131,11 @@ def test_an_inconsistent_chain_is_refused(overrides: dict[str, Any]) -> None:
 # -- one shot ------------------------------------------------------------------
 
 
+def test_a_scale_on_a_channel_that_reads_no_current_is_refused() -> None:
+    with pytest.raises(ValueError, match="count"):
+        _model(scales={"count": 0.5})
+
+
 def test_one_shot_applies_its_steps_at_their_offsets_in_declared_order() -> None:
     model = _model()
     _shot(model)

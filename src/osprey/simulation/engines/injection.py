@@ -14,7 +14,9 @@ block names a ``signal``:
   ``offset_s`` seconds after its request, the last two showing the stage at
   index ``stage``;
 * ``current`` -- the stored current, raised by the shot at ``offset_s``;
-* ``current_fast`` -- the stored current again, read at the fast period;
+* ``current_fast`` -- the stored current again, read at the fast period; a
+  ``current`` or ``current_fast`` may state a ``scale``, the factor from the
+  stored current's unit to its own (a second monitor reading in another unit);
 * ``busy`` -- the free-running cycle signal.
 
 The settings sit under the key ``injection``: ``cycle: {period_s, width_s}``,
@@ -87,8 +89,8 @@ _KEYS: dict[str, frozenset[str]] = {
     COUNTER: frozenset({"offset_s"}),
     CHARGE: frozenset({"offset_s", "stage"}),
     EFFICIENCY: frozenset({"offset_s", "stage"}),
-    CURRENT: frozenset({"offset_s"}),
-    CURRENT_FAST: frozenset(),
+    CURRENT: frozenset({"offset_s", "scale"}),
+    CURRENT_FAST: frozenset({"scale"}),
     BUSY: frozenset(),
 }
 _STEPS = (COUNTER, CHARGE, EFFICIENCY, CURRENT)
@@ -114,6 +116,7 @@ class _Entry:
     stage: int | None = None
     quantity: str | None = None
     start: float | None = None
+    scale: float | None = None
     default: Any = None
 
 
@@ -127,6 +130,7 @@ class _Chain:
     stored_current: str
     steps: tuple[_Entry, ...]
     currents: tuple[str, ...]
+    scales: Mapping[str, float]
     busy: tuple[str, ...]
     period_s: float
     width_s: float
@@ -188,7 +192,7 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
             names no known signal, a step without an ``offset_s`` or with a
             negative one, a ``charge`` or ``efficiency`` without a ``stage``,
             a ``parameter`` without a known ``quantity``, a non-numeric
-            ``start`` or a key its signal does not take.
+            ``start`` or ``scale``, or a key its signal does not take.
     """
     entry = _read(wiring_record)
     role = "setpoint" if entry.signal in _SETPOINTS else "output"
@@ -319,6 +323,7 @@ def build(
         stored_current=chain.stored_current,
         steps=steps,
         currents=chain.currents,
+        scales=chain.scales,
         busy=chain.busy,
         period_s=chain.period_s,
         width_s=chain.width_s,
@@ -390,6 +395,9 @@ def _read(record: Any) -> _Entry:
         raise ValueError(f"{address}: a {quantity or signal} takes no stage")
     if start is not None and not _is_number(start):
         raise ValueError(f"{address}: start must be a number, not {start!r}")
+    scale = block.get("scale")
+    if scale is not None and not _is_number(scale):
+        raise ValueError(f"{address}: scale must be a number, not {scale!r}")
     return _Entry(
         address=address,
         signal=signal,
@@ -397,6 +405,7 @@ def _read(record: Any) -> _Entry:
         stage=stage,
         quantity=quantity,
         start=float(start) if start is not None else None,
+        scale=float(scale) if scale is not None else None,
         default=field(record, "default"),
     )
 
@@ -451,6 +460,7 @@ def _chain(model: str, entries: Sequence[_Entry], deck: Any, settings: Any) -> _
         stored_current=one(CURRENT),
         steps=tuple(e for e in entries if e.signal in _STEPS),
         currents=tuple(e.address for e in entries if e.signal in (CURRENT, CURRENT_FAST)),
+        scales={e.address: e.scale for e in entries if e.scale is not None},
         busy=tuple(e.address for e in entries if e.signal == BUSY),
         period_s=period,
         width_s=width,

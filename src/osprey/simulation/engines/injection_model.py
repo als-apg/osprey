@@ -96,6 +96,8 @@ class InjectionModel(LUMEModel):
         stored_current: The setpoint holding the stored current.
         steps: The steps of one shot.
         currents: The readings that show the stored current.
+        scales: By reading of ``currents``, the factor from the stored
+            current to that reading; a reading absent here shows it as is.
         busy: The readings of the cycle signal.
         period_s: The cycle's period.
         width_s: How long the cycle stays high after each rise.
@@ -104,8 +106,9 @@ class InjectionModel(LUMEModel):
 
     Raises:
         ValueError: A step of unknown kind, a negative offset, a stage step
-            whose stage is not an index into ``efficiencies``, or a cycle whose
-            width is not inside its period.
+            whose stage is not an index into ``efficiencies``, a cycle whose
+            width is not inside its period, or a scale on a channel that is
+            no current reading.
     """
 
     def __init__(
@@ -117,6 +120,7 @@ class InjectionModel(LUMEModel):
         stored_current: str,
         steps: Iterable[Step],
         currents: Iterable[str] = (),
+        scales: Mapping[str, float] | None = None,
         busy: Iterable[str] = (),
         period_s: float,
         width_s: float,
@@ -139,6 +143,10 @@ class InjectionModel(LUMEModel):
         self._source = source_charge
         self._stored = stored_current
         self._currents = tuple(currents)
+        self._scales = {name: float(scale) for name, scale in (scales or {}).items()}
+        stray = sorted(set(self._scales) - set(self._currents))
+        if stray:
+            raise ValueError(f"a scale names no current reading: {', '.join(stray)}")
         self._busy = tuple(busy)
         self._period = float(period_s)
         self._width = float(width_s)
@@ -189,7 +197,12 @@ class InjectionModel(LUMEModel):
 
     def _get(self, names: list[str]) -> dict[str, Any]:
         stored = self._values[self._stored]
-        return {name: stored if name in self._currents else self._values[name] for name in names}
+        return {
+            name: stored * self._scales.get(name, 1.0)
+            if name in self._currents
+            else self._values[name]
+            for name in names
+        }
 
     # -- the time contract -------------------------------------------------------
 

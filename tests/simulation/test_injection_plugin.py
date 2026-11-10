@@ -161,6 +161,8 @@ def test_describe_reads_attributes_too():
         ({"signal": "parameter", "quantity": "charge", "stage": 0}, "stage"),
         ({"signal": "parameter", "quantity": "charge", "start": "high"}, "start"),
         ({"signal": "request", "offset_s": 0.5}, "offset_s"),
+        ({"signal": "current_fast", "scale": "milli"}, "scale"),
+        ({"signal": "busy", "scale": 2.0}, "scale"),
         ({"signal": "busy", "colour": "red"}, "colour"),
     ],
 )
@@ -305,6 +307,17 @@ def _build(wiring: Any = None, settings: Any = None, **active: Any):
         MappingProxyType(SETTINGS if settings is None else settings),
         active=active,
     )
+
+
+def test_a_scaled_current_reads_the_stored_current_times_its_scale():
+    wiring = [*_wiring(), _record("stored_scaled", signal="current_fast", scale=0.5)]
+    model = _build(wiring)
+    assert model.get(["stored_fast", "stored_scaled"]) == {
+        "stored_fast": 10.0,
+        "stored_scaled": 5.0,
+    }
+    model.set({"stored": 30.0})
+    assert model.get(["stored_scaled"]) == {"stored_scaled": 15.0}
 
 
 def test_build_serves_every_record():
