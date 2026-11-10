@@ -445,10 +445,10 @@ export function createTreeData({ onChange }) {
   const counted = new Set();
   /** @type {Set<string>} */
   let summarized = new Set();
-  /** Sessions with a summary on its way, by how many. @type {Map<string, number>} */
-  const asking = new Map();
-  /** Sessions a live frame re-counted while their summary was on its way. @type {Set<string>} */
-  const movedWhileAsked = new Set();
+  /** How many live frames re-counted each session. @type {Map<string, number>} */
+  const moves = new Map();
+  /** How many live frames moved the owned total. */
+  let ownedMoves = 0;
   const totals = {
     /** @type {Record<string, FormCounts>} */
     counts: {},
@@ -485,7 +485,8 @@ export function createTreeData({ onChange }) {
    * Summarize the sessions not summarized yet, or all of them (`all`: a
    * delete, a reconnect), one request per page. Resolves whether it asked.
    * A session a live frame re-counted while its answer was on the way keeps
-   * the frame's count and is asked again.
+   * the frame's count and is asked again; so does the owned total, which a
+   * frame for any session moves.
    * @param {string[]} ids
    * @param {boolean} [all]
    */
@@ -496,27 +497,20 @@ export function createTreeData({ onChange }) {
     const pages = [];
     for (let i = 0; i < wanted.length; i += SUMMARY_PAGE)
       pages.push(wanted.slice(i, i + SUMMARY_PAGE));
-    for (const id of wanted) asking.set(id, (asking.get(id) ?? 0) + 1);
-    let answers;
-    try {
-      answers = await Promise.all(pages.map((page) => fetchSummary(page)));
-    } finally {
-      for (const id of wanted) {
-        const left = (asking.get(id) ?? 1) - 1;
-        left > 0 ? asking.set(id, left) : asking.delete(id);
-      }
-    }
+    const before = wanted.map((id) => moves.get(id));
+    const ownedBefore = ownedMoves;
+    const answers = await Promise.all(pages.map((page) => fetchSummary(page)));
     // An answer is the index as it was read, possibly before a frame applied here.
-    const stale = wanted.filter((id) => movedWhileAsked.has(id));
-    for (const id of stale) if (!asking.has(id)) movedWhileAsked.delete(id);
+    const stale = wanted.filter((id, n) => moves.get(id) !== before[n]);
+    const totalMoved = ownedMoves !== ownedBefore;
     for (const summary of answers) {
       if (!summary) continue;
       const counts = { ...(summary.counts ?? {}) };
       for (const id of stale) delete counts[id];
       Object.assign(totals.counts, counts);
-      totals.ownedTotal = summary.owned_total ?? totals.ownedTotal;
+      if (!totalMoved) totals.ownedTotal = summary.owned_total ?? totals.ownedTotal;
     }
-    if (stale.length) await summarize(stale, true);
+    if (stale.length || totalMoved) await summarize(stale.length ? stale : wanted, true);
     return true;
   }
 
@@ -524,7 +518,8 @@ export function createTreeData({ onChange }) {
   function bump(entry, delta) {
     const form = entry.form;
     if (!form || entry.owner == null) return;
-    if (asking.has(entry.owner)) movedWhileAsked.add(entry.owner);
+    moves.set(entry.owner, (moves.get(entry.owner) ?? 0) + 1);
+    ownedMoves += 1;
     const bucket = (totals.counts[entry.owner] ??= { total: 0, by_form: {} });
     bucket.total = Math.max(0, bucket.total + delta);
     bucket.by_form[form] = Math.max(0, (bucket.by_form[form] ?? 0) + delta);
@@ -713,7 +708,6 @@ export function createTreeData({ onChange }) {
     for (const listing of listings.values()) listing.stop();
     listings = new Map();
     summarized = new Set();
-    movedWhileAsked.clear();
     held.clear();
     counted.clear();
     totals.counts = {};

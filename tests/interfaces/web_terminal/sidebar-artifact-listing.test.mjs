@@ -426,6 +426,39 @@ describe('the summary against live frames', () => {
     expect(sent(1)).toEqual({ sessions: ['t0', 't1'] });
   });
 
+  test('a frame for another session while a summary is on its way keeps the owned total; it is asked again', async () => {
+    const data = mod.createTreeData({ onChange });
+    /** @type {(value: unknown) => void} */
+    let answer = () => {};
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const asked = data.summarize(['tA']);
+    // An entry owned by a session that was not asked lands while A's answer is on its way.
+    data.added(entry('u1', T, { owner: 'tB', form: 'images' }), []);
+    expect(data.totals.ownedTotal).toBe(1);
+    fetchMock.mockResolvedValueOnce(reply({ ...empty('tA'), owned_total: 1 }));
+    answer(reply(empty('tA')));
+    await asked;
+    expect(data.totals.ownedTotal).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('two summaries on their way across one frame each ask again once, then settle', async () => {
+    const data = mod.createTreeData({ onChange });
+    /** @type {((value: unknown) => void)[]} */
+    const answers = [];
+    for (let n = 0; n < 2; n++)
+      fetchMock.mockReturnValueOnce(new Promise((resolve) => answers.push(resolve)));
+    const askedA = data.summarize(['tA']);
+    const askedB = data.summarize(['tB']);
+    data.added(entry('u1', T, { owner: 'tC', form: 'images' }), []);
+    fetchMock.mockResolvedValue(reply({ ...empty('tA'), owned_total: 1 }));
+    answers[0](reply(empty('tA')));
+    answers[1](reply(empty('tB')));
+    await Promise.all([askedA, askedB]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(data.totals.ownedTotal).toBe(1);
+  });
+
   test('a frame with no summary in flight asks nothing', async () => {
     const data = mod.createTreeData({ onChange });
     fetchMock.mockResolvedValueOnce(reply(empty('t1')));
