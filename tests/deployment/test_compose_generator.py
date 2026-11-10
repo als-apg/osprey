@@ -8274,6 +8274,28 @@ class TestStageSiteImageArgsForContext:
             "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
         }
 
+    def test_the_base_registry_is_carried_without_a_trailing_slash(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both spellings of a mirror path resolve to the one the recipes join with ``/``."""
+        monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+        context = self._context(tmp_path)
+
+        for spelling in ("mirror.example.org/dockerhub/", "mirror.example.org/dockerhub"):
+            config = {"project_name": "p", "images": {"base_registry": spelling}}
+            assert self._resolve(config, context) == {
+                "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub"
+            }
+
+    def test_a_slash_alone_declares_no_base_registry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A value with nothing before its slash leaves the recipes' own default standing."""
+        monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+        config = {"project_name": "p", "images": {"base_registry": "/"}}
+
+        assert self._resolve(config, self._context(tmp_path)) == {}
+
     def test_the_site_ca_is_named_by_its_context_filename(self, tmp_path: Path) -> None:
         """The operator's host path never reaches the rendered fragment.
 

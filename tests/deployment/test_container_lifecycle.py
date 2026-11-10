@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.agent_record.config import HISTORY_SERVICE
-from osprey.deployment import container_lifecycle
+from osprey.deployment import compose_generator, container_lifecycle
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     DeploymentPreconditionError,
@@ -2070,7 +2070,7 @@ def no_site_env(monkeypatch):
     kin), so a developer machine that happens to export one for its own tooling
     would otherwise leak into every assertion here.
     """
-    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+    for name in compose_generator.SITE_IMAGE_AXES:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
 
@@ -2086,6 +2086,7 @@ def _site_config(tmp_path, **extra):
             "pip_no_proxy": ".internal.example.org",
             "pip_index_url": "https://mirror.example.org/simple",
             "pip_extra_index_url": "https://wheels.example.org/simple",
+            "base_registry": "mirror.example.org/dockerhub/library",
         },
     }
     config.update(extra)
@@ -2117,6 +2118,7 @@ def test_site_image_build_args_carry_every_axis(tmp_path):
         "PIP_NO_PROXY": ".internal.example.org",
         "PIP_INDEX_URL": "https://mirror.example.org/simple",
         "PIP_EXTRA_INDEX_URL": "https://wheels.example.org/simple",
+        "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub/library",
     }
     staged = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
     assert staged.read_text() == "-----BEGIN CERTIFICATE-----\n"
@@ -2567,6 +2569,7 @@ def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypa
     monkeypatch.delenv("OSPREY_SITE_CA", raising=False)
     monkeypatch.delenv("PIP_EXTRA_INDEX_URL", raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
     monkeypatch.setenv("PIP_INDEX_URL", "https://from-the-shell.example.org/simple")
     monkeypatch.setenv("PIP_NO_PROXY", ".shell.example.org")
 
@@ -2577,6 +2580,17 @@ def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypa
         "PIP_INDEX_URL": "https://from-the-shell.example.org/simple",
         "PIP_NO_PROXY": ".shell.example.org",
     }
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_the_base_registry_takes_the_environment_ahead_of_the_config(monkeypatch, tmp_path):
+    """One shell can point the base images at another mirror than the config pins."""
+    monkeypatch.setenv("OSPREY_BASE_REGISTRY", "shell.example.org/hub")
+
+    config = {"project_name": "x", "images": {"base_registry": "pinned.example.org/hub"}}
+    args = container_lifecycle.site_image_build_args(config, tmp_path)
+
+    assert _build_args(args) == {"OSPREY_BASE_REGISTRY": "shell.example.org/hub"}
 
 
 @pytest.mark.usefixtures("no_site_env")

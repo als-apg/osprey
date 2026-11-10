@@ -24,7 +24,9 @@
 # This image is built locally by `osprey up`; override with
 # OSPREY_BLUESKY_BRIDGE_IMAGE to use a prebuilt/published image.
 
-FROM python:3.11-slim
+# Registry path the base image is pulled from; images.base_registry points it at a site mirror of Docker Hub.
+ARG OSPREY_BASE_REGISTRY="docker.io/library"
+FROM ${OSPREY_BASE_REGISTRY}/python:3.11-slim
 
 WORKDIR /app
 

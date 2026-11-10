@@ -315,7 +315,9 @@ def test_the_pinned_container_interpreter_is_the_base_images() -> None:
     framework hook in every image naming a path that is not there, and nothing
     would say so until an agent tried to start one.
     """
-    assert re.search(r"^FROM python:3\.12-slim\b", _rendered_dockerfile(), flags=re.M), (
+    assert re.search(
+        r"^FROM \$\{OSPREY_BASE_REGISTRY\}/python:3\.12-slim\b", _rendered_dockerfile(), flags=re.M
+    ), (
         "the project image's base changed; re-derive _CONTAINER_INTERPRETER "
         "against the new base and update this pin"
     )
