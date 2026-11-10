@@ -126,7 +126,6 @@ class _ChatViaDelegation(LiteLLMDelegatingProvider):
     name = "delegating-stub"
     requires_api_key = False
     requires_base_url = False
-    requires_model_id = False
     supports_proxy = False
 
 
@@ -134,7 +133,6 @@ class _ImageEmbeddingOnly(BaseProvider):
     name = "image-only-stub"
     requires_api_key = False
     requires_base_url = False
-    requires_model_id = False
     supports_proxy = False
 
     def execute_image_embedding(self, inputs, *_args, **_kwargs):
@@ -145,7 +143,6 @@ class _TextEmbeddingOnly(BaseProvider):
     name = "text-only-stub"
     requires_api_key = False
     requires_base_url = False
-    requires_model_id = False
     supports_proxy = False
 
     def execute_embedding(self, texts, *_args, **_kwargs):
@@ -342,6 +339,24 @@ class TestRequiredFlagsAreDeclared:
         for flag in BaseProvider._REQUIRED_FLAGS:
             assert getattr(child, flag) is getattr(AskSageProviderAdapter, flag)
 
+    def test_the_model_id_is_no_provider_flag(self):
+        # Every chat completion is refused without a model id, whatever the
+        # provider, so a provider has no model-id fact to declare.
+        provider = type(
+            "_NoModelFlag",
+            (BaseProvider,),
+            {
+                "name": "no-model-flag-stub",
+                "requires_api_key": False,
+                "requires_base_url": False,
+                "supports_proxy": False,
+            },
+        )
+
+        assert provider.name == "no-model-flag-stub"
+        assert "requires_model_id" not in BaseProvider._REQUIRED_FLAGS
+        assert not hasattr(BaseProvider, "requires_model_id")
+
     def test_a_shared_base_that_names_no_provider_is_not_checked(self):
         shared = type("_SharedBase", (BaseProvider,), {})
 
@@ -377,7 +392,6 @@ class TestDeclares:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             assert _UndeclaredFlags.declares("requires_base_url") is False
-            assert _UndeclaredFlags.declares("requires_model_id") is False
         assert _UndeclaredFlags.requires_base_url is NotImplemented
 
     def test_an_instance_reads_the_same_way(self):

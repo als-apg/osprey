@@ -24,7 +24,6 @@ class OpenRouterProviderAdapter(LiteLLMDelegatingProvider):
     description = "OpenRouter hosted model router (supports models from many vendors)"
     requires_api_key = True
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = True
     # The public endpoint, so a call that names none still reaches OpenRouter.
     # ``requires_base_url`` above is what makes this value reachable at all:
