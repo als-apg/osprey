@@ -292,11 +292,11 @@ class TestReport:
         fake = _red_fake()
         _tool(fake).report()
         fake.runs.insert(0, _run(3, "ccc", conclusion="failure"))
-        fake.jobs[3] = _revalidation_jobs(**{"Dispatch Deploy E2E": "failure"})
+        fake.jobs[3] = _revalidation_jobs(**{"Dispatch Stack E2E (deploy": "failure"})
         _tool(fake).report()
         assert len(fake.issues) == 1
         assert "ccc" in fake.issues[0]["body"]
-        assert "Dispatch Deploy E2E" in fake.issues[0]["body"]
+        assert "Dispatch Stack E2E (deploy" in fake.issues[0]["body"]
 
     def test_the_same_red_twice_writes_nothing_the_second_time(self) -> None:
         fake = _red_fake()
@@ -349,5 +349,5 @@ class TestReport:
         assert fake.writes() == []
 
 
-def test_the_spending_lane_map_has_the_ten_lanes() -> None:
-    assert len(full_ci_on_main.SPENDING_LANES) == 10
+def test_the_spending_lane_map_has_the_eight_lanes() -> None:
+    assert len(full_ci_on_main.SPENDING_LANES) == 8

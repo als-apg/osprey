@@ -232,7 +232,7 @@ same exclusions. Copy the invocation out of the `e2e-tests` job rather than
 retyping thirty-three `--ignore` flags:
 
 ```bash
-sed -n '/^  e2e-tests:/,/^  channel-finder-benchmarks:/p' .github/workflows/ci.yml \
+sed -n '/^  e2e-tests:/,/^  benchmarks:/p' .github/workflows/ci.yml \
   | grep -e 'pytest tests/e2e/' -e '--ignore='
 ```
 

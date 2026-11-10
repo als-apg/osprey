@@ -76,7 +76,7 @@ fails on unmarked in-scope tests.
 Tests under `tests/e2e/tier2/` measure what a model can do in OSPREY rather than
 gate a change: each task is fair, but a capable model may still miss it, so a miss
 says something about the model, not the PR. The PR `e2e-tests` lane ignores the
-directory; the tests run on demand in the `tier2-model-benchmark` job
+directory; the tests run on demand in the `benchmarks` job
 (`gh workflow run ci.yml -f run_benchmarks=true`) and in the model matrix. They
 carry no rerun marker: a benchmark scores every attempt. Tier 2 sits between the
 build-and-boot checks (Tier 1) and the per-preset agentic lanes (Tier 3) in the CI
@@ -88,7 +88,7 @@ archiver and ARIEL with `osprey up --dev`, plants a recent beam-current dip in t
 a year-old partial loss as a plot on one logbook entry (the facility scenario files under
 `fixtures/chart_value_reading/scenarios/`), and asks the agent to compare the two. The older loss is
 beyond the archive's retention, so its size can only be read off the picture. It runs on the
-benchmark board (the model matrix) and in no CI lane: the `tier2-model-benchmark` job ignores
+benchmark board (the model matrix) and in no CI lane: the `benchmarks` job ignores
 it. Parallel board cells take turns on a host-wide lock, and the images are rebuilt once per
 checked-out revision. Expect ~40 minutes cold and ~5 warm; `E2E_REUSE_IMAGES=1` keeps the
 images between local runs.
@@ -190,20 +190,20 @@ required (the seed has to land somewhere); only the seeding is automatic.
 
 These deploy a real stack — virtual accelerator, bluesky bridge, Tiled — and
 drive it. They are heavy (Docker builds, minutes each), so each gets its own CI
-lane rather than riding the bulk `e2e-tests` job, which `--ignore`s every one of
+lane (a `stack-e2e` matrix cell, or a job of its own) rather than riding the bulk `e2e-tests` job, which `--ignore`s every one of
 them. The map below records which lane **runs** which file; `ci.yml` is the
 source of truth.
 
 | Module | CI lane |
 | --- | --- |
-| `test_bluesky_deploy.py` | `bluesky-deploy-e2e` |
-| `test_bluesky_web_deploy.py` | `bluesky-web-deploy-e2e` |
-| `test_va_substrate_equivalence.py` | `va-substrate-equivalence-e2e` |
+| `test_bluesky_deploy.py` | `stack-e2e` (`bluesky-deploy-e2e` cell) |
+| `test_bluesky_web_deploy.py` | `stack-e2e` (`bluesky-web-deploy-e2e` cell) |
+| `test_va_substrate_equivalence.py` | `stack-e2e` (`va-substrate-equivalence-e2e` cell) |
 | `test_orm_roundtrip.py`, then `test_grid_scan_roundtrip.py`, then `test_bump_roundtrip.py` | `orm-roundtrip-e2e` (all three, sequentially, one deploy per file) |
-| `test_bluesky_queue_e2e.py` | `bluesky-queue-e2e` |
-| `test_tiled_roundtrip.py` | `tiled-roundtrip-e2e` |
-| `test_bluesky_catalog_e2e.py` | `bluesky-catalog-e2e` |
-| `test_bluesky_sandbox_escape_e2e.py` | `bluesky-sandbox-escape-e2e` |
+| `test_bluesky_queue_e2e.py` | `stack-e2e` (`bluesky-queue-e2e` cell) |
+| `test_tiled_roundtrip.py` | `stack-e2e` (`tiled-roundtrip-e2e` cell) |
+| `test_bluesky_catalog_e2e.py` | `stack-e2e` (`bluesky-catalog-e2e` cell) |
+| `test_bluesky_sandbox_escape_e2e.py` | `stack-e2e` (`bluesky-sandbox-escape-e2e` cell) |
 | `test_plan_stack_agentic.py` | `scan-agentic-e2e` |
 
 Two entries are worth reading twice. `test_grid_scan_roundtrip.py` and
@@ -212,7 +212,7 @@ given lanes of their own: they run as sequential steps after
 `test_orm_roundtrip.py` — grid-scan so the two stacks never contend for the
 same CA port (5064), and orbit-bump for runner memory rather than port
 contention, since `test_bump_roundtrip.py` pins its whole port block. And
-`bluesky-queue-e2e` drives the queue stack with **no LLM in the loop** — it is
+the `bluesky-queue-e2e` cell drives the queue stack with **no LLM in the loop** — it is
 a plain protocol test, unlike the agentic lane below.
 
 ### `test_plan_stack_agentic.py` — the agentic member
@@ -259,7 +259,7 @@ SDK-driven safety scenario runs plus the SDK workflow/delegation
 pipelines (cheap at als-apg/haiku rates). The channel-finder MCP
 benchmarks (~90 queries from ``test_channel_finder_mcp_benchmarks.py``,
 30 queries × 3 pipelines) no longer run per PR — they run on demand in
-the ``channel-finder-benchmarks`` job (Actions tab "Run workflow" with
+the ``benchmarks`` job (Actions tab "Run workflow" with
 ``run_benchmarks``, or ``gh workflow run ci.yml -f run_benchmarks=true``);
 trigger it before a release or after touching the channel-finder/MCP
 code, and read the scores in the job log. Channel-finder thresholds were

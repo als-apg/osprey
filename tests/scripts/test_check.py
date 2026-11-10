@@ -827,7 +827,7 @@ def test_every_required_ci_job_is_a_caller_or_a_lane() -> None:
     required = jobs["all-checks-passed"]["needs"]
     assert sorted(set(required) - set(lanes) - set(check.CALLER_JOBS)) == []
     # The warm-up runs on main pushes only, so a revalidation dispatch would read it as a skipped lane.
-    assert set(lanes) - set(required) == {"channel-finder-benchmarks", "qmd-cache-warmup"}
+    assert set(lanes) - set(required) == {"benchmarks", "qmd-cache-warmup"}
 
 
 # ---------------------------------------------------------------------------
@@ -1953,15 +1953,7 @@ def test_a_file_the_sweep_ignores_goes_to_its_host() -> None:
 
 def test_a_range_names_the_ci_lanes_it_touches() -> None:
     plan = check.select("quick", ["src/osprey/mcp_server/bluesky/server.py"], (), FILES)
-    assert {
-        "bluesky-deploy-e2e",
-        "bluesky-web-deploy-e2e",
-        "bluesky-queue-e2e",
-        "tiled-roundtrip-e2e",
-        "bluesky-catalog-e2e",
-        "bluesky-sandbox-escape-e2e",
-        "orm-roundtrip-e2e",
-    } <= set(plan.lanes)
+    assert {"stack-e2e", "orm-roundtrip-e2e"} <= set(plan.lanes)
     assert "plugin-smoke" not in plan.lanes
     assert check.select("quick", ["README.md"], (), FILES).lanes == ()
 

@@ -18,3 +18,6 @@ each, and drops steps that did nothing: Docker Compose setup, a never-saving uv 
 unit sweep already runs, and duplicated two-shape pre-boot and podman-compose install steps.
 ci.yml's stranded-resource cleanups, all but the two-shape lane's, run `scripts/ci/cleanup_stacks.sh` (now with
 `ENGINE`, `--sweep` and `--image`), and the browser lane selects its suites with `-m browser` instead of a file list.
+ci.yml runs its near-identical e2e lanes as matrix jobs (`stack-e2e`, `dispatch-stack-e2e`, a
+docker/podman `multi-user-deploy-lifecycle-e2e`, a fourth `va-live-e2e` cell) or as one job
+(`teams-slack-bridge-e2e`, `benchmarks`), each cell running what its old job ran.
