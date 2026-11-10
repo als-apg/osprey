@@ -43,15 +43,15 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.ipc.FrameEncodeError": "a caller tells a bad frame write from the others",
     "osprey_connectors.ipc.GATEWAYS_MISSING": (
         "transitional: its framework user lands with the connectors floor bump to "
-        ">=2026.11.8 (F44 part 2)"
+        ">=2026.11.8 (#2592)"
     ),
     "osprey_connectors.ipc.GATEWAYS_NONE_DECLARED": (
         "transitional: its framework user lands with the connectors floor bump to "
-        ">=2026.11.8 (F44 part 2)"
+        ">=2026.11.8 (#2592)"
     ),
     "osprey_connectors.ipc.declared_gateways": (
         "transitional: its framework user lands with the connectors floor bump to "
-        ">=2026.11.8 (F44 part 2)"
+        ">=2026.11.8 (#2592)"
     ),
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
