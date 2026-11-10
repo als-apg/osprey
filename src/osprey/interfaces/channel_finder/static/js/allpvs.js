@@ -2,8 +2,9 @@
 /**
  * OSPREY Channel Finder — All PVs
  *
- * The view of `#/allpvs?q=<words>` (Panel view contract): a search of the
- * current target's PV directory, one page of rows at a time.
+ * The view of `#/allpvs?q=<words>&ioc=<name>` (Panel view contract): a search
+ * of the current target's PV directory, one page of rows at a time. The route's
+ * words and filters seed the search and the facets on mount.
  *
  *   toolbar   [sidebar toggle] [Curated | <directory> | Feedback] …… [N PVs] [search]
  *   sidebar   Origin · IOC · Record type, each value with its count
@@ -81,7 +82,7 @@ let view = null;
 
 /**
  * @param {HTMLElement} container
- * @param {{ q?: string }} [params]
+ * @param {Pick<DirectoryFilters, 'q'|'origin'|'ioc'|'record_type'>} [params]
  */
 export function mountAllPvs(container, params = {}) {
   unmountAllPvs();
@@ -107,7 +108,11 @@ export function mountAllPvs(container, params = {}) {
   view = {
     root,
     page: 0,
-    filters: { origin: new Set(), ioc: new Set(), record_type: new Set() },
+    filters: {
+      origin: new Set(params.origin),
+      ioc: new Set(params.ioc),
+      record_type: new Set(params.record_type),
+    },
     answer: null,
     values: null,
     valuesReason: '',

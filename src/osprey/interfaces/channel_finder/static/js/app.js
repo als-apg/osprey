@@ -27,9 +27,15 @@ initTheme({ role: 'follower' });
 applyEmbedded();
 
 /**
- * Route parameters: `name` for pv and ioc, `q` for allpvs when the route names
- * words.
- * @typedef {{ name?: string, q?: string }} RouteParams
+ * Route parameters: `name` for pv and ioc; for allpvs, the view's filters the
+ * route names (`q`, and the repeatable `origin`, `ioc` and `record_type`).
+ * @typedef {{
+ *   name?: string,
+ *   q?: string,
+ *   origin?: string[],
+ *   ioc?: string[],
+ *   record_type?: string[],
+ * }} RouteParams
  */
 
 /** @typedef {{ view: string, params: RouteParams }} Route */
@@ -91,11 +97,38 @@ async function init() {
 
 // ---- Routing ----
 
+/** The repeatable All PVs filters a route carries beside `q`. */
+const ROUTE_FILTERS = new Set(['origin', 'ioc', 'record_type']);
+
+/**
+ * The All PVs params of a route's query: `q` once, the filters as lists, any
+ * other key ignored. Values are decoded as a `<name>` is and not by
+ * URLSearchParams, because a `+` in them is a plus; a malformed one throws.
+ * @param {string} query
+ * @returns {RouteParams}
+ */
+function allPvsParams(query) {
+  /** @type {RouteParams} */
+  const params = {};
+  for (const part of query.split('&')) {
+    const at = part.indexOf('=');
+    if (at < 0) continue;
+    const key = part.slice(0, at);
+    const value = part.slice(at + 1);
+    if (key === 'q') {
+      params.q ??= decodeURIComponent(value);
+    } else if (ROUTE_FILTERS.has(key) && value) {
+      const filter = /** @type {'origin'|'ioc'|'record_type'} */ (key);
+      (params[filter] ??= []).push(decodeURIComponent(value));
+    }
+  }
+  return params;
+}
+
 /**
  * Parse a location hash: a bare view name (`#explore`), or a route of the Deep
- * links form (`#/pv/<name>`, `#/ioc/<name>`, `#/allpvs?q=<words>`), where `<name>`
- * is one percent-encoded segment. The words are decoded the same way and not by
- * URLSearchParams, because a `+` in them is a plus. Whether the view exists is
+ * links form (`#/pv/<name>`, `#/ioc/<name>`, `#/allpvs?q=<words>&ioc=<name>`),
+ * where `<name>` is one percent-encoded segment. Whether the view exists is
  * not judged here: only a malformed route answers null.
  * @param {string} hash
  * @returns {Route|null}
@@ -112,10 +145,7 @@ export function parseRoute(hash) {
       return { view, params: { name: decodeURIComponent(rest[0]) } };
     }
     if (rest.length) return null;
-    const words = query.split('&').find((part) => part.startsWith('q='));
-    if (view === 'allpvs' && words !== undefined) {
-      return { view, params: { q: decodeURIComponent(words.slice(2)) } };
-    }
+    if (view === 'allpvs') return { view, params: allPvsParams(query) };
     return { view: view || 'explore', params: {} };
   } catch {
     return null; // malformed percent-encoding

@@ -282,6 +282,20 @@ describe('search and filters', () => {
     await vi.waitFor(() => expect(searches[0]).toContain('q=new+words'));
   });
 
+  test('the route filters seed the facets', async () => {
+    const { searches } = await mount({ params: { ioc: ['IOC1'], record_type: ['ai'] } });
+    await vi.waitFor(() => expect(searches).toHaveLength(1));
+    const first = new URL(searches[0], 'http://x').searchParams;
+    expect(first.getAll('ioc')).toEqual(['IOC1']);
+    expect(first.getAll('record_type')).toEqual(['ai']);
+    const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
+    await vi.waitFor(() =>
+      expect(
+        sidebar.querySelector('[data-facet="ioc"][data-value="IOC1"]')?.getAttribute('aria-pressed')
+      ).toBe('true')
+    );
+  });
+
   test('facets list origin, IOC and record type with counts and filter the search', async () => {
     const { searches } = await mount();
     const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
