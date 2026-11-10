@@ -169,7 +169,7 @@ stages and a stage runs only when every earlier one is clean:
      - The pair, value, limits and seed rules.
    * - wiring
      - Fills each wiring record's direction, unit, value range and start
-       value from its model's engine.
+       value from its model's engine, and marks each command channel.
    * - compute
      - Positions, places, ordinals and groups, read off the decks, and the
        checks only a deck can answer.

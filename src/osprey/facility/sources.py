@@ -75,7 +75,7 @@ LAYER_OWN_FILES: frozenset[str] = frozenset({"mapping.yaml"})
 COMPUTED_SLOTS: dict[str, frozenset[str]] = {
     "place": frozenset({"provenance"}),
     "device": frozenset({"ordinalInPlace", "ordinalInModel", "groups", "provenance"}),
-    "channel": frozenset({"provenance"}),
+    "channel": frozenset({"command", "provenance"}),
     "group": frozenset({"provenance"}),
     "model": frozenset({"provenance"}),
     "wiring": frozenset(

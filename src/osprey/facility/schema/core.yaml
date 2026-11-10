@@ -387,6 +387,12 @@ classes:
       simulation:
         range: Seed
         inlined: true
+      command:
+        range: boolean
+        description: >-
+          Computed; true on a command, a setpoint fired rather than set: its
+          vocabulary signal is a command word or a model's engine marks its
+          wiring record command. Absent on every other channel.
       provenance:
         range: Provenance
         inlined: true
