@@ -14,9 +14,20 @@ from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
 from osprey_connectors.simulation import composite as composite_module
+from osprey_connectors.simulation.view import REFRESH
+
+# The composite under test drives time; connectors <2026.11.9 (the floor
+# lane's) have no ``fast`` or ``event`` refresh. Removed by the floor bump to
+# >=2026.11.9.
+if len(REFRESH) < 4:
+    pytest.skip(
+        "the installed connectors predate the time-driven composite (<2026.11.9)",
+        allow_module_level=True,
+    )
+
 from osprey_connectors.simulation.channel_faults import STUCK
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import REFRESH, SCHEMAS
+from osprey_connectors.simulation.view import SCHEMAS
 from tests._simulator_view import view_channel
 from tests.connectors._view_records import activate
 
