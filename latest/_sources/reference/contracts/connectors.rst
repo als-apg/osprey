@@ -85,8 +85,7 @@ on the difference:
   ``channel_unreachable``, naming the channel under ``details.channel``. The
   error also states whether the active target's gateway answered when the
   channel failed, under ``details.target_reachability``: ``state`` is
-  ``down``, ``reached``, or ``unmeasured`` where there is no name-server
-  gateway to connect to.
+  ``reached``, ``down``, or ``unmeasured`` when no gateway could be probed.
 - ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
   context, its service or its connector-host child. It is a
   ``ConnectionError``. Its supervisor replaces the connector once per
