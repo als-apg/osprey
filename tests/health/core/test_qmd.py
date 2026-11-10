@@ -7,6 +7,8 @@ corpus's row asks.
 
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 from osprey.health.core.qmd import CATEGORY, qmd
@@ -16,7 +18,10 @@ from osprey.services.qmd import QMDClient, QMDIndexStatus, QMDUnavailableError
 BOTH_CORPORA = {
     "services": {"qmd": {"port": 9000}},
     "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
-    "ariel": {"enhancement_modules": {"qmd_export": {"enabled": True, "mirror_path": "data/md"}}},
+    "ariel": {
+        "enhancement_modules": {"qmd_export": {"enabled": True, "mirror_path": "data/md"}},
+        "search_modules": {"hybrid": {"enabled": True}},
+    },
 }
 
 
@@ -70,6 +75,19 @@ async def test_a_corpus_with_embedding_off_is_ok_without_vectors(monkeypatch):
     assert row.status is Status.OK
     assert row.message == "papers: 9984 documents, keyword index only (embedding off)"
     assert row.value == "9984"
+
+
+async def test_the_ariel_row_is_keyword_only_under_rrf(monkeypatch):
+    config = copy.deepcopy(BOTH_CORPORA)
+    config["ariel"]["search_modules"]["hybrid"]["settings"] = {"strategy": "rrf"}
+    rows = await _run(
+        config,
+        monkeypatch,
+        {9000: QMDIndexStatus(74, 0), 9001: QMDIndexStatus(9984, 9984)},
+    )
+    row = rows["qmd_ariel"]
+    assert row.status is Status.OK
+    assert row.message == "ariel: 9984 documents, keyword index only (embedding off)"
 
 
 async def test_a_sidecar_that_does_not_answer_is_a_warning(monkeypatch):

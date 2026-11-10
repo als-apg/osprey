@@ -2719,14 +2719,6 @@ keys:
       refused at configure() time rather than skipped.
     default: no-fallback
     default_note: the exporter refuses to mirror with no path
-  ariel.enhancement_modules.qmd_export.settings.embed:
-    rendered: false
-    evidence: '_qmd_export_setting\(config, "embed"\)'
-    note: >-
-      Hidden key, unset in the presets. False builds the `ariel` sidecar's
-      keyword index only, for a deployment on hybrid `strategy: rrf`; refused
-      while hybrid search queries qmd's vectors.
-    default: true
   ariel.embedding: {covered-by: ariel, default: n/a}
   ariel.embedding.provider: {covered-by: ariel.embedding, default: ollama}
 
@@ -3810,6 +3802,10 @@ deleted:
 - modules.web_terminals.default_persona  # retired-spelling
   # OSPREY no longer deletes channel readings, so no window bounds them.
 - control_system.channel_read_artifact_retention
+  # The ariel corpus's embed switch. The ariel qmd sidecar embeds exactly when
+  # ARIEL hybrid search queries qmd's vectors. No orphan_sites row, because the
+  # back-test baseline never held a site of it.
+- ariel.enhancement_modules.qmd_export.settings.embed
 
 # ---------------------------------------------------------------------------
 # orphan_sites — per deleted key, regexes for its removed code sites. Every
