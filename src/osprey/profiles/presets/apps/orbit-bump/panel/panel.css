@@ -447,6 +447,12 @@
   font-family: var(--font-display);
 }
 
+/* The spectrum row under the Correctors head: the one sigma control across the
+   card, laid out as a shape row. */
+.ob-spectrum {
+  flex-wrap: nowrap;
+}
+
 .ob-stepper {
   display: inline-flex;
   align-items: center;
