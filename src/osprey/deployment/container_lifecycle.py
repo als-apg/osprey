@@ -5541,7 +5541,7 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
     :param deadline: :func:`time.monotonic` instant to give up at.
     :raises RuntimeError: if the store is still unreachable at ``deadline``.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     last: Exception | None = None
     while True:
@@ -5570,7 +5570,7 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
     One session for the whole sequence, and each step gated on the one before:
 
     * **bootstrap** — always, and idempotent. A store whose graph config is not
-      osprey's (:attr:`~osprey.services.facility_knowledge.seeder.graph_seeder.BootstrapStatus.DIFFERS`)
+      osprey's (:attr:`~osprey.services.graph_store.seeder.BootstrapStatus.DIFFERS`)
       does not hold this corpus whatever its marker says: n10s refuses to
       re-initialize a configured store, so it is replaced like a stamp mismatch.
     * **stamp** — the store's ``(:_OspreySeed)`` marker is compared with
@@ -5596,7 +5596,7 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
         GRAPHDB_TTL_PATH_CONFIG_KEY,
         resolve_graphdb_service_config,
     )
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     settings = resolve_graphdb_service_config(config)
     ttl_path = settings.ttl_path if settings is not None else None
@@ -5662,7 +5662,7 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
     :param session: The staging step's open driver session.
     :param project_dir: Root of the built project.
     """
-    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+    from osprey.services.graph_store import prompt_snapshot
 
     try:
         patched = prompt_snapshot.bake_snapshot(session, _graphdb_config_dir(project_dir))

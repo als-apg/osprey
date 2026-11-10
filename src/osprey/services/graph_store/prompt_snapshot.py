@@ -47,8 +47,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from osprey.services.facility_knowledge.seeder.graph_seeder import NARAD_PREFIXES
-from osprey.services.facility_knowledge.seeder.ttl_seeder import local_name
+from osprey.services.graph_store.seeder import NARAD_PREFIXES, local_name
 from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -193,7 +192,7 @@ def _class_display_name(uri: str) -> str:
 
     Classes carry no ``rdfs:label`` in this corpus shape, so the local name is
     what the agent will actually type in a Cypher label position. The split
-    itself is :func:`~osprey.services.facility_knowledge.seeder.ttl_seeder.local_name`'s
+    itself is :func:`~osprey.services.graph_store.seeder.local_name`'s
     — the package's one rule for IRI → local-name derivation, shared rather
     than restated so this table and the stub bundles cannot come to disagree
     about where a name ends. Only the empty case is decided here: a URI ending
@@ -576,7 +575,7 @@ def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
         render has none (the agents are disabled, the channel finder runs
         another paradigm, or this is a store-only project).
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     def run(cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         return [record.data() for record in session.run(cypher, params or {})]

@@ -969,14 +969,6 @@ ignore_imports = [
     # names `osprey.interfaces.okf_panel`.
     # removable now: the frontmatter reader belongs to the facility layer
     "osprey.facility.knowledge_links -> osprey.services.facility_knowledge.okf.document",
-    # removable now: the graph seeder serves two features and belongs to neither
-    "osprey.cli.build_cmd -> osprey.services.facility_knowledge.seeder.graph_seeder",
-    "osprey.deployment.container_lifecycle -> osprey.services.facility_knowledge.seeder.graph_seeder",
-    "osprey.deployment.container_lifecycle -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
-    "osprey.health.core.rendered -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
-    "osprey.mcp_server.graph.tools.get_schema -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
-    "osprey.services.channel_finder.benchmarks.runner -> osprey.services.facility_knowledge.seeder.graph_seeder",
-    "osprey.services.channel_finder.graph_index.builder -> osprey.services.facility_knowledge.seeder.graph_seeder",
 ]
 
 [[tool.importlinter.contracts]]
