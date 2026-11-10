@@ -1257,7 +1257,7 @@ A facility with ChannelFinder, the Phoebus alarm services and caPutLog:
      alarm_state:
        type: phoebus_alarm_server
        settings:
-         bootstrap_servers: kafka.example.org:9092
+         bootstrap_servers: kafka.example.org:9092  # osprey:not-a-port — Kafka's broker port
          topic: Accelerator
        # The feed the simulator target replays.
        replay_file: demo:example-alarms
