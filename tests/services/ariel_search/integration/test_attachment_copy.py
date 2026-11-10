@@ -19,6 +19,7 @@ from osprey.services.ariel_search.attachments import copy as copy_mod
 from osprey.services.ariel_search.attachments.copy import record_and_compose, record_rows
 from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
+from osprey.services.ariel_search.ingestion.scheduler import COPY_LOCK_KEY
 from tests.services.ariel_search.fake_adapters import ORIGINS, HttpStubAdapter, StubAdapter
 from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA, fake_prepare
 
@@ -850,7 +851,7 @@ class TestPollCopyRetryStep:
 
         async with await psycopg.AsyncConnection.connect(database_url, autocommit=True) as other:
             await other.execute(
-                "SELECT pg_advisory_lock(hashtextextended(%(k)s, 0))", {"k": "ariel_copy"}
+                "SELECT pg_advisory_lock(hashtextextended(%(k)s, 0))", {"k": COPY_LOCK_KEY}
             )
             result = await scheduler.poll_once()
 

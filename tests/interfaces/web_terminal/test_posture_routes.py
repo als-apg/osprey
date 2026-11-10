@@ -39,7 +39,7 @@ import pytest
 import yaml
 
 from osprey.audit import posture as audit_posture
-from osprey.interfaces.web_terminal import control_context_owner
+from osprey.interfaces.web_terminal import config_view, control_context_owner
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey.mcp_server.python_executor import executor as host_executor
@@ -792,7 +792,7 @@ class TestWideningLocks:
 
 
 class TestTheLoginsOwnTierLock:
-    """``locks.tier`` on a terminal: its own render's tier, never ``unknown`` (BC-1).
+    """``locks.tier`` on a terminal: its own render's tier, ``unknown`` only when unreadable.
 
     A terminal-served render carries no ``control_system.login_tiers`` and the
     terminal binds no control-context tree, so the owner rung answers ``skip``
@@ -826,18 +826,30 @@ class TestTheLoginsOwnTierLock:
         )
         assert self._locks(client)["tier"] == tier
 
+    def test_an_unreadable_render_locks_its_own_login_unknown(self, client, tmp_path):
+        """No tier was read, which is not a render saying ``never``."""
+        unreadable = tmp_path / "unreadable.yml"
+        # A connector call bound still spelled ``timeout``: the render's reader refuses it.
+        unreadable.write_text("control_system:\n  connector:\n    epics:\n      timeout: 5\n")
+        client.app.state.config_path = unreadable
+        assert self._locks(client)["tier"] == "unknown"
+
+    @pytest.mark.parametrize("login", ["alice", "someone-else", ""])
+    def test_an_unreadable_section_is_unknown_for_any_login(self, login):
+        assert config_view.login_tier(config_view.UNREADABLE, login) == config_view.TIER_UNKNOWN
+
     @pytest.mark.usefixtures("agent_data_root")
     @pytest.mark.parametrize("login", ["alice", "someone-else", ""])
     def test_no_login_reads_unknown_on_a_map_free_terminal_render(self, login):
-        assert websocket_routes._login_tier(ALLOWED, login) == "allowed"
+        assert config_view.login_tier(ALLOWED, login) == "allowed"
 
     @pytest.mark.usefixtures("agent_data_root")
     def test_a_section_carrying_the_map_reads_the_logins_entry(self):
         """The shared-container shape, for contrast: the map decides, absent is unknown."""
         section = {**ALLOWED, "login_tiers": {"alice": "allowed", "bob": "never"}}
-        assert websocket_routes._login_tier(section, "alice") == "allowed"
-        assert websocket_routes._login_tier(section, "bob") == "never"
-        assert websocket_routes._login_tier(section, "carol") == websocket_routes.TIER_UNKNOWN
+        assert config_view.login_tier(section, "alice") == "allowed"
+        assert config_view.login_tier(section, "bob") == "never"
+        assert config_view.login_tier(section, "carol") == config_view.TIER_UNKNOWN
 
     @pytest.mark.usefixtures("agent_data_root")
     @pytest.mark.parametrize(
@@ -856,13 +868,13 @@ class TestTheLoginsOwnTierLock:
     ):
         """The verdict's own ceiling (``write_ceiling``): a host caps by its tier, not the rung."""
         section = {**control_system_section(writes=deployment), "login_tiers": {"alice": rung}}
-        assert websocket_routes._login_tier(section, "alice") == ceiling
+        assert config_view.login_tier(section, "alice") == ceiling
 
     @pytest.mark.usefixtures("agent_data_root")
     @pytest.mark.parametrize("deployment", ["never", "asked", "allowed"])
     def test_a_map_free_render_answers_its_own_word(self, deployment):
         section = control_system_section(writes=deployment)
-        assert websocket_routes._login_tier(section, "alice") == deployment
+        assert config_view.login_tier(section, "alice") == deployment
 
 
 # -- the epoch --------------------------------------------------------------

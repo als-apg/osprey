@@ -56,8 +56,8 @@ class _Case:
     # `modules.web_terminals` keys the test adds, for a context the page states in
     # prose; `users` entries are appended to the roster rather than replacing it.
     extra: dict[str, Any] = field(default_factory=dict)
-    # An app file the snippet names that the preset does not ship.
-    extra_apps: tuple[str, ...] = ()
+    # A shared login file the snippet names that the preset does not ship.
+    extra_logins: tuple[str, ...] = ()
 
 
 _OIDC = (_LOGIN, "client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID      # names in .env.auth")
@@ -82,13 +82,13 @@ _CASES = (
         '"user:grace@example.org"',
         layers=(_OIDC_ROSTER,),
         # `tier:admin` needs a login on that tier with an `oidc_subject`, and
-        # `controls` an app file; the page states both in prose.
+        # `controls` a login file; the page states both in prose.
         extra={
             "users": [
                 {"name": "carol", "index": 3, "tier": "admin", "oidc_subject": "c0ffee00-..."}
             ]
         },
-        extra_apps=("controls",),
+        extra_logins=("controls",),
     ),
     _Case("login-shared-card-any", _LOGIN, _OIDC_ROSTER[1]),
     _Case("login-shared-card-domain", _LOGIN, "access: [domain:example.org]"),
@@ -162,12 +162,12 @@ def _profile(case: _Case) -> dict[str, Any]:
     return profile
 
 
-def _lint(profile: dict[str, Any], repo: Path, extra_apps: tuple[str, ...] = ()) -> list[str]:
+def _lint(profile: dict[str, Any], repo: Path, extra_logins: tuple[str, ...] = ()) -> list[str]:
     """Every web-stack code and message ``osprey profile validate`` would draw for *profile*."""
     for dirname in ("tiers", "apps"):
         shutil.copytree(_presets_dir() / dirname, repo / dirname)
-    for app in extra_apps:
-        shutil.copy(repo / "apps" / "logbook.yml", repo / "apps" / f"{app}.yml")
+    for login in extra_logins:
+        shutil.copy(repo / "tiers" / "logbook.yml", repo / "tiers" / f"{login}.yml")
     (repo / "data").mkdir()
     profile_file = repo / "profile.yml"
     profile_file.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
@@ -198,7 +198,7 @@ def test_the_preset_alone_lints_clean(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("case", [pytest.param(c, id=c.id) for c in _CASES])
 def test_a_roster_snippet_lints_as_its_page_says(case: _Case, tmp_path: Path) -> None:
-    codes = _lint(_profile(case), tmp_path, case.extra_apps)
+    codes = _lint(_profile(case), tmp_path, case.extra_logins)
     assert sorted(codes) == sorted(case.expected)
 
 

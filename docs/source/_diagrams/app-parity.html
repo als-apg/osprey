@@ -1,0 +1,87 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 680 300" role="img" aria-labelledby="parity-title parity-desc">
+  <title id="parity-title">Agent parity: the panel and the tool server are two front ends to the same backend routes</title>
+  <desc id="parity-desc">The operator sees the panel and presses its controls. The agent reads the app's skill and calls its tools. What the panel shows, a read tool answers from the same state route. A control that changes no channel, such as compute, clear or recompute, is a tool or an argument on the same route, classified read. The control that writes a channel is the write tool on the same write route, behind the approval. A parity table lists every panel element with its tool and route.</desc>
+  <defs>
+    <marker id="parity-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
+    </marker>
+  </defs>
+
+  <!-- the two users -->
+  <rect class="mask" x="10" y="20" width="120" height="48" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="10" y="20" width="120" height="48" rx="6"/>
+  <text class="tn" x="70" y="40" text-anchor="middle">Operator</text>
+  <text class="ts" x="70" y="56" text-anchor="middle">sees · presses</text>
+
+  <rect class="mask" x="550" y="20" width="120" height="48" rx="6"/>
+  <rect class="nb-in" x="550" y="20" width="120" height="48" rx="6"/>
+  <text class="tn" x="610" y="40" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="610" y="56" text-anchor="middle">reads the skill</text>
+
+  <!-- the two front ends -->
+  <rect class="zone" x="10" y="88" width="200" height="190" rx="6"/>
+  <text class="te" x="24" y="106">PANEL</text>
+  <rect class="zone" x="470" y="88" width="200" height="190" rx="6"/>
+  <text class="te" x="484" y="106">TOOL SERVER</text>
+
+  <line class="e" x1="70" y1="68" x2="70" y2="84" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="610" y1="68" x2="610" y2="84" marker-end="url(#parity-arr)"/>
+
+  <!-- row 1: what is shown -->
+  <rect class="mask" x="24" y="118" width="172" height="40" rx="6"/>
+  <rect class="nb" x="24" y="118" width="172" height="40" rx="6"/>
+  <text class="tn" x="110" y="135" text-anchor="middle">what it shows</text>
+  <text class="ts" x="110" y="150" text-anchor="middle">values · statuses · why held</text>
+
+  <rect class="mask" x="484" y="118" width="172" height="40" rx="6"/>
+  <rect class="nb" x="484" y="118" width="172" height="40" rx="6"/>
+  <text class="tn" x="570" y="135" text-anchor="middle">read tool</text>
+  <text class="ts" x="570" y="150" text-anchor="middle">tools.read</text>
+
+  <!-- row 2: controls that write no channel -->
+  <rect class="mask" x="24" y="172" width="172" height="40" rx="6"/>
+  <rect class="nb" x="24" y="172" width="172" height="40" rx="6"/>
+  <text class="tn" x="110" y="189" text-anchor="middle">controls</text>
+  <text class="ts" x="110" y="204" text-anchor="middle">compute · clear · recompute</text>
+
+  <rect class="mask" x="484" y="172" width="172" height="40" rx="6"/>
+  <rect class="nb" x="484" y="172" width="172" height="40" rx="6"/>
+  <text class="tn" x="570" y="189" text-anchor="middle">tools and arguments</text>
+  <text class="ts" x="570" y="204" text-anchor="middle">tools.read</text>
+
+  <!-- row 3: the write -->
+  <rect class="mask" x="24" y="226" width="172" height="40" rx="6"/>
+  <rect class="nb-foc" x="24" y="226" width="172" height="40" rx="6"/>
+  <text class="tn" x="110" y="243" text-anchor="middle">the write control</text>
+  <text class="ts" x="110" y="258" text-anchor="middle">confirmed by the operator</text>
+
+  <rect class="mask" x="484" y="226" width="172" height="40" rx="6"/>
+  <rect class="nb-foc" x="484" y="226" width="172" height="40" rx="6"/>
+  <text class="tn" x="570" y="243" text-anchor="middle">write tool</text>
+  <text class="ts" x="570" y="258" text-anchor="middle">tools.approval</text>
+
+  <!-- the shared routes -->
+  <text class="te" x="340" y="106" text-anchor="middle">SAME BACKEND ROUTE</text>
+  <rect class="mask" x="262" y="118" width="156" height="40" rx="6"/>
+  <rect class="nb-ext" x="262" y="118" width="156" height="40" rx="6"/>
+  <text class="tn" x="340" y="143" text-anchor="middle">GET state</text>
+  <rect class="mask" x="262" y="172" width="156" height="40" rx="6"/>
+  <rect class="nb-ext" x="262" y="172" width="156" height="40" rx="6"/>
+  <text class="tn" x="340" y="189" text-anchor="middle">POST, no channel</text>
+  <text class="ts" x="340" y="204" text-anchor="middle">armed login only</text>
+  <rect class="mask" x="262" y="226" width="156" height="40" rx="6"/>
+  <rect class="nb-ext" x="262" y="226" width="156" height="40" rx="6"/>
+  <text class="tn" x="340" y="243" text-anchor="middle">POST write</text>
+  <text class="ts" x="340" y="258" text-anchor="middle">behind the approval</text>
+
+  <line class="e" x1="196" y1="138" x2="258" y2="138" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="484" y1="138" x2="422" y2="138" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="196" y1="192" x2="258" y2="192" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="484" y1="192" x2="422" y2="192" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="196" y1="246" x2="258" y2="246" marker-end="url(#parity-arr)"/>
+  <line class="e" x1="484" y1="246" x2="422" y2="246" marker-end="url(#parity-arr)"/>
+
+  <text class="ts" x="340" y="290" text-anchor="middle">one row per panel element: the parity table</text>
+</svg>
+</div>

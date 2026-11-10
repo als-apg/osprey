@@ -31,8 +31,8 @@ _TYPE_TO_SUBDIR: dict[str, str] = {
 ARTIFACT_TYPES = list(_TYPE_TO_SUBDIR.keys())
 
 # Some files in hooks/ are helpers rather than hooks — imported or read by the
-# hooks beside them and wired to no event (``osprey_hook_log.py``,
-# ``osprey_target_state.py``, ``osprey_safety_file.py``, ``hook_config.json``).
+# hooks beside them and wired to no event; ``BuildArtifactCatalog.helpers()``
+# names them.
 # They are listed here like any other row, but never selected: they ship as the
 # closure of the hooks that need them (the catalog's ``requires``), and naming
 # one in a profile's ``hooks:`` is refused. A profile may still ship its own copy

@@ -242,11 +242,20 @@ class TestDeployment:
 
     @staticmethod
     def _stage_map(repo: Path, login_tiers: dict[str, str]) -> None:
-        """The login map a build stages for the shared containers."""
+        """The login map a build stages for the shared containers.
+
+        The as-built ``build/config.yml`` names the service, as every build's
+        does: the map is read from the services that drive the target there.
+        """
         path = repo / "build" / "services" / "bluesky" / "config.yml"
         path.parent.mkdir(parents=True, exist_ok=True)
         document = {"control_system": {"writes": "allowed", "login_tiers": login_tiers}}
         path.write_text(yaml.safe_dump(document), encoding="utf-8")
+        as_built = repo / "build" / "config.yml"
+        built = yaml.safe_load(as_built.read_text(encoding="utf-8")) if as_built.is_file() else {}
+        built = built if isinstance(built, dict) else {}
+        built.setdefault("services", {}).setdefault("bluesky", {})
+        as_built.write_text(yaml.safe_dump(built), encoding="utf-8")
 
     def test_a_request_filed_on_the_host_is_listed_approved_by_id_and_counted(self, repo):
         request = self._put(repo, "alice", on_host=True)

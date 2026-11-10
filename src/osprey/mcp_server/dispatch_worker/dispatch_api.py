@@ -43,7 +43,7 @@ import os
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -58,6 +58,7 @@ from osprey.agent_record import writer as record_writer
 from osprey.agent_record.client import DEFAULT_TIMEOUT, ClientAnswer, RecordClient
 from osprey.agent_runner import launcher
 from osprey.agent_runner.artifact_resolve import (
+    _deployed_config,
     deployed_config_path,
     deployed_record_retention_days,
     deployed_render_dir,
@@ -69,7 +70,8 @@ from osprey.agent_runner.artifact_resolve import (
     resolve_single_run_artifact,
 )
 from osprey.agent_runner.errors import AgentCliUnavailableError
-from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
+from osprey.agent_runner.tool_names import dispatch_denied_tools
+from osprey.agent_runner.tool_policy import AgentSurfaces
 from osprey.mcp_server.dispatch_worker import (
     counters,
     failure_class,
@@ -77,6 +79,7 @@ from osprey.mcp_server.dispatch_worker import (
     run_stats,
     sdk_runner,
 )
+from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
 from osprey.mcp_server.dispatch_worker.credentials import WORKER_TOKEN_ENV, worker_credentials
 from osprey.mcp_server.dispatch_worker.input_files_policy import (
     InputFilesError,
@@ -520,13 +523,41 @@ async def _limit_request_body(request: Request, call_next):
 _bearer_scheme = HTTPBearer()
 
 
-def _is_denied(tool: str) -> bool:
+def _denied_tools(job_tools: Iterable[str]) -> frozenset[str]:
+    """The denylist a job naming ``job_tools`` runs under.
+
+    The floor plus the render's ``dispatch.denied_app_tools``; with that list
+    missing or unreadable, every server ``job_tools`` names outside the
+    framework's own is denied whole (see
+    :func:`~osprey.agent_runner.tool_names.dispatch_denied_tools`).
+    """
+    section = _deployed_config().get("dispatch")
+    listed = section.get("denied_app_tools") if isinstance(section, dict) else None
+    return dispatch_denied_tools(listed, sdk_runner.required_mcp_servers(job_tools))
+
+
+def _job_tools(request: DispatchRequest) -> tuple[list[str], AgentSurfaces]:
+    """Every tool a job may reach, and the subagent surfaces parsed to find them.
+
+    The tools are the job's own, its surface's and its subagents'. The one parse
+    of the render's agents happens here, so a job's deny list and its run hold
+    the same subagents.
+    """
+    tools = [*request.allowed_tools, *(request.surface_tools or [])]
+    agent_surfaces = parse_project_agents(deployed_render_dir())
+    for surface in agent_surfaces.values():
+        tools.extend(surface or ())
+    return tools, agent_surfaces
+
+
+def _is_denied(tool: str, denied: Iterable[str] | None = None) -> bool:
     """Return True if ``tool`` is on the denylist.
 
     Entries ending in ``*`` match by prefix (e.g. the ``mcp__plugin_*`` entry
     blocks every plugin server's tools); all other entries match exactly.
+    ``denied`` defaults to the list a job naming only ``tool`` runs under.
     """
-    return matches_denylist(tool, DISPATCH_DENIED_TOOLS)
+    return matches_denylist(tool, _denied_tools([tool]) if denied is None else denied)
 
 
 # ---------------------------------------------------------------------------
@@ -977,19 +1008,28 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # finally drops it if nothing consumed it.
         _run_input_seam[run_id] = ingest_input_files(run_id, request.input_files or [])
 
+        # Declared subagent tool surfaces from the provisioned .claude/agents/ —
+        # each subagent is held to exactly its declared tools (web-terminal parity)
+        # without the trigger having to enumerate them. Read from the RENDER, which
+        # is where the build writes ``.claude/`` and where the CLI itself loads the
+        # agents from; reading the repo root instead found nothing, and an empty
+        # surface map denies every delegation (see ``osprey.agent_runner.tool_policy``)
+        # — fail-closed, but it silently costs dispatch its subagents.
+        job_tools, agent_surfaces = _job_tools(request)
         result = await asyncio.wait_for(
             sdk_runner.run_dispatch(
                 prompt=request.prompt,
                 allowed_tools=request.allowed_tools,
                 max_turns=request.max_turns,
                 event_queue=queue,
-                denied_tools=DISPATCH_DENIED_TOOLS,
+                denied_tools=_denied_tools(job_tools),
                 run_id=run_id,
                 surface_prompt=request.surface_prompt,
                 surface_tools=request.surface_tools,
                 owner=request.owner,
                 prior_answer_runs=request.prior_answer_runs,
                 session_id=accepted.get("session_id"),
+                agent_surfaces=agent_surfaces,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )
@@ -1074,7 +1114,8 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
 async def dispatch(request: DispatchRequest) -> DispatchResponse:
     """Enqueue an agent prompt and return immediately with a run_id to poll."""
     # Server-side tool denylist enforcement (supports '*'-suffix wildcards)
-    denied = [t for t in request.allowed_tools if _is_denied(t)]
+    job_denied = _denied_tools(request.allowed_tools)
+    denied = [t for t in request.allowed_tools if _is_denied(t, job_denied)]
     if denied:
         logger.warning("Rejected dispatch: denied tools %s", denied)
         raise HTTPException(
