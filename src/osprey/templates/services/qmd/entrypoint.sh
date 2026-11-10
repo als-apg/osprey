@@ -197,12 +197,19 @@ run_stage() {
 
 # Periodic "still working" line for the stages that can run for tens of
 # minutes. Without it a full rebuild looks indistinguishable from a hang.
+# The subshell does not inherit on_term, so it carries its own TERM trap; the
+# sleep runs as a waited-on job so that trap fires at once and takes the sleep
+# with it, leaving no process behind once stop_heartbeat returns.
 start_heartbeat() {
     _label=$1
     (
+        _hb_sleep=""
+        trap 'kill "$_hb_sleep" 2>/dev/null; exit 0' TERM
         _t0=$(date +%s)
         while :; do
-            sleep 120
+            sleep 120 &
+            _hb_sleep=$!
+            wait "$_hb_sleep"
             _elapsed=$(( $(date +%s) - _t0 ))
             log "  ... $_label still running ($(fmt_duration "$_elapsed") elapsed)"
         done
