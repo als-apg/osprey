@@ -1608,7 +1608,9 @@ run and turning it on does not widen the run:
   ``write_authorization.state`` reads ``awaiting``, and the owner approves it
   from the chip or with ``osprey write-authorization approve``. A request that
   waits longer than 15 minutes (``OPTIMIZER_AUTHORIZATION_WAIT_S``) ends the
-  run ``authorization_timeout``; a cancel while it waits withdraws it.
+  run ``authorization_timeout``; a cancel while it waits withdraws it. A run
+  that needs more than 100000 steps ends ``authorization_too_many_steps``
+  before it writes or asks for anything.
 * **How it ends.** A run whose authorization is spent (``auth_exhausted``),
   stopped (``auth_revoked``), expired, lapsed (``auth_lease_lapsed``) or
   written outside (``auth_range``, ``auth_channel``) ends with that reason in
@@ -1618,9 +1620,9 @@ run and turning it on does not widen the run:
   call. A run that issued its own grant marks it revoked when it is done.
   One a person approved stands until its expiry, but once the run stops
   renewing its lease — it finished, failed or crashed — it no longer blocks
-  an approval of another program on its channels, about a minute later, when
-  the approver can see the run's ledger; with none in sight it blocks until
-  it expires. A paused run still renews, so it still blocks.
+  an approval of another program on its channels, about two minutes later,
+  when the approver can see the run's ledger; with none in sight it blocks
+  until it expires. A paused run still renews, so it still blocks.
 
 The results restore (``POST /results/{env}/{timestamp}/restore``, after its
 preview), ``PUT /environments/{name}/variables`` and ``POST

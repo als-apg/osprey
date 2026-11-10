@@ -165,6 +165,19 @@ class TestLaptop:
         result = run("approve", str(path), "--yes")
         assert result.exit_code != 0 and "this account" in result.output
 
+    def test_a_request_past_a_ceiling_is_refused_and_writes_nothing(self, tmp_path):
+        """A file read back fine but past a ceiling: the approval's write refuses it."""
+        over = wa.parse_request(
+            {**ask().to_payload(), "id": uuid.uuid4().hex, "steps": wa.MAX_STEPS + 1}
+        )
+        path = tmp_path / f"{over.id}.json"
+        path.write_text(json.dumps(over.to_payload()), encoding="utf-8")
+        result = run("approve", str(path), "--yes")
+        assert result.exit_code != 0
+        assert "nothing was written" in result.output
+        assert "ceiling" in result.output
+        assert wa.approved_grant(over.id) is None
+
     def test_an_id_with_no_pending_request_says_whether_it_was_approved(self):
         unknown = uuid.uuid4().hex
         result = run("approve", unknown, "--yes")

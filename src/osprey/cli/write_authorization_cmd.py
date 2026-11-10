@@ -377,7 +377,7 @@ def approve(
         raise click.ClickException(f"Not approved ({exc.reason}): {exc}") from None
     except FileExistsError:
         raise click.ClickException(f"{wanted.id} is approved already.") from None
-    except (OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         fail("Not approved: nothing was written", str(exc))
         raise click.Abort() from None
     report(

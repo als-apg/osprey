@@ -41,6 +41,7 @@ from osprey_optimizer.events import EventBus, EventType
 from osprey_optimizer.models.config import OptimizationConfig, VariableOverride
 from osprey_optimizer.models.exceptions import (
     AUTHORIZATION_TIMEOUT,
+    AUTHORIZATION_TOO_MANY_STEPS,
     AuthorizationEndedError,
     CancellationError,
     WriteRefusedError,
@@ -304,7 +305,7 @@ def test_an_expiry_set_past_the_ceiling_is_held_under_it(
     monkeypatch.setattr(run_auth, "EXPIRES_S", 7 * 24 * 3600.0)
     deployment.run(deployment.config(on_complete="hold"))
     grant = wa.parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
-    held = (wa.MAX_EXPIRES_S - run_auth.EXPIRY_MARGIN_S) * 1e9
+    held = (wa.MAX_EXPIRES_S - run_auth._EXPIRY_MARGIN_S) * 1e9
     assert grant.expires_at_ns - grant.issued_at_ns <= held
 
 
@@ -415,6 +416,26 @@ def test_a_request_nobody_approves_ends_the_run_and_is_withdrawn(
     assert caught.value.reason == AUTHORIZATION_TIMEOUT
     assert deployment.states[-1]["state"] == "ended"
     assert deployment.requests() == []
+    assert deployment.values() == before
+
+
+@pytest.mark.parametrize("switch", ["allowed", "asked"])
+def test_a_plan_past_the_step_ceiling_ends_the_run_before_it_asks(
+    deployment: Deployment, monkeypatch: pytest.MonkeyPatch, switch: str
+) -> None:
+    """Refused up front with its own reason, not left to end ``auth_unreadable``."""
+    deployment.switch(switch)
+    monkeypatch.setattr(wa, "MAX_STEPS", EVALUATIONS - 1)
+    before = deployment.values()
+    with pytest.raises(AuthorizationEndedError) as caught:
+        deployment.run(deployment.config(on_complete="hold"))
+    assert caught.value.reason == AUTHORIZATION_TOO_MANY_STEPS
+    assert (deployment.states[-1]["state"], deployment.states[-1]["reason"]) == (
+        "ended",
+        AUTHORIZATION_TOO_MANY_STEPS,
+    )
+    assert deployment.requests() == []
+    assert not any(state.get("state") == "granted" for state in deployment.states)
     assert deployment.values() == before
 
 

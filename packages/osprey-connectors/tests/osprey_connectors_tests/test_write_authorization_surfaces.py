@@ -262,11 +262,8 @@ class TestRequestFormat:
             {"extra": 1},
             {"completion": "apply_worst"},
             {"steps": 0},
-            {"steps": wa.MAX_STEPS + 1},
             {"lease_s": 0},
-            {"lease_s": wa.MAX_LEASE_S + 1},
             {"expires_at_ns": 1},
-            {"expires_at_ns": time.time_ns() + 2 * int(wa.MAX_EXPIRES_S * 1e9)},
             {"channels": {}},
             {"channels": {"A:SP": {"min": 2, "max": 1}}},
             {"channels": {"A:SP": {"min": 0, "max": "1"}}},
@@ -279,6 +276,28 @@ class TestRequestFormat:
     def test_anything_else_is_unreadable(self, change: dict[str, Any]):
         with pytest.raises(ValueError):
             parse_request(request_payload(**change))
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"steps": wa.MAX_STEPS + 1},
+            {"lease_s": wa._MAX_LEASE_S + 1},
+            {"expires_at_ns": time.time_ns() + 2 * int(wa.MAX_EXPIRES_S * 1e9)},
+        ],
+        ids=lambda change: next(iter(change)),
+    )
+    def test_a_request_past_a_ceiling_is_read_but_never_written(
+        self, change: dict[str, Any], tmp_path, monkeypatch
+    ):
+        """The ceilings are the writer's: a file on disk past one is honoured as before."""
+        payload = request_payload(**change)
+        assert parse_request(json.dumps(payload)).to_payload() == payload
+        ledgers = tmp_path / "ledger"
+        ledgers.mkdir()
+        monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(ledgers))
+        with pytest.raises(ValueError, match="ceiling|more than"):
+            ask(**change)
+        assert not (ledgers / "requests").exists() or not any((ledgers / "requests").iterdir())
 
     def test_a_non_finite_bound_and_a_repeated_key_are_unreadable(self):
         text = json.dumps(request_payload()).replace("10.0", "NaN")
@@ -337,7 +356,7 @@ class TestRequestFormat:
 
 class TestApproval:
     def test_a_request_past_a_ceiling_is_never_approved(self):
-        """The approval re-reads what it writes, so a budget past :data:`MAX_STEPS` refuses."""
+        """The approval's write applies the ceilings, so a budget past :data:`MAX_STEPS` refuses."""
         request = replace(ask(), steps=wa.MAX_STEPS + 1)
         with pytest.raises(ValueError):
             approve_request(request, surface="cli")
