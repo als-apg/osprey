@@ -12,7 +12,7 @@ import { store, pings, busyRows, S, DS, mcp } from './state.js';
 import { applyEnvelope, reprobe, ping, poll } from './actions.js';
 import { openTile } from './drawer.js';
 
-const SKELETON = ['ttl', 'ring', 'headline', 'scaninfo', 'bands', 'note', 'rescan'];
+const SKELETON = ['ring', 'headline', 'scaninfo', 'bands', 'note', 'rescan'];
 
 beforeEach(() => {
   document.body.textContent = '';

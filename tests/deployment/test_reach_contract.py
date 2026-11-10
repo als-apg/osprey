@@ -12,7 +12,7 @@ handed. Two kinds of test here read that declaration and nothing else:
   without one fails here, which is the point: the registry is only a single
   source of truth while it is complete.
 * **The seams, on a real built stack.** For every render the
-  control-assistant preset builds: each consumer the render switches on
+  demo preset builds: each consumer the render switches on
   resolves an endpoint; each credential its gate grants is a line in that
   render's compose ``environment:``; each shared path its gate entitles is a
   mount in that render's compose ``volumes:``. One walk over the registry,
@@ -615,9 +615,9 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
 
 
 @pytest.fixture(scope="module")
-def built_stack(built_control_assistant) -> Path:
-    """The shipped control assistant: the run's shared, read-only build (``tests/_builds.py``)."""
-    return built_control_assistant.repo
+def built_stack(built_demo) -> Path:
+    """The shipped demo: the run's shared, read-only build (``tests/_builds.py``)."""
+    return built_demo.repo
 
 
 @pytest.fixture(scope="module")
@@ -1117,7 +1117,11 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
     web-terminal render grants every other credential by. The deploy config's
     own panels grant nobody."""
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
-    from osprey.deployment.web_terminals.roster import bluesky_panel_secret_env_vars
+    from osprey.deployment.web_terminals.roster import service_panel_grant
+
+    def bluesky_panel_secret_env_vars(config, root):
+        grant = service_panel_grant(config, root, "bluesky_web")
+        return [c["var"] for c in grant["credentials"]]
 
     for tier, declares in (("viewer", False), ("operator", True)):
         project = tmp_path / "build" / f"demo-{tier}"

@@ -82,8 +82,8 @@ class TestWritingBlueskyPlansTemplateExists:
 class TestWritingBlueskyPlansPresetWiring:
     """Wiring point 3: the preset's ``skills:`` directive."""
 
-    def test_control_assistant_lists_the_skill(self):
-        profile_text = (PRESETS_DIR / "control-assistant.yml").read_text(encoding="utf-8")
+    def test_demo_lists_the_skill(self):
+        profile_text = (PRESETS_DIR / "demo.yml").read_text(encoding="utf-8")
         profile = yaml.safe_load(profile_text)
         assert "writing-bluesky-plans" in profile["skills"]
 
@@ -359,13 +359,13 @@ class TestWritingBlueskyPlansInstall:
     (that only serves the separate ``plugins/osprey/skills/`` family).
     """
 
-    def test_control_assistant_build_installs_the_skill(self, tmp_path):
+    def test_demo_build_installs_the_skill(self, tmp_path):
         manager = TemplateManager()
         project_dir = create_project_as_built(
             manager,
             project_name="writing-bluesky-plans-install-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 

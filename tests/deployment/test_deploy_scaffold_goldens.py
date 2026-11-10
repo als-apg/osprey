@@ -164,7 +164,7 @@ def test_the_byte_specification_lives_with_the_exemplar() -> None:
 def test_golden_exemplar_is_unaffected_by_the_seeded_history(exemplar: dict[str, Any]) -> None:
     """The exemplar is a deployment with no start set, and it stays one.
 
-    Seeding a sidebar history is the control-assistant preset's default, never a
+    Seeding a sidebar history is the demo preset's default, never a
     key a deployment without a start set acquires: the exemplar names no
     ``simulation.default_scenarios`` and no ``demo-history``.
     """

@@ -183,6 +183,16 @@ describe('when it stays and when it closes', () => {
     expect(isOpen()).toBe(false);
   });
 
+  test('moving onto the next folded session opens its peek in place of the first', () => {
+    document.getElementById('tree')?.append(sessionRow('s3', false));
+    listings.s3 = { loaded: true, entries: [art('c1')] };
+    openPeek();
+    over(titleOf('s3'));
+    vi.advanceTimersByTime(PEEK_OPEN_MS);
+    expect(isOpen()).toBe(true);
+    expect(peekEl()?.getAttribute('aria-label')).toBe('Artifacts of Session s3');
+  });
+
   test('Escape, a press outside, and the row unfolding each close it', () => {
     openPeek();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));

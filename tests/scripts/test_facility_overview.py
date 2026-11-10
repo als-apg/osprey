@@ -1,6 +1,6 @@
 """The facility-overview generator reproduces the committed screens and refuses what it cannot draw.
 
-``scripts/facility_demo/facility_overview.py`` renders the control-assistant
+``scripts/facility_demo/facility_overview.py`` renders the demo
 library's ``facility/overview``, ``br/overview``, the twelve ``sr/sector-NN``
 screens and their vacuum and absorber details from the example facility's
 channel and device records. A re-run must write the committed bytes, ``check`` must say so, and a
@@ -32,15 +32,7 @@ sys.modules[_SPEC.name] = gen
 _SPEC.loader.exec_module(gen)
 
 LIBRARY = (
-    REPO_ROOT
-    / "src"
-    / "osprey"
-    / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
-    / "canopy"
-    / "library"
+    REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "demo" / "data" / "canopy" / "library"
 )
 # The straights whose absorbers carry thermocouples, each with an absorber detail.
 ABSORBER_STRAIGHTS = (2, 4, 5, 6, 7, 8, 9, 10, 11, 12)
@@ -198,6 +190,16 @@ def test_the_cli_stops_on_a_drawing_error_before_writing(rows, tmp_path, dropped
     assert result.returncode == 2
     assert f"{error}:" in result.stderr and named in result.stderr
     assert {rel: (copy / rel).read_bytes() for rel in GENERATED} == before
+
+
+def test_an_sr_bpm_position_in_another_unit_is_a_named_error(rows):
+    """The orbit constants are in the SR BPM positions' unit; a record in another stops the run."""
+    assert gen.ORBIT_UNIT == "mm"
+    moved = [
+        {**row, "unit": "m"} if row["id"] == "SR:DIAG:BPM:07:POSITION:Y" else row for row in rows
+    ]
+    with pytest.raises(gen.UnitMismatchError, match="SR:DIAG:BPM:07:POSITION:Y"):
+        gen.render(_records(moved), LIBRARY)
 
 
 def test_a_device_without_its_record_is_a_named_error(rows, devices):

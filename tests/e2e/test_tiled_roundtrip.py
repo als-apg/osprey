@@ -10,7 +10,7 @@ run back through the same agent-facing endpoint (``GET /runs/{run_id}/data``).
 The soft IOC is not incidental here. Plans execute in the queueserver worker
 against real devices, so the ONLY connector that can produce a run with data is
 one that can actually move something -- which is also why the shipped
-``control-assistant`` preset baselines ``control_system.type`` on its live
+``demo`` preset baselines ``control_system.type`` on its live
 stand-in, a soft IOC the deployment runs for itself. The mock connector would
 give a browse-only deployment that refuses the enqueue outright, and there
 would be nothing to round-trip.
@@ -98,7 +98,7 @@ TILED_PORT = 18192
 # services.virtual_accelerator.port -- moving the deployed soft-IOC's port is a
 # one-place edit, and the connector follows it.
 VA_CA_PORT = 15065
-# ariel-postgres is deployed unconditionally by the control-assistant preset,
+# ariel-postgres is deployed unconditionally by the demo preset,
 # and a locally-running deployment routinely holds its port. A bound-port
 # collision aborts `osprey up` before the bridge/Tiled containers it creates
 # alongside it ever start, so it is moved to a high, unassigned port.
@@ -169,7 +169,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     base = tmp_path_factory.mktemp("tiled_roundtrip_build")
     repo = base / PROJECT_NAME
 
-    # `dispatch: null` drops control-assistant's default event-dispatcher
+    # `dispatch: null` drops demo's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant to this proof and far
     # slower to build than the VA/bridge/Tiled images already are. Only
     # top-level profile-key overrides go through -O/an override file (a flat
@@ -215,7 +215,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "init",
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             *e2e_scenario_pin(),
             *set_pairs(edits),

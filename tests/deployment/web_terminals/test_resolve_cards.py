@@ -311,17 +311,15 @@ def test_a_shared_login_a_role_uses_as_a_tier_is_refused() -> None:
 # ── Derived entries are never written ────────────────────────────────────────
 
 
-def test_a_built_repo_lists_people_only_in_config_and_profile(
-    tmp_path: Path, built_control_assistant
-) -> None:
+def test_a_built_repo_lists_people_only_in_config_and_profile(tmp_path: Path, built_demo) -> None:
     # Arrange: the run's shared build (tests/_builds.py), whose shipped roster
     # lists people under users: and the apps under shared:, and the profile a
     # fresh init of the same name writes, which that build started from.
     from osprey.cli.init_cmd import init
 
-    target = built_control_assistant.repo
+    target = built_demo.repo
     fresh = tmp_path / target.name
-    created = CliRunner().invoke(init, [str(fresh), "--preset", "control-assistant", "--no-git"])
+    created = CliRunner().invoke(init, [str(fresh), "--preset", "demo", "--no-git"])
     assert created.exit_code == 0, created.output
     profile_before = (fresh / "profile.yml").read_text(encoding="utf-8")
 

@@ -804,7 +804,7 @@ def scaffold(ctx):
       osprey scaffold systemd                     # Write the boot unit
       osprey scaffold tiers                       # Write the tier files
       osprey scaffold apps                        # Write the app files
-      osprey scaffold pull control-assistant --list # Show what a preset offers
+      osprey scaffold pull demo --list # Show what a preset offers
       osprey scaffold list                        # Show all artifacts
       osprey scaffold claim agents/channel-finder # Move it into the profile
       osprey scaffold diff agents/channel-finder  # Compare yours vs framework
@@ -974,7 +974,7 @@ def tiers(repo: Path | None, from_preset: str | None, force: bool) -> None:
 
     \b
       $ osprey scaffold tiers
-      $ osprey scaffold tiers --from control-assistant
+      $ osprey scaffold tiers --from demo
       $ osprey scaffold tiers --force
     """
     _scaffold_layer_files(repo, from_preset, force)
@@ -1014,9 +1014,9 @@ def apps(args: tuple[str, ...]) -> None:
 def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_content: bool) -> None:
     """Copy a preset's packaged content into this repo.
 
-    PRESET[:PATH] names what to copy: 'control-assistant' is the whole app
+    PRESET[:PATH] names what to copy: 'demo' is the whole app
     template with its facility under data/facility/,
-    'control-assistant:data/facility/knowledge' one subtree of it.
+    'demo:data/facility/knowledge' one subtree of it.
     Each file lands at the same path under this repo, where you edit it and
     commit it. Run --list first to see every path a preset offers.
 
@@ -1032,9 +1032,9 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
     Examples:
 
     \b
-      $ osprey scaffold pull control-assistant --list
-      $ osprey scaffold pull control-assistant:data/facility/knowledge
-      $ osprey scaffold pull control-assistant:web-terminal-context
+      $ osprey scaffold pull demo --list
+      $ osprey scaffold pull demo:data/facility/knowledge
+      $ osprey scaffold pull demo:web-terminal-context
       $ osprey scaffold pull hello-world:mcp_servers/example_server --force
     """
     # Imported here for the same reason `ci` and `tiers` do it: the

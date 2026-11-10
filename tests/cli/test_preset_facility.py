@@ -50,8 +50,8 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
 @pytest.mark.parametrize(
     ("preset", "facility"),
     [
-        ("control-assistant", "example"),
-        ("control_assistant", "example"),
+        ("demo", "example"),
+        ("demo", "example"),
         ("hello-world", "hello_world"),
         ("tiers/readonly", None),
         ("tiers/logbook", None),
@@ -148,7 +148,7 @@ def test_a_profile_naming_a_facility_is_refused(tmp_path: Path) -> None:
         resolve_build_profile(profile, None)
 
 
-@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+@pytest.mark.parametrize("preset", ["demo", "hello-world"])
 def test_the_emitted_profile_carries_neither_the_key_nor_its_comment(preset: str) -> None:
     text = emit_standalone_profile_yaml(preset, (), "Emitted", project_name="emitted")
 
@@ -162,7 +162,7 @@ def test_the_emitted_profile_carries_neither_the_key_nor_its_comment(preset: str
 
 
 def test_the_composition_lands_the_facility_under_facility(tmp_path: Path) -> None:
-    composed = _preset_data(TemplateManager(), "control-assistant")
+    composed = _preset_data(TemplateManager(), "demo")
     target = tmp_path / "data"
 
     composed.copy_into(target)

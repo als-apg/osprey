@@ -1,9 +1,7 @@
 /**
  * Unit tests for the Artifact Gallery preview pane shell (preview.js, task
- * 5.4 extraction: renderPreview's per-type viewport dispatch, fullscreen
- * enter/exit + its "N new" badge, and agent focus), plus the header-less
- * render the embedded viewer asks for and the `deleteArtifact` action the
- * viewer runs in place of the header's button.
+ * 5.4 extraction: renderPreview's per-type viewport dispatch). Delete is the
+ * hub's (artifact-verbs.test.mjs).
  *
  * The markdown+KaTeX render pipeline and the JSON viewer moved to the
  * sibling preview-content.js module (split purely to stay under the
@@ -13,51 +11,28 @@
  * behavior, not preview-content.js's.
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally), `fetch`
- * mocked via vi.stubGlobal — mirrors state.test.mjs/render.test.mjs:
+ * mocked via vi.stubGlobal — mirrors state.test.mjs:
  *   npx vitest run tests/interfaces/artifacts/preview.test.mjs
  *
- * preview.js reads/writes state.js's module-singleton artifact/selection/
- * focus state (no vi.resetModules, just call the setters fresh per test —
- * same convention as render.test.mjs), and formats via types.js (real
- * implementations). logbook.js/print.js are mocked via vi.mock
- * (preview.js imports and calls injectLogbookButtons/injectPrintButton
- * directly — there is no `window.*` bridge) — the real modules
- * pull in their own DOM-modal/print-window machinery that's out of scope
- * for a preview-pane test; only the call itself matters here.
+ * preview.js reads/writes state.js's module-singleton artifact/selection
+ * state (no vi.resetModules, just call the setters fresh per test), and
+ * formats via types.js (real implementations).
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   setArtifacts,
-  getArtifacts,
   setSelectedArtifact,
-  getSelectedArtifact,
-  setFocusedArtifact,
-  getFocusedArtifact,
-  setCurrentSessionId,
-  setShowAllSessions,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 
-vi.mock('../../../src/osprey/interfaces/artifacts/static/js/logbook.js', () => ({
-  injectLogbookButtons: vi.fn(),
-}));
-vi.mock('../../../src/osprey/interfaces/artifacts/static/js/print.js', () => ({
-  injectPrintButton: vi.fn(),
-}));
-
 import { createPreviewRenderer } from '../../../src/osprey/interfaces/artifacts/static/js/preview.js';
-import { injectLogbookButtons } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
-import { injectPrintButton } from '../../../src/osprey/interfaces/artifacts/static/js/print.js';
 import { qs, byId } from '../_support/dom.mjs';
 
 /** Minimal DOM fixture matching artifacts/static/index.html's structure. */
 function mountFixture() {
   document.body.className = '';
   document.body.innerHTML = `
-    <aside class="browse-sidebar" id="browse-sidebar">
-      <div class="sidebar-body" id="sidebar-body"></div>
-    </aside>
     <div class="browse-preview-pane" id="browse-preview-pane">
       <div class="preview-empty" id="preview-empty"></div>
       <div class="preview-content hidden" id="preview-content"></div>
@@ -83,8 +58,6 @@ function makeArtifact(overrides = {}) {
 
 function makeCallbacks() {
   return {
-    onArtifactDeleted: vi.fn(),
-    onFullscreenExit: vi.fn(),
     onTimeseriesNeeded: vi.fn(),
   };
 }
@@ -93,9 +66,6 @@ beforeEach(() => {
   mountFixture();
   setArtifacts([]);
   setSelectedArtifact(null);
-  setFocusedArtifact(null);
-  setCurrentSessionId(null);
-  setShowAllSessions(false);
   vi.stubGlobal(
     'confirm',
     vi.fn(() => true)
@@ -104,8 +74,6 @@ beforeEach(() => {
     value: { writeText: vi.fn(() => Promise.resolve()) },
     configurable: true,
   });
-  vi.mocked(injectLogbookButtons).mockClear();
-  vi.mocked(injectPrintButton).mockClear();
 });
 
 afterEach(() => {
@@ -120,6 +88,23 @@ describe('renderPreview: empty state', () => {
 
     expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
     expect(byId('preview-content').classList.contains('hidden')).toBe(true);
+  });
+
+  test('the empty pane is the centred state: no artifact selected, pick one in the sidebar', () => {
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    const state = qs(byId('preview-empty'), '.osprey-state');
+    expect(qs(state, '.osprey-state-message').textContent).toBe('No artifact selected');
+    expect(qs(state, '.osprey-state-detail').textContent).toBe('Pick one in the sidebar.');
+    expect(state.querySelector('.osprey-ic')).not.toBeNull();
+  });
+
+  test('embedded, the list to pick from is the hub sidebar', () => {
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    expect(qs(byId('preview-empty'), '.osprey-state-detail').textContent).toBe(
+      'Pick one in the sidebar.'
+    );
   });
 });
 
@@ -303,456 +288,32 @@ describe('renderPreview: timeseries is told by data_type and the archiver, never
   });
 });
 
-describe('renderPreview: header badge names the form', () => {
-  test("the badge reads the entry's form_label, never its file format", () => {
-    setSelectedArtifact(
-      makeArtifact({ artifact_type: 'plot_html', form: 'plots', form_label: 'Plots' })
-    );
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    const badge = qs(document, '.preview-header .badge');
-    expect(badge.textContent).toBe('Plots');
-    expect(badge.className).toBe('badge badge-plots');
-  });
-
-  test("an extension type's badge reads its own label", () => {
-    setSelectedArtifact(
-      makeArtifact({ artifact_type: 'table_html', form: 'beam_log', form_label: 'Beam Log' })
-    );
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    expect(qs(document, '.preview-header .badge').textContent).toBe('Beam Log');
-  });
-
-  test("a run's part (form null) is badged by its role", () => {
-    setSelectedArtifact(
-      makeArtifact({
-        artifact_type: 'markdown',
-        filename: 'review.md',
-        form: null,
-        form_label: null,
-        run_part: 'preview',
-      })
-    );
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, text: async () => '', json: async () => ({}) }))
-    );
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    const badge = qs(document, '.preview-header .badge');
-    expect(badge.textContent).toBe('Approval preview');
-    expect(badge.className).toBe('badge badge-run_part');
-  });
-});
-
-describe('renderPreview: header/meta content', () => {
-  test('renders title, size, created time, and (when present) tool_source', () => {
-    setSelectedArtifact(makeArtifact({ tool_source: 'channel_finder', size_bytes: 1024 }));
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    expect(qs(document, '.preview-header-title').textContent).toBe('Beam Profile');
-    expect(qs(document, '.preview-meta-value').textContent).toBe('1.0 KB');
-    expect(document.body.innerHTML).toContain('channel_finder');
-  });
-
-  test('omits the Source meta item when tool_source is absent', () => {
-    setSelectedArtifact(makeArtifact());
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    expect(
-      Array.from(document.querySelectorAll('.preview-meta-label')).map((el) => el.textContent)
-    ).not.toContain('Source');
-  });
-
-  test('the header has no pin button, even for a legacy pinned artifact', () => {
-    setSelectedArtifact(makeArtifact({ pinned: true }));
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    expect(document.getElementById('preview-toggle-pin')).toBeNull();
-    expect(document.querySelector('.btn-action-pinned')).toBeNull();
-  });
-
-  test('calls injectLogbookButtons/injectPrintButton directly (real imports, no window bridge)', () => {
-    setSelectedArtifact(makeArtifact());
-
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    expect(injectLogbookButtons).toHaveBeenCalledTimes(1);
-    expect(injectPrintButton).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('renderPreview without a header (the embedded viewer)', () => {
-  test('renders the description, the meta strip and the viewport, and no header', () => {
+describe('renderPreview: the artifact alone (the hub has the bar and the details)', () => {
+  test('renders the viewport, and no header, description, meta strip or path', () => {
     setSelectedArtifact(
       makeArtifact({ description: 'Horizontal beam size', tool_source: 'channel_finder' })
     );
-    createPreviewRenderer(makeCallbacks(), { header: false }).renderPreview();
+    createPreviewRenderer(makeCallbacks()).renderPreview();
 
+    const content = byId('preview-content');
+    expect(Array.from(content.children, (el) => el.className)).toEqual(['preview-viewport']);
     expect(document.querySelector('.preview-header')).toBeNull();
-    expect(qs(document, '.preview-desc').textContent).toBe('Horizontal beam size');
-    expect(qs(document, '.preview-meta-strip').textContent).toContain('channel_finder');
-    expect(document.querySelector('.preview-meta-strip .preview-path-text')).not.toBeNull();
+    expect(document.querySelector('.preview-desc')).toBeNull();
+    expect(document.querySelector('.preview-meta-strip')).toBeNull();
+    expect(document.getElementById('preview-copy-path')).toBeNull();
+    expect(content.textContent).not.toContain('Horizontal beam size');
     expect(document.querySelector('.preview-viewport img')).not.toBeNull();
   });
 
-  test('renders no fullscreen Back button, "N new" badge or action button, and injects none', () => {
-    setSelectedArtifact(makeArtifact());
-    createPreviewRenderer(makeCallbacks(), { header: false }).renderPreview();
-
-    expect(document.getElementById('fullscreen-back')).toBeNull();
-    expect(document.getElementById('fullscreen-new-badge')).toBeNull();
-    expect(document.getElementById('preview-delete')).toBeNull();
-    expect(document.querySelector('a[data-theme-link]')).toBeNull();
-    expect(injectLogbookButtons).not.toHaveBeenCalled();
-    expect(injectPrintButton).not.toHaveBeenCalled();
-  });
-
-  test('mounts a timeseries viewport through onTimeseriesNeeded, as with a header', () => {
+  test('mounts a timeseries viewport through onTimeseriesNeeded', () => {
     const artifact = makeArtifact({ tool_source: 'archiver_read', data_file: 'y.parquet' });
     setSelectedArtifact(artifact);
     const callbacks = makeCallbacks();
-    createPreviewRenderer(callbacks, { header: false }).renderPreview();
+    createPreviewRenderer(callbacks).renderPreview();
 
     expect(callbacks.onTimeseriesNeeded).toHaveBeenCalledTimes(1);
     expect(callbacks.onTimeseriesNeeded.mock.calls[0][0]).toBe(
       document.querySelector('.preview-viewport .ts-viewport-container')
     );
-  });
-});
-
-describe('renderPreview: delete flow', () => {
-  test('confirms, DELETEs, updates local state, fires onArtifactDeleted, and re-renders to empty', async () => {
-    const artifact = makeArtifact();
-    setArtifacts([artifact, makeArtifact({ id: 'a2' })]);
-    setSelectedArtifact(artifact);
-    setFocusedArtifact(artifact);
-    const callbacks = makeCallbacks();
-    createPreviewRenderer(callbacks).renderPreview();
-
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
-    vi.stubGlobal('fetch', fetchMock);
-
-    byId('preview-delete').click();
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/artifacts/a1', { method: 'DELETE' });
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
-    expect(getSelectedArtifact()).toBeNull();
-    expect(getFocusedArtifact()).toBeNull();
-    expect(callbacks.onArtifactDeleted).toHaveBeenCalledTimes(1);
-    // renderPreview() ran again after clearing selection -> back to empty state.
-    expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
-  });
-
-  test('does nothing when the confirm dialog is declined', () => {
-    vi.stubGlobal(
-      'confirm',
-      vi.fn(() => false)
-    );
-    setArtifacts([makeArtifact()]);
-    setSelectedArtifact(makeArtifact());
-    const callbacks = makeCallbacks();
-    createPreviewRenderer(callbacks).renderPreview();
-
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-    byId('preview-delete').click();
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(callbacks.onArtifactDeleted).not.toHaveBeenCalled();
-  });
-});
-
-describe('deleteArtifact', () => {
-  test('confirms, DELETEs, updates local state, fires onArtifactDeleted, and re-renders to empty', async () => {
-    const confirmStub = vi.fn(() => true);
-    vi.stubGlobal('confirm', confirmStub);
-    const artifact = makeArtifact();
-    setArtifacts([artifact, makeArtifact({ id: 'a2' })]);
-    setSelectedArtifact(artifact);
-    setFocusedArtifact(artifact);
-    const callbacks = makeCallbacks();
-    const renderer = createPreviewRenderer(callbacks, { header: false });
-    renderer.renderPreview();
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await renderer.deleteArtifact(artifact);
-
-    expect(confirmStub).toHaveBeenCalledWith('Delete "Beam Profile"? This cannot be undone.');
-    expect(fetchMock).toHaveBeenCalledWith('/api/artifacts/a1', { method: 'DELETE' });
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
-    expect(getSelectedArtifact()).toBeNull();
-    expect(getFocusedArtifact()).toBeNull();
-    expect(callbacks.onArtifactDeleted).toHaveBeenCalledTimes(1);
-    expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
-  });
-
-  test('deleting an artifact other than the one shown keeps the selection', async () => {
-    const doomed = makeArtifact();
-    const shown = makeArtifact({ id: 'a2', title: 'Orbit' });
-    setArtifacts([doomed, shown]);
-    setSelectedArtifact(shown);
-    const renderer = createPreviewRenderer(makeCallbacks());
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
-    );
-
-    await renderer.deleteArtifact(doomed);
-
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
-    expect(getSelectedArtifact()).toBe(shown);
-    expect(qs(document, '.preview-header-title').textContent).toBe('Orbit');
-  });
-
-  test('does nothing when the confirm dialog is declined', async () => {
-    vi.stubGlobal(
-      'confirm',
-      vi.fn(() => false)
-    );
-    const artifact = makeArtifact();
-    setArtifacts([artifact]);
-    const callbacks = makeCallbacks();
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    await createPreviewRenderer(callbacks).deleteArtifact(artifact);
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(getArtifacts()).toEqual([artifact]);
-    expect(callbacks.onArtifactDeleted).not.toHaveBeenCalled();
-  });
-
-  test('a refused DELETE leaves the list, the selection and the focus as they were', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const artifact = makeArtifact();
-    setArtifacts([artifact]);
-    setSelectedArtifact(artifact);
-    setFocusedArtifact(artifact);
-    const callbacks = makeCallbacks();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
-
-    await createPreviewRenderer(callbacks).deleteArtifact(artifact);
-
-    expect(getArtifacts()).toEqual([artifact]);
-    expect(getSelectedArtifact()).toBe(artifact);
-    expect(getFocusedArtifact()).toBe(artifact);
-    expect(callbacks.onArtifactDeleted).not.toHaveBeenCalled();
-  });
-});
-
-describe('renderPreview: copy path', () => {
-  test('copies the store\'s artifact path and toggles a "copied" class', async () => {
-    const meta = document.createElement('meta');
-    meta.setAttribute('name', 'osprey-artifact-dir');
-    meta.setAttribute('content', 'state/agent/artifacts');
-    document.head.appendChild(meta);
-    vi.useFakeTimers();
-    try {
-      setSelectedArtifact(makeArtifact());
-      createPreviewRenderer(makeCallbacks()).renderPreview();
-
-      expect(qs(document, '.preview-path-text').textContent).toBe(
-        'state/agent/artifacts/beam_profile.png'
-      );
-
-      const btn = byId('preview-copy-path');
-      btn.click();
-      await vi.waitFor(() =>
-        expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(
-          'state/agent/artifacts/beam_profile.png'
-        )
-      );
-
-      expect(btn.classList.contains('copied')).toBe(true);
-      vi.advanceTimersByTime(1500);
-      expect(btn.classList.contains('copied')).toBe(false);
-    } finally {
-      vi.useRealTimers();
-      meta.remove(); // this file's document is shared across tests
-    }
-  });
-});
-
-describe('fullscreen mode', () => {
-  test('enterFullscreen sets isFullscreen, adds body classes, and renders the preview', () => {
-    const artifact = makeArtifact();
-    const renderer = createPreviewRenderer(makeCallbacks());
-
-    renderer.enterFullscreen(artifact);
-
-    expect(renderer.isFullscreen()).toBe(true);
-    expect(getSelectedArtifact()).toBe(artifact);
-    expect(document.body.classList.contains('fullscreen-mode')).toBe(true);
-    expect(byId('preview-content').classList.contains('hidden')).toBe(false);
-  });
-
-  test('enterFullscreen with no artifact and none already selected is a no-op', () => {
-    const renderer = createPreviewRenderer(makeCallbacks());
-    renderer.enterFullscreen();
-    expect(renderer.isFullscreen()).toBe(false);
-  });
-
-  test('enterFullscreen is idempotent while already fullscreen', () => {
-    const renderer = createPreviewRenderer(makeCallbacks());
-    renderer.enterFullscreen(makeArtifact());
-    expect(() => renderer.enterFullscreen(makeArtifact({ id: 'a2' }))).not.toThrow();
-    expect(renderer.isFullscreen()).toBe(true);
-    // The second call was a no-op: selection stays on the first artifact.
-    expect(getSelectedArtifact().id).toBe('a1');
-  });
-
-  test('exitFullscreen resets isFullscreen, removes body classes, and fires onFullscreenExit', () => {
-    const callbacks = makeCallbacks();
-    const renderer = createPreviewRenderer(callbacks);
-    renderer.enterFullscreen(makeArtifact());
-
-    renderer.exitFullscreen();
-
-    expect(renderer.isFullscreen()).toBe(false);
-    expect(document.body.classList.contains('fullscreen-mode')).toBe(false);
-    expect(callbacks.onFullscreenExit).toHaveBeenCalledTimes(1);
-  });
-
-  test('exitFullscreen is a no-op when not fullscreen', () => {
-    const callbacks = makeCallbacks();
-    const renderer = createPreviewRenderer(callbacks);
-    renderer.exitFullscreen();
-    expect(callbacks.onFullscreenExit).not.toHaveBeenCalled();
-  });
-
-  test('clearing the selection while fullscreen exits fullscreen (no stranded chrome-less pane)', () => {
-    // fullscreen-mode hides the header, sidebar and splitter (gallery.css),
-    // so every exit affordance lives inside the preview content. If the
-    // selection clears while fullscreen — Delete from the fullscreen header,
-    // or an agent-side artifact_deleted SSE — the empty placeholder renders
-    // with the body class still set: no sidebar, no header, no Back button.
-    const callbacks = makeCallbacks();
-    const renderer = createPreviewRenderer(callbacks);
-    renderer.enterFullscreen(makeArtifact());
-    expect(renderer.isFullscreen()).toBe(true);
-
-    setSelectedArtifact(null);
-    renderer.renderPreview();
-
-    expect(renderer.isFullscreen()).toBe(false);
-    expect(document.body.classList.contains('fullscreen-mode')).toBe(false);
-    expect(callbacks.onFullscreenExit).toHaveBeenCalledTimes(1);
-    expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
-  });
-
-  test('noteNewArtifactArrival/updateNewArtifactBadge track and display the "N new" count', () => {
-    const renderer = createPreviewRenderer(makeCallbacks());
-    renderer.enterFullscreen(makeArtifact());
-
-    renderer.noteNewArtifactArrival();
-    renderer.noteNewArtifactArrival();
-    renderer.updateNewArtifactBadge();
-
-    const badge = byId('fullscreen-new-badge');
-    expect(badge.textContent).toBe('2 new');
-    expect(badge.dataset.count).toBe('2');
-  });
-});
-
-describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
-  test('a hostile form and form_label are escaped in the badge — no element injection, no attribute breakout', () => {
-    const hostile = '"><img src=x onerror=alert(1)>';
-    setSelectedArtifact(
-      makeArtifact({
-        category: hostile,
-        artifact_type: hostile,
-        form: hostile,
-        form_label: hostile,
-      })
-    );
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    expect(document.querySelector('.preview-header img')).toBeNull();
-    expect(document.querySelector('.preview-header [onerror]')).toBeNull();
-    expect(byId('preview-content').innerHTML).not.toMatch(/"><img/);
-
-    const badge = document.querySelector('.badge');
-    expect(badge).not.toBeNull();
-  });
-
-  test('benign form renders the badge class byte-identical (regression guard)', () => {
-    setSelectedArtifact(makeArtifact({ form: 'plots' }));
-    createPreviewRenderer(makeCallbacks()).renderPreview();
-
-    const badge = qs(document, '.badge');
-    expect(badge.className).toBe('badge badge-plots');
-  });
-});
-
-describe('setAsFocus', () => {
-  test('on success: POSTs to /api/focus and sets focusedArtifact', async () => {
-    const artifact = makeArtifact();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
-    const renderer = createPreviewRenderer(makeCallbacks());
-
-    await renderer.setAsFocus(artifact);
-
-    expect(fetch).toHaveBeenCalledWith('/api/focus', expect.objectContaining({ method: 'POST' }));
-    expect(getFocusedArtifact()).toBe(artifact);
-  });
-
-  test('on a non-OK response: leaves focusedArtifact untouched', async () => {
-    setFocusedArtifact(null);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
-    const renderer = createPreviewRenderer(makeCallbacks());
-
-    await renderer.setAsFocus(makeArtifact());
-
-    expect(getFocusedArtifact()).toBeNull();
-  });
-
-  test('on a network failure: does not throw', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
-    const renderer = createPreviewRenderer(makeCallbacks());
-    await expect(renderer.setAsFocus(makeArtifact())).resolves.toBeUndefined();
-  });
-});
-
-describe('a focus says which session it was set in', () => {
-  /** @param {any} fetchMock */
-  function sentBody(fetchMock) {
-    return JSON.parse(fetchMock.mock.calls[0][1].body);
-  }
-
-  test('a focus in the session view carries the gallery key', async () => {
-    setCurrentSessionId('key-a');
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await createPreviewRenderer(makeCallbacks()).setAsFocus(makeArtifact());
-
-    expect(sentBody(fetchMock)).toEqual({ artifact_id: 'a1', session_key: 'key-a' });
-  });
-
-  test('a focus in the all-sessions view carries no session field', async () => {
-    setCurrentSessionId('key-a');
-    setShowAllSessions(true);
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal('fetch', fetchMock);
-    const renderer = createPreviewRenderer(makeCallbacks(), { header: false });
-
-    await renderer.setAsFocus(makeArtifact());
-
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ artifact_id: 'a1' });
-  });
-
-  test('with no session id, a focus carries no session field', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal('fetch', fetchMock);
-    const renderer = createPreviewRenderer(makeCallbacks(), { header: false });
-
-    await renderer.setAsFocus(makeArtifact());
-
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ artifact_id: 'a1' });
   });
 });

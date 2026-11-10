@@ -1,8 +1,9 @@
 """Goldens of the example application as one real build projects it.
 
-The ``knob-example`` application ships in the control-assistant preset. This
-module builds that preset once and pins, as diff-readable YAML under
-``goldens/``, every place the build writes the application into the deployment:
+The ``orbit-bump`` application ships beside the demo preset, off in it by
+default. This module builds that preset once with the application turned on at
+init and pins, as diff-readable YAML under ``goldens/``, every place the build
+writes the application into the deployment:
 
 * ``deployment.yml`` — the host-level facts: the projected ``services`` row,
   the container's compose service and its ``app-config.yml``, the panel's
@@ -47,10 +48,13 @@ pytestmark = pytest.mark.slow
 
 GOLDENS = Path(__file__).parent / "goldens"
 
-APP = "knob-example"
+APP = "orbit-bump"
 
 #: The full-name prefix of every tool the application's server exposes.
 TOOL_PREFIX = f"mcp__{APP}__"
+
+#: The prefix of the application's launch-token variable, as the manifest derives it.
+TOKEN_PREFIX = APP.upper().replace("-", "_")
 
 #: The renders the preset serves, ``host`` first: the deployment's own render.
 RENDERS = ("host", "readonly", "readwrite", "admin", "logbook", "knowledge", "channel-finder")
@@ -65,10 +69,11 @@ PROJECT = "my-facility"
 
 
 def build_preset(parent: Path) -> Path:
-    """Init and build the control-assistant preset under *parent*; return the repo."""
+    """Init the demo preset with the application on, build it under *parent*; return the repo."""
     from tests._builds import init_project
+    from tests.fixtures.lifecycle_repo import ENABLE_ORBIT_BUMP
 
-    repo = init_project(parent, "control-assistant", PROJECT)
+    repo = init_project(parent, "demo", PROJECT, ENABLE_ORBIT_BUMP)
     result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     return repo
@@ -228,7 +233,7 @@ def deployment_slice(repo: Path) -> dict[str, Any]:
         environment = service.get("environment") or []
         if isinstance(environment, dict):
             environment = [f"{k}={v}" for k, v in environment.items()]
-        terminal_env[name] = sorted(e for e in environment if "KNOB_EXAMPLE" in e)
+        terminal_env[name] = sorted(e for e in environment if TOKEN_PREFIX in e)
 
     return {
         "services": {APP: host["services"][APP]},
@@ -252,7 +257,7 @@ def deployment_slice(repo: Path) -> dict[str, Any]:
         "application_token_renders": {
             env: sorted(renders)
             for env, renders in inputs["application_token_renders"].items()
-            if "KNOB_EXAMPLE" in env
+            if TOKEN_PREFIX in env
         },
         "web_terminal_env": terminal_env,
     }
@@ -308,10 +313,17 @@ def test_the_panel_block_carries_the_login_arming_fact(
     block = projected[f"render-{render}.yml"]["web.panels"][APP]
     routes = [(route["method"], route["path"]) for route in block["agent_routes"]]
     if armed:
-        assert routes == [("GET", "/api/state"), ("POST", "/api/write")]
-        assert block["launch_token_env"] == "KNOB_EXAMPLE_LAUNCH_TOKEN"
+        assert routes == [
+            ("GET", "/api/state"),
+            ("GET", "/api/approval"),
+            ("POST", "/api/recompute"),
+            ("POST", "/api/discard"),
+            ("POST", "/api/compute"),
+            ("POST", "/api/apply"),
+        ]
+        assert block["launch_token_env"] == f"{TOKEN_PREFIX}_LAUNCH_TOKEN"
     else:
-        assert routes == [("GET", "/api/state")]
+        assert routes == [("GET", "/api/state"), ("GET", "/api/approval")]
         assert "launch_token_env" not in block
     assert "arm_writes" not in block
 
@@ -321,9 +333,13 @@ def test_the_write_tool_enters_the_gate_on_every_tier(
     projected: dict[str, dict[str, Any]], render: str
 ) -> None:
     sliced = projected[f"render-{render}.yml"]
-    assert sliced["claude_code.servers"][APP]["writes"] == ["set_corrector"]
-    assert sliced["hook_config.json"]["facility_write_tools"] == [f"{TOOL_PREFIX}set_corrector"]
-    assert sliced["dispatch.denied_app_tools"] == [f"{TOOL_PREFIX}set_corrector"]
+    assert sliced["claude_code.servers"][APP]["writes"] == ["apply_bump"]
+    assert sliced["hook_config.json"]["facility_write_tools"] == [f"{TOOL_PREFIX}apply_bump"]
+    # ``deny_in_jobs`` keeps every tool of the application out of jobs, not only the write.
+    assert sliced["dispatch.denied_app_tools"] == [
+        f"{TOOL_PREFIX}{tool}"
+        for tool in ("bump_state", "plan_bump", "discard_bump", "recompute_orm", "apply_bump")
+    ]
 
 
 @pytest.mark.parametrize("render", ["logbook", "knowledge", "channel-finder"])

@@ -225,19 +225,3 @@ export function liftedPatch(state, lifted, previous = {}) {
   if (lifted.author?.length && state.mailbox === 'mine') patch.mailbox = 'all';
   return patch;
 }
-
-/**
- * The standalone search box's Enter write: the stripped query, the lifted
- * values merged into the filter, and `rerank`.
- * @param {string|null|undefined} text
- * @param {{filter?: unknown, mailbox?: unknown}} state
- * @param {{filter_dimensions?: Array<{name: string}>|null}|null|undefined} capabilities
- * @param {'now'|'when-stable'} rerank
- * @returns {{query: string, rerank: 'now'|'when-stable', filter?: Filter, mailbox?: 'all'}}
- */
-export function liftSearch(text, state, capabilities, rerank) {
-  const { query, filters } = liftOperators(text ?? '', capabilities?.filter_dimensions, {
-    final: true,
-  });
-  return { query, rerank, ...liftedPatch(state, filters) };
-}

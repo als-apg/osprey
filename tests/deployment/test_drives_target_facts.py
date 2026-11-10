@@ -29,7 +29,7 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.errors import DeploymentPreconditionError
 
 KEY = "knob_backend"
-IDENTITY = "app-knob-example"
+IDENTITY = "app-orbit-bump"
 LOGIN_TIERS = {"alice": "allowed"}
 LIMITS_MOUNT = {
     "source": "./build/data/channel_limits.json",
@@ -46,7 +46,7 @@ def _row(**overrides: Any) -> dict[str, Any]:
     row: dict[str, Any] = {
         "path": f"services/{KEY}",
         "template": "osprey.app_runtime",
-        "app": "knob-example",
+        "app": "orbit-bump",
         "port": 10950,
         "drives_target": True,
         "control_identity": False,
@@ -78,7 +78,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     service.mkdir(parents=True)
     packaged = _TEMPLATES / "services"
     shutil.copy(packaged / "app_runtime" / "docker-compose.yml.j2", service)
-    for macro in ("_network_axis.j2", "_env_axis.j2"):
+    for macro in ("_network_axis.j2", "_env_axis.j2", "_panel_grant.j2"):
         shutil.copy(packaged / macro, repo / "services")
     (repo / "config.yml").write_text("project_name: fixture\n")
     monkeypatch.chdir(repo)

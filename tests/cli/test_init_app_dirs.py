@@ -46,7 +46,7 @@ def _write_yaml(path: Path, body: dict) -> None:
 def app_preset(fake_presets: Path) -> Path:
     """The bundled presets plus ``knob-demo``, which lists the application ``knob``.
 
-    The bundled tree is copied first so ``extends: control-assistant`` resolves;
+    The bundled tree is copied first so ``extends: demo`` resolves;
     ``other`` sits beside ``knob`` and is listed by no preset. ``knob`` carries the
     byte-code a source checkout leaves once tests have run.
     """
@@ -57,7 +57,7 @@ def app_preset(fake_presets: Path) -> Path:
 
     _write_yaml(
         fake_presets / f"{PRESET}.yml",
-        {"name": "Knob Demo", "extends": "control-assistant", "apps": {APP: {}}},
+        {"name": "Knob Demo", "extends": "demo", "apps": {APP: {}}},
     )
     knob = fake_presets / "apps" / APP
     _write_yaml(knob / "app.yml", {"name": APP, "containers": {APP: {"runtime": "osprey"}}})

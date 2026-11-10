@@ -33,7 +33,6 @@ class _SiteGatewayAdapter(BaseProvider):
     description = "A gateway a site registers for itself"
     requires_api_key = True
     requires_base_url = False
-    requires_model_id = False
     supports_proxy = False
     api_key_env_var = SITE_GATEWAY_VAR
 
@@ -41,7 +40,7 @@ class _SiteGatewayAdapter(BaseProvider):
 @pytest.fixture
 def repo(tmp_path):
     """An empty deployment repo — the directory whose ``.env`` holds the keys."""
-    p = tmp_path / "my-control-assistant"
+    p = tmp_path / "osprey-demo"
     p.mkdir()
     return p
 

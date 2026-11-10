@@ -10,7 +10,7 @@ hook_config.json: {}
 panel_token_routes: []
 reach:
   consumers:
-  - name: The knob-example panel
+  - name: The orbit-bump panel
     'on': false
     resolves: false
     dial: null

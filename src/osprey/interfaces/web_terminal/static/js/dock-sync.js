@@ -140,7 +140,6 @@
 import { getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
 import { setPanelFocus } from './panel-commands.js';
 import { withPrefix, getPageClientId } from './api.js';
-import { isPoppedOut, onPopoutChange } from './popout.js';
 // The layout holder keeps the dock's layout and resolves panels by these ids;
 // dockPanelAt() below places a placeholder the adapter then adopts by the same
 // id, so both modules share the single source of truth for them.
@@ -617,8 +616,7 @@ function panelIdForTab(tab) {
  *
  * No-op in fallback mode (no dock to place into).
  * No-op too for a panel living in its own pop-out window — a placeholder for
- * it would be an empty tile: the panel comes back through popout.js when its
- * window closes.
+ * it would be an empty tile: it comes back by a reattach (pane-window.js).
  * The holder applies the layout inside the echo guard, so the rebuild's
  * active-panel change is never read as a human focus — the caller's show path
  * owns the focus POST.
@@ -631,7 +629,7 @@ function panelIdForTab(tab) {
  */
 export function dockPanelAt(serviceId, title = serviceId, position = null) {
   const holder = getLayoutHolder();
-  if (!getDockApi() || !holder || isPoppedOut(serviceId)) return;
+  if (!getDockApi() || !holder || holder.isDetached(serviceId)) return;
   holder.setPanelRecord(serviceId, { title });
   /** @type {import('./dock-open.js').Position | null} */
   let at = null;
@@ -700,10 +698,8 @@ export function initDockSync() {
   if (api && root) {
     api.onDidActivePanelChange(onActivePanelChange);
     api.onDidLayoutChange(scheduleLayoutReport);
-    // A panel leaving for its own window, or coming back, is a change the
+    // A pane detaching, reattaching or closing with its window is a change the
     // agent reads (the report's `popouts`), whether or not dockview's tree moved.
-    onPopoutChange(scheduleLayoutReport);
-    // So is a pane detaching, reattaching or closing with its window.
     getLayoutHolder()?.onDetachedChange(scheduleLayoutReport);
     root.addEventListener('click', onDockClickCapture, true);
     wired = true;

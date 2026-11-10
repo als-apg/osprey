@@ -1,0 +1,29 @@
+triggers:
+  - name: hourly-summary
+    source: cron
+    source_config:
+      interval_sec: 3600
+    action:
+      prompt: >-
+        Summarise what changed in the last hour.
+      allowed_tools: []
+  - name: morning-summary
+    source: cron
+    source_config:
+      at: ["07:45"]
+      days: [mon, tue, wed, thu, fri]
+    action:
+      prompt: >-
+        Summarise what happened overnight.
+      allowed_tools: []
+  - name: vacuum-alarm
+    source: epics_ca
+    source_config:
+      pv: demo:vacuum:pressure
+      threshold: 3.0
+      edge: rising
+      cool_down_sec: 300
+    action:
+      prompt: >-
+        The pressure crossed its threshold; describe the event.
+      allowed_tools: []

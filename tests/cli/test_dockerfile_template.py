@@ -381,6 +381,11 @@ class TestDockerfileContent:
         browser = bodies[0]
         assert "--with-deps" in browser
         assert "chromium" in browser
+        # Playwright's bundled node needs libatomic.so.1, which the deps
+        # layer's toolchain purge autoremoves; the browser RUN restores it
+        # before the driver first starts.
+        assert "install -y --no-install-recommends libatomic1" in browser
+        assert browser.index("libatomic1") < browser.index("playwright install")
 
         env = re.search(r"^ENV PLAYWRIGHT_BROWSERS_PATH=(\S+)$", text, re.MULTILINE)
         assert env, "the browser path must be shared, not root's home cache"
@@ -1153,7 +1158,7 @@ class TestSetupCapabilityConditional:
     and the admin tier — whose whole purpose is the Config panel — can. These
     render the template against both contexts directly, which is what pins the
     conditional itself; `TestTieredPresetConfigChown` below asks the same
-    question of the real `control-assistant` presets that produce each side.
+    question of the real `demo` presets that produce each side.
     """
 
     #: The one line the conditional renders. Matched exactly rather than by the
@@ -1325,14 +1330,14 @@ class TestSetupCapabilityConditional:
 
 @pytest.fixture(scope="module")
 def tiered_render(tmp_path_factory):
-    """Render the `control-assistant` preset once — the deployment's own project
+    """Render the `demo` preset once — the deployment's own project
     plus one per layer, all from a single `osprey build`.
 
     Module-scoped: the tier question below is asked of five Dockerfiles out of
     the same render, and rendering per test would pay for the same build five
     times over.
     """
-    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "control-assistant")
+    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "demo")
 
 
 class TestTieredPresetConfigChown:
@@ -1644,7 +1649,7 @@ class TestBrowserLayerAndImageChecks:
         """The real renders: every project image carries the browser, and the
         checks follow the CANOPY tab.
 
-        The control assistant shows the tab on its own project and on its
+        The demo shows the tab on its own project and on its
         tiers; its apps never inherit it, and hello-world never had it.
         Whether a render shows it is read from the config rendered beside its
         Dockerfile.

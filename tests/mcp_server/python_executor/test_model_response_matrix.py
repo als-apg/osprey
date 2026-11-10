@@ -36,6 +36,7 @@ from osprey.mcp_server.python_executor import executor  # noqa: E402
 from osprey.mcp_server.python_executor.tools import (  # noqa: E402
     model_response_matrix as tool,
 )
+from osprey.simulation import model_request  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.response import RESULT_TAG, solve_and_print  # noqa: E402
 from tests._simulator_view import view_channel  # noqa: E402
@@ -67,9 +68,9 @@ SPIN_TIMEOUT_S = 60
 
 
 @pytest.fixture(scope="module")
-def sr_render(built_control_assistant: Any) -> Path:
+def sr_render(built_demo: Any) -> Path:
     """The built demo's render, read and never written."""
-    return Path(built_control_assistant.build_dir)
+    return Path(built_demo.build_dir)
 
 
 def _copy_render(source: Path, target: Path) -> Path:
@@ -468,7 +469,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"refusing_engine.py": REFUSING_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "refusing_engine")
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -486,7 +487,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"no_solve_engine.py": NO_SOLVE_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "no_solve_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "no_solve_engine")
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -504,7 +505,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"internal_engine.py": INTERNAL_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "internal_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "internal_engine")
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -520,7 +521,9 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"broken_facility_engine.py": BROKEN_FACILITY_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "broken_facility_engine")
+        monkeypatch.setattr(
+            model_request, "engine_module", lambda engine_name: "broken_facility_engine"
+        )
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -537,7 +540,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"refusing_engine.py": UNDECLARED_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "refusing_engine")
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -585,7 +588,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = sr_render
         sandbox["seed"] = {"partial_engine.py": PARTIAL_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "partial_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "partial_engine")
 
         result = _call(model="SR", correctors=[CORRECTOR_X, CORRECTOR_Y])
 
@@ -694,7 +697,7 @@ def test_a_solve_that_never_returns_is_refused_at_the_timeout(
     sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
     sandbox["seed"] = {"spin_engine.py": SPIN_ENGINE}
     sandbox["timeout"] = SPIN_TIMEOUT_S
-    monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "spin_engine")
+    monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "spin_engine")
     finished: dict[str, float] = {}
     recorded: list[executor.ExecutionResult] = []
     real_execute_code = executor.execute_code

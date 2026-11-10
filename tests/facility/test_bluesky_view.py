@@ -335,7 +335,7 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
 
 @pytest.mark.slow
 def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     """A real build hands every render one ``omitted_reported`` set.
 
@@ -344,12 +344,12 @@ def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
     """
     without = [
         render
-        for render in built_control_assistant.outputs
+        for render in built_demo.outputs
         if f"data/{BLUESKY_DEVICES_FILE}" not in render.files
     ]
 
     assert len(without) > 1
-    assert built_control_assistant.output.count("view bluesky not written: services.bluesky") == 1
+    assert built_demo.output.count("view bluesky not written: services.bluesky") == 1
 
 
 # --- the demo ----------------------------------------------------------------------
@@ -357,7 +357,7 @@ def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
 
 @pytest.mark.slow
 def test_the_demo_view_holds_every_setpoint_and_readback(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = sorted(row["address"] for row in rows if row["role"] == "setpoint")
@@ -365,9 +365,7 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     assert len(setpoints) == 674
     assert sum(address.startswith("LINE:") for address in setpoints) == 16
 
-    settables, readables = specs_from_file(
-        built_control_assistant.build_dir / "data" / BLUESKY_DEVICES_FILE
-    )
+    settables, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
 
     assert sorted(spec.name for spec in settables) == setpoints
     assert sorted(spec.name for spec in readables) == readbacks
@@ -399,13 +397,11 @@ def _documented_device_file() -> dict[str, Any]:
 
 @pytest.mark.slow
 def test_the_guide_shows_devices_as_the_demo_build_writes_them(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     """Every device the guide shows, and every key it shows on one, is the build's."""
     documented = _documented_device_file()
-    built = yaml.safe_load(
-        (built_control_assistant.build_dir / "data" / BLUESKY_DEVICES_FILE).read_text()
-    )
+    built = yaml.safe_load((built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE).read_text())
 
     assert documented["schema"] == built["schema"]
     for kind in ("settables", "readables"):

@@ -264,6 +264,7 @@ class TestBuildPhases:
         from osprey.agent_record.config import AgentRecordConfig
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
         from osprey.cli.build_environment import _ProjectVenvPlan
+        from osprey.facility.roots import FacilityRoots
 
         class _Lifecycle:
             pre_build = None
@@ -276,7 +277,7 @@ class TestBuildPhases:
         class _Profile:
             name = "probe"
             project_name = "probe"
-            data_bundle = "control-assistant"
+            data_bundle = "demo"
             provider = "anthropic"
             requires_osprey_version = None
             dependencies: list[str] = []
@@ -304,6 +305,11 @@ class TestBuildPhases:
 
             def resolved_data_root(self, profile_dir: Path) -> Path:
                 return profile_dir / "data"
+
+            def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots:
+                # No `machine:`: one facility tree under `data:`, as
+                # BuildProfile resolves it.
+                return FacilityRoots.single(self.resolved_data_root(profile_dir) / "facility")
 
         class _Resolved:
             profile = _Profile()
@@ -527,13 +533,11 @@ class TestInitPhases:
     def test_init_reports_one_creation_phase(self, runner, recorder, tmp_path):
         target = tmp_path / "probe"
 
-        result = runner.invoke(
-            cli, ["init", str(target), "--preset", "control-assistant", "--no-git"]
-        )
+        result = runner.invoke(cli, ["init", str(target), "--preset", "demo", "--no-git"])
 
         assert result.exit_code == 0, result.output
         assert titles(recorder) == ["→ Creating probe"]
-        assert "  · settings and data from preset control-assistant" in [
+        assert "  · settings and data from preset demo" in [
             line.split(" (")[0] for line in recorder.lines
         ]
         assert closed(recorder)[-1].startswith("✓ Creating probe")
@@ -555,7 +559,7 @@ class TestInitPhases:
 
         result = runner.invoke(
             cli,
-            ["init", str(target), "--preset", "control-assistant", "--no-git", "--up", "-d"],
+            ["init", str(target), "--preset", "demo", "--no-git", "--up", "-d"],
         )
 
         assert result.exit_code == 0, result.output
@@ -571,7 +575,7 @@ class TestInitPhases:
 
         result = runner.invoke(
             cli,
-            ["init", str(target), "--preset", "control-assistant", "--no-git", "--up", "-d"],
+            ["init", str(target), "--preset", "demo", "--no-git", "--up", "-d"],
         )
 
         assert result.exit_code == 0, result.output

@@ -32,7 +32,7 @@ import { seam, place, renderActionButtons, renderTabStrip } from './reader-seam.
 
 /**
  * The web terminal session key from the host's last `osprey-session-change`;
- * `null` until one arrives (always, in a standalone ARIEL).
+ * `null` until one arrives.
  * @type {string|null}
  */
 let sessionKey = null;

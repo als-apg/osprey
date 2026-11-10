@@ -51,7 +51,7 @@ CANOPY_CONTRACT_ROOTS = (
     "tests/integrations/canopy/**",
     "tests/_canopy_contract.py",
     "tests/templates/canopy/**",
-    "src/osprey/templates/apps/control_assistant/data/canopy/**",
+    "src/osprey/templates/apps/demo/data/canopy/**",
     ".github/workflows/ci.yml",
     "pyproject.toml",
     "uv.lock",

@@ -23,6 +23,9 @@
     package index — are rendered by the shared macro rather than spelled out
     per template, so every image OSPREY builds is handed the same set. -#}
 {%- import "services/_site_image_args.j2" as site -%}
+{#- The `build:` gate: rendered only while this service runs the image
+    OSPREY builds, by the shared macro so every built template gates alike. -#}
+{%- import "services/_own_image.j2" as own -%}
 {#- The one thing the macros cannot render for this service: the address the
     MCP server itself binds. Read once here so the mode is spelled the same
     way the macros spell it (unset means `bridge`), rather than repeated as a
@@ -41,11 +44,7 @@
 services:
   event-dispatcher:
     image: ${OSPREY_DISPATCH_IMAGE:-{{ services.event_dispatcher.image | default(osprey_images.dispatch) }}}
-{#- The build renders only while this service runs the image OSPREY builds
-    (no `services.event_dispatcher.image`, or one naming `osprey_images.dispatch`). Any
-    other image is pulled and run as named, so a deploy never builds this
-    Dockerfile under a name the operator chose for something else. #}
-{%- if not services.event_dispatcher.image or services.event_dispatcher.image == osprey_images.dispatch %}
+{%- call own.build(services.event_dispatcher.image, osprey_images.dispatch) %}
     build:
       # EVERY relative path in this file — build contexts and bind-mount sources
       # alike — resolves against the pinned compose project directory, which is
@@ -65,7 +64,7 @@ services:
 {%- if osprey_pip_pre | default(false) %}
         OSPREY_PIP_PRE: "1"
 {%- endif %}
-{%- endif %}
+{%- endcall %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the dispatcher on one host without
     # colliding on one name. In-network consumers reach this service by its

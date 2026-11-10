@@ -1,4 +1,4 @@
-"""Tests for the ``control-assistant`` preset's simulator default.
+"""Tests for the ``demo`` preset's simulator default.
 
 The preset's ``control_system.type`` defaults to ``virtual_accelerator``: a
 fresh project starts on the sandbox simulator, the one machine in the
@@ -73,7 +73,7 @@ SCAFFOLD_WRITE_KEY = "web.scaffold_gallery.write_enabled"
 WEB_TERMINALS_KEY = "modules.web_terminals"
 SEEDED_PASSWORD_CODE = "web_terminals.auth_seeded_password"
 
-PRESET = "control-assistant"
+PRESET = "demo"
 ADMIN_LAYER = f"{TIERS_DIRNAME}/admin"
 
 #: The deployment's own profile and every layer ``osprey init`` writes beside it
@@ -83,7 +83,7 @@ ADMIN_LAYER = f"{TIERS_DIRNAME}/admin"
 #: layer can drop one, and that only holds while every layer is checked.
 #:
 #: ``tiers/admin`` is deliberately absent: it is the one tier that lifts the
-#: floor, and what it lifts is pinned by :class:`TestControlAssistantAdminPreset`
+#: floor, and what it lifts is pinned by :class:`TestDemoAdminPreset`
 #: instead. It still inherits the deny entry itself — a tier cannot subtract
 #: from a list — which is asserted there beside the ``remove_deny`` that
 #: neutralises it.
@@ -99,7 +99,7 @@ FLOOR_PRESETS = [
 
 @pytest.fixture(scope="module")
 def initialized_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """``osprey init`` of the bare ``control-assistant`` preset, not yet built.
+    """``osprey init`` of the bare ``demo`` preset, not yet built.
 
     The repo holds ``profile.yml`` and the ``tiers/`` files init materializes
     beside it — the layers every render below is resolved from.
@@ -116,7 +116,7 @@ def initialized_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def resolve_preset(initialized_repo: Path):
     """Resolve the deployment's profile or one layer of it, by name.
 
-    ``control-assistant`` names the repo's ``profile.yml``; ``tiers/<n>`` names
+    ``demo`` names the repo's ``profile.yml``; ``tiers/<n>`` names
     the login file beside it, merged or composed over the profile exactly as
     the build does.
     """
@@ -129,7 +129,7 @@ def resolve_preset(initialized_repo: Path):
     return resolve
 
 
-class TestControlAssistantPresetDefault:
+class TestDemoPresetDefault:
     """The base preset and its extends children all default to the simulator."""
 
     def test_base_preset_defaults_to_the_simulator(self, resolve_preset) -> None:
@@ -150,7 +150,7 @@ class TestControlAssistantPresetDefault:
 
 @pytest.fixture(scope="module")
 def rendered_preset_repo(initialized_repo: Path) -> Path:
-    """``osprey build`` of the init'd bare ``control-assistant`` repo (no
+    """``osprey build`` of the init'd bare ``demo`` repo (no
     overrides), returning the REPO — the directory holding ``profile.yml`` and
     the ``.env`` init seeded from ``env.defaults``.
 
@@ -179,7 +179,7 @@ def rendered_preset_config(rendered_preset_project: Path) -> dict:
     return yaml.safe_load((rendered_preset_project / "config.yml").read_text(encoding="utf-8"))
 
 
-class TestControlAssistantRenderedConfig:
+class TestDemoRenderedConfig:
     """A real ``osprey build`` of the bare preset carries the flip through to
     the rendered ``config.yml`` — not just the in-process profile object."""
 
@@ -195,7 +195,7 @@ class TestControlAssistantRenderedConfig:
         (``bluesky:``, ``virtual_accelerator:``, ``bluesky_web:``), all of
         which are unconditional on ``control_system.type`` — the connector-type
         flip must not drop or gate any of them. Mirrors
-        ``TestControlAssistantTurnkeyPlanServices`` in test_build_profile.py,
+        ``TestDemoTurnkeyPlanServices`` in test_build_profile.py,
         which asserted the same membership before this preset moved its
         baseline. ``live_standin`` joined the list when the preset shipped
         ``virtual_accelerator.live_standin: 5074`` active: the second simulator
@@ -208,7 +208,7 @@ class TestControlAssistantRenderedConfig:
         assert "live_standin" in deployed
 
 
-class TestControlAssistantTierFloor:
+class TestDemoTierFloor:
     """The base preset takes three privileges away from every tier built on it.
 
     Resolved in-process (no build): what is asserted here is the merged
@@ -217,9 +217,7 @@ class TestControlAssistantTierFloor:
     """
 
     @pytest.mark.parametrize("preset_name", FLOOR_PRESETS)
-    def test_control_assistant_tier_floor_denies_setup_patch(
-        self, preset_name: str, resolve_preset
-    ) -> None:
+    def test_demo_tier_floor_denies_setup_patch(self, preset_name: str, resolve_preset) -> None:
         """The deployment-editing tool is denied at the base, so every render
         inherits the deny. The admin tier lifts it back with ``remove_deny``
         rather than the base leaving it on for everyone."""
@@ -227,14 +225,12 @@ class TestControlAssistantTierFloor:
         assert SETUP_PATCH_TOOL in profile.config.get(DENY_KEY, [])
 
     @pytest.mark.parametrize("preset_name", FLOOR_PRESETS)
-    def test_control_assistant_tier_floor_disables_config_panel(
-        self, preset_name: str, resolve_preset
-    ) -> None:
+    def test_demo_tier_floor_disables_config_panel(self, preset_name: str, resolve_preset) -> None:
         profile = resolve_preset(preset_name)
         assert profile.config.get(CONFIG_PANEL_KEY) is False
 
     @pytest.mark.parametrize("preset_name", FLOOR_PRESETS)
-    def test_control_assistant_tier_floor_disables_scaffold_writes(
+    def test_demo_tier_floor_disables_scaffold_writes(
         self, preset_name: str, resolve_preset
     ) -> None:
         """Reading the gallery stays on at every tier; only writing to it is
@@ -242,7 +238,7 @@ class TestControlAssistantTierFloor:
         profile = resolve_preset(preset_name)
         assert profile.config.get(SCAFFOLD_WRITE_KEY) is False
 
-    def test_control_assistant_floor_uses_deny_not_remove_ask(self, resolve_preset) -> None:
+    def test_demo_floor_uses_deny_not_remove_ask(self, resolve_preset) -> None:
         """The floor must never be spelled as a base-level ``remove_ask``.
 
         String lists UNION when a tier is laid over the profile — a tier adds
@@ -255,46 +251,36 @@ class TestControlAssistantTierFloor:
         assert base.config.get("claude_code.permissions.remove_ask") is None
 
 
-class TestControlAssistantRenderedTierFloor:
+class TestDemoRenderedTierFloor:
     """The floor survives a real ``osprey build`` of the bare preset — the
     single-user render every deployment starts from."""
 
-    def test_control_assistant_render_is_not_setup_patch_capable(
-        self, rendered_preset_config: dict
-    ) -> None:
+    def test_demo_render_is_not_setup_patch_capable(self, rendered_preset_config: dict) -> None:
         """The posture read every later gate asks, answered against a SHIPPED
         render rather than a hand-built dict. This assertion was deferred when
         ``is_setup_patch_capable`` was introduced: no preset denied the tool
         then, so there was no real render for it to report ``False`` on."""
         assert is_setup_patch_capable(rendered_preset_config) is False
 
-    def test_control_assistant_render_denies_setup_patch(
-        self, rendered_preset_config: dict
-    ) -> None:
+    def test_demo_render_denies_setup_patch(self, rendered_preset_config: dict) -> None:
         deny = rendered_preset_config["claude_code"]["permissions"]["deny"]
         assert SETUP_PATCH_TOOL in deny
 
-    def test_control_assistant_render_disables_config_panel(
-        self, rendered_preset_config: dict
-    ) -> None:
+    def test_demo_render_disables_config_panel(self, rendered_preset_config: dict) -> None:
         """The template renders this key live with a ``true`` default; the
         preset override is applied OVER that render, so ``false`` is what a
         deployment actually ships with."""
         assert rendered_preset_config["web"]["config_panel"]["enabled"] is False
 
-    def test_control_assistant_render_disables_scaffold_writes(
-        self, rendered_preset_config: dict
-    ) -> None:
+    def test_demo_render_disables_scaffold_writes(self, rendered_preset_config: dict) -> None:
         assert rendered_preset_config["web"]["scaffold_gallery"]["write_enabled"] is False
 
 
-class TestControlAssistantSeededLogins:
+class TestDemoSeededLogins:
     """``env.defaults`` seeds a demo password per roster login, and the landing
     page announces exactly the ones still at their shipped value."""
 
-    def test_control_assistant_seeded_logins_include_carol(
-        self, rendered_preset_repo: Path
-    ) -> None:
+    def test_demo_seeded_logins_include_carol(self, rendered_preset_repo: Path) -> None:
         """Carol is the admin tier's login. Her password has to be seeded here,
         beside alice's and bob's, or she is the one user whose credential the
         deployment never tells anyone — the exact case ``seeded_logins`` exists
@@ -329,7 +315,7 @@ class TestControlAssistantSeededLogins:
             assert card not in message
 
 
-class TestControlAssistantAdminPreset:
+class TestDemoAdminPreset:
     """``tiers/admin`` — the one tier that lifts the base's floor.
 
     Resolved in-process. Every other tier inherits the three restrictions and
@@ -452,7 +438,7 @@ def rendered_admin_config(rendered_admin_project: Path) -> dict:
     return yaml.safe_load((rendered_admin_project / "config.yml").read_text("utf-8"))
 
 
-class TestControlAssistantRenderedAdmin:
+class TestDemoRenderedAdmin:
     """The admin tier through a real ``osprey init`` + ``osprey build``."""
 
     def test_init_emits_a_layer_delta_for_every_tier_including_admin(
@@ -463,8 +449,7 @@ class TestControlAssistantRenderedAdmin:
         here exists on the landing page and in nothing else."""
         tiers = sorted(p.stem for p in (rendered_preset_repo / TIERS_DIRNAME).glob("*.yml"))
         assert tiers == ["admin", "channel-finder", "knowledge", "logbook", "readonly", "readwrite"]
-        applications = (rendered_preset_repo / APPS_DIRNAME).iterdir()
-        assert [path.name for path in applications] == ["knob-example"]
+        assert not (rendered_preset_repo / APPS_DIRNAME).exists()
 
     def test_admin_render_leaves_setup_patch_out_of_the_deny_list(
         self, rendered_admin_settings: dict

@@ -32,11 +32,7 @@ from osprey.cli.build_profile_document import (
 from osprey.cli.init_cmd import init
 from osprey.cli.init_revalidate import RETIRED_PRESETS, _content_hash, _text_hash
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
-from tests.fixtures.lifecycle_repo import (
-    exemplar_source_files,
-    expand_sentinels,
-    profile_without_applications,
-)
+from tests.fixtures.lifecycle_repo import exemplar_source_files, expand_sentinels
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "previous_release_repo"
 
@@ -146,10 +142,7 @@ _KEPT_CEILING = ("  control_system.writes: asked\n", "  control_system.writes: a
 
 def revalidated_exemplar() -> dict[str, str]:
     """The new exemplar as the previous release's repo revalidates to it."""
-    files = {
-        rel: text for rel, text in exemplar_source_files().items() if not rel.startswith("apps/")
-    }
-    files["profile.yml"] = profile_without_applications(files["profile.yml"])
+    files = exemplar_source_files()
     asked, allowed = _KEPT_CEILING
     assert files["profile.yml"].count(asked) == 1
     files["profile.yml"] = files["profile.yml"].replace(asked, allowed)
@@ -353,7 +346,7 @@ _RETIRED_PROFILE_SWAPS: tuple[tuple[str, str], ...] = (
 
 def previous_release_profile() -> str:
     """The previous release's ``profile.yml``: the exemplar's, retired swaps put back."""
-    exemplar = profile_without_applications(exemplar_source_files()["profile.yml"])
+    exemplar = exemplar_source_files()["profile.yml"]
     for old, _ in _RETIRED_PROFILE_SWAPS:
         assert exemplar.count(old) == 1, old
     text = exemplar

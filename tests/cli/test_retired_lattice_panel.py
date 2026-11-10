@@ -1,6 +1,6 @@
 """The retired LATTICE panel, in every spelling a profile document can carry it.
 
-Every repo materialized from the control-assistant preset selects ``lattice``,
+Every repo materialized from the demo preset selects ``lattice``,
 and a tab that no longer exists has nothing to protect, so each spelling warns
 once and is dropped rather than refusing the build.
 """

@@ -58,7 +58,6 @@ import time
 import pytest
 
 from tests.interfaces._launchers import (
-    launch_ariel,
     launch_artifacts,
     launch_channel_finder,
     launch_okf_panel,
@@ -105,7 +104,9 @@ def test_hash_deep_links_to_concept(tmp_path, monkeypatch, chromium_browser):
         expect(page.locator("h1.concept-title")).to_have_text("Channel Finding", timeout=10_000)
         # Assert -- highlightActive() marked the matching sidebar entry active.
         expect(
-            page.locator('.concept-link.active[data-concept-id="control-system/channel-finding"]')
+            page.locator(
+                '.concept-link[aria-current="page"][data-concept-id="control-system/channel-finding"]'
+            )
         ).to_be_attached(timeout=10_000)
 
         page.close()
@@ -182,6 +183,14 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
             page.goto(base_url, wait_until="load")
         assert "session_id" not in initial_info.value.url
 
+        # The foreign message is dispatched synchronously, so were it accepted, its
+        # fetch would be the first request recorded after this point.
+        after_initial: list = []
+        page.on(
+            "request",
+            lambda r: after_initial.append(r) if "/api/artifacts" in r.url else None,
+        )
+
         # Act -- synthetic foreign-origin session-change.
         page.evaluate(
             """
@@ -191,18 +200,6 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
             }))
             """
         )
-        # Assert -- rejected: currentSessionId did not change, so an
-        # independent refresh click still fetches with no session_id.
-        # Refresh lives in the browser toolbar's ⋯ overflow menu, so it has to
-        # be opened before the item is clickable.
-        with page.expect_request(lambda r: "/api/artifacts" in r.url) as rejected_info:
-            page.locator("#sidebar-menu-btn").click()
-            page.locator("#refresh-btn").click()
-        rejected = rejected_info.value
-        assert "session-list" not in rejected.url
-        assert "session_id" not in rejected.url
-        assert "evil-session-999" not in rejected.url
-        assert "evil-session-999" not in (rejected.post_data or "")
 
         # Act -- genuine same-origin session-change (positive control).
         with page.expect_request(lambda r: "/api/artifacts" in r.url) as accepted_info:
@@ -217,6 +214,12 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
         assert accepted.url.endswith("/api/artifacts/session-list")
         assert accepted.method == "POST"
         assert json.loads(accepted.post_data)["key"] == "contract-test-session"
+
+        # Assert -- rejected: the foreign message caused no request of its own.
+        assert after_initial[0] == accepted
+        for request in after_initial:
+            assert "evil-session-999" not in request.url
+            assert "evil-session-999" not in (request.post_data or "")
 
         page.close()
 
@@ -369,14 +372,11 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 # narrowing keeps hidden in embedded mode; okf_panel has no branding
 # chrome of its own to hide, so its entry is `None` and the branding
 # assertion is skipped for it.
-# `theme_control_selector` + `toggle_action` are the per-panel pair the
-# two chrome tests below drive: the element the D15 embedded-hide rule
-# targets, and the callable that flips its appearance away from dark. Every
-# panel mounts `<osprey-display-menu>`, which collapses the preference behind
-# a popover, so its action opens the card first; session.html still mounts
-# the bare `<osprey-theme-switcher>`, whose mode button IS the control. Both
-# reach theme-manager.js's `toggleTheme()` -- the tests assert the same
-# outcome either way, they just click through a different chrome.
+# `theme_control_selector` + `toggle_action` are the pair the two chrome tests
+# below drive: the element the D15 embedded-hide rule targets, and the callable
+# that flips its appearance away from dark. The activity log (session.html) is
+# the one web-terminal page with its own page chrome and theme control; panel
+# pages have neither.
 
 
 def _toggle_via_switcher(page):
@@ -384,34 +384,7 @@ def _toggle_via_switcher(page):
     page.locator("osprey-theme-switcher .theme-switcher-mode").first.click()
 
 
-def _toggle_via_display_menu(page):
-    """Flip `<osprey-display-menu>` off dark: open the popover, pick Light.
-
-    The Appearance row no-ops when the pick matches the current mode, so
-    picking 'light' from the ``?theme=dark`` start state both call sites use
-    is a real toggle, not a re-assertion of what was already applied.
-    """
-    page.locator("osprey-display-menu .display-menu-trigger").first.click()
-    card = page.locator("osprey-display-menu .display-menu-card").first
-    expect(card).to_be_visible()
-    card.locator('.display-seg-option[data-appearance="light"]').click()
-
-
 _CHROME_CONTRACT_PANELS = [
-    # ariel hides its whole `.header` embedded (the tile bar is its only
-    # header), so the branding assertion targets the element carrying the
-    # rule -- `.logo` inside it still computes its own `display: flex`.
-    ("ariel", launch_ariel, "", ".header", "osprey-display-menu", _toggle_via_display_menu),
-    ("artifacts", launch_artifacts, "", ".logo", "osprey-display-menu", _toggle_via_display_menu),
-    (
-        "channel_finder",
-        launch_channel_finder,
-        "",
-        ".app-logo",
-        "osprey-display-menu",
-        _toggle_via_display_menu,
-    ),
-    ("okf_panel", launch_okf_panel, "", None, "osprey-display-menu", _toggle_via_display_menu),
     (
         "web_terminal_session",
         launch_web_terminal,
@@ -451,18 +424,13 @@ def test_embedded_hides_branding_and_switcher(
 ):
     """``?embedded=true`` hides the page's own branding AND its theme control.
 
-    It also carries the query=config arm for every embedded panel: each calls
-    ``applyEmbedded()`` at a different site and timing (inline top-level,
-    inside init(), inside checkEmbedded(), inside a DOMContentLoaded handler),
-    so ``body.embedded`` and a ``?theme=dark`` load are asserted per panel.
+    It also carries the query=config arm: ``body.embedded`` and a
+    ``?theme=dark`` load are asserted.
 
     The theme control's own D15 rule (``body.embedded <tag> { display: none
-    }``, injected once by the component itself -- osprey-theme-switcher.js
-    or osprey-display-menu.js) is what hides it -- no per-panel CSS is
-    needed for that half of the contract. The branding selector, by
-    contrast, is each page's own pre-existing ``body.embedded <selector> {
-    display: none }`` rule; this proves the theme-control rollout didn't
-    disturb it.
+    }``, injected once by osprey-theme-switcher.js) is what hides it. The
+    branding selector, by contrast, is the page's own ``body.embedded
+    <selector> { display: none }`` rule.
     """
     del toggle_action  # unused here; shared parametrization with the toggle test below
     # Arrange
@@ -558,15 +526,14 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
 
 
 def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_browser):
-    """channel_finder's embedded mode drops its header without leaving a dead band.
+    """channel_finder embedded opens on its panel toolbar, with no dead band.
 
-    Embedded, the hub's tile bar is the panel's only header, so the whole
-    ``.app-header`` hides -- and because that header is ``position: fixed``
-    with a compensating 48px top padding on ``.app-main``, the padding must
-    go with it or the panel opens on an empty 48px band. The pipeline
-    switcher survives the header's removal because it does not live there:
-    it sits in the body's bottom corpus strip, which must stay rendered
-    inside the viewport for the panel to remain switchable when embedded.
+    The panel toolbar is the same embedded and standalone (DESIGN.md §12.3),
+    so it is the first thing in the frame, right under the hub's tile bar.
+    The view scrolls between it and the corpus strip, and the strip carries
+    the pipeline switcher: it must stay rendered inside the viewport, below
+    the view rather than over it, for the panel to remain switchable when
+    embedded.
     """
     # Arrange
     with launch_channel_finder(tmp_path, monkeypatch) as base_url:
@@ -575,15 +542,12 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
         # Act
         page.goto(f"{base_url}?embedded=true", wait_until="load")
 
-        # Assert -- the local header is gone, and so is the padding that cleared it.
-        assert (
-            page.evaluate("getComputedStyle(document.querySelector('.app-header')).display")
-            == "none"
-        )
-        padding_top = page.evaluate(
-            "getComputedStyle(document.querySelector('.app-main')).paddingTop"
-        )
-        assert padding_top == "0px"
+        # Assert -- the panel toolbar is at the very top of the frame.
+        toolbar = page.locator("#cf-toolbar")
+        expect(toolbar).to_be_visible(timeout=10_000)
+        toolbar_box = toolbar.bounding_box()
+        assert toolbar_box is not None
+        assert toolbar_box["y"] == 0
 
         # Assert -- the pipeline switcher is rendered and positioned inside the viewport.
         # ``load`` fires before the switcher's layout settles, so on a loaded runner
@@ -598,10 +562,12 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
         assert box["width"] > 0 and box["height"] > 0
         assert 0 <= box["y"] <= viewport["height"]
 
-        # Assert -- content clears the fixed strip instead of running under it.
-        padding_bottom = page.evaluate(
-            "getComputedStyle(document.querySelector('.app-main')).paddingBottom"
-        )
-        assert padding_bottom == "28px"
+        # Assert -- the view ends where the strip begins instead of running under
+        # it, and the strip is the last thing in the frame.
+        main_box = page.locator("#app-main").bounding_box()
+        strip_box = page.locator("#corpus-strip").bounding_box()
+        assert main_box is not None and strip_box is not None
+        assert main_box["y"] + main_box["height"] == pytest.approx(strip_box["y"], abs=1)
+        assert strip_box["y"] + strip_box["height"] == pytest.approx(viewport["height"], abs=1)
 
         page.close()

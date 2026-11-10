@@ -3,8 +3,8 @@
 ``osprey app new`` copies the shipped example under a new name and lists it in the profile.
 ``osprey app check`` reports what ``osprey build`` reports of them, through the same
 :func:`osprey.apps.loader.check_deployment`, then what only the application's own source
-can tell: the import boundary over each of its Python packages, ESLint over ``panel/`` when
-it holds JS, and Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. A
+can tell: the import boundary over each of its Python packages, the design-system styling of
+``panel/``, ESLint over ``panel/`` when it holds JS, and Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. A
 deployment repository has no JS toolchain, so the command installs the one pinned in
 ``osprey/apps/js_check/`` into the user's cache once and runs it from there; an application
 with no JS needs no Node.
@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import click
-from ruamel.yaml import YAMLError
+from ruamel.yaml import YAML, YAMLError
 
 from osprey.apps.boundary import check_package
 from osprey.apps.errors import AppManifestError, Violation
@@ -40,16 +40,20 @@ from .output import fail, report
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 _OSPREY_DIR = Path(__file__).resolve().parents[1]
-#: The shipped example ``osprey app new`` copies.
-EXAMPLE_APP_DIR = _OSPREY_DIR / "profiles" / "presets" / APPS_DIRNAME / "knob-example"
-#: Every app-scoped identifier of the example is its name in one of these two forms.
-_EXAMPLE_NAMES = ("knob-example", "knob_example")
+#: The scaffold ``osprey app new`` copies; every app-scoped identifier in it is the
+#: ``name`` of its ``app.yml``, in that form or with underscores for dashes.
+EXAMPLE_APP_DIR = _OSPREY_DIR / "apps" / "scaffold-app"
 #: The anchored ``.gitignore`` entry for the files a build fetches into a panel.
 _VENDOR_IGNORE = f"/{APPS_DIRNAME}/*/panel/vendor/"
 #: The pinned toolchain's manifest, lockfile and configs, copied beside its ``node_modules``.
 JS_CHECK_DIR = _OSPREY_DIR / "apps" / "js_check"
+_DESIGN_SYSTEM_STATIC = _OSPREY_DIR / "interfaces" / "design_system" / "static"
 #: What ``/design-system/js`` resolves to under a panel's tests.
-_DESIGN_SYSTEM_JS = _OSPREY_DIR / "interfaces" / "design_system" / "static" / "js"
+_DESIGN_SYSTEM_JS = _DESIGN_SYSTEM_STATIC / "js"
+#: The design-system sheets every panel's ``index.html`` loads, as the framing serves them.
+PANEL_STYLESHEETS = tuple(
+    f"/design-system/css/{sheet}" for sheet in ("tokens.css", "base.css", "primitives.css")
+)
 
 _JS_SUFFIXES = (".js", ".mjs")
 _JS_TEST_SUFFIXES = (".test.js", ".test.mjs")
@@ -71,9 +75,9 @@ def app() -> None:
 @repo_option
 @click.option("--force", is_flag=True, help="Replace whatever exists at apps/NAME/.")
 def new(name: str, repo: Path | None, force: bool) -> None:
-    """Copy the shipped example application into apps/NAME/ and list it.
+    """Copy the shipped scaffold application into apps/NAME/ and list it.
 
-    Every app-scoped name of the example is rewritten to NAME (its Python package to
+    Every app-scoped name of the scaffold is rewritten to NAME (its Python package to
     NAME with underscores); no port is pinned. The profile's apps: block gains
     NAME: {}, and .gitignore the entry that keeps fetched panel files out of git. A name
     whose package would be a Python keyword or shadow a standard-library or OSPREY module
@@ -105,12 +109,22 @@ def new(name: str, repo: Path | None, force: bool) -> None:
     shutil.copytree(
         EXAMPLE_APP_DIR, target, ignore=shutil.ignore_patterns("__pycache__", "*.py[co]")
     )
-    _rename(target, dict(zip(_EXAMPLE_NAMES, (name, package), strict=True)))
+    template = _template_name(EXAMPLE_APP_DIR)
+    _rename(target, {template: name, template.replace("-", "_"): package})
 
     if name not in listed:
         write_back_cli_overrides(profile_path, (f"apps.{name}={{}}",))
     _ignore_vendor_files(root / ".gitignore")
-    report(f"✓ {APPS_DIRNAME}/{name}/ written and listed; run `osprey app check`.")
+    report(
+        f"✓ {APPS_DIRNAME}/{name}/ written from the {template} scaffold and listed; "
+        "run `osprey app check`."
+    )
+
+
+def _template_name(template_dir: Path) -> str:
+    """The ``name`` the scaffold's own ``app.yml`` declares."""
+    manifest = YAML(typ="safe").load((template_dir / "app.yml").read_text(encoding="utf-8"))
+    return str(manifest["name"])
 
 
 def _listed_apps(profile_path: Path) -> Mapping[str, object]:
@@ -158,7 +172,7 @@ def check(ctx: click.Context, repo: Path | None) -> None:
     """Check the applications the profile's apps: block names, as `osprey build` would.
 
     Reports every violation with its application, field and rule, and adds the import
-    boundary and each application's own JS checks. The JS checks execute the
+    boundary, each panel's design-system styling and each application's own JS checks. The JS checks execute the
     application's JS tests, with no secret of this shell's environment. Exits 1 on any
     violation.
     """
@@ -185,7 +199,11 @@ def check(ctx: click.Context, repo: Path | None) -> None:
         return
 
     app_dirs = [root / APPS_DIRNAME / manifest.name for manifest in deployment.manifests]
-    violations = [*_boundary_violations(app_dirs), *_js_violations(app_dirs)]
+    violations = [
+        *_boundary_violations(app_dirs),
+        *_style_violations(app_dirs),
+        *_js_violations(app_dirs),
+    ]
     if violations:
         _refuse(ctx, violations)
     report(f"✓ {len(app_dirs)} application(s) pass.")
@@ -227,6 +245,105 @@ def _packages(app_dir: Path) -> list[Path]:
         and entry.name != "__pycache__"
         and (entry / "__init__.py").is_file()
     ]
+
+
+_LINK = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
+_HREF = re.compile(r"""\bhref\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+_DESIGN_SYSTEM_CSS = re.compile(r"^/design-system/css/([\w.-]+\.css)$")
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+_JS_LINE_COMMENT = re.compile(r"^\s*//.*$", re.MULTILINE)
+_CSS_STRING = re.compile(r"""(["'])(?:\\.|(?!\1).)*\1""")
+_CSS_CLASS = re.compile(r"\.(-?[A-Za-z_][\w-]*)")
+#: Where markup or JS sets a class. A class only read (``classList.contains``) or taken
+#: off (``classList.remove``) styles nothing; a state that carries no style belongs in a
+#: ``data-`` attribute or ``hidden``, not in a class.
+_MARKUP_CLASS = re.compile(r"""\bclass\s*=\s*\\?(["'])(.*?)\\?\1""", re.DOTALL)
+_JS_CLASS = (
+    _MARKUP_CLASS,
+    re.compile(r"""\.className\s*=\s*(["'`])(.*?)\1"""),
+    re.compile(r"""\.classList\.(?:add|toggle)\(\s*(["'`])(.*?)\1"""),
+    re.compile(r"""[{,]\s*["']?class["']?\s*:\s*(["'`])(.*?)\1"""),
+)
+_CLASS_NAME = re.compile(r"^-?[A-Za-z_][\w-]*$")
+
+
+def _style_violations(app_dirs: Iterable[Path]) -> list[Violation]:
+    """Each panel loads the design-system sheets, and every class it sets has a CSS rule."""
+    found: list[Violation] = []
+    for app_dir in app_dirs:
+        index = app_dir / "panel" / "index.html"
+        if not index.is_file():
+            continue
+        links = _stylesheet_links(index.read_text(encoding="utf-8"))
+        found += [
+            Violation(
+                app_dir.name,
+                "",
+                "design_system_css",
+                f"does not load {sheet}; a panel links {', '.join(PANEL_STYLESHEETS)}",
+                source=f"{APPS_DIRNAME}/{app_dir.name}/panel/index.html",
+            )
+            for sheet in PANEL_STYLESHEETS
+            if sheet not in links
+        ]
+        defined = _defined_classes(app_dir, links)
+        for rel, used in _used_classes(app_dir):
+            if undefined := sorted(used - defined):
+                found.append(
+                    Violation(
+                        app_dir.name,
+                        "",
+                        "undefined_class",
+                        "no rule in the panel's or the linked design-system stylesheets for "
+                        f"class {', '.join(undefined)}",
+                        source=f"{APPS_DIRNAME}/{app_dir.name}/{rel}",
+                    )
+                )
+    return found
+
+
+def _stylesheet_links(html: str) -> set[str]:
+    """The ``href`` of every ``<link>`` in *html*."""
+    return {
+        match.group(1) for tag in _LINK.findall(html) if (match := _HREF.search(tag)) is not None
+    }
+
+
+def _defined_classes(app_dir: Path, links: Iterable[str]) -> set[str]:
+    """The classes a selector names in the panel's CSS or a design-system sheet it links."""
+    sheets = [path for path in (app_dir / "panel").rglob("*.css") if path.is_file()]
+    for href in links:
+        if (match := _DESIGN_SYSTEM_CSS.match(href)) is not None:
+            sheet = _DESIGN_SYSTEM_STATIC / "css" / match.group(1)
+            if sheet.is_file():
+                sheets.append(sheet)
+    defined: set[str] = set()
+    for sheet in sheets:
+        text = _CSS_STRING.sub("", _BLOCK_COMMENT.sub("", sheet.read_text(encoding="utf-8")))
+        defined.update(_CSS_CLASS.findall(text))
+    return defined
+
+
+def _used_classes(app_dir: Path) -> list[tuple[str, set[str]]]:
+    """Each authored HTML and JS file of the panel, with the literal classes it sets."""
+    html = _authored((app_dir / "panel").rglob("*.html"), app_dir)
+    files = [(rel, (_MARKUP_CLASS,)) for rel in html] + [
+        (rel, _JS_CLASS) for rel in _panel_js(app_dir)
+    ]
+    used: list[tuple[str, set[str]]] = []
+    for rel, patterns in files:
+        text = (app_dir / rel).read_text(encoding="utf-8")
+        if rel.endswith(_JS_SUFFIXES):
+            text = _JS_LINE_COMMENT.sub("", _BLOCK_COMMENT.sub("", text))
+        names = {
+            name
+            for pattern in patterns
+            for match in pattern.finditer(text)
+            for name in match.group(2).split()
+            if _CLASS_NAME.match(name)
+        }
+        used.append((rel, names))
+    return used
 
 
 def _js_violations(app_dirs: Iterable[Path]) -> list[Violation]:

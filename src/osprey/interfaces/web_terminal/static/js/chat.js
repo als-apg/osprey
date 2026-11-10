@@ -105,7 +105,7 @@ export const isStreaming = () => controls?.streaming() ?? false;
 /** Stop the streaming turn (interrupt, then abort); resolves once asked, not once it ended. */
 export const stopTurn = () => controls?.stop() ?? Promise.resolve();
 
-/** Start a conversation on a new session key, as the pen button does. */
+/** Start a conversation on a new session key, as the Agent bar's `+` does. */
 export const newConversation = () => controls?.newConversation();
 
 /**
@@ -122,8 +122,8 @@ export function initChat(containerId = 'operator-container') {
   // handler closures below, so hand them a statically non-null reference.
   const container = /** @type {HTMLElement} */ (found);
 
-  const handles = buildConsole();
-  const { bar, label, newBtn, messages, overlay, overlayMessage, overlayAction } = handles;
+  const handles = buildConsole({ onNew: startConversation });
+  const { bar, label, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
   const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
@@ -144,6 +144,8 @@ export function initChat(containerId = 'operator-container') {
 
   /** Transforms the feature modules apply to each prompt as it is sent. */
   const sendTransforms = /** @type {Array<(prompt: string) => string>} */ ([]);
+  /** Commands the feature modules answer in the browser instead of sending. */
+  const localCommands = /** @type {Array<(prompt: string) => boolean>} */ ([]);
 
   /** In-flight turn handle, or null when idle. */
   let handle = /** @type {import('./chat-client.js').ChatAbortHandle | null} */ (null);
@@ -163,16 +165,13 @@ export function initChat(containerId = 'operator-container') {
     key: () => boundKey,
     sending: () => handle !== null,
     setStreaming,
-    dismissInvitation: () => {
-      emptyState?.remove();
-      emptyState = null;
-    },
+    dismissInvitation: () => dismissInvitation(),
     scrollToBottom: () => scrollToBottom(),
     redraw: (turns) => {
       renderer.reset();
       emptyState = null;
       renderer.replay(turns);
-      inviteIfEmpty();
+      syncInvitation();
     },
   });
 
@@ -241,15 +240,24 @@ export function initChat(containerId = 'operator-container') {
 
   const isPinned = () =>
     messages.scrollHeight - messages.scrollTop - messages.clientHeight < STICK_THRESHOLD;
-  const scrollToBottom = () => {
-    messages.scrollTop = messages.scrollHeight;
-  };
+  const scrollToBottom = () => void (messages.scrollTop = messages.scrollHeight);
 
-  /** Offer first contact when the log is empty and there is something to say. */
-  function inviteIfEmpty() {
-    if (!settled || emptyState || renderer.messageCount() > 0) return;
-    emptyState = buildEmptyState();
-    messages.prepend(emptyState);
+  /** Take the first-contact block away; the log is the conversation from here. */
+  function dismissInvitation() {
+    emptyState?.remove();
+    emptyState = null;
+  }
+
+  /**
+   * Offer first contact when the log is empty and there is something to say,
+   * and take it away when the log is not empty. Called after every replay as
+   * well as at the settled moment: a reloaded page can settle while its
+   * session's transcript is still in flight, and the block put up then would
+   * otherwise stay above the conversation the replay brings back.
+   */
+  function syncInvitation() {
+    if (renderer.messageCount() > 0) dismissInvitation();
+    else if (settled && !emptyState) messages.prepend((emptyState = buildEmptyState()));
   }
 
   // First contact, once there is enough known to say something true. A log that
@@ -257,7 +265,7 @@ export function initChat(containerId = 'operator-container') {
   // page reaches the settled moment too.
   onSettled(() => {
     settled = true;
-    inviteIfEmpty();
+    syncInvitation();
   });
 
   // A switch changes what the sentence may claim. Rebuilt in place, and only
@@ -274,14 +282,14 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Apply the current streaming/transition state to every control. A running
    * turn leaves the box open, so the next message can be typed and queued; a
-   * hand-off closes it, because the session is not this view's.
+   * hand-off closes it, because the session is not this view's. The Agent
+   * bar's `+` follows the `busy` it says on the bus (agent-bar.js).
    */
   function applyControls() {
     const blocked = streaming || transitioning;
     textarea.disabled = transitioning;
     cmdBtn.disabled = blocked;
     sendBtn.disabled = transitioning;
-    newBtn.disabled = blocked;
     sendBtn.hidden = streaming;
     stopBtn.hidden = !streaming;
     stopBtn.disabled = false;
@@ -436,9 +444,7 @@ export function initChat(containerId = 'operator-container') {
     setOverlayMessage(HANDOFF_PENDING_MESSAGE, true);
     renderElapsed();
     if (ticker === null) ticker = window.setInterval(renderElapsed, 1000);
-    setOverlayAction(HANDOFF_INTERRUPT_LABEL, () => {
-      void runHandoff(true);
-    });
+    setOverlayAction(HANDOFF_INTERRUPT_LABEL, () => void runHandoff(true));
   }
 
   /**
@@ -527,7 +533,7 @@ export function initChat(containerId = 'operator-container') {
     // A newer bind landed while the transcript was in flight; it owns the log.
     if (boundKey !== key) return;
     renderer.replay(turns);
-    inviteIfEmpty();
+    syncInvitation();
     scrollToBottom();
     // Follow the agent from here on, so a turn still running — after a reload,
     // or sent from another tab — keeps drawing.
@@ -641,14 +647,17 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Submit the current input as a new turn. While one streams, the message is
    * queued instead. A slash command is not: it stays in the box until the turn
-   * ends, because what it does may depend on the turn it would follow.
+   * ends, because what it does may depend on the turn it would follow. A
+   * command a feature answers itself (`/mcp`) runs at once and is never sent.
    */
   function submit() {
     const prompt = textarea.value.trim();
-    if (transitioning || !prompt || (streaming && prompt.startsWith('/'))) return;
+    const local = !transitioning && localCommands.some((answer) => answer(prompt));
+    if (!local && (transitioning || !prompt || (streaming && prompt.startsWith('/')))) return;
     textarea.value = '';
     autoResize();
-    if (streaming) queue.add(prompt);
+    if (local) slash.close();
+    else if (streaming) queue.add(prompt);
     else send(prompt, () => queue.returnToInput(prompt));
   }
 
@@ -660,9 +669,7 @@ export function initChat(containerId = 'operator-container') {
    */
   function send(prompt, onUnsent) {
     const entry = renderer.addUserMessage(prompt);
-    // The invitation has been taken; the log is the conversation from here.
-    emptyState?.remove();
-    emptyState = null;
+    dismissInvitation();
     slash.close();
     setStreaming(true);
     renderer.beginTurn();
@@ -743,7 +750,7 @@ export function initChat(containerId = 'operator-container') {
     boundKey = key;
     setPointer(key);
     resetLog();
-    inviteIfEmpty();
+    syncInvitation();
     if (!isTerminalSurface()) {
       notifySessionChange(key);
       follow(key);
@@ -763,7 +770,6 @@ export function initChat(containerId = 'operator-container') {
   });
   sendBtn.addEventListener('click', submit);
   stopBtn.addEventListener('click', stop);
-  newBtn.addEventListener('click', startConversation);
 
   controls = { streaming: () => streaming, stop, newConversation: startConversation };
 
@@ -787,6 +793,9 @@ export function initChat(containerId = 'operator-container') {
     renderer,
     getKey: () => boundKey,
     onBeforeSend: (transform) => void sendTransforms.push(transform),
+    onLocalCommand: (answer) => void localCommands.push(answer),
+    scrollToBottom,
+    onNewSession: startConversation,
   });
   // After the features, so the queued message sits nearest the box, below the task bar.
   inputArea.before(queue.root);

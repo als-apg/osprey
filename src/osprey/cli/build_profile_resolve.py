@@ -668,7 +668,7 @@ def preset_authored_config(preset: str) -> dict[str, Any]:
 
     Args:
         preset: A bundled preset name, in either spelling
-            (``control-assistant`` / ``control_assistant``).
+            (``hello-world`` / ``hello_world``).
 
     Returns:
         The preset's own ``config:`` mapping, empty when it declares none.

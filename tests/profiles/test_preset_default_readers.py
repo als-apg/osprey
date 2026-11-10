@@ -1,7 +1,7 @@
 """Every shipped root preset keeps its agent record where it says, read by whom it says.
 
 hello-world keeps the record in the embedded backend and names no reader: it
-has no roster and no history page. control-assistant keeps it in ClickHouse for
+has no roster and no history page. demo keeps it in ClickHouse for
 90 days and names one reader, the deployment's admin roster user, so a fresh
 deployment has someone who may read every session, and nobody else. Neither
 states a key of the telemetry store the record replaced.
@@ -29,11 +29,11 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 
 #: The documents an operator starts from; bundled tiers and apps are laid over them.
-ROOT_PRESETS = ("control-assistant", "hello-world")
+ROOT_PRESETS = ("demo", "hello-world")
 
 #: Each root preset's backend and retention.
 EXPECTED_RECORD = {
-    "control-assistant": (BACKEND_CLICKHOUSE, 90),
+    "demo": (BACKEND_CLICKHOUSE, 90),
     "hello-world": (BACKEND_EMBEDDED, 14),
 }
 
@@ -87,9 +87,9 @@ def test_the_default_reader_passes_the_reader_checks(preset: str) -> None:
     assert reader_errors(_record(preset), _config(preset)) == []
 
 
-def test_only_control_assistant_serves_the_history_page() -> None:
+def test_only_demo_serves_the_history_page() -> None:
     serving = {preset for preset in ROOT_PRESETS if history_page_deployed(_config(preset))}
-    assert serving == {"control-assistant"}
+    assert serving == {"demo"}
 
 
 @pytest.mark.parametrize("preset", ROOT_PRESETS)

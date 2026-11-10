@@ -450,7 +450,7 @@ _PROFILE_FILE_SUFFIXES = (".yml", ".yaml")
 def _is_profile_file_reference(build_profile: str) -> bool:
     """Whether ``build_profile`` reads as a path rather than a bundled preset name.
 
-    Bundled preset names are bare slugs (``control-assistant``), so any ``/``
+    Bundled preset names are bare slugs (``demo``), so any ``/``
     or any ``.yml``/``.yaml`` suffix means a path. Only ``/`` counts as a
     separator: catalog values are configuration, written posix-style, and are
     read on the same machine that renders the renders. Used only to pick which

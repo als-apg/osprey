@@ -48,7 +48,7 @@ scratch directory and diff it:
 
 .. code-block:: bash
 
-   osprey init /tmp/fresh --preset control-assistant
+   osprey init /tmp/fresh --preset demo
    diff -u /tmp/fresh/profile.yml my-facility/profile.yml
 
 
@@ -59,7 +59,7 @@ One command creates a deployment repository from a preset:
 
 .. code-block:: bash
 
-   osprey init my-facility --preset control-assistant
+   osprey init my-facility --preset demo
 
 That writes the repository and stops. Look at the profile, edit it, then render
 and start it from inside:
@@ -86,42 +86,55 @@ What ``osprey init`` writes
 
    my-facility/
      profile.yml     the full configuration — edit freely
+     providers.yml   the catalog of model providers profile.yml selects from
      data/           the facility tree (data/facility/) and the agent's other data
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
-     .env            your values and secrets (only when your shell had keys to seed)
+     .env            your values and secrets (when your shell had keys to seed, or the profile declares env.defaults)
+     .env.lock       keeps two writers from editing .env at once; leave it be
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
      tiers/          one file per web-terminal login (multi-user presets only)
-     apps/           one directory per application the preset lists, with a
-                     .provenance sidecar (presets that list applications only)
+     apps/           one directory per application the profile lists, with a
+                     .provenance sidecar (only when it lists one)
      web-terminal-context/  the shared base.md baseline, plus one seeded
                      directory per operator on the roster
+     rules/          rules/facility.md, the facility description, to rewrite in
+                     your own words
+     watchdogs/      one directory per watchdog the profile declares
+     mcp_servers/    the MCP server packages the preset ships
      ci-extra.yml    the facility's own CI jobs; never regenerated
-     .gitignore      keeps build/, var/, .env and apps/*/panel/vendor/ out of
-                     version control
+     .gitignore      keeps build/, var/, the .env files and apps/*/panel/vendor/
+                     out of version control
      build/          rendered by `osprey build`; disposable
      var/            agent memory and audit log; durable
 
-``triggers.yml``, ``tiers/``, ``apps/`` and ``web-terminal-context/`` appear
-only when the preset calls for them — a ``hello-world`` deployment has none of them.
-A preset's applications come with ``osprey init``, never through ``extends:``: a
-profile runs the applications it lists and holds.
+``triggers.yml``, ``tiers/``, ``web-terminal-context/``, ``rules/``,
+``watchdogs/`` and ``mcp_servers/`` appear only when the preset calls for them. A
+``demo`` deployment has all of them except ``mcp_servers/``; a
+``hello-world`` deployment has only ``mcp_servers/``.
+
+No bundled preset lists an application, so ``apps/`` appears only when you list
+one: ``osprey init --preset demo --set 'apps.orbit-bump={}'`` writes
+``apps/orbit-bump/``. A preset's applications come with ``osprey init``, never
+through ``extends:``: a profile runs the applications it lists and holds.
 
 ``git init`` and an initial commit run at the end. There is no CI pipeline yet:
 the profile ships its ``deploy:`` block commented out, so there are no
 coordinates to render one from. Fill the block in and ``osprey scaffold ci``
 writes the pipeline — see :doc:`deploy-a-facility`.
 
-Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
-**not** created up front. Create the ones you need; a directory you never create
-simply means the profile contributes nothing of that kind.
+The other directories for your own artifacts (``skills/``, ``agents/``, and the
+rest) are **not** created up front. Create the ones you need; a directory you
+never create means the profile contributes nothing of that kind.
 
 The facility tree
 -----------------
 
 ``data/facility/`` holds every source of the facility file: the authored files
-and the ``imported/<layer>/`` directories the importers write.
+and the ``imported/<layer>/`` directories the importers write. With
+``machine:``, the machine facts come from a
+:doc:`machine repository </how-to/control-systems/machine-repository>` instead.
 :doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
@@ -130,15 +143,17 @@ the render, never back into ``data/facility/``:
 .. code-block:: text
 
    build/
-     facility.json                    the facility file
-     data/channel_limits.json         the limits view
-     data/facility_facts.json         the facts view
-     data/simulator/                  the simulator view and its decks
-     data/pyaml/<model>/              the pyAML view, per served model with a measurement file
-     data/graph/facility.ttl          the graph view
-     data/channel_finder/<mode>.json  the channel-finder view the profile selects
-     data/bluesky_devices.yml         the device view, when Bluesky is configured
-     data/benchmarks/queries.json     the benchmarks view, when a benchmark dataset is configured
+     facility.json                        the facility file
+     data/channel_limits.json             the limits view
+     data/facility_facts.json             the facts view
+     data/facility_facts.md               the facts view, as markdown
+     data/simulator/                      the simulator view and its decks
+     data/pyaml/<model>/                  the pyAML view, per served model with a measurement file
+     data/graph/facility.ttl              the graph view
+     data/channel_databases/graph.duckdb  the channel search index, when the profile has a graph store
+     data/channel_finder/<mode>.json      the channel-finder view, in every mode but graph
+     data/bluesky_devices.yml             the device view, when Bluesky is configured
+     data/benchmarks/queries.json         the benchmarks view, when a benchmark dataset is configured
 
 ``osprey facility show`` prints the facility the tree builds and each view's
 path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
@@ -392,7 +407,8 @@ the repository, as must every file the profile ``extends``. ``osprey validate``
 and ``osprey build`` refuse a profile that reads anything outside the
 repository, before anything is installed, naming the path. The resolved tree is
 folded into the profile hash, so editing it reports the built project as out of
-date.
+date. ``machine:``, the facility directory of a mounted machine repository,
+resolves and is folded the same way.
 
 
 .. _profile-claim:
@@ -511,9 +527,9 @@ is in force in — and in no other:
      claude_code.hooks.SessionStart:
        - facility_banner.py             # shorthand when there is nothing to qualify
 
-Valid events: ``PreToolUse``, ``PostToolUse``, ``UserPromptSubmit``,
-``SessionStart``, ``SessionEnd``, ``Stop``, ``SubagentStop``, ``Notification``,
-``PreCompact``.
+Valid events: ``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,
+``UserPromptSubmit``, ``SessionStart``, ``Stop``, ``StopFailure``, ``SessionEnd``,
+``SubagentStop``, ``Notification``, ``PreCompact``.
 
 .. admonition:: An undeclared hook never runs
    :class: important
@@ -600,7 +616,7 @@ Logins
 Some presets give each operator their own web terminal. Every card on the
 landing page opens a **login**: one file in ``tiers/``, laid over
 ``profile.yml`` and rendered as its own project. For those presets
-(``control-assistant``), ``osprey init`` writes six:
+(``demo``), ``osprey init`` writes six:
 
 .. code-block:: text
 
@@ -622,8 +638,8 @@ A login file says what its card's agent is: ``name``, ``model``,
 the per-render keys ``extra_mounts``, ``seed_base`` and ``image``, and the
 ``provenance:`` block ``osprey init`` writes. A deployment fact — the
 connector, the provider, ``port_base``, a service block, ``data:``,
-``services:`` — is refused on a login, naming ``profile.yml`` as its home, and
-so are ``extends:`` and ``exclude:``. A login never subtracts.
+``machine:``, ``services:`` — is refused on a login, naming ``profile.yml`` as
+its home, and so are ``extends:`` and ``exclude:``. A login never subtracts.
 
 ``lists:`` says how the file's lists meet the deployment's:
 
@@ -1029,6 +1045,9 @@ to ``profile.yml`` and renders the whole ``build/`` zone from it.
    * - ``--runtime-root PATH``
      - Override ``project_root`` in the rendered config, for a build whose
        output runs somewhere other than where it was made.
+   * - ``--dev``
+     - Render a dev build: bake the local OSPREY checkout into the service
+       images instead of the published release.
    * - ``--repo DIRECTORY``
      - Deployment repository to act on (default: the nearest ``profile.yml``
        at or above the working directory).
@@ -1056,8 +1075,8 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey init --list-presets
 
    # Create the deployment, then render it
-   osprey init my-assistant --preset control-assistant
-   cd my-assistant
+   osprey init my-facility --preset demo
+   cd my-facility
    osprey build
 
    # Change a setting, then carry it through to build/
@@ -1065,7 +1084,7 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey build
 
    # Render another repository's build/ without cd-ing to it
-   osprey build --repo ~/deployments/als-test
+   osprey build --repo ~/deployments/my-facility
 
 Checking a profile without building
 -----------------------------------
@@ -1105,12 +1124,13 @@ build that was fine yesterday.
 What the build does
 ===================
 
-1. Settle the profile (materialize from a preset on first use, or read the one
-   you named), writing any ``--set`` into it.
+1. Find the repository's ``profile.yml`` (the nearest one at or above the
+   working directory, or the one under ``--repo``) and read it.
 2. Resolve and validate the profile, including any tier merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
-4. Clear the previous render. ``build/`` is wiped whole and re-made; nothing
-   durable lives inside it to step around.
+4. Start the new render in ``build/.tmp``. Until it succeeds, the previous
+   ``build/`` (apart from its venv) stays as it was, so a failed build leaves
+   the last good one in place.
 5. Run ``pre_build`` commands.
 6. Create the project venv and install OSPREY plus the profile's dependencies.
 7. Render the base template and the profile's ``data/`` tree. No env file is
@@ -1124,7 +1144,8 @@ What the build does
     ``osprey up`` compares the profile against before it starts anything.
 13. Re-render the agent artifacts against the complete config, and validate that
     every tool an agent declares is backed by a permission.
-14. Run ``post_build`` and ``validate`` commands on the project venv.
+14. Run ``post_build`` and ``validate`` commands on the project venv, then swap
+    the finished render in as ``build/``.
 
 The venv is created before rendering so templates can reference the resolved
 Python path. The generated project runs standalone — nothing reaches back to the
@@ -1136,7 +1157,7 @@ What gets generated
 
 .. code-block:: text
 
-   my-project/build/
+   my-facility/build/
    ├── .claude/
    │   ├── agents/           # built-ins, plus anything from the profile's agents/
    │   ├── rules/            # built-ins, plus the profile's rules/
@@ -1159,12 +1180,18 @@ Your own files come from the convention directories and are marked as yours.
 Troubleshooting
 ===============
 
-**"Either a profile path or --preset is required"** — every build reads a
-profile. Name one, or ``--preset`` to have one materialized.
+**"No OSPREY deployment repo found: no profile.yml in … or any parent
+directory."** — ``osprey build`` reads the ``profile.yml`` of the deployment
+repository it runs in, and found none at or above the working directory. Run it
+from inside the repository, point at one with ``--repo PATH``, or create one with
+``osprey init <name> --preset <NAME>``.
 
-**"was materialized from preset X, but this build asks for Y"** — the profile
-directory beside this project came from a different preset. Build ``Y`` under a
-different project name so it gets a profile of its own.
+**"profile.yml was materialized from preset … at …; the preset bundled with
+OSPREY … is … — it has moved on since"** — a note, not an error. The preset your
+profile came from has changed in the OSPREY release you run. Your deployment
+does not change with it, because the profile inherits nothing. To see what
+moved, diff a fresh ``osprey init`` against your profile, as shown under
+*Preset → Profile → Build* above.
 
 **"Profile convention directories are invalid"** — a convention directory has
 the wrong shape: a ``.md`` directory holding something else, or a skill that is
@@ -1194,11 +1221,12 @@ are (see the table above), or into ``project/`` for anything without one.
 
 **"is already an OSPREY deployment repo"** — ``osprey init`` will not lay a
 source zone over one that is already there. To re-render the project, run
-``osprey build`` in the repo: it wipes and re-renders ``build/`` in place and
+``osprey build`` in the repo: it wipes and re-renders ``build/`` and
 leaves the source zone alone. To replace the source zone itself from the
 preset, re-run ``osprey init --force`` — which rewrites ``profile.yml``,
-``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/`` and
-``.env.example``, losing any edit to them.
+``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/``,
+``watchdogs/`` and ``.env.example``, losing any edit to them. In
+``providers.yml`` it resets the entries OSPREY ships and keeps the ones you added.
 
 **"already exists, is not empty, and is not an OSPREY deployment repo"** — a
 deployment repo is one directory that holds nothing else, so ``osprey init``

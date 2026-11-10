@@ -48,6 +48,7 @@ def _repo_with_logbook_in_apps(tmp_path: Path, text: str) -> Path:
     """The exemplar with its shared ``logbook`` login kept in ``apps/`` instead."""
     root = build_exemplar_repo(tmp_path / "als-exemplar")
     (root / "tiers" / "logbook.yml").unlink()
+    (root / "apps").mkdir(exist_ok=True)
     (root / "apps" / "logbook.yml").write_text(text, encoding="utf-8")
     return root
 
@@ -125,6 +126,7 @@ def test_a_login_in_apps_whose_tiers_name_is_taken_is_left_for_the_operator(
     tmp_path: Path,
 ) -> None:
     root = build_exemplar_repo(tmp_path / "als-exemplar")
+    (root / "apps").mkdir()
     (root / "apps" / "logbook.yml").write_text("name: Mine\n", encoding="utf-8")
 
     result = _revalidate(root)
@@ -144,7 +146,7 @@ def test_the_move_leaves_application_directories_alone(tmp_path: Path) -> None:
     assert _revalidate(root).exit_code == 0
 
     assert (root / "apps" / "knob" / "app.yml").read_text(encoding="utf-8") == "name: knob\n"
-    assert sorted(p.name for p in (root / "apps").iterdir()) == ["knob", "knob-example"]
+    assert sorted(p.name for p in (root / "apps").iterdir()) == ["knob"]
 
 
 def test_a_second_run_after_the_move_rewrites_nothing(tmp_path: Path) -> None:

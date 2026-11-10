@@ -307,7 +307,7 @@ def test_render_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> 
     assert tuple(web_terminals["shared"]) == SHARED_LOGINS
     for name in SHARED_LOGINS:
         assert (lifecycle_repo / TIERS_DIRNAME / f"{name}.yml").is_file(), name
-    assert [path.name for path in (lifecycle_repo / APPS_DIRNAME).iterdir()] == ["knob-example"]
+    assert not (lifecycle_repo / APPS_DIRNAME).exists()
 
 
 def test_provenance_records_the_live_preset(lifecycle_repo: Path) -> None:
@@ -440,7 +440,7 @@ def test_ci_pipeline_follows_the_deploy_block(lifecycle_repo: Path) -> None:
     """No deploy coordinates, no pipeline — there is nothing to render one from.
 
     This is the default shape precisely because it is what a bare
-    ``osprey init --preset control-assistant`` can reproduce.
+    ``osprey init --preset demo`` can reproduce.
     """
     assert not (lifecycle_repo / ".gitlab-ci.yml").exists()
     assert not (lifecycle_repo / "scripts").exists()

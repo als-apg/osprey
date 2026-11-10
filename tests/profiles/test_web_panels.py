@@ -19,7 +19,7 @@ _DOCUMENTS = sorted(Path(_presets_dir()).rglob("*.yml"))
 
 
 def test_the_preset_tree_is_found() -> None:
-    assert any(path.name == "control-assistant.yml" for path in _DOCUMENTS)
+    assert any(path.name == "demo.yml" for path in _DOCUMENTS)
 
 
 @pytest.mark.parametrize("path", _DOCUMENTS, ids=lambda path: path.name)

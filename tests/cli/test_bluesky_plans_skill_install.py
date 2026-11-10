@@ -95,7 +95,7 @@ def _build_project(output_dir: Path, name: str) -> tuple[TemplateManager, Path]:
         manager,
         project_name=name,
         output_dir=output_dir,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     return manager, project_dir
@@ -157,10 +157,8 @@ class TestBlueskyPlansTemplateExists:
 class TestBlueskyPlansPresetWiring:
     """Wiring point 3: the presets' ``skills:`` and ``exclude:`` directives."""
 
-    def test_control_assistant_lists_the_skill(self):
-        profile = yaml.safe_load(
-            (PRESETS_DIR / "control-assistant.yml").read_text(encoding="utf-8")
-        )
+    def test_demo_lists_the_skill(self):
+        profile = yaml.safe_load((PRESETS_DIR / "demo.yml").read_text(encoding="utf-8"))
         assert "bluesky-plans" in profile["skills"]
 
     def test_logbook_app_leaves_the_skill_out(self):

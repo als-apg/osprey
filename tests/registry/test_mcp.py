@@ -364,7 +364,7 @@ class TestResolveServers:
         assert [r["matcher"] for r in health["hooks_post"]] == ["mcp__health__.*"]
 
     def test_health_server_enabled_via_config_override(self):
-        """control-assistant opts the health server in via the dotted override
+        """demo opts the health server in via the dotted override
         ``claude_code.servers.health.enabled: true`` (renders to this config).
 
         Mirrors the bluesky enablement pattern: the preset's ``claude_code``
@@ -1488,9 +1488,7 @@ class TestTemplateRendering:
         assert "ask" in data["permissions"]
         # Check a sample allow entry
         allow = data["permissions"]["allow"]
-        root = DEFAULT_AGENT_DATA_BASE_DIR
-        assert f'"Read({root}/**)"' not in allow  # Not double-quoted
-        assert f"Read({root}/**)" in allow
+        assert '"mcp__osprey_workspace__artifact_read"' not in allow  # Not double-quoted
         assert "mcp__osprey_workspace__artifact_read" in allow
         # Check ask entries
         ask = data["permissions"]["ask"]

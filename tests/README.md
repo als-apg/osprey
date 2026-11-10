@@ -72,10 +72,10 @@ removed. Never add `--basetemp` to a launcher.
 
 A run owns its ports the same way; section 6 says how a test takes one.
 
-A test that reads a built project requests `built_control_assistant`
+A test that reads a built project requests `built_demo`
 (`tests/_builds.py`): one `osprey build --skip-deps` per run, which every xdist
 worker reads. A test that writes to it takes its own copy with `copy_build`.
-`built_control_assistant_watchdog_on` is shared the same way: that build
+`built_demo_watchdog_on` is shared the same way: that build
 copied, its watchdog turned on in `profile.yml`, and rebuilt in place.
 Only a test whose subject is the install makes its own full build, under
 `offline_build_env`.
@@ -193,7 +193,7 @@ The ones that exist today:
 - `osprey.health.offload.reset_abandoned_state()`
 - `osprey.mcp_server.http.reset_panel_token_latch()` — the last panel token the
   MCP HTTP client saw. Without it, one test's token is sent by the next.
-- `osprey.interfaces.web_terminal.routes.websocket.reset_rendered_config_memo()`
+- `osprey.interfaces.web_terminal.config_view.reset_rendered_config_memo()`
   — the parsed `config.yml`, memoized on path and stat signature. Without it, two
   renders at one path within an mtime tick share one parse.
 - `osprey.interfaces.web_terminal.routes.panels.reset_host_addrs_cache()` — the

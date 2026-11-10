@@ -243,9 +243,10 @@ def _compare_apps(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list[st
 # Top-level keys `osprey init` writes for the repo rather than copies from the
 # preset: the display name, the deployment's own name, the materialized data
 # tree, the schema floor, and the provenance stamp itself — whose hash
-# difference is the note, not a finding.
+# difference is the note, not a finding. `machine` sits with `data`: a
+# repository-own location (a mounted machine repository) no preset carries.
 _MATERIALIZATION_KEYS: frozenset[str] = frozenset(
-    {"name", "project_name", "data", "provenance", "requires_osprey_version"}
+    {"name", "project_name", "data", "machine", "provenance", "requires_osprey_version"}
 )
 
 

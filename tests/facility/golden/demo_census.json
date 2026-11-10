@@ -1,6 +1,6 @@
 {
   "_reproduce": "hand-maintained: update with the pin in the same commit",
-  "_description": "Every pinned demo-facility count the expansion moves, one entry per stated value. `pin` is `assign:NAME` (a module-level constant, compared after literal_eval), `json:KEY` / `json:len(KEY)` / `json:len()` (a JSON file's value or length), or `text:FRAGMENT` with `{value}` standing for the number (a literal fragment of the file, digits not running on either side). `facility` holds the counts the built control-assistant facility must show.",
+  "_description": "Every pinned demo-facility count the expansion moves, one entry per stated value. `pin` is `assign:NAME` (a module-level constant, compared after literal_eval), `json:KEY` / `json:len(KEY)` / `json:len()` (a JSON file's value or length), or `text:FRAGMENT` with `{value}` standing for the number (a literal fragment of the file, digits not running on either side). `facility` holds the counts the built demo facility must show.",
   "facility": {
     "channels": 4731,
     "devices": 1016,
@@ -42,7 +42,7 @@
     {
       "file": "tests/facility/test_nominal_goldens.py",
       "pin": "text:assert checked == {value}",
-      "value": 713
+      "value": 725
     },
     {
       "file": "tests/facility/golden/nominal_va.json",
@@ -101,7 +101,7 @@
     },
     {
       "file": "tests/facility/test_demo_fingerprint.py",
-      "pin": "text:assert len(built_control_assistant.facility[\"devices\"]) == {value}",
+      "pin": "text:assert len(built_demo.facility[\"devices\"]) == {value}",
       "value": 1016
     },
     {
@@ -574,72 +574,72 @@
       "value": 4731
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "assign:EXPECTED_DEVICES",
       "value": 1016
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "assign:EXPECTED_BINDINGS",
       "value": 4731
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "assign:EXPECTED_WRITES",
       "value": 674
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "assign:EXPECTED_READS",
       "value": 4052
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:The census below ({value}",
       "value": 1016
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:devices, {value} bindings",
       "value": 4731
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:{value} written and",
       "value": 674
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:{value} read signals",
       "value": 4052
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:and the {value} writes are",
       "value": 674
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:database's {value} device channels",
       "value": 2908
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:the transfer line's {value} channels",
       "value": 40
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "assign:EXPECTED_FAMILY_DESCRIBED",
       "value": 1016
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:predicate appearing {value} times",
       "value": 4731
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:injection septa's {value} channels",
       "value": 7
     },
@@ -737,7 +737,7 @@
       "value": 32
     },
     {
-      "file": "tests/templates/test_control_assistant_demo_ttl.py",
+      "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:the injector's {value} channels",
       "value": 379
     },

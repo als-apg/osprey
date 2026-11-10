@@ -22,9 +22,7 @@
  *   - `detach(k)`, `reattach(k)`, `forget(k)`
  *                      a pane left for its own window, came back beside its
  *                      old neighbour (the injected placement, below), or its
- *                      window closed and it is not docked again;
- *   - `setPoppedOut()` a panel left for, or came back from, a page-engine
- *                      window (popout.js, until the window engine replaces it).
+ *                      window closed and it is not docked again.
  *
  * The detached panes are kept by dock-detached.js, which the holder composes.
  * Detached state is never stored: `persisted()` is the live layout with every
@@ -67,6 +65,7 @@ import {
   minimumSize,
   normalize,
   reopen,
+  tileOf,
   validateLayout,
 } from '/static/vendor/dock-engine.mjs';
 import { ONE_PANEL_PER_TILE, crowdedTile, onePanelPerTile } from './dock-policy.js';
@@ -536,9 +535,6 @@ export function createLayoutHolder(deps = {}) {
   let focusedTile = null;
   /** @type {string|null} */
   let lastServiceTile = null;
-  /** The page-engine pop-outs (popout.js); removed with that engine.
-   *  @type {Set<string>} */
-  const popouts = new Set();
   const panes = createDetachedPanes(placement);
   /** @type {Map<string, PanelRecord>} */
   const records = new Map();
@@ -594,7 +590,7 @@ export function createLayoutHolder(deps = {}) {
     dirty = true;
     if (result.focus !== undefined) focusedTile = result.focus;
     track();
-    void holder.apply();
+    if (result.changed) void holder.apply();
     panes.changed();
     return true;
   };
@@ -631,10 +627,10 @@ export function createLayoutHolder(deps = {}) {
     get lastServiceTile() {
       return lastServiceTile;
     },
-    /** The panes living in windows of their own, sorted: the detached panes
-     *  and the page-engine pop-outs. The server and the agent read it. */
+    /** The panes living in windows of their own, sorted. The server and the
+     *  agent read it. */
     get popouts() {
-      return [...new Set([...panes.queries.detachedKeys(), ...popouts])].sort();
+      return panes.queries.detachedKeys();
     },
     /** Close records, oldest first (do not mutate). */
     get closed() {
@@ -761,28 +757,17 @@ export function createLayoutHolder(deps = {}) {
       return true;
     },
 
-    /**
-     * A panel left for its own window (`out`), or came back. The layout the
-     * agent reads names the pop-outs beside the tiles, so either bumps it.
-     * @param {string} key
-     * @param {boolean} out
-     * @returns {boolean} whether anything changed
-     */
-    setPoppedOut(key, out) {
-      if (out ? popouts.has(key) : !popouts.has(key)) return false;
-      if (out) popouts.add(key);
-      else popouts.delete(key);
-      dirty = true;
-      return true;
-    },
+    /** @param {string} key @returns {boolean} whether the dock holds a tile for it */
+    holds: (key) => tileOf(layout, key) !== null,
 
     /**
      * A pane leaves for its own window: its tile closes (the engine's leave
      * rule) and the holder keeps what brings it back. No undo record is kept,
      * so Undo never docks a detached pane. The entry is stored BEFORE the
      * apply, so the geometry pass that follows already sees the pane detached
-     * and never conceals the content on its way out. False, storing nothing,
-     * for a key the dock does not hold.
+     * and never conceals the content on its way out. A pane with no tile
+     * leaves the layout as it is, and comes back by the open rule. False,
+     * storing nothing, for a pane already detached.
      * @param {string} key
      * @param {string|null} [page]  the root-relative page it is on
      * @returns {boolean}
@@ -823,6 +808,14 @@ export function createLayoutHolder(deps = {}) {
     },
 
     ...panes.queries,
+
+    /**
+     * The page a detached pane is on now, for the stored form to bring it back
+     * on. Announced as a change of the detached set, which saves it.
+     * @param {string} key
+     * @param {string|null} page  a page the hub cannot read changes nothing
+     */
+    setDetachedPage: (key, page) => panes.setPage(key, page),
 
     /**
      * The layout to store (R7): the live one with every detached pane docked

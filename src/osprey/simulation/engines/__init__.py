@@ -33,6 +33,10 @@ class EnginePlugin(Protocol):
     ======================================  ============================================  ==========================================
     name                                    what it gives                                 a module without it
     ======================================  ============================================  ==========================================
+    ``deck_length(deck, *, model=None)``    the length of the deck's lattice in metres    the SDK's ``model_members`` raises
+                                            (a ring's circumference)
+    ``element_index(deck, element, *,       the element's lattice index: ring order,      the SDK's ``model_members`` raises
+    model=None)``                           which tells co-located elements apart
     ``error_text(exc)``                     the one line a failed build reports           the exception's own text
     ``fault_variables(wiring)``             every fault a model built from the wiring     the model declares no faults
                                             declares, by address or by element

@@ -167,7 +167,7 @@ def test_app_template_refusal_names_expand(tmp_path: Path) -> None:
     contribute, so this one key gets a message naming the verb that fills the
     gap in.
     """
-    profile = _write_yaml(tmp_path / "p.yml", {"name": "p", "app_template": "control_assistant"})
+    profile = _write_yaml(tmp_path / "p.yml", {"name": "p", "app_template": "demo"})
 
     with pytest.raises(BuildProfileError) as excinfo:
         load_profile(profile)

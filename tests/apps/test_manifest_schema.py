@@ -447,7 +447,7 @@ def test_load_without_an_apps_dir_is_empty(tmp_path: Path) -> None:
 
 def test_load_ignores_the_provenance_sidecar(tmp_path: Path) -> None:
     app_dir = _write_app(tmp_path, "knob-demo", FULL)
-    (app_dir / ".provenance").write_text("preset: control-assistant\n")
+    (app_dir / ".provenance").write_text("preset: demo\n")
     assert [m.name for m in load(tmp_path)] == ["knob-demo"]
 
 

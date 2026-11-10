@@ -47,6 +47,7 @@ _FACTS = frozenset(
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "slack_bridge",
         "va_archiver",
         "artifact_server",
         "requires_osprey_version",
@@ -123,12 +124,10 @@ def test_an_init_materialised_login_loads(tmp_path: Path, tier: str) -> None:
     from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone_profile_yaml
 
     (tmp_path / "profile.yml").write_text(
-        emit_standalone_profile_yaml(
-            "control-assistant", ("data=data",), "Site", project_name="site"
-        ),
+        emit_standalone_profile_yaml("demo", ("data=data",), "Site", project_name="site"),
         encoding="utf-8",
     )
-    lay_preset_applications("control-assistant", tmp_path)
+    lay_preset_applications("demo", tmp_path)
     text = emit_layer_delta_yaml(
         preset_name=f"tiers/{tier}", profile_name="Site", profile_filename=f"tiers/{tier}.yml"
     )

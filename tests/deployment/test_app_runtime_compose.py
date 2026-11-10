@@ -35,19 +35,31 @@ def _row(**overrides: Any) -> dict[str, Any]:
     """A projected ``services.<k>`` row, as ``osprey.apps.projection`` writes it."""
     row: dict[str, Any] = {
         "template": "osprey.app_runtime",
-        "app": "knob-example",
-        "command": ["python", "-m", "knob_example.server"],
+        "app": "orbit-bump",
+        "command": ["python", "-m", "orbit_bump.server"],
         "port": 10950,
         "url": "http://127.0.0.1:10950",
         "health": "/health",
         "env": ["KNOB_SITE_URL"],
         "drives_target": False,
         "control_identity": False,
-        "audit_identity": "app-knob-example",
+        "audit_identity": "app-orbit-bump",
         "config_file": f"./services/{KEY}/app-config.yml",
     }
     row.update(overrides)
     return row
+
+
+def _roster_credential(suffix: str, owner: str) -> dict[str, Any]:
+    """A roster user's credential: it reads its own variable, empty by default."""
+    var = f"OSPREY_TERMINAL_SECRET_{suffix}"
+    return {"var": var, "source": var, "owner": owner, "required": False}
+
+
+def _alias_credential(suffix: str, owner: str) -> dict[str, Any]:
+    """The roster-less alias: the deployment-wide secret, read with no default."""
+    var = f"OSPREY_TERMINAL_SECRET_{suffix}"
+    return {"var": var, "source": "OSPREY_TERMINAL_SECRET", "owner": owner, "required": True}
 
 
 def _render(
@@ -67,8 +79,7 @@ def _render(
         **config,
         "service_key": KEY,
         "service": config["services"][KEY],
-        "panel_grant": panel_grant
-        or {"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}},
+        "panel_grant": panel_grant or {"credentials": []},
     }
     text = _packaged_compose_template(TEMPLATE).render(**context)
     return text, yaml.safe_load(text)["services"][KEY]
@@ -78,7 +89,7 @@ def test_it_runs_the_project_image_with_the_containers_command() -> None:
     _, svc = _render()
 
     assert svc["image"].startswith("${OSPREY_WORKER_IMAGE:-")
-    assert svc["command"] == ["python", "-m", "knob_example.server"]
+    assert svc["command"] == ["python", "-m", "orbit_bump.server"]
     assert "build" not in svc
 
 
@@ -86,7 +97,7 @@ def test_it_names_the_application_and_its_config() -> None:
     _, svc = _render()
 
     env = svc["environment"]
-    assert env["OSPREY_APP_NAME"] == "knob-example"
+    assert env["OSPREY_APP_NAME"] == "orbit-bump"
     assert env["OSPREY_APP_CONFIG"] == "/osprey/app/config.yml"
     assert f"./build/services/{KEY}/app-config.yml:/osprey/app/config.yml:ro" in svc["volumes"]
 
@@ -133,22 +144,19 @@ def test_its_own_spool_directory_is_bound() -> None:
     _, svc = _render()
 
     env = svc["environment"]
-    assert env["OSPREY_AUDIT_IDENTITY"] == "app-knob-example"
-    assert env["OSPREY_SPOOL_DIR"].endswith("/var/spool/app-knob-example")
-    assert f"./var/spool/app-knob-example:{env['OSPREY_SPOOL_DIR']}" in svc["volumes"]
+    assert env["OSPREY_AUDIT_IDENTITY"] == "app-orbit-bump"
+    assert env["OSPREY_SPOOL_DIR"].endswith("/var/spool/app-orbit-bump")
+    assert f"./var/spool/app-orbit-bump:{env['OSPREY_SPOOL_DIR']}" in svc["volumes"]
 
 
 def test_the_launch_token_is_named_with_no_default() -> None:
-    _, svc = _render(_row(launch_token_env="KNOB_EXAMPLE_LAUNCH_TOKEN"))
+    _, svc = _render(_row(launch_token_env="ORBIT_BUMP_LAUNCH_TOKEN"))
 
-    assert svc["environment"]["KNOB_EXAMPLE_LAUNCH_TOKEN"] == "${KNOB_EXAMPLE_LAUNCH_TOKEN}"
+    assert svc["environment"]["ORBIT_BUMP_LAUNCH_TOKEN"] == "${ORBIT_BUMP_LAUNCH_TOKEN}"
 
 
 def test_the_panel_grant_lists_each_roster_secret() -> None:
-    grant = {
-        "secret_env_vars": ["OSPREY_TERMINAL_SECRET_ALICE"],
-        "roster_owners": "ALICE=alice",
-    }
+    grant = {"credentials": [_roster_credential("ALICE", "alice")]}
     _, svc = _render(panel_grant=grant)
 
     env = svc["environment"]
@@ -159,11 +167,7 @@ def test_the_panel_grant_lists_each_roster_secret() -> None:
 
 def test_a_roster_less_panel_grant_reads_the_deploy_variable_with_no_default() -> None:
     """The alias holds the one secret a roster-less deployment has; empty would lock it out."""
-    grant = {
-        "secret_env_vars": [],
-        "roster_owners": "OPERATOR=operator",
-        "secret_aliases": {"OSPREY_TERMINAL_SECRET_OPERATOR": "OSPREY_TERMINAL_SECRET"},
-    }
+    grant = {"credentials": [_alias_credential("OPERATOR", "operator")]}
     text, svc = _render(panel_grant=grant)
 
     env = svc["environment"]
@@ -174,11 +178,7 @@ def test_a_roster_less_panel_grant_reads_the_deploy_variable_with_no_default() -
 
 
 def test_a_grant_with_both_shapes_renders_each_by_its_own_rule() -> None:
-    grant = {
-        "secret_env_vars": ["OSPREY_TERMINAL_SECRET_ALICE"],
-        "roster_owners": "ALICE=alice,BOB=bob",
-        "secret_aliases": {"OSPREY_TERMINAL_SECRET_BOB": "OSPREY_TERMINAL_SECRET"},
-    }
+    grant = {"credentials": [_roster_credential("ALICE", "alice"), _alias_credential("BOB", "bob")]}
     text, svc = _render(panel_grant=grant)
 
     env = svc["environment"]
@@ -188,7 +188,7 @@ def test_a_grant_with_both_shapes_renders_each_by_its_own_rule() -> None:
 
 
 def test_an_empty_grant_renders_no_roster_secret() -> None:
-    _, svc = _render(panel_grant={"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}})
+    _, svc = _render(panel_grant={"credentials": []})
 
     env = svc["environment"]
     assert "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS" not in env
@@ -213,8 +213,8 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
     row = _row(
         network="bridge",
         state="var/knob",
-        launch_token_env="KNOB_EXAMPLE_LAUNCH_TOKEN",
-        roster_grant={"panel_id": "knob-example", "single_user_alias": None},
+        launch_token_env="ORBIT_BUMP_LAUNCH_TOKEN",
+        roster_grant={"panel_id": "orbit-bump", "single_user_alias": None},
     )
     assert set(row) - {"template", "url"} == {
         "app",
@@ -257,15 +257,15 @@ def test_the_declared_state_survives_the_render_a_build_takes(tmp_path: Path) ->
 
 @pytest.mark.slow
 def test_a_bridge_application_without_a_name_server_names_the_profile_keys(
-    built_control_assistant,
+    built_demo_orbit_bump,
 ) -> None:
-    """The shipped preset pointed at a Channel Access facility with no gateway address.
+    """The demo preset with orbit bump on, pointed at a Channel Access facility with no gateway.
 
     The refusal stands, and its remedy names only keys ``profile.yml`` can
     spell: the gateway address, the application's projected network axis, or
     dropping the application. ``services.<key>`` itself is a projected key.
     """
-    config = yaml.safe_load((built_control_assistant.repo / "build" / "config.yml").read_text())
+    config = yaml.safe_load((built_demo_orbit_bump.repo / "build" / "config.yml").read_text())
     config["control_system"]["type"] = "epics"
 
     with pytest.raises(DeploymentPreconditionError) as excinfo:
@@ -273,14 +273,10 @@ def test_a_bridge_application_without_a_name_server_names_the_profile_keys(
 
     remedy = excinfo.value.remedy
     assert "control_system.connector.epics.gateways." in remedy
-    assert "apps.knob-example.services.knob-example.network: host" in remedy
-    assert "apps.knob-example" in remedy.replace(
-        "apps.knob-example.services.knob-example.network", ""
-    )
-    assert "services.knob-example" not in remedy.replace(
-        "apps.knob-example.services.knob-example", ""
-    )
-    assert " on knob-example" not in remedy
+    assert "apps.orbit-bump.services.orbit-bump.network: host" in remedy
+    assert "apps.orbit-bump" in remedy.replace("apps.orbit-bump.services.orbit-bump.network", "")
+    assert "services.orbit-bump" not in remedy.replace("apps.orbit-bump.services.orbit-bump", "")
+    assert " on orbit-bump" not in remedy
 
 
 def test_it_renders_with_none_of_the_keys_it_reads() -> None:

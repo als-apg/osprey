@@ -46,6 +46,7 @@ const transport = {
   interrupt: vi.fn(),
   requestHandoff: vi.fn(),
   fetchCommands: vi.fn(),
+  fetchMcpServers: vi.fn(),
   followChat: vi.fn(),
   uploadChatAttachment: vi.fn(),
   removeChatAttachment: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   requestHandoff: (/** @type {any} */ key, /** @type {any} */ options) =>
     transport.requestHandoff(key, options),
   fetchCommands: () => transport.fetchCommands(),
+  fetchMcpServers: () => transport.fetchMcpServers(),
   followChat: (/** @type {any} */ key, /** @type {any} */ callbacks) =>
     transport.followChat(key, callbacks),
   uploadChatAttachment: (/** @type {any} */ key, /** @type {any} */ file, /** @type {any} */ o) =>
@@ -177,6 +179,7 @@ beforeEach(() => {
     .mockResolvedValue([
       { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
     ]);
+  transport.fetchMcpServers.mockReset().mockResolvedValue([]);
   transport.followChat.mockReset().mockReturnValue({ close: () => {} });
   transport.uploadChatAttachment
     .mockReset()
@@ -1510,14 +1513,103 @@ describe('renderChatBootFailure', () => {
 });
 
 describe('the Agent bar', () => {
-  test('reads dot, the session switcher, New conversation, bell — no Export, no ⋯', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test('reads the session switcher and New conversation — no dot, bell, Export or ⋯', async () => {
     await mountChat();
     const bar = /** @type {HTMLElement} */ (one('.op-session-bar'));
-    const parts = [...bar.children].map(
-      (el) => el.getAttribute('aria-label') ?? el.textContent ?? ''
+    const controls = [...bar.querySelectorAll('button, [role="button"]')].map((el) =>
+      el.getAttribute('aria-label')
     );
-    expect(parts).toEqual(['', 'Switch session', 'New conversation', 'Desktop notifications']);
-    expect(bar.querySelector('.op-session-more')).toBeNull();
+    expect(controls).toEqual(['Switch session', 'New conversation']);
+    expect(bar.lastElementChild?.classList.contains('agent-bar-new')).toBe(true);
+    expect(bar.querySelector('.osprey-dot, .op-session-more')).toBeNull();
     expect(document.getElementById('agent-conversations-menu')).toBeNull();
+  });
+
+  test("the console's features put Export and Desktop notifications in the pane's ⋯", async () => {
+    vi.stubGlobal(
+      'Notification',
+      class {
+        static permission = 'default';
+      }
+    );
+    await mountChat();
+    const { agentMenuRows } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/agent-menu.js');
+    expect(agentMenuRows().map((row) => row.label)).toEqual([
+      'Export conversation',
+      'Desktop notifications',
+    ]);
+  });
+});
+
+describe('/mcp: the chat lists the MCP servers itself', () => {
+  const textarea = () => /** @type {HTMLTextAreaElement} */ (one('textarea'));
+  const settle = async () => {
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  };
+  /** @param {string} text */
+  const submit = (text) => {
+    textarea().value = text;
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+  };
+  const rows = () =>
+    [...container.querySelectorAll('.op-mcp-row')].map((r) => ({
+      name: r.querySelector('.op-mcp-name')?.textContent,
+      tools: r.querySelector('.osprey-count')?.textContent,
+      state: r.querySelector('.osprey-chip')?.textContent,
+      ok: r.querySelector('.osprey-chip--ok') !== null,
+    }));
+
+  test('a card lists each server with its tool count, OK or its error; no prompt is sent', async () => {
+    transport.fetchMcpServers.mockResolvedValue([
+      { name: 'controls', transport: 'stdio', tool_count: 3, tools: [{}, {}, {}], error: null },
+      {
+        name: 'archiver',
+        transport: 'stdio',
+        tool_count: null,
+        tools: null,
+        error: 'no answer within 10 s',
+      },
+    ]);
+    await mountChat({ pointer: 'K1' });
+    submit('/mcp');
+    await settle();
+
+    expect(transport.fetchMcpServers).toHaveBeenCalledTimes(1);
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+    expect(textarea().value).toBe('');
+    expect(textOf('.op-mcp-card .osprey-list-head')).toBe('MCP servers');
+    expect(rows()).toEqual([
+      { name: 'controls', tools: '3', state: 'OK', ok: true },
+      { name: 'archiver', tools: undefined, state: 'no answer within 10 s', ok: false },
+    ]);
+  });
+
+  test('no servers reads as a line of its own', async () => {
+    await mountChat({ pointer: 'K1' });
+    submit('  /mcp  ');
+    await settle();
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+    expect(textOf('.op-mcp-card .osprey-list-empty')).toBe('No MCP servers are configured.');
+  });
+
+  test('a failed listing is a system notice', async () => {
+    transport.fetchMcpServers.mockRejectedValue(new Error('HTTP 500: Server Error'));
+    await mountChat({ pointer: 'K1' });
+    submit('/mcp');
+    await settle();
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+    expect(textOf('.op-system')).toBe('Listing the MCP servers failed: HTTP 500: Server Error');
+  });
+
+  test('a prompt that only mentions /mcp goes to the agent', async () => {
+    await mountChat({ pointer: 'K1' });
+    submit('/mcp-check SR01');
+    expect(transport.fetchMcpServers).not.toHaveBeenCalled();
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
   });
 });

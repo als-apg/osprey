@@ -6,6 +6,7 @@
  * active-panel policy), panel-lifecycle.js owns how a panel comes to exist and
  * stay alive, and panel-sse.js owns the server→client frame dispatcher. This
  * module owns the tile geometry: the person's "Open in a new tile" verb, the
+ * tile bar's Open panel ▸ placements ({@link openPanelAtTile}), the
  * landing of a sidebar row's drop, and the op runner ({@link runPanelOp})
  * that applies a `panel_op` frame — an agent's drop, close, open, set or
  * arrangement, and a person's preset click, which the server relays the same
@@ -13,7 +14,7 @@
  * dock-open.js (the service tile used last, replacing the panel it showed).
  *
  * It reaches the dock only through the existing seams: dock-sync's placement
- * verbs (dockPanelBesideActive) and echo guard, dock-open.js (the open rule,
+ * verbs (dockPanelBesideActive, dockPanelAt) and echo guard, dock-open.js (the open rule,
  * the set and arrange composers), the dock engine (drops and closes), and the
  * layout holder (dock-apply.js), which answers what the dock holds and applies
  * every change. Everything it needs from panel-manager's private state arrives
@@ -34,20 +35,19 @@
  * naming it is refused `popped_out` — the operator brings it back.
  */
 
-import { dockPanelBesideActive } from './dock-sync.js';
-import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
+import { dockPanelAt, dockPanelBesideActive, withEchoSuppressed } from './dock-sync.js';
+import { getLayoutHolder, isDetached, TERMINAL_KEY } from './dock-apply.js';
 import {
   arrange,
   focusKey,
-  openPanel,
   openPanelSet,
+  openPlaced,
   PANEL_UNHEALTHY,
   TERMINAL_IN_LAYOUT,
 } from './dock-open.js';
 import { ONE_PANEL_PER_TILE } from './dock-policy.js';
 import { closeTab, findTile, keysOf, planDrop, tileOf } from '/static/vendor/dock-engine.mjs';
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
-import { isPoppedOut } from './popout.js';
 
 /**
  * The panel-manager state and actions this module places panels through. Every
@@ -140,6 +140,64 @@ export function openPanelBeside(panelId) {
 }
 
 /**
+ * The tile a service panel is shown in, read off the layout holder; null when
+ * it holds no tile (or there is no holder). A service tile bar's own tile.
+ * @param {string} panelId
+ * @returns {string | null}
+ */
+export function dockedTileOf(panelId) {
+  return tileOf(getLayoutHolder()?.layout ?? null, panelId)?.tile ?? null;
+}
+
+/** The engine side each split placement of {@link openPanelAtTile} lands on. */
+const SPLIT_SIDE = /** @type {const} */ ({ right: 'right', down: 'bottom' });
+
+/**
+ * Open a panel against ONE named tile — the tile bar's Open panel ▸ Right /
+ * Down / Replace here, where the tile is the bar's own. Right and Down split
+ * that tile (dock-sync's dockPanelAt; an already-docked panel is moved, never
+ * duplicated); Replace here swaps that tile's panel for this one through the
+ * targeted open (dock-open.js's openPlaced with an explicit tile), NOT the
+ * everyday open, which replaces the service tile used last. Every placement
+ * ends in the same reveal tail as the other opens, so rail membership,
+ * activation and the focus POST match.
+ *
+ * Refused, with nothing changed and nothing revealed: no layout holder (the
+ * fallback has no tiles), a tile the dock does not hold, a placement other
+ * than the three, the Agent pane as the panel or as Replace here's target
+ * (TERMINAL_NOT_AGENT_MOVABLE), and a panel living in its own window.
+ * @param {string} panelId
+ * @param {string} tileId  the tile to place against
+ * @param {'right' | 'down' | 'replace'} place
+ * @returns {string | null} the refusal, or null when the panel was opened
+ */
+export function openPanelAtTile(panelId, tileId, place) {
+  if (panelId === TERMINAL_RAIL_ID || panelId === TERMINAL_KEY) return TERMINAL_NOT_AGENT_MOVABLE;
+  const holder = getLayoutHolder();
+  if (!holder) return NO_DOCK_CLIENT;
+  if (place !== 'right' && place !== 'down' && place !== 'replace') return INVALID_TARGET;
+  if (findTile(holder.layout ?? null, tileId) === null) return UNKNOWN_TILE;
+  if (isDetached(panelId)) return POPPED_OUT;
+  if (place === 'replace' && holdsTerminal(holder.layout, tileId)) {
+    return TERMINAL_NOT_AGENT_MOVABLE;
+  }
+  const wasOnScreen = hasDockedTile(panelId);
+  const title = ctx().label(panelId);
+  if (place === 'replace') {
+    holder.setPanelRecord(panelId, { title });
+    withEchoSuppressed(() =>
+      holder.run((layout, opCtx) =>
+        openPlaced(layout, panelId, { place: 'replace', tile: tileId }, opCtx)
+      )
+    );
+  } else {
+    dockPanelAt(panelId, title, { referenceTile: tileId, direction: SPLIT_SIDE[place] });
+  }
+  revealOpenedPanel(panelId, wasOnScreen);
+  return null;
+}
+
+/**
  * Reveal a panel a sidebar row's drop has just placed (rail-drag.js's landing):
  * the engine put its tile where the row was dropped and the holder has applied
  * it; what is left is the activation tail every other open uses.
@@ -159,6 +217,10 @@ export const POPPED_OUT = 'popped_out';
 export const UNKNOWN_KEY = 'unknown_key';
 export const UNKNOWN_TILE = 'unknown_tile';
 export const INVALID_SOURCE = 'invalid_source';
+export const INVALID_TARGET = 'invalid_target';
+
+/** The sides an agent's open may split a tile on. */
+const OPEN_EDGES = new Set(['left', 'right', 'top', 'bottom']);
 export const INVALID_LAYOUT = 'invalid_layout';
 export const UNKNOWN_OP = 'unknown_op';
 export const NO_DOCK_CLIENT = 'no_dock_client';
@@ -253,18 +315,38 @@ function planOp(frame, layout, isHealthy) {
       const member = args.member;
       if (member === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
       if (typeof member !== 'string') return { refusal: INVALID_SOURCE };
-      if (isPoppedOut(member)) {
+      if (isDetached(member)) {
         return { run: (l) => ({ layout: l, changed: false }), popout: member };
       }
       if (tileOf(layout, member)) return { run: (l) => focusKey(l, member) };
       if (!isHealthy(member)) return { refusal: PANEL_UNHEALTHY };
-      return { run: (l, ctx) => openPanel(l, member, ctx) };
+      const place = args.place;
+      if (place !== undefined && place !== 'split' && place !== 'replace') {
+        return { refusal: INVALID_TARGET };
+      }
+      if (args.edge !== undefined && (place === 'replace' || !OPEN_EDGES.has(args.edge))) {
+        return { refusal: INVALID_TARGET };
+      }
+      if (args.tile !== undefined) {
+        if (typeof args.tile !== 'string' || findTile(layout, args.tile) === null) {
+          return { refusal: UNKNOWN_TILE };
+        }
+        if (place === 'replace' && holdsTerminal(layout, args.tile)) {
+          return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
+        }
+      }
+      /** @type {import('./dock-open.js').OpenPlacement} */
+      const placement = {};
+      if (place !== undefined) placement.place = place;
+      if (args.tile !== undefined) placement.tile = args.tile;
+      if (args.edge !== undefined) placement.edge = args.edge;
+      return { run: (l, ctx) => openPlaced(l, member, placement, ctx) };
     }
     case 'open_set':
     case 'open_arrangement': {
       const members = Array.isArray(args.members) ? args.members : [];
       if (members.includes(TERMINAL_KEY)) return { refusal: TERMINAL_IN_LAYOUT };
-      if (members.some((/** @type {string} */ key) => isPoppedOut(key))) {
+      if (members.some((/** @type {string} */ key) => isDetached(key))) {
         return { refusal: POPPED_OUT };
       }
       const given = args.layout === undefined ? undefined : byMember(args.layout, members);
@@ -287,12 +369,12 @@ function planOp(frame, layout, isHealthy) {
       if (source.new && typeof source.new.panel === 'string') {
         const key = source.new.panel;
         if (key === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
-        if (isPoppedOut(key)) return { refusal: POPPED_OUT };
+        if (isDetached(key)) return { refusal: POPPED_OUT };
         if (tileOf(layout, key) === null && !isHealthy(key)) return { refusal: PANEL_UNHEALTHY };
         engineSource = tileOf(layout, key) ? { tab: key } : { new: key };
       } else if (typeof source.tab === 'string') {
         if (source.tab === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
-        if (isPoppedOut(source.tab)) return { refusal: POPPED_OUT };
+        if (isDetached(source.tab)) return { refusal: POPPED_OUT };
         if (tileOf(layout, source.tab) === null) return { refusal: UNKNOWN_KEY };
         engineSource = { tab: source.tab };
       } else if (typeof source.tile === 'string') {
@@ -322,7 +404,7 @@ function planOp(frame, layout, isHealthy) {
     }
     case 'close': {
       if (args.key === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
-      if (typeof args.key === 'string' && isPoppedOut(args.key)) return { refusal: POPPED_OUT };
+      if (typeof args.key === 'string' && isDetached(args.key)) return { refusal: POPPED_OUT };
       if (tileOf(layout, args.key) === null) return { refusal: UNKNOWN_KEY };
       return { run: (l) => closeTab(l, args.key) };
     }

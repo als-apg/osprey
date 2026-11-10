@@ -256,13 +256,14 @@ def signed_in() -> Iterator[type[_SignedIn]]:
 
 
 def _open_run(page: Page, base_url: str) -> None:
-    """Load the dashboard, install the state, route to the run's detail."""
+    """Load the dashboard, install the state as a first poll answer would, route to the run."""
     page.goto(f"{base_url}/", wait_until="domcontentloaded")
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
     page.evaluate(
         """([nextState, runId]) => {
             state.triggers = nextState.triggers;
             state.runs = nextState.runs;
+            loaded = true;
             navigate({ name: 'run', runId });
         }""",
         [STATE, RUN_ID],

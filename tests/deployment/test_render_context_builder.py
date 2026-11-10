@@ -10,6 +10,7 @@ deployment the single-user alias — and the staged login map for a
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -20,28 +21,23 @@ from osprey.deployment.compose_generator import (
     service_render_context,
     setup_build_dir,
 )
+from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from tests._renders import tier_render
+
+_PARTIALS = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "services"
 
 LOGIN_TIERS = {"alice": "allowed", "bob": "asked", "carol": "never"}
 
 #: Reads every name this builder injects, so a render shows them all.
 _TEMPLATE = """\
+{%- import "services/_panel_grant.j2" as panel -%}
 services:
   {{ service_key }}:
     image: demo
     environment:
       PORT: "{{ service.port }}"
-{%- if panel_grant.secret_env_vars or panel_grant.secret_aliases %}
-      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
-{%- for var in panel_grant.secret_env_vars %}
-      {{ var }}: ${{ "{" }}{{ var }}:-}
-{%- endfor %}
-{%- for var, source in panel_grant.secret_aliases.items() %}
-      {{ var }}: ${{ "{" }}{{ source }}}
-{%- endfor %}
-      OSPREY_TERMINAL_ROSTER_OWNERS: "{{ panel_grant.roster_owners }}"
-{%- endif %}
+{{- panel.env(panel_grant.credentials) }}
 """
 
 _ENTRY_POINTS = ("full", "incremental")
@@ -55,6 +51,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         service = repo / "services" / key
         service.mkdir(parents=True)
         (service / "docker-compose.yml.j2").write_text(_TEMPLATE)
+    shutil.copy(_PARTIALS / "_panel_grant.j2", repo / "services")
     for tier, panels in (("viewer", {}), ("operator", {"knob-demo": {"url": "http://x"}})):
         project = repo / "build" / f"demo-{tier}"
         project.mkdir(parents=True)
@@ -147,8 +144,8 @@ def test_the_service_key_defaults_to_the_template_directory(repo: Path) -> None:
     assert rendered["services"]["plain"]["environment"] == {"PORT": "18001"}
 
 
-def test_the_builder_aliases_the_bluesky_names_to_its_grant(repo: Path) -> None:
-    """The two legacy bluesky names are the same values ``panel_grant`` holds."""
+def test_the_bluesky_sidecar_reads_its_grant_from_panel_grant(repo: Path) -> None:
+    """The sidecar's grant is ``panel_grant``, under no older name of its own."""
     config = _config(repo)
     config["services"]["bluesky_web"] = {"path": "services/bluesky_web"}
     (repo / "build" / "demo-operator" / "config.yml").write_text(
@@ -160,20 +157,30 @@ def test_the_builder_aliases_the_bluesky_names_to_its_grant(repo: Path) -> None:
     context = service_render_context(
         config, "services/bluesky_web", str(out_dir), service_key="bluesky_web"
     )
-    assert context["panel_grant"]["secret_env_vars"] == [terminal_secret_var("alice")]
-    assert context["bluesky_panel_secret_env_vars"] == context["panel_grant"]["secret_env_vars"]
-    assert context["bluesky_panel_roster_owners"] == context["panel_grant"]["roster_owners"]
+    alice = terminal_secret_var("alice")
+    assert context["panel_grant"] == {
+        "credentials": [{"var": alice, "source": alice, "owner": "alice", "required": False}]
+    }
+    assert "bluesky_panel_secret_env_vars" not in context
+    assert "bluesky_panel_roster_owners" not in context
     assert context["service_key"] == "bluesky_web"
     assert context["service"] == config["services"]["bluesky_web"]
 
     plain = service_render_context(config, "services/plain", str(out_dir), service_key="plain")
-    assert plain["panel_grant"] == {
-        "secret_env_vars": [],
-        "roster_owners": "",
-        "secret_aliases": {},
-    }
-    assert plain["bluesky_panel_secret_env_vars"] == []
-    assert plain["bluesky_panel_roster_owners"] == ""
+    assert plain["panel_grant"] == {"credentials": []}
+
+
+@pytest.mark.parametrize("name", ["bluesky_panel_secret_env_vars", "bluesky_panel_roster_owners"])
+def test_a_template_reading_a_retired_grant_name_is_refused(repo: Path, name: str) -> None:
+    """A hand-kept template still reading an old name fails the build, never renders empty."""
+    template = Path("services/plain/docker-compose.yml.j2")
+    template.write_text(
+        _TEMPLATE + f"{{%- if {name} | default([]) %}}\n      X: '1'\n{{%- endif %}}\n"
+    )
+    with pytest.raises(DeploymentPreconditionError, match=name) as refused:
+        setup_build_dir(str(template), _config(repo), {})
+    assert "panel_grant.credentials" in refused.value.reason
+    assert "services/bluesky_web/docker-compose.yml.j2" in refused.value.remedy
 
 
 @pytest.mark.parametrize("entry_point", _ENTRY_POINTS)

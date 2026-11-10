@@ -1,7 +1,7 @@
 // @ts-check
 /**
- * ARIEL panel layout: the one screen's panes, splitters, stacked mode,
- * drawers and gear menu.
+ * ARIEL panel layout: the one screen's panes, splitters, stacked mode and
+ * drawers.
  *
  * The screen is three pane roots inside `.app-container` (index.html):
  * `#ariel-rail` | `#ariel-list-col` (the list plus the compose host over it)
@@ -13,14 +13,13 @@
  *   to the splitter. The shared splitter has no snap, so the rail's `min` is
  *   the icon-strip width and the snap lives in `onCommit`: an expanded
  *   release below RAIL_SNAP restores the last usable width and then collapses
- *   to the strip, so expanding returns a usable rail. Default collapsed
- *   embedded, expanded standalone.
+ *   to the strip, so expanding returns a usable rail. Default collapsed.
  * - `stacked`: a ResizeObserver on the panel root (below STACK_BELOW px the
  *   list and reader share one column and `narrowView` picks which shows).
  *   Back in the reader's pane head writes `narrowView:'list'`.
  * - `drawer`: `#status-drawer` and `#settings-drawer`. A store write opens or
  *   closes them; every open/close the drawers do themselves (Esc, backdrop,
- *   the display menu's Settings entry, an unsaved-changes veto) is written
+ *   an unsaved-changes veto) is written
  *   back from their `drawer:open` / `drawer:close` events, never assumed.
  *   `initSettings` removes `#settings-drawer` when the config panel is
  *   disabled, so it must run first; `drawer:'settings'` is then a no-op.
@@ -28,16 +27,13 @@
  * Root attributes CSS keys off (layout.css): `data-rail-collapsed`,
  * `data-stacked`, `data-narrow-view` on `.app-container`.
  *
- * Widths persist per frame kind (embedded vs standalone) under
- * `scopedStorageKey`, so the hub tile and the standalone page never
- * overwrite each other. The list column's width is the only list/reader
- * split stored: the reader takes the remaining space.
+ * Widths persist under `scopedStorageKey`; the keys keep their `-embedded`
+ * suffix so an operator's stored sizes survive. The list column's width is the
+ * only list/reader split stored: the reader takes the remaining space.
  */
 
 import { initSplitter, parseStoredState } from '/design-system/js/splitter.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
-import { isEmbedded } from '/design-system/js/frame-params.js';
-import { closePopover, togglePopover } from '/design-system/js/popover.js';
 import { icon } from '/design-system/js/icons.js';
 import { getState, setState, subscribe } from './store.js';
 
@@ -55,19 +51,14 @@ export const LIST_MAX = 760;
 /** Panel widths below this stack list and reader into one column. */
 export const STACK_BELOW = 640;
 
-/** @returns {'embedded'|'standalone'} */
-function frameKind() {
-  return isEmbedded() ? 'embedded' : 'standalone';
-}
-
 /** @returns {string} storage key of the rail's size + collapsed record */
 export function railStorageKey() {
-  return scopedStorageKey(`ariel-rail-${frameKind()}`);
+  return scopedStorageKey('ariel-rail-embedded');
 }
 
 /** @returns {string} storage key of the list column's width */
 export function listStorageKey() {
-  return scopedStorageKey(`ariel-list-width-${frameKind()}`);
+  return scopedStorageKey('ariel-list-width-embedded');
 }
 
 /** @param {string} key @returns {string|null} */
@@ -79,10 +70,10 @@ function readStored(key) {
   }
 }
 
-/** @type {ReadonlyArray<[DrawerName, string, string]>} name, element id, menu label */
+/** @type {ReadonlyArray<[DrawerName, string]>} name, element id */
 const DRAWERS = [
-  ['status', 'status-drawer', 'Status'],
-  ['settings', 'settings-drawer', 'Settings'],
+  ['status', 'status-drawer'],
+  ['settings', 'settings-drawer'],
 ];
 
 /**
@@ -94,9 +85,8 @@ const DRAWERS = [
  * @returns {{apply: (want: boolean) => void, isCollapsed: () => boolean, destroy: () => void}}
  */
 function wireRail(handle, pane, app) {
-  const embedded = isEmbedded();
   const railKey = railStorageKey();
-  const storedRail = parseStoredState(readStored(railKey), embedded).size;
+  const storedRail = parseStoredState(readStored(railKey), true).size;
   /** Last expanded width at or above the snap threshold; what expand returns to. */
   let lastUsable =
     storedRail !== null && storedRail >= RAIL_SNAP ? Math.min(storedRail, RAIL_MAX) : RAIL_DEFAULT;
@@ -110,7 +100,7 @@ function wireRail(handle, pane, app) {
     min: RAIL_STRIP,
     max: RAIL_MAX,
     collapsedSize: RAIL_STRIP,
-    defaultCollapsed: embedded,
+    defaultCollapsed: true,
     initialSize: lastUsable,
     onCommit: (size, collapsed) => {
       if (drivingRail) return;
@@ -208,8 +198,7 @@ function observeStacked(app) {
  * are written back from events, and `apply` drives them from a store write.
  * @param {(id: string) => HTMLElement|null} byId
  * @param {AbortSignal} signal
- * @returns {{has: (name: DrawerName) => boolean, current: () => DrawerName|null,
- *   apply: (want: DrawerName|null) => void}}
+ * @returns {{current: () => DrawerName|null, apply: (want: DrawerName|null) => void}}
  */
 function wireDrawers(byId, signal) {
   /** @type {Map<DrawerName, HTMLElement & {open?: () => boolean, close?: () => boolean}>} */
@@ -238,7 +227,6 @@ function wireDrawers(byId, signal) {
   };
 
   return {
-    has: (name) => drawers.has(name),
     current,
     apply: (want) => {
       if (want !== null && !drawers.has(want)) return; // e.g. Settings removed: no-op
@@ -256,40 +244,6 @@ function wireDrawers(byId, signal) {
       if (actual !== getState().drawer) setState({ drawer: actual });
     },
   };
-}
-
-/**
- * The gear button and its popover menu: one entry per drawer that exists.
- * @param {HTMLElement|null} gear
- * @param {HTMLElement|null} menu
- * @param {(name: DrawerName) => boolean} hasDrawer
- * @param {AbortSignal} signal
- */
-function wireGearMenu(gear, menu, hasDrawer, signal) {
-  if (!gear || !menu) return;
-  if (!gear.querySelector('svg')) gear.prepend(icon('settings'));
-  menu.replaceChildren();
-  for (const [name, , label] of DRAWERS) {
-    if (!hasDrawer(name)) continue;
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = 'osprey-popover-item';
-    item.setAttribute('role', 'menuitem');
-    item.dataset.arielDrawer = name;
-    item.textContent = label;
-    item.addEventListener(
-      'click',
-      () => {
-        closePopover(menu);
-        setState({ drawer: name });
-      },
-      { signal }
-    );
-    menu.append(item);
-  }
-  gear.addEventListener('click', () => togglePopover(gear, menu, { place: 'below-end' }), {
-    signal,
-  });
 }
 
 /**
@@ -323,7 +277,6 @@ export function initLayout(root = document) {
   }
 
   const drawers = wireDrawers(byId, signal);
-  wireGearMenu(byId('ariel-gear-btn'), byId('ariel-gear-menu'), drawers.has, signal);
 
   /** @param {State} state */
   const stampRoot = (state) => {

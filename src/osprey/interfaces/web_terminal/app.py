@@ -15,7 +15,6 @@ import shlex
 import sys
 from collections import deque
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -36,8 +35,14 @@ from osprey.interfaces.common_middleware import (
     forwarded_identity,
     resolve_storage_scope,
 )
+from osprey.interfaces.design_system.favicon import FAVICON_PATH
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal import scenario_sessions, session_meta
+from osprey.interfaces.web_terminal.config_view import (
+    UNREADABLE,
+    TerminalConfigView,
+    coerce_config_flag,
+)
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.feedback_destination import (
@@ -85,6 +90,7 @@ from osprey.profiles.web_panels import (
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
     PanelRegistry,
+    in_catalog_order,
     panel_id_refusal,
     panel_spec_enabled,
     sidecar_panel_descriptors,
@@ -109,7 +115,7 @@ if TYPE_CHECKING:
 STATIC_DIR = Path(__file__).parent / "static"
 
 #: The tab icon, in the design system's static tree.
-_FAVICON = Path(__file__).parent.parent / "design_system" / "static" / "img" / "osprey-mark.svg"
+_FAVICON = FAVICON_PATH
 
 
 def _favicon_url() -> str:
@@ -554,8 +560,9 @@ def control_target_picker_available(config_path: str | Path | None) -> bool:
     A config that cannot be read keeps the picker. This is a display setting,
     not a privilege gate: it grants and removes no access, so the shipped
     default is the honest answer when the file says nothing legible.
-    :func:`resolve_privilege_gates` closes on the same failure because it
-    guards edits.
+    The privilege gates
+    (:meth:`~osprey.interfaces.web_terminal.config_view.TerminalConfigView.gates`)
+    close on the same failure because they guard edits.
 
     Args:
         config_path: The project config, or None for the default lookup.
@@ -571,168 +578,6 @@ def control_target_picker_available(config_path: str | Path | None) -> bool:
         )
         return True
     return coerce_config_flag("web.control_target_picker", raw, True)
-
-
-#: Words a human writes when they mean a boolean but YAML kept a string —
-#: ``enabled: "false"`` (quoted) is the one that matters, because for a
-#: default-ON switch a bare ``bool("false")`` is ``True``: the deployment
-#: would read as having asked for the switch OFF and get it left ON.
-_FALSE_WORDS = frozenset({"false", "no", "off", "0"})
-_TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
-
-
-@dataclass(frozen=True)
-class PrivilegeGates:
-    """The two privilege gates a surface resolves out of its config file.
-
-    Attributes:
-        config_panel_enabled: Whether the Config panel's server surface
-            (``/api/config`` and ``/api/claude-setup``) is live.
-        scaffold_write_enabled: Whether the scaffold gallery's write and delete
-            routes under ``/api/scaffold`` are live.
-        config_unreadable_path: The resolved config file that exists but
-            could not be read, or ``None``.
-    """
-
-    config_panel_enabled: bool
-    scaffold_write_enabled: bool
-    config_unreadable_path: Path | None = None
-
-
-def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
-    """Read both privilege gates out of the config file a surface resolved.
-
-    No file resolved means the shipped defaults, read out of nothing: a
-    privilege gate answered out of a file the surface was not pointed at is
-    worse than one at its default. A resolved file that cannot be read closes
-    both gates, because an unreadable config is not permission to author what
-    the agent obeys. A readable file holding a value nobody can interpret takes
-    the default through :func:`coerce_config_flag`.
-
-    Both keys are read in one pass, so one file gives one answer for both
-    gates and a failure is reported once. A surface refusing because the file
-    could not be read words it with :func:`unreadable_config_refusal`.
-
-    Args:
-        config_path: The config file this surface resolved, or ``None``.
-
-    Returns:
-        The two gates, and the unreadable file when there is one.
-    """
-    if config_path is None:
-        return PrivilegeGates(True, True)
-    from osprey_connectors.config import get_config_value
-
-    try:
-        panel_raw = get_config_value("web.config_panel.enabled", True, str(config_path))
-        scaffold_raw = get_config_value(
-            "web.scaffold_gallery.write_enabled", True, str(config_path)
-        )
-    except Exception:
-        logger.error(
-            "Could not read the config file %s; the Config panel and scaffold gallery "
-            "writes are closed until it reads cleanly",
-            config_path,
-            exc_info=True,
-        )
-        return PrivilegeGates(False, False, Path(config_path))
-    return PrivilegeGates(
-        coerce_config_flag("web.config_panel.enabled", panel_raw, True),
-        coerce_config_flag("web.scaffold_gallery.write_enabled", scaffold_raw, True),
-    )
-
-
-#: The refusal every terminal-surface route gives when ``web.terminal`` is
-#: false. One sentence, so the websocket's error frame and the log say the same.
-TERMINAL_REFUSAL = "The terminal is not offered on this deployment (web.terminal: false)."
-
-
-def resolve_terminal_offered(config_path: str | Path | None) -> bool:
-    """Whether this deployment offers the terminal on the Agent tile (``web.terminal``).
-
-    Default ``True``: a deployment that never mentions the key keeps the
-    runtime opt-in. ``false`` takes the terminal surface away — the browser
-    drops the entry to it, and ``/ws/terminal`` refuses to open a PTY session.
-
-    Read the way :func:`resolve_privilege_gates` reads its gates, because it
-    is one in kind — the server refuses a route on it, not only the page: no
-    file resolved means the default, a resolved file that cannot be read means
-    no terminal, and a value nobody can interpret takes the default through
-    :func:`coerce_config_flag`.
-
-    Args:
-        config_path: The config file this surface resolved, or ``None``.
-
-    Returns:
-        False when the config says ``false`` or cannot be read.
-    """
-    if config_path is None:
-        return True
-    from osprey_connectors.config import get_config_value
-
-    try:
-        raw = get_config_value("web.terminal", True, str(config_path))
-    except Exception:
-        logger.error(
-            "Could not read the config file %s; the terminal is closed until it reads cleanly",
-            config_path,
-            exc_info=True,
-        )
-        return False
-    return coerce_config_flag("web.terminal", raw, True)
-
-
-def unreadable_config_refusal(path: str | Path) -> str:
-    """The refusal every surface gives when an existing config file could not be read.
-
-    It names the file and the fix. The privilege gates are resolved once at
-    startup, so restarting the server after the file is fixed is what reopens
-    them.
-
-    Args:
-        path: The config file that exists but could not be read.
-
-    Returns:
-        The refusal sentence, naming the file and the fix.
-    """
-    return f"{path} could not be read; fix it and restart the server"
-
-
-def coerce_config_flag(key: str, value: object, default: bool) -> bool:
-    """Return a configured boolean switch, falling back to *default*.
-
-    An **absent** key (``None``) means "use the default" — the shipped
-    behaviour of a deployment that never mentions the switch.
-
-    A real YAML boolean is honoured as written. A quoted ``"false"`` is honoured
-    too: that spelling is a human writing a boolean, and reading it as truthy
-    would leave a switch ON that the config says is OFF.
-
-    Anything else (a number, a mapping from a mis-indented file, an unrecognized
-    word) is reported and discarded, exactly as :func:`coerce_config_str` does
-    with a non-string — a value nobody can interpret must not silently become
-    one of the two postures.
-
-    Args:
-        key: Dotted config key, used only for the warning message.
-        value: Whatever the config reader returned.
-        default: The shipped default for *key*.
-
-    Returns:
-        The configured boolean, or *default*.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        token = value.strip().lower()
-        if token in _TRUE_WORDS:
-            return True
-        if token in _FALSE_WORDS:
-            return False
-    logger.warning("%s is %r, not a boolean; using %r instead", key, value, default)
-    return default
 
 
 #: Placeholders a config-declared panel's ``path`` may carry, resolved once per
@@ -1027,7 +872,7 @@ def _load_panel_runtime_config(
     except Exception:
         pass
 
-    visible_panels = [p for p in enabled_panels if p not in hidden_builtins] + [
+    visible_panels = [p for p in in_catalog_order(enabled_panels) if p not in hidden_builtins] + [
         cp["id"] for cp in custom_panels if cp["id"] not in hidden_custom_ids
     ]
     return _PanelRuntimeConfig(
@@ -1283,7 +1128,7 @@ def _detect_turn_hook(app: FastAPI) -> None:
         )
 
 
-def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
+def _start_watchdogs(app: FastAPI, view: TerminalConfigView) -> None:
     """Resolve, once, whether this build runs watchdogs, and where their holds live.
 
     ``app.state.session_hold_root`` and ``app.state.watchdog_runner`` are both set
@@ -1301,12 +1146,12 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
     os.environ.pop(HOLD_DIR_ENV_VAR, None)
     app.state.session_hold_root = None
     app.state.watchdog_runner = None
+    config_file = view.path
     if config_file is None:
         return
-    try:
-        config = yaml.safe_load(config_file.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        logger.warning("No watchdogs: %s is unreadable (%s)", config_file, type(exc).__name__)
+    config = view.render()
+    if config is UNREADABLE:
+        logger.warning("No watchdogs: %s is unreadable", config_file)
         return
     if not isinstance(config, dict):
         return
@@ -1575,7 +1420,14 @@ def _create_lifespan(
         app.state.config_path = resolved_config_path
         # Built before any feature registers into it; a restart starts it empty.
         app.state.safety_switches = SafetySwitches()
-        _start_watchdogs(app, resolved_config_path)
+        # The one reader of this render (config_view). The env chain is loaded
+        # first, once, so a ``${VAR}`` reference expands the way the deploy
+        # expands it; the view's re-parses never reload it.
+        from osprey_connectors.config import load_project_dotenv
+
+        load_project_dotenv()
+        app.state.terminal_config = TerminalConfigView(resolved_config_path)
+        _start_watchdogs(app, app.state.terminal_config)
         await _serve_code_review_switch(app, resolved_config_path)
         # Automatic session names (Decision 8): `GET /api/sessions` hands its
         # rows to this scheduler, which names them in the background through
@@ -1622,7 +1474,7 @@ def _create_lifespan(
         # /ws/terminal refuses to open a PTY session (routes/websocket.py). Read
         # like the privilege gates below — the server refuses a route on it —
         # so an unreadable config closes it.
-        app.state.web_terminal_offered = resolve_terminal_offered(resolved_config_path)
+        app.state.web_terminal_offered = app.state.terminal_config.flag("web.terminal", True)
 
         # ── Onboarding-tour invite policy ──
         # OSPREY_WEB_TOUR (the per-user roster path) outranks web.tour, the
@@ -1681,7 +1533,7 @@ def _create_lifespan(
         # author what the agent obeys. An absent key is the default every
         # single-user deployment has always had. They come from one read, so
         # they cannot disagree about the file.
-        gates = resolve_privilege_gates(resolved_config_path)
+        gates = app.state.terminal_config.gates()
         app.state.config_panel_enabled = gates.config_panel_enabled
         app.state.scaffold_write_enabled = gates.scaffold_write_enabled
         app.state.config_unreadable_path = gates.config_unreadable_path
@@ -1760,9 +1612,10 @@ def _create_lifespan(
             # answers with the same call.
             _env_dir = repo_root_for_config(app.state.config_path)
             _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
-            from osprey_connectors.workspace import load_osprey_config as _load_config
-
-            app.state.personal_login_allowed = personal_login_allowed(_load_config() or {})
+            _render = app.state.terminal_config.render()
+            app.state.personal_login_allowed = personal_login_allowed(
+                _render if isinstance(_render, dict) else {}
+            )
             app.state.personal_login_present = personal_login_present(os.environ)
             if _spec and app.state.personal_login_allowed and app.state.personal_login_present:
                 # The deployment lets its users bring their own subscription,
@@ -2341,6 +2194,10 @@ def create_app(
                 "control_target_available": bool(
                     getattr(request.app.state, "control_target_picker_available", True)
                 ),
+                # The documentation root the tile ⋯ Help row opens a panel's
+                # page under (panel-help.js). "" when web.docs_url is blank,
+                # and the template then leaves the attribute out.
+                "docs_url": getattr(request.app.state, "docs_url", "") or "",
                 # The registry's own labels for the built-in panels, stamped so
                 # panel-catalog.js can read them at module load. /api/panels
                 # answers for the ENABLED panels only and resolves after that

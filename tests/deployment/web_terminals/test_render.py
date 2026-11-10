@@ -4902,7 +4902,7 @@ _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 #
 # `osprey up` mints the archiver store's password into the deploy `.env` under
 # the name the connector block reads (`archiver.<type>.auth.password_env`, which the
-# control-assistant preset spells MONGO_ROOT_PASSWORD); an archiver behind a
+# demo preset spells MONGO_ROOT_PASSWORD); an archiver behind a
 # bearer token names its variable under `auth.token_env`. The agent inside a web
 # terminal authenticates with exactly those variables, and `.env.users` excludes
 # service tokens by design -- so a container that is not handed them per-user

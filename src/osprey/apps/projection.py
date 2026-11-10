@@ -180,6 +180,22 @@ def _project_container(
     return {"template": template, "config": block}
 
 
+def login_skills(
+    manifests: Iterable[AppManifest], selection: LoginSelection
+) -> list[tuple[str, str]]:
+    """The ``(application, skill)`` pairs one login's render carries.
+
+    An application's skills reach the agent wherever its tools do: in each render
+    whose login shows the application.
+    """
+    pairs: list[tuple[str, str]] = []
+    for manifest in manifests:
+        shown = selection.apps.get(manifest.name)
+        if shown is not None and shown.shown:
+            pairs.extend((manifest.name, skill) for skill in manifest.skills)
+    return pairs
+
+
 def project_login(
     manifests: Iterable[AppManifest],
     config: Mapping[str, Any],

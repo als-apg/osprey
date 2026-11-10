@@ -485,7 +485,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="output-styles/control-operator",
             template_path="claude/output-styles/control-operator.md.j2",
             output_path=".claude/output-styles/control-operator.md",
-            description="Communication style for the control assistant",
+            description="Communication style for the demo",
         ),
         # ── Service compose templates ────────────────────────────────
         # Directory artifacts: copied verbatim from templates/services/ into
@@ -561,6 +561,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="teams_bridge",
             output_path="services/teams_bridge",
             description="Microsoft Teams bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/slack_bridge",
+            template_path="slack_bridge",
+            output_path="services/slack_bridge",
+            description="Slack bridge compose template + image context",
             template_root="services",
             is_directory=True,
         ),

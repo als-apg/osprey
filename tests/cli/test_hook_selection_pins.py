@@ -25,7 +25,7 @@ from osprey.cli.build_profile_presets import list_tiers
 WRITE_GATES = ("approval", "writes-check")
 
 #: The root preset whose ``osprey init`` scaffolds the bundled logins.
-LAYER_HOST = "control-assistant"
+LAYER_HOST = "demo"
 
 #: The directory a bundled login lives in.
 LAYER_KINDS = ("tiers",)
@@ -38,7 +38,7 @@ LAYER_KINDS = ("tiers",)
 #: tier inherits its root's, so a raw file can name neither gate while its
 #: resolved list names both.
 PINNED_PRESET_WRITE_GATES: dict[str, tuple[str, ...]] = {
-    "control-assistant": ("approval", "writes-check"),
+    "demo": ("approval", "writes-check"),
     "hello-world": ("approval", "writes-check"),
     "tiers/admin": ("approval", "writes-check"),
     "tiers/readonly": ("approval", "writes-check"),
@@ -119,8 +119,8 @@ _COMMON_HOOK_FILES = frozenset(
     }
 )
 
-#: The hook files the full control-assistant tier renders.
-_CONTROL_ASSISTANT_HOOK_FILES = _COMMON_HOOK_FILES | {
+#: The hook files the full demo tier renders.
+_DEMO_HOOK_FILES = _COMMON_HOOK_FILES | {
     "osprey_cf_feedback_capture.py",
     "osprey_limits.py",
     "osprey_notebook_update.py",
@@ -130,16 +130,16 @@ _CONTROL_ASSISTANT_HOOK_FILES = _COMMON_HOOK_FILES | {
 #: preset, tier or app name -> the exact file set its render puts in
 #: ``.claude/hooks/``.
 PINNED_PRESET_HOOK_FILES: dict[str, frozenset[str]] = {
-    "control-assistant": _CONTROL_ASSISTANT_HOOK_FILES,
+    "demo": _DEMO_HOOK_FILES,
     "hello-world": _COMMON_HOOK_FILES | {"osprey_limits.py", "osprey_writes_check.py"},
-    "tiers/admin": _CONTROL_ASSISTANT_HOOK_FILES,
-    "tiers/readonly": _CONTROL_ASSISTANT_HOOK_FILES,
-    "tiers/readwrite": _CONTROL_ASSISTANT_HOOK_FILES,
+    "tiers/admin": _DEMO_HOOK_FILES,
+    "tiers/readonly": _DEMO_HOOK_FILES,
+    "tiers/readwrite": _DEMO_HOOK_FILES,
     # A `lists: own` login carries every guard its host selects (``limits``
     # among them), whatever its own list says.
-    "tiers/channel-finder": _CONTROL_ASSISTANT_HOOK_FILES,
-    "tiers/knowledge": _CONTROL_ASSISTANT_HOOK_FILES,
-    "tiers/logbook": _CONTROL_ASSISTANT_HOOK_FILES - {"osprey_cf_feedback_capture.py"},
+    "tiers/channel-finder": _DEMO_HOOK_FILES,
+    "tiers/knowledge": _DEMO_HOOK_FILES,
+    "tiers/logbook": _DEMO_HOOK_FILES - {"osprey_cf_feedback_capture.py"},
 }
 
 
@@ -210,8 +210,8 @@ def _render(tmp_path: Path, preset: str, drop: tuple[str, ...] = ()) -> Path:
 def test_a_render_selecting_approval_ships_and_wires_the_plan_mode_rule(tmp_path: Path):
     import json
 
-    project = _render(tmp_path, "control-assistant")
-    assert "approval" in _resolved_hooks("control-assistant")
+    project = _render(tmp_path, "demo")
+    assert "approval" in _resolved_hooks("demo")
 
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     rules = _plan_mode_rules(settings)
@@ -222,7 +222,7 @@ def test_a_render_selecting_approval_ships_and_wires_the_plan_mode_rule(tmp_path
 def test_a_render_without_approval_has_neither_the_file_nor_the_rule(tmp_path: Path):
     import json
 
-    project = _render(tmp_path, "control-assistant", drop=("approval",))
+    project = _render(tmp_path, "demo", drop=("approval",))
 
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     assert not (project / ".claude" / "hooks" / "osprey_plan_mode.py").exists()

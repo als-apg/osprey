@@ -680,7 +680,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
 def test_renders_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path: Path) -> None:
     """Renders are rendered by the BUILD, from the repo's own tiers/.
 
-    ``control-assistant`` ships a multi-tier stack. ``osprey init`` writes a
+    ``demo`` ships a multi-tier stack. ``osprey init`` writes a
     file per tier into ``<repo>/tiers/``; ``osprey build`` then renders each
     into ``build/`` beside the deployment's own render and projects it into
     the rendered config as a catalog entry named for the file. That anchoring is the whole feature: a delta merges over the profile
@@ -715,10 +715,10 @@ def test_renders_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path: 
     try:
         # The repo root IS the profile root: profile.yml, tiers/ and the
         # deltas the catalog points at all live here.
-        repo = _init_and_build(tmp_path, project_name, "control-assistant", edits)
+        repo = _init_and_build(tmp_path, project_name, "demo", edits)
 
         catalog = _render_catalog(repo)
-        assert catalog, "the control-assistant build produced no render catalog"
+        assert catalog, "the demo build produced no render catalog"
 
         for render, entry in catalog.items():
             delta = repo / TIERS_DIRNAME / f"{render}.yml"

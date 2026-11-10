@@ -29,7 +29,6 @@ class DS4ProviderAdapter(BaseProvider):
     description = "DwarfStar local DeepSeek V4 server (OpenAI-compatible)"
     requires_api_key = False  # local server, no auth by default
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = True
     default_base_url = "http://127.0.0.1:8000/v1"
     models_probe = "bearer"

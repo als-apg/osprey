@@ -862,8 +862,10 @@ class _ProjectVenvPlan(NamedTuple):
 
     base_python: Path | None
     base_python_arg: str
-    osprey_spec: str
-    osprey_label: str
+    #: The osprey requirement the venv installs and its log label; ``None`` for
+    #: a plan that installs nothing, which never resolves it.
+    osprey_spec: str | None
+    osprey_label: str | None
     extra_deps: list[str]
     uv_path: str | None
     member_requirements: list[str]
@@ -920,8 +922,10 @@ def _plan_project_venv(
     """Judge the project environment's inputs without writing anything.
 
     A plan that installs nothing (``install=False``) never depends on the
-    host's installer: the workspace members are located only for a venv that
-    is written.
+    host's installer or on the running osprey: the osprey spec is resolved and
+    the workspace members are located only for a venv that is written. A
+    ``--skip-deps`` render reads only ``extra_deps``, so an unreleased osprey
+    that could not be pinned to an index release does not refuse it.
 
     Every :class:`BuildProfileError` about the environment's inputs is raised
     here: an invalid ``osprey_install``, a base interpreter that cannot be
@@ -948,8 +952,12 @@ def _plan_project_venv(
     base_python_arg = str(base_python) if base_python is not None else sys.executable
 
     # --- Resolve osprey install spec ---
-    osprey_install = profile.osprey_install or "local"
-    osprey_spec, osprey_label = _resolve_osprey_spec(osprey_install)
+    # Only the venv install reads it; resolving it for a plan that installs
+    # nothing would refuse an unreleased osprey for a pin nobody installs.
+    osprey_spec: str | None = None
+    osprey_label: str | None = None
+    if install:
+        osprey_spec, osprey_label = _resolve_osprey_spec(profile.osprey_install or "local")
 
     # --- Freeze the declared base environment ---
     # Computed exactly once per build: the probe enumerates a whole environment,
@@ -999,7 +1007,9 @@ def _plan_project_venv(
     # The pip path names the workspace members beside the framework; a spec
     # they cannot be derived from is refused here, before the venv is written.
     uv_path = os.environ.get("UV") or shutil.which("uv")
-    member_requirements = _pip_member_requirements(osprey_spec) if install and not uv_path else []
+    member_requirements = (
+        _pip_member_requirements(osprey_spec) if osprey_spec is not None and not uv_path else []
+    )
     return _ProjectVenvPlan(
         base_python=base_python,
         base_python_arg=base_python_arg,
@@ -1010,7 +1020,7 @@ def _plan_project_venv(
         member_requirements=member_requirements,
         install_deps=install_deps,
         deployment_packages=packages,
-        lock_constraints=source_lock_constraints(osprey_spec) if install else None,
+        lock_constraints=source_lock_constraints(osprey_spec) if osprey_spec is not None else None,
     )
 
 
@@ -1067,6 +1077,8 @@ def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
     base_python_arg = plan.base_python_arg
     osprey_spec = plan.osprey_spec
     osprey_label = plan.osprey_label
+    if osprey_spec is None or osprey_label is None:
+        raise ValueError("_create_project_venv needs a plan judged with install=True")
     extra_deps = plan.extra_deps
 
     # --- Create venv ---

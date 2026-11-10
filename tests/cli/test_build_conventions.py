@@ -399,7 +399,7 @@ def test_registration_never_claims_framework_artifacts(profile_dir: Path, tmp_pa
         TemplateManager(),
         project_name="reg-ownership",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     assert (project_path / ".claude" / "rules" / "safety.md").is_file(), (

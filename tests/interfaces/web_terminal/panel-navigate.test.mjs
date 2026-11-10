@@ -14,7 +14,7 @@ import {
 
 /** @returns {any} an iframe stand-in whose window records what it was sent */
 function fakeIframe() {
-  return { contentWindow: { postMessage: vi.fn() } };
+  return { ownerDocument: document, contentWindow: { postMessage: vi.fn() } };
 }
 
 describe('panel-navigate', () => {
@@ -35,6 +35,17 @@ describe('panel-navigate', () => {
 
     expect(navigateInPlace(state, '/panel/canopy/s/sr/overview')).toBe(false);
     expect(iframe.contentWindow.postMessage).not.toHaveBeenCalled();
+  });
+
+  test('a frame moved to another document is not navigated in place: its parent is not the hub', () => {
+    const iframe = document.createElement('iframe');
+    document.implementation.createHTMLDocument('').body.append(iframe);
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe, 'contentWindow', { value: { postMessage } });
+    const state = { iframe, inPlace: true, pendingUrl: '/panel/ariel/x' };
+    expect(navigateInPlace(state, '/panel/ariel/x')).toBe(false);
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(state.inPlace).toBe(false);
   });
 
   test('a url a src would refuse is not sent, and readiness is forgotten', () => {

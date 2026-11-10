@@ -199,7 +199,11 @@ class Bind(_Strict):
 
 
 class Require(_Strict):
-    """Stamp fields a call needs: all of ``all_of``, exactly one of each ``one_of`` group."""
+    """Stamp fields a call needs: all of ``all_of``, exactly one of each ``one_of`` group.
+
+    A ``one_of`` group holds readback (``bind.state_fields``) names only, never a
+    digest (:func:`osprey.apps.rules.validate` refuses one, ``one_of_readbacks``).
+    """
 
     all_of: list[NonEmpty] = Field(default_factory=list)
     one_of: list[Annotated[list[NonEmpty], Field(min_length=1)]] = Field(default_factory=list)
@@ -295,6 +299,8 @@ class AppManifest(_Strict):
     tools: Tools | None = None
     audit_identity: NonEmpty
     vendor: list[VendorEntry] = Field(default_factory=list)
+    #: The agent skills the application carries, each ``skills/<name>/SKILL.md`` in its directory.
+    skills: list[Slug] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod

@@ -9,7 +9,7 @@ notebook kernel read, refuse, follow and survive the way the panel promises?
 
 THE DEPLOYMENT THIS BUILDS
 --------------------------
-One ``osprey up --dev`` of a ``control-assistant`` render, trimmed to one
+One ``osprey up --dev`` of a ``demo`` render, trimmed to one
 roster user (``alice``) on one render that keeps the preset's write gate armed
 and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
@@ -122,7 +122,7 @@ RUNTIME = "docker"
 PROJECT_NAME = "osprey-e2e-jnb"
 #: The compose project name the web tier's containers are named by.
 PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
-PRESET = "control-assistant"
+PRESET = "demo"
 USER = "alice"
 RENDER = "operator"
 #: ``osprey build`` renders a layer to ``build/<repo>-<render>``, and
@@ -1220,20 +1220,20 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
     hands the update hook the panel token and web port it posts with.
     """
     assert terminal.agent_data_root and terminal.pty_pid
-    settings = json.loads(
-        (terminal.repo / "build" / RENDER_PROJECT / ".claude" / "settings.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    allow = settings["permissions"]["allow"]
-    assert "Edit(var/agent_data/notebooks/**)" in allow, allow
-    assert "Edit(var/agent_data/artifacts/**)" in allow, allow
-    assert not any(a.startswith("NotebookEdit(") for a in allow), allow
-
     agent_env = _process_env(terminal.pty_pid)
     config_path = agent_env["OSPREY_CONFIG"]
     hooks_dir = str(Path(config_path).parent / ".claude" / "hooks")
     project_dir = str(Path(config_path).parent)
+
+    # The rules the agent in the container runs under, read where it reads them:
+    # the image render names the agent-data root by the container's own absolute
+    # path, the one the kernel was handed.
+    settings = json.loads(_exec_text("cat", f"{project_dir}/.claude/settings.json"))
+    allow = settings["permissions"]["allow"]
+    root = terminal.agent_data_root.rstrip("/")
+    assert f"Edit(/{root}/notebooks/**)" in allow, allow
+    assert f"Edit(/{root}/artifacts/**)" in allow, allow
+    assert not any(a.startswith("NotebookEdit(") for a in allow), allow
     hook_env = {
         name: agent_env[name]
         for name in ("OSPREY_PANEL_TOKEN", "OSPREY_WEB_PORT", "OSPREY_CONFIG")

@@ -16,6 +16,7 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { openContextMenu } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-context-menu.js';
+import { menuFocusReturn, retargetMenuFocusReturn } from '/design-system/js/context-menu.js';
 
 /** Whether a menu is on screen — the DOM contract, not module state. */
 function isContextMenuOpen() {
@@ -97,6 +98,9 @@ describe('openContextMenu — DOM contract', () => {
     const glyph = rows()[1].querySelector('.rail-context-glyph');
     expect(glyph?.textContent).toBe('⊞');
     expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+    // The glyph leads the row; the label follows it.
+    expect(rows()[1].firstElementChild).toBe(glyph);
+    expect(glyph?.nextElementSibling?.className).toBe('rail-context-label');
 
     const divider = el.querySelector('.rail-context-divider');
     expect(divider?.getAttribute('role')).toBe('separator');
@@ -120,7 +124,7 @@ describe('openContextMenu — DOM contract', () => {
       x: 0,
       y: 0,
       ariaLabel: 'ARIEL actions',
-      items: [{ label: 'Pop out', glyph: '↗', disabled: true, run }],
+      items: [{ label: 'Open in new window', glyph: '↗', disabled: true, run }],
     });
 
     expect(rows()[0].getAttribute('aria-disabled')).toBe('true');
@@ -185,7 +189,7 @@ describe('keyboard behavior', () => {
       y: 0,
       ariaLabel: 'ARIEL actions',
       items: [
-        { label: 'Pop out', disabled: true },
+        { label: 'Open in new window', disabled: true },
         { label: 'Focus ARIEL', run: () => {} },
       ],
     });
@@ -200,7 +204,7 @@ describe('keyboard behavior', () => {
       ariaLabel: 'ARIEL actions',
       items: [
         { label: 'Focus ARIEL', run: () => {} },
-        { label: 'Pop out', disabled: true },
+        { label: 'Open in new window', disabled: true },
         { label: 'Remove from rail', danger: true, run: () => {} },
       ],
     });
@@ -348,6 +352,28 @@ describe('focus hand-back', () => {
     pressKey('Escape');
 
     expect(document.activeElement).toBe(entry);
+  });
+
+  test('a redraw that replaces the element focus came from retargets the hand-back', () => {
+    const { entry } = mountSurfaces();
+    entry.focus();
+    openServiceMenu({ anchorEl: entry });
+    expect(menuFocusReturn()).toBe(entry);
+
+    // The surface redraws: the entry is replaced by an equal one.
+    const redrawn = /** @type {HTMLElement} */ (entry.cloneNode(true));
+    entry.replaceWith(redrawn);
+    retargetMenuFocusReturn(redrawn);
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(redrawn);
+    expect(menuFocusReturn()).toBeNull();
+  });
+
+  test('with no menu open there is no hand-back, and retargeting is a no-op', () => {
+    const { entry } = mountSurfaces();
+    retargetMenuFocusReturn(entry);
+    expect(menuFocusReturn()).toBeNull();
   });
 
   test('pointer, blur, scroll and resize dismissals leave focus alone', () => {

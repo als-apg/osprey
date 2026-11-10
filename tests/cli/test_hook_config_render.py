@@ -85,13 +85,13 @@ def _create_project(tmp_path):
     manager = TemplateManager()
     name = f"hook-config-{_PROJECT_COUNTER}"
 
-    profile, _preset_dir = resolve_build_profile(None, preset="control-assistant")
+    profile, _preset_dir = resolve_build_profile(None, preset="demo")
 
     def render(context: dict | None) -> Path:
         project = manager.create_project(
             project_name=name,
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             data_root=bundle_data_root(),
             context={"channel_finder_mode": "hierarchical", **(context or {})},
             force=True,
@@ -110,9 +110,9 @@ def _create_project(tmp_path):
     manager.generate_manifest(
         project_dir,
         name,
-        "control-assistant",
+        "demo",
         {},
-        artifacts=manager._effective_artifacts("control_assistant", None),
+        artifacts=manager._effective_artifacts("demo", None),
     )
     return manager, project_dir
 

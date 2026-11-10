@@ -1,6 +1,6 @@
 """A login file may name the model its render runs; the provider stays the host's.
 
-One build of the control-assistant exemplar, with the logbook login (a
+One build of the demo exemplar, with the logbook login (a
 ``lists: own`` login ``shared:`` names) naming a model the host's provider lists
 and the knowledge login naming one it does not. The logbook render runs its own
 model; the knowledge render runs its id as written and the build warns that the

@@ -174,7 +174,7 @@ Step 1 — Create the facility repository
 
 .. code-block:: bash
 
-   osprey init demo-facility --preset control-assistant
+   osprey init demo-facility --preset demo
    cd demo-facility
 
 The command writes the whole repository, runs ``git init`` at its root, and
@@ -203,7 +203,7 @@ it.
 Step 2 — Trim the profile to this facility's stack
 ==================================================
 
-Open ``profile.yml``. The ``control-assistant`` preset ships a fuller
+Open ``profile.yml``. The ``demo`` preset ships a fuller
 stack than Demo Facility runs, so the first edit is subtraction. Delete:
 
 * the top-level ``bluesky:``, ``bluesky_web:`` and ``dispatch:`` blocks. Each

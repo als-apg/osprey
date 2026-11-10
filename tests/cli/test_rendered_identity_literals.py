@@ -96,7 +96,7 @@ def _root_presets() -> tuple[str, ...]:
 
 
 #: The root preset whose ``osprey init`` scaffolds every bundled tier and app.
-LAYER_HOST = "control-assistant"
+LAYER_HOST = "demo"
 
 #: Where the rendered config states the renders the build made.
 _RENDERS_PATH = ("modules", "web_terminals", "renders")
@@ -299,7 +299,7 @@ def test_every_bundled_tier_and_app_renders_inside_its_root(
 def test_the_walk_reaches_every_surface_a_deployer_reads(
     rendered: Mapping[str, Render],
 ) -> None:
-    repo = rendered["control-assistant"].repo
+    repo = rendered["demo"].repo
     walked = {str(path.relative_to(repo)) for path, _ in _text_files(repo)}
     for surface in (
         "profile.yml",
@@ -310,10 +310,10 @@ def test_the_walk_reaches_every_surface_a_deployer_reads(
         "build/.claude/settings.json",
         "build/.mcp.json",
         "build/Dockerfile",
-        "build/.image/control-assistant/providers.yml",
-        "build/.image/control-assistant/profile.yml",
-        "build/control-assistant-readonly/config.yml",
-        "build/control-assistant-logbook/config.yml",
+        "build/.image/demo/providers.yml",
+        "build/.image/demo/profile.yml",
+        "build/demo-readonly/config.yml",
+        "build/demo-logbook/config.yml",
     ):
         assert surface in walked, f"the walk misses {surface}"
     binary = "build/data/channel_databases/graph.duckdb"

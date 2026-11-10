@@ -25,6 +25,7 @@ from tests._builds import Restorable
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
+    enable_orbit_bump,
     preserved_environ,
 )
 
@@ -46,8 +47,9 @@ _ROSTER_TIERS = {"alice": "asked", "bob": "never", "carol": "allowed"}
 #: Where the two shared-container configs are staged, under ``build/``.
 _BLUESKY = Path("services/bluesky/config.yml")
 _WORKER = Path("services/dispatch_worker/config.yml")
-#: The example application's container: it holds the map because it drives the target.
-_APP = Path("services/knob-example/config.yml")
+#: The example application's container, turned on in each build here: it holds
+#: the map because it drives the target.
+_APP = Path("services/orbit-bump/config.yml")
 
 
 @contextmanager
@@ -63,7 +65,7 @@ def _pinned_env() -> Iterator[None]:
 def _ask_in(path: Path) -> None:
     """*path* authors ``asked``, the one write line it has.
 
-    The shipped stance (FR4) puts the control-assistant root and the readwrite
+    The shipped stance (FR4) puts the demo root and the readwrite
     tier at ``asked``, so the exemplar already authors the word; this proves it
     rather than writing it.
     """
@@ -81,6 +83,7 @@ def _build(base: Path, *, tiered: bool = True) -> Path:
     base.mkdir(parents=True, exist_ok=True)
     with _pinned_env():
         repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
+        enable_orbit_bump(repo)
         if not tiered:
             profile = repo / "profile.yml"
             text = profile.read_text(encoding="utf-8")
@@ -196,7 +199,7 @@ def test_tiered_worker_copy_is_the_tier_render_plus_the_map(tiered: Path) -> Non
     assert staged["control_system"]["login_tiers"] == _expected_map()
     assert _without_map(staged) == image
     assert staged["control_system"]["writes"] == "never"
-    # A copy of the root would not pass: the control-assistant root arms writes.
+    # A copy of the root would not pass: the demo root arms writes.
     assert root["control_system"]["writes"] == "asked"
 
 

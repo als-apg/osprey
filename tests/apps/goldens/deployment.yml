@@ -1,47 +1,47 @@
 services:
-  knob-example:
-    path: ./services/knob-example
-    app: knob-example
+  orbit-bump:
+    path: ./services/orbit-bump
+    app: orbit-bump
     command:
     - python
     - -m
-    - knob_example.server
+    - orbit_bump.server
     port: 10900
     url: http://127.0.0.1:10900
     health: /health
     env: []
-    state: var/knob-example
+    state: var/orbit-bump
     drives_target: true
-    control_identity: false
-    audit_identity: knob-example
-    config_file: ./services/knob-example/app-config.yml
-    launch_token_env: KNOB_EXAMPLE_LAUNCH_TOKEN
+    control_identity: true
+    audit_identity: orbit-bump
+    config_file: ./services/orbit-bump/app-config.yml
+    launch_token_env: ORBIT_BUMP_LAUNCH_TOKEN
     roster_grant:
-      panel_id: knob-example
+      panel_id: orbit-bump
       single_user_alias: true
 deployed_services:
-- knob-example
+- orbit-bump
 compose:
-  knob-example:
+  orbit-bump:
     image: ${OSPREY_WORKER_IMAGE:-my-facility:local}
-    container_name: my-facility-knob-example
+    container_name: my-facility-orbit-bump
     command:
     - python
     - -m
-    - knob_example.server
+    - orbit_bump.server
     security_opt:
     - no-new-privileges:true
     restart: unless-stopped
     stop_grace_period: 15s
     environment:
-      OSPREY_APP_NAME: knob-example
+      OSPREY_APP_NAME: orbit-bump
       OSPREY_APP_CONFIG: /osprey/app/config.yml
       OSPREY_APP_PORT: '10900'
       OSPREY_APP_BIND: 0.0.0.0
-      OSPREY_APP_STATE_DIRS: /app/my-facility/var/knob-example
-      OSPREY_AUDIT_IDENTITY: knob-example
-      OSPREY_SPOOL_DIR: /app/my-facility/var/spool/knob-example
-      KNOB_EXAMPLE_LAUNCH_TOKEN: ${KNOB_EXAMPLE_LAUNCH_TOKEN}
+      OSPREY_APP_STATE_DIRS: /app/my-facility/var/orbit-bump
+      OSPREY_AUDIT_IDENTITY: orbit-bump
+      OSPREY_SPOOL_DIR: /app/my-facility/var/spool/orbit-bump
+      ORBIT_BUMP_LAUNCH_TOKEN: ${ORBIT_BUMP_LAUNCH_TOKEN}
       OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: '1'
       OSPREY_TERMINAL_SECRET_ALICE: ${OSPREY_TERMINAL_SECRET_ALICE:-}
       OSPREY_TERMINAL_SECRET_BOB: ${OSPREY_TERMINAL_SECRET_BOB:-}
@@ -57,10 +57,10 @@ compose:
     ports:
     - 127.0.0.1:10900:10900
     volumes:
-    - ./build/services/knob-example/app-config.yml:/osprey/app/config.yml:ro
-    - ./var/state/knob-example/knob-example:/app/my-facility/var/knob-example
-    - ./var/spool/knob-example:/app/my-facility/var/spool/knob-example
-    - ./build/services/knob-example/config.yml:/app/my-facility/build/config.yml:ro
+    - ./build/services/orbit-bump/app-config.yml:/osprey/app/config.yml:ro
+    - ./var/state/orbit-bump/orbit-bump:/app/my-facility/var/orbit-bump
+    - ./var/spool/orbit-bump:/app/my-facility/var/spool/orbit-bump
+    - ./build/services/orbit-bump/config.yml:/app/my-facility/build/config.yml:ro
     - ./var/guarded_run:/app/my-facility/var/guarded_run
     - ./var/agent_data/control_target:/osprey/control_tree:ro
     networks:
@@ -75,28 +75,28 @@ compose:
       retries: 5
 app-config.yml: {}
 roster_grant:
-  service: knob-example
+  service: orbit-bump
   single_user_alias: true
 reach_contract:
-  service: knob-example
+  service: orbit-bump
   consumers:
-  - name: The knob-example panel
-    switch_key: web.panels.knob-example
+  - name: The orbit-bump panel
+    switch_key: web.panels.orbit-bump
     refuse: true
   credentials:
-  - KNOB_EXAMPLE_LAUNCH_TOKEN
+  - ORBIT_BUMP_LAUNCH_TOKEN
   no_client_reach: false
   derived_by: osprey.apps.projection.project_login
 application_token_renders:
-  KNOB_EXAMPLE_LAUNCH_TOKEN:
+  ORBIT_BUMP_LAUNCH_TOKEN:
   - admin
   - readwrite
 web_terminal_env:
   web-alice:
-  - KNOB_EXAMPLE_LAUNCH_TOKEN=${KNOB_EXAMPLE_LAUNCH_TOKEN:-}
+  - ORBIT_BUMP_LAUNCH_TOKEN=${ORBIT_BUMP_LAUNCH_TOKEN:-}
   web-bob: []
   web-carol:
-  - KNOB_EXAMPLE_LAUNCH_TOKEN=${KNOB_EXAMPLE_LAUNCH_TOKEN:-}
+  - ORBIT_BUMP_LAUNCH_TOKEN=${ORBIT_BUMP_LAUNCH_TOKEN:-}
   web-logbook: []
   web-knowledge: []
   web-channel-finder: []

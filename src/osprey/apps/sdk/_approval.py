@@ -6,8 +6,9 @@ live-target check, in this order:
 
 1. **Offered** — the render must carry the tool's approval entry
    (:func:`~osprey.mcp_server.approval_record.app_approval_entry`).
-2. **Write verdict** — :func:`~osprey_connectors.posture_store.write_verdict`
-   for the session's recorded control target, the owner left to its ladder.
+2. **Execution verdict** — :func:`~osprey_connectors.posture_store.execution_verdict`:
+   the write verdict for the session's recorded control target, with the
+   session's hold after the read-only run and the tier.
 3. **Approval record** —
    :func:`~osprey.mcp_server.approval_record.require_approval_record` over the
    call's ``approved_*`` fields, every input digest recomputed over the
@@ -33,7 +34,8 @@ from typing import Any
 
 from osprey.mcp_server import approval_record
 from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, APPROVAL_MISSING, Refusal
-from osprey_connectors.posture_store import WriteVerdict, write_verdict
+from osprey.utils.session_hold_api import execution_verdict, refusal_detail
+from osprey_connectors.posture_store import WriteVerdict
 from osprey_connectors.refusals import refusal_text
 from osprey_connectors.workspace import load_osprey_config
 
@@ -90,7 +92,9 @@ class ApprovalRefused(Exception):
         message = refusal_text(
             reason,
             verdict.kind,
-            detail=f"{tool_name} was refused before reaching the application.",
+            detail=refusal_detail(
+                f"{tool_name} was refused before reaching the application.", verdict
+            ),
         )
         return cls(reason, message, {"reason": reason, "target": verdict.target})
 
@@ -230,9 +234,11 @@ def _verdict(config: Mapping[str, Any]) -> WriteVerdict:
     target = recorded_control_target()
     section = config.get("control_system")
     try:
-        return write_verdict(section or {}, target)
+        return execution_verdict(section or {}, target)
     except Exception:  # unknown posture must not write
-        logger.warning("Write verdict for an application tool could not be reached", exc_info=True)
+        logger.warning(
+            "Execution verdict for an application tool could not be reached", exc_info=True
+        )
         return WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
 
 

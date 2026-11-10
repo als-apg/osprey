@@ -25,7 +25,7 @@ host, brought up with a single ``osprey up``.
 
    **Prerequisites:** The concepts need none. To stand the stack up you'll
    want Docker (or Podman) and your model-provider credentials — the
-   ``control-assistant`` preset ships the whole block pre-wired.
+   ``demo`` preset ships the whole block pre-wired.
 
 Two subjects have pages of their own:
 
@@ -72,7 +72,7 @@ only by the lifecycle verbs (and validated by
 ``osprey scaffold web-terminals lint``).
 ``osprey web`` reads exactly one key from it — ``auth.session_lifetime``, which
 sets how long its own login cookie lasts — and nothing else, so a project that
-carries the block (the ``control-assistant`` preset ships one) still runs
+carries the block (the ``demo`` preset ships one) still runs
 single-user like one that does not. Reach for the multi-user stack when several
 people need their own terminal on a shared machine, and stay with ``osprey web``
 for everything else.
@@ -97,7 +97,7 @@ configuration volume automatically — no per-user setup steps.
 assigned a tier, and each tier is its own rendered OSPREY project with its own
 ``config.yml``, permissions, skills and tool servers, built from one small file
 in ``tiers/`` laid over ``profile.yml``. A tier only adds; it never removes
-anything from the profile. The ``control-assistant`` preset ships three: a
+anything from the profile. The ``demo`` preset ships three: a
 *read-only* and a *read-write* tier, separated by whether the session may move
 the simulator, and an *admin* tier, separated by whether it may change the
 deployment it runs in. :doc:`Privilege Tiers <tiers>` lays out what each one
@@ -136,8 +136,10 @@ The config block
 
       .. tab-item:: Switching it on
 
-         The whole feature is one config block. This is what a project built from
-         the ``control-assistant`` preset carries in its ``config.yml``:
+         The whole feature is one config block. This is an excerpt of what a
+         project built from the ``demo`` preset carries in its ``config.yml``;
+         the preset also sets ``landing.notices`` and ``landing.footer`` (see
+         :ref:`multi-user-landing-notices`):
 
          .. code-block:: yaml
 
@@ -146,6 +148,10 @@ The config block
                 enabled: true
                 image_source: local       # osprey up builds the images itself
                 default_tier: readonly
+                auth:
+                  method: password
+                  session_lifetime: 43200
+                  allow_insecure_http: true
                 landing:
                   groups:
                   - type: users
@@ -169,6 +175,10 @@ The config block
                 - logbook
                 - knowledge
                 - channel-finder
+
+         The ``auth:`` lines put every terminal behind a password login.
+         ``allow_insecure_http: true`` suits ``127.0.0.1`` only; see
+         :doc:`login` before you serve the stack on a reachable host.
 
          Each ``tier`` and each ``shared:`` entry names a file in the
          repository's ``tiers/``, written by ``osprey init``. Every render
@@ -303,18 +313,18 @@ then build and bring the stack up from inside it:
 
 .. code-block:: bash
 
-   # 1. Create the deployment repo from the control-assistant preset
-   osprey init control-assistant --preset control-assistant
+   # 1. Create the deployment repo from the demo preset
+   osprey init demo --preset demo
 
    # 2. From inside the repo, render it and bring the whole stack up
-   cd control-assistant
+   cd demo
    osprey build
    osprey up
 
 That is the entire setup for the preset's roster: the preset ships the
 ``modules.web_terminals`` block above, so no extra flags or configuration are
 needed. Alongside the web tier,
-``osprey up`` brings up everything else the control-assistant tutorial deploys
+``osprey up`` brings up everything else the demo tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL and agent-record containers — so the control-room terminals open onto a
 working machine, the logbook login onto a live logbook and the knowledge
@@ -340,20 +350,22 @@ login onto a seeded facility graph, not an empty shell.
 .. note::
 
    Running from a **source checkout** of the OSPREY repository rather than a
-   released install? Add ``--dev`` to ``osprey up``. The images install
-   the framework from PyPI by default, and a source tree's version isn't
-   published there; ``--dev`` bakes your local checkout into the images
-   instead.
+   released install? The images install the framework from PyPI by default,
+   and a source tree's version isn't published there; ``--dev`` bakes your
+   local checkout into the images instead. Give it to both commands,
+   ``osprey build --dev`` then ``osprey up --dev``, or run
+   ``osprey up --build --dev``: ``osprey up --dev`` refuses a render built
+   without it.
 
 What ``osprey build`` and ``osprey up`` do for the web tier
 -----------------------------------------------------------
 
 #. **The build renders every login.** ``osprey build`` renders one
    project per file in ``tiers/``, into the build zone beside the
-   main render (``build/control-assistant-readonly``,
-   ``build/control-assistant-readwrite``, ``build/control-assistant-admin``,
-   ``build/control-assistant-logbook``, ``build/control-assistant-knowledge``
-   and ``build/control-assistant-channel-finder``). Every render shares the
+   main render (``build/demo-readonly``,
+   ``build/demo-readwrite``, ``build/demo-admin``,
+   ``build/demo-logbook``, ``build/demo-knowledge``
+   and ``build/demo-channel-finder``). Every render shares the
    profile's data tree, secrets and artifacts, and inherits the choices
    recorded there (provider, model): edit the profile once and every terminal
    picks the change up. A start renders none of this — ``build/`` is the
@@ -362,21 +374,21 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 
 #. **The start builds each image.** In the preset's local mode
    (``image_source: local``), ``osprey up`` builds one image per render
-   (tagged ``<project>:local``, e.g. ``control-assistant-readwrite:local``)
+   (tagged ``<project>:local``, e.g. ``demo-readwrite:local``)
    from that rendered project — no registry, no CI. Registry mode pulls them
    instead; see :ref:`multi-user-registry-images`.
 
 #. **Brings up the web tier.** An nginx reverse proxy (container
-   ``control-assistant-nginx``) serves the landing page on
+   ``demo-nginx``) serves the landing page on
    ``http://127.0.0.1:10000``, and one Web Terminal container comes up per
-   user — ``control-assistant-web-alice`` on host port ``10100``,
-   ``control-assistant-web-bob`` on ``10101`` and ``control-assistant-web-carol``
-   on ``10102``, and one per shared login — ``control-assistant-web-logbook`` on
-   ``10199``, ``control-assistant-web-knowledge`` on ``10198`` and
-   ``control-assistant-web-channel-finder`` on ``10197`` — each reached through the
+   user — ``demo-web-alice`` on host port ``10100``,
+   ``demo-web-bob`` on ``10101`` and ``demo-web-carol``
+   on ``10102``, and one per shared login — ``demo-web-logbook`` on
+   ``10199``, ``demo-web-knowledge`` on ``10198`` and
+   ``demo-web-channel-finder`` on ``10197`` — each reached through the
    landing page. With login on, the auth sidecar runs as
-   ``control-assistant-auth``, from a locally built
-   ``control-assistant-auth:local`` image. Every one of these names is
+   ``demo-auth``, from a locally built
+   ``demo-auth:local`` image. Every one of these names is
    ``<project_name>-…``, after the profile's ``project_name:``, which
    ``osprey init`` took from the folder name.
 
@@ -548,6 +560,8 @@ a credential for the card itself. Clicking any card opens that session at
 A deployment that would rather not publish its roster can replace the name
 cards with one sign-in button; see :ref:`multi-user-hide-names`.
 
+.. _multi-user-landing-notices:
+
 What your operators read first
 ------------------------------
 
@@ -597,10 +611,8 @@ showing a gap.
 Logging out and switching users
 -------------------------------
 
-The **☰ More** menu at the bottom of the sidebar names the signed-in user —
-the display name where the roster sets one, the username otherwise — and
-their role, and has **Sign out**. That POSTs to the terminal's logout
-route, clears the local session pointer, and returns you to the landing page.
+To log out, use the **Sign out** row in the sidebar footer, as described in
+:ref:`web-terminal-sign-out`. It returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login
 starts **fresh**. Simply navigating away (without logout) keeps the session
@@ -641,12 +653,17 @@ agent wrote on the terminals' origin cannot read it. A visit without a valid
 sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.
 
-Who sees what is decided per person, from the roster, every time a page loads:
+Who sees what is decided per person, from the roster, every time a page loads.
+In ``profile.yml``, the roster goes under ``config:`` and ``agent_record:`` is a
+top-level key. Merge these keys into the ``modules.web_terminals:`` and
+``agent_record:`` entries already there; a second copy of either key silently
+replaces the first. A list in the snippet, such as ``users:``, stands as the
+whole list, so write every entry you keep into it.
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        authorization:
          roles:
            operator: {tier: readwrite, history: all}
@@ -654,6 +671,9 @@ Who sees what is decided per person, from the roster, every time a page loads:
          - name: alice
            index: 0
            tier: readwrite             # history: own, the default
+         - name: bob
+           index: 1
+           role: operator              # history: all, from the role
          - name: carol
            index: 2
            tier: admin

@@ -146,7 +146,8 @@ class Validated:
     """What the stages have produced so far.
 
     Attributes:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The machine root: the ``data/facility`` directory, or
+            the profile's ``machine:`` root when mounted.
         project_name: The project's name; the zero-source identity folds it.
         sources: What S1 read.
         combined: What S2 combined.
@@ -154,6 +155,9 @@ class Validated:
             S3 validated; set once S2 is clean.
         warnings: The warnings the stages found, in the order found; a stage
             appends, none removes.
+        content_dir: The content root, where the deployment's ``knowledge/``,
+            ``ariel/`` and ``benchmarks/`` are read; ``None`` means
+            ``facility_dir``, a single tree.
     """
 
     facility_dir: Path
@@ -162,6 +166,12 @@ class Validated:
     combined: CombineResult | None = None
     document: dict[str, Any] | None = None
     warnings: list[FacilityBuildWarning] = field(default_factory=list)
+    content_dir: Path | None = None
+
+    @property
+    def content_root(self) -> Path:
+        """The directory the deployment's content is read from."""
+        return self.content_dir if self.content_dir is not None else self.facility_dir
 
 
 #: A later stage: reads what the earlier stages produced, returns its errors.
@@ -217,20 +227,23 @@ def run_stages(
     *,
     project_name: str,
     later: Sequence[tuple[str, Stage]] = (),
+    content_dir: Path | None = None,
 ) -> StageReport:
     """Run S1 to S5, then each later stage, stopping at the first that fails.
 
     Args:
-        facility_dir: The ``data/facility`` directory; a missing one is zero
-            sources.
+        facility_dir: The machine root, the ``data/facility`` directory of a
+            single tree; a missing one is zero sources.
         project_name: The project's name, folded into the identity code when
             there is no ``identity.yaml``.
         later: ``(stage name, check)`` for the stages after S5, in order.
+        content_dir: The content root when mounted; ``None`` means
+            ``facility_dir``.
 
     Returns:
         The first failing stage and all of its errors, or a clean report.
     """
-    validated = Validated(facility_dir, project_name)
+    validated = Validated(facility_dir, project_name, content_dir=content_dir)
     loaded = load_sources(facility_dir)
     validated.sources = loaded.sources
     if loaded.errors:

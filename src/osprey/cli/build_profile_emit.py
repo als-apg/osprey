@@ -114,6 +114,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "slack_bridge",
         "apps",  # the deployment's applications, one entry per apps/<name>/
     }
 )
@@ -142,6 +143,7 @@ _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
         "environment",  # interpreter + packages: the built Python env
         "dependencies",
         "lifecycle",  # pre/post-build steps
+        "machine",  # a mounted machine repository: the repo's own layout, never a preset's
     }
 )
 
@@ -587,6 +589,19 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """,
+    "slack_bridge": """
+# --- Slack bridge ------------------------------------------------------------
+# Answers questions asked from a Slack channel, thread or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Slack credentials are runtime env, not profile keys: declare
+# SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
+# Mode app token) under `env.required`.
+#
+# slack_bridge:
+#   trigger: slack-question
+#   mentions: true               # false posts the agent's @mentions as plain text
+""",
     "deploy": """
 # --- Deployment coordinates --------------------------------------------------
 # Where this deployment is built, pushed, and run. Needed only once it leaves
@@ -614,11 +629,11 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # and its writes follow each login's control_system.writes tier.
 #
 # apps:
-#   knob-example:
+#   orbit-bump:
 #     config:                    # free-form; handed to the application as a file
 #       step: 0.5
 #     services:
-#       knob-example:            # a container key from its app.yml
+#       orbit-bump:              # a container key from its app.yml
 #         network: host          # bridge | host
 #         env: [HTTP_PROXY]      # host variables passed through
 #
@@ -654,6 +669,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "nextcloud_bridge",
     "gchat_bridge",
     "teams_bridge",
+    "slack_bridge",
     "apps",
 )
 
@@ -849,7 +865,10 @@ def effective_config_subtree(
     either key alone answers wrong. So:
 
     1. :func:`_collapse_config_prefixes` runs FIRST, folding every
-       prefix-related pair deeper-key-wins;
+       prefix-related pair deeper-key-wins — over only the keys on this
+       path (the path itself, its ancestors, keys under it), so a conflict
+       between keys elsewhere in the block cannot refuse a reader that never
+       asked about them;
     2. then every key that still addresses this path — the path itself, a key
        under it, or an ancestor carrying it nested inside its value — is folded
        into one subtree, shallowest first so the deeper key again wins.
@@ -857,9 +876,14 @@ def effective_config_subtree(
     Returns a plain dict (empty when the config addresses nothing here); the
     caller owns it and may mutate it freely.
     """
-    collapsed = _collapse_config_prefixes(dict(config))
-    segments = _config_segments(collapsed)
     depth = len(subtree_path)
+    on_path = {
+        key: config[key]
+        for key, path in _config_segments(config).items()
+        if path[:depth] == subtree_path or subtree_path[: len(path)] == path
+    }
+    collapsed = _collapse_config_prefixes(on_path)
+    segments = _config_segments(collapsed)
     subtree: dict[str, Any] = {}
     for key in sorted(segments, key=lambda k: len(segments[k])):
         path = segments[key]

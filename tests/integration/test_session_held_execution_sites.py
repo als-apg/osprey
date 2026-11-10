@@ -1,8 +1,9 @@
 """Every write a held session starts is refused where it executes.
 
 The hold is read by the write tools, the executor's launch gate, the Bluesky
-queue, the Phoebus drive, the audit middleware's clamp and the connector inside
-an executed script, so an approval granted before a flag opened buys nothing.
+queue, the Phoebus drive, the audit middleware's clamp, an application tool
+server's approved-call check and the connector inside an executed script, so an
+approval granted before a flag opened buys nothing.
 The ways out of what a flag was raised about stay open: a plain ``queue_stop``,
 ``stop_run`` and ``control_target_set`` are never refused ``session_held``.
 """
@@ -570,6 +571,7 @@ def test_a_kernel_with_no_session_is_not_held(deployment, monkeypatch):
     "module",
     [
         "osprey.utils.session_hold_api",
+        "osprey.apps.sdk._approval",
         "osprey.mcp_server.audit_middleware",
         "osprey.mcp_server.bluesky.tools.queue",
         "osprey.mcp_server.control_system.tools.channel_write",

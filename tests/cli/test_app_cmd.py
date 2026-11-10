@@ -197,6 +197,85 @@ def test_an_application_with_no_package_passes_the_boundary_saying_so(
     assert "apps/knob/: no Python package" in result.output
 
 
+# --- the panel's design-system styling ------------------------------------------
+
+
+def _page(*sheets: str, body: str = '<main class="osprey-card knob"></main>') -> str:
+    links = "".join(f'<link rel="stylesheet" href="/design-system/css/{s}">\n' for s in sheets)
+    return f"<head>\n{links}</head>\n<body>{body}</body>\n"
+
+
+STYLED_PAGE = _page("tokens.css", "base.css", "primitives.css")
+
+
+def _panel(repo: Path, page: str = STYLED_PAGE) -> Path:
+    app_dir = _app(repo)
+    _write(app_dir, "panel/index.html", page)
+    _write(app_dir, "panel/panel.css", ".knob { display: grid; }\n")
+    return app_dir
+
+
+def test_a_panel_on_the_design_system_passes(runner: CliRunner, lifecycle_repo: Path) -> None:
+    _panel(lifecycle_repo)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+
+
+def test_a_panel_missing_a_design_system_sheet_fails_naming_it(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _panel(lifecycle_repo, _page("tokens.css", "base.css", "panel.css"))
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    assert (
+        "apps/knob/panel/index.html: does not load /design-system/css/primitives.css"
+        in result.output
+    )
+    assert result.output.count("[design_system_css]") == 1
+
+
+def test_a_class_with_no_rule_fails_naming_it_and_its_file(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    styled = ("tokens.css", "base.css", "primitives.css")
+    _panel(lifecycle_repo, _page(*styled, body='<p class="knob-dial"></p>'))
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    assert "apps/knob/panel/index.html: " in result.output
+    assert "class knob-dial [undefined_class]" in result.output
+
+
+@pytest.mark.usefixtures("js")
+def test_classes_the_panel_js_sets_need_a_rule_and_classes_it_only_reads_do_not(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _panel(lifecycle_repo)
+    _write(
+        app_dir,
+        "panel/main.js",
+        "// node.className = 'commented';\n"
+        "node.className = 'knob';\n"
+        "node.classList.toggle('knob-on', on);\n"
+        "const row = make('tr', { class: 'osprey-card knob-row' });\n"
+        'host.innerHTML = `<span class="knob-unit">${unit}</span>`;\n'
+        "if (node.classList.contains('knob-hook')) node.classList.remove('knob-stale');\n",
+    )
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    assert (
+        "apps/knob/panel/main.js: no rule in the panel's or the linked design-system "
+        "stylesheets for class knob-on, knob-row, knob-unit [undefined_class]"
+    ) in result.output
+
+
 # --- the JS halves, with a stubbed runner ---------------------------------------
 
 
@@ -237,8 +316,7 @@ def test_an_application_with_no_js_runs_no_js_tool(
 ) -> None:
     if not node:
         monkeypatch.setattr("osprey.cli.app_cmd.shutil.which", lambda _name: None)
-    app_dir = _app(lifecycle_repo)
-    _write(app_dir, "panel/index.html", "<p>no script</p>\n")
+    app_dir = _panel(lifecycle_repo)
     _write(app_dir, "tests/test_server.py", "")
 
     result = _check(runner, lifecycle_repo)

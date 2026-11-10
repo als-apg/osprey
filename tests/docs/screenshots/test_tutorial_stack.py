@@ -91,11 +91,11 @@ def test_command_assembly_is_exact_and_project_scoped(monkeypatch, tmp_path) -> 
     # source zone (and bakes --set into the emitted profile.yml), `build`
     # renders it. --skip-deps belongs to the render, --preset/--set to init.
     #
-    # init <build_root>/<name> --preset control-assistant --no-git
+    # init <build_root>/<name> --preset demo --no-git
     init = next(c for c in cmds if "init" in c)
     assert proj in init, "init must name the deployment repo directory positionally"
     assert "--preset" in init
-    assert init[init.index("--preset") + 1] == "control-assistant"
+    assert init[init.index("--preset") + 1] == "demo"
     # The build derives the artifact-server port from `deployment.port_base` and
     # refuses a profile that states it, so init pins no port.
     assert not any("artifact_server" in token for token in init)
@@ -187,7 +187,7 @@ def test_init_pins_the_preset_default_scenarios_minus_demo_history(monkeypatch, 
     assert "demo-history" not in names, "no docs capture lays down history"
 
     # The list is the preset's own default, read off the preset file (not copied).
-    authored = preset_authored_config("control-assistant")["simulation.default_scenarios"]
+    authored = preset_authored_config("demo")["simulation.default_scenarios"]
     assert names == [n for n in authored if n != "demo-history"]
     # The web-terminals switch stays the init's first --set.
     assert init[init.index("--set") + 1] == "config.modules.web_terminals.enabled=false"
@@ -402,7 +402,7 @@ def test_rendered_artifact_port_skips_without_a_rendered_port(tmp_path) -> None:
 
 
 def _write_repo(tmp_path, provider: str, models: list[str]):
-    (tmp_path / "profile.yml").write_text(f"extends: control-assistant\nprovider: {provider}\n")
+    (tmp_path / "profile.yml").write_text(f"extends: demo\nprovider: {provider}\n")
     (tmp_path / "providers.yml").write_text(
         "providers:\n"
         f"  {provider}:\n"

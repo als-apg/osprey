@@ -101,7 +101,7 @@ def test_a_child_preset_that_turns_the_web_terminals_off_reads_off(
     """Every tier and app render is attached: its web-terminal module reads off
     although the host spells ``modules.web_terminals`` as a dotted prefix
     holding a mapping with ``enabled: true``."""
-    host, _host_path = _load_preset_raw("control-assistant")
+    host, _host_path = _load_preset_raw("demo")
     assert _expand_dotted(host["config"])["modules"]["web_terminals"]["enabled"] is True
     (tmp_path / "profile.yml").write_text(yaml.safe_dump(host), encoding="utf-8")
     raw, _path = _load_preset_raw(layer)

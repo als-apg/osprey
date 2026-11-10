@@ -178,6 +178,7 @@ def test_scenario_record_shape(core: dict) -> None:
         "drivers",
         "couple",
         "noise",
+        "start",
         "still",
     ]
     faults = scenario["faults"]

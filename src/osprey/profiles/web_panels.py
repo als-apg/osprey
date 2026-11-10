@@ -15,6 +15,8 @@ never a local table; a sidecar panel id is in neither, so cross with ``.get``.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 
 # The sidecar registry lives in a module that imports nothing, so a reader that
@@ -44,8 +46,29 @@ BUILTIN_PANELS: set[str] = {
     definition.panel_id for definition in FRAMEWORK_WEB_SERVERS.values()
 } | set(SIDECAR_PANELS)
 
+#: :data:`BUILTIN_PANELS` in catalog order: the companion servers in registry
+#: order, then the sidecars in registry order. A list of panels that leaves the
+#: server (the rail the browser seeds from ``/api/panels``) is put in this order,
+#: never in a set's: a set of strings iterates in an order drawn from the
+#: process's hash seed, so every restart would reshuffle the rail.
+BUILTIN_PANEL_ORDER: tuple[str, ...] = (
+    *dict.fromkeys(definition.panel_id for definition in FRAMEWORK_WEB_SERVERS.values()),
+    *SIDECAR_PANELS,
+)
+
+
+def in_catalog_order(panel_ids: Iterable[str]) -> list[str]:
+    """*panel_ids* as a list in :data:`BUILTIN_PANEL_ORDER`, without duplicates.
+
+    An id the catalog does not name sorts after every built-in, alphabetically,
+    so the result never depends on how *panel_ids* happened to iterate.
+    """
+    rank = {panel_id: index for index, panel_id in enumerate(BUILTIN_PANEL_ORDER)}
+    return sorted(set(panel_ids), key=lambda pid: (rank.get(pid, len(rank)), pid))
+
+
 # The event-dispatcher dashboard (``events``) is intentionally NOT a builtin: it
-# is a URL-backed custom panel (the control-assistant preset sets
+# is a URL-backed custom panel (the demo preset sets
 # ``web.panels.events.url`` to the dispatcher's ``/dashboard``). Listing it here
 # would make ``_load_panel_config`` discard that url and the frontend has no
 # builtin ``events`` tab, so the tab would never render.

@@ -17,7 +17,8 @@ from osprey.apps.boundary import check_package
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_APP = REPO_ROOT / "tests/apps/fixtures/boundary_fixture_app"
 LATER_PACKAGES = (
-    "src/osprey/profiles/presets/apps/knob-example/knob_example",
+    "src/osprey/profiles/presets/apps/orbit-bump/orbit_bump",
+    "src/osprey/apps/scaffold-app/scaffold_app",
     "tests/facility/fixtures/fixture_kind",
 )
 

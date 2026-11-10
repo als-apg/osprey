@@ -1839,8 +1839,8 @@ def test_a_package_with_no_tested_ancestor_widens() -> None:
 def test_a_bundled_project_below_the_source_tree_widens(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
     files = check.repository_files()
-    project = "src/osprey/profiles/presets/apps/knob-example"
-    path = f"{project}/knob_example/server.py"
+    project = "src/osprey/profiles/presets/apps/orbit-bump"
+    path = f"{project}/orbit_bump/server.py"
     assert f"{project}/pyproject.toml" in files
     got = fw._select_pytest([path], files)
     assert got.state == check.WHOLE

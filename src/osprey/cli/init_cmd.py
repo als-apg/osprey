@@ -25,8 +25,8 @@ skeleton, the CI emission, and the initial commit.
 Usage::
 
     osprey init                              # in-place, into an empty directory
-    osprey init my-assistant --preset control-assistant
-    osprey init demo --preset control-assistant --up -d --dev
+    osprey init my-assistant --preset demo
+    osprey init demo --preset demo --up -d --dev
 """
 
 from __future__ import annotations
@@ -1331,8 +1331,8 @@ def init(
 
     \b
       $ osprey init --list-presets
-      $ osprey init my-assistant --preset control-assistant
-      $ osprey init demo --preset control-assistant --up -d --dev
+      $ osprey init my-assistant --preset demo
+      $ osprey init demo --preset demo --up -d --dev
       $ osprey init my-assistant --revalidate
     """
     if revalidate:

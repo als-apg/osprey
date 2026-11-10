@@ -11,6 +11,11 @@ Environment Setup
 -----------------
 
 **Prerequisites:** Python 3.11+, Git, a GitHub account, and `uv <https://docs.astral.sh/uv/>`_.
+The check command in step 4 also needs `Node.js <https://nodejs.org/>`_ with ``npm``, for the
+front-end checks, and Claude Code at the version this tree pins, for the test sweep.
+``uv run python scripts/pinned_claude.py --pin`` prints that version. A binary of the
+pinned version at ``~/.local/share/claude/versions/<pin>`` is found beside the
+``claude`` on your ``PATH``, so you do not have to replace the one you use.
 Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the ``dot`` command).
 
 **1. Fork and Clone**
@@ -40,7 +45,7 @@ Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the `
 
 .. code-block:: bash
 
-   pre-commit install
+   uv run pre-commit install
 
 Hooks auto-fix formatting and prevent commits with common problems.
 
@@ -48,9 +53,16 @@ Hooks auto-fix formatting and prevent commits with common problems.
 
 .. code-block:: bash
 
-   uv run pytest tests/ --ignore=tests/e2e -v
+   uv run python scripts/check.py quick
 
-If all tests pass, you are ready to contribute.
+This runs the quick tier of the merge gate: lint, format, type and import
+checks, and the parallel test sweep. The sweep selects tests from the same
+declaration as CI's unit lane, and leaves out the tests marked ``slow``.
+Before any check runs, the command puts the tree's pins in place: it runs
+``npm ci`` when ``node_modules`` differs from ``package-lock.json``, and puts the
+pinned Claude Code first on ``PATH``. When a tool it needs is missing, it runs
+nothing and names what to install. The last line is the verdict. When it says
+the run is clean, you are ready to contribute.
 
 Code Standards
 --------------
@@ -152,8 +164,8 @@ All new functionality must include tests.
 
 .. code-block:: bash
 
-   # Unit tests (fast, no API keys required)
-   uv run pytest tests/ --ignore=tests/e2e -v
+   # The unit sweep, as CI's unit lane selects it (no API keys required)
+   uv run python scripts/check.py run pytest -- -n auto
 
    # Single test file
    uv run pytest tests/path/to/test_file.py -v
@@ -176,7 +188,7 @@ All new functionality must include tests.
    uv run pytest tests/interfaces/ -m browser -v
 
    # With coverage
-   uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
+   uv run python scripts/check.py run pytest -- -n auto --cov=src/osprey
 
 Front-End (JavaScript) Testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -249,12 +261,11 @@ broadest/slowest:
 - If the module is wired into a page: a ``test_load_smokes.py`` entry for
   that page, so a broken import or a typo'd export name surfaces as a real
   thrown exception instead of a silent no-op.
-- If it's a **panel** (embeddable in the Web Terminal hub): support both
-  standalone and embedded modes -- ``applyEmbedded()`` on load, an
-  ``<osprey-display-menu>`` that hides itself when embedded (the hub owns
-  theme chrome there), branding hidden when embedded -- plus a
+- If it's a **panel** (embedded in the Web Terminal hub): ``applyEmbedded()``
+  on load, which also sends a direct visit to the hub; no page chrome of its
+  own, since the hub owns theme and header -- plus a
   ``test_contract_params.py`` case, which is the up-to-date spec for the
-  dual-mode checklist and well-known parameters. See
+  embedding checklist and well-known parameters. See
   :doc:`/how-to/web-terminal/panels` for how panels embed in the hub.
 - If the change is visible on screen: a ``test_visual.py`` ``TARGETS`` entry
   and a committed baseline PNG (regenerate with ``--regen-baselines`` on

@@ -7,7 +7,7 @@ roster, not its own tool calls. Three claims, each of which a settings-only
 check would miss:
 
 1. **The store enables it, and the tools land on exactly one agent.**
-   ``control_assistant`` ships a ``services.graphdb`` block, so the session
+   ``demo`` ships a ``services.graphdb`` block, so the session
    surface must be rendered there — settings, ``.mcp.json`` and the hook
    prefixes — and, under a non-graph channel-finder paradigm, the one
    frontmatter naming the tools must be ``facility-knowledge-graph.md``. A
@@ -18,7 +18,7 @@ check would miss:
    walking every file under ``.claude/`` rather than by reading one of them.
    ``hello_world`` is asserted the same way in
    ``tests/cli/test_profile_to_claude_contract.py``, which already builds it;
-   a ``control_assistant`` render with its store removed is asserted here.
+   a ``demo`` render with its store removed is asserted here.
 
 3. **A real ``osprey build`` agrees with ``create_project``.** The contract
    tests and ``tests/cli/test_channel_finder_graph_tools.py`` drive the render
@@ -101,7 +101,7 @@ def built_store_project(tmp_path_factory) -> Path:
         TemplateManager(),
         project_name="store-graph-surface",
         output_dir=tmp_path_factory.mktemp("store_build"),
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical", "default_provider": "anthropic"},
     )
 
@@ -235,7 +235,7 @@ def test_a_project_without_a_store_renders_no_graph_surface_at_all(tmp_path):
         manager,
         project_name="nostore-graph-surface",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={
             "channel_finder_mode": "hierarchical",
             "default_provider": "anthropic",
@@ -261,9 +261,9 @@ def test_a_project_without_a_store_renders_no_graph_surface_at_all(tmp_path):
 
 
 def _write_profile(repo: Path, config: dict | None = None) -> Path:
-    """A minimal deployment repo that builds the control_assistant template.
+    """A minimal deployment repo that builds the demo template.
 
-    Extends the ``control-assistant`` preset rather than materializing it, so
+    Extends the ``demo`` preset rather than materializing it, so
     the profile spells only what is under test — the build verb's own
     render-then-validate pass. The preset's roster and ``dispatch.tier`` name
     the bundled tiers and apps, which a repo carries as files, so they are
@@ -276,7 +276,7 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
                 "name": "Graph Surface",
                 "project_name": repo.name,
                 # The preset carries the posture floor and names the bundle.
-                "extends": "control-assistant",
+                "extends": "demo",
                 "data": "data",
                 "provider": "anthropic",
                 "model": "claude-haiku-4-5",

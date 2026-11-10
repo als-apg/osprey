@@ -123,6 +123,7 @@ OP_REFUSAL_TEXT: dict[str, str] = {
     "duplicate_member": "a member is named twice",
     "invalid_source": "a drop source is {new: {panel}}, {tab: key} or {tile: id}",
     "invalid_target": "a drop target is {tile, edge}, {border: {tile, side}} or {outer}",
+    "no_room": "the dock has no room for a new tile and no service tile to replace",
     ONE_PANEL_PER_TILE: ONE_PANEL_PER_TILE_TEXT,
     "invalid_layout": "as: 'layout' needs a layout, and only as: 'layout' takes one",
     "duplicate_request": (
@@ -574,6 +575,9 @@ class CloseOpRequest(_OpRequest):
 class OpenOpRequest(_OpRequest):
     member: str = Field(min_length=1)
     url: str | None = None
+    place: Literal["split", "replace"] = "split"
+    tile: str | None = Field(default=None, min_length=1)
+    edge: Literal["left", "right", "top", "bottom"] | None = None
 
 
 class OpenSetOpRequest(_OpRequest):
@@ -636,12 +640,16 @@ async def op_close(body: CloseOpRequest, request: Request):
 
 @router.post("/api/panel-op/open")
 async def op_open(body: OpenOpRequest, request: Request):
-    """The ``open {member, url?}`` op; where the panel lands is the dock's open rule.
+    """The ``open {member, url?, place?, tile?, edge?}`` op: the agent's open.
 
-    The rule is the dock client's: the panel replaces the one the service tile
-    used last showed (that panel stays on the rail), a panel already docked is
-    focused where it is, and with no service tile it opens beside the Agent
-    pane, which is never the target.
+    A panel already docked is focused where it is. Otherwise ``place: split``
+    (the default) gives it a new tile split off the target, on ``edge`` (absent:
+    the target's longer side), and ``place: replace`` puts it in the target in
+    place of the panel it showed (that panel stays on the rail). The target is
+    ``tile``, else the service tile the operator used last; with no service tile
+    the panel opens beside the Agent pane. A split the dock has no room for
+    replaces instead. The answer says which happened (:func:`_open_placement`).
+    The Agent pane's tile may be split beside, never replaced.
 
     ``url`` is read the way a browser's URL parser reads it
     (:func:`~osprey.interfaces.panel_urls.normalise_navigation_url`, the
@@ -663,6 +671,19 @@ async def op_open(body: OpenOpRequest, request: Request):
     def prepare() -> _Prepared:
         member = _known_member(request, body.member)
         args: dict = {"member": member}
+        if "place" in body.model_fields_set:
+            args["place"] = body.place
+        if body.edge is not None:
+            if body.place != "split":
+                raise OpRefused("invalid_target", "an edge goes with place 'split'")
+            args["edge"] = body.edge
+        if body.tile is not None:
+            tile = _current_tile(request, body.tile)
+            if body.place == "replace" and _TERMINAL_PANEL_ID in _tiles_of(
+                getattr(request.app.state, "dock_layout", None)
+            ).get(tile, []):
+                raise OpRefused("terminal_not_agent_movable")
+            args["tile"] = tile
         if body.url is not None:
             url = normalise_navigation_url(body.url)
             hop_refusal = agent_hop_refusal(request, member, url)
@@ -678,7 +699,35 @@ async def op_open(body: OpenOpRequest, request: Request):
             args["url"] = _prefix_path(admitted)
         return _Prepared(args, member, [member])
 
-    return await _run_op(request, "open", body.request_id, None, prepare)
+    before = getattr(request.app.state, "dock_layout", None)
+    answer = await _run_op(request, "open", body.request_id, None, prepare)
+    if isinstance(answer, dict):
+        answer.update(_open_placement(before, answer["layout"], body.member, body.place))
+    return answer
+
+
+def _open_placement(before: dict | None, after: dict | None, member: str, place: str) -> dict:
+    """How an open placed ``member``, read off the layouts before and after it.
+
+    ``placed`` is ``focused`` (it was on screen already), ``new_tile`` (a tile
+    of its own), ``replaced`` (it took a tile that was there, and ``replaced``
+    names the panel it took the place of) or ``not_docked`` (it is in a pop-out
+    window). A split that fell back to replacing says so in ``note``.
+    """
+    if member in layout_keys(before):
+        return {"placed": "focused"}
+    home = next((tid for tid, keys in _tiles_of(after).items() if member in keys), None)
+    if home is None:
+        return {"placed": "not_docked"}
+    previous = _tiles_of(before).get(home)
+    if not previous:
+        return {"placed": "new_tile"}
+    out: dict = {"placed": "replaced", "replaced": previous[0]}
+    if place == "split":
+        out["note"] = (
+            f"no room for a new tile: {member} replaced {previous[0]}, which stays on the rail"
+        )
+    return out
 
 
 @router.post("/api/panel-op/open-set")
@@ -773,8 +822,8 @@ async def panel_op_result(body: PanelOpResultRequest, request: Request):
         HTTPException: 404 for a request id that is neither pending nor awaiting
             a late answer, 403 for a client the op was not addressed to, 422 for
             an answer that is not exactly one of ``layout`` and ``refusal`` (a
-            null layout beside pop-outs is a layout: an empty dock) or whose
-            layout is refused.
+            null ``layout`` is a layout: an empty dock) or whose layout is
+            refused.
     """
     state = request.app.state
     pending = _pending_ops(state).get(body.request_id)
@@ -785,9 +834,9 @@ async def panel_op_result(body: PanelOpResultRequest, request: Request):
         raise HTTPException(status_code=403, detail="The op was addressed to another client")
     if pending is None:
         del _unanswered_ops(state)[body.request_id]
-    # An empty dock with every pane in a window answers with a null layout
-    # beside its pop-outs; that is a layout answer.
-    answers_layout = body.layout is not None or bool(body.popouts)
+    # A null layout is an empty dock, the one the same state reports on the
+    # layout route, with or without pop-outs; only a missing one is no answer.
+    answers_layout = "layout" in body.model_fields_set
     if answers_layout == (body.refusal is not None):
         raise HTTPException(status_code=422, detail="Answer with exactly one of layout or refusal")
     if body.refusal is not None:

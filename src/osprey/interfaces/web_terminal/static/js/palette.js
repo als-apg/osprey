@@ -71,10 +71,12 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  *   getHiddenPanels?: () => Array<{ id: string, label: string }>,
  *   getVisiblePanels?: () => Array<{ id: string, label: string }>,
  *   getPopoutPanels?: () => Array<{ id: string, label: string }>,
+ *   getDetachedPanels?: () => Array<{ id: string, label: string }>,
  *   getPresets?: () => Array<{ name: string, panels: string[] }>,
  *   showPanel?: (id: string) => void,
  *   focusPanel?: (id: string) => void,
  *   popoutPanel?: (id: string) => void,
+ *   reattachPanel?: (id: string) => void,
  *   openPanelBeside?: (id: string) => void,
  *   applyPreset?: (name: string) => void,
  *   resetLayout?: () => void,
@@ -295,21 +297,10 @@ function buildDialog() {
 /** Rebuild the registry from the current deps + config state. */
 function rebuildRegistry() {
   registryItems = buildRegistry({
+    ...currentDeps,
     config: configState,
     artifacts: artifactsState,
-    getHiddenPanels: currentDeps.getHiddenPanels,
-    getVisiblePanels: currentDeps.getVisiblePanels,
-    getPopoutPanels: currentDeps.getPopoutPanels,
-    getPresets: currentDeps.getPresets,
-    showPanel: currentDeps.showPanel,
-    focusPanel: currentDeps.focusPanel,
-    popoutPanel: currentDeps.popoutPanel,
-    openPanelBeside: currentDeps.openPanelBeside,
-    applyPreset: currentDeps.applyPreset,
-    resetLayout: currentDeps.resetLayout,
-    revealSetting: currentDeps.revealSetting,
     revealArtifact: artifactsReachable() ? currentDeps.revealArtifact : undefined,
-    actions: currentDeps.actions,
   });
 }
 

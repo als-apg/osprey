@@ -353,7 +353,7 @@ def test_a_stated_tier_word_unlike_the_presets_is_listed_as_skipped(tmp_path: Pa
     assert result.exit_code == 0, result.output
     said = " ".join(result.output.split())
     assert "Left for you: control_system.writes: this profile states `allowed`" in said
-    assert "preset `control-assistant` ships `asked`" in said
+    assert "preset `demo` ships `asked`" in said
     assert "preset-drift NOTE, not a refusal" in said
     assert "`# DEVIATION:`" in said
     assert "control_system.writes: allowed\n" in (root / "profile.yml").read_text(encoding="utf-8")

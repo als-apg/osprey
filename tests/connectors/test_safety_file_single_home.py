@@ -42,6 +42,9 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/agent_record/ingest/spool.py", "_quarantine"): (
         "moves a hostile spool entry aside as evidence"
     ),
+    ("src/osprey/bridges/slack/inbox.py", "Inbox._quarantine"): (
+        "moves an unreadable inbox entry aside under a new name, never over an existing file"
+    ),
     ("src/osprey/agent_record/writer.py", "_seal"): (
         "renames an open spool segment to its sealed name, never over an existing file"
     ),

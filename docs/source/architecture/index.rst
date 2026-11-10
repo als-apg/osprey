@@ -12,7 +12,7 @@ the tool interface, and **pluggable connectors** for protocol-agnostic hardware 
 
    Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
 
-Seven pages break that picture down — how a write is guarded on its way to the
+Six pages break that picture down — how a write is guarded on its way to the
 machine, how reading differs from writing, how one facility description feeds
 every service, and the subsystems with architecture of their own:
 
@@ -24,13 +24,8 @@ every service, and the subsystems with architecture of their own:
       :link-type: doc
       :shadow: md
 
-      Six ways to write to a machine through the connector — a channel
-      write, agent-written Python, a pyAML tool, a Bluesky plan, a notebook
-      cell, a panel write — the
-      Phoebus drive that does not reach it, and what stands in the way of
-      each: the PreToolUse hooks, the gates below them, the connector, and
-      the audit trail. A single write step by step, and the guarded run
-      two of the paths take.
+      The six ways a write reaches the machine through the connector, the
+      Phoebus drive that bypasses it, and the checks and gates on each path.
 
    .. grid-item-card:: Retrieval Paths
       :link: retrieval-paths
@@ -76,15 +71,6 @@ every service, and the subsystems with architecture of their own:
       map, the two transports, and the model seam that makes the physics
       replaceable.
 
-   .. grid-item-card:: Applications
-      :link: applications
-      :link-type: doc
-      :shadow: md
-
-      A deployment's own containers, panel and tool server — where the build
-      projects them, the approval path their write tools take, and the trust
-      boundaries around their code.
-
 .. seealso::
 
    :doc:`/how-to/control-systems/use-connectors`
@@ -102,4 +88,3 @@ every service, and the subsystems with architecture of their own:
    python-executor
    facility-file
    virtual-accelerator
-   applications

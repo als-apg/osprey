@@ -283,10 +283,37 @@ def test_agent_panel_headers_is_the_panel_token_header(monkeypatch):
     from osprey.mcp_server import http
 
     monkeypatch.setenv("OSPREY_PANEL_TOKEN", "panel-token-under-test")
+    monkeypatch.delenv("OSPREY_SESSION_ID", raising=False)
     http.reset_panel_token_latch()
     try:
         assert sdk.agent_panel_headers() == http._panel_auth_headers()
         assert sdk.agent_panel_headers()
+    finally:
+        http.reset_panel_token_latch()
+
+
+@pytest.mark.parametrize("session", [None, "", "   "])
+def test_agent_panel_headers_names_no_session_when_the_spawn_handed_none(monkeypatch, session):
+    from osprey.utils.owner_header import SESSION_HEADER
+
+    if session is None:
+        monkeypatch.delenv("OSPREY_SESSION_ID", raising=False)
+    else:
+        monkeypatch.setenv("OSPREY_SESSION_ID", session)
+    assert SESSION_HEADER not in sdk.agent_panel_headers()
+
+
+def test_agent_panel_headers_names_the_agents_own_session(monkeypatch):
+    from osprey.mcp_server import http
+    from osprey.utils.owner_header import SESSION_HEADER
+
+    monkeypatch.setenv("OSPREY_PANEL_TOKEN", "panel-token-under-test")
+    monkeypatch.setenv("OSPREY_SESSION_ID", "session-key-under-test")
+    http.reset_panel_token_latch()
+    try:
+        headers = sdk.agent_panel_headers()
+        assert headers[SESSION_HEADER] == "session-key-under-test"
+        assert headers["Authorization"] == "Bearer panel-token-under-test"
     finally:
         http.reset_panel_token_latch()
 

@@ -80,7 +80,7 @@ def _leaves(mapping: Mapping[str, Any], prefix: str = "") -> Iterator[tuple[str,
 WITHHELD_SCENARIO = "demo-history"
 
 
-def e2e_scenario_pin(preset: str = "control-assistant") -> list[str]:
+def e2e_scenario_pin(preset: str = "demo") -> list[str]:
     """The ``--set`` pair pinning an e2e stack's start scenarios.
 
     An e2e lane reads live values off the simulator, so the scenarios its stack

@@ -3,7 +3,7 @@
 This module is the hand-authored reference deployment (``als-exemplar/``) that
 the lifecycle verbs are developed against, and the shape ``osprey init`` must
 emit. Exemplar-first: the content below was authored by hand, derived from the
-``control-assistant`` preset emission and rewritten onto the new command
+``demo`` preset emission and rewritten onto the new command
 surface; ``init`` is then made to reproduce it, never the reverse.
 
 The layout is the four-zone repo — one directory, four kinds of content::
@@ -28,7 +28,7 @@ fresh-clone state (SC-10). A test that needs a rendered build stubs one itself.
 Two variants, and which one a caller wants is not a matter of taste:
 
 ``with_ci=False`` (the default) is the **init-reproducible** shape. A bare
-``osprey init --preset control-assistant`` leaves the ``deploy:`` block a
+``osprey init --preset demo`` leaves the ``deploy:`` block a
 commented stub, and with no deployment coordinates there is nothing to render a
 CI pipeline from — so the repo carries neither ``.gitlab-ci.yml`` nor
 ``scripts/verify.sh``. This is the shape Task 2.1 compares ``init``'s emission
@@ -106,7 +106,7 @@ import yaml
 EXEMPLAR_DIRNAME = "als-exemplar"
 
 #: The preset the exemplar was materialized from.
-EXEMPLAR_PRESET = "control-assistant"
+EXEMPLAR_PRESET = "demo"
 
 #: The bundled tiers materialized into ``tiers/``, as file stem -> bundled
 #: source under ``presets/tiers/``. Location is the type: a file is a tier
@@ -169,11 +169,11 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept
 #
-# Made from the bundled `control-assistant` preset. Everything it sets is written
+# Made from the bundled `demo` preset. Everything it sets is written
 # out below and is yours to edit. Nothing is hidden or inherited.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant@
+#   preset content hash: @PRESET_HASH:demo@
 
 name: Als Exemplar
 # Names the compose project, volumes, images, tier and app renders; not the folder.
@@ -1371,10 +1371,11 @@ services:
     template: osprey.archive
 
 # ── Applications ─────────────────────────────────────────────────────────────
-# Each entry runs the application in apps/<name>/. Knob is the bundled example:
-# one panel, one read tool, one write tool. Delete the entry to turn it off.
-apps:
-  knob-example: {}
+# Each entry runs the application in apps/<name>/; none is on by default. Orbit
+# bump ships with OSPREY (strip, model bump, approval-gated apply):
+# `osprey init --preset demo --set 'apps.orbit-bump={}'` copies it into
+# apps/orbit-bump/ and lists it as
+# apps: {orbit-bump: {}}
 
 # ── Build checks ─────────────────────────────────────────────────────────────
 # `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,
@@ -1449,8 +1450,8 @@ requires_osprey_version: '>=2026.10.0'
 # `providers_hash` is the same record for providers.yml beside this file;
 # `osprey init --revalidate` adds the packaged entries and keys it lacks.
 provenance:
-  preset: control-assistant
-  preset_hash: @PRESET_HASH:control-assistant@
+  preset: demo
+  preset_hash: @PRESET_HASH:demo@
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
@@ -1548,6 +1549,18 @@ panel_presets: {}
 #
 # teams_bridge:
 #   trigger: teams-question
+#   mentions: true               # false posts the agent's @mentions as plain text
+
+# --- Slack bridge ------------------------------------------------------------
+# Answers questions asked from a Slack channel, thread or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Slack credentials are runtime env, not profile keys: declare
+# SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
+# Mode app token) under `env.required`.
+#
+# slack_bridge:
+#   trigger: slack-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """
 
@@ -2111,7 +2124,7 @@ def packaged_tutorial_triggers_yml() -> str:
     return (Path(str(package)) / "tutorial_triggers.yml").read_text(encoding="utf-8")
 
 
-#: The demonstration triggers the ``control-assistant`` preset ships, which
+#: The demonstration triggers the ``demo`` preset ships, which
 #: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
 #: because :data:`BASE_SOURCE_FILES` is built at import.
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
@@ -2132,10 +2145,10 @@ def packaged_data_readme_md() -> str:
     """
     from tests._preset_data import preset_data
 
-    return (preset_data("control_assistant").app_data / "README.md").read_text(encoding="utf-8")
+    return (preset_data("demo").app_data / "README.md").read_text(encoding="utf-8")
 
 
-#: The ``data/README.md`` the ``control-assistant`` preset ships. Resolved at
+#: The ``data/README.md`` the ``demo`` preset ships. Resolved at
 #: import, because :data:`BASE_SOURCE_FILES` is built at import.
 DATA_README_MD = packaged_data_readme_md()
 
@@ -3107,14 +3120,14 @@ CANOPY_LIBRARY_RELPATH = "data/canopy/library"
 
 
 def packaged_canopy_library() -> Path:
-    """The control-assistant screen library inside the installed package.
+    """The demo screen library inside the installed package.
 
     Read rather than frozen, as :func:`packaged_providers_yml` reads the
     catalog: the package owns the screens and their write-binding report, so
-    the exemplar carries exactly what ``osprey init --preset control-assistant``
+    the exemplar carries exactly what ``osprey init --preset demo``
     puts into a deployment's ``data/``.
     """
-    bundle = importlib.resources.files("osprey.templates.apps.control_assistant")
+    bundle = importlib.resources.files("osprey.templates.apps.demo")
     return Path(str(bundle)) / "data" / "canopy" / "library"
 
 
@@ -3168,50 +3181,26 @@ def seeded_facility_rule(profile_text: str) -> str:
         return (root / "rules" / "facility.md").read_text(encoding="utf-8")
 
 
-#: The live ``apps:`` block the exemplar's profile carries for the preset's application.
-LISTED_APPLICATIONS = """# ── Applications ─────────────────────────────────────────────────────────────
-# Each entry runs the application in apps/<name>/. Knob is the bundled example:
-# one panel, one read tool, one write tool. Delete the entry to turn it off.
-apps:
-  knob-example: {}
+#: The application OSPREY ships beside the demo preset, off in it by default.
+ORBIT_BUMP = "orbit-bump"
 
-"""
-
-#: What a profile listing no application carries at its end instead.
-UNLISTED_APPLICATIONS = """
-# --- Applications ------------------------------------------------------------
-# The applications this deployment runs, one entry per apps/<name>/ directory
-# holding its app.yml. Listing one turns it on; to turn it off, remove the
-# entry. Its tool server is added by the build, so no tool-server key goes here,
-# and its writes follow each login's control_system.writes tier.
-#
-# apps:
-#   knob-example:
-#     config:                    # free-form; handed to the application as a file
-#       step: 0.5
-#     services:
-#       knob-example:            # a container key from its app.yml
-#         network: host          # bridge | host
-#         env: [HTTP_PROXY]      # host variables passed through
-#
-# A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
-# {shown: false}}`, and `lists: own` to show only what it names.
-"""
+#: The ``osprey init --set`` pair that turns it on: init copies it into
+#: ``apps/orbit-bump/`` and lists it.
+ENABLE_ORBIT_BUMP = f"apps.{ORBIT_BUMP}={{}}"
 
 
-def profile_without_applications(text: str) -> str:
-    """*text* as a profile that lists no application reads."""
-    assert text.count(LISTED_APPLICATIONS) == 1
-    return text.replace(LISTED_APPLICATIONS, "") + UNLISTED_APPLICATIONS
+def enable_orbit_bump(root: Path) -> None:
+    """Turn orbit bump on in the repo at *root*, as ``--set apps.orbit-bump={}`` at init does.
 
-
-def drop_applications(root: Path) -> None:
-    """Take the preset's application out of the repo at *root*, listing and directory."""
-    profile = root / "profile.yml"
-    profile.write_text(
-        profile_without_applications(profile.read_text(encoding="utf-8")), encoding="utf-8"
-    )
-    shutil.rmtree(root / "apps")
+    For a repo made from the exemplar rather than by ``osprey init``: the
+    profile lists the application and its tree is copied with its provenance.
+    """
+    with (root / "profile.yml").open("a", encoding="utf-8") as profile:
+        profile.write(f"\napps:\n  {ORBIT_BUMP}: {{}}\n")
+    for rel, text in packaged_application_files().items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
 
 
 def lay_preset_applications(preset: str, root: Path) -> None:
@@ -3231,7 +3220,7 @@ def lay_preset_applications(preset: str, root: Path) -> None:
 
 
 def packaged_application_files() -> dict[str, str]:
-    """The applications the preset lists, as ``osprey init`` copies them, sidecar included.
+    """Orbit bump as ``osprey init`` copies it when turned on, sidecar included.
 
     Read rather than frozen, for the reason the data README is: the package owns
     these files, and what the comparison downstream is for is that init copies
@@ -3241,18 +3230,16 @@ def packaged_application_files() -> dict[str, str]:
     from osprey.cli.build_profile_merge import compute_preset_hash
     from osprey.profiles import presets
 
-    app_dir = Path(presets.__file__).parent / "apps" / "knob-example"
+    app_dir = Path(presets.__file__).parent / "apps" / "orbit-bump"
     files = {
-        f"apps/knob-example/{path.relative_to(app_dir).as_posix()}": path.read_text(
-            encoding="utf-8"
-        )
+        f"apps/orbit-bump/{path.relative_to(app_dir).as_posix()}": path.read_text(encoding="utf-8")
         for path in sorted(app_dir.rglob("*"))
         if path.is_file()
         and "__pycache__" not in path.parts
         and path.suffix not in {".pyc", ".pyo"}
     }
-    files[f"apps/knob-example/{APP_PROVENANCE_FILENAME}"] = app_provenance_text(
-        app_dir, "control-assistant", compute_preset_hash("control-assistant")
+    files[f"apps/orbit-bump/{APP_PROVENANCE_FILENAME}"] = app_provenance_text(
+        app_dir, "demo", compute_preset_hash("demo")
     )
     return files
 
@@ -3267,7 +3254,7 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     Args:
         with_ci: Fill in the deploy coordinates and emit the CI pipeline they
             are rendered from. The default False is the init-reproducible
-            shape — a bare ``osprey init --preset control-assistant`` has no
+            shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
     """
     return {
@@ -3302,8 +3289,6 @@ def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:
     # The facility description `osprey init` seeds for a profile selecting the
     # facility rule, rendered from the package for the same reason.
     files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
-    # The application the profile lists, read from the package as the README is.
-    files.update(packaged_application_files())
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return files

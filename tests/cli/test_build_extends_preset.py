@@ -34,7 +34,24 @@ def test_preset_exists_returns_path_for_bundled_preset() -> None:
 def test_preset_exists_normalizes_underscore_form() -> None:
     """`_preset_exists` honors the same _→- normalization as the loader."""
     assert _preset_exists("hello_world") is not None
-    assert _preset_exists("control_assistant") is not None
+    assert _preset_exists("demo") is not None
+
+
+@pytest.mark.parametrize("former", ["control-assistant", "control_assistant"])
+def test_former_preset_name_resolves_to_the_preset_it_became(former: str) -> None:
+    """A repo made before the rename still names ``control-assistant``; it answers as ``demo``."""
+    path = _preset_exists(former)
+    assert path is not None
+    assert path.name == "demo.yml"
+
+
+def test_extends_by_former_preset_name_builds_on_the_demo_bundle(tmp_path: Path) -> None:
+    """``extends: control-assistant`` inherits the demo preset and copies its bundle."""
+    profile = tmp_path / "p.yml"
+    (tmp_path / "data").mkdir()
+    profile.write_text("extends: control-assistant\nname: Site\ndata: data\n")
+    resolved, _profile_dir = resolve_build_profile(profile.resolve(), preset=None)
+    assert _profile_data_bundle(resolved) == "demo"
 
 
 def test_preset_exists_returns_none_for_unknown_name() -> None:

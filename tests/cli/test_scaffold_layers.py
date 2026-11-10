@@ -7,7 +7,7 @@ through the same pipeline ``osprey init`` runs. The contract pinned here:
 * a fresh emission writes exactly the files init would, byte for byte;
 * the default preset is the one the repo records in its provenance, and
   ``--from`` names another (the adoption case: a ``hello-world`` repo taking
-  ``control-assistant``'s logins);
+  ``demo``'s logins);
 * a file that already matches is left untouched, a file that differs is refused
   without ``--force`` — and one refusal writes nothing at all — and ``--force``
   replaces it;
@@ -26,9 +26,9 @@ from click.testing import CliRunner
 from osprey.cli.scaffold_cmd import scaffold
 
 #: The preset that carries a web-terminal roster.
-ROSTER_PRESET = "control-assistant"
+ROSTER_PRESET = "demo"
 
-#: What ``control-assistant``'s roster names, pinned rather than derived so a
+#: What ``demo``'s roster names, pinned rather than derived so a
 #: silent roster change is a test failure and not the code agreeing with itself:
 #: the people's tiers, then the shared logins.
 TIERS = ("admin", "readonly", "readwrite")
@@ -50,7 +50,7 @@ def _run(*args: str):
 
 @pytest.fixture(scope="module")
 def roster_repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """One ``control-assistant`` init, copied per test (init is slow)."""
+    """One ``demo`` init, copied per test (init is slow)."""
     return _init(tmp_path_factory.mktemp("ca") / "repo", ROSTER_PRESET)
 
 

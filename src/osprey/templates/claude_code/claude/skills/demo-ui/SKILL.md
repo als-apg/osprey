@@ -29,12 +29,13 @@ happens. Everything below is built around that.
 The left **rail** is a membership list: an entry exists only while its panel is a
 member; an off-rail panel waits in the "+" catalog. The workspace is a set of
 **tiles, each showing one panel**. Each tile's header carries that panel's name,
-its own buttons, Pop out and ×.
+its own buttons, Open in new window and ×.
 
 Two axes, and the verb names which one it moves. `open_panel` puts a panel on
-screen — it takes the service tile used last, replacing the panel that tile
-showed, nothing resizes, and the active marker moves on the rail; the panel it
-replaced stays one click away on the rail with its state intact. A panel that is
+screen — by default in a new tile split off the service tile used last, so
+nothing the operator had open leaves the screen; `place="replace"` takes that
+tile instead (the panel it replaced stays one click away on the rail with its
+state intact), and `tile`/`edge` choose where. A panel that is
 already open is focused where it is. The Agent pane is always its own tile and
 never the target: with no service tile open, the panel opens as a new tile
 beside it. `close_panel` closes the tile showing a panel and leaves the rail
@@ -92,7 +93,7 @@ channel-finder." The audience is watching a colleague work, not reading a log.
 
 **Leave the workspace as you found it.** Record the open tiles, the panel each one
 shows, and the rail membership at the start, and restore them at the end — put
-back the panels your opens replaced, and close every tile that was not open
+back any panels your opens replaced, and close every tile that was not open
 before. Demos get run twice in a row, and often on someone's real working
 session — a demo that rearranges an operator's layout and walks away is a demo
 they won't let you run again.

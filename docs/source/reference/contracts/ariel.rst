@@ -142,9 +142,9 @@ one of the entry's and is viewable. It returns ``entry_id``,
 ``attachment_id``, ``opened`` (``entry`` or ``entry_and_picture``), the panel
 ``url`` and a ``message``; without a web terminal the ``url`` is the link to
 follow. An unknown entry, or an attachment that is not the entry's, is
-``not_found``. The panel route also works in a browser on the standalone ARIEL
-web page. The web terminal relays each ARIEL tool call to the panel's iframe
-and pop-out as ``osprey-agent-activity`` ``{tool, detail, ts}``; on
+``not_found``. Followed in a browser, the ``url`` opens the web terminal with
+ARIEL on that route. The web terminal relays each ARIEL tool call to the
+panel's iframe as ``osprey-agent-activity`` ``{tool, detail, ts}``; on
 ``entry_create`` and ``entry_publish`` the list refreshes or counts the new row.
 
 ``attachment_to_artifact`` takes the ``attachment_id`` of a viewable attachment
@@ -316,13 +316,12 @@ The ``get_ariel_search_service()`` function provides a singleton
 ``ARIELSearchService`` instance. The service is lazily initialized from
 ``config.yml`` on first access and reused for subsequent calls.
 
-.. code-block:: python
+.. literalinclude:: examples/ariel-service-factory.py
+   :language: python
 
-   from osprey.services.ariel_search.capability import get_ariel_search_service
-
-   service = await get_ariel_search_service()
-   async with service:
-       result = await service.search(query="RF cavity fault")
+Don't use the singleton as an async context manager (``async with service:``):
+leaving the block closes the service, and every later call in the process gets
+the closed instance. Call ``close_ariel_service()`` once, at shutdown.
 
 **Lifecycle:** The singleton is created once per process. In the web
 interface, the ``create_app()`` factory manages its own service instance
@@ -477,24 +476,21 @@ The web interface discovers its search modes and tunable parameters dynamically 
          An entry-field failure on any of these endpoints returns one of three
          envelopes:
 
-         .. code-block:: json
-
-            {"detail": "...", "code": "invalid_entry_field", "field": "book"}
+         .. literalinclude:: examples/ariel-entry-field-invalid.json
+            :language: json
 
          is 422: a submitted value (or an options query's parent value) is
          invalid and the author can correct it.
 
-         .. code-block:: json
-
-            {"detail": "...", "code": "entry_field_options_unavailable", "field": "scan"}
+         .. literalinclude:: examples/ariel-entry-field-options-unavailable.json
+            :language: json
 
          is 502: the adapter failed or took longer than 10 seconds to list a
          ``dynamic_select``'s choices. The detail is a generic message, not the
          adapter's error text.
 
-         .. code-block:: json
-
-            {"detail": "...", "code": "entry_fields_misdeclared"}
+         .. literalinclude:: examples/ariel-entry-fields-misdeclared.json
+            :language: json
 
          is 500: the adapter declares its fields wrongly, and only a change to
          the adapter fixes it.
@@ -536,67 +532,22 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
          **HealthResponse:**
 
-         .. code-block:: json
-
-            {
-              "status": "healthy",
-              "message": "ARIEL service healthy",
-              "config_status": "ok",
-              "service": {
-                "entry_count": 48291,
-                "last_ingestion": "2026-09-30T08:00:00Z",
-                "enabled_search_modules": ["keyword"],
-                "enabled_enhancement_modules": ["text_embedding"]
-              }
-            }
+         .. literalinclude:: examples/ariel-health-response.json
+            :language: json
 
          **SearchResponse:**
 
-         .. code-block:: json
+         Every field is present, at its default when the search left it empty.
+         ``search_modes_used`` names the one mode the search ran; it is empty when the
+         search timed out or the requested mode is unavailable.
 
-            {
-              "entries": [
-                {
-                  "entry_id": "12345",
-                  "source_system": "ALS eLog",
-                  "timestamp": "2025-01-15T08:30:00Z",
-                  "author": "J. Smith",
-                  "raw_text": "RF cavity trip at 08:15...",
-                  "summary": "RF cavity fault requiring manual reset",
-                  "keywords": ["RF", "cavity", "trip"],
-                  "score": 0.92,
-                  "highlights": ["<b>RF cavity</b> trip at 08:15"]
-                }
-              ],
-              "search_modes_used": ["keyword", "semantic"],
-              "total_results": 1,
-              "total": 1,
-              "total_exact": true,
-              "has_more": false,
-              "execution_time_ms": 340
-            }
+         .. literalinclude:: examples/ariel-search-response.json
+            :language: json
 
          **StatusResponse:**
 
-         .. code-block:: json
-
-            {
-              "healthy": true,
-              "database_connected": true,
-              "database_uri": "postgresql://localhost:5432/ariel",
-              "entry_count": 15230,
-              "embedding_tables": [
-                {"table_name": "text_embeddings_nomic_embed_text", "entry_count": 15230, "dimension": 768, "is_active": true}
-              ],
-              "active_embedding_model": "nomic-embed-text",
-              "enabled_search_modules": ["keyword", "semantic"],
-              "enabled_enhancement_modules": ["text_embedding", "semantic_processor"],
-              "last_ingestion": "2025-01-15T06:00:00Z",
-              "errors": [],
-              "enhancement_coverage": {
-                "text_embedding": {"label": "Text embedding", "complete": 15102, "pending": 120, "stale": 0, "failed": 8, "n/a": 0}
-              }
-            }
+         .. literalinclude:: examples/ariel-status-response.json
+            :language: json
 
          ``enhancement_coverage`` counts, per enabled module, the entries in each
          state; ``osprey ariel status --json`` reports it as ``coverage``. A
@@ -608,52 +559,10 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
       .. tab-item:: Capabilities
 
-         The ``/api/capabilities`` endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single ``direct`` category), along with shared parameters:
+         The ``/api/capabilities`` endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single ``direct`` category), along with shared parameters, the default search mode, the vocabulary state, the ``attachments`` block, the ``filter_dimensions`` the filter rail offers, and the enabled ``enhancement_modules``. This is the whole response for a deployment with the ``keyword`` and ``semantic`` modes enabled and no vocabulary or enhancement module; with a vocabulary, ``expand_query`` joins the shared parameters:
 
-         .. code-block:: json
-
-            {
-              "categories": {
-                "direct": {
-                  "label": "Direct",
-                  "modes": [
-                    {
-                      "name": "keyword",
-                      "label": "Keyword",
-                      "description": "Full-text PostgreSQL search...",
-                      "parameters": [
-                        {
-                          "name": "fuzzy_fallback",
-                          "label": "Fuzzy Fallback",
-                          "type": "bool",
-                          "default": true,
-                          "section": "Options"
-                        }
-                      ]
-                    },
-                    {
-                      "name": "semantic",
-                      "label": "Semantic",
-                      "description": "Embedding-based similarity search...",
-                      "parameters": []
-                    }
-                  ]
-                }
-              },
-              "shared_parameters": [
-                {"name": "max_results", "type": "int", "default": 10},
-                {"name": "start_date", "type": "date"},
-                {"name": "author", "type": "text"},
-                {"name": "source_system", "type": "dynamic_select",
-                 "options_endpoint": "/api/filter-options/source_systems"}
-              ],
-              "filter_dimensions": [
-                {"name": "author", "label": "Author", "kind": "builtin"}
-              ],
-              "enhancement_modules": [
-                {"name": "image_caption", "label": "Image caption"}
-              ]
-            }
+         .. literalinclude:: examples/ariel-capabilities.json
+            :language: json
 
          **How it works:** The ``get_capabilities()`` function in :mod:`osprey.services.ariel_search.capabilities` iterates over enabled search modules from the registry. Each module provides a ``get_tool_descriptor()`` (for its description) and optionally ``get_parameter_descriptors()`` (for its tunable parameters).
 
@@ -743,16 +652,10 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
          Side-drawer behavior (the Status and Settings drawers) comes
          from the shared ``<osprey-drawer>`` design-system component rather than
-         a page-local module. The header's display-preferences popover is the
-         shared ``<osprey-display-menu>`` component in the same way: ARIEL
-         mounts the element and passes it the settings drawer's id, and the
-         component supplies the trigger, the card, the Appearance/View/Theme
-         rows, and the hiding-when-embedded rule.
+         a page-local module.
 
-         Theming role: standalone, ARIEL is the *hub* --- the display menu is
-         the operator's control and its pick is the one that gets remembered.
-         Embedded, it is a *follower*: the web terminal owns the pick and
-         broadcasts it, and ARIEL applies what it is sent.
+         Theming role: ARIEL is a *follower*: the web terminal owns the theme
+         pick and broadcasts it, and ARIEL applies what it is sent.
 
          **CSS architecture:**
 

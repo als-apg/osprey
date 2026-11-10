@@ -33,7 +33,7 @@ from tests._preset_data import copy_bundle_data
 def _write_profile(profile_dir: Path, **extra) -> Path:
     """Materialize a profile directory carrying its own copy of the bundle data.
 
-    The copy starts byte-identical to the control-assistant preset's packaged
+    The copy starts byte-identical to the demo preset's packaged
     data (app template ``data/`` plus its facility) so the
     benchmark query sources the build copies from are present; individual tests
     then mutate it to make the replacement observable.
@@ -44,7 +44,7 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
     profile: dict = {
         "name": "Data Root Test",
         "project_name": "data-root-test",
-        "extends": "control-assistant",
+        "extends": "demo",
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
