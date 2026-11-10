@@ -1288,6 +1288,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    Hand-written records of a kind the format writes print
    ``import mml: data/facility/ holds hand-written <kinds> records, which this
    import writes:``, each file, and a remedy, then exit 1 with nothing changed.
+   A facility that already holds an imported layer is not refused: records
+   written by hand beside a layer stay.
    Otherwise bundled files are replaced, printing
    ``import mml: replaced the bundled <name> facility (<n> files)``, everything
    else stays, the knowledge indexes are regenerated, and a blank

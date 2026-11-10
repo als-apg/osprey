@@ -48,7 +48,8 @@ from a preset is *bundled*: every copied text file opens with the
 bundled-origin line. The exception is the knowledge indexes, which
 ``osprey knowledge regen-index`` writes. Delete the line to make a file yours.
 The import, in every format, replaces the bundled files and refuses only
-hand-written records of the kinds that format writes. A bundled facility
+hand-written records of the kinds that format writes, and those only while the
+facility holds no imported layer. A bundled facility
 carries data only: records, decks, models, limits, seeds, scenarios, knowledge
 pages, benchmark query sources and the ARIEL vocabulary, and never a skill,
 agent or rule.
