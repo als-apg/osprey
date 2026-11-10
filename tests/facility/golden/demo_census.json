@@ -750,6 +750,41 @@
       "file": "tests/facility/test_bluesky_view.py",
       "pin": "text:sum(address.startswith(\"LINE:\") for address in setpoints) == {value}",
       "value": 16
+    },
+    {
+      "file": "docs/source/how-to/facility-knowledge/use-facility-graph.rst",
+      "pin": "text:Graph view (``data/graph/facility.ttl``)\n     - {value}",
+      "value": 4731
+    },
+    {
+      "file": "docs/source/how-to/facility-knowledge/use-facility-graph.rst",
+      "pin": "text:written from the facility file: {value} devices",
+      "value": 1016
+    },
+    {
+      "file": "docs/source/how-to/facility-knowledge/use-facility-graph.rst",
+      "pin": "text:the {value} setpoint channels are",
+      "value": 674
+    },
+    {
+      "file": "docs/source/how-to/facility-knowledge/use-facility-graph.rst",
+      "pin": "text:hierarchical and graph builds\n     - {value}",
+      "value": 4731
+    },
+    {
+      "file": "docs/source/how-to/facility-knowledge/use-facility-graph.rst",
+      "pin": "text:middle-layer build\n     - {value}",
+      "value": 4725
+    },
+    {
+      "file": "docs/source/how-to/facility-knowledge/use-facility-graph.rst",
+      "pin": "text:in-context index\n     - {value}",
+      "value": 571
+    },
+    {
+      "file": "tests/facility/test_cf_index_in_context.py",
+      "pin": "text:569 + len(IN_CONTEXT_ADDITIONS) == {value}",
+      "value": 571
     }
   ]
 }

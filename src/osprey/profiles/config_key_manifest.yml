@@ -117,6 +117,50 @@ keys:
   build_dir:
     evidence: 'config\.get\("build_dir", "\./build"\)'
     default: ./build
+  # Top-level deploy switches, read straight off the loaded config and named
+  # in no preset: each is set by a facility for one host.
+  dangerously_allow_bash:
+    rendered: false
+    evidence: 'DANGEROUSLY_ALLOW_BASH_KEY = "dangerously_allow_bash"'
+    note: >-
+      Waives `osprey up`'s refusal to deploy a tier entitled to a Bluesky launch
+      token while its settings do not deny Bash and Monitor. Takes `true` and
+      nothing else; any other value is a config error. In the protected set.
+    default: false
+  prebuilt_images:
+    rendered: false
+    evidence: 'bool\(config\.get\("prebuilt_images", False\)\)'
+    note: >-
+      Turns the deploy's image builds off, so it starts containers from the
+      tags already on the host. OSPREY_PREBUILT_IMAGES outranks it.
+    default: false
+  compose_up_timeout:
+    rendered: false
+    evidence: 'COMPOSE_UP_TIMEOUT_KEY = "compose_up_timeout"'
+    note: >-
+      Seconds one `compose up` may run; OSPREY_COMPOSE_UP_TIMEOUT outranks it.
+    default: 1800.0
+  web_terminal_ready_timeout:
+    rendered: false
+    evidence: 'READY_TIMEOUT_KEY = "web_terminal_ready_timeout"'
+    note: >-
+      Seconds `osprey up` waits for a web terminal to answer;
+      OSPREY_WEB_TERMINAL_READY_TIMEOUT outranks it.
+    default: 300.0
+  registry:
+    rendered: false
+    evidence: 'registry_cfg = as_dict\(config\.get\("registry"\)\)'
+    default: {}
+  registry.url:
+    rendered: false
+    evidence: 'url = registry_cfg\.get\("url"\)'
+    note: >-
+      The registry every registry-mode web-terminal image is named under. The
+      refusal for registry mode with no url names both spellings: the
+      profile's deploy.registry.url, or this key in its config: block.
+    default: no-fallback
+    default_note: >-
+      registry-mode web terminals are refused with no url (REGISTRY_MODE_MISSING_URL)
   project_root:
     evidence: 'config\.get\("project_root"\)'
     default: derived
@@ -826,6 +870,7 @@ keys:
       tag would race.
     default: derived
     default_note: osprey_images.va — the stand-in runs the VA image
+  services.qmd.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.qmd\)', default: []}
   services.qmd.image:
     rendered: false
     evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
@@ -2211,6 +2256,52 @@ keys:
   claude_code.agents.logbook-search.enabled: {covered-by: claude_code.agents.logbook-search, default: derived, default_note: the logbook-search agent's FRAMEWORK_AGENTS default_enabled}
   claude_code.agents.logbook-deep-research: {evidence: 'logbook-deep-research', default: n/a}
   claude_code.agents.logbook-deep-research.enabled: {covered-by: claude_code.agents.logbook-deep-research, default: derived, default_note: the logbook-deep-research agent's FRAMEWORK_AGENTS default_enabled}
+  claude_code.agents.facility-knowledge: {rendered: false, evidence: '"facility-knowledge": AgentDefinition\(', default: n/a}
+  claude_code.agents.facility-knowledge.enabled: {rendered: false, covered-by: claude_code.agents.facility-knowledge, default: derived, default_note: the facility-knowledge agent's FRAMEWORK_AGENTS default_enabled}
+  # The rest of the permissions layer: what settings.json.j2 adds to `allow`
+  # and `ask`, and the two subtractions from the framework's lists.
+  claude_code.permissions.allow:
+    rendered: false
+    evidence: 'allow = list\(facility_perms\.get\("allow", \[\]\) or \[\]\)'
+    default: []
+  claude_code.permissions.ask:
+    rendered: false
+    evidence: "facility_permissions\\.get\\('ask', \\[\\]\\)"
+    default: []
+  claude_code.permissions.remove_ask:
+    rendered: false
+    evidence: 'remove_ask = list\(facility_perms\.get\("remove_ask", \[\]\) or \[\]\)'
+    default: []
+  claude_code.permissions.remove_deny:
+    rendered: false
+    evidence: '_remove_deny = list\(facility_perms\.get\("remove_deny", \[\]\) or \[\]\)'
+    note: >-
+      Lifts entries from the deny list; the kill-switch matchers are appended
+      after the filter, so no remove_deny can lift them.
+    default: []
+  claude_code.effort:
+    rendered: false
+    evidence: 'effort = cc_config\.get\("effort"\)'
+    note: >-
+      The effort `osprey chat` passes when the command line names none.
+    default: null
+  # Facility hook scripts, wired per Claude Code event. The event names are a
+  # closed set, CLAUDE_CODE_HOOK_EVENTS; an unknown one is a build error.
+  claude_code.hooks:
+    rendered: false
+    evidence: 'declared = \(config\.get\("claude_code"\) or \{\}\)\.get\("hooks"\)'
+    default: {}
+  claude_code.hooks.PreToolUse: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.PostToolUse: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.PostToolUseFailure: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.UserPromptSubmit: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.SessionStart: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.Stop: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.StopFailure: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.SessionEnd: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.SubagentStop: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.Notification: {rendered: false, covered-by: claude_code.hooks, default: n/a}
+  claude_code.hooks.PreCompact: {rendered: false, covered-by: claude_code.hooks, default: n/a}
   claude_code.allow_personal_login:
     rendered: false
     evidence: 'get\("allow_personal_login"\)'
@@ -2247,6 +2338,17 @@ keys:
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
+  channel_finder.web:
+    rendered: false
+    evidence: 'config_key="channel_finder",'
+    note: >-
+      Host, port and auto_launch of the Channel Finder web server, read through
+      the companion-server registry (config_web_subkey="web").
+    default: derived
+    default_note: host 127.0.0.1 and the layout's channel_finder slot at this deployment's port base
+  channel_finder.web.host: {rendered: false, covered-by: channel_finder.web, default: 127.0.0.1}
+  channel_finder.web.port: {rendered: false, covered-by: channel_finder.web, default: derived, default_note: the layout's channel_finder slot at this deployment's port base}
+  channel_finder.web.auto_launch: {rendered: false, covered-by: channel_finder.web, default: true}
   channel_finder.pipeline_mode: {evidence: 'pipeline_mode', default: derived, default_note: "the paradigm implied by whichever pipeline database paths are configured"}
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
@@ -2332,6 +2434,42 @@ keys:
       shipped default (the image trust store) is the right answer for a
       deployment that has none.
     default: null
+  ariel.ingestion.poll_interval_seconds:
+    rendered: false
+    evidence: '"poll_interval_seconds", cls\.poll_interval_seconds'
+    default: 3600.0
+  ariel.ingestion.watch:
+    rendered: false
+    evidence: 'if "watch" in data:'
+    note: Settings of `osprey ariel watch` and the ariel_sync service's polling loop.
+    default: {}
+  ariel.ingestion.watch.require_initial_ingest:
+    rendered: false
+    evidence: 'data\.get\("require_initial_ingest", True\)'
+    default: true
+  ariel.ingestion.watch.max_consecutive_failures:
+    rendered: false
+    evidence: 'data\.get\("max_consecutive_failures", 10\)'
+    default: 10
+  ariel.ingestion.watch.backoff_multiplier:
+    rendered: false
+    evidence: 'data\.get\("backoff_multiplier", 2\.0\)'
+    default: 2.0
+  ariel.ingestion.watch.max_interval_seconds:
+    rendered: false
+    evidence: '"max_interval_seconds", cls\.max_interval_seconds'
+    default: 3600.0
+  ariel.web:
+    rendered: false
+    evidence: 'config_key="ariel",'
+    note: >-
+      Host, port and auto_launch of the ARIEL web server, read through the
+      companion-server registry (config_web_subkey="web").
+    default: derived
+    default_note: host 127.0.0.1 and the layout's ariel slot at this deployment's port base
+  ariel.web.host: {rendered: false, covered-by: ariel.web, default: 127.0.0.1}
+  ariel.web.port: {rendered: false, covered-by: ariel.web, default: derived, default_note: the layout's ariel slot at this deployment's port base}
+  ariel.web.auto_launch: {rendered: false, covered-by: ariel.web, default: true}
   ariel.entry_url_template:
     rendered: false
     evidence: 'get_config_value\("ariel\.entry_url_template"'
@@ -2521,6 +2659,24 @@ keys:
   ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic, default: false}
   ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic, default: null}
   ariel.search_modules.semantic.model: {covered-by: ariel.search_modules.semantic, default: null}
+  ariel.search_modules.semantic.settings:
+    rendered: false
+    evidence: '_SETTINGS_PREFIX = "search_modules\.semantic\.settings"'
+    default: {}
+  ariel.search_modules.semantic.settings.similarity_threshold:
+    rendered: false
+    evidence: 'settings\.get\("similarity_threshold", cls\.similarity_threshold\)'
+    note: >-
+      Minimum cosine similarity a row must reach to be returned, in [0, 1]. A
+      present value of another type or range is refused, never defaulted.
+    default: 0.5
+  ariel.search_modules.semantic.settings.embedding_dimension:
+    rendered: false
+    evidence: 'settings\.get\("embedding_dimension"\)'
+    default: derived
+    default_note: >-
+      the dimension of the text_embedding model of the same name; with neither,
+      the vector length is unknown
   # The hybrid search mode, answered by the qmd sidecar. Unlike its
   # keyword/semantic siblings the knobs
   # get their OWN evidence rather than a covered-by chain, because the loader
@@ -2848,6 +3004,23 @@ keys:
       A path to the bundle, absolute or resolved against the project directory.
       None is derived: a facility_knowledge section naming no bundle has
       nothing to serve, so the knowledge commands refuse rather than guess.
+  facility_knowledge.search:
+    rendered: false
+    evidence: 'search: Any = block\.get\("search"\) if isinstance\(block, Mapping\) else None'
+    default: {}
+  facility_knowledge.search.rerank:
+    rendered: false
+    evidence: 'rerank = search\.get\("rerank", cls\.rerank\)'
+    note: >-
+      Whether qmd reranks OKF candidates with its LLM reranker. Off by default,
+      the other way from ariel's hybrid search: reranking does not fit the OKF
+      surfaces' sub-second budget.
+    default: false
+  facility_knowledge.search.candidate_limit:
+    rendered: false
+    evidence: 'candidate_limit = search\.get\("candidate_limit"\)'
+    default: no-fallback
+    default_note: unset, qmd's own candidateLimit (40) applies
   artifact_server: {all-templates: true, evidence: 'config\.get\("artifact_server"\) or \{\}', default: {}}
   artifact_server.host: {all-templates: true, same-value: true, covered-by: artifact_server, default: 127.0.0.1}
   artifact_server.port: {covered-by: artifact_server, default: derived, default_note: the layout's artifact slot at this deployment's port base}
@@ -3011,8 +3184,8 @@ keys:
       Gates and aims the auto-derived `mcp_servers` category, which the
       framework synthesizes from `claude_code.servers` so no facility has to
       re-declare its MCP servers as probes. Only `auto.mcp.enabled` and
-      `auto.mcp.url_key` are read; anything else under it is ignored by design,
-      which is why the leaves carry no entries of their own. The build writes
+      `auto.mcp.url_key` are read; anything else under it is ignored by
+      design. The build writes
       `auto.mcp.url_key: host_url` into every render whose deployment serves
       web terminals (`osprey.cli.build_profile_health`) and refuses a
       contradicting `config:` spelling there.
@@ -3046,6 +3219,56 @@ keys:
       than 0 and at most 100. A deployment on a large shared volume that runs
       full by design raises it so hundreds of GB free do not grade as a warning.
     default: 90.0
+
+  # The scalar suite settings and the dashboard's own keys, read by
+  # parse_health_config off the `health:` mapping.
+  health.suite_timeout_s:
+    rendered: false
+    evidence: '_positive_float\(health\["suite_timeout_s"\], "suite_timeout_s"\)'
+    default: 30.0
+  health.on_demand_timeout_s:
+    rendered: false
+    evidence: '_positive_float\(health\["on_demand_timeout_s"\], "on_demand_timeout_s"\)'
+    default: derived
+    default_note: the sum of the resolved on_demand category budgets
+  health.interval_s:
+    rendered: false
+    evidence: 'interval_s = _positive_float\(health\["interval_s"\], "interval_s"\)'
+    note: Must be greater than suite_timeout_s.
+    default: derived
+    default_note: the larger of 60 and twice suite_timeout_s
+  health.title:
+    rendered: false
+    evidence: '_parse_title\(health\.get\("title"\)\)'
+    default: System Health
+  health.plugins:
+    rendered: false
+    evidence: '_parse_plugins\(health\.get\("plugins"\)\)'
+    note: >-
+      Category plugins: dotted module paths or repo-relative .py paths.
+    default: []
+  health.auto.mcp:
+    rendered: false
+    evidence: 'mcp_raw = value\.get\("mcp"\)'
+    default: {}
+  health.auto.mcp.enabled:
+    rendered: false
+    evidence: 'health\.auto\.mcp\.enabled must be a boolean'
+    default: true
+  health.auto.mcp.url_key:
+    rendered: false
+    evidence: 'url_key_explicit = "url_key" in mcp_raw'
+    default: host_url
+  health.web:
+    rendered: false
+    evidence: 'config_key="health",'
+    note: >-
+      Host, port and auto_launch of the health dashboard, read through the
+      companion-server registry (config_web_subkey="web").
+    default: {}
+  health.web.host: {rendered: false, covered-by: health.web, default: 127.0.0.1}
+  health.web.port: {rendered: false, covered-by: health.web, default: derived, default_note: the layout's system_health slot at this deployment's port base}
+  health.web.auto_launch: {rendered: false, covered-by: health.web, default: true}
 
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
@@ -3103,6 +3326,13 @@ keys:
       No template or preset writes it. A value that is not a positive number is
       logged and the default kept; no value switches the pass off.
     default: 2.0
+  web.allow_runtime_panels:
+    rendered: false
+    evidence: 'allow_runtime_panels = bool\(web_cfg\.get\("allow_runtime_panels", False\)\)'
+    note: >-
+      Serves the panels a running agent writes to disk. Commented in
+      control-assistant; fail-closed on a malformed bundle.
+    default: false
   web.panels: {evidence: 'web\.panels', default: {}}
   # One pair per BUILTIN_PANELS entry. The framework template renders the block
   # for every builtin the profile's `web_panels:` selects, so the enumeration
@@ -3625,10 +3855,101 @@ keys:
     default: null
   modules.web_terminals.authorization.roles:
     rendered: false
-    deployment-data: true
+    data-map: true
     evidence: 'as_dict\(as_dict\(web_terminals\.get\("authorization"\)\)\.get\("roles"\)\)'
     note: Role name → the tier that role gets; the facility's own.
     default: {}
+  modules.web_terminals.authorization.claims:
+    rendered: false
+    evidence: 'claims_raw = as_dict\(authorization\.get\("claims"\)\)'
+    default: {}
+  modules.web_terminals.authorization.claims.claim:
+    rendered: false
+    evidence: 'claim = _non_empty_str\(claims_raw\.get\("claim"\), ""\) or None'
+    note: The ID-token claim whose values claims.map binds to roles.
+    default: null
+  modules.web_terminals.authorization.claims.map:
+    rendered: false
+    data-map: true
+    evidence: 'as_dict\(claims_raw\.get\("map"\)\)\.items\(\)'
+    note: Claim value → role; each role must be a key of authorization.roles.
+    default: {}
+  modules.web_terminals.external_origin:
+    rendered: false
+    evidence: 'value = web_terminals\.get\("external_origin"\)'
+    note: >-
+      The origin a browser reaches the terminals on, scheme://host[:port] and
+      nothing else; compared against the browser's Origin as a whole string.
+      Commented in control-assistant.
+    default: derived
+    default_note: >-
+      https on tls.port when tls.enabled, else http on the published nginx
+      port, on the host deploy.fqdn names
+  modules.web_terminals.image_tag:
+    rendered: false
+    evidence: 'raw = web_terminals\.get\("image_tag"\)'
+    note: $VAR references are expanded at render time.
+    default: latest
+  modules.web_terminals.nginx_image:
+    rendered: false
+    evidence: 'web_terminals\.get\("nginx_image"\) or _DEFAULT_NGINX_IMAGE'
+    default: nginx:1.31-alpine
+  modules.web_terminals.tls:
+    rendered: false
+    evidence: 'tls = as_dict\(web_terminals\.get\("tls"\)\)'
+    default: {}
+  modules.web_terminals.tls.enabled:
+    rendered: false
+    evidence: '_tls_enabled\(web_terminals\)'
+    default: false
+  modules.web_terminals.tls.port:
+    rendered: false
+    evidence: '_port_int\(tls\.get\("port"\), TLS_LISTEN_PORT\)'
+    default: 443
+  modules.web_terminals.tls.cert:
+    rendered: false
+    evidence: '"tls_cert": tls\.get\("cert"\)'
+    note: The certificate's path inside the nginx container.
+    default: null
+  modules.web_terminals.tls.key:
+    rendered: false
+    evidence: '"tls_key": tls\.get\("key"\)'
+    note: The key's path inside the nginx container.
+    default: null
+  modules.web_terminals.tls.host_cert_dir:
+    rendered: false
+    evidence: 'tls\.get\("host_cert_dir"\)'
+    note: >-
+      Host directory bind-mounted read-only where tls.cert sits; unset, nothing
+      is mounted.
+    default: null
+  modules.web_terminals.auth.image:
+    rendered: false
+    evidence: '"auth_image": auth\.get\("image"\) or None'
+    default: derived
+    default_note: the auth sidecar image named from the registry/tag axes (resolve_auth_image)
+  modules.web_terminals.auth.port:
+    rendered: false
+    evidence: '_port_int\(auth\.get\("port"\), default_port\(_AUTH_PORT_SLOT, base=base\)\)'
+    default: derived
+    default_note: the layout's auth slot at this deployment's port base
+  modules.web_terminals.auth.oidc.issuer:
+    rendered: false
+    evidence: '"auth_oidc_issuer": oidc\.get\("issuer"\) or None'
+    default: null
+  modules.web_terminals.auth.oidc.claim:
+    rendered: false
+    evidence: '"auth_oidc_claim": _non_empty_str\(oidc\.get\("claim"\), ""\) or None'
+    default: derived
+    default_note: unset, the auth sidecar's own default claim applies
+  modules.web_terminals.auth.oidc.client_id_env:
+    rendered: false
+    evidence: 'oidc\.get\("client_id_env"\), _DEFAULT_OIDC_CLIENT_ID_ENV'
+    default: OSPREY_AUTH_OIDC_CLIENT_ID
+  modules.web_terminals.auth.oidc.client_secret_env:
+    rendered: false
+    evidence: 'oidc\.get\("client_secret_env"\), _DEFAULT_OIDC_CLIENT_SECRET_ENV'
+    default: OSPREY_AUTH_OIDC_CLIENT_SECRET
   modules.web_terminals.users:
     deployment-data: true
     evidence: 'normalize_users\(web_terminals\.get\("users"\)\)'
