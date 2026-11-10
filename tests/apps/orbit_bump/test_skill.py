@@ -67,8 +67,9 @@ def test_the_skill_covers_the_tools_and_every_outcome():
 
 
 def test_the_skill_names_no_protocol_or_facility_prefix():
+    # A facility's name is the repository-wide guard's (tests/docs/test_shipped_identity_literals.py).
     body = SKILL.read_text(encoding="utf-8")
-    for word in ("MCP", "HTTP", "POST ", "GET ", "/api/", "ALS", "SR:"):
+    for word in ("MCP", "HTTP", "POST ", "GET ", "/api/", "SR:"):
         assert word not in body, word
 
 
