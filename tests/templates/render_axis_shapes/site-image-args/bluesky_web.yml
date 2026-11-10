@@ -23,7 +23,7 @@ services:
       args:
         OSPREY_VERSION: "0.0.0"
         OSPREY_PROJECT_NAME: "golden-project"
-        OSPREY_BASE_REGISTRY: "mirror.example.org/dockerhub/library"
+        OSPREY_BASE_REGISTRY: "mirror.example.org/dockerhub"
         OSPREY_SITE_CA: "osprey-site-ca.crt"
         PIP_EXTRA_INDEX_URL: "https://extra.example.org/simple"
         PIP_INDEX_URL: "https://mirror.example.org/simple"

@@ -5,7 +5,9 @@
 # the container speaks MCP over streamable HTTP and the agent reaches it by URL,
 # so the framework never needs to be installed alongside it.
 
-FROM python:3.11-slim
+# Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
+ARG OSPREY_BASE_REGISTRY="docker.io"
+FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim
 
 WORKDIR /app
 

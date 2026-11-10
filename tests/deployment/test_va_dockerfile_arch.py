@@ -65,8 +65,8 @@ def test_no_stage_pins_a_platform(text: str) -> None:
 
 def test_no_stage_pins_a_platform__mutation_pins_amd64(text: str) -> None:
     mutated = text.replace(
-        "FROM ${OSPREY_BASE_REGISTRY}/python:3.11-slim AS va-base",
-        "FROM --platform=linux/amd64 ${OSPREY_BASE_REGISTRY}/python:3.11-slim AS va-base",
+        "FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim AS va-base",
+        "FROM --platform=linux/amd64 ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim AS va-base",
     )
     assert mutated != text, "mutation is stale"
     with pytest.raises(AssertionError, match="pins a platform"):

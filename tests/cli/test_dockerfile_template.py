@@ -55,7 +55,7 @@ EXPECTED_ARGS = {
     "PIP_EXTRA_INDEX_URL": "",
     "OSPREY_OFFLINE": "0",
     "OSPREY_SITE_CA": "",
-    "OSPREY_BASE_REGISTRY": "docker.io/library",
+    "OSPREY_BASE_REGISTRY": "docker.io",
 }
 
 
@@ -113,7 +113,7 @@ class TestDockerfileContent:
 
     def test_base_image_port_and_project_path(self, hello_project):
         text = (hello_project / "Dockerfile").read_text()
-        assert "FROM ${OSPREY_BASE_REGISTRY}/python:3.12-slim" in text
+        assert "FROM ${OSPREY_BASE_REGISTRY}/library/python:3.12-slim" in text
         # The exposed port is the layout's `web` slot at the deployment's base,
         # not a literal — moving `deployment.port_base` moves this line.
         assert f"EXPOSE {default_port('web', base=DEFAULT_PORT_BASE)}" in text
