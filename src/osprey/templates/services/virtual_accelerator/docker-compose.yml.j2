@@ -17,6 +17,8 @@
     package index — are rendered by the shared macro rather than spelled out
     per template, so every image OSPREY builds is handed the same set. -#}
 {%- import "services/_site_image_args.j2" as site -%}
+{#- The own-image build gate, elected once across the instances below. -#}
+{%- import "services/_own_image.j2" as own -%}
 {#- The INSTANCE axis. An instance is one soft-IOC container — one simulated
     machine, on its own Channel Access port — and this file renders one per
     instance.
@@ -73,11 +75,7 @@
     as unset, so it keeps its build. None qualifies when every instance names
     another image, and then nothing here builds. -#}
 {%- set builder = namespace(key=none) %}
-{%- for candidate in instance_keys %}
-{%- if builder.key is none and (not services[candidate].image or services[candidate].image == osprey_images.va) %}
-{%- set builder.key = candidate %}
-{%- endif %}
-{%- endfor %}
+{{- own.elect(builder, instance_keys, services, osprey_images.va) }}
 {%- set builder_key = builder.key %}
 
 services:

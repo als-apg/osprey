@@ -754,10 +754,18 @@ _DOWN = "down"
 _READY = "ready"
 _STARTING = "starting"
 _UNHEALTHY = "unhealthy"
+_FOREIGN = "foreign"
+_NO_ANSWER = "no answer"
 
 
 def _probe(url: str, login: str, token: str) -> tuple[str, str]:
-    """``(state, why)``: down (refused), ready, starting (not ready yet), or unhealthy."""
+    """``(state, why)`` of one probe of the record on *url*.
+
+    The state is down (the connection is refused), ready, starting (not ready
+    yet), unhealthy (an HTTP answer that is not ready), foreign (the record
+    refuses the host login, so it is not this project's), or no answer (the
+    request failed in transport, a timeout under load).
+    """
     import httpx
 
     try:
@@ -772,6 +780,11 @@ def _probe(url: str, login: str, token: str) -> tuple[str, str]:
             if isinstance(body, dict) and body.get("ready") is False:
                 return _STARTING, "it is not ready yet"
             sources = client.get(f"{url}{HEALTH_SOURCES_PATH}", auth=(login, token))
+            if sources.status_code in (401, 403):
+                return _FOREIGN, (
+                    f"it refused the host login {login!r} ({sources.status_code}); "
+                    "another project's record may hold the port"
+                )
             if sources.status_code != 200:
                 return _UNHEALTHY, (
                     f"it refused the host login {login!r} ({sources.status_code}); "
@@ -781,7 +794,7 @@ def _probe(url: str, login: str, token: str) -> tuple[str, str]:
     except httpx.ConnectError:
         return _DOWN, "nothing answers"
     except httpx.HTTPError as exc:
-        return _UNHEALTHY, f"{type(exc).__name__}: {exc}"
+        return _NO_ANSWER, f"{type(exc).__name__}: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -814,11 +827,19 @@ def _acquire(
     child: subprocess.Popen[bytes] | None = None
     begun = time.monotonic()
     why = ""
+    answered = ""
     try:
         while True:
             state, why = _probe(record.url, record.login, record.token)
             if state == _READY:
                 break
+            if state == _FOREIGN:
+                raise HostRecordRefused(f"the agent-record on {record.url} is not usable: {why}")
+            # A probe that got no answer never replaces the answer an earlier one had.
+            if state == _NO_ANSWER and answered:
+                why = answered
+            elif state != _NO_ANSWER:
+                answered = why
             bound = wait_s
             if state == _STARTING and (
                 (child is not None and child.poll() is None)

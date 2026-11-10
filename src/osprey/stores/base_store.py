@@ -47,6 +47,10 @@ def _sanitize_for_json(obj: Any) -> Any:
     return obj
 
 
+#: Read by the gallery's ``StoreIndexWatcher``, in the same container under the same uid.
+_INDEX_FILE_MODE = 0o600
+
+
 class BaseStore(Generic[T]):
     """Abstract base for a file-backed, JSON-indexed store.
 
@@ -208,7 +212,7 @@ class BaseStore(Generic[T]):
             atomic_replace(
                 self._index_file,
                 json.dumps(payload, indent=2, default=str).encode("utf-8"),
-                mode=0o600,
+                mode=_INDEX_FILE_MODE,
                 sync="best_effort",
             )
             self._index_mtime = self._index_file.stat().st_mtime

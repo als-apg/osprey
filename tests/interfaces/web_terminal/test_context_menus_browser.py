@@ -101,25 +101,24 @@ def _labels(menu: Locator) -> list[str]:
     return [t.strip() for t in labels.all_inner_texts()]
 
 
-def _focus(target: Locator) -> None:
-    """Focus *target*, or its first focusable descendant, as Tab would."""
-    focused = target.evaluate(
-        """(el) => {
-          const own = el.matches('button, a[href], input, textarea, [tabindex]');
-          const t = own ? el : el.querySelector('button, a[href], [tabindex]');
-          t?.focus();
-          if (t !== null && t.getRootNode().activeElement === t) return '';
-          return (t ?? el).outerHTML.slice(0, 300);
-        }"""
-    )
-    assert not focused, f"the place takes no focus: {focused}"
+def _focus(target: Locator) -> Locator:
+    """Focus *target*, or its first focusable descendant, as Tab would. Returns a
+    locator of what took the focus.
+
+    Resolved by locator, never through a handle: a tree redraw replaces a row by
+    an equal one, and a handle taken before it (as ``Locator.evaluate`` takes
+    one, then runs) focuses the detached old row, which takes no focus."""
+    own = target.evaluate("(el) => el.matches('button, a[href], input, textarea, [tabindex]')")
+    focused = target if own else target.locator("button, a[href], [tabindex]").first
+    focused.focus(timeout=5_000)
+    expect(focused, "the place takes no focus").to_be_focused(timeout=5_000)
+    return focused
 
 
 def _menu_key(page: Page, target: Locator, *, aria: str | None = None) -> list[str]:
     """Focus *target*, press Shift+F10: one menu opens with focus on a row, and
     Escape closes it and gives focus back. Returns the menu's row labels."""
-    _focus(target)
-    before = page.evaluate_handle("() => document.activeElement")
+    focused = _focus(target)
     page.keyboard.press("Shift+F10")
     menu = page.locator(_MENU)
     expect(menu).to_have_count(1, timeout=5_000)
@@ -131,7 +130,10 @@ def _menu_key(page: Page, target: Locator, *, aria: str | None = None) -> list[s
     labels = _labels(menu)
     page.keyboard.press("Escape")
     expect(menu).to_have_count(0, timeout=5_000)
-    assert page.evaluate("(el) => document.activeElement === el", before)
+    # Focus comes back to the place the menu opened from, found again here
+    # rather than held from before: a tree redraw while the menu is open
+    # replaces a row by an equal one, and the focus goes to the new row.
+    expect(focused).to_be_focused(timeout=5_000)
     return labels
 
 
@@ -465,6 +467,35 @@ def test_the_menu_key_opens_the_rail_tile_and_dock_menus(tmp_path, chromium_brow
         assert dock.errors == []
 
 
+def test_escape_gives_focus_to_the_rail_entry_a_redraw_drew_while_its_menu_was_open(
+    tmp_path, chromium_browser
+):
+    with _hub(tmp_path) as dock:
+        page = _open_dock_hub(chromium_browser, dock)
+        entry = rail_entry(page, "svc-a", enabled_only=True)
+        expect(entry).to_have_count(1, timeout=10_000)
+        _focus(entry)
+        page.evaluate("() => { window.__railEntryBefore = document.activeElement; }")
+        page.keyboard.press("Shift+F10")
+        menu = page.locator(_MENU)
+        expect(menu).to_have_count(1, timeout=5_000)
+
+        # The rail's full render builds every row anew while the menu is open.
+        page.evaluate(
+            """async () => {
+              const { renderRail } = await import('/static/js/panel-lifecycle.js');
+              renderRail();
+            }"""
+        )
+        assert page.evaluate("() => !window.__railEntryBefore.isConnected"), (
+            "the render kept the old row"
+        )
+        page.keyboard.press("Escape")
+        expect(menu).to_have_count(0, timeout=5_000)
+        expect(rail_entry(page, "svc-a")).to_be_focused(timeout=5_000)
+        assert dock.errors == []
+
+
 def test_the_menu_key_opens_the_sidebar_menus(hub, page):
     _boot_hermetic(page, hub)
     tree_session = page.locator(
@@ -489,8 +520,11 @@ def test_the_menu_key_opens_the_sidebar_menus(hub, page):
         "data-session-id", sid, timeout=_TIMEOUT_MS
     )
     _open_all(page)
-    artifact = page.locator(f"{_TREE} .osprey-list-row[data-id]:not(.osprey-tree-run)").first
-    expect(artifact).to_be_visible(timeout=_TIMEOUT_MS)
+    first = page.locator(f"{_TREE} .osprey-list-row[data-id]:not(.osprey-tree-run)").first
+    expect(first).to_be_visible(timeout=_TIMEOUT_MS)
+    # Pinned by its id: `.first` is re-run on every use, and a redraw can put
+    # another row first.
+    artifact = page.locator(f'{_TREE} .osprey-list-row[data-id="{first.get_attribute("data-id")}"]')
     assert _menu_key(page, artifact), "the artifact row's menu has rows"
 
     # A pinned session draws the Pinned group, whose heading has a menu.

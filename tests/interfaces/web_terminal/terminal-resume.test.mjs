@@ -285,6 +285,26 @@ describe('transcript missing: a new session, never a dead PTY', () => {
     expect(written).not.toContain('[Process exited');
   });
 
+  test('the refused socket closing after the new session opened leaves the terminal glowing', () => {
+    // A real socket reports its close only once the server answers it, so the
+    // new session's socket can open first.
+    document.body.insertAdjacentHTML('beforeend', '<div class="terminal-body"></div>');
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    const refused = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+    refused.close = () => {
+      refused.readyState = FakeWebSocket.CLOSING;
+    };
+
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    openSocket();
+    refused.readyState = FakeWebSocket.CLOSED;
+    refused.onclose?.({ code: 1000, reason: '' });
+
+    expect(document.querySelector('.terminal-body')?.classList.contains('active')).toBe(true);
+  });
+
   test('keystrokes reach the new session, and Enter starts nothing else', () => {
     localStorage.setItem(STORAGE_KEY, 'gone-id');
     terminal.initTerminal('terminal-container');

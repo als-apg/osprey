@@ -16,10 +16,10 @@ host, brought up with a single ``osprey up``.
    - How it sits beside the single-user ``osprey web`` workflow, and when each
      mode is the right tool
    - The three ideas behind the multi-user stack: one container per user,
-     tiers and apps, and one nginx front door
+     logins, and one nginx front door
    - The ``modules.web_terminals`` config block that switches it on
    - Standing the preset's full stack up — its read-only, read-write and admin
-     logins plus the logbook, knowledge and channel-finder apps
+     logins plus the shared logbook, knowledge and channel-finder logins
    - Day-to-day operations: adding, reseeding, and removing users
    - What each terminal records, and who can read it
 
@@ -103,16 +103,18 @@ the simulator, and an *admin* tier, separated by whether it may change the
 deployment it runs in. :doc:`Privilege Tiers <tiers>` lays out what each one
 carries and what makes the boundary hold.
 
-**An app is a second agent on the same services.** Each file in ``apps/`` is a
-complete agent definition, opened from a shared card by everyone on the roster
-(or by the principals its ``shared:`` entry names) and read-only on the machine. The preset lists three under ``shared:``:
+**A shared login is opened by everyone on the roster,** or only by the
+principals its ``shared:`` entry names. A file in ``tiers/`` that ``shared:``
+names renders like any other login, sealed read-only on the machine. The
+preset's three say ``lists: own``, so each is a complete agent of its own on
+the deployment's services:
 ``logbook`` searches and synthesises the logbook from the same PostgreSQL the
 operators write to; ``knowledge`` answers how the machine is built from the
 facility knowledge graph, the channel finder and the knowledge bundle;
 ``channel-finder`` returns channel addresses from the hierarchy. See
 :ref:`multi-user-shared-card`.
 
-``osprey build`` renders one project per file in ``tiers/`` and ``apps/``. In
+``osprey build`` renders one project per file in ``tiers/``. In
 the preset's local mode, ``osprey up`` builds each one's container image
 locally, so no registry or CI is involved. A deployment can pull them from a
 registry instead; see :ref:`multi-user-registry-images`.
@@ -134,8 +136,10 @@ The config block
 
       .. tab-item:: Switching it on
 
-         The whole feature is one config block. This is what a project built from
-         the ``demo`` preset carries in its ``config.yml``:
+         The whole feature is one config block. This is an excerpt of what a
+         project built from the ``demo`` preset carries in its ``config.yml``;
+         the preset also sets ``landing.notices`` and ``landing.footer`` (see
+         :ref:`multi-user-landing-notices`):
 
          .. code-block:: yaml
 
@@ -144,12 +148,16 @@ The config block
                 enabled: true
                 image_source: local       # osprey up builds the images itself
                 default_tier: readonly
+                auth:
+                  method: password
+                  session_lifetime: 43200
+                  allow_insecure_http: true
                 landing:
                   groups:
                   - type: users
                     label: Users
-                  - type: apps
-                    label: Apps
+                  - type: shared
+                    label: Shared logins
                 users:
                 - name: alice
                   index: 0
@@ -168,13 +176,17 @@ The config block
                 - knowledge
                 - channel-finder
 
-         Each ``tier`` names a file in the repository's ``tiers/`` and each
-         ``shared:`` entry a file in ``apps/``, both written by ``osprey init``.
-         Every render shares one data tree, one set of secrets and one set of
-         your own artifacts. The build renders each into
-         ``build/<project_name>-<tier|app>`` and records it in
-         ``build/config.yml``; nothing here names a path. An unknown tier or
-         app is rejected by both ``osprey scaffold web-terminals lint`` and
+         The ``auth:`` lines put every terminal behind a password login.
+         ``allow_insecure_http: true`` suits ``127.0.0.1`` only; see
+         :doc:`login` before you serve the stack on a reachable host.
+
+         Each ``tier`` and each ``shared:`` entry names a file in the
+         repository's ``tiers/``, written by ``osprey init``. Every render
+         shares one data tree, one set of secrets and one set of your own
+         artifacts. The build renders each into
+         ``build/<project_name>-<name>`` and records it in
+         ``build/config.yml``; nothing here names a path. An unknown login is
+         rejected by both ``osprey scaffold web-terminals lint`` and
          ``osprey up``.
 
          The ``users`` list is the roster — the single source of truth for who
@@ -199,8 +211,8 @@ The config block
          each user takes the family's first port plus their index. At the
          default ``deployment.port_base`` that puts alice (index 0) on
          ``10100``, bob (index 1) on ``10101`` and carol (index 2) on
-         ``10102``, with their artifact galleries on ``10200``–``10202``. Apps
-         take slots counted down from the top of the block, in ``shared:``
+         ``10102``, with their artifact galleries on ``10200``–``10202``. Shared
+         logins take slots counted down from the top of the block, in ``shared:``
          order: logbook on ``10199``, knowledge on ``10198``, channel-finder
          on ``10197``. :ref:`reference-ports-panels` lists every family;
          move the whole deployment with ``deployment.port_base`` rather than a
@@ -222,10 +234,11 @@ The config block
          :ref:`multi-user-https`.
 
          ``landing.groups`` lists the page's sections in order: ``users`` (the
-         people), ``apps`` (one card per ``shared:`` app, drawn as a panel and
-         titled by the app's ``name:``) and ``links``. Left out, the page shows
-         people, then apps. Each group takes a ``label``; the apps panel is
-         headed "Apps" by default. Neither changes anything about a container.
+         people), ``shared`` (one card per ``shared:`` login, drawn as a panel
+         and titled by the login's ``name:``) and ``links``. Left out, the page
+         shows people, then shared logins. Each group takes a ``label``; the
+         shared panel is headed "Shared logins" by default. Neither changes
+         anything about a container.
 
          .. tip::
 
@@ -314,8 +327,8 @@ needed. Alongside the web tier,
 ``osprey up`` brings up everything else the demo tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL and agent-record containers — so the control-room terminals open onto a
-working machine, the logbook app onto a live logbook and the knowledge
-app onto a seeded facility graph, not an empty shell.
+working machine, the logbook login onto a live logbook and the knowledge
+login onto a seeded facility graph, not an empty shell.
 
 **Trim the roster** to the users you want, in ``profile.yml`` before
 ``osprey build``:
@@ -332,21 +345,23 @@ app onto a seeded facility graph, not an empty shell.
    to the repository's ``.env`` before ``osprey up`` (the preset defaults
    to Anthropic — set ``ANTHROPIC_API_KEY``). If you chose a different provider
    (``osprey set provider=...``), that choice is recorded in ``profile.yml`` and
-   carried into every tier and app the build renders.
+   carried into every login the build renders.
 
 .. note::
 
    Running from a **source checkout** of the OSPREY repository rather than a
-   released install? Add ``--dev`` to ``osprey up``. The images install
-   the framework from PyPI by default, and a source tree's version isn't
-   published there; ``--dev`` bakes your local checkout into the images
-   instead.
+   released install? The images install the framework from PyPI by default,
+   and a source tree's version isn't published there; ``--dev`` bakes your
+   local checkout into the images instead. Give it to both commands,
+   ``osprey build --dev`` then ``osprey up --dev``, or run
+   ``osprey up --build --dev``: ``osprey up --dev`` refuses a render built
+   without it.
 
 What ``osprey build`` and ``osprey up`` do for the web tier
 -----------------------------------------------------------
 
-#. **The build renders every tier and app.** ``osprey build`` renders one
-   project per file in ``tiers/`` and ``apps/``, into the build zone beside the
+#. **The build renders every login.** ``osprey build`` renders one
+   project per file in ``tiers/``, into the build zone beside the
    main render (``build/demo-readonly``,
    ``build/demo-readwrite``, ``build/demo-admin``,
    ``build/demo-logbook``, ``build/demo-knowledge``
@@ -368,7 +383,7 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    ``http://127.0.0.1:10000``, and one Web Terminal container comes up per
    user — ``demo-web-alice`` on host port ``10100``,
    ``demo-web-bob`` on ``10101`` and ``demo-web-carol``
-   on ``10102``, and one per app — ``demo-web-logbook`` on
+   on ``10102``, and one per shared login — ``demo-web-logbook`` on
    ``10199``, ``demo-web-knowledge`` on ``10198`` and
    ``demo-web-channel-finder`` on ``10197`` — each reached through the
    landing page. With login on, the auth sidecar runs as
@@ -412,7 +427,7 @@ Pull the terminal images from a registry
 
 With ``image_source: registry`` (the value whenever the key is unset),
 ``osprey up`` builds no terminal image. It pulls one image per render (each
-tier the roster uses and each shared app), under names it derives itself.
+login the roster or ``shared:`` uses), under names it derives itself.
 
 .. list-table::
    :header-rows: 1
@@ -421,15 +436,15 @@ tier the roster uses and each shared app), under names it derives itself.
      - Image
    * - The ``default_tier``
      - ``<registry.url>/web-terminal:<tag>``
-   * - Every other tier, and every shared app
+   * - Every other login, shared ones included
      - ``<registry.url>/web-terminal-<render>:<tag>``
    * - The auth sidecar, when login is on
      - ``<registry.url>/<project_name>-auth:<tag>``
 
-``<render>`` is the tier's or app's file name (``tiers/<name>.yml``,
-``apps/<name>.yml``), not its ``project``. The build derives the ``project`` as
+``<render>`` is the login's file name (``tiers/<name>.yml``), not its
+``project``. The build derives the ``project`` as
 ``<project_name>-<render>`` from the profile's ``project_name:``.
-A tier or app whose image is built elsewhere states its ``project``, the
+A login whose image is built elsewhere states its ``project``, the
 project the image was built from, in its own file (and may state its
 ``image``); its terminal runs in ``/app/<project>``.
 
@@ -467,7 +482,7 @@ The pipeline pushes the auth sidecar under its name too, unless
 ``osprey up`` refuses to render it.
 They also refuse a config with web terminals enabled and no tier files (so no
 render catalog) or no ``default_tier``, in either image source (code
-``web_terminals.requires_catalog``), and a tier or app whose image is built
+``web_terminals.requires_catalog``), and a login whose image is built
 elsewhere and states no ``project`` (code
 ``web_terminals.render_missing_project``); ``osprey up`` refuses both before it
 mints anything.
@@ -512,39 +527,40 @@ each labelled with the tier it resolves to:
    :figclass: only-light
    :alt: The multi-user landing page — alice's, bob's and carol's cards under
          a Users heading, and the Logbook Research, Facility Knowledge and
-         Channel Finder cards in a panel headed Apps beneath them
+         Channel Finder cards in a panel headed Shared logins beneath them
    :width: 100%
 
    The grouped landing page: alice resolves to the readwrite tier, bob to
-   readonly, carol to admin, and the app cards open the logbook, knowledge and
-   channel-finder apps. Click a card to open that session.
+   readonly, carol to admin, and the shared cards open the logbook, knowledge
+   and channel-finder logins. Click a card to open that session.
 
 .. figure:: /_static/resources/multi_user_landing_dark.png
    :class: only-dark
    :figclass: only-dark
    :alt: The multi-user landing page — alice's, bob's and carol's cards under
          a Users heading, and the Logbook Research, Facility Knowledge and
-         Channel Finder cards in a panel headed Apps beneath them
+         Channel Finder cards in a panel headed Shared logins beneath them
    :width: 100%
 
    The grouped landing page: alice resolves to the readwrite tier, bob to
-   readonly, carol to admin, and the app cards open the logbook, knowledge and
-   channel-finder apps. Click a card to open that session.
+   readonly, carol to admin, and the shared cards open the logbook, knowledge
+   and channel-finder logins. Click a card to open that session.
 
 Each operator card names its tier explicitly — alice the readwrite tier,
 bob the readonly one; carol is on the admin tier. (A bare roster entry would fall back to the
 preset's ``default_tier``, readonly, so an implicit user always lands on
-the safe side.) The app cards sit apart, in the
-accent-edged Apps panel, each titled by its app's ``name:`` — and carry no
-tier badge, because an app is not a person on a tier. An app card can never
-write to the machine or change the deployment, whatever the host sets. Every app
-card is shared: the
+the safe side.) The shared cards sit apart, in the accent-edged Shared logins
+panel, each titled by its login's ``name:`` — and carry no tier badge, because
+a shared card is not a person on a tier. A shared card never writes to the
+machine or changes the deployment, whatever its file or the host sets. Its
 login page asks for a roster name and that person's password, so nobody needs
 a credential for the card itself. Clicking any card opens that session at
 ``/u/<name>/``, proxied by nginx to its own container.
 
 A deployment that would rather not publish its roster can replace the name
 cards with one sign-in button; see :ref:`multi-user-hide-names`.
+
+.. _multi-user-landing-notices:
 
 What your operators read first
 ------------------------------
@@ -595,10 +611,8 @@ showing a gap.
 Logging out and switching users
 -------------------------------
 
-The **☰ More** menu at the bottom of the sidebar names the signed-in user —
-the display name where the roster sets one, the username otherwise — and
-their role, and has **Sign out**. That POSTs to the terminal's logout
-route, clears the local session pointer, and returns you to the landing page.
+To log out, use the **Sign out** row in the sidebar footer, as described in
+:ref:`web-terminal-sign-out`. It returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login
 starts **fresh**. Simply navigating away (without logout) keeps the session
@@ -639,12 +653,17 @@ agent wrote on the terminals' origin cannot read it. A visit without a valid
 sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.
 
-Who sees what is decided per person, from the roster, every time a page loads:
+Who sees what is decided per person, from the roster, every time a page loads.
+In ``profile.yml``, the roster goes under ``config:`` and ``agent_record:`` is a
+top-level key. Merge these keys into the ``modules.web_terminals:`` and
+``agent_record:`` entries already there; a second copy of either key silently
+replaces the first. A list in the snippet, such as ``users:``, stands as the
+whole list, so write every entry you keep into it.
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        authorization:
          roles:
            operator: {tier: readwrite, history: all}
@@ -652,6 +671,9 @@ Who sees what is decided per person, from the roster, every time a page loads:
          - name: alice
            index: 0
            tier: readwrite             # history: own, the default
+         - name: bob
+           index: 1
+           role: operator              # history: all, from the role
          - name: carol
            index: 2
            tier: admin

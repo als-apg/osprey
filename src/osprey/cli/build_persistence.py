@@ -536,6 +536,10 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
             # An empty list is written too: it declares that no tool writes,
             # which is not the same as a server that declares no list.
             spec["writes"] = list(server.writes)
+        if server.condition is not None:
+            spec["condition"] = server.condition
+        if server.app is not None:
+            spec["app"] = server.app
 
         specs[name] = spec
 

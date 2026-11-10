@@ -142,26 +142,8 @@ def test_the_exemplar_deployment_states_no_governed_policy(governed: frozenset[s
     assert _spelled(EXEMPLAR_DIR, governed) == {}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "These files are the frozen render at the baseline sha. PROPOSAL's criterion "
-        "says they are re-frozen; the plan's ruling says they never are, and "
-        "CELL_DELTAS declares the two moved leaves instead. Ruling owed: drop this "
-        "test, or re-freeze and drop this mark."
-    ),
-)
 def test_no_explicit_config_fixture_states_a_governed_policy(governed: frozenset[str]) -> None:
     assert _spelled(FIXTURES_DIR, governed) == {}
-
-
-def test_the_frozen_fixtures_spell_only_the_two_retired_policies(
-    governed: frozenset[str],
-) -> None:
-    """All the frozen render owes the slider is what CELL_DELTAS will declare gone."""
-    spelled = _spelled(FIXTURES_DIR, governed)
-    assert spelled
-    assert {tool for tools in spelled.values() for tool in tools} == RETIRED_POLICIES
 
 
 # ── The stanza table ────────────────────────────────────────────────────────
