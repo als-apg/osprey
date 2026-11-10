@@ -23,6 +23,9 @@ everyday terms rather than exact channel names.
       The database JSON schemas, the ``config.yml`` keys, and how the active
       pipeline is served to the agent.
 
+   :doc:`use-pv-directory`
+      All PVs, the panel's view of every PV the control system announces.
+
 
 Choosing a Pipeline
 ===================
@@ -257,16 +260,18 @@ Web Interface
 The browser-based channel explorer is the Channel Finder panel of the web
 terminal (``osprey web``).
 
-The explorer is read-only. To correct a channel, edit
-``data/facility/fixes.yaml`` and run ``osprey build``.
+The explorer is read-only. To correct a channel, edit ``fixes.yaml`` in the
+facility tree and run ``osprey build``.
 
 The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into
 the search box in the panel toolbar (``/`` focuses it) and it keeps the
 channels that match all of them. Each word is matched against the address, the
 description, the device or signal name, and the name or synonyms of the
-device's class or any class above it. Explore and Feedback are at the toolbar's
-left. The result count and the search box are at its right.
+device's class or any class above it. The view switch is at the toolbar's
+left: Explore and Feedback, or Curated, All PVs and Feedback when ``config.yml``
+has a ``pv_directory`` section. The result count and the search box are at its
+right.
 
 The sidebar narrows further:
 
