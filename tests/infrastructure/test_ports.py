@@ -156,25 +156,22 @@ def _only_candidate(monkeypatch: pytest.MonkeyPatch, port: int) -> None:
     monkeypatch.setattr(_ports, "_candidates", lambda first: [port])
 
 
-def _a_reservable_port() -> int:
-    with reserved_port() as port:
-        return port
-
-
 def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
-    port = _a_reservable_port()
     holder = subprocess.Popen(
         [
             sys.executable,
             "-c",
             textwrap.dedent(
-                f"""
-                import fcntl, sys
-                handle = open({str(lock_path(port))!r}, "a")
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                sys.stdout.write("held\\n")
-                sys.stdout.flush()
-                sys.stdin.read()
+                """
+                import sys
+                from osprey_connectors_tests._harness import _ports
+                for port in _ports._candidates(_ports.ephemeral_range_start()):
+                    if _ports._lock(port) is None:
+                        continue
+                    sys.stdout.write(f"{port}\\n")
+                    sys.stdout.flush()
+                    sys.stdin.read()
+                    break
                 """
             ),
         ],
@@ -182,24 +179,36 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         stdout=subprocess.PIPE,
         text=True,
         start_new_session=True,
+        env=with_harness_path(dict(os.environ)),
     )
     try:
         assert holder.stdout is not None
-        assert holder.stdout.readline() == "held\n"
-        _only_candidate(monkeypatch, port)
+        held = holder.stdout.readline()
+        assert held.strip().isdigit(), f"the holder locked no port: {held!r}"
+        _only_candidate(monkeypatch, int(held))
         with pytest.raises(RuntimeError, match="1 candidate"), reserved_port():
             pass
     finally:
         _end_holder(holder)
 
 
+def _bind_a_candidate(taken: socket.socket) -> int:
+    """Bind *taken* on 127.0.0.1 to the first reservation candidate free for it."""
+    for port in _ports._candidates(ephemeral_range_start()):
+        try:
+            taken.bind(("127.0.0.1", port))
+        except OSError:
+            continue
+        return port
+    pytest.fail("no reservation candidate binds on 127.0.0.1")
+
+
 @pytest.mark.parametrize(
     "kind", [socket.SOCK_STREAM, socket.SOCK_DGRAM], ids=["tcp-listener", "udp-socket"]
 )
 def test_a_port_already_bound_is_never_yielded(monkeypatch, kind):
-    port = _a_reservable_port()
     with socket.socket(socket.AF_INET, kind) as taken:
-        taken.bind(("127.0.0.1", port))
+        port = _bind_a_candidate(taken)
         if kind == socket.SOCK_STREAM:
             taken.listen()
         _only_candidate(monkeypatch, port)
