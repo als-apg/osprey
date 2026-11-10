@@ -77,6 +77,7 @@ INVARIANT_TESTS = (
     "tests/scripts/test_ruff_file_selection.py",
     "tests/scripts/test_check.py",
     "tests/scripts/test_changelog_fragments.py",
+    "tests/apps/test_no_trajectory_service.py",
     "tests/interfaces/test_js_module_tests.py",
     "tests/deployment/test_ci_workflow_wiring.py",
     "tests/deployment/test_e2e_scenario_pin.py",
