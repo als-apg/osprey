@@ -74,12 +74,9 @@ services:
 {%- set port = corpus.port %}
   {{ corpus.service }}:
     image: ${OSPREY_QMD_IMAGE:-{{ services.qmd.image | default(osprey_images.qmd) }}}
-{#- The build renders only while this service runs the image OSPREY builds
-    (no `services.qmd.image`, or one naming `osprey_images.qmd`). Any
-    other image is pulled and run as named, so a deploy never builds this
-    Dockerfile under a name the operator chose for something else. Only the
-    first sidecar carries it: every sidecar runs the one image, and a second
-    `build:` for the same tag would race the first to tag it. #}
+{#- `builds` is the rule of `services/_own_image.j2`, applied to the first
+    sidecar only: every sidecar runs the one image, and a second `build:` for
+    the same tag would race the first to tag it. #}
 {%- if builds and loop.first %}
     build:
       # EVERY relative path in this file — the build context and the bind-mount

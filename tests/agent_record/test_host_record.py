@@ -19,6 +19,7 @@ compose ``/health`` body.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import os
@@ -290,6 +291,42 @@ def test_a_live_port_that_is_not_ours_is_never_spawned_over(
     assert project.process() is None
     assert not (project.state_dir / hr.PROCESS_FILE_NAME).exists()
     assert not (project.root / "var" / "agent_record").exists()
+
+
+@pytest.mark.usefixtures("claude_dir")
+def test_a_refused_host_login_ends_the_wait_at_once(tmp_path):
+    # The refusal is conclusive: another project's record holds the port. A
+    # later probe could only time out under load and hide that.
+    with run_app_server(_stub(200, 401)) as base:
+        project = Project(tmp_path / "repo", port=int(base.rsplit(":", 1)[1]))
+        begun = time.monotonic()
+        with pytest.raises(hr.HostRecordRefused, match="refused the host login"):
+            with project.ensure(wait_s=30.0):
+                pass
+        assert time.monotonic() - begun < 10.0
+    assert project.process() is None
+
+
+@pytest.mark.usefixtures("claude_dir")
+def test_a_later_timeout_never_replaces_the_answer_a_probe_had(tmp_path, monkeypatch):
+    monkeypatch.setattr(hr, "_PROBE_TIMEOUT_S", 0.3)
+    answered: list[int] = []
+    app = FastAPI()
+
+    @app.get("/health")
+    async def health() -> JSONResponse:
+        answered.append(1)
+        if len(answered) > 1:
+            await asyncio.sleep(1.0)
+        return JSONResponse({"status": "ok"}, status_code=503)
+
+    with run_app_server(app) as base:
+        project = Project(tmp_path / "repo", port=int(base.rsplit(":", 1)[1]))
+        with pytest.raises(hr.HostRecordRefused, match="/health answered 503") as refused:
+            with project.ensure(wait_s=1.0):
+                pass
+    assert "Timeout" not in str(refused.value)
+    assert len(answered) > 1
 
 
 def test_a_live_stack_marker_is_never_spawned_under(project, monkeypatch):

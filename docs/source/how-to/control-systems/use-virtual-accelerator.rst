@@ -479,10 +479,12 @@ stack deploys one. ``osprey up`` brings up two more containers beside the
 Virtual Accelerator:
 
 - **the store** — a MongoDB service (``archiver-mongodb`` on the deployment's
-  network, published on host port 27017 by default), holding one collection of
-  timestamped samples; every channel the facility declares is recorded under
-  its own address, an EPICS field name (``.RBV``) included, and waveform
-  channels are kept in a sibling collection (see `Waveform channels`_);
+  network, published on host port 10801 at the default port base, set by the
+  profile's ``va_archiver.port_host``; see :ref:`reference-ports-layout`). It
+  holds one collection of timestamped samples. Every channel the facility
+  declares is recorded under its own address, an EPICS field name (``.RBV``)
+  included, and waveform channels are kept in a sibling collection (see
+  `Waveform channels`_);
 - **the recorder** — a small service that reads the running machine on a fixed
   cadence and writes what answered into that collection.
 

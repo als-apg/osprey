@@ -86,6 +86,10 @@ on:
 # need maintaining (workflow.rst, "Model-Spending Lanes"). The label is the
 # whole mechanism.
 #
+# The one path rule is separate and narrow: a docs-only pull request stands
+# the pull-request-scoped lanes down (the `changes` job and
+# scripts/ci/docs_only.py), and the `full-ci` label turns that off too.
+#
 # What this trades: an unlabeled PR merges on the always-on lanes plus the
 # secret-free e2e lanes, and its agentic proof is whichever labeled PR or
 # dispatch last ran against a tree containing it. Consumers that pin osprey
@@ -1959,6 +1963,63 @@ jobs:
       run: |
         uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 
+  changes:
+    name: Changed-path classifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Docs-only pull requests stand the pull-request-scoped lanes down.
+    #
+    # Every lane below whose `if:` has a pull-request arm (the e2e and deploy
+    # set) needs this job and reads `docs_only` in that arm. On a pull request
+    # whose every changed path sits under docs/, changelog.d/ or tests/docs/
+    # (scripts/ci/docs_only.py holds the rule and why it is that narrow) those
+    # lanes skip, and the roll-up gate says so in the run summary. A docs-only
+    # run spent ~620 runner-minutes before this, nearly all of it in lanes no
+    # .rst can reach.
+    #
+    # What it does NOT touch: the always-on lanes carry no `if:` and still run,
+    # which is where the tests that read docs/ live; pushes and dispatches
+    # (the revalidation run included) always see `docs_only=false`; and the
+    # `full-ci` label forces `false`, so a labelled docs PR runs everything.
+    #
+    # The job runs on every event and must succeed: a lane that needs it skips
+    # when it fails, and the gate requires `success` here so that a broken
+    # classifier reds the run instead of quietly skipping every e2e lane.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+    - name: Checkout the classifier
+      uses: actions/checkout@v7
+      with:
+        sparse-checkout: scripts/ci
+        persist-credentials: false
+    - name: Classify changed paths
+      id: classify
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EVENT_NAME: ${{ github.event_name }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        HAS_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      run: |
+        set -euo pipefail
+        if [[ "$EVENT_NAME" != "pull_request" ]]; then
+          echo "Not a pull request ($EVENT_NAME): every lane runs."
+          echo "docs_only=false" >> "$GITHUB_OUTPUT"
+        elif [[ "$HAS_FULL_CI" == "true" ]]; then
+          echo "full-ci label: every lane runs."
+          echo "docs_only=false" >> "$GITHUB_OUTPUT"
+        else
+          # Both names of a rename are fed, so moving a file out of src/ into
+          # docs/ still counts as touching src/.
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > changed-paths.txt
+          python3 scripts/ci/docs_only.py < changed-paths.txt >> "$GITHUB_OUTPUT"
+        fi
+
   agentic-per-preset:
     name: Tier 3 — Agentic flow (${{ matrix.preset }})
     runs-on: ubuntu-latest
@@ -1970,8 +2031,10 @@ jobs:
     # every other e2e lane — the house rule is full green, no advisory tiers.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -2069,8 +2132,10 @@ jobs:
     # benchmark lanes instead (run_benchmarks).
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -2415,8 +2480,10 @@ jobs:
     # see; this one resolves none. Excluding Dependabot here would take the
     # model-free proof off the pull requests that move the dependency set,
     # which is where it is worth the most.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request')
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true')
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Sized against tiled-roundtrip-e2e (30), the closest shape here — one
     # compose stack, no image build, no model call — with the step cap under
@@ -2551,8 +2618,10 @@ jobs:
     # no actor guard. The replay is model-free — every test in it carries
     # `model_free` — but it is its own lane because each case deploys a whole
     # stack and waits out a stopped source.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request')
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true')
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # One cell per case, each on its own runner: the two cases share nothing
     # but the module's project name and port block, which are per host, so
@@ -2849,8 +2918,10 @@ jobs:
     # same-repo check alone does NOT cover Dependabot, whose branches live
     # in this repo). Revalidate with the `revalidate_secret_lanes` dispatch
     # input, like every other secret-gated lane.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]')
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
@@ -2953,8 +3024,10 @@ jobs:
     # cold-cache minutes; the two builds share most layers.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -3067,8 +3140,10 @@ jobs:
     # deploy e2e.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -3177,8 +3252,10 @@ jobs:
     # lanes; its project name and port block are its own.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -3308,8 +3385,10 @@ jobs:
     # e2e-tests.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -3426,8 +3505,10 @@ jobs:
     # gating). This job needs no secrets — the bluesky bridge never shells out
     # to an LLM — but the same-repo restriction is the house policy for any
     # extra Docker-build-and-deploy job, not just secret-gated ones.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
@@ -3490,8 +3571,10 @@ jobs:
     timeout-minutes: 60
     # Same-repo PRs only, the house policy for every Docker build-and-deploy
     # job (mirrors bluesky-deploy-e2e). No secrets: the optimizer calls no LLM.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
@@ -3534,8 +3617,10 @@ jobs:
     # Only run on PRs from same repo (mirrors bluesky-deploy-e2e/va-substrate-
     # equivalence-e2e gating). This job needs no secrets — neither the
     # bridge nor the bluesky-web sidecar shells out to an LLM.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Co-deploys the VA (native PyAT/serving-stack build, same cold-cache cost as
     # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
@@ -3609,8 +3694,10 @@ jobs:
     # shells out to an LLM. Its own lane, not e2e-tests' glob (the
     # secret-gated LLM lane): its docstring says it is never collected by the
     # fast lane.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # The VA image build + `osprey up` inside the test carry their own
     # generous internal timeouts (5min build, 20min deploy-up) to absorb a
@@ -3695,8 +3782,10 @@ jobs:
     # VA/bridge/Tiled stack — more than one at once is more than a GHA runner
     # has to give. Sequential steps also keep the four failures separately
     # attributable in the job log.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
@@ -3831,8 +3920,10 @@ jobs:
     # Only run on PRs from same repo (mirrors orm-roundtrip-e2e gating). This
     # job needs no secrets — every stage drives the bridge HTTP API and the
     # osprey CLI directly, no LLM involved.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Sized from the suite's own internal caps rather than a guess: the 2400s
     # `osprey up` budget is spent TWICE (stage 8 flips the control
@@ -3908,8 +3999,10 @@ jobs:
     # ALS_APG_API_KEY — the same gating as dispatch-overlay-e2e.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -4093,8 +4186,10 @@ jobs:
     # Docker-build-and-deploy job, not just secret-gated ones. A secret
     # appearing here would mean the lane's scope silently grew; that is guarded
     # by test_secret_free_lane_has_no_llm_secret[archiver-world-e2e].
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Builds the native PyAT/serving-stack VA image from source (same cost as
     # orm-roundtrip-e2e) and then seeds a DEFAULT-knob archive: 30-day
@@ -4171,8 +4266,10 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo-PR gating, house policy for every extra Docker lane. No
     # secrets: the file reads the render and the store, and reaches no model.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Three `osprey build`s of the demo preset plus one
     # testcontainers Neo4j store; about a minute on a workstation.
@@ -4227,8 +4324,10 @@ jobs:
     # job needs no secrets — the bridge never shells out to an LLM — but the
     # same-repo restriction is the house policy for any extra
     # Docker-build-and-deploy job, not just secret-gated ones.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Deploys the demo preset, so the bring-up builds that preset's
     # images (bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
@@ -4310,8 +4409,10 @@ jobs:
     # amd64-emulated Virtual Accelerator image (mock devices, no EPICS), so
     # it's comparable in weight to bluesky-deploy-e2e rather than
     # va-substrate-equivalence-e2e.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
@@ -4381,8 +4482,10 @@ jobs:
     # Accelerator image (the negative case's IOC no-write proof reads a real
     # corrector setpoint over Channel Access, independent of the bridge), so
     # it's as heavy as va-substrate-equivalence-e2e, not bluesky-catalog-e2e.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     timeout-minutes: 45
 
@@ -4451,8 +4554,10 @@ jobs:
     # Docker-stack lane: secrets are unavailable on forks).
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -4583,8 +4688,10 @@ jobs:
     # container-stack lane: secrets are unavailable on forks).
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -4968,8 +5075,10 @@ jobs:
     # lifecycle lanes this touches nothing host-global — every image and
     # container it creates carries a per-run uuid under the
     # osprey-e2e-privsplit prefix — so it is safe to run on per-phase PRs too.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
@@ -5100,8 +5209,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Only run on PRs from same repo (mirrors deploy-e2e gating)
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
@@ -5370,8 +5481,10 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This one needs no secrets: it builds an image and runs `print(2+2)`
     # through the python-executor path; no LLM is called anywhere in the file.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Must exceed the test's own BUILD_TIMEOUT (1200s) plus checkout, uv sync,
     # the wheel build and four container runs — so a slow-but-progressing build
@@ -5429,8 +5542,10 @@ jobs:
     # can touch the build/deploy/profile path. No secrets: nothing here reaches
     # an LLM. Sized for two deployments that each build the project image the
     # agent record runs, the second from the first one's layer cache.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     timeout-minutes: 40
 
@@ -5508,8 +5623,10 @@ jobs:
     # container/volume lifecycle operations (decommission/prune/nuke) against
     # the runtime. The `if:` below is the exact condition; its dispatch arm is
     # the one every pull-request-only lane carries (see the workflow header).
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' &&
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' &&
         github.event.pull_request.base.ref == 'main' &&
         github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
@@ -5602,8 +5719,10 @@ jobs:
     # `epic/*` integration base. Scoped to main alone it would skip on every PR
     # that changes what it covers, and a safety lane that only runs after the
     # work is already merged is one that can go red inside a green gate.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && (github.event.pull_request.base.ref == 'main'
         || startsWith(github.event.pull_request.base.ref, 'epic/')))
@@ -5721,8 +5840,10 @@ jobs:
     # `epic/*` integration base. Scoped to main alone it would skip on every PR
     # that changes what it covers, and a safety lane that only runs after the
     # work is already merged is one that can go red inside a green gate.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && (github.event.pull_request.base.ref == 'main'
         || startsWith(github.event.pull_request.base.ref, 'epic/')))
@@ -5852,8 +5973,10 @@ jobs:
     # alone it would skip on every PR that changes what it covers, and a safety
     # lane that only runs after the work is already merged is one that can go
     # red inside a green gate.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && (github.event.pull_request.base.ref == 'main'
         || startsWith(github.event.pull_request.base.ref, 'epic/')))
@@ -6016,8 +6139,10 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. No secret is needed: the fixture writes a fake ANTHROPIC_API_KEY and
     # nothing in the module contacts a model.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # One cold render image build (the same work as the single-build auth
     # lanes), one `osprey up --dev`, then the notebook assertions and a second
@@ -6114,8 +6239,10 @@ jobs:
     # only (per-phase PRs inside an epic target epic/* and skip it). The `if:`
     # below is the exact condition; its dispatch arm is the one every
     # pull-request-only lane carries (see the workflow header).
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' &&
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' &&
         github.event.pull_request.base.ref == 'main' &&
         github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
@@ -6238,8 +6365,10 @@ jobs:
     # whose PRs target an `epic/*` integration base. Scoped to main alone it
     # would skip on every PR that changes what it covers and only ever run once
     # the work was already merged into the epic.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && (github.event.pull_request.base.ref == 'main'
         || startsWith(github.event.pull_request.base.ref, 'epic/')))
@@ -6466,8 +6595,10 @@ jobs:
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This one needs no secrets: the sidecar is a local container serving
     # a fixture corpus, and no LLM is called anywhere in the module.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Cold-cache shape: 2.1 GB of GGUF models fetched during the build, plus
     # qmd's fail-closed startup pass, which will not serve until it has
@@ -6691,8 +6822,10 @@ jobs:
     # the same channel names with different values), and every assertion here
     # reads back a number. No LLM is called anywhere in either module. The
     # agent-driven half of this feature is a separate, secret-gated lane.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # The cap bounds two cold image builds plus the three test modules in one
     # pytest invocation — the same invocation the run step below makes (the
@@ -6842,8 +6975,10 @@ jobs:
     # only the Dependabot secret store. Revalidate a Dependabot branch as a
     # maintainer with the `revalidate_secret_lanes` dispatch input — the
     # roll-up gate prints that command in the run summary.
+    needs: changes
     if: >-
       (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
@@ -7053,8 +7188,10 @@ jobs:
     # of its subject: every assertion reads a value back from a container this
     # job built, and no module in it calls a model. A fork therefore loses
     # nothing here that a secret would have given it.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # The composition this cap bounds, piece by piece rather than as one
     # guessed number:
@@ -7293,8 +7430,10 @@ jobs:
     # job, secret-gated or not. This one needs no secret: the deployment's
     # .env is seeded from the rendered .env.example, and nothing in the module
     # calls a model.
+    needs: changes
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request'
+      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Sized against bluesky-deploy-e2e's 60 rather than against the container
     # lane above, because that is the comparable surface: `osprey init`,
@@ -7647,7 +7786,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, optimizer-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, slack-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-cache-warmup, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke, canopy-contract]
+    needs: [changes, test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, optimizer-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, slack-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-cache-warmup, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # The gate runs whenever the run was not cancelled, so a failed, cancelled
@@ -7693,7 +7832,15 @@ jobs:
         REVALIDATE: ${{ inputs.revalidate_secret_lanes }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         HAS_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
       run: |
+        # The classifier must succeed: every pull-request-scoped lane needs it,
+        # so a failed `changes` job skips them all, and check_pr_lane below
+        # reads a skip as a pass.
+        if [[ "${{ needs.changes.result }}" != "success" ]]; then
+          echo "❌ Changed-path classifier failed; the e2e lanes that need it did not run"
+          exit 1
+        fi
         if [[ "${{ needs.test.result }}" != "success" ]]; then
           echo "❌ Tests failed"
           exit 1
@@ -7895,4 +8042,23 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           echo "ℹ️  Model-spending lanes skipped (no full-ci label) — see run summary."
+        fi
+
+        # A docs-only pull request (the `changes` job) skipped every
+        # pull-request-scoped lane. Say so, so a green check is not read as
+        # e2e coverage. Advisory: it can never turn a passing gate red.
+        if [ "$DOCS_ONLY" = "true" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          {
+            echo "### ℹ️ Docs-only pull request: e2e and deploy lanes did not run"
+            echo
+            echo "Every changed path is under \`docs/\`, \`changelog.d/\` or \`tests/docs/\`"
+            echo "(scripts/ci/docs_only.py), so the pull-request-scoped lanes stood down."
+            echo "The always-on lanes, the docs build and the tests that read docs/ ran."
+            echo "To run every lane anyway:"
+            echo
+            echo '```'
+            echo "gh pr edit $PR_NUMBER --add-label full-ci"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "ℹ️  Docs-only pull request: e2e lanes skipped — see run summary."
         fi

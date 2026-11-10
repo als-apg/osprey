@@ -301,6 +301,10 @@ def _remembered(session_id):
     return data if isinstance(data, dict) else None
 
 
+#: Read back only by this hook, on a later turn of the same session.
+_MEMO_FILE_MODE = 0o600
+
+
 def _remember(session_id, state):
     """Keep *state* as this session's memo, replaced whole. Never raises."""
     if session_id is None or _safety_file is None:
@@ -309,7 +313,7 @@ def _remember(session_id, state):
         _safety_file.atomic_replace(
             Path(memo_path(session_id)),
             json.dumps(state).encode("utf-8"),
-            mode=0o600,
+            mode=_MEMO_FILE_MODE,
             sync="best_effort",
         )
 

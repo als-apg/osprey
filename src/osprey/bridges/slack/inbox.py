@@ -70,6 +70,10 @@ def _file_name(key: str) -> str:
     return "".join(out) + _SUFFIX
 
 
+#: Read back only by this bridge, from its own state volume, when it replays or quarantines.
+_RECORD_FILE_MODE = 0o600
+
+
 class Inbox:
     """A directory of one-file-per-event records; see the module docstring."""
 
@@ -95,7 +99,10 @@ class Inbox:
                     return False
                 record = {"key": key, "seq": self._next_seq, "attempts": 0, "payload": payload}
                 atomic_replace(
-                    path, json.dumps(record).encode("utf-8"), mode=0o600, sync="required"
+                    path,
+                    json.dumps(record).encode("utf-8"),
+                    mode=_RECORD_FILE_MODE,
+                    sync="required",
                 )
             except OSError as exc:
                 log.warning("slack inbox could not persist %s: %s", key, exc)
@@ -133,7 +140,10 @@ class Inbox:
                 return
             try:
                 atomic_replace(
-                    path, json.dumps(record).encode("utf-8"), mode=0o600, sync="required"
+                    path,
+                    json.dumps(record).encode("utf-8"),
+                    mode=_RECORD_FILE_MODE,
+                    sync="required",
                 )
             except OSError as exc:
                 log.warning("slack inbox could not record a failure of %s: %s", key, exc)
@@ -188,7 +198,9 @@ class Inbox:
 
     def _write_then_quarantine(self, path: Path, record: dict) -> None:
         try:
-            atomic_replace(path, json.dumps(record).encode("utf-8"), mode=0o600, sync="best_effort")
+            atomic_replace(
+                path, json.dumps(record).encode("utf-8"), mode=_RECORD_FILE_MODE, sync="best_effort"
+            )
         except OSError as exc:
             log.warning("slack inbox could not update %s before quarantine: %s", path.name, exc)
         self._quarantine(path)

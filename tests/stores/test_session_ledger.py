@@ -41,6 +41,13 @@ class TestAppend:
         document = json.loads((tmp_path / session_ledger.STORE_FILENAME).read_text())
         assert document == {"rows": [[KEY, KEY, session_ledger.EPOCH]]}
 
+    def test_the_ledger_is_readable_through_the_state_directory_group(self, tmp_path):
+        # A dispatch worker's MCP processes read it under another uid, through the
+        # state directory's setgid group, as they read the control-context record.
+        session_ledger.append(tmp_path, KEY, T1, AT_1)
+        mode = (tmp_path / session_ledger.STORE_FILENAME).stat().st_mode & 0o777
+        assert mode == 0o640
+
     def test_a_repeat_of_the_latest_transcript_is_not_appended(self, tmp_path):
         assert session_ledger.append(tmp_path, KEY, T1, AT_1)
         path = tmp_path / session_ledger.STORE_FILENAME

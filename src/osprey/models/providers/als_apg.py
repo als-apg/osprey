@@ -22,7 +22,6 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     description = "ALS Accelerator Physics Group gateway (supports Anthropic and OpenAI models)"
     requires_api_key = True
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = True
     # The gateway's own endpoint, so a call that names none still reaches it.
     # ``requires_base_url`` above is what makes this value reachable at all:
