@@ -921,8 +921,6 @@
 
 
 
-<div class="viewcode-block" id="verify_child_report">
-<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.verify_child_report">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">verify_child_report</span><span class="p">(</span><span class="n">derivation</span><span class="p">:</span> <span class="n">TargetDerivation</span><span class="p">,</span> <span class="n">report</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Verification</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Assert a child came up exactly where the derivation said it would.</span>
 
@@ -1007,8 +1005,7 @@
             <span class="sa">f</span><span class="s2">&quot;The child is on target </span><span class="si">{</span><span class="n">derivation</span><span class="o">.</span><span class="n">target</span><span class="si">!r}</span><span class="s2"> via its </span><span class="si">{</span><span class="n">expected_role</span><span class="si">!r}</span><span class="s2"> &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;gateway at </span><span class="si">{</span><span class="n">endpoint</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">endpoint</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">endpoint</span><span class="o">.</span><span class="n">mode</span><span class="si">}</span><span class="s2">).&quot;</span>
         <span class="p">),</span>
-    <span class="p">)</span></div>
-
+    <span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_verify_posture</span><span class="p">(</span>

@@ -486,10 +486,8 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.safety_file</span><span class="w"> </span><span class="kn">import</span> <span class="n">atomic_replace</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;EXCERPT_LIMIT&quot;</span><span class="p">,</span>
     <span class="s2">&quot;HOLD_DIR_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;RECORD_NAME&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;SCHEMA_VERSION&quot;</span><span class="p">,</span>
     <span class="s2">&quot;UNREADABLE_FLAG_ID&quot;</span><span class="p">,</span>
     <span class="s2">&quot;HoldFlag&quot;</span><span class="p">,</span>
     <span class="s2">&quot;answer_flags&quot;</span><span class="p">,</span>
@@ -512,13 +510,13 @@
 <span class="n">RECORD_NAME</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;record.json&quot;</span>
 
 <span class="c1">#: The record format. A record of any other schema is unreadable, and holds.</span>
-<span class="n">SCHEMA_VERSION</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">_SCHEMA_VERSION</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1</span>
 
 <span class="c1">#: The id of the one flag reported for a missing or unreadable record.</span>
 <span class="n">UNREADABLE_FLAG_ID</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;hold-record-unreadable&quot;</span>
 
 <span class="c1">#: The longest prompt excerpt a flag stores; the writer truncates.</span>
-<span class="n">EXCERPT_LIMIT</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">200</span>
+<span class="n">_EXCERPT_LIMIT</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">200</span>
 
 <span class="c1">#: The source of the synthetic flag.</span>
 <span class="n">_UNREADABLE_SOURCE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;session_hold&quot;</span>
@@ -642,7 +640,7 @@
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">SCHEMA_VERSION</span> <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_key&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">session_key</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">_SCHEMA_VERSION</span> <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;session_key&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">session_key</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="n">flags</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;flags&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">flags</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">_valid_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">):</span>
@@ -794,7 +792,7 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_write</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span> <span class="s2">&quot;session_key&quot;</span><span class="p">:</span> <span class="n">session_key</span><span class="p">,</span> <span class="s2">&quot;flags&quot;</span><span class="p">:</span> <span class="n">flags</span><span class="p">}</span>
+    <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span> <span class="s2">&quot;session_key&quot;</span><span class="p">:</span> <span class="n">session_key</span><span class="p">,</span> <span class="s2">&quot;flags&quot;</span><span class="p">:</span> <span class="n">flags</span><span class="p">}</span>
     <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
     <span class="n">atomic_replace</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">_RECORD_MODE</span><span class="p">)</span>
 
@@ -880,8 +878,8 @@
     <span class="k">if</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
     <span class="n">key</span> <span class="o">=</span> <span class="n">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span>
-    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">prompt_excerpt</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">EXCERPT_LIMIT</span><span class="p">:</span>
-        <span class="n">prompt_excerpt</span> <span class="o">=</span> <span class="n">prompt_excerpt</span><span class="p">[:</span> <span class="n">EXCERPT_LIMIT</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;…&quot;</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">prompt_excerpt</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_EXCERPT_LIMIT</span><span class="p">:</span>
+        <span class="n">prompt_excerpt</span> <span class="o">=</span> <span class="n">prompt_excerpt</span><span class="p">[:</span> <span class="n">_EXCERPT_LIMIT</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;…&quot;</span>
     <span class="k">with</span> <span class="n">_locked</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="k">as</span> <span class="n">path</span><span class="p">:</span>
         <span class="n">flags</span> <span class="o">=</span> <span class="n">_read_record</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">flags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>

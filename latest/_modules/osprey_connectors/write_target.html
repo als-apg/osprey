@@ -465,7 +465,6 @@
 <span class="p">)</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;FALLBACK_WRITE_TOOLS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;KIND_BANNERS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;UNRESOLVED&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Unresolved&quot;</span><span class="p">,</span>
@@ -483,10 +482,10 @@
 <span class="p">}</span>
 
 <span class="c1">#: The write list a deployment with no rendered ``write_tools`` falls back to.</span>
-<span class="c1">#: Restated from the hooks&#39; ``FALLBACK_WRITE_TOOLS`` (``osprey_hook_log.py``):</span>
+<span class="c1">#: Restated from the hooks&#39; ``_FALLBACK_WRITE_TOOLS`` (``osprey_hook_log.py``):</span>
 <span class="c1">#: this package cannot import the framework, and the hooks cannot import this</span>
 <span class="c1">#: package. The parity test pins the two.</span>
-<span class="n">FALLBACK_WRITE_TOOLS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+<span class="n">_FALLBACK_WRITE_TOOLS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
     <span class="s2">&quot;mcp__bluesky__queue_add&quot;</span><span class="p">,</span>
     <span class="s2">&quot;mcp__bluesky__queue_start&quot;</span><span class="p">,</span>
     <span class="s2">&quot;mcp__controls__channel_write&quot;</span><span class="p">,</span>
@@ -719,7 +718,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">hooks</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">hook_config</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">hook_config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
-        <span class="n">write_tools</span> <span class="o">=</span> <span class="n">hooks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_tools&quot;</span><span class="p">,</span> <span class="n">FALLBACK_WRITE_TOOLS</span><span class="p">)</span>
+        <span class="n">write_tools</span> <span class="o">=</span> <span class="n">hooks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_tools&quot;</span><span class="p">,</span> <span class="n">_FALLBACK_WRITE_TOOLS</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_write_tool</span><span class="p">(</span><span class="n">tool_name</span><span class="p">,</span> <span class="n">write_tools</span><span class="p">):</span>
             <span class="k">return</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="n">short_name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>

@@ -434,8 +434,9 @@
 <span class="sd">what one operator has narrowed are properties of the deployment as that</span>
 <span class="sd">operator holds it, not of any process tree inside it. They live in a single</span>
 <span class="sd">JSON file, :data:`RECORD_FILENAME` inside the acting identity&#39;s directory</span>
-<span class="sd">under :data:`STATE_DIR_NAME` (:func:`state_dir`), and this module is where it</span>
-<span class="sd">is written and read.</span>
+<span class="sd">under :data:`STATE_DIR_NAME` (the state directory,</span>
+<span class="sd">:func:`~osprey_connectors.posture_store.state_dir`), and this module is where</span>
+<span class="sd">it is written and read.</span>
 
 <span class="sd">The file has exactly one writer at a time — its **owner**: the web terminal</span>
 <span class="sd">when one is running, otherwise a controls MCP server. Everything else is a</span>
@@ -446,7 +447,7 @@
 
 <span class="sd">**1. Where the file is.** :func:`record_path` — the record sits in the same</span>
 <span class="sd">directory as the posture store, and the root resolves by that store&#39;s rule 1</span>
-<span class="sd">(:func:`osprey_connectors.posture_store.agent_data_root`) rather than by a</span>
+<span class="sd">(:func:`osprey_connectors.posture_store.state_dir`) rather than by a</span>
 <span class="sd">second derivation here: a record one process writes and another looks for</span>
 <span class="sd">somewhere else is worse than no record at all. An unresolvable root makes</span>
 <span class="sd">:func:`record_path` ``None``, which reads as &quot;no record&quot; and makes</span>
@@ -454,7 +455,7 @@
 <span class="sd">rather than writing where no reader will look.</span>
 
 <span class="sd">**2. What a payload must carry.** ``schema`` (exactly</span>
-<span class="sd">:data:`SCHEMA_VERSION`), ``target`` (a member of</span>
+<span class="sd">:data:`_SCHEMA_VERSION`), ``target`` (a member of</span>
 <span class="sd">:data:`~osprey_connectors.types.CONTROL_TARGETS`) and ``generation`` (a</span>
 <span class="sd">non-negative integer) are the record&#39;s identity. If any of the three is</span>
 <span class="sd">absent, of the wrong type, or unrecognised, there is no record: this is a</span>
@@ -472,7 +473,7 @@
 <span class="sd">* ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never</span>
 <span class="sd">  an input: :meth:`ControlContext.to_payload` writes ``sandbox`` for every</span>
 <span class="sd">  machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose position</span>
-<span class="sd">  is off (:func:`posture_mirror`), whatever the record it was built</span>
+<span class="sd">  is off (:func:`_posture_mirror`), whatever the record it was built</span>
 <span class="sd">  from carried, and no write decision reads it back. A file written before</span>
 <span class="sd">  the mirror may still hold an old narrowing; it is parsed by the posture</span>
 <span class="sd">  store&#39;s grammar (rule 2 there) and ignored by the verdict.</span>
@@ -495,7 +496,7 @@
 <span class="sd">  widens a switch names the epoch they saw, so a stop or a lost record in</span>
 <span class="sd">  between makes their gesture stale. ``None`` is never &quot;older&quot; than anything.</span>
 
-<span class="sd">The schema stays :data:`SCHEMA_VERSION` with the two switch fields added:</span>
+<span class="sd">The schema stays :data:`_SCHEMA_VERSION` with the two switch fields added:</span>
 <span class="sd">every pre-existing reader, the stdlib hooks included, ignores keys it does</span>
 <span class="sd">not know, so a record written by this version reads unchanged through them.</span>
 
@@ -592,17 +593,14 @@
     <span class="s2">&quot;REPORT_FAILED&quot;</span><span class="p">,</span>
     <span class="s2">&quot;OWNER_CONTROLS_SERVER&quot;</span><span class="p">,</span>
     <span class="s2">&quot;OWNER_WEB_TERMINAL&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;REACHABLE_STATES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;RECORD_FILENAME&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REPORT_FILE_GLOB&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REPORT_FILE_PREFIX&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REPORT_FILE_SUFFIX&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;SCHEMA_VERSION&quot;</span><span class="p">,</span>
     <span class="s2">&quot;STATE_DIR_NAME&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SWITCH_APPLIED&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SWITCH_POSITIONS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SWITCH_REFUSED&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;WRITES_STATEMENT_KEYS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ControlContext&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Owner&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ServerReport&quot;</span><span class="p">,</span>
@@ -611,28 +609,20 @@
     <span class="s2">&quot;blocking_pids&quot;</span><span class="p">,</span>
     <span class="s2">&quot;invalidate_cache&quot;</span><span class="p">,</span>
     <span class="s2">&quot;is_process_alive&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;is_foreign_process&quot;</span><span class="p">,</span>
     <span class="s2">&quot;live_owner&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;live_report_payloads&quot;</span><span class="p">,</span>
     <span class="s2">&quot;live_reports&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;live_statement_reports&quot;</span><span class="p">,</span>
     <span class="s2">&quot;write_statement&quot;</span><span class="p">,</span>
     <span class="s2">&quot;owned_here&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;parse_posture&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;posture_mirror&quot;</span><span class="p">,</span>
     <span class="s2">&quot;converged&quot;</span><span class="p">,</span>
     <span class="s2">&quot;file_signature&quot;</span><span class="p">,</span>
     <span class="s2">&quot;parse_record&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;parse_report&quot;</span><span class="p">,</span>
     <span class="s2">&quot;read_record&quot;</span><span class="p">,</span>
     <span class="s2">&quot;read_record_status&quot;</span><span class="p">,</span>
     <span class="s2">&quot;read_report&quot;</span><span class="p">,</span>
     <span class="s2">&quot;record_path&quot;</span><span class="p">,</span>
     <span class="s2">&quot;report_path&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;report_path_under&quot;</span><span class="p">,</span>
     <span class="s2">&quot;report_paths&quot;</span><span class="p">,</span>
     <span class="s2">&quot;set_switch&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;state_dir&quot;</span><span class="p">,</span>
     <span class="s2">&quot;sweep_dead&quot;</span><span class="p">,</span>
     <span class="s2">&quot;switch_position&quot;</span><span class="p">,</span>
     <span class="s2">&quot;terminus&quot;</span><span class="p">,</span>
@@ -647,9 +637,9 @@
 <span class="c1">#: The payload version. There is exactly one, and a payload that does not</span>
 <span class="c1">#: spell it is not this record: hooks and record change together, and a</span>
 <span class="c1">#: deployment is regenerated rather than migrated.</span>
-<span class="n">SCHEMA_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">_SCHEMA_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
 
-<span class="c1">#: The record&#39;s filename inside :func:`state_dir`. The stdlib hooks restate</span>
+<span class="c1">#: The record&#39;s filename inside the state directory. The stdlib hooks restate</span>
 <span class="c1">#: this literal.</span>
 <span class="n">RECORD_FILENAME</span> <span class="o">=</span> <span class="s2">&quot;control_context.json&quot;</span>
 
@@ -681,7 +671,7 @@
 <span class="n">REPORT_APPLIED</span> <span class="o">=</span> <span class="s2">&quot;applied&quot;</span>
 <span class="n">REPORT_FAILED</span> <span class="o">=</span> <span class="s2">&quot;failed&quot;</span>
 
-<span class="c1">#: One report file per controls server, in :func:`state_dir` beside the record.</span>
+<span class="c1">#: One report file per controls server, in the state directory beside the record.</span>
 <span class="c1">#: The PID in the name is the address and is what makes a report left behind by</span>
 <span class="c1">#: a killed server sweepable without opening it.</span>
 <span class="n">REPORT_FILE_PREFIX</span> <span class="o">=</span> <span class="s2">&quot;server_&quot;</span>
@@ -775,7 +765,7 @@
 <span class="sd">        owner: The process allowed to write this file, or ``None`` when the</span>
 <span class="sd">            record is ownerless and free to be claimed.</span>
 <span class="sd">        posture: The ``posture`` field as read off disk — the mirror of</span>
-<span class="sd">            ``switch`` (:func:`posture_mirror`), or an old narrowing in a file</span>
+<span class="sd">            ``switch`` (:func:`_posture_mirror`), or an old narrowing in a file</span>
 <span class="sd">            written before it. A reading only: :meth:`to_payload` ignores it</span>
 <span class="sd">            and derives the field from ``switch``, so nothing set here is</span>
 <span class="sd">            ever stored, and no write decision reads it.</span>
@@ -806,15 +796,15 @@
 <span class="sd">        The seven contract fields and the schema, and nothing else: a payload</span>
 <span class="sd">        round-trips through :func:`parse_record` unchanged, and a key some</span>
 <span class="sd">        future version added does not survive a rewrite by this one. The</span>
-<span class="sd">        ``posture`` field is the mirror of ``switch`` (:func:`posture_mirror`),</span>
+<span class="sd">        ``posture`` field is the mirror of ``switch`` (:func:`_posture_mirror`),</span>
 <span class="sd">        never :attr:`posture`: a narrowing is not something a writer can store.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span>
+            <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span>
             <span class="s2">&quot;owner&quot;</span><span class="p">:</span> <span class="kc">None</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="o">.</span><span class="n">to_payload</span><span class="p">(),</span>
             <span class="s2">&quot;target&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">target</span><span class="p">,</span>
             <span class="s2">&quot;generation&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">generation</span><span class="p">,</span>
-            <span class="s2">&quot;posture&quot;</span><span class="p">:</span> <span class="n">posture_mirror</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">switch</span><span class="p">),</span>
+            <span class="s2">&quot;posture&quot;</span><span class="p">:</span> <span class="n">_posture_mirror</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">switch</span><span class="p">),</span>
             <span class="s2">&quot;last_switch&quot;</span><span class="p">:</span> <span class="kc">None</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">last_switch</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">last_switch</span><span class="p">),</span>
             <span class="s2">&quot;switch&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">switch</span><span class="p">),</span>
             <span class="s2">&quot;switch_epoch&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">switch_epoch</span><span class="p">,</span>
@@ -823,9 +813,7 @@
 
 
 
-<div class="viewcode-block" id="posture_mirror">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.posture_mirror">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">posture_mirror</span><span class="p">(</span><span class="n">switch</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_posture_mirror</span><span class="p">(</span><span class="n">switch</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``posture`` field a record with *switch* stores — ``{target: &quot;sandbox&quot;}``.</span>
 
 <span class="sd">    ``sandbox`` for every machine in</span>
@@ -842,8 +830,7 @@
         <span class="n">target</span><span class="p">:</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">POSTURE_SANDBOX</span>
         <span class="k">for</span> <span class="n">target</span> <span class="ow">in</span> <span class="n">CONTROL_TARGETS</span>
         <span class="k">if</span> <span class="n">_switch_word</span><span class="p">(</span><span class="n">switch</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">target</span><span class="p">))</span> <span class="ow">is</span> <span class="kc">None</span>
-    <span class="p">}</span></div>
-
+    <span class="p">}</span>
 
 
 <div class="viewcode-block" id="switch_position">
@@ -892,19 +879,6 @@
 <span class="c1"># -- path resolution --------------------------------------------------------</span>
 
 
-<div class="viewcode-block" id="state_dir">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.state_dir">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;The directory the record lives in, or ``None`` when unresolvable.</span>
-
-<span class="sd">    Rule 1 of the module contract — the acting identity&#39;s directory, or the</span>
-<span class="sd">    bind a container carries — delegated whole to the posture store so that</span>
-<span class="sd">    the files in this directory cannot resolve their directory two ways.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">state_dir</span><span class="p">()</span></div>
-
-
-
 <span class="k">def</span><span class="w"> </span><span class="nf">_record_path_under</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The record&#39;s path under an explicit agent-data *root*.</span>
 
@@ -913,7 +887,7 @@
 <span class="sd">    itself acting as — a test fixture, and any same-process writer.</span>
 
 <span class="sd">    The identity hop is :func:`~osprey_connectors.identity.acting_identity`,</span>
-<span class="sd">    the same rung :func:`state_dir` ends on, so a caller that holds the root</span>
+<span class="sd">    the same rung the state directory ends on, so a caller that holds the root</span>
 <span class="sd">    this process is stamped with names the file this process reads. A writer</span>
 <span class="sd">    preparing ANOTHER identity&#39;s directory is not that caller and gets the</span>
 <span class="sd">    wrong path here; it names the identity instead, through</span>
@@ -933,7 +907,7 @@
 <span class="sd">    empty deployment, and for a writer it is what a route reports as</span>
 <span class="sd">    ``store_unavailable``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">directory</span> <span class="o">=</span> <span class="n">state_dir</span><span class="p">()</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">state_dir</span><span class="p">()</span>
     <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">directory</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">directory</span> <span class="o">/</span> <span class="n">RECORD_FILENAME</span></div>
 
 
@@ -967,19 +941,6 @@
     <span class="k">if</span> <span class="n">kind</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_OWNER_KINDS</span> <span class="ow">or</span> <span class="n">pid</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">return</span> <span class="n">Owner</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">,</span> <span class="n">pid</span><span class="o">=</span><span class="n">pid</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="n">_positive_int</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;port&quot;</span><span class="p">)))</span>
-
-
-<div class="viewcode-block" id="parse_posture">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.parse_posture">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">parse_posture</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;One ``posture`` value as ``{target: &quot;sandbox&quot;}`` — narrowings only.</span>
-
-<span class="sd">    The posture entry grammar (rule 2 of the store&#39;s contract), applied by that</span>
-<span class="sd">    module&#39;s own parser rather than restated here: two filters that disagree</span>
-<span class="sd">    about which narrowings survive is a narrowing that silently does not apply.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">parse_posture_value</span><span class="p">(</span><span class="n">value</span><span class="p">)</span></div>
-
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_switch_word</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
@@ -1043,7 +1004,7 @@
             <span class="k">return</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">SCHEMA_VERSION</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_SCHEMA_VERSION</span><span class="p">:</span>
         <span class="c1"># Identity comparison, so a JSON ``true`` cannot pass for schema 1.</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="n">target</span> <span class="o">=</span> <span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;target&quot;</span><span class="p">)</span>
@@ -1057,7 +1018,7 @@
         <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
         <span class="n">generation</span><span class="o">=</span><span class="n">generation</span><span class="p">,</span>
         <span class="n">owner</span><span class="o">=</span><span class="n">_parse_owner</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;owner&quot;</span><span class="p">)),</span>
-        <span class="n">posture</span><span class="o">=</span><span class="n">parse_posture</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;posture&quot;</span><span class="p">)),</span>
+        <span class="n">posture</span><span class="o">=</span><span class="n">posture_store</span><span class="o">.</span><span class="n">parse_posture_value</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;posture&quot;</span><span class="p">)),</span>
         <span class="n">last_switch</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">last_switch</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">last_switch</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">switch</span><span class="o">=</span><span class="n">_parse_switch</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;switch&quot;</span><span class="p">)),</span>
         <span class="n">switch_epoch</span><span class="o">=</span><span class="n">_parse_epoch</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;switch_epoch&quot;</span><span class="p">)),</span>
@@ -1215,7 +1176,7 @@
 <span class="sd">    The file is replaced whole through ``safety_file.atomic_replace``, so a</span>
 <span class="sd">    failed write leaves neither half a file nor litter beside it.</span>
 
-<span class="sd">    Every file in :func:`state_dir` is written this way, the record and the</span>
+<span class="sd">    Every file in the state directory is written this way, the record and the</span>
 <span class="sd">    per-server reports and requests alike: they are read by processes that</span>
 <span class="sd">    never coordinate with the writer, so a reader must never be able to see</span>
 <span class="sd">    half of one.</span>
@@ -1746,9 +1707,7 @@
 
 
 
-<div class="viewcode-block" id="is_foreign_process">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.is_foreign_process">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">is_foreign_process</span><span class="p">(</span><span class="n">pid</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_foreign_process</span><span class="p">(</span><span class="n">pid</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *pid* names a running process that belongs to another user.</span>
 
 <span class="sd">    The other half of what ``os.kill(pid, 0)`` says. :func:`is_process_alive`</span>
@@ -1772,14 +1731,13 @@
         <span class="k">return</span> <span class="kc">True</span>
     <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
-    <span class="k">return</span> <span class="kc">False</span></div>
-
+    <span class="k">return</span> <span class="kc">False</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_pid_from_filename</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">suffix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The PID *name* encodes, or ``None`` when it encodes none.</span>
 
-<span class="sd">    Shared by every family of file in :func:`state_dir`: each is named for the</span>
+<span class="sd">    Shared by every family of file in the state directory: each is named for the</span>
 <span class="sd">    process that owns it precisely so a sweeper can judge it without opening</span>
 <span class="sd">    it, and a name that does not follow the rule is judged the same way in all</span>
 <span class="sd">    of them — no PID, therefore no live owner.</span>
@@ -1822,7 +1780,7 @@
 <span class="sd">    apart.</span>
 
 <span class="sd">    A PID that is running under another user is not the owner either</span>
-<span class="sd">    (:func:`is_foreign_process`). The record outlives the container that wrote</span>
+<span class="sd">    (:func:`_is_foreign_process`). The record outlives the container that wrote</span>
 <span class="sd">    it, and the PID it names is then handed out again: a record written by a</span>
 <span class="sd">    terminal that ran as PID 1 names, in the next container, whatever runs as</span>
 <span class="sd">    PID 1 there — an init process owned by root, alive for as long as the</span>
@@ -1832,7 +1790,7 @@
     <span class="k">if</span> <span class="n">record</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">record</span><span class="o">.</span><span class="n">owner</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="n">pid</span> <span class="o">=</span> <span class="n">record</span><span class="o">.</span><span class="n">owner</span><span class="o">.</span><span class="n">pid</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_process_alive</span><span class="p">(</span><span class="n">pid</span><span class="p">)</span> <span class="ow">or</span> <span class="n">is_foreign_process</span><span class="p">(</span><span class="n">pid</span><span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_process_alive</span><span class="p">(</span><span class="n">pid</span><span class="p">)</span> <span class="ow">or</span> <span class="n">_is_foreign_process</span><span class="p">(</span><span class="n">pid</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">return</span> <span class="n">record</span><span class="o">.</span><span class="n">owner</span></div>
 
@@ -2006,7 +1964,7 @@
 <span class="sd">            controls server&#39;s report. ``{&quot;reachable&quot;: ..., &quot;writes&quot;: ...}``,</span>
 <span class="sd">            each axis ``None`` until stated: ``reachable`` is</span>
 <span class="sd">            ``{&quot;state&quot;, &quot;since&quot;, &quot;reason&quot;}`` with ``state`` one of</span>
-<span class="sd">            :data:`REACHABLE_STATES`, and ``writes`` is :func:`write_statement`</span>
+<span class="sd">            :data:`_REACHABLE_STATES`, and ``writes`` is :func:`write_statement`</span>
 <span class="sd">            of the session&#39;s execution verdict. A statement that does not have</span>
 <span class="sd">            this shape states nothing, and the report is then an ordinary one.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -2028,8 +1986,8 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether this report is a display process&#39;s: it carries a statement.</span>
 
 <span class="sd">        Such a process shows the machine rather than controlling it, so the</span>
-<span class="sd">        fleet readers leave its report out (:func:`live_reports`) and only</span>
-<span class="sd">        :func:`live_statement_reports` reads it.</span>
+<span class="sd">        fleet readers leave its report out (:func:`live_reports`); a view</span>
+<span class="sd">        that shows the machine reads it with :func:`read_report`.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">statement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 
@@ -2040,7 +1998,7 @@
 
 <span class="sd">        The ten contract fields, plus ``statement`` as the eleventh for a</span>
 <span class="sd">        display-only report and only then, so a payload round-trips through</span>
-<span class="sd">        :func:`parse_report` unchanged and a controls server&#39;s report never</span>
+<span class="sd">        :func:`_parse_report` unchanged and a controls server&#39;s report never</span>
 <span class="sd">        reads back as display-only.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
@@ -2105,10 +2063,10 @@
 <span class="c1">#: :class:`~osprey_connectors.errors.ConnectorUnavailableError`. A channel that</span>
 <span class="c1">#: does not answer (:class:`~osprey_connectors.errors.ChannelUnreachableError`)</span>
 <span class="c1">#: is that channel&#39;s failure and never makes the machine unreachable.</span>
-<span class="n">REACHABLE_STATES</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;no&quot;</span><span class="p">)</span>
+<span class="n">_REACHABLE_STATES</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;no&quot;</span><span class="p">)</span>
 
 <span class="c1">#: The keys of a statement&#39;s ``writes``: the execution verdict&#39;s own terms.</span>
-<span class="n">WRITES_STATEMENT_KEYS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;allowed&quot;</span><span class="p">,</span> <span class="s2">&quot;position&quot;</span><span class="p">,</span> <span class="s2">&quot;reason&quot;</span><span class="p">,</span> <span class="s2">&quot;kind&quot;</span><span class="p">)</span>
+<span class="n">_WRITES_STATEMENT_KEYS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;allowed&quot;</span><span class="p">,</span> <span class="s2">&quot;position&quot;</span><span class="p">,</span> <span class="s2">&quot;reason&quot;</span><span class="p">,</span> <span class="s2">&quot;kind&quot;</span><span class="p">)</span>
 
 <span class="n">_WRITE_POSITIONS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">)</span>
 <span class="n">_MACHINE_KINDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">)</span>
@@ -2141,7 +2099,7 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_reachable_statement</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;*value* as the ``reachable`` axis, or ``None`` when it is not one.&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;state&quot;</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">REACHABLE_STATES</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;state&quot;</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_REACHABLE_STATES</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="n">since</span><span class="p">,</span> <span class="n">reason</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;since&quot;</span><span class="p">),</span> <span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;reason&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">since</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">since</span><span class="p">,</span> <span class="nb">str</span><span class="p">)):</span>
@@ -2160,7 +2118,7 @@
     <span class="n">reason</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;reason&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">reason</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reason</span><span class="p">,</span> <span class="nb">str</span><span class="p">)):</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">return</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">WRITES_STATEMENT_KEYS</span><span class="p">}</span>
+    <span class="k">return</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">_WRITES_STATEMENT_KEYS</span><span class="p">}</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_statement</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
@@ -2185,9 +2143,7 @@
     <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;reachable&quot;</span><span class="p">:</span> <span class="n">reachable</span><span class="p">,</span> <span class="s2">&quot;writes&quot;</span><span class="p">:</span> <span class="n">writes</span><span class="p">}</span>
 
 
-<div class="viewcode-block" id="parse_report">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.parse_report">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">parse_report</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServerReport</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_report</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServerReport</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Decode one server report, or ``None`` when it describes no server.</span>
 
 <span class="sd">    Rule 5. ``server_pid`` is the identity and the only field that can make the</span>
@@ -2218,13 +2174,10 @@
         <span class="n">targets</span><span class="o">=</span><span class="n">_mapping</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;targets&quot;</span><span class="p">)),</span>
         <span class="n">updated_at</span><span class="o">=</span><span class="n">_text</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;updated_at&quot;</span><span class="p">)),</span>
         <span class="n">statement</span><span class="o">=</span><span class="n">_statement</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;statement&quot;</span><span class="p">)),</span>
-    <span class="p">)</span></div>
+    <span class="p">)</span>
 
 
-
-<div class="viewcode-block" id="report_path_under">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.report_path_under">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">report_path_under</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">server_pid</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_report_path_under</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">server_pid</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The report path of *server_pid* under an explicit agent-data *root*.</span>
 
 <span class="sd">    Through the same three hops as :func:`_record_path_under`, identity</span>
@@ -2236,15 +2189,14 @@
         <span class="o">/</span> <span class="n">STATE_DIR_NAME</span>
         <span class="o">/</span> <span class="n">acting_identity</span><span class="p">()</span>
         <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">REPORT_FILE_PREFIX</span><span class="si">}{</span><span class="n">server_pid</span><span class="si">}{</span><span class="n">REPORT_FILE_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span>
-    <span class="p">)</span></div>
-
+    <span class="p">)</span>
 
 
 <div class="viewcode-block" id="report_path">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.report_path">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">report_path</span><span class="p">(</span><span class="n">server_pid</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The report path of *server_pid*, or ``None`` without an agent-data root.&quot;&quot;&quot;</span>
-    <span class="n">directory</span> <span class="o">=</span> <span class="n">state_dir</span><span class="p">()</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">state_dir</span><span class="p">()</span>
     <span class="k">if</span> <span class="n">directory</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">return</span> <span class="n">directory</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">REPORT_FILE_PREFIX</span><span class="si">}{</span><span class="n">server_pid</span><span class="si">}{</span><span class="n">REPORT_FILE_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span></div>
@@ -2254,13 +2206,13 @@
 <div class="viewcode-block" id="report_paths">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.report_paths">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">report_paths</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Every report file in :func:`state_dir`, sorted. Empty when there is none.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Every report file in the state directory, sorted. Empty when there is none.</span>
 
 <span class="sd">    Never raises: no agent-data root, no directory and an unreadable one all</span>
 <span class="sd">    answer &quot;no reports&quot;, the same as an empty deployment, because a caller</span>
 <span class="sd">    describing a fleet has the same nothing to say in each case.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">directory</span> <span class="o">=</span> <span class="n">state_dir</span><span class="p">()</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">state_dir</span><span class="p">()</span>
     <span class="k">if</span> <span class="n">directory</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="p">[]</span>
     <span class="k">try</span><span class="p">:</span>
@@ -2287,73 +2239,22 @@
     <span class="k">return</span> <span class="n">loaded</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">loaded</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_read_entry</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">ServerReport</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;One report file read and parsed once, for the cache to hold as a pair.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_entry</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServerReport</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One report file read and parsed once, for the cache to hold.</span>
 
-<span class="sd">    Both layers land in the same cache slot so that a caller reading the</span>
-<span class="sd">    payload and a caller reading the report neither open the file twice nor</span>
-<span class="sd">    parse it twice, and so that the parsed report a reader holds is the same</span>
-<span class="sd">    object until the file actually moves.</span>
+<span class="sd">    Cached so that the parsed report a reader holds is the same object until</span>
+<span class="sd">    the file actually moves.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">_read_payload</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">payload</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">return</span> <span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">parse_report</span><span class="p">(</span><span class="n">payload</span><span class="p">))</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_read_report_payload</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;One report file as the object it holds, ``None`` when it holds none.</span>
-
-<span class="sd">    The file layer under :func:`read_report`: the payload verbatim, including</span>
-<span class="sd">    keys this version does not know, for a caller that is still reading a</span>
-<span class="sd">    report by hand. Signature-cached like every read here (rule 4).</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">entry</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">ServerReport</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">_read_cached</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_read_entry</span><span class="p">)</span>
-    <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">entry</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">entry</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">payload</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_parse_report</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="read_report">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.read_report">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">read_report</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServerReport</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One server&#39;s report, or ``None`` when the file states no usable one.&quot;&quot;&quot;</span>
-    <span class="n">entry</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">ServerReport</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">_read_cached</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_read_entry</span><span class="p">)</span>
-    <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">entry</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">entry</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span></div>
-
-
-
-<div class="viewcode-block" id="live_report_payloads">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.live_report_payloads">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">live_report_payloads</span><span class="p">(</span>
-    <span class="n">entries</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">is_alive</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">object</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="n">is_process_alive</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;The payload of every report among *entries* whose server still runs.</span>
-
-<span class="sd">    A report whose ``server_pid`` is gone is residue: it describes a server</span>
-<span class="sd">    nobody is talking to any more, and the next server to start sweeps it</span>
-<span class="sd">    (:func:`sweep_dead`). Unreadable entries are skipped rather than raised.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        entries: Report paths, typically :func:`report_paths`. Taken rather</span>
-<span class="sd">            than globbed here because a caller keying a cache on the listing</span>
-<span class="sd">            must not glob twice.</span>
-<span class="sd">        is_alive: The liveness predicate, so one pass over a fleet asks the</span>
-<span class="sd">            same question the same way throughout.</span>
-
-<span class="sd">    A display-only report (one carrying a statement) is left out: it</span>
-<span class="sd">    describes a process that shows the machine, not a member of the fleet.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">live</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">:</span>
-        <span class="n">payload</span> <span class="o">=</span> <span class="n">_read_report_payload</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">payload</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">_statement</span><span class="p">(</span><span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;statement&quot;</span><span class="p">))</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">continue</span>
-        <span class="n">pid</span> <span class="o">=</span> <span class="n">_positive_int</span><span class="p">(</span><span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;server_pid&quot;</span><span class="p">))</span>
-        <span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">is_alive</span><span class="p">(</span><span class="n">pid</span><span class="p">):</span>
-            <span class="k">continue</span>
-        <span class="n">live</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">live</span></div>
+    <span class="n">report</span><span class="p">:</span> <span class="n">ServerReport</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">_read_cached</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_read_entry</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">report</span></div>
 
 
 
@@ -2369,34 +2270,15 @@
 <span class="sd">    The fleet as a reader sees it: what each live server is on, at which</span>
 <span class="sd">    generation, and how far through a switch it has got. Display-only reports</span>
 <span class="sd">    are left out here, at the source, so no fleet reader ever counts a process</span>
-<span class="sd">    that only shows the machine (:func:`live_statement_reports` reads them).</span>
+<span class="sd">    that only shows the machine (:func:`read_report` reads one, and its</span>
+<span class="sd">    :attr:`ServerReport.display_only` says which it is).</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        entries: Report paths; :func:`report_paths` when omitted.</span>
-<span class="sd">        is_alive: As for :func:`live_report_payloads`.</span>
+<span class="sd">        is_alive: The liveness predicate, so one pass over a fleet asks the</span>
+<span class="sd">            same question the same way throughout.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="p">[</span><span class="n">report</span> <span class="k">for</span> <span class="n">report</span> <span class="ow">in</span> <span class="n">_live_parsed</span><span class="p">(</span><span class="n">entries</span><span class="p">,</span> <span class="n">is_alive</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">report</span><span class="o">.</span><span class="n">display_only</span><span class="p">]</span></div>
-
-
-
-<div class="viewcode-block" id="live_statement_reports">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.control_context.live_statement_reports">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">live_statement_reports</span><span class="p">(</span>
-    <span class="n">entries</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">is_alive</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">object</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="n">is_process_alive</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ServerReport</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Every live display-only report, parsed: the machine statements on offer.</span>
-
-<span class="sd">    The one opt-in reader of the reports :func:`live_reports` leaves out. Only</span>
-<span class="sd">    a view that shows the machine statement reads these; no fleet decision</span>
-<span class="sd">    (a switch, a landing wait, a published target) ever does.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        entries: Report paths; :func:`report_paths` when omitted.</span>
-<span class="sd">        is_alive: As for :func:`live_report_payloads`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="p">[</span><span class="n">report</span> <span class="k">for</span> <span class="n">report</span> <span class="ow">in</span> <span class="n">_live_parsed</span><span class="p">(</span><span class="n">entries</span><span class="p">,</span> <span class="n">is_alive</span><span class="p">)</span> <span class="k">if</span> <span class="n">report</span><span class="o">.</span><span class="n">display_only</span><span class="p">]</span></div>
 
 
 

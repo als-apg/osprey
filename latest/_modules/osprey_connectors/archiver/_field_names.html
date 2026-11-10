@@ -447,19 +447,17 @@
 <span class="sd">as ``%64ate``), so no channel shares a field with the document that holds it.</span>
 
 <span class="sd">So an address with no ``%``, no ``.``, no NUL, no leading ``$`` and not equal</span>
-<span class="sd">to one of those fields is its own field name, byte for byte, and</span>
-<span class="sd">:func:`channel_address` reverses :func:`field_name` for every address.</span>
+<span class="sd">to one of those fields is its own field name, byte for byte, and the escape is</span>
+<span class="sd">injective: two distinct addresses never share a field.</span>
 
 <span class="sd">Every writer and every reader of the archive collection names a channel&#39;s</span>
-<span class="sd">field through these two functions, so a channel is written and read back under</span>
+<span class="sd">field through :func:`field_name`, so a channel is written and read back under</span>
 <span class="sd">one name. The module imports only the standard library.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
-<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;channel_address&quot;</span><span class="p">,</span> <span class="s2">&quot;field_name&quot;</span><span class="p">]</span>
-
-<span class="n">_HEX_DIGITS</span> <span class="o">=</span> <span class="s2">&quot;0123456789ABCDEF&quot;</span>
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;field_name&quot;</span><span class="p">]</span>
 
 <span class="c1"># The fields the archive&#39;s own documents carry beside channels: every</span>
 <span class="c1"># document&#39;s ``_id``; a sample document&#39;s ``date``, ``expireAt`` and the densify</span>
@@ -508,41 +506,6 @@
             <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;%</span><span class="si">{</span><span class="nb">ord</span><span class="p">(</span><span class="n">character</span><span class="p">)</span><span class="si">:</span><span class="s2">02X</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">character</span><span class="p">)</span>
-    <span class="k">return</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span></div>
-
-
-
-<div class="viewcode-block" id="channel_address">
-<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.archiver.channel_address">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">channel_address</span><span class="p">(</span><span class="n">field</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;The channel address stored under the archive field ``field``.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        field: A field name written by :func:`field_name`.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        The address, with every ``%XX`` replaced by its character.</span>
-
-<span class="sd">    Raises:</span>
-<span class="sd">        ValueError: when a ``%`` is not followed by two uppercase hex digits,</span>
-<span class="sd">            which :func:`field_name` never writes.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">parts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">position</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="k">while</span> <span class="n">position</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">field</span><span class="p">):</span>
-        <span class="n">character</span> <span class="o">=</span> <span class="n">field</span><span class="p">[</span><span class="n">position</span><span class="p">]</span>
-        <span class="k">if</span> <span class="n">character</span> <span class="o">!=</span> <span class="s2">&quot;%&quot;</span><span class="p">:</span>
-            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">character</span><span class="p">)</span>
-            <span class="n">position</span> <span class="o">+=</span> <span class="mi">1</span>
-            <span class="k">continue</span>
-        <span class="n">digits</span> <span class="o">=</span> <span class="n">field</span><span class="p">[</span><span class="n">position</span> <span class="o">+</span> <span class="mi">1</span> <span class="p">:</span> <span class="n">position</span> <span class="o">+</span> <span class="mi">3</span><span class="p">]</span>
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">digits</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span> <span class="ow">or</span> <span class="nb">any</span><span class="p">(</span><span class="n">digit</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_HEX_DIGITS</span> <span class="k">for</span> <span class="n">digit</span> <span class="ow">in</span> <span class="n">digits</span><span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">field</span><span class="si">!r}</span><span class="s2"> is not an archive field name: &#39;%&#39; at position </span><span class="si">{</span><span class="n">position</span><span class="si">}</span><span class="s2"> &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;is not followed by two uppercase hex digits&quot;</span>
-            <span class="p">)</span>
-        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">chr</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">digits</span><span class="p">,</span> <span class="mi">16</span><span class="p">)))</span>
-        <span class="n">position</span> <span class="o">+=</span> <span class="mi">3</span>
     <span class="k">return</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span></div>
 
 </pre></div>

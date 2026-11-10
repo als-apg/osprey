@@ -1199,10 +1199,6 @@ for every channel in it and every processing mode. A backend that bins on a
 grid of its own is the documented exception – the Archiver Appliance’s
 operators are epoch-anchored, and the window merely clips them.</p></li>
 </ul>
-<p>The shared helpers in <code class="docutils literal notranslate"><span class="pre">osprey_connectors.archiver</span></code> (<code class="docutils literal notranslate"><span class="pre">to_utc</span></code>,
-<code class="docutils literal notranslate"><span class="pre">require_datetime</span></code>, <code class="docutils literal notranslate"><span class="pre">resolve_processing</span></code>, <code class="docutils literal notranslate"><span class="pre">long_frame</span></code>, <code class="docutils literal notranslate"><span class="pre">decimate_raw</span></code>,
-<code class="docutils literal notranslate"><span class="pre">aggregate_series</span></code>, <code class="docutils literal notranslate"><span class="pre">reject_non_numeric</span></code>) implement all of the above –
-every in-tree connector builds on them rather than reimplementing binning.</p>
 <p><strong>The dtype rule for</strong> <code class="docutils literal notranslate"><span class="pre">value</span></code><strong>.</strong> Enum/status channels carry string
 values, and <code class="docutils literal notranslate"><span class="pre">get_data</span></code> never coerces them: a channel’s own dtype flows
 through, and only mixing non-numeric with numeric channels in one query promotes
@@ -1213,7 +1209,7 @@ an archiver reports what its backend recorded, and these backends recorded the
 string.)</p>
 <p>Query windows must be normalized to UTC before touching the wire: a naive
 <code class="docutils literal notranslate"><span class="pre">start_date</span></code>/<code class="docutils literal notranslate"><span class="pre">end_date</span></code> is facility-local and must be converted – not
-relabeled – to your backend’s UTC wire format; <code class="docutils literal notranslate"><span class="pre">to_utc()</span></code> does this.</p>
+relabeled – to your backend’s UTC wire format.</p>
 </section>
 </section>
 

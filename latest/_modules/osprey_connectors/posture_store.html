@@ -457,7 +457,7 @@
 <span class="sd">  per-identity directory, so nothing is appended to it: a container sees its</span>
 <span class="sd">  own dir at a path that has nothing to do with the host&#39;s tree, and deriving</span>
 <span class="sd">  the identity hop inside it would name a directory nobody binds;</span>
-<span class="sd">* otherwise :data:`AGENT_DATA_ROOT_ENV_VAR` when it names a non-blank path —</span>
+<span class="sd">* otherwise :data:`_AGENT_DATA_ROOT_ENV_VAR` when it names a non-blank path —</span>
 <span class="sd">  the stamp a session child carries — else</span>
 <span class="sd">  :func:`~osprey_connectors.workspace.resolve_shared_data_root`, the config</span>
 <span class="sd">  derivation the state file has always used; and then the two fixed hops,</span>
@@ -474,10 +474,9 @@
 <span class="sd">stored ``&quot;on&quot;`` from an older release reads as ``&quot;asked&quot;``. Everything else — no</span>
 <span class="sd">record, a record that does not name the machine, any other value — is that</span>
 <span class="sd">machine&#39;s writes off. The record&#39;s ``posture`` field is a mirror of the switch</span>
-<span class="sd">(:func:`~osprey_connectors.control_context.posture_mirror`) kept for readers</span>
-<span class="sd">that predate it, and no verdict reads it. :func:`parse_posture_value` is the</span>
-<span class="sd">grammar of that mirror, applied by</span>
-<span class="sd">:func:`~osprey_connectors.control_context.parse_posture` rather than restated</span>
+<span class="sd">kept for readers that predate it, and no verdict reads it.</span>
+<span class="sd">:func:`parse_posture_value` is the grammar of that mirror, applied by</span>
+<span class="sd">:func:`~osprey_connectors.control_context.parse_record` rather than restated</span>
 <span class="sd">there.</span>
 
 <span class="sd">**3. How a write is decided.** :func:`write_verdict` is the whole rule: one</span>
@@ -511,8 +510,9 @@
 
 <span class="sd">**4. When a change is seen.** Every read re-stats the record and re-parses on</span>
 <span class="sd">``(st_mtime_ns, st_size, st_ino)`` — the cache lives in</span>
-<span class="sd">:mod:`~osprey_connectors.control_context`, and :func:`invalidate_cache` is the</span>
-<span class="sd">hook a process that moved roots (or a test) drops it through. A missing record</span>
+<span class="sd">:mod:`~osprey_connectors.control_context`, and its</span>
+<span class="sd">:func:`~osprey_connectors.control_context.invalidate_cache` is the hook a</span>
+<span class="sd">process that moved roots (or a test) drops it through. A missing record</span>
 <span class="sd">is every switch off, not an error.</span>
 
 <span class="sd">This module reads no config for the switch, holds no cache of its own, and</span>
@@ -586,30 +586,24 @@
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;NoOwner&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;AGENT_DATA_ROOT_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;CONTROL_CONTEXT_DIR_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;CONTROL_CONTEXT_TREE_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;CONTROL_OWNER_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;CONTROL_TREE_MARKER_NAME&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DISPATCH_RUN_ENV_VAR&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;LAUNCH_POSTURE_ALL_TARGETS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LAUNCH_POSTURE_ENV_VAR&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;LOGIN_TIERS_KEY&quot;</span><span class="p">,</span>
     <span class="s2">&quot;NO_OWNER&quot;</span><span class="p">,</span>
     <span class="s2">&quot;POSTURE_SANDBOX&quot;</span><span class="p">,</span>
     <span class="s2">&quot;POSTURE_WRITES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;RESERVED_OWNER_KWARG&quot;</span><span class="p">,</span>
     <span class="s2">&quot;STATE_DIR_NAME&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;VALID_POSTURES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;WriteVerdict&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;agent_data_root&quot;</span><span class="p">,</span>
     <span class="s2">&quot;backstop_verdict&quot;</span><span class="p">,</span>
     <span class="s2">&quot;bind_owner&quot;</span><span class="p">,</span>
     <span class="s2">&quot;bound_owner&quot;</span><span class="p">,</span>
     <span class="s2">&quot;bound_state_dir&quot;</span><span class="p">,</span>
     <span class="s2">&quot;current_owner&quot;</span><span class="p">,</span>
     <span class="s2">&quot;execution_verdict&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;invalidate_cache&quot;</span><span class="p">,</span>
     <span class="s2">&quot;launch_posture_stamp&quot;</span><span class="p">,</span>
     <span class="s2">&quot;owner_tier_term&quot;</span><span class="p">,</span>
     <span class="s2">&quot;parse_posture_value&quot;</span><span class="p">,</span>
@@ -624,7 +618,7 @@
 <span class="c1">#: ``osprey.audit.posture``, which declares it for the stamping side: this</span>
 <span class="c1">#: package is the lean connector chain and must not grow an ``osprey`` import</span>
 <span class="c1">#: to learn one string.</span>
-<span class="n">AGENT_DATA_ROOT_ENV_VAR</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_AGENT_DATA_ROOT&quot;</span>
+<span class="n">_AGENT_DATA_ROOT_ENV_VAR</span> <span class="o">=</span> <span class="s2">&quot;OSPREY_AGENT_DATA_ROOT&quot;</span>
 
 <span class="c1">#: Subdirectory of the agent-data root holding one directory per identity, each</span>
 <span class="c1">#: with that identity&#39;s control-context record, per-server reports and request</span>
@@ -655,7 +649,7 @@
 <span class="n">POSTURE_WRITES</span> <span class="o">=</span> <span class="s2">&quot;writes&quot;</span>
 
 <span class="c1">#: The two values a posture entry may spell. Everything else is dropped.</span>
-<span class="n">VALID_POSTURES</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">POSTURE_SANDBOX</span><span class="p">,</span> <span class="n">POSTURE_WRITES</span><span class="p">})</span>
+<span class="n">_VALID_POSTURES</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">POSTURE_SANDBOX</span><span class="p">,</span> <span class="n">POSTURE_WRITES</span><span class="p">})</span>
 
 <span class="c1">#: The launch-time pin, stamped into an executor sandbox&#39;s environment by</span>
 <span class="c1">#: ``osprey.mcp_server.python_executor.executor._apply_target_stamp`` and read</span>
@@ -665,7 +659,7 @@
 <span class="c1">#:</span>
 <span class="c1">#: * ``&lt;target&gt;`` is the control target the run was stamped against — a member</span>
 <span class="c1">#:   of :data:`~osprey_connectors.types.CONTROL_TARGETS` — or</span>
-<span class="c1">#:   :data:`LAUNCH_POSTURE_ALL_TARGETS` when the executor could not identify</span>
+<span class="c1">#:   :data:`_LAUNCH_POSTURE_ALL_TARGETS` when the executor could not identify</span>
 <span class="c1">#:   one, in which case the pin covers every target;</span>
 <span class="c1">#: * ``&lt;posture&gt;`` is :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES`.</span>
 <span class="c1">#:</span>
@@ -686,7 +680,7 @@
 <span class="c1">#: The launch stamp&#39;s target when the executor could not name one. Covers every</span>
 <span class="c1">#: target: a run that could not say which machine it is about must not be the</span>
 <span class="c1">#: one run a switched-off machine fails to reach.</span>
-<span class="n">LAUNCH_POSTURE_ALL_TARGETS</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span>
+<span class="n">_LAUNCH_POSTURE_ALL_TARGETS</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span>
 
 <span class="c1">#: The stamped owner of the work a process is doing, exported into a dispatch</span>
 <span class="c1">#: job&#39;s environment by the dispatch worker&#39;s ``sdk_runner`` — the one export</span>
@@ -978,7 +972,7 @@
 <div class="viewcode-block" id="stamped_agent_data_root">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.stamped_agent_data_root">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">stamped_agent_data_root</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;The :data:`AGENT_DATA_ROOT_ENV_VAR` stamp as a path, or ``None`` unstamped.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The :data:`_AGENT_DATA_ROOT_ENV_VAR` stamp as a path, or ``None`` unstamped.</span>
 
 <span class="sd">    The stamp half of rule 1 on its own, so that the files under this root</span>
 <span class="sd">    cannot read one environment variable two different ways. A blank or</span>
@@ -998,17 +992,15 @@
 <span class="sd">    that module raises where this one answers ``None``, and a route turns its</span>
 <span class="sd">    raise into a ``store_unavailable`` 503.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">stamped</span> <span class="o">=</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">AGENT_DATA_ROOT_ENV_VAR</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="n">stamped</span> <span class="o">=</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_AGENT_DATA_ROOT_ENV_VAR</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
     <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">expanduser</span><span class="p">(</span><span class="n">stamped</span><span class="p">))</span> <span class="k">if</span> <span class="n">stamped</span> <span class="k">else</span> <span class="kc">None</span></div>
 
 
 
-<div class="viewcode-block" id="agent_data_root">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.agent_data_root">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">agent_data_root</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_agent_data_root</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The agent-data root the control state lives under.</span>
 
-<span class="sd">    Rule 1 of the module contract: the :data:`AGENT_DATA_ROOT_ENV_VAR` stamp</span>
+<span class="sd">    Rule 1 of the module contract: the :data:`_AGENT_DATA_ROOT_ENV_VAR` stamp</span>
 <span class="sd">    when it names a non-blank path, else the config derivation. ``None`` when</span>
 <span class="sd">    neither answers — a deployment whose project root cannot be resolved has</span>
 <span class="sd">    no record, which is a different thing from having one with every switch off.</span>
@@ -1020,8 +1012,7 @@
         <span class="k">return</span> <span class="n">resolve_shared_data_root</span><span class="p">()</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># an unresolvable root is &quot;no record&quot;, not a crash</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Could not resolve the shared data root for the control state&quot;</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-        <span class="k">return</span> <span class="kc">None</span></div>
-
+        <span class="k">return</span> <span class="kc">None</span>
 
 
 <div class="viewcode-block" id="bound_state_dir">
@@ -1050,7 +1041,7 @@
 
 <span class="sd">    Rule 1 of the module contract: the :func:`bound_state_dir` bind when a</span>
 <span class="sd">    container carries one, else the acting identity under</span>
-<span class="sd">    :data:`STATE_DIR_NAME` under :func:`agent_data_root`.</span>
+<span class="sd">    :data:`STATE_DIR_NAME` under :func:`_agent_data_root`.</span>
 
 <span class="sd">    The identity is resolved on every call rather than once at import, because</span>
 <span class="sd">    :func:`~osprey_connectors.identity.acting_identity` reads an environment</span>
@@ -1066,7 +1057,7 @@
     <span class="n">bound</span> <span class="o">=</span> <span class="n">bound_state_dir</span><span class="p">()</span>
     <span class="k">if</span> <span class="n">bound</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">bound</span>
-    <span class="n">root</span> <span class="o">=</span> <span class="n">agent_data_root</span><span class="p">()</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="n">_agent_data_root</span><span class="p">()</span>
     <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">root</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">root</span> <span class="o">/</span> <span class="n">STATE_DIR_NAME</span> <span class="o">/</span> <span class="n">acting_identity</span><span class="p">()</span></div>
 
 
@@ -1115,7 +1106,7 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The record&#39;s ``posture`` mirror as ``{target: &quot;sandbox&quot;}`` — the switched-off targets.</span>
 
 <span class="sd">    The grammar of the mirror field (rule 2), in one place:</span>
-<span class="sd">    :func:`~osprey_connectors.control_context.parse_posture` reaches this</span>
+<span class="sd">    :func:`~osprey_connectors.control_context.parse_record` reaches this</span>
 <span class="sd">    filter rather than restating it. No verdict reads the result — the switch</span>
 <span class="sd">    decides every write — so this is the shape a reader that predates the</span>
 <span class="sd">    switch sees, and nothing more.</span>
@@ -1137,26 +1128,6 @@
             <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">posture</span> <span class="o">==</span> <span class="n">POSTURE_SANDBOX</span>
         <span class="p">}</span>
     <span class="k">return</span> <span class="p">{}</span></div>
-
-
-
-<div class="viewcode-block" id="invalidate_cache">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.invalidate_cache">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">invalidate_cache</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Forget the parsed record. For tests and for a process that moved roots.</span>
-
-<span class="sd">    The cache is the record reader&#39;s — this module holds none — so this is the</span>
-<span class="sd">    hook, not a second cache. Kept here because the callers that drop it (a</span>
-<span class="sd">    notebook kernel restamping its root, every fixture that writes a posture)</span>
-<span class="sd">    are readers of this module and should not have to know where the parse is</span>
-<span class="sd">    memoised.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">control_context</span>
-
-        <span class="n">control_context</span><span class="o">.</span><span class="n">invalidate_cache</span><span class="p">()</span>
-    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># dropping a cache must not raise into a caller</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Could not drop the control-context cache&quot;</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
 
 
 
@@ -1459,11 +1430,11 @@
 <span class="sd">    Args:</span>
 <span class="sd">        target: The control target the run is stamped against, or ``None`` when</span>
 <span class="sd">            the executor could not identify one — spelled</span>
-<span class="sd">            :data:`LAUNCH_POSTURE_ALL_TARGETS`, which covers every target.</span>
+<span class="sd">            :data:`_LAUNCH_POSTURE_ALL_TARGETS`, which covers every target.</span>
 <span class="sd">        launch_posture: :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES` — the</span>
 <span class="sd">            recorded answer for that target at the moment of launch.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">target</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">LAUNCH_POSTURE_ALL_TARGETS</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">launch_posture</span><span class="si">}</span><span class="s2">&quot;</span></div>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">target</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">_LAUNCH_POSTURE_ALL_TARGETS</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">launch_posture</span><span class="si">}</span><span class="s2">&quot;</span></div>
 
 
 
@@ -1474,10 +1445,10 @@
 
 <span class="sd">    * ``&quot;none&quot;`` — no stamp (absent or blank), or a ``&lt;t&gt;=writes`` stamp whose</span>
 <span class="sd">      ``&lt;t&gt;`` is a member of :data:`~osprey_connectors.types.CONTROL_TARGETS` or</span>
-<span class="sd">      :data:`LAUNCH_POSTURE_ALL_TARGETS`, or a ``&lt;t&gt;=sandbox`` stamp naming a</span>
+<span class="sd">      :data:`_LAUNCH_POSTURE_ALL_TARGETS`, or a ``&lt;t&gt;=sandbox`` stamp naming a</span>
 <span class="sd">      different target than *target*;</span>
 <span class="sd">    * ``&quot;pinned&quot;`` — a ``&lt;t&gt;=sandbox`` stamp with ``&lt;t&gt;`` equal to *target*, or</span>
-<span class="sd">      ``&lt;t&gt;`` :data:`LAUNCH_POSTURE_ALL_TARGETS`. A caller that names no target</span>
+<span class="sd">      ``&lt;t&gt;`` :data:`_LAUNCH_POSTURE_ALL_TARGETS`. A caller that names no target</span>
 <span class="sd">      (``None``) is pinned by any sandbox stamp: the most restrictive answer</span>
 <span class="sd">      wins;</span>
 <span class="sd">    * ``&quot;unreadable&quot;`` — anything else, for every target: no separator, an empty</span>
@@ -1497,26 +1468,25 @@
     <span class="n">launch_posture</span> <span class="o">=</span> <span class="n">launch_posture</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
     <span class="k">if</span> <span class="p">(</span>
         <span class="ow">not</span> <span class="n">separator</span>
-        <span class="ow">or</span> <span class="n">launch_posture</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">VALID_POSTURES</span>
-        <span class="ow">or</span> <span class="p">(</span><span class="n">stamped</span> <span class="o">!=</span> <span class="n">LAUNCH_POSTURE_ALL_TARGETS</span> <span class="ow">and</span> <span class="n">stamped</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">CONTROL_TARGETS</span><span class="p">)</span>
+        <span class="ow">or</span> <span class="n">launch_posture</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_VALID_POSTURES</span>
+        <span class="ow">or</span> <span class="p">(</span><span class="n">stamped</span> <span class="o">!=</span> <span class="n">_LAUNCH_POSTURE_ALL_TARGETS</span> <span class="ow">and</span> <span class="n">stamped</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">CONTROL_TARGETS</span><span class="p">)</span>
     <span class="p">):</span>
         <span class="k">return</span> <span class="s2">&quot;unreadable&quot;</span>
     <span class="k">if</span> <span class="n">launch_posture</span> <span class="o">!=</span> <span class="n">POSTURE_SANDBOX</span><span class="p">:</span>
         <span class="k">return</span> <span class="s2">&quot;none&quot;</span>
-    <span class="k">if</span> <span class="n">stamped</span> <span class="ow">in</span> <span class="p">(</span><span class="n">LAUNCH_POSTURE_ALL_TARGETS</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">target</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">stamped</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_LAUNCH_POSTURE_ALL_TARGETS</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">target</span><span class="p">:</span>
         <span class="k">return</span> <span class="s2">&quot;pinned&quot;</span>
     <span class="k">return</span> <span class="s2">&quot;none&quot;</span>
 
 
 <span class="c1"># -- the owner rung ---------------------------------------------------------</span>
 
-<span class="c1">#: The build-rendered login→tier map: ``{&lt;login&gt;: &quot;never&quot; | &quot;asked&quot; | &quot;allowed&quot;}``,</span>
-<span class="c1">#: each value the resolved render&#39;s ``tier_writes`` for that login. A process</span>
-<span class="c1">#: that reads other logins&#39; records (a shared container) cannot use its own</span>
-<span class="c1">#: section&#39;s tier for the record&#39;s owner, so it reads the owner&#39;s entry here.</span>
-<span class="n">LOGIN_TIERS_KEY</span> <span class="o">=</span> <span class="s2">&quot;control_system.login_tiers&quot;</span>
-
-<span class="c1">#: The leaf under the ``control_system`` section that :data:`LOGIN_TIERS_KEY` names.</span>
+<span class="c1">#: The leaf under the ``control_system`` section holding the build-rendered</span>
+<span class="c1">#: login→tier map, ``control_system.login_tiers``:</span>
+<span class="c1">#: ``{&lt;login&gt;: &quot;never&quot; | &quot;asked&quot; | &quot;allowed&quot;}``, each value the resolved</span>
+<span class="c1">#: render&#39;s ``tier_writes`` for that login. A process that reads other logins&#39;</span>
+<span class="c1">#: records (a shared container) cannot use its own section&#39;s tier for the</span>
+<span class="c1">#: record&#39;s owner, so it reads the owner&#39;s entry here.</span>
 <span class="n">_LOGIN_TIERS_LEAF</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;login_tiers&quot;</span>
 
 <span class="c1">#: The three values a map entry may carry — the same three :func:`tier_writes` answers.</span>
@@ -1528,7 +1498,7 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">owner_tier_term</span><span class="p">(</span>
     <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;never&quot;</span><span class="p">,</span> <span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;The owner&#39;s tier out of :data:`LOGIN_TIERS_KEY` — the verdict&#39;s owner rung.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The owner&#39;s tier out of ``control_system.login_tiers`` — the verdict&#39;s owner rung.</span>
 
 <span class="sd">    *section* is the ``control_system`` section; *owner* the login whose record</span>
 <span class="sd">    governs the write. The rung applies when the section carries the map (any</span>

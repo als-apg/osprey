@@ -460,7 +460,6 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelError</span><span class="p">,</span> <span class="n">ChannelReadFailedError</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;POLL_INTERVAL_S&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Landing&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SettleReadError&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SettleTimeoutError&quot;</span><span class="p">,</span>
@@ -470,7 +469,7 @@
 <span class="p">]</span>
 
 <span class="c1">#: Seconds between two reads of a readback that is not yet within its bound.</span>
-<span class="n">POLL_INTERVAL_S</span> <span class="o">=</span> <span class="mf">0.05</span>
+<span class="n">_POLL_INTERVAL_S</span> <span class="o">=</span> <span class="mf">0.05</span>
 
 
 <div class="viewcode-block" id="declared_tolerance">
@@ -644,7 +643,7 @@
             <span class="n">landing</span><span class="p">,</span> <span class="n">last</span> <span class="o">=</span> <span class="n">unsettled</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
             <span class="k">raise</span> <span class="n">SettleTimeoutError</span><span class="p">(</span><span class="n">landing</span><span class="p">,</span> <span class="n">last</span><span class="p">,</span> <span class="n">timeout_s</span><span class="p">)</span>
         <span class="n">pending</span> <span class="o">=</span> <span class="p">[</span><span class="n">landing</span> <span class="k">for</span> <span class="n">landing</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">unsettled</span><span class="p">]</span>
-        <span class="k">await</span> <span class="n">sleep</span><span class="p">(</span><span class="n">POLL_INTERVAL_S</span><span class="p">)</span></div>
+        <span class="k">await</span> <span class="n">sleep</span><span class="p">(</span><span class="n">_POLL_INTERVAL_S</span><span class="p">)</span></div>
 
 
 

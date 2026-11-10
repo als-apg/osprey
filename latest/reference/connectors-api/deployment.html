@@ -595,10 +595,6 @@ rehearses the facility’s real machine and is shown that machine’s past, whil
 the deployment’s own store is the virtual accelerator’s — see
 <a class="reference internal" href="#module-osprey_connectors.archive_targets" title="osprey_connectors.archive_targets"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.archive_targets</span></code></a>, which decides whose history an
 <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> block holds, and reads no stand-in key to do so.</p>
-<p><a class="reference internal" href="#osprey_connectors.standin.archive_belongs_to_standin" title="osprey_connectors.standin.archive_belongs_to_standin"><code class="xref py py-func docutils literal notranslate"><span class="pre">archive_belongs_to_standin()</span></code></a>, <a class="reference internal" href="#osprey_connectors.standin.ARCHIVER_RECORDER_SERVICE" title="osprey_connectors.standin.ARCHIVER_RECORDER_SERVICE"><code class="xref py py-data docutils literal notranslate"><span class="pre">ARCHIVER_RECORDER_SERVICE</span></code></a> and
-<a class="reference internal" href="#osprey_connectors.standin.DEPLOYED_SERVICES_KEY" title="osprey_connectors.standin.DEPLOYED_SERVICES_KEY"><code class="xref py py-data docutils literal notranslate"><span class="pre">DEPLOYED_SERVICES_KEY</span></code></a> are the predicate that attribution replaces,
-kept while the framework releases that import them are supported and removed
-in a later connectors release. Nothing new reads them.</p>
 <section id="live-standin-active-the-standin-target-s-deployed-container-gate">
 <h2><code class="docutils literal notranslate"><span class="pre">live_standin_active</span></code> — the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target’s deployed-container gate<a class="headerlink" href="#live-standin-active-the-standin-target-s-deployed-container-gate" title="Link to this heading">#</a></h2>
 <p>Since the stand-in is its own target, nothing here has to rename anything: the
@@ -643,54 +639,11 @@ someone that the machine in front of them is only a stand-in when it is not.</p>
 reading one here would let an inert line vouch for a machine.</p>
 </section>
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.standin.ARCHIVER_RECORDER_SERVICE">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.standin.</span></span><span class="sig-name descname"><span class="pre">ARCHIVER_RECORDER_SERVICE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'archiver_recorder'</span></span><a class="headerlink" href="#osprey_connectors.standin.ARCHIVER_RECORDER_SERVICE" title="Link to this definition">#</a></dt>
-<dd><p>The <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> entry naming the host-side writer that samples this
-deployment’s machine into its archive. Goes with <a class="reference internal" href="#osprey_connectors.standin.archive_belongs_to_standin" title="osprey_connectors.standin.archive_belongs_to_standin"><code class="xref py py-func docutils literal notranslate"><span class="pre">archive_belongs_to_standin()</span></code></a>.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.standin.DEPLOYED_SERVICES_KEY">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.standin.</span></span><span class="sig-name descname"><span class="pre">DEPLOYED_SERVICES_KEY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'deployed_services'</span></span><a class="headerlink" href="#osprey_connectors.standin.DEPLOYED_SERVICES_KEY" title="Link to this definition">#</a></dt>
-<dd><p>The top-level list of services a rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> deploys. Empty or
-absent on an attached render, which deploys none. Read only by
-<a class="reference internal" href="#osprey_connectors.standin.archive_belongs_to_standin" title="osprey_connectors.standin.archive_belongs_to_standin"><code class="xref py py-func docutils literal notranslate"><span class="pre">archive_belongs_to_standin()</span></code></a>; goes with it.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.standin.LIVE_STANDIN_PORT_KEY">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.standin.</span></span><span class="sig-name descname"><span class="pre">LIVE_STANDIN_PORT_KEY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'services.live_standin.port'</span></span><a class="headerlink" href="#osprey_connectors.standin.LIVE_STANDIN_PORT_KEY" title="Link to this definition">#</a></dt>
 <dd><p>Where a rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> states the stand-in’s Channel Access port,
 dotted as the build’s service injector projects it and as this module walks
 it. One key, because one key is the whole evidence that a stand-in exists.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.standin.archive_belongs_to_standin">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.standin.</span></span><span class="sig-name descname"><span class="pre">archive_belongs_to_standin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/standin.html#archive_belongs_to_standin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.standin.archive_belongs_to_standin" title="Link to this definition">#</a></dt>
-<dd><p>Whether the deployment built a stand-in and runs the archive recorder.</p>
-<p>The predicate <a class="reference internal" href="#module-osprey_connectors.archive_targets" title="osprey_connectors.archive_targets"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.archive_targets</span></code></a> replaces: under
-attribution the deployment’s store is the virtual accelerator’s and no
-store belongs to the stand-in, so nothing in this package reads this. It
-is kept, unchanged, for the framework releases that still import it — the
-<code class="docutils literal notranslate"><span class="pre">live</span></code> switch gate, the recorder’s enablement gate and the reach contract
-— and is removed in a later connectors release once none does.</p>
-<p>True exactly when <a class="reference internal" href="#osprey_connectors.standin.live_standin_port" title="osprey_connectors.standin.live_standin_port"><code class="xref py py-func docutils literal notranslate"><span class="pre">live_standin_port()</span></code></a> names a port <em>and</em> the render
-says the deployment runs the recorder: <code class="docutils literal notranslate"><span class="pre">archiver_recorder</span></code> in
-<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, or a non-empty recorder block under
-<code class="xref py py-data docutils literal notranslate"><span class="pre">_ARCHIVER_RECORDER_BLOCK_KEY</span></code> (the spelling an attached render is
-told). No endpoint is consulted.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">True</span></code> only for a render whose deployment records beside its stand-in.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>bool</p>
-</dd>
-</dl>
 </dd></dl>
 
 <dl class="py function">
@@ -769,7 +722,7 @@ simulation; it holds the real machine’s past, and that past is the one a
 stand-in session is shown, because what the stand-in rehearses is the
 procedure against the real machine’s history. It needs an address to count: a
 block that cannot be dialled is not a deployment saying it has an archive. The
-address is read per type (<a class="reference internal" href="#osprey_connectors.archive_targets.ADDRESS_SETTINGS" title="osprey_connectors.archive_targets.ADDRESS_SETTINGS"><code class="xref py py-data docutils literal notranslate"><span class="pre">ADDRESS_SETTINGS</span></code></a>): the appliance’s <code class="docutils literal notranslate"><span class="pre">url</span></code>;
+address is read per type (<code class="xref py py-data docutils literal notranslate"><span class="pre">_ADDRESS_SETTINGS</span></code>): the appliance’s <code class="docutils literal notranslate"><span class="pre">url</span></code>;
 MYA and DOOCS find their server without a setting (the client library’s
 configured <code class="docutils literal notranslate"><span class="pre">myquery_server</span></code>, the facility’s name service), so their block
 always names one.</p>
@@ -791,64 +744,6 @@ so it claims none.</p>
 no file and no control-context record is consulted, which is what lets a
 supervisor call it at every restart and get the deployment’s answer rather than
 the calling process’s.</p>
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.archive_targets.ADDRESS_SETTINGS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">ADDRESS_SETTINGS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'epics_archiver':</span> <span class="pre">'url',</span> <span class="pre">'mya_archiver':</span> <span class="pre">None,</span> <span class="pre">'doocs_archiver':</span> <span class="pre">None})</span></span><a class="headerlink" href="#osprey_connectors.archive_targets.ADDRESS_SETTINGS" title="Link to this definition">#</a></dt>
-<dd><p>The setting under which a facility archive names where it is, per type.
-<code class="docutils literal notranslate"><span class="pre">None</span></code>: the connector finds its server without one (MYA through the client
-library’s configured <code class="docutils literal notranslate"><span class="pre">myquery_server</span></code>, DOOCS through the facility’s name
-service), so its block always names an address. A type not listed names it
-under <a class="reference internal" href="#osprey_connectors.archive_targets.DEFAULT_ADDRESS_SETTING" title="osprey_connectors.archive_targets.DEFAULT_ADDRESS_SETTING"><code class="xref py py-data docutils literal notranslate"><span class="pre">DEFAULT_ADDRESS_SETTING</span></code></a>.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.archive_targets.APPLIANCE_TARGETS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">APPLIANCE_TARGETS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">frozenset</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">frozenset({'live',</span> <span class="pre">'standin'})</span></span><a class="headerlink" href="#osprey_connectors.archive_targets.APPLIANCE_TARGETS" title="Link to this definition">#</a></dt>
-<dd><p>the real machine and the
-stand-in that rehearses it.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>The targets the facility’s archive serves</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.archive_targets.ARCHIVER_SECTION_KEY">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">ARCHIVER_SECTION_KEY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'archiver'</span></span><a class="headerlink" href="#osprey_connectors.archive_targets.ARCHIVER_SECTION_KEY" title="Link to this definition">#</a></dt>
-<dd><p>The top-level config section selecting and configuring the archiver.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.archive_targets.DEFAULT_ADDRESS_SETTING">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">DEFAULT_ADDRESS_SETTING</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'url'</span></span><a class="headerlink" href="#osprey_connectors.archive_targets.DEFAULT_ADDRESS_SETTING" title="Link to this definition">#</a></dt>
-<dd><p>The address setting of a facility archive <a class="reference internal" href="#osprey_connectors.archive_targets.ADDRESS_SETTINGS" title="osprey_connectors.archive_targets.ADDRESS_SETTINGS"><code class="xref py py-data docutils literal notranslate"><span class="pre">ADDRESS_SETTINGS</span></code></a> does not list.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.archive_targets.NO_TARGETS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">NO_TARGETS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">frozenset</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">frozenset({})</span></span><a class="headerlink" href="#osprey_connectors.archive_targets.NO_TARGETS" title="Link to this definition">#</a></dt>
-<dd><p>No archive for any target.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.archive_targets.STORE_ARCHIVERS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">STORE_ARCHIVERS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">frozenset</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">frozenset({'mongodb_archiver'})</span></span><a class="headerlink" href="#osprey_connectors.archive_targets.STORE_ARCHIVERS" title="Link to this definition">#</a></dt>
-<dd><p>The archiver types that are the deployment’s own store. Every other type
-except the mock is the facility’s archive.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.archive_targets.STORE_TARGETS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">STORE_TARGETS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">frozenset</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">frozenset({'va'})</span></span><a class="headerlink" href="#osprey_connectors.archive_targets.STORE_TARGETS" title="Link to this definition">#</a></dt>
-<dd><p>the virtual accelerator.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>The targets the deployment’s own store serves</p>
-</dd>
-</dl>
-</dd></dl>
-
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.archive_targets.archive_targets">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">archive_targets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/archive_targets.html#archive_targets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.archive_targets.archive_targets" title="Link to this definition">#</a></dt>
@@ -861,8 +756,8 @@ turns on whether the deployment built a simulator, which the
 section alone does not carry.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The targets per the module table — <a class="reference internal" href="#osprey_connectors.archive_targets.APPLIANCE_TARGETS" title="osprey_connectors.archive_targets.APPLIANCE_TARGETS"><code class="xref py py-data docutils literal notranslate"><span class="pre">APPLIANCE_TARGETS</span></code></a>,
-<a class="reference internal" href="#osprey_connectors.archive_targets.STORE_TARGETS" title="osprey_connectors.archive_targets.STORE_TARGETS"><code class="xref py py-data docutils literal notranslate"><span class="pre">STORE_TARGETS</span></code></a> or <a class="reference internal" href="#osprey_connectors.archive_targets.NO_TARGETS" title="osprey_connectors.archive_targets.NO_TARGETS"><code class="xref py py-data docutils literal notranslate"><span class="pre">NO_TARGETS</span></code></a>. A target absent from the
+<dd class="field-even"><p>The targets per the module table — <code class="xref py py-data docutils literal notranslate"><span class="pre">_APPLIANCE_TARGETS</span></code>,
+<code class="xref py py-data docutils literal notranslate"><span class="pre">_STORE_TARGETS</span></code> or <code class="xref py py-data docutils literal notranslate"><span class="pre">_NO_TARGETS</span></code>. A target absent from the
 set has no archive: a caller holding it has nothing to offer, never a
 default to fall back on.</p>
 </dd>
@@ -1174,19 +1069,9 @@ inert flat line when one is what misled the writer.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulator.virtual_accelerator_active"><code class="docutils literal notranslate"><span class="pre">virtual_accelerator_active()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulator.virtual_accelerator_port"><code class="docutils literal notranslate"><span class="pre">virtual_accelerator_port()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#live-standin-active-the-standin-target-s-deployed-container-gate"><code class="docutils literal notranslate"><span class="pre">live_standin_active</span></code> — the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target’s deployed-container gate</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.ARCHIVER_RECORDER_SERVICE"><code class="docutils literal notranslate"><span class="pre">ARCHIVER_RECORDER_SERVICE</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.DEPLOYED_SERVICES_KEY"><code class="docutils literal notranslate"><span class="pre">DEPLOYED_SERVICES_KEY</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.LIVE_STANDIN_PORT_KEY"><code class="docutils literal notranslate"><span class="pre">LIVE_STANDIN_PORT_KEY</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.archive_belongs_to_standin"><code class="docutils literal notranslate"><span class="pre">archive_belongs_to_standin()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.live_standin_active"><code class="docutils literal notranslate"><span class="pre">live_standin_active()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.live_standin_port"><code class="docutils literal notranslate"><span class="pre">live_standin_port()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.ADDRESS_SETTINGS"><code class="docutils literal notranslate"><span class="pre">ADDRESS_SETTINGS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.APPLIANCE_TARGETS"><code class="docutils literal notranslate"><span class="pre">APPLIANCE_TARGETS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.ARCHIVER_SECTION_KEY"><code class="docutils literal notranslate"><span class="pre">ARCHIVER_SECTION_KEY</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.DEFAULT_ADDRESS_SETTING"><code class="docutils literal notranslate"><span class="pre">DEFAULT_ADDRESS_SETTING</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.NO_TARGETS"><code class="docutils literal notranslate"><span class="pre">NO_TARGETS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.STORE_ARCHIVERS"><code class="docutils literal notranslate"><span class="pre">STORE_ARCHIVERS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.STORE_TARGETS"><code class="docutils literal notranslate"><span class="pre">STORE_TARGETS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.archive_targets"><code class="docutils literal notranslate"><span class="pre">archive_targets()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.archive_withheld"><code class="docutils literal notranslate"><span class="pre">archive_withheld()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.honesty.ArchiverPairing"><code class="docutils literal notranslate"><span class="pre">ArchiverPairing</span></code></a><ul class="visible nav section-nav flex-column">

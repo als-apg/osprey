@@ -487,118 +487,20 @@
 neither numpy nor lume; the heavier modules are imported by their own names.</p>
 <p id="module-osprey_connectors.simulation">The simulated machine behind OSPREY’s simulator connectors.</p>
 <p>The package root holds only what every reader needs without loading a model:
-the tick period, value coercion, char-waveform decoding, the active-scenario
-state helpers and the model status lookups. It imports neither numpy nor lume;
-the composite, the texture engine, the archive and the series primitives are
-imported from their own modules.</p>
+the tick period, char-waveform decoding, the gated and labelled value types
+and the model status lookups. It imports neither numpy nor lume; the
+active-scenario state, value coercion, the composite, the texture engine, the
+archive and the series primitives are imported from their own modules.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.DEFAULT_TICK_S">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">DEFAULT_TICK_S</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.DEFAULT_TICK_S" title="Link to this definition">#</a></dt>
 <dd><p>The tick period when the config does not set one, in seconds.</p>
 </dd></dl>
 
-<dl class="py class">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.Overlap">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">Overlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">first</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">second</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">motion</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#Overlap"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.Overlap" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
-<p>One target written by two scenarios of one set.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Variables<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>target</strong> (<em>str</em>) – The address or variable both scenarios write.</p></li>
-<li><p><strong>first</strong> (<em>str</em>) – The scenario that claimed the target first, in set order.</p></li>
-<li><p><strong>second</strong> (<em>str</em>) – The scenario that writes it again.</p></li>
-<li><p><strong>motion</strong> (<em>bool</em>) – True when one scenario stills the reading at <code class="docutils literal notranslate"><span class="pre">target</span></code> and
-the other sets its motion.</p></li>
-</ul>
-</dd>
-</dl>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.Overlap.target">
-<span class="sig-name descname"><span class="pre">target</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.simulation.Overlap.target" title="Link to this definition">#</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.Overlap.first">
-<span class="sig-name descname"><span class="pre">first</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.simulation.Overlap.first" title="Link to this definition">#</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.Overlap.second">
-<span class="sig-name descname"><span class="pre">second</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.simulation.Overlap.second" title="Link to this definition">#</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.Overlap.motion">
-<span class="sig-name descname"><span class="pre">motion</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#osprey_connectors.simulation.Overlap.motion" title="Link to this definition">#</a></dt>
-<dd></dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.Overlap.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">first</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">second</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">motion</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.simulation.Overlap.__init__" title="Link to this definition">#</a></dt>
-<dd><dl class="field-list simple">
-</dl>
-</dd></dl>
-
-</dd></dl>
-
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.TICK_KEY">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">TICK_KEY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'simulation.tick_s'</span></span><a class="headerlink" href="#osprey_connectors.simulation.TICK_KEY" title="Link to this definition">#</a></dt>
 <dd><p>The config key holding the simulated machine’s tick period, in seconds.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.coerce">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">coerce</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">options</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shape</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/values.html#coerce"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.coerce" title="Link to this definition">#</a></dt>
-<dd><p>Coerce <code class="docutils literal notranslate"><span class="pre">value</span></code> to the stored representation of <code class="docutils literal notranslate"><span class="pre">value_type</span></code>.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>value</strong> (<em>Any</em>) – The value to coerce.</p></li>
-<li><p><strong>value_type</strong> (<em>str</em><em> | </em><em>None</em>) – One of <code class="xref py py-data docutils literal notranslate"><span class="pre">VALUE_TYPES</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> means <code class="docutils literal notranslate"><span class="pre">float</span></code>.</p></li>
-<li><p><strong>options</strong> (<em>Sequence</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – The labels of a <code class="docutils literal notranslate"><span class="pre">bool</span></code> or <code class="docutils literal notranslate"><span class="pre">enum</span></code> channel; a <code class="docutils literal notranslate"><span class="pre">bool</span></code>
-without options uses <code class="xref py py-data docutils literal notranslate"><span class="pre">DEFAULT_BOOL_OPTIONS</span></code>.</p></li>
-<li><p><strong>shape</strong> (<em>Sequence</em><em>[</em><em>int</em><em>] </em><em>| </em><em>None</em>) – The dimensions of a <code class="docutils literal notranslate"><span class="pre">waveform</span></code> channel.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The coerced value in its stored representation.</p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – The value is refused for the type; the message names the
-    type and the value.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><em>Any</em></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.composed_set">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">composed_set</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scenarios_view</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#composed_set"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composed_set" title="Link to this definition">#</a></dt>
-<dd><p>The set a reader serves for <code class="docutils literal notranslate"><span class="pre">names</span></code>: the set itself, or <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone.</p>
-<p>A set whose scenarios write one target twice does not compose, and a
-reader serves the machine without its scenarios rather than in an
-order-dependent state.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>scenarios_view</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Collection</em><em>[</em><em>str</em><em>]</em><em>]</em>) – Each scenario’s name mapped to the targets it writes.</p></li>
-<li><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – The resolved set, <code class="docutils literal notranslate"><span class="pre">nominal</span></code> first.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The set to serve, and the overlaps that kept its scenarios out.</p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – If a name is not in <code class="docutils literal notranslate"><span class="pre">scenarios_view</span></code>.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>tuple[list[str], list[<a class="reference internal" href="#osprey_connectors.simulation.state.Overlap" title="osprey_connectors.simulation.state.Overlap"><em>Overlap</em></a>]]</p>
-</dd>
-</dl>
 </dd></dl>
 
 <dl class="py function">
@@ -614,28 +516,6 @@ and decoded as UTF-8, an invalid byte becoming U+FFFD.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The decoded text.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>str</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.format_overlap_record">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">format_overlap_record</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">record</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#format_overlap_record"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.format_overlap_record" title="Link to this definition">#</a></dt>
-<dd><p>One printable line for an overlap record read back from a model’s log.</p>
-<p>The line names where it came from, so a reader never takes it for the
-model’s status.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>model</strong> (<em>str</em>) – The model whose log holds the record.</p></li>
-<li><p><strong>record</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The record as <a class="reference internal" href="#osprey_connectors.simulation.overlap_record" title="osprey_connectors.simulation.overlap_record"><code class="xref py py-func docutils literal notranslate"><span class="pre">overlap_record()</span></code></a> wrote it.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">&lt;model&gt;</span> <span class="pre">(log,</span> <span class="pre">instance</span> <span class="pre">&lt;i&gt;,</span> <span class="pre">pid</span> <span class="pre">&lt;p&gt;):</span> <span class="pre">&lt;event&gt;</span> <span class="pre">on</span> <span class="pre">&lt;target&gt;</span></code>.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>str</p>
@@ -671,67 +551,6 @@ capped by the composite.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.overlap_record">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">overlap_record</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">overlap</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">instance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pid</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#overlap_record"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.overlap_record" title="Link to this definition">#</a></dt>
-<dd><p>The log record a process writes when it serves without a scenario.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>overlap</strong> (<a class="reference internal" href="#osprey_connectors.simulation.state.Overlap" title="osprey_connectors.simulation.state.Overlap"><em>Overlap</em></a>) – The overlap that kept the scenario out.</p></li>
-<li><p><strong>instance</strong> (<em>str</em>) – The serving instance that logs it.</p></li>
-<li><p><strong>pid</strong> (<em>int</em>) – The process id of that instance.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The record, one JSON line in the simulator log.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.parse_active_state">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">parse_active_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#parse_active_state"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.parse_active_state" title="Link to this definition">#</a></dt>
-<dd><p>The scenario names and the anchor an <code class="docutils literal notranslate"><span class="pre">active_scenarios</span></code> file records.</p>
-<p>Blank lines and <code class="docutils literal notranslate"><span class="pre">#</span></code> comments are skipped. A <code class="docutils literal notranslate"><span class="pre">key=value</span></code> line is
-metadata, of which only <code class="docutils literal notranslate"><span class="pre">anchor=&lt;ISO</span> <span class="pre">8601&gt;</span></code> is read; every other line is
-a scenario name, kept in file order. A naive anchor is read in the
-facility timezone; a malformed one is logged and ignored.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>text</strong> (<em>str</em>) – The file’s contents.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The names, and the anchor as epoch seconds or <code class="docutils literal notranslate"><span class="pre">None</span></code> when the file
-records none.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>tuple[list[str], float | None]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.read_active_state">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">read_active_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">state_dir</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#read_active_state"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.read_active_state" title="Link to this definition">#</a></dt>
-<dd><p>The scenario names and the anchor the <code class="docutils literal notranslate"><span class="pre">active_scenarios</span></code> file in <em>state_dir</em> records.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>state_dir</strong> (<em>Path</em>) – The directory holding the file.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>What <a class="reference internal" href="#osprey_connectors.simulation.parse_active_state" title="osprey_connectors.simulation.parse_active_state"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_active_state()</span></code></a> reads from the file, or <code class="docutils literal notranslate"><span class="pre">([],</span> <span class="pre">None)</span></code>
-when the file is absent.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>tuple[list[str], float | None]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.read_model_status">
 <span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">read_model_status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">connector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">address</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/status.html#read_model_status"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.read_model_status" title="Link to this definition">#</a></dt>
 <dd><p>A served physics model’s status, read from its status channel.</p>
@@ -747,25 +566,6 @@ when the file is absent.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>The text the channel holds</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.resolve_active_scenarios">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">resolve_active_scenarios</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#resolve_active_scenarios"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.resolve_active_scenarios" title="Link to this definition">#</a></dt>
-<dd><p>The active scenario set a request for <code class="docutils literal notranslate"><span class="pre">names</span></code> really means.</p>
-<p><code class="docutils literal notranslate"><span class="pre">nominal</span></code> is the machine’s baseline, not a fault: it is always active, so
-it is prepended whether or not the caller named it. The rest keep the
-caller’s order and are deduplicated, because activating a scenario twice
-would compose its physics twice.</p>
-<p>One function for a rule two callers depend on — activation writes the state
-file from it, and physics-fault rendering derives <code class="docutils literal notranslate"><span class="pre">VA_*</span></code> variables from
-it — so the environment a project is built with and the scenarios its
-engine runs cannot describe different machines.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>list[str]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -788,87 +588,6 @@ engine runs cannot describe different machines.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>float</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.scenario_targets">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">scenario_targets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scenario</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#scenario_targets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.scenario_targets" title="Link to this definition">#</a></dt>
-<dd><p>The targets a scenario writes: addresses, engine variables and coupled channels.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>scenario</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – One entry of the simulator view’s scenario list.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The keys of its <code class="docutils literal notranslate"><span class="pre">overrides</span></code>, the keys of every fault’s <code class="docutils literal notranslate"><span class="pre">writes</span></code>,
-the keys of its <code class="docutils literal notranslate"><span class="pre">channel_faults</span></code>, and the keys of <code class="docutils literal notranslate"><span class="pre">couple</span></code> and
-<code class="docutils literal notranslate"><span class="pre">noise</span></code>; a block the scenario does not state contributes nothing.
-<code class="docutils literal notranslate"><span class="pre">archiver</span></code> entries are not targets: the archive merges the events
-of every active scenario on a channel in set order.
-The <code class="docutils literal notranslate"><span class="pre">couple</span></code> and <code class="docutils literal notranslate"><span class="pre">noise</span></code> keys and the <code class="docutils literal notranslate"><span class="pre">still</span></code> readings are also
-targets of the motion namespace, which <a class="reference internal" href="#osprey_connectors.simulation.validate_composition" title="osprey_connectors.simulation.validate_composition"><code class="xref py py-func docutils literal notranslate"><span class="pre">validate_composition()</span></code></a>
-reads apart.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>set[str]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.validate_composition">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">validate_composition</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scenarios_view</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#validate_composition"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.validate_composition" title="Link to this definition">#</a></dt>
-<dd><p>Return the overlaps of a scenario set; an empty list means it composes.</p>
-<p><code class="docutils literal notranslate"><span class="pre">nominal</span></code> writes nothing, so it is skipped when the view does not list
-it.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>scenarios_view</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Collection</em><em>[</em><em>str</em><em>]</em><em>]</em>) – Each scenario’s name mapped to the targets it writes.</p></li>
-<li><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Scenario names to check, in set order.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>One <a class="reference internal" href="#osprey_connectors.simulation.Overlap" title="osprey_connectors.simulation.Overlap"><code class="xref py py-class docutils literal notranslate"><span class="pre">Overlap</span></code></a> per target a later scenario writes again, sorted
-by target within each scenario, then one per reading and scenario pair
-where one scenario stills the reading and the other sets its motion.</p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – If a name is not in <code class="docutils literal notranslate"><span class="pre">scenarios_view</span></code>.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>list[<a class="reference internal" href="#osprey_connectors.simulation.state.Overlap" title="osprey_connectors.simulation.state.Overlap"><em>Overlap</em></a>]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.write_active_state">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.</span></span><span class="sig-name descname"><span class="pre">write_active_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scenarios_view</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">anchor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/state.html#write_active_state"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.write_active_state" title="Link to this definition">#</a></dt>
-<dd><p>Activate a scenario set by writing the <code class="docutils literal notranslate"><span class="pre">active_scenarios</span></code> file.</p>
-<p>The file holds an <code class="docutils literal notranslate"><span class="pre">anchor=&lt;ISO</span> <span class="pre">8601&gt;</span></code> line when <code class="docutils literal notranslate"><span class="pre">anchor</span></code> is given, then
-the set’s scenarios other than <code class="docutils literal notranslate"><span class="pre">nominal</span></code>, or <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone. It is
-replaced whole through <code class="docutils literal notranslate"><span class="pre">safety_file.atomic_replace</span></code>, so a reader polling
-it never reads a half-written set.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>path</strong> (<em>Path</em>) – The state file.</p></li>
-<li><p><strong>scenarios_view</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Collection</em><em>[</em><em>str</em><em>]</em><em>]</em>) – Each scenario’s name mapped to the targets it writes.</p></li>
-<li><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – The requested scenario names; <code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always active.</p></li>
-<li><p><strong>anchor</strong> (<em>datetime</em><em> | </em><em>None</em>) – The instant the set is applied at.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The resolved set, <code class="docutils literal notranslate"><span class="pre">nominal</span></code> first.</p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – If a name is unknown or the set does not compose; nothing
-    is written.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>list[str]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1205,12 +924,6 @@ is <code class="docutils literal notranslate"><span class="pre">setpoint</span><
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.MARKS">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">MARKS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('command',)</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.MARKS" title="Link to this definition">#</a></dt>
 <dd><p>The marks a wiring record’s description may set.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.view.NO_VIEW_MESSAGE">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">NO_VIEW_MESSAGE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'no</span> <span class="pre">simulator</span> <span class="pre">view</span> <span class="pre">at</span> <span class="pre">{path}:</span> <span class="pre">run</span> <span class="pre">osprey</span> <span class="pre">build'</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.NO_VIEW_MESSAGE" title="Link to this definition">#</a></dt>
-<dd><p>The text a missing view reports.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -1842,12 +1555,6 @@ standard library: no framework enters through it.</p>
 product of <code class="docutils literal notranslate"><span class="pre">shape</span></code>.</p></li>
 </ul>
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.values.WAVEFORM">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.values.</span></span><span class="sig-name descname"><span class="pre">WAVEFORM</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'waveform'</span></span><a class="headerlink" href="#osprey_connectors.simulation.values.WAVEFORM" title="Link to this definition">#</a></dt>
-<dd><p>The value type of a channel that carries a flat <code class="docutils literal notranslate"><span class="pre">list[float]</span></code> trace.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.values.GATED_TYPES">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.values.</span></span><span class="sig-name descname"><span class="pre">GATED_TYPES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('float',</span> <span class="pre">'int',</span> <span class="pre">'bool',</span> <span class="pre">'enum')</span></span><a class="headerlink" href="#osprey_connectors.simulation.values.GATED_TYPES" title="Link to this definition">#</a></dt>
 <dd><p>The value types a seed’s <code class="docutils literal notranslate"><span class="pre">gate</span></code> applies to.</p>
@@ -1884,7 +1591,7 @@ product of <code class="docutils literal notranslate"><span class="pre">shape</s
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>value</strong> (<em>Any</em>) – The value to coerce.</p></li>
-<li><p><strong>value_type</strong> (<em>str</em><em> | </em><em>None</em>) – One of <code class="xref py py-data docutils literal notranslate"><span class="pre">VALUE_TYPES</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> means <code class="docutils literal notranslate"><span class="pre">float</span></code>.</p></li>
+<li><p><strong>value_type</strong> (<em>str</em><em> | </em><em>None</em>) – One of <code class="xref py py-data docutils literal notranslate"><span class="pre">_VALUE_TYPES</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> means <code class="docutils literal notranslate"><span class="pre">float</span></code>.</p></li>
 <li><p><strong>options</strong> (<em>Sequence</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – The labels of a <code class="docutils literal notranslate"><span class="pre">bool</span></code> or <code class="docutils literal notranslate"><span class="pre">enum</span></code> channel; a <code class="docutils literal notranslate"><span class="pre">bool</span></code>
 without options uses <code class="xref py py-data docutils literal notranslate"><span class="pre">DEFAULT_BOOL_OPTIONS</span></code>.</p></li>
 <li><p><strong>shape</strong> (<em>Sequence</em><em>[</em><em>int</em><em>] </em><em>| </em><em>None</em>) – The dimensions of a <code class="docutils literal notranslate"><span class="pre">waveform</span></code> channel.</p></li>
@@ -1921,7 +1628,7 @@ without options uses <code class="xref py py-data docutils literal notranslate">
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>value_type</strong> (<em>str</em><em> | </em><em>None</em>) – One of <code class="xref py py-data docutils literal notranslate"><span class="pre">VALUE_TYPES</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> means <code class="docutils literal notranslate"><span class="pre">float</span></code>.</p></li>
+<li><p><strong>value_type</strong> (<em>str</em><em> | </em><em>None</em>) – One of <code class="xref py py-data docutils literal notranslate"><span class="pre">_VALUE_TYPES</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> means <code class="docutils literal notranslate"><span class="pre">float</span></code>.</p></li>
 <li><p><strong>options</strong> (<em>Sequence</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – The labels of a <code class="docutils literal notranslate"><span class="pre">bool</span></code> or <code class="docutils literal notranslate"><span class="pre">enum</span></code> channel.</p></li>
 <li><p><strong>shape</strong> (<em>Sequence</em><em>[</em><em>int</em><em>] </em><em>| </em><em>None</em>) – The dimensions of a <code class="docutils literal notranslate"><span class="pre">waveform</span></code> channel.</p></li>
 </ul>
@@ -3124,20 +2831,8 @@ own reads its demand and reports the condition itself.</p></li>
 the composite share one table.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'none'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'setpoint',</span> <span class="pre">'none'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'none',</span> <span class="pre">'readback'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'none',</span> <span class="pre">'readback',</span> <span class="pre">'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
 <dd><p>Every channel fault, by its word.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.channel_faults.DISCONNECTED">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">DISCONNECTED</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'disconnected'</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.DISCONNECTED" title="Link to this definition">#</a></dt>
-<dd><p>Reads not-a-number, or the activation value, with the <code class="docutils literal notranslate"><span class="pre">udf</span></code> condition.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.channel_faults.FROZEN">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">FROZEN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'frozen'</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.FROZEN" title="Link to this definition">#</a></dt>
-<dd><p>Holds a reading at the value it served when the fault became active.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -3195,7 +2890,7 @@ fault changes no reading.</p></li>
 
 <p id="module-osprey_connectors.simulation.pulse">The pulsed-septum current trace: one pure function of address, time and drive.</p>
 <p>A pulsed supply fires about once a second; each firing is captured as a fixed
-window of <a class="reference internal" href="#osprey_connectors.simulation.pulse.TRACE_POINTS" title="osprey_connectors.simulation.pulse.TRACE_POINTS"><code class="xref py py-data docutils literal notranslate"><span class="pre">TRACE_POINTS</span></code></a> samples. The pulse has a fast rise, a flat top
+window of 500 samples. The pulse has a fast rise, a flat top
 that droops slightly, and a slower exponential fall. The flat top rings: a few
 damped sinusoids whose amplitudes and phases are drawn fresh for every shot,
 together with a small per-shot jitter of the rise edge. On top of that sit a
@@ -3210,125 +2905,9 @@ same instant equals their driver ratio. A disabled supply reads flat zero.</p>
 of them; the archive seed fingerprint consumes it, so changing the shape
 re-seeds the stored history.</p>
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.AMPLITUDE_DRIFT_FRACTION">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">AMPLITUDE_DRIFT_FRACTION</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.012</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.AMPLITUDE_DRIFT_FRACTION" title="Link to this definition">#</a></dt>
-<dd><p>Bound on the amplitude drift, as a fraction of the driver level. The drift
-is a band-limited wander bounded by this value, so peak-to-peak it stays
-within twice this fraction.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.DRIFT_PERIOD_S">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">DRIFT_PERIOD_S</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">300.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.DRIFT_PERIOD_S" title="Link to this definition">#</a></dt>
-<dd><p>Slowest period of the amplitude and timing drift, in seconds.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.EDGE_JITTER_SAMPLES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">EDGE_JITTER_SAMPLES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1.5</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.EDGE_JITTER_SAMPLES" title="Link to this definition">#</a></dt>
-<dd><p>Bound on the per-shot jitter of the rise edge, in samples either way.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.FALL_TAU_SAMPLES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">FALL_TAU_SAMPLES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">40.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.FALL_TAU_SAMPLES" title="Link to this definition">#</a></dt>
-<dd><p>Time constant of the exponential fall, in samples.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.FLAT_TOP_DROOP">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">FLAT_TOP_DROOP</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.02</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.FLAT_TOP_DROOP" title="Link to this definition">#</a></dt>
-<dd><p>Fractional droop across the flat top (the top ends at <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">-</span> <span class="pre">FLAT_TOP_DROOP</span></code>).</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.FLAT_TOP_SAMPLES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">FLAT_TOP_SAMPLES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">200.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.FLAT_TOP_SAMPLES" title="Link to this definition">#</a></dt>
-<dd><p>Length of the flat top, in samples.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.MAX_TIMING_DRIFT_SAMPLES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">MAX_TIMING_DRIFT_SAMPLES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">8</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.MAX_TIMING_DRIFT_SAMPLES" title="Link to this definition">#</a></dt>
-<dd><p>Bound on how far timing drift moves the rise edge, in samples, peak to peak.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.NOISE_FRACTION">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">NOISE_FRACTION</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.002</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.NOISE_FRACTION" title="Link to this definition">#</a></dt>
-<dd><p>Standard deviation of the sample noise, as a fraction of the driver level.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.RINGING_AMPLITUDE_FRACTION">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">RINGING_AMPLITUDE_FRACTION</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.02</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.RINGING_AMPLITUDE_FRACTION" title="Link to this definition">#</a></dt>
-<dd><p>Bound on each ringing component’s amplitude, as a fraction of the flat-top
-level; each shot draws every amplitude uniformly below it.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.RINGING_COMPONENTS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">RINGING_COMPONENTS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.RINGING_COMPONENTS" title="Link to this definition">#</a></dt>
-<dd><p>Number of damped sinusoids in the flat-top ringing.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.RINGING_DAMPING_SAMPLES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">RINGING_DAMPING_SAMPLES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">80.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.RINGING_DAMPING_SAMPLES" title="Link to this definition">#</a></dt>
-<dd><p>Time constant of the ringing’s decay from the rise edge, in samples.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.RINGING_LONGEST_PERIOD_SAMPLES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">RINGING_LONGEST_PERIOD_SAMPLES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">64.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.RINGING_LONGEST_PERIOD_SAMPLES" title="Link to this definition">#</a></dt>
-<dd><p>Period of the slowest ringing component, in samples.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.RINGING_PERIOD_RATIO">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">RINGING_PERIOD_RATIO</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.6</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.RINGING_PERIOD_RATIO" title="Link to this definition">#</a></dt>
-<dd><p>Ratio between the periods of successive ringing components.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.RISE_SAMPLES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">RISE_SAMPLES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">12.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.RISE_SAMPLES" title="Link to this definition">#</a></dt>
-<dd><p>Length of the half-cosine rise, in samples.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.RISE_START_SAMPLE">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">RISE_START_SAMPLE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">60.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.RISE_START_SAMPLE" title="Link to this definition">#</a></dt>
-<dd><p>Sample index (at zero timing drift) where the pulse starts to rise.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.SHAPE_CONSTANT_NAMES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">SHAPE_CONSTANT_NAMES</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('TRACE_POINTS',</span> <span class="pre">'RISE_START_SAMPLE',</span> <span class="pre">'RISE_SAMPLES',</span> <span class="pre">'FLAT_TOP_SAMPLES',</span> <span class="pre">'FLAT_TOP_DROOP',</span> <span class="pre">'FALL_TAU_SAMPLES',</span> <span class="pre">'AMPLITUDE_DRIFT_FRACTION',</span> <span class="pre">'MAX_TIMING_DRIFT_SAMPLES',</span> <span class="pre">'DRIFT_PERIOD_S',</span> <span class="pre">'NOISE_FRACTION',</span> <span class="pre">'RINGING_COMPONENTS',</span> <span class="pre">'RINGING_LONGEST_PERIOD_SAMPLES',</span> <span class="pre">'RINGING_PERIOD_RATIO',</span> <span class="pre">'RINGING_AMPLITUDE_FRACTION',</span> <span class="pre">'RINGING_DAMPING_SAMPLES',</span> <span class="pre">'EDGE_JITTER_SAMPLES')</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.SHAPE_CONSTANT_NAMES" title="Link to this definition">#</a></dt>
-<dd><p>The constants <a class="reference internal" href="#osprey_connectors.simulation.pulse.SHAPE_VERSION" title="osprey_connectors.simulation.pulse.SHAPE_VERSION"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHAPE_VERSION</span></code></a> digests, in a fixed order.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.SHAPE_VERSION">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">SHAPE_VERSION</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'6d3f30d46f36eb04'</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.SHAPE_VERSION" title="Link to this definition">#</a></dt>
 <dd><p>Digest of the shape constants; the archive seed fingerprint consumes it.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.TRACE_POINTS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">TRACE_POINTS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">500</span></span><a class="headerlink" href="#osprey_connectors.simulation.pulse.TRACE_POINTS" title="Link to this definition">#</a></dt>
-<dd><p>Samples per captured trace.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.pulse.shape_version">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.pulse.</span></span><span class="sig-name descname"><span class="pre">shape_version</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/pulse.html#shape_version"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.pulse.shape_version" title="Link to this definition">#</a></dt>
-<dd><p>Digest of the current shape constants (see <a class="reference internal" href="#osprey_connectors.simulation.pulse.SHAPE_CONSTANT_NAMES" title="osprey_connectors.simulation.pulse.SHAPE_CONSTANT_NAMES"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHAPE_CONSTANT_NAMES</span></code></a>).</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>str</p>
-</dd>
-</dl>
 </dd></dl>
 
 <dl class="py function">
@@ -3347,7 +2926,7 @@ epoch milliseconds, matching how the texture engine keys its motion.</p>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A float64 array of shape <code class="docutils literal notranslate"><span class="pre">(TRACE_POINTS,)</span></code>.</p>
+<dd class="field-even"><p>A float64 array of shape <code class="docutils literal notranslate"><span class="pre">(_TRACE_POINTS,)</span></code>.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><em>ndarray</em></p>
@@ -3382,45 +2961,9 @@ facility build share it with the texture model. <a class="reference internal" hr
 digest of the shape constants; the archive seed fingerprint consumes it, so a
 change to the shape re-seeds the stored history.</p>
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.DECAY_FORM">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">DECAY_FORM</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'exponential'</span></span><a class="headerlink" href="#osprey_connectors.simulation.topoff.DECAY_FORM" title="Link to this definition">#</a></dt>
-<dd><p>Form of the decay between refills; part of the shape digest.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.LIFETIME_KEY">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">LIFETIME_KEY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'topoff_lifetime'</span></span><a class="headerlink" href="#osprey_connectors.simulation.topoff.LIFETIME_KEY" title="Link to this definition">#</a></dt>
-<dd><p>The seed key of a channel holding a <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed’s lifetime.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.REFILL_PHASE">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">REFILL_PHASE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'period_start'</span></span><a class="headerlink" href="#osprey_connectors.simulation.topoff.REFILL_PHASE" title="Link to this definition">#</a></dt>
-<dd><p>Where in a period the refill lands; part of the shape digest.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.SECONDS_PER_HOUR">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">SECONDS_PER_HOUR</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3600.0</span></span><a class="headerlink" href="#osprey_connectors.simulation.topoff.SECONDS_PER_HOUR" title="Link to this definition">#</a></dt>
-<dd><p>Seconds per lifetime hour.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.SHAPE_CONSTANT_NAMES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">SHAPE_CONSTANT_NAMES</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('SECONDS_PER_HOUR',</span> <span class="pre">'DECAY_FORM',</span> <span class="pre">'REFILL_PHASE')</span></span><a class="headerlink" href="#osprey_connectors.simulation.topoff.SHAPE_CONSTANT_NAMES" title="Link to this definition">#</a></dt>
-<dd><p>The constants <a class="reference internal" href="#osprey_connectors.simulation.topoff.SHAPE_VERSION" title="osprey_connectors.simulation.topoff.SHAPE_VERSION"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHAPE_VERSION</span></code></a> digests, in a fixed order.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.SHAPE_VERSION">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">SHAPE_VERSION</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'5e78a68264884cad'</span></span><a class="headerlink" href="#osprey_connectors.simulation.topoff.SHAPE_VERSION" title="Link to this definition">#</a></dt>
 <dd><p>Digest of the shape constants; the archive seed fingerprint consumes it.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.TOPOFF_KEY">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">TOPOFF_KEY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'topoff'</span></span><a class="headerlink" href="#osprey_connectors.simulation.topoff.TOPOFF_KEY" title="Link to this definition">#</a></dt>
-<dd><p>The seed key of a decaying, refilling channel.</p>
 </dd></dl>
 
 <dl class="py function">
@@ -3454,38 +2997,6 @@ holds nothing.</p></li>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>float</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.shape">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">shape</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">record</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t_s</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/topoff.html#shape"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.topoff.shape" title="Link to this definition">#</a></dt>
-<dd><p>The unit sawtooth <code class="docutils literal notranslate"><span class="pre">s(t)</span></code> of a <code class="docutils literal notranslate"><span class="pre">topoff</span></code> record at epoch second <code class="docutils literal notranslate"><span class="pre">t_s</span></code>.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>record</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The <code class="docutils literal notranslate"><span class="pre">topoff</span></code> record, <code class="docutils literal notranslate"><span class="pre">{ceiling,</span> <span class="pre">lifetime_h,</span> <span class="pre">period_s}</span></code>.</p></li>
-<li><p><strong>t_s</strong> (<em>float</em>) – Absolute epoch seconds.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>1.0 at each refill, falling
-towards <code class="docutils literal notranslate"><span class="pre">exp(-period_s</span> <span class="pre">/</span> <span class="pre">tau)</span></code> just before the next.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">exp(-((t_s</span> <span class="pre">mod</span> <span class="pre">period_s)</span> <span class="pre">/</span> <span class="pre">tau))</span></code></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.topoff.shape_version">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.topoff.</span></span><span class="sig-name descname"><span class="pre">shape_version</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/topoff.html#shape_version"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.topoff.shape_version" title="Link to this definition">#</a></dt>
-<dd><p>Digest of the current shape constants (see <a class="reference internal" href="#osprey_connectors.simulation.topoff.SHAPE_CONSTANT_NAMES" title="osprey_connectors.simulation.topoff.SHAPE_CONSTANT_NAMES"><code class="xref py py-data docutils literal notranslate"><span class="pre">SHAPE_CONSTANT_NAMES</span></code></a>).</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>str</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3839,24 +3350,6 @@ scenarios.</p>
 <span class="pre">...}</span></code> to <code class="docutils literal notranslate"><span class="pre">var/simulator/&lt;model&gt;.log</span></code> under the repo root of the loaded
 config, one <code class="docutils literal notranslate"><span class="pre">os.write</span></code> per record of under <code class="xref py py-data docutils literal notranslate"><span class="pre">_LOG_RECORD_MAX_BYTES</span></code>
 bytes. Without a loaded config the records go to the process logger only.</p>
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.composite.ENGINE_GROUP">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.composite.</span></span><span class="sig-name descname"><span class="pre">ENGINE_GROUP</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'osprey.simulation.engines'</span></span><a class="headerlink" href="#osprey_connectors.simulation.composite.ENGINE_GROUP" title="Link to this definition">#</a></dt>
-<dd><p>The entry-point group every engine plug-in registers under.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.composite.INSTANCES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.composite.</span></span><span class="sig-name descname"><span class="pre">INSTANCES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('virtual_accelerator',</span> <span class="pre">'live_standin',</span> <span class="pre">'inprocess')</span></span><a class="headerlink" href="#osprey_connectors.simulation.composite.INSTANCES" title="Link to this definition">#</a></dt>
-<dd><p>The serving instances a model log record names.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.simulation.composite.UDF">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.composite.</span></span><span class="sig-name descname"><span class="pre">UDF</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'udf'</span></span><a class="headerlink" href="#osprey_connectors.simulation.composite.UDF" title="Link to this definition">#</a></dt>
-<dd><p>The condition <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.output_severity" title="osprey_connectors.simulation.composite.Composite.output_severity"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Composite.output_severity()</span></code></a> names for a failed child’s channel.</p>
-</dd></dl>
-
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.composite.</span></span><span class="sig-name descname"><span class="pre">Composite</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">view</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">state_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">instance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'inprocess'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">clock</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">time.time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model_log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite" title="Link to this definition">#</a></dt>
@@ -3870,7 +3363,7 @@ its directory, which is opened with <code class="xref py py-meth docutils litera
 <li><p><strong>state_dir</strong> (<em>Path</em><em> | </em><em>str</em><em> | </em><em>None</em>) – The directory holding the <code class="docutils literal notranslate"><span class="pre">active_scenarios</span></code> file; <code class="docutils literal notranslate"><span class="pre">None</span></code>
 serves <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone.</p></li>
 <li><p><strong>instance</strong> (<em>str</em>) – The serving instance the model log names, one of
-<a class="reference internal" href="#osprey_connectors.simulation.composite.INSTANCES" title="osprey_connectors.simulation.composite.INSTANCES"><code class="xref py py-data docutils literal notranslate"><span class="pre">INSTANCES</span></code></a>.</p></li>
+<code class="xref py py-data docutils literal notranslate"><span class="pre">_INSTANCES</span></code>.</p></li>
 <li><p><strong>clock</strong> (<em>Callable</em><em>[</em><em>[</em><em>]</em><em>, </em><em>float</em><em>]</em>) – Returns the current instant in epoch seconds.</p></li>
 <li><p><strong>model_log</strong> (<em>bool</em>) – <code class="docutils literal notranslate"><span class="pre">False</span></code> sends the model log records to the process logger
 only, for a composite no instance serves.</p></li>
@@ -3880,7 +3373,7 @@ only, for a composite no instance serves.</p></li>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>ValueError</strong> – <code class="docutils literal notranslate"><span class="pre">instance</span></code> is not one of <a class="reference internal" href="#osprey_connectors.simulation.composite.INSTANCES" title="osprey_connectors.simulation.composite.INSTANCES"><code class="xref py py-data docutils literal notranslate"><span class="pre">INSTANCES</span></code></a>.</p></li>
+<li><p><strong>ValueError</strong> – <code class="docutils literal notranslate"><span class="pre">instance</span></code> is not one of <code class="xref py py-data docutils literal notranslate"><span class="pre">_INSTANCES</span></code>.</p></li>
 <li><p><a class="reference internal" href="#osprey_connectors.simulation.view.NoSimulatorView" title="osprey_connectors.simulation.view.NoSimulatorView"><strong>NoSimulatorView</strong></a> – The directory holds no simulator view.</p></li>
 <li><p><a class="reference internal" href="#osprey_connectors.simulation.view.ViewSchemaError" title="osprey_connectors.simulation.view.ViewSchemaError"><strong>ViewSchemaError</strong></a> – A view file is not the schema this OSPREY reads.</p></li>
 </ul>
@@ -4456,29 +3949,11 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.DEFAULT_TICK_S"><code class="docutils literal notranslate"><span class="pre">DEFAULT_TICK_S</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.Overlap"><code class="docutils literal notranslate"><span class="pre">Overlap</span></code></a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.Overlap.target"><code class="docutils literal notranslate"><span class="pre">Overlap.target</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.Overlap.first"><code class="docutils literal notranslate"><span class="pre">Overlap.first</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.Overlap.second"><code class="docutils literal notranslate"><span class="pre">Overlap.second</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.Overlap.motion"><code class="docutils literal notranslate"><span class="pre">Overlap.motion</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.Overlap.__init__"><code class="docutils literal notranslate"><span class="pre">Overlap.__init__()</span></code></a></li>
-</ul>
-</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.TICK_KEY"><code class="docutils literal notranslate"><span class="pre">TICK_KEY</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.coerce"><code class="docutils literal notranslate"><span class="pre">coerce()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composed_set"><code class="docutils literal notranslate"><span class="pre">composed_set()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.decode_char_waveform"><code class="docutils literal notranslate"><span class="pre">decode_char_waveform()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.format_overlap_record"><code class="docutils literal notranslate"><span class="pre">format_overlap_record()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.model_status"><code class="docutils literal notranslate"><span class="pre">model_status()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.overlap_record"><code class="docutils literal notranslate"><span class="pre">overlap_record()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.parse_active_state"><code class="docutils literal notranslate"><span class="pre">parse_active_state()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.read_active_state"><code class="docutils literal notranslate"><span class="pre">read_active_state()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.read_model_status"><code class="docutils literal notranslate"><span class="pre">read_model_status()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.resolve_active_scenarios"><code class="docutils literal notranslate"><span class="pre">resolve_active_scenarios()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.resolve_tick_s"><code class="docutils literal notranslate"><span class="pre">resolve_tick_s()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.scenario_targets"><code class="docutils literal notranslate"><span class="pre">scenario_targets()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.validate_composition"><code class="docutils literal notranslate"><span class="pre">validate_composition()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.write_active_state"><code class="docutils literal notranslate"><span class="pre">write_active_state()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.state.ACTIVE_SCENARIOS_FILENAME"><code class="docutils literal notranslate"><span class="pre">ACTIVE_SCENARIOS_FILENAME</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.state.DEFAULT_SCENARIO"><code class="docutils literal notranslate"><span class="pre">DEFAULT_SCENARIO</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.state.OVERLAP_EVENT"><code class="docutils literal notranslate"><span class="pre">OVERLAP_EVENT</span></code></a></li>
@@ -4504,7 +3979,6 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.DECKS_DIR"><code class="docutils literal notranslate"><span class="pre">DECKS_DIR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.ENGINE_ROLES"><code class="docutils literal notranslate"><span class="pre">ENGINE_ROLES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.MARKS"><code class="docutils literal notranslate"><span class="pre">MARKS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.NO_VIEW_MESSAGE"><code class="docutils literal notranslate"><span class="pre">NO_VIEW_MESSAGE</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.PLANES"><code class="docutils literal notranslate"><span class="pre">PLANES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.REFRESH"><code class="docutils literal notranslate"><span class="pre">REFRESH</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.SCENARIOS_DIR"><code class="docutils literal notranslate"><span class="pre">SCENARIOS_DIR</span></code></a></li>
@@ -4579,7 +4053,6 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.view.ViewSchemaError"><code class="docutils literal notranslate"><span class="pre">ViewSchemaError</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.values.WAVEFORM"><code class="docutils literal notranslate"><span class="pre">WAVEFORM</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.values.GATED_TYPES"><code class="docutils literal notranslate"><span class="pre">GATED_TYPES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.values.LABELLED_TYPES"><code class="docutils literal notranslate"><span class="pre">LABELLED_TYPES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.values.channel_labels"><code class="docutils literal notranslate"><span class="pre">channel_labels()</span></code></a></li>
@@ -4670,8 +4143,6 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.envelope.declares_motion"><code class="docutils literal notranslate"><span class="pre">declares_motion()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.envelope.motion_envelope"><code class="docutils literal notranslate"><span class="pre">motion_envelope()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS"><code class="docutils literal notranslate"><span class="pre">CHANNEL_FAULTS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.channel_faults.DISCONNECTED"><code class="docutils literal notranslate"><span class="pre">DISCONNECTED</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.channel_faults.FROZEN"><code class="docutils literal notranslate"><span class="pre">FROZEN</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.channel_faults.STUCK"><code class="docutils literal notranslate"><span class="pre">STUCK</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.channel_faults.ChannelFault"><code class="docutils literal notranslate"><span class="pre">ChannelFault</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.channel_faults.ChannelFault.roles"><code class="docutils literal notranslate"><span class="pre">ChannelFault.roles</span></code></a></li>
@@ -4681,37 +4152,11 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.channel_faults.ChannelFault.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelFault.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.AMPLITUDE_DRIFT_FRACTION"><code class="docutils literal notranslate"><span class="pre">AMPLITUDE_DRIFT_FRACTION</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.DRIFT_PERIOD_S"><code class="docutils literal notranslate"><span class="pre">DRIFT_PERIOD_S</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.EDGE_JITTER_SAMPLES"><code class="docutils literal notranslate"><span class="pre">EDGE_JITTER_SAMPLES</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.FALL_TAU_SAMPLES"><code class="docutils literal notranslate"><span class="pre">FALL_TAU_SAMPLES</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.FLAT_TOP_DROOP"><code class="docutils literal notranslate"><span class="pre">FLAT_TOP_DROOP</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.FLAT_TOP_SAMPLES"><code class="docutils literal notranslate"><span class="pre">FLAT_TOP_SAMPLES</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.MAX_TIMING_DRIFT_SAMPLES"><code class="docutils literal notranslate"><span class="pre">MAX_TIMING_DRIFT_SAMPLES</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.NOISE_FRACTION"><code class="docutils literal notranslate"><span class="pre">NOISE_FRACTION</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.RINGING_AMPLITUDE_FRACTION"><code class="docutils literal notranslate"><span class="pre">RINGING_AMPLITUDE_FRACTION</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.RINGING_COMPONENTS"><code class="docutils literal notranslate"><span class="pre">RINGING_COMPONENTS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.RINGING_DAMPING_SAMPLES"><code class="docutils literal notranslate"><span class="pre">RINGING_DAMPING_SAMPLES</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.RINGING_LONGEST_PERIOD_SAMPLES"><code class="docutils literal notranslate"><span class="pre">RINGING_LONGEST_PERIOD_SAMPLES</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.RINGING_PERIOD_RATIO"><code class="docutils literal notranslate"><span class="pre">RINGING_PERIOD_RATIO</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.RISE_SAMPLES"><code class="docutils literal notranslate"><span class="pre">RISE_SAMPLES</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.RISE_START_SAMPLE"><code class="docutils literal notranslate"><span class="pre">RISE_START_SAMPLE</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.SHAPE_CONSTANT_NAMES"><code class="docutils literal notranslate"><span class="pre">SHAPE_CONSTANT_NAMES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.SHAPE_VERSION"><code class="docutils literal notranslate"><span class="pre">SHAPE_VERSION</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.TRACE_POINTS"><code class="docutils literal notranslate"><span class="pre">TRACE_POINTS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.shape_version"><code class="docutils literal notranslate"><span class="pre">shape_version()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.pulse.trace"><code class="docutils literal notranslate"><span class="pre">trace()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.DECAY_FORM"><code class="docutils literal notranslate"><span class="pre">DECAY_FORM</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.LIFETIME_KEY"><code class="docutils literal notranslate"><span class="pre">LIFETIME_KEY</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.REFILL_PHASE"><code class="docutils literal notranslate"><span class="pre">REFILL_PHASE</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.SECONDS_PER_HOUR"><code class="docutils literal notranslate"><span class="pre">SECONDS_PER_HOUR</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.SHAPE_CONSTANT_NAMES"><code class="docutils literal notranslate"><span class="pre">SHAPE_CONSTANT_NAMES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.SHAPE_VERSION"><code class="docutils literal notranslate"><span class="pre">SHAPE_VERSION</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.TOPOFF_KEY"><code class="docutils literal notranslate"><span class="pre">TOPOFF_KEY</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.held_value"><code class="docutils literal notranslate"><span class="pre">held_value()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.period_mean"><code class="docutils literal notranslate"><span class="pre">period_mean()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.shape"><code class="docutils literal notranslate"><span class="pre">shape()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.shape_version"><code class="docutils literal notranslate"><span class="pre">shape_version()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.tau_period"><code class="docutils literal notranslate"><span class="pre">tau_period()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.tooth_depth"><code class="docutils literal notranslate"><span class="pre">tooth_depth()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.topoff.topoff_record"><code class="docutils literal notranslate"><span class="pre">topoff_record()</span></code></a></li>
@@ -4731,9 +4176,6 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.channel_value_type"><code class="docutils literal notranslate"><span class="pre">channel_value_type()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.channel_variable"><code class="docutils literal notranslate"><span class="pre">channel_variable()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.is_float_channel"><code class="docutils literal notranslate"><span class="pre">is_float_channel()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.ENGINE_GROUP"><code class="docutils literal notranslate"><span class="pre">ENGINE_GROUP</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.INSTANCES"><code class="docutils literal notranslate"><span class="pre">INSTANCES</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.UDF"><code class="docutils literal notranslate"><span class="pre">UDF</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite"><code class="docutils literal notranslate"><span class="pre">Composite</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.__init__"><code class="docutils literal notranslate"><span class="pre">Composite.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.supported_variables"><code class="docutils literal notranslate"><span class="pre">Composite.supported_variables</span></code></a></li>

@@ -453,7 +453,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
-<span class="n">VALUE_TYPES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;float&quot;</span><span class="p">,</span> <span class="s2">&quot;int&quot;</span><span class="p">,</span> <span class="s2">&quot;bool&quot;</span><span class="p">,</span> <span class="s2">&quot;enum&quot;</span><span class="p">,</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span> <span class="s2">&quot;waveform&quot;</span><span class="p">)</span>
+<span class="n">_VALUE_TYPES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;float&quot;</span><span class="p">,</span> <span class="s2">&quot;int&quot;</span><span class="p">,</span> <span class="s2">&quot;bool&quot;</span><span class="p">,</span> <span class="s2">&quot;enum&quot;</span><span class="p">,</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span> <span class="s2">&quot;waveform&quot;</span><span class="p">)</span>
 <span class="c1">#: The value types whose channels carry labels.</span>
 <span class="n">LABELLED_TYPES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;bool&quot;</span><span class="p">,</span> <span class="s2">&quot;enum&quot;</span><span class="p">)</span>
 <span class="c1">#: The value types a seed&#39;s ``gate`` applies to.</span>
@@ -461,15 +461,13 @@
 <span class="n">DEFAULT_VALUE_TYPE</span> <span class="o">=</span> <span class="s2">&quot;float&quot;</span>
 <span class="n">DEFAULT_BOOL_OPTIONS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;FALSE&quot;</span><span class="p">,</span> <span class="s2">&quot;TRUE&quot;</span><span class="p">)</span>
 <span class="c1">#: The value type of a channel that carries a flat ``list[float]`` trace.</span>
-<span class="n">WAVEFORM</span> <span class="o">=</span> <span class="s2">&quot;waveform&quot;</span>
+<span class="n">_WAVEFORM</span> <span class="o">=</span> <span class="s2">&quot;waveform&quot;</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;WAVEFORM&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DEFAULT_BOOL_OPTIONS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DEFAULT_VALUE_TYPE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;GATED_TYPES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LABELLED_TYPES&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;VALUE_TYPES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;channel_labels&quot;</span><span class="p">,</span>
     <span class="s2">&quot;coerce&quot;</span><span class="p">,</span>
     <span class="s2">&quot;is_waveform&quot;</span><span class="p">,</span>
@@ -478,10 +476,10 @@
 
 
 <div class="viewcode-block" id="is_waveform">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.is_waveform">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.values.is_waveform">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">is_waveform</span><span class="p">(</span><span class="n">value_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a channel of ``value_type`` carries a trace rather than a scalar.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">value_type</span> <span class="o">==</span> <span class="n">WAVEFORM</span></div>
+    <span class="k">return</span> <span class="n">value_type</span> <span class="o">==</span> <span class="n">_WAVEFORM</span></div>
 
 
 
@@ -506,7 +504,7 @@
 
 
 <div class="viewcode-block" id="channel_labels">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.channel_labels">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.values.channel_labels">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">channel_labels</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The labels of a bool or enum channel record.</span>
 
@@ -549,7 +547,7 @@
 
 
 <div class="viewcode-block" id="coerce">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.coerce">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.values.coerce">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">coerce</span><span class="p">(</span>
     <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
     <span class="n">value_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
@@ -560,7 +558,7 @@
 
 <span class="sd">    Args:</span>
 <span class="sd">        value: The value to coerce.</span>
-<span class="sd">        value_type: One of :data:`VALUE_TYPES`; ``None`` means ``float``.</span>
+<span class="sd">        value_type: One of :data:`_VALUE_TYPES`; ``None`` means ``float``.</span>
 <span class="sd">        options: The labels of a ``bool`` or ``enum`` channel; a ``bool``</span>
 <span class="sd">            without options uses :data:`DEFAULT_BOOL_OPTIONS`.</span>
 <span class="sd">        shape: The dimensions of a ``waveform`` channel.</span>
@@ -602,12 +600,12 @@
                 <span class="n">value</span><span class="p">,</span> <span class="n">value_type</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;expected </span><span class="si">{</span><span class="n">size</span><span class="si">}</span><span class="s2"> values for shape </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">shape</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">flat</span><span class="p">]</span>
-    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unknown value_type </span><span class="si">{</span><span class="n">value_type</span><span class="si">!r}</span><span class="s2"> (expected one of </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">VALUE_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span></div>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unknown value_type </span><span class="si">{</span><span class="n">value_type</span><span class="si">!r}</span><span class="s2"> (expected one of </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">_VALUE_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span></div>
 
 
 
 <div class="viewcode-block" id="zero">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.zero">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.values.zero">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">zero</span><span class="p">(</span>
     <span class="n">value_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">options</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
@@ -616,7 +614,7 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the zero value of ``value_type`` in its stored representation.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        value_type: One of :data:`VALUE_TYPES`; ``None`` means ``float``.</span>
+<span class="sd">        value_type: One of :data:`_VALUE_TYPES`; ``None`` means ``float``.</span>
 <span class="sd">        options: The labels of a ``bool`` or ``enum`` channel.</span>
 <span class="sd">        shape: The dimensions of a ``waveform`` channel.</span>
 
@@ -640,7 +638,7 @@
         <span class="k">return</span> <span class="s2">&quot;&quot;</span>
     <span class="k">if</span> <span class="n">value_type</span> <span class="o">==</span> <span class="s2">&quot;waveform&quot;</span><span class="p">:</span>
         <span class="k">return</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">]</span> <span class="o">*</span> <span class="n">_size</span><span class="p">(</span><span class="n">shape</span><span class="p">)</span>
-    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unknown value_type </span><span class="si">{</span><span class="n">value_type</span><span class="si">!r}</span><span class="s2"> (expected one of </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">VALUE_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span></div>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unknown value_type </span><span class="si">{</span><span class="n">value_type</span><span class="si">!r}</span><span class="s2"> (expected one of </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">_VALUE_TYPES</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span></div>
 
 </pre></div>
 

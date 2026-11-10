@@ -1540,34 +1540,6 @@ with.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.ipc.verify_child_report">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.ipc.</span></span><span class="sig-name descname"><span class="pre">verify_child_report</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">derivation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">report</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_verification.html#verify_child_report"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.verify_child_report" title="Link to this definition">#</a></dt>
-<dd><p>Assert a child came up exactly where the derivation said it would.</p>
-<p>Positive and role-aware: every field of the selected role’s endpoint is
-compared, and the child must also say it configured EPICS at all — a child
-that connected without a gateway leaves <code class="docutils literal notranslate"><span class="pre">_epics_configured</span></code> false and has
-silently inherited whatever CA environment the process already carried.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>derivation</strong> (<a class="reference internal" href="#osprey_connectors.ipc.TargetDerivation" title="osprey_connectors.ipc._verification.TargetDerivation"><em>TargetDerivation</em></a>) – The derivation for the target being switched to, from
-<a class="reference internal" href="#osprey_connectors.ipc.derive_endpoints" title="osprey_connectors.ipc.derive_endpoints"><code class="xref py py-func docutils literal notranslate"><span class="pre">derive_endpoints()</span></code></a>.</p></li>
-<li><p><strong>report</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The child’s post-connect report: <code class="docutils literal notranslate"><span class="pre">selected_role</span></code>, <code class="docutils literal notranslate"><span class="pre">mode</span></code>,
-<code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code> and <code class="docutils literal notranslate"><span class="pre">_epics_configured</span></code>.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A passing <a class="reference internal" href="#osprey_connectors.ipc.Verification" title="osprey_connectors.ipc.Verification"><code class="xref py py-class docutils literal notranslate"><span class="pre">Verification</span></code></a>, or a failing one naming the field, the
-expected value and the value the child reported. The switch aborts on a
-failure and leaves the previous target active.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.ipc.Verification" title="osprey_connectors.ipc._verification.Verification"><em>Verification</em></a></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.verify_host_report">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.ipc.</span></span><span class="sig-name descname"><span class="pre">verify_host_report</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">derivation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">report</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">readonly_run</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">writes_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_verification.html#verify_host_report"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.verify_host_report" title="Link to this definition">#</a></dt>
 <dd><p>Assert the child came up where the derivation said it would.</p>
@@ -1577,7 +1549,7 @@ and its <code class="docutils literal notranslate"><span class="pre">transport</
 <code class="docutils literal notranslate"><span class="pre">readonly_run</span></code> to be <code class="docutils literal notranslate"><span class="pre">True</span></code> while any other run requires its
 <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> to equal <em>writes_enabled</em>. With neither given, only the
 endpoint check below runs.</p>
-<p><a class="reference internal" href="#osprey_connectors.ipc.verify_child_report" title="osprey_connectors.ipc.verify_child_report"><code class="xref py py-func docutils literal notranslate"><span class="pre">verify_child_report()</span></code></a> answers this for every target whose config
+<p><code class="xref py py-func docutils literal notranslate"><span class="pre">verify_child_report()</span></code> answers this for every target whose config
 names a gateway. A deployment can also select a connector that talks to no
 gateway at all — the simulator served in process is one, and it is the
 fail-safe default — and for that one the derivation has no endpoint and the child reports
@@ -1591,7 +1563,7 @@ write-only gateway table on a deployment that selects <code class="docutils lite
 is a gateway deployment with a hole in it, not a gatewayless one: its child
 connects to a real control system over whatever default broadcast address
 it finds, and that is precisely the unpinned-CA case verification exists to
-catch. It goes to <a class="reference internal" href="#osprey_connectors.ipc.verify_child_report" title="osprey_connectors.ipc.verify_child_report"><code class="xref py py-func docutils literal notranslate"><span class="pre">verify_child_report()</span></code></a>, which refuses it either for
+catch. It goes to <code class="xref py py-func docutils literal notranslate"><span class="pre">verify_child_report()</span></code>, which refuses it either for
 reporting no gateway or for having no derived endpoint to compare against.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -1714,9 +1686,9 @@ child could be brought up).</p>
 <p>Invariants:</p>
 <ul class="simple">
 <li><p>Callers hand over the error; the policy decides where it came from. An error
-the connector-host child sent is <a class="reference internal" href="#osprey_connectors.recovery.Origin.CHILD" title="osprey_connectors.recovery.Origin.CHILD"><code class="xref py py-attr docutils literal notranslate"><span class="pre">Origin.CHILD</span></code></a>, one the link to the
-child made (a missed deadline, a closed pipe) is <a class="reference internal" href="#osprey_connectors.recovery.Origin.LINK" title="osprey_connectors.recovery.Origin.LINK"><code class="xref py py-attr docutils literal notranslate"><span class="pre">Origin.LINK</span></code></a>, and
-anything from a connector in this process is <a class="reference internal" href="#osprey_connectors.recovery.Origin.IN_PROCESS" title="osprey_connectors.recovery.Origin.IN_PROCESS"><code class="xref py py-attr docutils literal notranslate"><span class="pre">Origin.IN_PROCESS</span></code></a>.</p></li>
+the connector-host child sent is <code class="xref py py-attr docutils literal notranslate"><span class="pre">_Origin.CHILD</span></code>, one the link to the
+child made (a missed deadline, a closed pipe) is <code class="xref py py-attr docutils literal notranslate"><span class="pre">_Origin.LINK</span></code>, and
+anything from a connector in this process is <code class="xref py py-attr docutils literal notranslate"><span class="pre">_Origin.IN_PROCESS</span></code>.</p></li>
 <li><p>Recovery happens at most once per incarnation. Every failure of one
 incarnation awaits the one act the first started, and an incarnation that has
 been replaced or dropped is answered with that record and never acted on
@@ -1727,36 +1699,6 @@ child is no episode’s end: its next missed deadline pings it again.</p></li>
 <li><p>The policy never retries a call, owns no deadline, and holds no incarnation
 alive.</p></li>
 </ul>
-<dl class="py class">
-<dt class="sig sig-object py" id="osprey_connectors.recovery.Origin">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.recovery.</span></span><span class="sig-name descname"><span class="pre">Origin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/recovery.html#Origin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.recovery.Origin" title="Link to this definition">#</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">StrEnum</span></code></p>
-<p>Where a failure was raised.</p>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="osprey_connectors.recovery.Origin.CHILD">
-<span class="sig-name descname"><span class="pre">CHILD</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'child'</span></span><a class="headerlink" href="#osprey_connectors.recovery.Origin.CHILD" title="Link to this definition">#</a></dt>
-<dd><p>In the connector-host child, which answered with it.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="osprey_connectors.recovery.Origin.LINK">
-<span class="sig-name descname"><span class="pre">LINK</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'link'</span></span><a class="headerlink" href="#osprey_connectors.recovery.Origin.LINK" title="Link to this definition">#</a></dt>
-<dd><p>a missed deadline, a closed pipe.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>On the link to the child</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="osprey_connectors.recovery.Origin.IN_PROCESS">
-<span class="sig-name descname"><span class="pre">IN_PROCESS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'in_process'</span></span><a class="headerlink" href="#osprey_connectors.recovery.Origin.IN_PROCESS" title="Link to this definition">#</a></dt>
-<dd><p>By a connector running in this process.</p>
-</dd></dl>
-
-</dd></dl>
-
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.recovery.Recovery">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.recovery.</span></span><span class="sig-name descname"><span class="pre">Recovery</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">action</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/recovery.html#Recovery"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.recovery.Recovery" title="Link to this definition">#</a></dt>
@@ -2100,19 +2042,12 @@ successor serves, and answers whether it did.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.derive_endpoints"><code class="docutils literal notranslate"><span class="pre">derive_endpoints()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.live_collision"><code class="docutils literal notranslate"><span class="pre">live_collision()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.subsection"><code class="docutils literal notranslate"><span class="pre">subsection()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.verify_child_report"><code class="docutils literal notranslate"><span class="pre">verify_child_report()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.verify_host_report"><code class="docutils literal notranslate"><span class="pre">verify_host_report()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.FrameDecodeError"><code class="docutils literal notranslate"><span class="pre">FrameDecodeError</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.FrameEncodeError"><code class="docutils literal notranslate"><span class="pre">FrameEncodeError</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.process.DEFAULT_TERMINATE_GRACE_S"><code class="docutils literal notranslate"><span class="pre">DEFAULT_TERMINATE_GRACE_S</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.process.reap_exit_code"><code class="docutils literal notranslate"><span class="pre">reap_exit_code()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.process.terminate"><code class="docutils literal notranslate"><span class="pre">terminate()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.recovery.Origin"><code class="docutils literal notranslate"><span class="pre">Origin</span></code></a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.recovery.Origin.CHILD"><code class="docutils literal notranslate"><span class="pre">Origin.CHILD</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.recovery.Origin.LINK"><code class="docutils literal notranslate"><span class="pre">Origin.LINK</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.recovery.Origin.IN_PROCESS"><code class="docutils literal notranslate"><span class="pre">Origin.IN_PROCESS</span></code></a></li>
-</ul>
-</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.recovery.Recovery"><code class="docutils literal notranslate"><span class="pre">Recovery</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.recovery.Recovery.action"><code class="docutils literal notranslate"><span class="pre">Recovery.action</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.recovery.Recovery.text"><code class="docutils literal notranslate"><span class="pre">Recovery.text</span></code></a></li>

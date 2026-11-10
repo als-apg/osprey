@@ -502,7 +502,7 @@
 
 
 <div class="viewcode-block" id="parse_active_state">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.parse_active_state">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.parse_active_state">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">parse_active_state</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The scenario names and the anchor an ``active_scenarios`` file records.</span>
 
@@ -541,7 +541,7 @@
 
 
 <div class="viewcode-block" id="read_active_state">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.read_active_state">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.read_active_state">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">read_active_state</span><span class="p">(</span><span class="n">state_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The scenario names and the anchor the ``active_scenarios`` file in *state_dir* records.</span>
 
@@ -560,7 +560,7 @@
 
 
 <div class="viewcode-block" id="write_active_state">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.write_active_state">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.write_active_state">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">write_active_state</span><span class="p">(</span>
     <span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">scenarios_view</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Collection</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
@@ -605,7 +605,7 @@
 
 
 <div class="viewcode-block" id="resolve_active_scenarios">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.resolve_active_scenarios">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.resolve_active_scenarios">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">resolve_active_scenarios</span><span class="p">(</span><span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The active scenario set a request for ``names`` really means.</span>
 
@@ -628,7 +628,7 @@
 
 
 <div class="viewcode-block" id="Overlap">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.Overlap">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.Overlap">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Overlap</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One target written by two scenarios of one set.</span>
@@ -660,7 +660,7 @@
 
 
 <div class="viewcode-block" id="scenario_targets">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.scenario_targets">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.scenario_targets">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">scenario_targets</span><span class="p">(</span><span class="n">scenario</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The targets a scenario writes: addresses, engine variables and coupled channels.</span>
 
@@ -690,7 +690,7 @@
 
 
 <div class="viewcode-block" id="validate_composition">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.validate_composition">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.validate_composition">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">validate_composition</span><span class="p">(</span>
     <span class="n">scenarios_view</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Collection</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span> <span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Overlap</span><span class="p">]:</span>
@@ -757,7 +757,7 @@
 
 
 <div class="viewcode-block" id="composed_set">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composed_set">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.composed_set">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">composed_set</span><span class="p">(</span>
     <span class="n">scenarios_view</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Collection</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span> <span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="n">Overlap</span><span class="p">]]:</span>
@@ -785,7 +785,7 @@
 
 
 <div class="viewcode-block" id="overlap_record">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.overlap_record">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.overlap_record">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">overlap_record</span><span class="p">(</span><span class="n">overlap</span><span class="p">:</span> <span class="n">Overlap</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pid</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The log record a process writes when it serves without a scenario.</span>
 
@@ -802,7 +802,7 @@
 
 
 <div class="viewcode-block" id="format_overlap_record">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.format_overlap_record">[docs]</a>
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.format_overlap_record">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">format_overlap_record</span><span class="p">(</span><span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One printable line for an overlap record read back from a model&#39;s log.</span>
 

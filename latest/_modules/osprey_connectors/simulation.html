@@ -431,63 +431,27 @@
 <span></span><span class="sd">&quot;&quot;&quot;The simulated machine behind OSPREY&#39;s simulator connectors.</span>
 
 <span class="sd">The package root holds only what every reader needs without loading a model:</span>
-<span class="sd">the tick period, value coercion, char-waveform decoding, the active-scenario</span>
-<span class="sd">state helpers and the model status lookups. It imports neither numpy nor lume;</span>
-<span class="sd">the composite, the texture engine, the archive and the series primitives are</span>
-<span class="sd">imported from their own modules.</span>
+<span class="sd">the tick period, char-waveform decoding, the gated and labelled value types</span>
+<span class="sd">and the model status lookups. It imports neither numpy nor lume; the</span>
+<span class="sd">active-scenario state, value coercion, the composite, the texture engine, the</span>
+<span class="sd">archive and the series primitives are imported from their own modules.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.state</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">ACTIVE_SCENARIOS_FILENAME</span><span class="p">,</span>
-    <span class="n">DEFAULT_SCENARIO</span><span class="p">,</span>
-    <span class="n">OVERLAP_EVENT</span><span class="p">,</span>
-    <span class="n">STILL_SCENARIO</span><span class="p">,</span>
-    <span class="n">Overlap</span><span class="p">,</span>
-    <span class="n">composed_set</span><span class="p">,</span>
-    <span class="n">format_overlap_record</span><span class="p">,</span>
-    <span class="n">overlap_record</span><span class="p">,</span>
-    <span class="n">parse_active_state</span><span class="p">,</span>
-    <span class="n">read_active_state</span><span class="p">,</span>
-    <span class="n">resolve_active_scenarios</span><span class="p">,</span>
-    <span class="n">scenario_targets</span><span class="p">,</span>
-    <span class="n">validate_composition</span><span class="p">,</span>
-    <span class="n">write_active_state</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.status</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">STATUS_NO_DECK</span><span class="p">,</span>
-    <span class="n">model_status</span><span class="p">,</span>
-    <span class="n">read_model_status</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.values</span><span class="w"> </span><span class="kn">import</span> <span class="n">GATED_TYPES</span><span class="p">,</span> <span class="n">LABELLED_TYPES</span><span class="p">,</span> <span class="n">coerce</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.status</span><span class="w"> </span><span class="kn">import</span> <span class="n">model_status</span><span class="p">,</span> <span class="n">read_model_status</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.values</span><span class="w"> </span><span class="kn">import</span> <span class="n">GATED_TYPES</span><span class="p">,</span> <span class="n">LABELLED_TYPES</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;ACTIVE_SCENARIOS_FILENAME&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;DEFAULT_SCENARIO&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DEFAULT_TICK_S&quot;</span><span class="p">,</span>
     <span class="s2">&quot;GATED_TYPES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LABELLED_TYPES&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;OVERLAP_EVENT&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;STATUS_NO_DECK&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;STILL_SCENARIO&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;Overlap&quot;</span><span class="p">,</span>
     <span class="s2">&quot;TICK_KEY&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;coerce&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;composed_set&quot;</span><span class="p">,</span>
     <span class="s2">&quot;decode_char_waveform&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;format_overlap_record&quot;</span><span class="p">,</span>
     <span class="s2">&quot;model_status&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;overlap_record&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;parse_active_state&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;read_active_state&quot;</span><span class="p">,</span>
     <span class="s2">&quot;read_model_status&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;resolve_active_scenarios&quot;</span><span class="p">,</span>
     <span class="s2">&quot;resolve_tick_s&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;scenario_targets&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;validate_composition&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;write_active_state&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="c1">#: The config key holding the simulated machine&#39;s tick period, in seconds.</span>

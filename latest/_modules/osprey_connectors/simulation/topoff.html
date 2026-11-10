@@ -470,49 +470,40 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;DECAY_FORM&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;LIFETIME_KEY&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;REFILL_PHASE&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;SECONDS_PER_HOUR&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;SHAPE_CONSTANT_NAMES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SHAPE_VERSION&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TOPOFF_KEY&quot;</span><span class="p">,</span>
     <span class="s2">&quot;held_value&quot;</span><span class="p">,</span>
     <span class="s2">&quot;period_mean&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;shape&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;shape_version&quot;</span><span class="p">,</span>
     <span class="s2">&quot;tau_period&quot;</span><span class="p">,</span>
     <span class="s2">&quot;tooth_depth&quot;</span><span class="p">,</span>
     <span class="s2">&quot;topoff_record&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="c1">#: The seed key of a decaying, refilling channel.</span>
-<span class="n">TOPOFF_KEY</span> <span class="o">=</span> <span class="s2">&quot;topoff&quot;</span>
+<span class="n">_TOPOFF_KEY</span> <span class="o">=</span> <span class="s2">&quot;topoff&quot;</span>
 <span class="c1">#: The seed key of a channel holding a ``topoff`` seed&#39;s lifetime.</span>
-<span class="n">LIFETIME_KEY</span> <span class="o">=</span> <span class="s2">&quot;topoff_lifetime&quot;</span>
+<span class="n">_LIFETIME_KEY</span> <span class="o">=</span> <span class="s2">&quot;topoff_lifetime&quot;</span>
 <span class="c1">#: Seconds per lifetime hour.</span>
-<span class="n">SECONDS_PER_HOUR</span> <span class="o">=</span> <span class="mf">3600.0</span>
+<span class="n">_SECONDS_PER_HOUR</span> <span class="o">=</span> <span class="mf">3600.0</span>
 <span class="c1">#: Form of the decay between refills; part of the shape digest.</span>
-<span class="n">DECAY_FORM</span> <span class="o">=</span> <span class="s2">&quot;exponential&quot;</span>
+<span class="n">_DECAY_FORM</span> <span class="o">=</span> <span class="s2">&quot;exponential&quot;</span>
 <span class="c1">#: Where in a period the refill lands; part of the shape digest.</span>
-<span class="n">REFILL_PHASE</span> <span class="o">=</span> <span class="s2">&quot;period_start&quot;</span>
+<span class="n">_REFILL_PHASE</span> <span class="o">=</span> <span class="s2">&quot;period_start&quot;</span>
 
-<span class="c1">#: The constants :data:`SHAPE_VERSION` digests, in a fixed order.</span>
-<span class="n">SHAPE_CONSTANT_NAMES</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;SECONDS_PER_HOUR&quot;</span><span class="p">,</span> <span class="s2">&quot;DECAY_FORM&quot;</span><span class="p">,</span> <span class="s2">&quot;REFILL_PHASE&quot;</span><span class="p">)</span>
+<span class="c1">#: The constants :data:`SHAPE_VERSION` digests, in a fixed order. Each is</span>
+<span class="c1">#: digested under its name without the leading underscore, the spelling it had</span>
+<span class="c1">#: while it was public, so making them private left the digest unchanged.</span>
+<span class="n">_SHAPE_CONSTANT_NAMES</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;_SECONDS_PER_HOUR&quot;</span><span class="p">,</span> <span class="s2">&quot;_DECAY_FORM&quot;</span><span class="p">,</span> <span class="s2">&quot;_REFILL_PHASE&quot;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="shape_version">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.topoff.shape_version">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">shape_version</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Digest of the current shape constants (see :data:`SHAPE_CONSTANT_NAMES`).&quot;&quot;&quot;</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_shape_version</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Digest of the current shape constants (see :data:`_SHAPE_CONSTANT_NAMES`).&quot;&quot;&quot;</span>
     <span class="n">module</span> <span class="o">=</span> <span class="nb">globals</span><span class="p">()</span>
-    <span class="n">text</span> <span class="o">=</span> <span class="s2">&quot;;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">module</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="si">!r}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">SHAPE_CONSTANT_NAMES</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">text</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">16</span><span class="p">]</span></div>
-
+    <span class="n">text</span> <span class="o">=</span> <span class="s2">&quot;;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s1">&#39;_&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">module</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="si">!r}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_SHAPE_CONSTANT_NAMES</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">text</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">16</span><span class="p">]</span>
 
 
 <span class="c1">#: Digest of the shape constants; the archive seed fingerprint consumes it.</span>
-<span class="n">SHAPE_VERSION</span> <span class="o">=</span> <span class="n">shape_version</span><span class="p">()</span>
+<span class="n">SHAPE_VERSION</span> <span class="o">=</span> <span class="n">_shape_version</span><span class="p">()</span>
 
 
 <div class="viewcode-block" id="topoff_record">
@@ -521,7 +512,7 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``topoff`` record of a seed, or None when it has none.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">seed</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="n">record</span> <span class="o">=</span> <span class="n">seed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">TOPOFF_KEY</span><span class="p">)</span>
+    <span class="n">record</span> <span class="o">=</span> <span class="n">seed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_TOPOFF_KEY</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">record</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span></div>
 
 
@@ -530,25 +521,7 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.topoff.tau_period">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">tau_period</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``(tau, period_s)`` of a ``topoff`` record, both in seconds.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;lifetime_h&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="n">SECONDS_PER_HOUR</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span></div>
-
-
-
-<div class="viewcode-block" id="shape">
-<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.topoff.shape">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">shape</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;The unit sawtooth ``s(t)`` of a ``topoff`` record at epoch second ``t_s``.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        record: The ``topoff`` record, ``{ceiling, lifetime_h, period_s}``.</span>
-<span class="sd">        t_s: Absolute epoch seconds.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        ``exp(-((t_s mod period_s) / tau))``: 1.0 at each refill, falling</span>
-<span class="sd">        towards ``exp(-period_s / tau)`` just before the next.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">tau</span><span class="p">,</span> <span class="n">period</span> <span class="o">=</span> <span class="n">tau_period</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">t_s</span><span class="p">)</span> <span class="o">%</span> <span class="n">period</span><span class="p">)</span> <span class="o">/</span> <span class="n">tau</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;lifetime_h&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="n">_SECONDS_PER_HOUR</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span></div>
 
 
 
@@ -598,7 +571,7 @@
     <span class="n">record</span> <span class="o">=</span> <span class="n">topoff_record</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">record</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;ceiling&quot;</span><span class="p">])</span> <span class="o">*</span> <span class="n">period_mean</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
-    <span class="n">lifetime</span> <span class="o">=</span> <span class="p">(</span><span class="n">seed</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">LIFETIME_KEY</span><span class="p">)</span>
+    <span class="n">lifetime</span> <span class="o">=</span> <span class="p">(</span><span class="n">seed</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_LIFETIME_KEY</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">lifetime</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">or</span> <span class="n">lookup</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="n">source</span> <span class="o">=</span> <span class="n">topoff_record</span><span class="p">(</span><span class="n">lookup</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">lifetime</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;of&quot;</span><span class="p">))))</span>

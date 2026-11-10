@@ -580,7 +580,7 @@ container’s own state directory, bound in by compose. It is already the
 per-identity directory, so nothing is appended to it: a container sees its
 own dir at a path that has nothing to do with the host’s tree, and deriving
 the identity hop inside it would name a directory nobody binds;</p></li>
-<li><p>otherwise <a class="reference internal" href="#osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR" title="osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR"><code class="xref py py-data docutils literal notranslate"><span class="pre">AGENT_DATA_ROOT_ENV_VAR</span></code></a> when it names a non-blank path —
+<li><p>otherwise <code class="xref py py-data docutils literal notranslate"><span class="pre">_AGENT_DATA_ROOT_ENV_VAR</span></code> when it names a non-blank path —
 the stamp a session child carries — else
 <a class="reference internal" href="configuration.html#osprey_connectors.workspace.resolve_shared_data_root" title="osprey_connectors.workspace.resolve_shared_data_root"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_shared_data_root()</span></code></a>, the config
 derivation the state file has always used; and then the two fixed hops,
@@ -596,10 +596,9 @@ its one reader: a machine is armed only at <code class="docutils literal notrans
 stored <code class="docutils literal notranslate"><span class="pre">&quot;on&quot;</span></code> from an older release reads as <code class="docutils literal notranslate"><span class="pre">&quot;asked&quot;</span></code>. Everything else — no
 record, a record that does not name the machine, any other value — is that
 machine’s writes off. The record’s <code class="docutils literal notranslate"><span class="pre">posture</span></code> field is a mirror of the switch
-(<a class="reference internal" href="#osprey_connectors.control_context.posture_mirror" title="osprey_connectors.control_context.posture_mirror"><code class="xref py py-func docutils literal notranslate"><span class="pre">posture_mirror()</span></code></a>) kept for readers
-that predate it, and no verdict reads it. <a class="reference internal" href="#osprey_connectors.posture_store.parse_posture_value" title="osprey_connectors.posture_store.parse_posture_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_posture_value()</span></code></a> is the
-grammar of that mirror, applied by
-<a class="reference internal" href="#osprey_connectors.control_context.parse_posture" title="osprey_connectors.control_context.parse_posture"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_posture()</span></code></a> rather than restated
+kept for readers that predate it, and no verdict reads it.
+<a class="reference internal" href="#osprey_connectors.posture_store.parse_posture_value" title="osprey_connectors.posture_store.parse_posture_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_posture_value()</span></code></a> is the grammar of that mirror, applied by
+<a class="reference internal" href="#osprey_connectors.control_context.parse_record" title="osprey_connectors.control_context.parse_record"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_record()</span></code></a> rather than restated
 there.</p>
 <p><strong>3. How a write is decided.</strong> <a class="reference internal" href="#osprey_connectors.posture_store.write_verdict" title="osprey_connectors.posture_store.write_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_verdict()</span></code></a> is the whole rule: one
 total order of terms — read-only run, tier, target, owner, owner tier, record,
@@ -628,8 +627,9 @@ would otherwise hand a running script write access the operator had not given
 it when the run began.</p>
 <p><strong>4. When a change is seen.</strong> Every read re-stats the record and re-parses on
 <code class="docutils literal notranslate"><span class="pre">(st_mtime_ns,</span> <span class="pre">st_size,</span> <span class="pre">st_ino)</span></code> — the cache lives in
-<a class="reference internal" href="#module-osprey_connectors.control_context" title="osprey_connectors.control_context"><code class="xref py py-mod docutils literal notranslate"><span class="pre">control_context</span></code></a>, and <a class="reference internal" href="#osprey_connectors.posture_store.invalidate_cache" title="osprey_connectors.posture_store.invalidate_cache"><code class="xref py py-func docutils literal notranslate"><span class="pre">invalidate_cache()</span></code></a> is the
-hook a process that moved roots (or a test) drops it through. A missing record
+<a class="reference internal" href="#module-osprey_connectors.control_context" title="osprey_connectors.control_context"><code class="xref py py-mod docutils literal notranslate"><span class="pre">control_context</span></code></a>, and its
+<a class="reference internal" href="#osprey_connectors.control_context.invalidate_cache" title="osprey_connectors.control_context.invalidate_cache"><code class="xref py py-func docutils literal notranslate"><span class="pre">invalidate_cache()</span></code></a> is the hook a
+process that moved roots (or a test) drops it through. A missing record
 is every switch off, not an error.</p>
 <p>This module reads no config for the switch, holds no cache of its own, and
 imports nothing from <code class="docutils literal notranslate"><span class="pre">osprey</span></code>: it runs inside the connector-host child and
@@ -684,15 +684,6 @@ would cost the one line that says the plan ran for nobody — and printing
 is all it is for. Callers ask <code class="docutils literal notranslate"><span class="pre">owner</span> <span class="pre">is</span> <span class="pre">NO_OWNER</span></code>, never truthiness (a real
 name can be falsey only by being empty, which this module never produces)
 and never equality with the text.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">AGENT_DATA_ROOT_ENV_VAR</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'OSPREY_AGENT_DATA_ROOT'</span></span><a class="headerlink" href="#osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR" title="Link to this definition">#</a></dt>
-<dd><p>The anchor stamp. Read by NAME rather than imported from
-<code class="docutils literal notranslate"><span class="pre">osprey.audit.posture</span></code>, which declares it for the stamping side: this
-package is the lean connector chain and must not grow an <code class="docutils literal notranslate"><span class="pre">osprey</span></code> import
-to learn one string.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -773,14 +764,6 @@ is no login whose switch could cover it.</p>
 </dd></dl>
 
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">LAUNCH_POSTURE_ALL_TARGETS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'*'</span></span><a class="headerlink" href="#osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS" title="Link to this definition">#</a></dt>
-<dd><p>The launch stamp’s target when the executor could not name one. Covers every
-target: a run that could not say which machine it is about must not be the
-one run a switched-off machine fails to reach.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.posture_store.LAUNCH_POSTURE_ENV_VAR">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">LAUNCH_POSTURE_ENV_VAR</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'OSPREY_LAUNCH_POSTURE'</span></span><a class="headerlink" href="#osprey_connectors.posture_store.LAUNCH_POSTURE_ENV_VAR" title="Link to this definition">#</a></dt>
 <dd><p>The launch-time pin, stamped into an executor sandbox’s environment by
@@ -790,7 +773,7 @@ back HERE, inside that sandbox, by <code class="xref py py-func docutils literal
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">&lt;target&gt;</span></code> is the control target the run was stamped against — a member
 of <code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code> — or
-<a class="reference internal" href="#osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS" title="osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS"><code class="xref py py-data docutils literal notranslate"><span class="pre">LAUNCH_POSTURE_ALL_TARGETS</span></code></a> when the executor could not identify
+<code class="xref py py-data docutils literal notranslate"><span class="pre">_LAUNCH_POSTURE_ALL_TARGETS</span></code> when the executor could not identify
 one, in which case the pin covers every target;</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">&lt;posture&gt;</span></code> is <a class="reference internal" href="#osprey_connectors.posture_store.POSTURE_SANDBOX" title="osprey_connectors.posture_store.POSTURE_SANDBOX"><code class="xref py py-data docutils literal notranslate"><span class="pre">POSTURE_SANDBOX</span></code></a> or <a class="reference internal" href="#osprey_connectors.posture_store.POSTURE_WRITES" title="osprey_connectors.posture_store.POSTURE_WRITES"><code class="xref py py-data docutils literal notranslate"><span class="pre">POSTURE_WRITES</span></code></a>.</p></li>
 </ul>
@@ -805,20 +788,6 @@ reading side runs in the lean connector chain;
 it is stripped from every rendered <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> env block
 (<code class="docutils literal notranslate"><span class="pre">NON_PINNABLE_AUDIT_MARKERS</span></code>) — a spec that could pin it could hand a
 run launched with writes off the writes it was denied.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.posture_store.LOGIN_TIERS_KEY">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">LOGIN_TIERS_KEY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'control_system.login_tiers'</span></span><a class="headerlink" href="#osprey_connectors.posture_store.LOGIN_TIERS_KEY" title="Link to this definition">#</a></dt>
-<dd><p><code class="docutils literal notranslate"><span class="pre">{&lt;login&gt;:</span> <span class="pre">&quot;never&quot;</span> <span class="pre">|</span> <span class="pre">&quot;asked&quot;</span> <span class="pre">|</span> <span class="pre">&quot;allowed&quot;}</span></code>,
-each value the resolved render’s <code class="docutils literal notranslate"><span class="pre">tier_writes</span></code> for that login. A process
-that reads other logins’ records (a shared container) cannot use its own
-section’s tier for the record’s owner, so it reads the owner’s entry here.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>The build-rendered login→tier map</p>
-</dd>
-</dl>
 </dd></dl>
 
 <dl class="py data">
@@ -867,12 +836,6 @@ with that identity’s control-context record, per-server reports and request
 files. The same tree <code class="docutils literal notranslate"><span class="pre">target_state.state_dir()</span></code> resolves, spelled here
 because a record the writer puts in one directory and a reader looks for in
 another is a switch that silently never applies.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.posture_store.VALID_POSTURES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">VALID_POSTURES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">frozenset({'sandbox',</span> <span class="pre">'writes'})</span></span><a class="headerlink" href="#osprey_connectors.posture_store.VALID_POSTURES" title="Link to this definition">#</a></dt>
-<dd><p>The two values a posture entry may spell. Everything else is dropped.</p>
 </dd></dl>
 
 <dl class="py class">
@@ -947,21 +910,6 @@ write carries no <code class="docutils literal notranslate"><span class="pre">po
 </dl>
 </dd></dl>
 
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.posture_store.agent_data_root">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">agent_data_root</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/posture_store.html#agent_data_root"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.posture_store.agent_data_root" title="Link to this definition">#</a></dt>
-<dd><p>The agent-data root the control state lives under.</p>
-<p>Rule 1 of the module contract: the <a class="reference internal" href="#osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR" title="osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR"><code class="xref py py-data docutils literal notranslate"><span class="pre">AGENT_DATA_ROOT_ENV_VAR</span></code></a> stamp
-when it names a non-blank path, else the config derivation. <code class="docutils literal notranslate"><span class="pre">None</span></code> when
-neither answers — a deployment whose project root cannot be resolved has
-no record, which is a different thing from having one with every switch off.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Path</em> | None</p>
-</dd>
-</dl>
 </dd></dl>
 
 <dl class="py function">
@@ -1127,19 +1075,6 @@ environment’s session.</p></li>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.posture_store.invalidate_cache">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">invalidate_cache</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/posture_store.html#invalidate_cache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.posture_store.invalidate_cache" title="Link to this definition">#</a></dt>
-<dd><p>Forget the parsed record. For tests and for a process that moved roots.</p>
-<p>The cache is the record reader’s — this module holds none — so this is the
-hook, not a second cache. Kept here because the callers that drop it (a
-notebook kernel restamping its root, every fixture that writes a posture)
-are readers of this module and should not have to know where the parse is
-memoised.</p>
-<dl class="field-list simple">
-</dl>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.posture_store.launch_posture_stamp">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">launch_posture_stamp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">launch_posture</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/posture_store.html#launch_posture_stamp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.posture_store.launch_posture_stamp" title="Link to this definition">#</a></dt>
 <dd><p>Compose the <a class="reference internal" href="#osprey_connectors.posture_store.LAUNCH_POSTURE_ENV_VAR" title="osprey_connectors.posture_store.LAUNCH_POSTURE_ENV_VAR"><code class="xref py py-data docutils literal notranslate"><span class="pre">LAUNCH_POSTURE_ENV_VAR</span></code></a> value for one launch.</p>
@@ -1151,7 +1086,7 @@ separator or about how “no target” is spelled.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>target</strong> (<em>str</em><em> | </em><em>None</em>) – The control target the run is stamped against, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when
 the executor could not identify one — spelled
-<a class="reference internal" href="#osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS" title="osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS"><code class="xref py py-data docutils literal notranslate"><span class="pre">LAUNCH_POSTURE_ALL_TARGETS</span></code></a>, which covers every target.</p></li>
+<code class="xref py py-data docutils literal notranslate"><span class="pre">_LAUNCH_POSTURE_ALL_TARGETS</span></code>, which covers every target.</p></li>
 <li><p><strong>launch_posture</strong> (<em>str</em>) – <a class="reference internal" href="#osprey_connectors.posture_store.POSTURE_SANDBOX" title="osprey_connectors.posture_store.POSTURE_SANDBOX"><code class="xref py py-data docutils literal notranslate"><span class="pre">POSTURE_SANDBOX</span></code></a> or <a class="reference internal" href="#osprey_connectors.posture_store.POSTURE_WRITES" title="osprey_connectors.posture_store.POSTURE_WRITES"><code class="xref py py-data docutils literal notranslate"><span class="pre">POSTURE_WRITES</span></code></a> — the
 recorded answer for that target at the moment of launch.</p></li>
 </ul>
@@ -1165,7 +1100,7 @@ recorded answer for that target at the moment of launch.</p></li>
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.posture_store.owner_tier_term">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">owner_tier_term</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">section</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">owner</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/posture_store.html#owner_tier_term"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.posture_store.owner_tier_term" title="Link to this definition">#</a></dt>
-<dd><p>The owner’s tier out of <a class="reference internal" href="#osprey_connectors.posture_store.LOGIN_TIERS_KEY" title="osprey_connectors.posture_store.LOGIN_TIERS_KEY"><code class="xref py py-data docutils literal notranslate"><span class="pre">LOGIN_TIERS_KEY</span></code></a> — the verdict’s owner rung.</p>
+<dd><p>The owner’s tier out of <code class="docutils literal notranslate"><span class="pre">control_system.login_tiers</span></code> — the verdict’s owner rung.</p>
 <p><em>section</em> is the <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section; <em>owner</em> the login whose record
 governs the write. The rung applies when the section carries the map (any
 value) <strong>or</strong> a control-context tree is bound (<code class="xref py py-func docutils literal notranslate"><span class="pre">_tree_is_bound()</span></code>, the
@@ -1193,7 +1128,7 @@ it as <code class="docutils literal notranslate"><span class="pre">owner_unknown
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">parse_posture_value</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/posture_store.html#parse_posture_value"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.posture_store.parse_posture_value" title="Link to this definition">#</a></dt>
 <dd><p>The record’s <code class="docutils literal notranslate"><span class="pre">posture</span></code> mirror as <code class="docutils literal notranslate"><span class="pre">{target:</span> <span class="pre">&quot;sandbox&quot;}</span></code> — the switched-off targets.</p>
 <p>The grammar of the mirror field (rule 2), in one place:
-<a class="reference internal" href="#osprey_connectors.control_context.parse_posture" title="osprey_connectors.control_context.parse_posture"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_posture()</span></code></a> reaches this
+<a class="reference internal" href="#osprey_connectors.control_context.parse_record" title="osprey_connectors.control_context.parse_record"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_record()</span></code></a> reaches this
 filter rather than restating it. No verdict reads the result — the switch
 decides every write — so this is the shape a reader that predates the
 switch sees, and nothing more.</p>
@@ -1245,7 +1180,7 @@ Never raises.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.posture_store.stamped_agent_data_root">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.posture_store.</span></span><span class="sig-name descname"><span class="pre">stamped_agent_data_root</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/posture_store.html#stamped_agent_data_root"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.posture_store.stamped_agent_data_root" title="Link to this definition">#</a></dt>
-<dd><p>The <a class="reference internal" href="#osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR" title="osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR"><code class="xref py py-data docutils literal notranslate"><span class="pre">AGENT_DATA_ROOT_ENV_VAR</span></code></a> stamp as a path, or <code class="docutils literal notranslate"><span class="pre">None</span></code> unstamped.</p>
+<dd><p>The <code class="xref py py-data docutils literal notranslate"><span class="pre">_AGENT_DATA_ROOT_ENV_VAR</span></code> stamp as a path, or <code class="docutils literal notranslate"><span class="pre">None</span></code> unstamped.</p>
 <p>The stamp half of rule 1 on its own, so that the files under this root
 cannot read one environment variable two different ways. A blank or
 whitespace-only stamp is no stamp, and a <code class="docutils literal notranslate"><span class="pre">~</span></code> in it is expanded: a reader
@@ -1274,7 +1209,7 @@ raise into a <code class="docutils literal notranslate"><span class="pre">store_
 <dd><p>This identity’s control-state directory, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
 <p>Rule 1 of the module contract: the <a class="reference internal" href="#osprey_connectors.posture_store.bound_state_dir" title="osprey_connectors.posture_store.bound_state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">bound_state_dir()</span></code></a> bind when a
 container carries one, else the acting identity under
-<a class="reference internal" href="#osprey_connectors.posture_store.STATE_DIR_NAME" title="osprey_connectors.posture_store.STATE_DIR_NAME"><code class="xref py py-data docutils literal notranslate"><span class="pre">STATE_DIR_NAME</span></code></a> under <a class="reference internal" href="#osprey_connectors.posture_store.agent_data_root" title="osprey_connectors.posture_store.agent_data_root"><code class="xref py py-func docutils literal notranslate"><span class="pre">agent_data_root()</span></code></a>.</p>
+<a class="reference internal" href="#osprey_connectors.posture_store.STATE_DIR_NAME" title="osprey_connectors.posture_store.STATE_DIR_NAME"><code class="xref py py-data docutils literal notranslate"><span class="pre">STATE_DIR_NAME</span></code></a> under <code class="xref py py-func docutils literal notranslate"><span class="pre">_agent_data_root()</span></code>.</p>
 <p>The identity is resolved on every call rather than once at import, because
 <a class="reference internal" href="utilities.html#osprey_connectors.identity.acting_identity" title="osprey_connectors.identity.acting_identity"><code class="xref py py-func docutils literal notranslate"><span class="pre">acting_identity()</span></code></a> reads an environment
 that compose and the entrypoint set per process; a value frozen at import
@@ -2605,12 +2540,6 @@ reader the posture store uses for its tree.</p>
 <p>This module imports only <a class="reference internal" href="utilities.html#module-osprey_connectors.safety_file" title="osprey_connectors.safety_file"><code class="xref py py-mod docutils literal notranslate"><span class="pre">safety_file</span></code></a> from the
 package, so the posture store can import it.</p>
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.session_hold.EXCERPT_LIMIT">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.session_hold.</span></span><span class="sig-name descname"><span class="pre">EXCERPT_LIMIT</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">200</span></span><a class="headerlink" href="#osprey_connectors.session_hold.EXCERPT_LIMIT" title="Link to this definition">#</a></dt>
-<dd><p>The longest prompt excerpt a flag stores; the writer truncates.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.session_hold.HOLD_DIR_ENV_VAR">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.session_hold.</span></span><span class="sig-name descname"><span class="pre">HOLD_DIR_ENV_VAR</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'OSPREY_SESSION_HOLD_DIR'</span></span><a class="headerlink" href="#osprey_connectors.session_hold.HOLD_DIR_ENV_VAR" title="Link to this definition">#</a></dt>
 <dd><p>The environment variable naming the hold root when no <code class="docutils literal notranslate"><span class="pre">root</span></code> is passed.</p>
@@ -2620,12 +2549,6 @@ package, so the posture store can import it.</p>
 <dt class="sig sig-object py" id="osprey_connectors.session_hold.RECORD_NAME">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.session_hold.</span></span><span class="sig-name descname"><span class="pre">RECORD_NAME</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'record.json'</span></span><a class="headerlink" href="#osprey_connectors.session_hold.RECORD_NAME" title="Link to this definition">#</a></dt>
 <dd><p>The record’s file name inside a session’s directory.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.session_hold.SCHEMA_VERSION">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.session_hold.</span></span><span class="sig-name descname"><span class="pre">SCHEMA_VERSION</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></span><a class="headerlink" href="#osprey_connectors.session_hold.SCHEMA_VERSION" title="Link to this definition">#</a></dt>
-<dd><p>The record format. A record of any other schema is unreadable, and holds.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -2850,8 +2773,9 @@ synthetic <a class="reference internal" href="#osprey_connectors.session_hold.UN
 what one operator has narrowed are properties of the deployment as that
 operator holds it, not of any process tree inside it. They live in a single
 JSON file, <a class="reference internal" href="#osprey_connectors.control_context.RECORD_FILENAME" title="osprey_connectors.control_context.RECORD_FILENAME"><code class="xref py py-data docutils literal notranslate"><span class="pre">RECORD_FILENAME</span></code></a> inside the acting identity’s directory
-under <a class="reference internal" href="#osprey_connectors.control_context.STATE_DIR_NAME" title="osprey_connectors.control_context.STATE_DIR_NAME"><code class="xref py py-data docutils literal notranslate"><span class="pre">STATE_DIR_NAME</span></code></a> (<a class="reference internal" href="#osprey_connectors.control_context.state_dir" title="osprey_connectors.control_context.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">state_dir()</span></code></a>), and this module is where it
-is written and read.</p>
+under <a class="reference internal" href="#osprey_connectors.control_context.STATE_DIR_NAME" title="osprey_connectors.control_context.STATE_DIR_NAME"><code class="xref py py-data docutils literal notranslate"><span class="pre">STATE_DIR_NAME</span></code></a> (the state directory,
+<a class="reference internal" href="#osprey_connectors.posture_store.state_dir" title="osprey_connectors.posture_store.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">state_dir()</span></code></a>), and this module is where
+it is written and read.</p>
 <p>The file has exactly one writer at a time — its <strong>owner</strong>: the web terminal
 when one is running, otherwise a controls MCP server. Everything else is a
 reader: every chat session, every notebook kernel, every
@@ -2860,14 +2784,14 @@ cannot import this module and therefore restate the rules below. Treat
 them as the contract; a change here is a change there.</p>
 <p><strong>1. Where the file is.</strong> <a class="reference internal" href="#osprey_connectors.control_context.record_path" title="osprey_connectors.control_context.record_path"><code class="xref py py-func docutils literal notranslate"><span class="pre">record_path()</span></code></a> — the record sits in the same
 directory as the posture store, and the root resolves by that store’s rule 1
-(<a class="reference internal" href="#osprey_connectors.posture_store.agent_data_root" title="osprey_connectors.posture_store.agent_data_root"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.posture_store.agent_data_root()</span></code></a>) rather than by a
+(<a class="reference internal" href="#osprey_connectors.posture_store.state_dir" title="osprey_connectors.posture_store.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.posture_store.state_dir()</span></code></a>) rather than by a
 second derivation here: a record one process writes and another looks for
 somewhere else is worse than no record at all. An unresolvable root makes
 <a class="reference internal" href="#osprey_connectors.control_context.record_path" title="osprey_connectors.control_context.record_path"><code class="xref py py-func docutils literal notranslate"><span class="pre">record_path()</span></code></a> <code class="docutils literal notranslate"><span class="pre">None</span></code>, which reads as “no record” and makes
 <a class="reference internal" href="#osprey_connectors.control_context.write_record" title="osprey_connectors.control_context.write_record"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_record()</span></code></a> raise — a route surfaces that as <code class="docutils literal notranslate"><span class="pre">store_unavailable</span></code>
 rather than writing where no reader will look.</p>
 <p><strong>2. What a payload must carry.</strong> <code class="docutils literal notranslate"><span class="pre">schema</span></code> (exactly
-<a class="reference internal" href="#osprey_connectors.control_context.SCHEMA_VERSION" title="osprey_connectors.control_context.SCHEMA_VERSION"><code class="xref py py-data docutils literal notranslate"><span class="pre">SCHEMA_VERSION</span></code></a>), <code class="docutils literal notranslate"><span class="pre">target</span></code> (a member of
+<code class="xref py py-data docutils literal notranslate"><span class="pre">_SCHEMA_VERSION</span></code>), <code class="docutils literal notranslate"><span class="pre">target</span></code> (a member of
 <code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code>) and <code class="docutils literal notranslate"><span class="pre">generation</span></code> (a
 non-negative integer) are the record’s identity. If any of the three is
 absent, of the wrong type, or unrecognised, there is no record: this is a
@@ -2884,7 +2808,7 @@ the next process take the file over instead of stalling behind a ghost.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">posture</span></code> → <code class="docutils literal notranslate"><span class="pre">{}</span></code>. A mirror of <code class="docutils literal notranslate"><span class="pre">switch</span></code> kept for old readers, never
 an input: <a class="reference internal" href="#osprey_connectors.control_context.ControlContext.to_payload" title="osprey_connectors.control_context.ControlContext.to_payload"><code class="xref py py-meth docutils literal notranslate"><span class="pre">ControlContext.to_payload()</span></code></a> writes <code class="docutils literal notranslate"><span class="pre">sandbox</span></code> for every
 machine in <code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code> whose position
-is off (<a class="reference internal" href="#osprey_connectors.control_context.posture_mirror" title="osprey_connectors.control_context.posture_mirror"><code class="xref py py-func docutils literal notranslate"><span class="pre">posture_mirror()</span></code></a>), whatever the record it was built
+is off (<code class="xref py py-func docutils literal notranslate"><span class="pre">_posture_mirror()</span></code>), whatever the record it was built
 from carried, and no write decision reads it back. A file written before
 the mirror may still hold an old narrowing; it is parsed by the posture
 store’s grammar (rule 2 there) and ignored by the verdict.</p></li>
@@ -2907,7 +2831,7 @@ epoch is a <code class="docutils literal notranslate"><span class="pre">time.tim
 widens a switch names the epoch they saw, so a stop or a lost record in
 between makes their gesture stale. <code class="docutils literal notranslate"><span class="pre">None</span></code> is never “older” than anything.</p></li>
 </ul>
-<p>The schema stays <a class="reference internal" href="#osprey_connectors.control_context.SCHEMA_VERSION" title="osprey_connectors.control_context.SCHEMA_VERSION"><code class="xref py py-data docutils literal notranslate"><span class="pre">SCHEMA_VERSION</span></code></a> with the two switch fields added:
+<p>The schema stays <code class="xref py py-data docutils literal notranslate"><span class="pre">_SCHEMA_VERSION</span></code> with the two switch fields added:
 every pre-existing reader, the stdlib hooks included, ignores keys it does
 not know, so a record written by this version reads unchanged through them.</p>
 <p><strong>3. How it is written.</strong> <a class="reference internal" href="#osprey_connectors.control_context.write_json_atomic" title="osprey_connectors.control_context.write_json_atomic"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_json_atomic()</span></code></a> replaces a file rather
@@ -2995,36 +2919,18 @@ controls server — it is the one an operator is looking at.</p>
 </dd></dl>
 
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.REACHABLE_STATES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">REACHABLE_STATES</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('yes',</span> <span class="pre">'no')</span></span><a class="headerlink" href="#osprey_connectors.control_context.REACHABLE_STATES" title="Link to this definition">#</a></dt>
-<dd><p>What a statement says about reaching the machine. <code class="docutils literal notranslate"><span class="pre">yes</span></code> until the
-connector is lost, <code class="docutils literal notranslate"><span class="pre">no</span></code> once it is — the lost-connector root,
-<a class="reference internal" href="errors-logging.html#osprey_connectors.errors.ConnectorUnavailableError" title="osprey_connectors.errors.ConnectorUnavailableError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectorUnavailableError</span></code></a>. A channel that
-does not answer (<a class="reference internal" href="errors-logging.html#osprey_connectors.errors.ChannelUnreachableError" title="osprey_connectors.errors.ChannelUnreachableError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelUnreachableError</span></code></a>)
-is that channel’s failure and never makes the machine unreachable.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.RECORD_FILENAME">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">RECORD_FILENAME</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'control_context.json'</span></span><a class="headerlink" href="#osprey_connectors.control_context.RECORD_FILENAME" title="Link to this definition">#</a></dt>
-<dd><p>The record’s filename inside <a class="reference internal" href="#osprey_connectors.control_context.state_dir" title="osprey_connectors.control_context.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">state_dir()</span></code></a>. The stdlib hooks restate
+<dd><p>The record’s filename inside the state directory. The stdlib hooks restate
 this literal.</p>
 </dd></dl>
 
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.REPORT_FILE_PREFIX">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">REPORT_FILE_PREFIX</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'server_'</span></span><a class="headerlink" href="#osprey_connectors.control_context.REPORT_FILE_PREFIX" title="Link to this definition">#</a></dt>
-<dd><p>One report file per controls server, in <a class="reference internal" href="#osprey_connectors.control_context.state_dir" title="osprey_connectors.control_context.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">state_dir()</span></code></a> beside the record.
+<dd><p>One report file per controls server, in the state directory beside the record.
 The PID in the name is the address and is what makes a report left behind by
 a killed server sweepable without opening it.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.SCHEMA_VERSION">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">SCHEMA_VERSION</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></span><a class="headerlink" href="#osprey_connectors.control_context.SCHEMA_VERSION" title="Link to this definition">#</a></dt>
-<dd><p>The payload version. There is exactly one, and a payload that does not
-spell it is not this record: hooks and record change together, and a
-deployment is regenerated rather than migrated.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -3056,17 +2962,6 @@ one. The gesture’s words and every reader’s order. <code class="docutils lit
 </dl>
 </dd></dl>
 
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.WRITES_STATEMENT_KEYS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">WRITES_STATEMENT_KEYS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('allowed',</span> <span class="pre">'position',</span> <span class="pre">'reason',</span> <span class="pre">'kind')</span></span><a class="headerlink" href="#osprey_connectors.control_context.WRITES_STATEMENT_KEYS" title="Link to this definition">#</a></dt>
-<dd><p>the execution verdict’s own terms.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>The keys of a statement’s <code class="docutils literal notranslate"><span class="pre">writes</span></code></p>
-</dd>
-</dl>
-</dd></dl>
-
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.ControlContext">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">ControlContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">generation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">owner</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">posture</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last_switch</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">switch</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">switch_epoch</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#ControlContext"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.ControlContext" title="Link to this definition">#</a></dt>
@@ -3085,7 +2980,7 @@ by nobody else; a reader pins its work to it.</p></li>
 <li><p><strong>owner</strong> (<a class="reference internal" href="#osprey_connectors.control_context.Owner" title="osprey_connectors.control_context.Owner"><em>osprey_connectors.control_context.Owner</em></a><em> | </em><em>None</em>) – The process allowed to write this file, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when the
 record is ownerless and free to be claimed.</p></li>
 <li><p><strong>posture</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>) – The <code class="docutils literal notranslate"><span class="pre">posture</span></code> field as read off disk — the mirror of
-<code class="docutils literal notranslate"><span class="pre">switch</span></code> (<a class="reference internal" href="#osprey_connectors.control_context.posture_mirror" title="osprey_connectors.control_context.posture_mirror"><code class="xref py py-func docutils literal notranslate"><span class="pre">posture_mirror()</span></code></a>), or an old narrowing in a file
+<code class="docutils literal notranslate"><span class="pre">switch</span></code> (<code class="xref py py-func docutils literal notranslate"><span class="pre">_posture_mirror()</span></code>), or an old narrowing in a file
 written before it. A reading only: <a class="reference internal" href="#osprey_connectors.control_context.ControlContext.to_payload" title="osprey_connectors.control_context.ControlContext.to_payload"><code class="xref py py-meth docutils literal notranslate"><span class="pre">to_payload()</span></code></a> ignores it
 and derives the field from <code class="docutils literal notranslate"><span class="pre">switch</span></code>, so nothing set here is
 ever stored, and no write decision reads it.</p></li>
@@ -3143,7 +3038,7 @@ existed. Kept by <a class="reference internal" href="#osprey_connectors.control_
 <p>The seven contract fields and the schema, and nothing else: a payload
 round-trips through <a class="reference internal" href="#osprey_connectors.control_context.parse_record" title="osprey_connectors.control_context.parse_record"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_record()</span></code></a> unchanged, and a key some
 future version added does not survive a rewrite by this one. The
-<code class="docutils literal notranslate"><span class="pre">posture</span></code> field is the mirror of <code class="docutils literal notranslate"><span class="pre">switch</span></code> (<a class="reference internal" href="#osprey_connectors.control_context.posture_mirror" title="osprey_connectors.control_context.posture_mirror"><code class="xref py py-func docutils literal notranslate"><span class="pre">posture_mirror()</span></code></a>),
+<code class="docutils literal notranslate"><span class="pre">posture</span></code> field is the mirror of <code class="docutils literal notranslate"><span class="pre">switch</span></code> (<code class="xref py py-func docutils literal notranslate"><span class="pre">_posture_mirror()</span></code>),
 never <a class="reference internal" href="#osprey_connectors.control_context.ControlContext.posture" title="osprey_connectors.control_context.ControlContext.posture"><code class="xref py py-attr docutils literal notranslate"><span class="pre">posture</span></code></a>: a narrowing is not something a writer can store.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
@@ -3248,7 +3143,7 @@ process could compute — or <code class="docutils literal notranslate"><span cl
 controls server’s report. <code class="docutils literal notranslate"><span class="pre">{&quot;reachable&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;writes&quot;:</span> <span class="pre">...}</span></code>,
 each axis <code class="docutils literal notranslate"><span class="pre">None</span></code> until stated: <code class="docutils literal notranslate"><span class="pre">reachable</span></code> is
 <code class="docutils literal notranslate"><span class="pre">{&quot;state&quot;,</span> <span class="pre">&quot;since&quot;,</span> <span class="pre">&quot;reason&quot;}</span></code> with <code class="docutils literal notranslate"><span class="pre">state</span></code> one of
-<a class="reference internal" href="#osprey_connectors.control_context.REACHABLE_STATES" title="osprey_connectors.control_context.REACHABLE_STATES"><code class="xref py py-data docutils literal notranslate"><span class="pre">REACHABLE_STATES</span></code></a>, and <code class="docutils literal notranslate"><span class="pre">writes</span></code> is <a class="reference internal" href="#osprey_connectors.control_context.write_statement" title="osprey_connectors.control_context.write_statement"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_statement()</span></code></a>
+<code class="xref py py-data docutils literal notranslate"><span class="pre">_REACHABLE_STATES</span></code>, and <code class="docutils literal notranslate"><span class="pre">writes</span></code> is <a class="reference internal" href="#osprey_connectors.control_context.write_statement" title="osprey_connectors.control_context.write_statement"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_statement()</span></code></a>
 of the session’s execution verdict. A statement that does not have
 this shape states nothing, and the report is then an ordinary one.</p></li>
 </ul>
@@ -3314,8 +3209,8 @@ this shape states nothing, and the report is then an ordinary one.</p></li>
 <span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">display_only</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.display_only" title="Link to this definition">#</a></dt>
 <dd><p>it carries a statement.</p>
 <p>Such a process shows the machine rather than controlling it, so the
-fleet readers leave its report out (<a class="reference internal" href="#osprey_connectors.control_context.live_reports" title="osprey_connectors.control_context.live_reports"><code class="xref py py-func docutils literal notranslate"><span class="pre">live_reports()</span></code></a>) and only
-<a class="reference internal" href="#osprey_connectors.control_context.live_statement_reports" title="osprey_connectors.control_context.live_statement_reports"><code class="xref py py-func docutils literal notranslate"><span class="pre">live_statement_reports()</span></code></a> reads it.</p>
+fleet readers leave its report out (<a class="reference internal" href="#osprey_connectors.control_context.live_reports" title="osprey_connectors.control_context.live_reports"><code class="xref py py-func docutils literal notranslate"><span class="pre">live_reports()</span></code></a>); a view
+that shows the machine reads it with <a class="reference internal" href="#osprey_connectors.control_context.read_report" title="osprey_connectors.control_context.read_report"><code class="xref py py-func docutils literal notranslate"><span class="pre">read_report()</span></code></a>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>Whether this report is a display process’s</p>
@@ -3329,7 +3224,7 @@ fleet readers leave its report out (<a class="reference internal" href="#osprey_
 <dd><p>This report as the JSON object its file holds.</p>
 <p>The ten contract fields, plus <code class="docutils literal notranslate"><span class="pre">statement</span></code> as the eleventh for a
 display-only report and only then, so a payload round-trips through
-<a class="reference internal" href="#osprey_connectors.control_context.parse_report" title="osprey_connectors.control_context.parse_report"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_report()</span></code></a> unchanged and a controls server’s report never
+<code class="xref py py-func docutils literal notranslate"><span class="pre">_parse_report()</span></code> unchanged and a controls server’s report never
 reads back as display-only.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
@@ -3461,28 +3356,6 @@ read as a running server forever.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.is_foreign_process">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">is_foreign_process</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pid</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#is_foreign_process"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.is_foreign_process" title="Link to this definition">#</a></dt>
-<dd><p>Whether <em>pid</em> names a running process that belongs to another user.</p>
-<p>The other half of what <code class="docutils literal notranslate"><span class="pre">os.kill(pid,</span> <span class="pre">0)</span></code> says. <a class="reference internal" href="#osprey_connectors.control_context.is_process_alive" title="osprey_connectors.control_context.is_process_alive"><code class="xref py py-func docutils literal notranslate"><span class="pre">is_process_alive()</span></code></a>
-reads a <code class="docutils literal notranslate"><span class="pre">PermissionError</span></code> as ALIVE, which is right for a sweeper — a file
-whose author is merely unreachable must not be deleted. It is the wrong
-answer to “does this process own the record”: the record lives in the
-acting identity’s directory (rule 1), so its owner runs as that identity
-and can always be signalled by a reader that does. A process this reader
-may not signal is somebody else’s process wearing a PID the record’s owner
-once had — PIDs are per container and start again at 1 with every one.</p>
-<p><code class="docutils literal notranslate"><span class="pre">False</span></code> for anything that is not a positive <code class="docutils literal notranslate"><span class="pre">int</span></code>, for a PID nothing
-runs under, and on any other error: only the kernel’s explicit refusal
-says “another user’s”.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>bool</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.live_owner">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">live_owner</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">record</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#live_owner"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.live_owner" title="Link to this definition">#</a></dt>
 <dd><p><em>record</em>’s owner while its process still runs, else <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
@@ -3492,7 +3365,7 @@ every way of having no live owner — no record, no owner, a dead one — so
 a caller that only wants to know whether to claim need not tell them
 apart.</p>
 <p>A PID that is running under another user is not the owner either
-(<a class="reference internal" href="#osprey_connectors.control_context.is_foreign_process" title="osprey_connectors.control_context.is_foreign_process"><code class="xref py py-func docutils literal notranslate"><span class="pre">is_foreign_process()</span></code></a>). The record outlives the container that wrote
+(<code class="xref py py-func docutils literal notranslate"><span class="pre">_is_foreign_process()</span></code>). The record outlives the container that wrote
 it, and the PID it names is then handed out again: a record written by a
 terminal that ran as PID 1 names, in the next container, whatever runs as
 PID 1 there — an init process owned by root, alive for as long as the
@@ -3506,63 +3379,20 @@ every terminal for ever, and nobody could switch the target again.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.live_report_payloads">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">live_report_payloads</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_alive</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">is_process_alive</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#live_report_payloads"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.live_report_payloads" title="Link to this definition">#</a></dt>
-<dd><p>The payload of every report among <em>entries</em> whose server still runs.</p>
-<p>A report whose <code class="docutils literal notranslate"><span class="pre">server_pid</span></code> is gone is residue: it describes a server
-nobody is talking to any more, and the next server to start sweeps it
-(<a class="reference internal" href="#osprey_connectors.control_context.sweep_dead" title="osprey_connectors.control_context.sweep_dead"><code class="xref py py-func docutils literal notranslate"><span class="pre">sweep_dead()</span></code></a>). Unreadable entries are skipped rather than raised.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>entries</strong> (<em>Iterable</em><em>[</em><em>Path</em><em>]</em>) – Report paths, typically <a class="reference internal" href="#osprey_connectors.control_context.report_paths" title="osprey_connectors.control_context.report_paths"><code class="xref py py-func docutils literal notranslate"><span class="pre">report_paths()</span></code></a>. Taken rather
-than globbed here because a caller keying a cache on the listing
-must not glob twice.</p></li>
-<li><p><strong>is_alive</strong> (<em>Callable</em><em>[</em><em>[</em><em>object</em><em>]</em><em>, </em><em>bool</em><em>]</em>) – The liveness predicate, so one pass over a fleet asks the
-same question the same way throughout.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>list[dict[str, <em>Any</em>]]</p>
-</dd>
-</dl>
-<p>A display-only report (one carrying a statement) is left out: it
-describes a process that shows the machine, not a member of the fleet.</p>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.live_reports">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">live_reports</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_alive</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">is_process_alive</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#live_reports"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.live_reports" title="Link to this definition">#</a></dt>
 <dd><p>Every report of a running controls server, parsed.</p>
 <p>The fleet as a reader sees it: what each live server is on, at which
 generation, and how far through a switch it has got. Display-only reports
 are left out here, at the source, so no fleet reader ever counts a process
-that only shows the machine (<a class="reference internal" href="#osprey_connectors.control_context.live_statement_reports" title="osprey_connectors.control_context.live_statement_reports"><code class="xref py py-func docutils literal notranslate"><span class="pre">live_statement_reports()</span></code></a> reads them).</p>
+that only shows the machine (<a class="reference internal" href="#osprey_connectors.control_context.read_report" title="osprey_connectors.control_context.read_report"><code class="xref py py-func docutils literal notranslate"><span class="pre">read_report()</span></code></a> reads one, and its
+<a class="reference internal" href="#osprey_connectors.control_context.ServerReport.display_only" title="osprey_connectors.control_context.ServerReport.display_only"><code class="xref py py-attr docutils literal notranslate"><span class="pre">ServerReport.display_only</span></code></a> says which it is).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>entries</strong> (<em>Iterable</em><em>[</em><em>Path</em><em>] </em><em>| </em><em>None</em>) – Report paths; <a class="reference internal" href="#osprey_connectors.control_context.report_paths" title="osprey_connectors.control_context.report_paths"><code class="xref py py-func docutils literal notranslate"><span class="pre">report_paths()</span></code></a> when omitted.</p></li>
-<li><p><strong>is_alive</strong> (<em>Callable</em><em>[</em><em>[</em><em>object</em><em>]</em><em>, </em><em>bool</em><em>]</em>) – As for <a class="reference internal" href="#osprey_connectors.control_context.live_report_payloads" title="osprey_connectors.control_context.live_report_payloads"><code class="xref py py-func docutils literal notranslate"><span class="pre">live_report_payloads()</span></code></a>.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>list[<a class="reference internal" href="#osprey_connectors.control_context.ServerReport" title="osprey_connectors.control_context.ServerReport"><em>ServerReport</em></a>]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.live_statement_reports">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">live_statement_reports</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_alive</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">is_process_alive</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#live_statement_reports"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.live_statement_reports" title="Link to this definition">#</a></dt>
-<dd><p>Every live display-only report, parsed: the machine statements on offer.</p>
-<p>The one opt-in reader of the reports <a class="reference internal" href="#osprey_connectors.control_context.live_reports" title="osprey_connectors.control_context.live_reports"><code class="xref py py-func docutils literal notranslate"><span class="pre">live_reports()</span></code></a> leaves out. Only
-a view that shows the machine statement reads these; no fleet decision
-(a switch, a landing wait, a published target) ever does.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>entries</strong> (<em>Iterable</em><em>[</em><em>Path</em><em>] </em><em>| </em><em>None</em>) – Report paths; <a class="reference internal" href="#osprey_connectors.control_context.report_paths" title="osprey_connectors.control_context.report_paths"><code class="xref py py-func docutils literal notranslate"><span class="pre">report_paths()</span></code></a> when omitted.</p></li>
-<li><p><strong>is_alive</strong> (<em>Callable</em><em>[</em><em>[</em><em>object</em><em>]</em><em>, </em><em>bool</em><em>]</em>) – As for <a class="reference internal" href="#osprey_connectors.control_context.live_report_payloads" title="osprey_connectors.control_context.live_report_payloads"><code class="xref py py-func docutils literal notranslate"><span class="pre">live_report_payloads()</span></code></a>.</p></li>
+<li><p><strong>is_alive</strong> (<em>Callable</em><em>[</em><em>[</em><em>object</em><em>]</em><em>, </em><em>bool</em><em>]</em>) – The liveness predicate, so one pass over a fleet asks the
+same question the same way throughout.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -3603,40 +3433,6 @@ is not owned here either — it is claimed first, and claiming is a write.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>bool</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.parse_posture">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">parse_posture</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#parse_posture"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.parse_posture" title="Link to this definition">#</a></dt>
-<dd><p>One <code class="docutils literal notranslate"><span class="pre">posture</span></code> value as <code class="docutils literal notranslate"><span class="pre">{target:</span> <span class="pre">&quot;sandbox&quot;}</span></code> — narrowings only.</p>
-<p>The posture entry grammar (rule 2 of the store’s contract), applied by that
-module’s own parser rather than restated here: two filters that disagree
-about which narrowings survive is a narrowing that silently does not apply.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, str]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.posture_mirror">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">posture_mirror</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">switch</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#posture_mirror"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.posture_mirror" title="Link to this definition">#</a></dt>
-<dd><p>The <code class="docutils literal notranslate"><span class="pre">posture</span></code> field a record with <em>switch</em> stores — <code class="docutils literal notranslate"><span class="pre">{target:</span> <span class="pre">&quot;sandbox&quot;}</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">sandbox</span></code> for every machine in
-<code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code> at off, so an old reader
-of the field refuses every machine the person has not turned on; <code class="docutils literal notranslate"><span class="pre">asked</span></code>
-and <code class="docutils literal notranslate"><span class="pre">allowed</span></code> both store no entry, which is how the old grammar spells
-“writes”. Derived on every write and never read by a write decision: the
-switch is the state, this is its shadow in the old grammar.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>switch</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>) – The record’s switch, <code class="docutils literal notranslate"><span class="pre">{target:</span> <span class="pre">&quot;asked&quot;</span> <span class="pre">|</span> <span class="pre">&quot;allowed&quot;}</span></code>.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, str]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3709,24 +3505,6 @@ failures apart.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.control_context.ControlContext" title="osprey_connectors.control_context.ControlContext"><em>ControlContext</em></a> | None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.parse_report">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">parse_report</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#parse_report"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.parse_report" title="Link to this definition">#</a></dt>
-<dd><p>Decode one server report, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when it describes no server.</p>
-<p>Rule 5. <code class="docutils literal notranslate"><span class="pre">server_pid</span></code> is the identity and the only field that can make the
-whole report worthless: without a plausible PID there is nothing to ask the
-kernel about, so the file says nothing a reader can use. Everything else
-degrades to its own “not stated” value. A <code class="docutils literal notranslate"><span class="pre">statement</span></code> of the statement’s
-shape makes the report a display process’s; one of any other shape states
-nothing, so the writer of a display report keeps to the shape or is read
-as a controls server.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.control_context.ServerReport" title="osprey_connectors.control_context.ServerReport"><em>ServerReport</em></a> | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3810,23 +3588,9 @@ empty deployment, and for a writer it is what a route reports as
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.report_path_under">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">report_path_under</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">root</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">server_pid</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#report_path_under"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.report_path_under" title="Link to this definition">#</a></dt>
-<dd><p>The report path of <em>server_pid</em> under an explicit agent-data <em>root</em>.</p>
-<p>Through the same three hops as <code class="xref py py-func docutils literal notranslate"><span class="pre">_record_path_under()</span></code>, identity
-included: every family of file in this directory moves together, so a
-caller that finds the record under a root finds the reports beside it.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Path</em></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.report_paths">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">report_paths</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#report_paths"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.report_paths" title="Link to this definition">#</a></dt>
-<dd><p>Every report file in <a class="reference internal" href="#osprey_connectors.control_context.state_dir" title="osprey_connectors.control_context.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">state_dir()</span></code></a>, sorted. Empty when there is none.</p>
+<dd><p>Every report file in the state directory, sorted. Empty when there is none.</p>
 <p>Never raises: no agent-data root, no directory and an unreadable one all
 answer “no reports”, the same as an empty deployment, because a caller
 describing a fleet has the same nothing to say in each case.</p>
@@ -3909,20 +3673,6 @@ usable record — nothing is on, so no record was written.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.control_context.ControlContext" title="osprey_connectors.control_context.ControlContext"><em>ControlContext</em></a> | None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.control_context.state_dir">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_context.</span></span><span class="sig-name descname"><span class="pre">state_dir</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_context.html#state_dir"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_context.state_dir" title="Link to this definition">#</a></dt>
-<dd><p>The directory the record lives in, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when unresolvable.</p>
-<p>Rule 1 of the module contract — the acting identity’s directory, or the
-bind a container carries — delegated whole to the posture store so that
-the files in this directory cannot resolve their directory two ways.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Path</em> | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -4018,7 +3768,7 @@ a refusal.</p></li>
 <dd><p>Write <em>payload</em> to <em>path</em> as JSON, replacing any existing file. Rule 3.</p>
 <p>The file is replaced whole through <code class="docutils literal notranslate"><span class="pre">safety_file.atomic_replace</span></code>, so a
 failed write leaves neither half a file nor litter beside it.</p>
-<p>Every file in <a class="reference internal" href="#osprey_connectors.control_context.state_dir" title="osprey_connectors.control_context.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">state_dir()</span></code></a> is written this way, the record and the
+<p>Every file in the state directory is written this way, the record and the
 per-server reports and requests alike: they are read by processes that
 never coordinate with the writer, so a reader must never be able to see
 half of one.</p>
@@ -4168,15 +3918,6 @@ switch covers the call.</p>
 (C-WORDS), the words a card or chip shows beside the machine. They are not
 <a class="reference internal" href="#osprey_connectors.refusals.KIND_WORDS" title="osprey_connectors.refusals.KIND_WORDS"><code class="xref py py-data docutils literal notranslate"><span class="pre">KIND_WORDS</span></code></a>, which a refusal phrase uses.</p>
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.write_target.FALLBACK_WRITE_TOOLS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_target.</span></span><span class="sig-name descname"><span class="pre">FALLBACK_WRITE_TOOLS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('mcp__bluesky__queue_add',</span> <span class="pre">'mcp__bluesky__queue_start',</span> <span class="pre">'mcp__controls__channel_write',</span> <span class="pre">'mcp__phoebus__phoebus_drive',</span> <span class="pre">'mcp__python__execute',</span> <span class="pre">'mcp__python__execute_file',</span> <span class="pre">'mcp__python__pyaml_measure')</span></span><a class="headerlink" href="#osprey_connectors.write_target.FALLBACK_WRITE_TOOLS" title="Link to this definition">#</a></dt>
-<dd><p>The write list a deployment with no rendered <code class="docutils literal notranslate"><span class="pre">write_tools</span></code> falls back to.
-Restated from the hooks’ <code class="docutils literal notranslate"><span class="pre">FALLBACK_WRITE_TOOLS</span></code> (<code class="docutils literal notranslate"><span class="pre">osprey_hook_log.py</span></code>):
-this package cannot import the framework, and the hooks cannot import this
-package. The parity test pins the two.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.write_target.KIND_BANNERS">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_target.</span></span><span class="sig-name descname"><span class="pre">KIND_BANNERS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'real':</span> <span class="pre">'Live</span> <span class="pre">—</span> <span class="pre">writes</span> <span class="pre">move</span> <span class="pre">hardware',</span> <span class="pre">'rehearsal':</span> <span class="pre">'Rehearsal</span> <span class="pre">—</span> <span class="pre">nothing</span> <span class="pre">moves',</span> <span class="pre">'simulator':</span> <span class="pre">'Simulator</span> <span class="pre">—</span> <span class="pre">nothing</span> <span class="pre">moves'}</span></span><a class="headerlink" href="#osprey_connectors.write_target.KIND_BANNERS" title="Link to this definition">#</a></dt>
 <dd><p>The banner an owner reads beside each kind of machine (C-WORDS).</p>
@@ -4270,12 +4011,6 @@ lost connector raises its own error.</p>
 <p>This module imports only the std-lib and <code class="docutils literal notranslate"><span class="pre">osprey_connectors.errors</span></code>, and
 takes any connector with an awaitable <code class="docutils literal notranslate"><span class="pre">read_channel(address)</span></code> whose result
 carries <code class="docutils literal notranslate"><span class="pre">.value</span></code>.</p>
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.settle.POLL_INTERVAL_S">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.settle.</span></span><span class="sig-name descname"><span class="pre">POLL_INTERVAL_S</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.05</span></span><a class="headerlink" href="#osprey_connectors.settle.POLL_INTERVAL_S" title="Link to this definition">#</a></dt>
-<dd><p>Seconds between two reads of a readback that is not yet within its bound.</p>
-</dd></dl>
-
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.settle.Landing">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.settle.</span></span><span class="sig-name descname"><span class="pre">Landing</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">setpoint</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">readback</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">demand</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bound</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/settle.html#Landing"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.settle.Landing" title="Link to this definition">#</a></dt>
@@ -4489,21 +4224,17 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_env.SANDBOX_MODE"><code class="docutils literal notranslate"><span class="pre">SANDBOX_MODE</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_env.is_readonly_run"><code class="docutils literal notranslate"><span class="pre">is_readonly_run()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.NoOwner"><code class="docutils literal notranslate"><span class="pre">NoOwner</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">AGENT_DATA_ROOT_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.CONTROL_CONTEXT_DIR_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">CONTROL_CONTEXT_DIR_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.CONTROL_CONTEXT_TREE_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">CONTROL_CONTEXT_TREE_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.CONTROL_OWNER_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">CONTROL_OWNER_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.CONTROL_TREE_MARKER_NAME"><code class="docutils literal notranslate"><span class="pre">CONTROL_TREE_MARKER_NAME</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.DISPATCH_RUN_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">DISPATCH_RUN_ENV_VAR</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS"><code class="docutils literal notranslate"><span class="pre">LAUNCH_POSTURE_ALL_TARGETS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.LAUNCH_POSTURE_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">LAUNCH_POSTURE_ENV_VAR</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.LOGIN_TIERS_KEY"><code class="docutils literal notranslate"><span class="pre">LOGIN_TIERS_KEY</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.NO_OWNER"><code class="docutils literal notranslate"><span class="pre">NO_OWNER</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.POSTURE_SANDBOX"><code class="docutils literal notranslate"><span class="pre">POSTURE_SANDBOX</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.POSTURE_WRITES"><code class="docutils literal notranslate"><span class="pre">POSTURE_WRITES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.RESERVED_OWNER_KWARG"><code class="docutils literal notranslate"><span class="pre">RESERVED_OWNER_KWARG</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.STATE_DIR_NAME"><code class="docutils literal notranslate"><span class="pre">STATE_DIR_NAME</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.VALID_POSTURES"><code class="docutils literal notranslate"><span class="pre">VALID_POSTURES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.WriteVerdict"><code class="docutils literal notranslate"><span class="pre">WriteVerdict</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.WriteVerdict.allowed"><code class="docutils literal notranslate"><span class="pre">WriteVerdict.allowed</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.WriteVerdict.reason"><code class="docutils literal notranslate"><span class="pre">WriteVerdict.reason</span></code></a></li>
@@ -4515,14 +4246,12 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.WriteVerdict.__init__"><code class="docutils literal notranslate"><span class="pre">WriteVerdict.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.agent_data_root"><code class="docutils literal notranslate"><span class="pre">agent_data_root()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.backstop_verdict"><code class="docutils literal notranslate"><span class="pre">backstop_verdict()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.bind_owner"><code class="docutils literal notranslate"><span class="pre">bind_owner()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.bound_owner"><code class="docutils literal notranslate"><span class="pre">bound_owner()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.bound_state_dir"><code class="docutils literal notranslate"><span class="pre">bound_state_dir()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.current_owner"><code class="docutils literal notranslate"><span class="pre">current_owner()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.execution_verdict"><code class="docutils literal notranslate"><span class="pre">execution_verdict()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.invalidate_cache"><code class="docutils literal notranslate"><span class="pre">invalidate_cache()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.launch_posture_stamp"><code class="docutils literal notranslate"><span class="pre">launch_posture_stamp()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.owner_tier_term"><code class="docutils literal notranslate"><span class="pre">owner_tier_term()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.parse_posture_value"><code class="docutils literal notranslate"><span class="pre">parse_posture_value()</span></code></a></li>
@@ -4652,10 +4381,8 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.refusals.STORE_PATH_MARKERS"><code class="docutils literal notranslate"><span class="pre">STORE_PATH_MARKERS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.refusals.refusal_phrase"><code class="docutils literal notranslate"><span class="pre">refusal_phrase()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.refusals.refusal_text"><code class="docutils literal notranslate"><span class="pre">refusal_text()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.session_hold.EXCERPT_LIMIT"><code class="docutils literal notranslate"><span class="pre">EXCERPT_LIMIT</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.session_hold.HOLD_DIR_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">HOLD_DIR_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.session_hold.RECORD_NAME"><code class="docutils literal notranslate"><span class="pre">RECORD_NAME</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.session_hold.SCHEMA_VERSION"><code class="docutils literal notranslate"><span class="pre">SCHEMA_VERSION</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.session_hold.UNREADABLE_FLAG_ID"><code class="docutils literal notranslate"><span class="pre">UNREADABLE_FLAG_ID</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.session_hold.HoldFlag"><code class="docutils literal notranslate"><span class="pre">HoldFlag</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.session_hold.HoldFlag.flag_id"><code class="docutils literal notranslate"><span class="pre">HoldFlag.flag_id</span></code></a></li>
@@ -4681,14 +4408,11 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.claimed"><code class="docutils literal notranslate"><span class="pre">claimed()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.REPORT_APPLYING"><code class="docutils literal notranslate"><span class="pre">REPORT_APPLYING</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.OWNER_WEB_TERMINAL"><code class="docutils literal notranslate"><span class="pre">OWNER_WEB_TERMINAL</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.REACHABLE_STATES"><code class="docutils literal notranslate"><span class="pre">REACHABLE_STATES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.RECORD_FILENAME"><code class="docutils literal notranslate"><span class="pre">RECORD_FILENAME</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.REPORT_FILE_PREFIX"><code class="docutils literal notranslate"><span class="pre">REPORT_FILE_PREFIX</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.SCHEMA_VERSION"><code class="docutils literal notranslate"><span class="pre">SCHEMA_VERSION</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.STATE_DIR_NAME"><code class="docutils literal notranslate"><span class="pre">STATE_DIR_NAME</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.SWITCH_APPLIED"><code class="docutils literal notranslate"><span class="pre">SWITCH_APPLIED</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.SWITCH_POSITIONS"><code class="docutils literal notranslate"><span class="pre">SWITCH_POSITIONS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.WRITES_STATEMENT_KEYS"><code class="docutils literal notranslate"><span class="pre">WRITES_STATEMENT_KEYS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.ControlContext"><code class="docutils literal notranslate"><span class="pre">ControlContext</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.ControlContext.target"><code class="docutils literal notranslate"><span class="pre">ControlContext.target</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.ControlContext.generation"><code class="docutils literal notranslate"><span class="pre">ControlContext.generation</span></code></a></li>
@@ -4734,28 +4458,20 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.blocking_pids"><code class="docutils literal notranslate"><span class="pre">blocking_pids()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.invalidate_cache"><code class="docutils literal notranslate"><span class="pre">invalidate_cache()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.is_process_alive"><code class="docutils literal notranslate"><span class="pre">is_process_alive()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.is_foreign_process"><code class="docutils literal notranslate"><span class="pre">is_foreign_process()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.live_owner"><code class="docutils literal notranslate"><span class="pre">live_owner()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.live_report_payloads"><code class="docutils literal notranslate"><span class="pre">live_report_payloads()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.live_reports"><code class="docutils literal notranslate"><span class="pre">live_reports()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.live_statement_reports"><code class="docutils literal notranslate"><span class="pre">live_statement_reports()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.write_statement"><code class="docutils literal notranslate"><span class="pre">write_statement()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.owned_here"><code class="docutils literal notranslate"><span class="pre">owned_here()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.parse_posture"><code class="docutils literal notranslate"><span class="pre">parse_posture()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.posture_mirror"><code class="docutils literal notranslate"><span class="pre">posture_mirror()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.converged"><code class="docutils literal notranslate"><span class="pre">converged()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.file_signature"><code class="docutils literal notranslate"><span class="pre">file_signature()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.parse_record"><code class="docutils literal notranslate"><span class="pre">parse_record()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.parse_report"><code class="docutils literal notranslate"><span class="pre">parse_report()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.read_record"><code class="docutils literal notranslate"><span class="pre">read_record()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.read_record_status"><code class="docutils literal notranslate"><span class="pre">read_record_status()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.read_report"><code class="docutils literal notranslate"><span class="pre">read_report()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.record_path"><code class="docutils literal notranslate"><span class="pre">record_path()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.report_path"><code class="docutils literal notranslate"><span class="pre">report_path()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.report_path_under"><code class="docutils literal notranslate"><span class="pre">report_path_under()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.report_paths"><code class="docutils literal notranslate"><span class="pre">report_paths()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.set_switch"><code class="docutils literal notranslate"><span class="pre">set_switch()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.state_dir"><code class="docutils literal notranslate"><span class="pre">state_dir()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.sweep_dead"><code class="docutils literal notranslate"><span class="pre">sweep_dead()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.switch_position"><code class="docutils literal notranslate"><span class="pre">switch_position()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.terminus"><code class="docutils literal notranslate"><span class="pre">terminus()</span></code></a></li>
@@ -4765,13 +4481,11 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.write_terminus"><code class="docutils literal notranslate"><span class="pre">write_terminus()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.held_epoch"><code class="docutils literal notranslate"><span class="pre">held_epoch()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_context.RecordUnavailable"><code class="docutils literal notranslate"><span class="pre">RecordUnavailable</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_target.FALLBACK_WRITE_TOOLS"><code class="docutils literal notranslate"><span class="pre">FALLBACK_WRITE_TOOLS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_target.KIND_BANNERS"><code class="docutils literal notranslate"><span class="pre">KIND_BANNERS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_target.UNRESOLVED"><code class="docutils literal notranslate"><span class="pre">UNRESOLVED</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_target.Unresolved"><code class="docutils literal notranslate"><span class="pre">Unresolved</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_target.frame_target"><code class="docutils literal notranslate"><span class="pre">frame_target()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_target.write_target_for_tool"><code class="docutils literal notranslate"><span class="pre">write_target_for_tool()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.settle.POLL_INTERVAL_S"><code class="docutils literal notranslate"><span class="pre">POLL_INTERVAL_S</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.settle.Landing"><code class="docutils literal notranslate"><span class="pre">Landing</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.settle.Landing.setpoint"><code class="docutils literal notranslate"><span class="pre">Landing.setpoint</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.settle.Landing.readback"><code class="docutils literal notranslate"><span class="pre">Landing.readback</span></code></a></li>

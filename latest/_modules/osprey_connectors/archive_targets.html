@@ -456,7 +456,7 @@
 <span class="sd">stand-in session is shown, because what the stand-in rehearses is the</span>
 <span class="sd">procedure against the real machine&#39;s history. It needs an address to count: a</span>
 <span class="sd">block that cannot be dialled is not a deployment saying it has an archive. The</span>
-<span class="sd">address is read per type (:data:`ADDRESS_SETTINGS`): the appliance&#39;s ``url``;</span>
+<span class="sd">address is read per type (:data:`_ADDRESS_SETTINGS`): the appliance&#39;s ``url``;</span>
 <span class="sd">MYA and DOOCS find their server without a setting (the client library&#39;s</span>
 <span class="sd">configured ``myquery_server``, the facility&#39;s name service), so their block</span>
 <span class="sd">always names one.</span>
@@ -504,42 +504,35 @@
 <span class="p">)</span>
 
 <span class="c1">#: The top-level config section selecting and configuring the archiver.</span>
-<span class="n">ARCHIVER_SECTION_KEY</span> <span class="o">=</span> <span class="s2">&quot;archiver&quot;</span>
+<span class="n">_ARCHIVER_SECTION_KEY</span> <span class="o">=</span> <span class="s2">&quot;archiver&quot;</span>
 
 <span class="c1">#: The archiver types that are the deployment&#39;s own store. Every other type</span>
 <span class="c1">#: except the mock is the facility&#39;s archive.</span>
-<span class="n">STORE_ARCHIVERS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">MONGODB_ARCHIVER</span><span class="p">})</span>
+<span class="n">_STORE_ARCHIVERS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">MONGODB_ARCHIVER</span><span class="p">})</span>
 
 <span class="c1">#: The setting under which a facility archive names where it is, per type.</span>
 <span class="c1">#: ``None``: the connector finds its server without one (MYA through the client</span>
 <span class="c1">#: library&#39;s configured ``myquery_server``, DOOCS through the facility&#39;s name</span>
 <span class="c1">#: service), so its block always names an address. A type not listed names it</span>
-<span class="c1">#: under :data:`DEFAULT_ADDRESS_SETTING`.</span>
-<span class="n">ADDRESS_SETTINGS</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
+<span class="c1">#: under :data:`_DEFAULT_ADDRESS_SETTING`.</span>
+<span class="n">_ADDRESS_SETTINGS</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
     <span class="p">{</span><span class="n">EPICS_ARCHIVER</span><span class="p">:</span> <span class="s2">&quot;url&quot;</span><span class="p">,</span> <span class="n">MYA_ARCHIVER</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="n">DOOCS_ARCHIVER</span><span class="p">:</span> <span class="kc">None</span><span class="p">}</span>
 <span class="p">)</span>
 
-<span class="c1">#: The address setting of a facility archive :data:`ADDRESS_SETTINGS` does not list.</span>
-<span class="n">DEFAULT_ADDRESS_SETTING</span> <span class="o">=</span> <span class="s2">&quot;url&quot;</span>
+<span class="c1">#: The address setting of a facility archive :data:`_ADDRESS_SETTINGS` does not list.</span>
+<span class="n">_DEFAULT_ADDRESS_SETTING</span> <span class="o">=</span> <span class="s2">&quot;url&quot;</span>
 
 <span class="c1">#: The targets the facility&#39;s archive serves: the real machine and the</span>
 <span class="c1">#: stand-in that rehearses it.</span>
-<span class="n">APPLIANCE_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">TARGET_LIVE</span><span class="p">,</span> <span class="n">TARGET_STANDIN</span><span class="p">})</span>
+<span class="n">_APPLIANCE_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">TARGET_LIVE</span><span class="p">,</span> <span class="n">TARGET_STANDIN</span><span class="p">})</span>
 
 <span class="c1">#: The targets the deployment&#39;s own store serves: the virtual accelerator.</span>
-<span class="n">STORE_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">TARGET_VA</span><span class="p">})</span>
+<span class="n">_STORE_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">TARGET_VA</span><span class="p">})</span>
 
 <span class="c1">#: No archive for any target.</span>
-<span class="n">NO_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">()</span>
+<span class="n">_NO_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">()</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;ADDRESS_SETTINGS&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;APPLIANCE_TARGETS&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;ARCHIVER_SECTION_KEY&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;DEFAULT_ADDRESS_SETTING&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;NO_TARGETS&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;STORE_ARCHIVERS&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;STORE_TARGETS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;archive_targets&quot;</span><span class="p">,</span>
     <span class="s2">&quot;archive_withheld&quot;</span><span class="p">,</span>
 <span class="p">]</span>
@@ -557,26 +550,26 @@
 <span class="sd">            section alone does not carry.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        The targets per the module table — :data:`APPLIANCE_TARGETS`,</span>
-<span class="sd">        :data:`STORE_TARGETS` or :data:`NO_TARGETS`. A target absent from the</span>
+<span class="sd">        The targets per the module table — :data:`_APPLIANCE_TARGETS`,</span>
+<span class="sd">        :data:`_STORE_TARGETS` or :data:`_NO_TARGETS`. A target absent from the</span>
 <span class="sd">        set has no archive: a caller holding it has nothing to offer, never a</span>
 <span class="sd">        default to fall back on.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">section</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ARCHIVER_SECTION_KEY</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_ARCHIVER_SECTION_KEY</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
     <span class="n">archiver_type</span> <span class="o">=</span> <span class="n">resolve_archiver_type</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">archiver_type</span> <span class="o">==</span> <span class="n">MOCK_ARCHIVER</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">NO_TARGETS</span>
+        <span class="k">return</span> <span class="n">_NO_TARGETS</span>
 
     <span class="k">try</span><span class="p">:</span>
         <span class="n">settings</span> <span class="o">=</span> <span class="n">resolve_archiver_settings</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
         <span class="c1"># The factory refuses this block with the same error, so no connector</span>
         <span class="c1"># is ever built from it and there is no store to attribute.</span>
-        <span class="k">return</span> <span class="n">NO_TARGETS</span>
+        <span class="k">return</span> <span class="n">_NO_TARGETS</span>
 
-    <span class="k">if</span> <span class="n">archiver_type</span> <span class="ow">in</span> <span class="n">STORE_ARCHIVERS</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">STORE_TARGETS</span> <span class="k">if</span> <span class="n">virtual_accelerator_port</span><span class="p">(</span><span class="n">config</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">NO_TARGETS</span>
-    <span class="k">return</span> <span class="n">APPLIANCE_TARGETS</span> <span class="k">if</span> <span class="n">_names_an_address</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">,</span> <span class="n">settings</span><span class="p">)</span> <span class="k">else</span> <span class="n">NO_TARGETS</span></div>
+    <span class="k">if</span> <span class="n">archiver_type</span> <span class="ow">in</span> <span class="n">_STORE_ARCHIVERS</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_STORE_TARGETS</span> <span class="k">if</span> <span class="n">virtual_accelerator_port</span><span class="p">(</span><span class="n">config</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_NO_TARGETS</span>
+    <span class="k">return</span> <span class="n">_APPLIANCE_TARGETS</span> <span class="k">if</span> <span class="n">_names_an_address</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">,</span> <span class="n">settings</span><span class="p">)</span> <span class="k">else</span> <span class="n">_NO_TARGETS</span></div>
 
 
 
@@ -598,7 +591,7 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        ``True`` when the block is not the mock and does not serve *target*.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">section</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ARCHIVER_SECTION_KEY</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_ARCHIVER_SECTION_KEY</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">resolve_archiver_type</span><span class="p">(</span><span class="n">section</span><span class="p">)</span> <span class="o">==</span> <span class="n">MOCK_ARCHIVER</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
     <span class="k">return</span> <span class="n">target</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">archive_targets</span><span class="p">(</span><span class="n">config</span><span class="p">)</span></div>
@@ -608,12 +601,12 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_names_an_address</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">settings</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a facility archive&#39;s *settings* state where it is.</span>
 
-<span class="sd">    A non-blank string under the type&#39;s :data:`ADDRESS_SETTINGS` entry, or</span>
+<span class="sd">    A non-blank string under the type&#39;s :data:`_ADDRESS_SETTINGS` entry, or</span>
 <span class="sd">    always for a type whose connector finds its server without one. The</span>
 <span class="sd">    connector&#39;s own reader decides whether the address is well formed; this</span>
 <span class="sd">    only establishes that the deployment said one.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">key</span> <span class="o">=</span> <span class="n">ADDRESS_SETTINGS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">,</span> <span class="n">DEFAULT_ADDRESS_SETTING</span><span class="p">)</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">_ADDRESS_SETTINGS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">,</span> <span class="n">_DEFAULT_ADDRESS_SETTING</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">key</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">True</span>
     <span class="n">address</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>

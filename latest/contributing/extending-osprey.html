@@ -700,7 +700,7 @@ model” on <a class="reference internal" href="../architecture/virtual-accelera
 <li><p><strong>Registration.</strong> A plug-in is a module registered under the
 <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point group in its package’s own
 <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, under the name a model record’s <code class="docutils literal notranslate"><span class="pre">engine</span></code> gives. The
-composite looks it up with <code class="docutils literal notranslate"><span class="pre">metadata.entry_points(group=ENGINE_GROUP,</span>
+composite looks it up with <code class="docutils literal notranslate"><span class="pre">metadata.entry_points(group=&quot;osprey.simulation.engines&quot;,</span>
 <span class="pre">name=...)</span></code>; an engine no package registers fails that model.</p></li>
 <li><p><strong>Build-time contract.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> calls four pure functions of the
 module, none of which builds a model:</p>

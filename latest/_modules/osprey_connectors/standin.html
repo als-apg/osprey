@@ -455,11 +455,6 @@
 <span class="sd">:mod:`osprey_connectors.archive_targets`, which decides whose history an</span>
 <span class="sd">``archiver:`` block holds, and reads no stand-in key to do so.</span>
 
-<span class="sd">:func:`archive_belongs_to_standin`, :data:`ARCHIVER_RECORDER_SERVICE` and</span>
-<span class="sd">:data:`DEPLOYED_SERVICES_KEY` are the predicate that attribution replaces,</span>
-<span class="sd">kept while the framework releases that import them are supported and removed</span>
-<span class="sd">in a later connectors release. Nothing new reads them.</span>
-
 <span class="sd">``live_standin_active`` — the ``standin`` target&#39;s deployed-container gate</span>
 <span class="sd">----------------------------------------------------------------------------</span>
 
@@ -520,26 +515,9 @@
 <span class="c1">#: it. One key, because one key is the whole evidence that a stand-in exists.</span>
 <span class="n">LIVE_STANDIN_PORT_KEY</span> <span class="o">=</span> <span class="s2">&quot;services.live_standin.port&quot;</span>
 
-<span class="c1">#: The top-level list of services a rendered ``config.yml`` deploys. Empty or</span>
-<span class="c1">#: absent on an attached render, which deploys none. Read only by</span>
-<span class="c1">#: :func:`archive_belongs_to_standin`; goes with it.</span>
-<span class="n">DEPLOYED_SERVICES_KEY</span> <span class="o">=</span> <span class="s2">&quot;deployed_services&quot;</span>
-
-<span class="c1">#: The ``deployed_services`` entry naming the host-side writer that samples this</span>
-<span class="c1">#: deployment&#39;s machine into its archive. Goes with :func:`archive_belongs_to_standin`.</span>
-<span class="n">ARCHIVER_RECORDER_SERVICE</span> <span class="o">=</span> <span class="s2">&quot;archiver_recorder&quot;</span>
-
-<span class="c1">#: Where a rendered ``config.yml`` carries the recorder&#39;s own block, written by</span>
-<span class="c1">#: the build&#39;s service injector on a deploying render and projected into an</span>
-<span class="c1">#: attached render from its host&#39;s. Goes with :func:`archive_belongs_to_standin`.</span>
-<span class="n">_ARCHIVER_RECORDER_BLOCK_KEY</span> <span class="o">=</span> <span class="s2">&quot;services.archiver_recorder&quot;</span>
-
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;ARCHIVER_RECORDER_SERVICE&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;DEPLOYED_SERVICES_KEY&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LIVE_STANDIN_PORT_KEY&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LOOPBACK_HOSTNAME&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;archive_belongs_to_standin&quot;</span><span class="p">,</span>
     <span class="s2">&quot;live_standin_active&quot;</span><span class="p">,</span>
     <span class="s2">&quot;live_standin_port&quot;</span><span class="p">,</span>
 <span class="p">]</span>
@@ -594,40 +572,6 @@
     <span class="k">if</span> <span class="n">port</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">port</span> <span class="o">!=</span> <span class="n">endpoint_port</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
     <span class="k">return</span> <span class="n">is_loopback</span><span class="p">(</span><span class="n">endpoint_host</span><span class="p">)</span></div>
-
-
-
-<div class="viewcode-block" id="archive_belongs_to_standin">
-<a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.standin.archive_belongs_to_standin">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">archive_belongs_to_standin</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the deployment built a stand-in and runs the archive recorder.</span>
-
-<span class="sd">    The predicate :mod:`osprey_connectors.archive_targets` replaces: under</span>
-<span class="sd">    attribution the deployment&#39;s store is the virtual accelerator&#39;s and no</span>
-<span class="sd">    store belongs to the stand-in, so nothing in this package reads this. It</span>
-<span class="sd">    is kept, unchanged, for the framework releases that still import it — the</span>
-<span class="sd">    ``live`` switch gate, the recorder&#39;s enablement gate and the reach contract</span>
-<span class="sd">    — and is removed in a later connectors release once none does.</span>
-
-<span class="sd">    True exactly when :func:`live_standin_port` names a port *and* the render</span>
-<span class="sd">    says the deployment runs the recorder: ``archiver_recorder`` in</span>
-<span class="sd">    ``deployed_services``, or a non-empty recorder block under</span>
-<span class="sd">    :data:`_ARCHIVER_RECORDER_BLOCK_KEY` (the spelling an attached render is</span>
-<span class="sd">    told). No endpoint is consulted.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        config: The full config mapping, as loaded from ``config.yml``.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        ``True`` only for a render whose deployment records beside its stand-in.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">live_standin_port</span><span class="p">(</span><span class="n">config</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">False</span>
-    <span class="n">deployed</span> <span class="o">=</span> <span class="n">nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">DEPLOYED_SERVICES_KEY</span><span class="p">)</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">deployed</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">and</span> <span class="n">ARCHIVER_RECORDER_SERVICE</span> <span class="ow">in</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">deployed</span><span class="p">}:</span>
-        <span class="k">return</span> <span class="kc">True</span>
-    <span class="n">block</span> <span class="o">=</span> <span class="n">nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">_ARCHIVER_RECORDER_BLOCK_KEY</span><span class="p">)</span>
-    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">bool</span><span class="p">(</span><span class="n">block</span><span class="p">)</span></div>
 
 </pre></div>
 
