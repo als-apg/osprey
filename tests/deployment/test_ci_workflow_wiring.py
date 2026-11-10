@@ -13054,6 +13054,67 @@ def test_the_unit_macos_cells_are_one_job_each__mutation_adds_a_pr_cell() -> Non
     assert any("over its 1" in p for p in _macos_cell_problems(mutated))
 
 
+# ---------------------------------------------------------------------------
+# Pull requests run the ubuntu cells on the coverage cell's Python alone
+# ---------------------------------------------------------------------------
+
+#: The arms that keep every Python on a pull request.
+UNIT_FULL_MATRIX_ARMS = (
+    "github.actor != 'dependabot[bot]'",
+    "!contains(github.event.pull_request.labels.*.name, 'full-ci')",
+)
+
+
+def _python_exclude_problems(wf: dict[str, Any]) -> list[str]:
+    jobs = _jobs(wf)
+    matrix = jobs[UNIT_TEST_JOB]["strategy"]["matrix"]
+    exclude = str(matrix.get("exclude", ""))
+    arrays = re.findall(r"'(\[[^']*\])'", exclude)
+    if not re.search(r"github\.event_name\s*==\s*'pull_request'\s*&&", exclude) or len(arrays) != 2:
+        return [f"unit matrix exclude is not the per-event fromJSON: {exclude!r}"]
+    problems = [
+        f"exclude lacks the arm {arm!r}" for arm in UNIT_FULL_MATRIX_ARMS if arm not in exclude
+    ]
+    pr = sorted(cell.get("python-version") for cell in json.loads(arrays[0]))
+    expected = sorted(v for v in matrix["python-version"] if v != _coverage_cell_version(wf))
+    if pr != expected:
+        problems.append(f"pull requests exclude {pr}, not every Python but the coverage cell's")
+    if json.loads(arrays[1]):
+        problems.append(f"other events exclude {arrays[1]}; they run every Python")
+    serial = jobs[SERIAL_SUITES_JOB]["strategy"]["matrix"].get("exclude")
+    if serial != matrix["exclude"]:
+        problems.append(f"{SERIAL_SUITES_JOB} excludes {serial!r}, not the unit cells' exclude")
+    return problems
+
+
+def test_pull_requests_run_one_python(workflow: dict[str, Any]) -> None:
+    """3.11 and 3.14 run on main and the nightly revalidation; a pull request
+    runs them only under `full-ci` or from Dependabot."""
+    assert _python_exclude_problems(workflow) == []
+
+
+def test_pull_requests_run_one_python__mutation_excludes_the_coverage_cell() -> None:
+    mutated = _load_workflow()
+    for job in (UNIT_TEST_JOB, SERIAL_SUITES_JOB):
+        matrix = _jobs(mutated)[job]["strategy"]["matrix"]
+        matrix["exclude"] = matrix["exclude"].replace('"3.14"', '"3.12"', 1)
+    assert any("not every Python but" in p for p in _python_exclude_problems(mutated))
+
+
+def test_pull_requests_run_one_python__mutation_drops_the_label_arm() -> None:
+    mutated = _load_workflow()
+    for job in (UNIT_TEST_JOB, SERIAL_SUITES_JOB):
+        matrix = _jobs(mutated)[job]["strategy"]["matrix"]
+        matrix["exclude"] = matrix["exclude"].replace(f" && {UNIT_FULL_MATRIX_ARMS[1]}", "", 1)
+    assert any("lacks the arm" in p for p in _python_exclude_problems(mutated))
+
+
+def test_pull_requests_run_one_python__mutation_serial_suites_runs_every_python() -> None:
+    mutated = _load_workflow()
+    del _jobs(mutated)[SERIAL_SUITES_JOB]["strategy"]["matrix"]["exclude"]
+    assert any(f"{SERIAL_SUITES_JOB} excludes" in p for p in _python_exclude_problems(mutated))
+
+
 def test_the_unit_lane_runs_the_two_uid_log_case__mutation_moves_it_to_another_shard() -> None:
     """The case's directory leaves the shard the pin names, so the pinned
     shard name no longer says where the case runs."""

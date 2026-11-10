@@ -233,15 +233,20 @@ jobs:
         # Zero macOS cells on PRs was rejected: a main push catches a break
         # only after the merge, and every in-flight PR rebases onto it.
         #
-        # 3.14 runs as a full cell on ubuntu only, on every event. It is in the
-        # matrix for the interpreter's own removals -- behaviour 3.11 and 3.12
-        # only warn about and 3.14 raises on. The stdlib's lazy native loads are
-        # OS-specific (ctypes.util loads libc through find_library on darwin and
-        # through CDLL(None) on other POSIX), so on macOS the readonly-gate
-        # warm-up module runs under 3.14 as one step of the 3.12 macOS cell
-        # ("Readonly gate under Python 3.14" below). No 3.14 macOS cell is
-        # added: it would take another job against the ceiling of 5.
+        # 3.14 runs as a full cell on ubuntu only. It is in the matrix for the
+        # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
+        # and 3.14 raises on. The stdlib's lazy native loads are OS-specific
+        # (ctypes.util loads libc through find_library on darwin and through
+        # CDLL(None) on other POSIX), so on macOS the readonly-gate warm-up
+        # module runs under 3.14 as one step of the 3.12 macOS cell ("Readonly
+        # gate under Python 3.14" below). No 3.14 macOS cell is added: it would
+        # take another job against the ceiling of 5.
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.12","os":"macos-latest","shard":"macos"}]' || '[{"python-version":"3.11","os":"macos-latest","shard":"macos"},{"python-version":"3.12","os":"macos-latest","shard":"macos"}]') }}
+        # PRs run ubuntu on 3.12 only; 3.11 and 3.14 run on main pushes and the
+        # nightly revalidation, whose red opens the "Full CI red on main" issue.
+        # `full-ci`-labelled and Dependabot PRs keep all three. serial-suites
+        # carries the same exclude.
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
 
     steps:
     - name: Checkout repository
@@ -546,9 +551,9 @@ jobs:
     # modules need a process of their own. Each step below runs one of them
     # alone. They read nothing the sweep writes, so they run in a job of their
     # own beside it rather than after it in a `test` cell, where they were
-    # five minutes of that cell's critical path. Same Pythons, same OS and the
-    # same install as the `test` job's ubuntu cells, and like that job on
-    # every event.
+    # five minutes of that cell's critical path. Same Pythons (per event), same
+    # OS and the same install as the `test` job's ubuntu cells, and like that
+    # job on every event.
     #
     # The cap is the three step caps plus the minutes of setup around them
     # (checkout, uv, the install, the pinned CLI). test_ci_workflow_wiring.py
@@ -559,6 +564,7 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12', '3.14']
         os: [ubuntu-latest]
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
 
     steps:
     - name: Checkout repository
