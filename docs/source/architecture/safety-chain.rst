@@ -24,6 +24,9 @@ enables the ``phoebus`` server and sets ``phoebus.agent_access: read_write`` has
 own connections, not through the connector --- see :ref:`A Phoebus drive
 <architecture-safety-chain-phoebus-drive>`.
 
+A deployment that runs an application has one more, whose writes meet the same chain and
+connector --- see :doc:`/how-to/apps/index`.
+
 A write also carries a name --- whose write it is. A machine's write switch is one login's,
 so the name decides whose tier and whose switch a write is judged against. :ref:`Whose write is it <architecture-safety-chain-owner>`, at the foot of
 this page, says where the name comes from and what it does not cover.
@@ -66,6 +69,13 @@ drive meet the first and the last:
    in every position and refused where nothing can ask, as in a dispatch run. The executor
    checks it again before the code runs, read-only runs included.
 
+**An application's write tool** is judged by the same chain: the login's
+``control_system.writes`` ceiling (``never``, ``asked`` or ``allowed``), the owner's per-machine
+switch position, then the approval record, whose approver is ``human``, ``dispatch_policy`` or
+``write_switch``. The switch's position decides whether a person is asked; the application's
+declaration only describes and binds the call, and no per-tool approval policy exists for it. An
+application arms on a login whose tier is ``asked`` or ``allowed``. See :doc:`/how-to/apps/index`.
+
 Which machine the deployment points at, and the login's switch position for it, come
 from the records the deployment keeps --- one per login --- read fresh on every call, so a
 flip reaches the agent's next tool call. The tier is rendered at build time and takes a
@@ -93,7 +103,9 @@ names the same reason.
 
 Where a watchdog has flagged the session, the hook's verdict (gate 2), the server (gate 3) and
 the connector (gate 4) each refuse the write with ``session_held``, and so does a CANOPY
-panel's connector for a click (:ref:`architecture-safety-chain-panel-write`). The approval prompt does
+panel's connector for a click (:ref:`architecture-safety-chain-panel-write`). The terminal's
+panel proxy refuses an application panel's write, before it reaches the container: the
+agent's, which names its session, and the operator's. The approval prompt does
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 :ref:`Safety watchdogs <architecture-safety-watchdogs>`.
 
@@ -161,10 +173,10 @@ What watchdogs do not cover
 - **Only the prompt.** A watchdog judges when a prompt arrives, not after each tool call or
   at the end of a turn. The decision engine sees only about the last 30,000 tokens of a
   session, and it does not treat what a tool returned as hostile.
-- **Only the agent's writes, and CANOPY's.** A write the operator makes from a notebook cell or
-  the BLUESKY panel is not held. CANOPY is the one held operator surface: the agent opens and
-  arranges its screens and drafts, so a held agent could stage a click. A CANOPY panel is held
-  while any live session of its terminal is.
+- **Only the agent's writes, CANOPY's and the applications'.** A write the operator makes from
+  a notebook cell or the BLUESKY panel is not held. CANOPY and the application panels are the
+  held operator surfaces: the agent drives them too, so a held agent could stage a click. Such
+  a panel is held while any live session of its terminal is.
 - **Not motion already running.** A plan the agent started keeps running; stop it with the
   existing tools.
 - **Only the web terminal holds.** ``osprey chat`` or a bare ``claude`` in a built project

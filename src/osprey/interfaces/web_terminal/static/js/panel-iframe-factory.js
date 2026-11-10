@@ -13,6 +13,7 @@ import { sendThemeToIframe, sendSessionToIframe, buildEmbedSrc } from './panel-i
 import { adoptIframe, setPanelReachable } from './dock-iframe.js';
 import { clockTime } from './panel-rail.js';
 import { withPrefix } from './api.js';
+import { panelUiUrl } from './panel-queries.js';
 
 /**
  * The sandbox an OSPREY-shipped (first-party) panel is framed under — today's
@@ -200,10 +201,9 @@ export function createPanelIframe(panel, panelId, state, contentEl, { dock = tru
   iframe.className = 'panel-iframe';
   iframe.dataset.panelId = panelId;
   // Use pendingUrl (from a pre-iframe panel_focus navigation) if available,
-  // otherwise base URL. For custom panels with a subpath (e.g. path:
-  // "/panel/"), append it so the iframe loads the UI root, not the API root.
-  const panelPath = panel?.path && panel.path !== '/' ? panel.path : '';
-  const targetUrl = state.pendingUrl || state.url + panelPath;
+  // otherwise base URL plus the panel's UI path (e.g. "/panel/", or "/" for a
+  // UI at the service root).
+  const targetUrl = state.pendingUrl || panelUiUrl(state.url, panel?.path);
   state.pendingUrl = null;
   // targetUrl is the already-prefixed, root-relative `state.url` (+ optional
   // subpath); buildEmbedSrc preserves it verbatim.

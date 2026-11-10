@@ -1,0 +1,1 @@
+An unreadable config no longer lets the web terminal's control-context owner claim at a guessed baseline (it claims nothing and refuses switch requests naming the file), the owner now claims from the terminal's own config file (an empty render when none resolved), and `${VAR}` in that file means the same on the posture chip as in the privilege gates.

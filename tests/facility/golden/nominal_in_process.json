@@ -1636,10 +1636,10 @@
       "nominal": 1.0
     },
     "SR:DIAG:BPM:01:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:01:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:01:OFFSET:X": {
       "nominal": 100.0
@@ -1660,10 +1660,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:02:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:02:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:02:OFFSET:X": {
       "nominal": 100.0
@@ -1684,10 +1684,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:03:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:03:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:03:OFFSET:X": {
       "nominal": 100.0
@@ -1708,10 +1708,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:04:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:04:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:04:OFFSET:X": {
       "nominal": 100.0
@@ -1732,10 +1732,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:05:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:05:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:05:OFFSET:X": {
       "nominal": 100.0
@@ -1756,10 +1756,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:06:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:06:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:06:OFFSET:X": {
       "nominal": 100.0
@@ -1780,10 +1780,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:07:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:07:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:07:OFFSET:X": {
       "nominal": 100.0
@@ -1804,10 +1804,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:08:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:08:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:08:OFFSET:X": {
       "nominal": 100.0
@@ -1828,10 +1828,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:09:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:09:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:09:OFFSET:X": {
       "nominal": 100.0
@@ -1852,10 +1852,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:10:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:10:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:10:OFFSET:X": {
       "nominal": 100.0
@@ -1876,10 +1876,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:11:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:11:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:11:OFFSET:X": {
       "nominal": 100.0
@@ -1900,10 +1900,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:12:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:12:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:12:OFFSET:X": {
       "nominal": 100.0
@@ -1924,10 +1924,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:13:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:13:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:13:OFFSET:X": {
       "nominal": 100.0
@@ -1948,10 +1948,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:14:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:14:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:14:OFFSET:X": {
       "nominal": 100.0
@@ -1972,10 +1972,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:15:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:15:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:15:OFFSET:X": {
       "nominal": 100.0
@@ -1996,10 +1996,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:16:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:16:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:16:OFFSET:X": {
       "nominal": 100.0
@@ -2020,10 +2020,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:17:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:17:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:17:OFFSET:X": {
       "nominal": 100.0
@@ -2044,10 +2044,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:18:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:18:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:18:OFFSET:X": {
       "nominal": 100.0
@@ -2068,10 +2068,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:19:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:19:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:19:OFFSET:X": {
       "nominal": 100.0
@@ -2092,10 +2092,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:20:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:20:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:20:OFFSET:X": {
       "nominal": 100.0
@@ -2116,10 +2116,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:21:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:21:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:21:OFFSET:X": {
       "nominal": 100.0
@@ -2140,10 +2140,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:22:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:22:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:22:OFFSET:X": {
       "nominal": 100.0
@@ -2164,10 +2164,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:23:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:23:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:23:OFFSET:X": {
       "nominal": 100.0
@@ -2188,10 +2188,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:24:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:24:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:24:OFFSET:X": {
       "nominal": 100.0
@@ -2212,10 +2212,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:25:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:25:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:25:OFFSET:X": {
       "nominal": 100.0
@@ -2236,10 +2236,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:26:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:26:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:26:OFFSET:X": {
       "nominal": 100.0
@@ -2260,10 +2260,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:27:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:27:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:27:OFFSET:X": {
       "nominal": 100.0
@@ -2284,10 +2284,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:28:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:28:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:28:OFFSET:X": {
       "nominal": 100.0
@@ -2308,10 +2308,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:29:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:29:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:29:OFFSET:X": {
       "nominal": 100.0
@@ -2332,10 +2332,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:30:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:30:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:30:OFFSET:X": {
       "nominal": 100.0
@@ -2356,10 +2356,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:31:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:31:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:31:OFFSET:X": {
       "nominal": 100.0
@@ -2380,10 +2380,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:32:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:32:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:32:OFFSET:X": {
       "nominal": 100.0
@@ -2404,10 +2404,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:33:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:33:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:33:OFFSET:X": {
       "nominal": 100.0
@@ -2428,10 +2428,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:34:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:34:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:34:OFFSET:X": {
       "nominal": 100.0
@@ -2452,10 +2452,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:35:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:35:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:35:OFFSET:X": {
       "nominal": 100.0
@@ -2476,10 +2476,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:36:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:36:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:36:OFFSET:X": {
       "nominal": 100.0
@@ -2500,10 +2500,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:37:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:37:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:37:OFFSET:X": {
       "nominal": 100.0
@@ -2524,10 +2524,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:38:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:38:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:38:OFFSET:X": {
       "nominal": 100.0
@@ -2548,10 +2548,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:39:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:39:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:39:OFFSET:X": {
       "nominal": 100.0
@@ -2572,10 +2572,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:40:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:40:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:40:OFFSET:X": {
       "nominal": 100.0
@@ -2596,10 +2596,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:41:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:41:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:41:OFFSET:X": {
       "nominal": 100.0
@@ -2620,10 +2620,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:42:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:42:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:42:OFFSET:X": {
       "nominal": 100.0
@@ -2644,10 +2644,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:43:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:43:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:43:OFFSET:X": {
       "nominal": 100.0
@@ -2668,10 +2668,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:44:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:44:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:44:OFFSET:X": {
       "nominal": 100.0
@@ -2692,10 +2692,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:45:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:45:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:45:OFFSET:X": {
       "nominal": 100.0
@@ -2716,10 +2716,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:46:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:46:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:46:OFFSET:X": {
       "nominal": 100.0
@@ -2740,10 +2740,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:47:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:47:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:47:OFFSET:X": {
       "nominal": 100.0
@@ -2764,10 +2764,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:48:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:48:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:48:OFFSET:X": {
       "nominal": 100.0
@@ -2788,10 +2788,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:49:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:49:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:49:OFFSET:X": {
       "nominal": 100.0
@@ -2812,10 +2812,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:50:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:50:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:50:OFFSET:X": {
       "nominal": 100.0
@@ -2836,10 +2836,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:51:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:51:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:51:OFFSET:X": {
       "nominal": 100.0
@@ -2860,10 +2860,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:52:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:52:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:52:OFFSET:X": {
       "nominal": 100.0
@@ -2884,10 +2884,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:53:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:53:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:53:OFFSET:X": {
       "nominal": 100.0
@@ -2908,10 +2908,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:54:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:54:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:54:OFFSET:X": {
       "nominal": 100.0
@@ -2932,10 +2932,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:55:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:55:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:55:OFFSET:X": {
       "nominal": 100.0
@@ -2956,10 +2956,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:56:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:56:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:56:OFFSET:X": {
       "nominal": 100.0
@@ -2980,10 +2980,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:57:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:57:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:57:OFFSET:X": {
       "nominal": 100.0
@@ -3004,10 +3004,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:58:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:58:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:58:OFFSET:X": {
       "nominal": 100.0
@@ -3028,10 +3028,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:59:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:59:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:59:OFFSET:X": {
       "nominal": 100.0
@@ -3052,10 +3052,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:60:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:60:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:60:OFFSET:X": {
       "nominal": 100.0
@@ -3076,10 +3076,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:61:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:61:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:61:OFFSET:X": {
       "nominal": 100.0
@@ -3100,10 +3100,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:62:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:62:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:62:OFFSET:X": {
       "nominal": 100.0
@@ -3124,10 +3124,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:63:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:63:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:63:OFFSET:X": {
       "nominal": 100.0
@@ -3148,10 +3148,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:64:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:64:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:64:OFFSET:X": {
       "nominal": 100.0
@@ -3172,10 +3172,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:65:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:65:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:65:OFFSET:X": {
       "nominal": 100.0
@@ -3196,10 +3196,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:66:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:66:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:66:OFFSET:X": {
       "nominal": 100.0
@@ -3220,10 +3220,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:67:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:67:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:67:OFFSET:X": {
       "nominal": 100.0
@@ -3244,10 +3244,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:68:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:68:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:68:OFFSET:X": {
       "nominal": 100.0
@@ -3268,10 +3268,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:69:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:69:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:69:OFFSET:X": {
       "nominal": 100.0
@@ -3292,10 +3292,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:70:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:70:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:70:OFFSET:X": {
       "nominal": 100.0
@@ -3316,10 +3316,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:71:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:71:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:71:OFFSET:X": {
       "nominal": 100.0
@@ -3340,10 +3340,10 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:72:GOLDEN:X": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:72:GOLDEN:Y": {
-      "nominal": 100.0
+      "nominal": 0.0
     },
     "SR:DIAG:BPM:72:OFFSET:X": {
       "nominal": 100.0

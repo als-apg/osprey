@@ -25,6 +25,7 @@ from tests._builds import Restorable
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
+    enable_orbit_bump,
     preserved_environ,
 )
 
@@ -46,6 +47,9 @@ _ROSTER_TIERS = {"alice": "asked", "bob": "never", "carol": "allowed"}
 #: Where the two shared-container configs are staged, under ``build/``.
 _BLUESKY = Path("services/bluesky/config.yml")
 _WORKER = Path("services/dispatch_worker/config.yml")
+#: The example application's container, turned on in each build here: it holds
+#: the map because it drives the target.
+_APP = Path("services/orbit-bump/config.yml")
 
 
 @contextmanager
@@ -79,6 +83,7 @@ def _build(base: Path, *, tiered: bool = True) -> Path:
     base.mkdir(parents=True, exist_ok=True)
     with _pinned_env():
         repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
+        enable_orbit_bump(repo)
         if not tiered:
             profile = repo / "profile.yml"
             text = profile.read_text(encoding="utf-8")
@@ -168,6 +173,7 @@ def test_an_asked_render_stages_the_word_verbatim(asked: Path) -> None:
 
     assert _load(build / _BLUESKY)["control_system"]["login_tiers"] == expected
     assert _load(build / _WORKER)["control_system"]["login_tiers"] == expected
+    assert _load(build / _APP)["control_system"]["login_tiers"] == expected
 
 
 def test_an_asked_render_holds_the_queue_token_and_a_never_render_does_not(asked: Path) -> None:
@@ -228,7 +234,7 @@ def test_untiered_worker_and_bluesky_carry_the_same_map_over_the_root(untiered: 
 
 def test_no_other_render_carries_the_map(tiered: Path) -> None:
     build = tiered / "build"
-    staged = {build / _BLUESKY, build / _WORKER}
+    staged = {build / _BLUESKY, build / _WORKER, build / _APP}
     configs = [p for p in build.rglob("config.yml") if p not in staged]
     # The root, every terminal-served render, and every image render are among them.
     assert build / "config.yml" in configs

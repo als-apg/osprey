@@ -22,6 +22,7 @@ api:
   - llama-cpp
   - ollama
   - openai
+  - openrouter
   - stanford
 approval:
   default_policy: always
@@ -30,10 +31,8 @@ approval:
     add_panel_to_rail: always
     archiver_read: skip
     channel_read: skip
-    channel_write: always
     entry_create: always
     entry_publish: always
-    execute: selective
     register_panel: always
     remove_panel_from_rail: always
     setup_patch: always
@@ -136,6 +135,8 @@ claude_code:
       enabled: false
     health:
       enabled: false
+    pv-directory:
+      enabled: false
     python:
       enabled: false
 cli:
@@ -214,8 +215,8 @@ modules:
       groups:
       - label: Users
         type: users
-      - label: Apps
-        type: apps
+      - label: Shared logins
+        type: shared
       notices:
       - data/landing/working-safely.md
     shared:
@@ -278,6 +279,10 @@ web:
   control_target_picker: false
   default_panel: okf
   panels:
+    canopy:
+      enabled: false
+      home_screen: facility/overview
+      vole_bytes_max: 268435456
     channel-finder:
       enabled: true
     okf:
