@@ -33,6 +33,7 @@ const SERVER_COLORS = {
   health: 'srv-health',
   event_dispatcher: 'srv-event-dispatcher',
   canopy: 'srv-canopy',
+  'pv-directory': 'srv-pv-directory',
 };
 
 /**

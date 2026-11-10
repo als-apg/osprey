@@ -26,6 +26,7 @@
     .srv-health       { --srv: #a3e635; }
     .srv-event-dispatcher { --srv: #e879f9; }
     .srv-canopy       { --srv: #2dd4bf; }
+    .srv-pv-directory { --srv: #fde047; }
     .srv-unknown      { --srv: #64748b; }
     /* hygiene-allow-color-end */
 
