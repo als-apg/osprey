@@ -26,6 +26,7 @@ from osprey.interfaces.web_terminal.claude_code_files import (
     ClaudeCodeFileService,
     ProtectedWriteError,
 )
+from osprey.interfaces.web_terminal.config_view import unreadable_config_refusal
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 
 logger = logging.getLogger(__name__)
@@ -121,8 +122,6 @@ def _require_config_panel(request: Request) -> None:
     if not getattr(request.app.state, "config_panel_enabled", False):
         unreadable = getattr(request.app.state, "config_unreadable_path", None)
         if unreadable:
-            from osprey.interfaces.web_terminal.app import unreadable_config_refusal
-
             raise HTTPException(status_code=403, detail=unreadable_config_refusal(unreadable))
         raise HTTPException(
             status_code=403,

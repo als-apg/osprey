@@ -1,7 +1,7 @@
 """New verbs' docstrings name only commands that actually exist.
 
-``osprey scaffold pull``, ``osprey scaffold tiers``, ``osprey scaffold apps``
-and ``osprey profile card`` each carry an Examples block that names ``osprey``
+``osprey scaffold pull``, ``osprey scaffold tiers`` and ``osprey profile card``
+each carry an Examples block that names ``osprey``
 invocations. A docstring that names a chain the live CLI does not resolve
 misleads whoever reads ``--help`` before running it, so each verb's help text is pinned against
 the real command tree the same way the emitted CI files are in
@@ -22,7 +22,6 @@ from tests.cli.test_scaffold_ci import named_commands, unresolvable
 VERB_CHAINS: dict[str, tuple[str, ...]] = {
     "osprey scaffold pull": ("scaffold", "pull"),
     "osprey scaffold tiers": ("scaffold", "tiers"),
-    "osprey scaffold apps": ("scaffold", "apps"),
     "osprey profile card": ("profile", "card"),
 }
 

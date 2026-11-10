@@ -21,6 +21,7 @@ api:
   - llama-cpp
   - ollama
   - openai
+  - openrouter
   - stanford
 approval:
   default_policy: always
@@ -29,8 +30,6 @@ approval:
     add_panel_to_rail: always
     archiver_read: skip
     channel_read: skip
-    channel_write: always
-    execute: selective
     register_panel: always
     remove_panel_from_rail: always
     setup_patch: always

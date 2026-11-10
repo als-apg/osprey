@@ -1,0 +1,111 @@
+{#
+  _panel_grant.j2 — the SINGLE renderer for a panel's roster grant.
+
+  A panel whose service is reached by each per-user terminal with the operator
+  secret ITS container holds needs that service's compose to hand it the
+  entitled users' secrets and say whose each one is. Every compose template
+  serving a panel — the bundled `app_runtime` and `bluesky_web` templates and
+  an application's own `image:` fragment — imports this macro rather than
+  writing the block itself, so the services cannot drift into dialects of
+  "accept these operators".
+
+  ----------------------------------------------------------------------------
+  IMPORTING
+  ----------------------------------------------------------------------------
+
+  The macro takes everything it needs as a parameter, so a plain (context-free)
+  import is correct — never `with context`:
+
+      {% import "services/_panel_grant.j2" as panel %}
+
+  ----------------------------------------------------------------------------
+  THE `credentials` ARGUMENT
+  ----------------------------------------------------------------------------
+
+  `panel_grant.credentials` of the render context (`PanelGrant` in
+  deployment/web_terminals/roster.py), one mapping per credential the panel's
+  gate accepts, roster order:
+
+    var       the `OSPREY_TERMINAL_SECRET_<SUFFIX>` variable handed to the
+              container;
+    source    the deploy variable its value is interpolated from;
+    owner     the account an admitted request carrying it is recorded as;
+    required  whether `source` is read with no default.
+
+  A roster user's credential reads its own variable with an empty default: a
+  user with no secret in the deploy .env is simply not admitted. The single-user
+  alias of a roster-less deployment reads `OSPREY_TERMINAL_SECRET` with none:
+  empty, it would lock out the one account that deployment has. Every user's
+  terminal proxies the panel here with the secret their own container holds
+  (under the fixed `OSPREY_TERMINAL_SECRET` name, interpolated from their own
+  variable), so no user's container is ever handed the deployment-wide secret,
+  and a user purged from the roster is refused here from the next
+  `osprey build` on (the start verbs are as-built and re-render nothing). Only
+  the entitled users are listed; the others get no key to this service. The
+  accept flag is what makes web_auth ACCEPT the variables it finds: every
+  process that loads the deploy .env sees them all, and only this service may
+  treat them as its operators.
+
+  ----------------------------------------------------------------------------
+  THE OWNERS MAP
+  ----------------------------------------------------------------------------
+
+  `OSPREY_TERMINAL_ROSTER_OWNERS` is comma-separated `<SUFFIX>=<owner>` pairs
+  in the grant's own order. The gate admits any of the granted secrets and
+  names the operator behind a request by the one that matched; without the map
+  a match says only which slot the credential filled, not whose account it is,
+  and every panel action the deployment records would name nobody. A variable
+  alone cannot answer that: it survives compose interpolation as a value, not
+  as a name. Not a secret and no interpolation: the owners are already in the
+  rendered roster.
+
+  Each key is sliced off the variable this macro itself emits rather than
+  derived from the owner a second time, so a key cannot name a variable the
+  service was not handed. The literal stripped is `TERMINAL_SECRET_VAR_PREFIX`
+  (deployment/web_terminals/auth_credentials.py), pinned to it and to web_auth's
+  parse by tests/deployment/test_panel_grant_macro.py. The render refuses a
+  roster name that is not a single `[A-Za-z0-9][A-Za-z0-9._-]*` component,
+  which is what makes `,` and `=` safe as the map's punctuation.
+
+  ----------------------------------------------------------------------------
+  WHITESPACE CONTRACT
+  ----------------------------------------------------------------------------
+
+  As in `_env_axis.j2`: the macro emits a LEADING newline and no trailing one,
+  and is called alone on its own line with a left-trim marker inside an
+  `environment:` block:
+
+      {{- panel.env(panel_grant.credentials) }}
+
+  With no credentials it emits the empty string and the line disappears.
+
+  ----------------------------------------------------------------------------
+  WHAT AN EDIT HERE REDDENS
+  ----------------------------------------------------------------------------
+
+  Every template that imports this file renders its macro, and those renders
+  are pinned byte for byte. Regenerate in the same change. One command per
+  suite that pins an importer of this file:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+#}
+
+{%- macro env(credentials) -%}
+{%- if credentials %}
+      # THE ROSTER GRANT. Every web-terminal user whose login shows this
+      # panel proxies it here with the operator secret their own container
+      # holds. Listing each of those variables lets this container's web gate
+      # accept any of them, so no user's container is handed another's secret;
+      # the flag is what makes the gate accept the listed variables.
+      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
+      # A roster user's variable reads itself, empty by default; an alias reads
+      # the deploy variable that holds its secret, with no default: empty, it
+      # would lock out the one account a roster-less deployment has.
+{%- for c in credentials %}
+      {{ c.var }}: ${{ "{" }}{{ c.source }}{{ "" if c.required else ":-" }}{{ "}" }}
+{%- endfor %}
+      # WHOSE each of those secrets is, as `<SUFFIX>=<username>` pairs.
+      OSPREY_TERMINAL_ROSTER_OWNERS: "{% for c in credentials %}{{ c.var | replace("OSPREY_TERMINAL_SECRET_", "", 1) }}={{ c.owner }}{{ "," if not loop.last }}{% endfor %}"
+{%- endif %}
+{%- endmacro -%}

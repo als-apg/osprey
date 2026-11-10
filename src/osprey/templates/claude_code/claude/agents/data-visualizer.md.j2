@@ -28,7 +28,7 @@ You have access to these workspace MCP tools:
 - `create_dashboard` — Multi-panel Bokeh apps (HTML). Use for operational dashboards with widgets, linked views.
 - `create_document` — Compile LaTeX source to PDF (Beamer slides or article reports)
 - `artifact_list` — List stored artifacts (find datasets to visualize); narrow with `form=` (e.g. "trends", "data")
-- `artifact_read` — Read an artifact by ID: metadata, its `file_path`, and its content
+- `artifact_read` — Read an artifact by ID: metadata, its `file_path`, and its content (an image as the image itself)
 - `facility_description` — Get facility context and terminology
 
 **IMPORTANT**: Nothing is auto-captured. You MUST call `save_artifact(obj, "title")`

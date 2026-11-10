@@ -24,7 +24,7 @@ TIERS = ("quick", "full")
 KINDS = ("invariant", "static", "tests", "build")
 
 #: Exit statuses.
-CLEAN, FAILED_EXIT, REFUSED_EXIT = 0, 1, 2
+CLEAN, FAILED_EXIT, REFUSED_EXIT, ENVIRONMENT_EXIT = 0, 1, 2, 3
 
 BOTH = frozenset(TIERS)
 FULL = frozenset({"full"})
@@ -45,15 +45,24 @@ class Refused(Exception):
     """The command cannot judge; the message says what to do about it."""
 
 
+class EnvironmentFault(Exception):
+    """This machine cannot judge: a need raises it and the run stops there."""
+
+    def __init__(self, probe: str, fact: str) -> None:
+        super().__init__(f"{probe}: {fact}")
+        self.probe = probe
+        self.fact = fact
+
+
 @dataclass(frozen=True)
 class Selection:
     """What a tier does with one check: run it whole, on these paths, or not at all."""
 
     state: str
     paths: tuple[str, ...] = ()
-    #: The changed path that widened a runner's selection to the whole of it,
-    #: for ``list --changed`` to name; not part of what the selection is.
-    cause: str = field(default="", compare=False)
+    #: Why a selection widened, as ``"<path>: <rule>"``; it explains the state
+    #: and is not part of it.
+    reason: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -143,6 +152,10 @@ class Check:
     report: str | None = None
     #: What ``--fix`` runs to repair what this check reports; it writes files.
     fix: tuple[tuple[str, ...], ...] = ()
+    #: The needs that depend on what was selected, probed after ``needs``.
+    selected_needs: Callable[[Selection, Context], tuple[str, ...]] | None = field(
+        default=None, compare=False, metadata=HOOK
+    )
     #: The directory the command runs in, relative to the repository root.
     workdir: str | None = field(default=None, compare=False, metadata=HOOK)
     #: A ``run`` caller may pass it execution flags.
