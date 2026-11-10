@@ -212,6 +212,38 @@ def test_an_alias_panel_on_a_roster_gets_only_the_roster_grant(tmp_path: Path) -
     ]
 
 
+def test_an_alias_panel_on_a_roster_of_shared_cards_alone_gets_the_roster_grant(
+    tmp_path: Path,
+) -> None:
+    """A roster with no people is still a roster: the card holds its own secret, not the deployment's."""
+    project = tmp_path / "build" / "demo-radiation"
+    project.mkdir(parents=True)
+    (project / "config.yml").write_text(
+        yaml.safe_dump({"web": {"panels": {"knob-demo": {"url": "http://localhost:1"}}}}),
+        encoding="utf-8",
+    )
+    config = {
+        "services": {"knob-demo": _projected(single_user_alias=True)},
+        "modules": {
+            "web_terminals": {
+                "renders": {
+                    "radiation": tier_render(
+                        "radiation", "demo-radiation", project_path="build/demo-radiation"
+                    )
+                },
+                "shared": ["radiation"],
+            }
+        },
+    }
+    card = terminal_secret_var("radiation")
+
+    grant = service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops")
+
+    assert grant["credentials"] == [
+        {"var": card, "source": card, "owner": "radiation", "required": False}
+    ]
+
+
 def test_an_alias_panel_on_a_disabled_roster_accepts_the_deployment_secret(
     tmp_path: Path,
 ) -> None:

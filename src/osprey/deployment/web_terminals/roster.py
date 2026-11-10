@@ -1210,7 +1210,8 @@ def service_panel_grant(
             continue
         web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
         # Switched-off per-user terminals hold no secret: only the one terminal is left.
-        has_roster = web_terminals.get("enabled") is not False and roster_people(web_terminals)
+        # A roster of shared cards alone is a roster: each card holds its own secret.
+        has_roster = web_terminals.get("enabled") is not False and roster_entries(web_terminals)
         if not row.single_user_alias or has_roster:
             grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
             return {
