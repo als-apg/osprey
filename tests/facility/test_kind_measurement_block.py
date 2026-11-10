@@ -292,6 +292,20 @@ def test_a_block_the_schema_admits_is_judged_by_the_kinds_hook(tmp_path):
     )
 
 
+def test_a_facts_writer_that_fails_on_an_admitted_block_stops_the_build(tmp_path, monkeypatch):
+    def failing(document: Mapping[str, Any], block: Mapping[str, Any]) -> dict[str, Any]:
+        del document, block
+        raise KeyError("chain")
+
+    _register(monkeypatch, dataclasses.replace(DECLARATION, facts_writer=failing))
+
+    assert _stop(tmp_path, _tree()) == (
+        f"facility: value-invalid: measurement SR — kind {KIND}'s facts writer fails on "
+        "this file's block: KeyError: 'chain'; fix: make the facts writer of kind "
+        f"{KIND} (package turn-kind) accept every block its measurement schema admits"
+    )
+
+
 @_with_kind
 def test_an_absent_block_is_judged_as_an_empty_one(tmp_path):
     tree = _tree()

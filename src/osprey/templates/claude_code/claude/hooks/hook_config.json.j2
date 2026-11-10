@@ -34,9 +34,12 @@
   `write_tools`, which is unchanged.
 
   `measurement` is each pyAML view's block,
-  `{kinds, groups, rf, by_kinds, corrector_roles, view_sha256}` per model, as the
-  build read it from the view; `kinds` maps each listed kind to the view name of
-  each setpoint role it steps; `{}` when the render has none.
+  `{kinds, groups, rf, by_kinds, corrector_roles, view_sha256}` per model, as
+  `hook_measurement` copies it from the facts: `kinds` maps each listed kind to
+  the view name of each setpoint role it steps, `groups` the addresses of every
+  stepped role (built-in or registered), `rf` the RF setpoint addresses,
+  `by_kinds` the kinds that take `by`, `corrector_roles` kind to roles,
+  `view_sha256` the view's digest; `{}` when the render has none.
 
   `app_approvals` is each application write tool's approval declaration keyed
   by its full `mcp__<app>__<tool>` name, and `app_error_types` the class and

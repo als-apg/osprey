@@ -70,6 +70,7 @@ __all__ = [
     "RESULT_SHAPES",
     "TRM_FILE",
     "KindDeclaration",
+    "KindFactsError",
     "KindRegistryError",
     "KindStop",
     "KindTool",
@@ -81,6 +82,7 @@ __all__ = [
     "builtin_kinds",
     "kind_source",
     "kind_table_row",
+    "written_facts",
     "member_sorts",
     "plan_problems",
     "registered",
@@ -174,6 +176,22 @@ class KindRegistryError(ValueError):
         self.detail = detail
         self.remedy = remedy
         super().__init__(f"measurement kind {kind} ({source}): {detail}; fix: {remedy}")
+
+
+class KindFactsError(ValueError):
+    """A kind's ``facts_writer`` that fails on a model's sub-block.
+
+    Attributes:
+        kind: The kind's name.
+        model: The model whose ``kind_blocks.<kind>`` the writer was handed.
+        cause: What the writer raised, as ``<type>: <message>``.
+    """
+
+    def __init__(self, kind: str, model: str, cause: str) -> None:
+        self.kind = kind
+        self.model = model
+        self.cause = cause
+        super().__init__(f"kind {kind}'s facts writer fails on model {model}'s block: {cause}")
 
 
 @dataclass(frozen=True)
@@ -545,6 +563,45 @@ def kind_table_row(declaration: KindDeclaration) -> dict[str, Any]:
         "corrector_roles": list(declaration.corrector_roles),
         "description": declaration.description,
     }
+
+
+def written_facts(
+    document: Mapping[str, Any], declared: Mapping[str, KindDeclaration]
+) -> dict[str, dict[str, Any]]:
+    """What each listed kind's ``facts_writer`` writes, for every model whose file lists it.
+
+    The writer is handed the facility file and the model's ``kind_blocks.<kind>``
+    (absent: empty). A kind's own facts are one per deployment: the build stops
+    when two models' blocks make its writer write two things.
+
+    Args:
+        document: The facility file.
+        declared: The registered kinds, by name.
+
+    Returns:
+        ``{kind: {model: facts}}``, the models in name order; a kind with no
+        writer, or listed by no model, has no entry.
+
+    Raises:
+        KindFactsError: A writer raised, or wrote no mapping, on a model's block.
+    """
+    written: dict[str, dict[str, Any]] = {}
+    for model in sorted(document.get("models") or [], key=lambda record: str(record["name"])):
+        measurement = model.get("measurement")
+        if not isinstance(measurement, Mapping):
+            continue
+        blocks = measurement.get("kind_blocks") or {}
+        for kind in measurement.get("kinds") or []:
+            declaration = declared.get(str(kind))
+            if declaration is None or declaration.facts_writer is None:
+                continue
+            try:
+                facts = dict(declaration.facts_writer(document, blocks.get(str(kind)) or {}))
+            except Exception as error:
+                cause = f"{type(error).__name__}: {error}"
+                raise KindFactsError(str(kind), str(model["name"]), cause) from error
+            written.setdefault(str(kind), {})[str(model["name"])] = facts
+    return written
 
 
 def block_problems(declaration: KindDeclaration, block: Any) -> list[str]:
