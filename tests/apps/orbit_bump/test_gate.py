@@ -17,9 +17,9 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from orbit_bump import APP_NAME
-from orbit_bump.server import LAUNCH_TOKEN_ENV, create_app
+from orbit_bump.server import create_app
 
-from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY
+from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY, launch_token_env
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthMiddleware
 from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS, ApplicationPanel, PanelRegistry
@@ -80,8 +80,11 @@ def test_the_backend_installs_the_gate() -> None:
     assert WebAuthMiddleware in {entry.cls for entry in create_app().user_middleware}
 
 
-def test_the_launch_token_is_read_from_the_apps_own_variable() -> None:
-    assert LAUNCH_TOKEN_ENV == "ORBIT_BUMP_LAUNCH_TOKEN"
+def test_the_launch_token_is_read_from_the_apps_own_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OSPREY_APP_NAME", APP_NAME)
+    assert launch_token_env() == "ORBIT_BUMP_LAUNCH_TOKEN"
 
 
 BACKEND = "http://127.0.0.1:9300"
