@@ -1,8 +1,7 @@
 """Process-lifetime failure counters for the dispatch worker.
 
-Monotonic per-failure-class error counts, incremented at *stamp time* by wiring
-:func:`increment` into ``failure_class._stamp`` through its
-``register_counter_hook`` seam (see :func:`install`).
+Monotonic per-failure-class error counts, incremented at *stamp time*:
+``failure_class._stamp`` calls :func:`increment` for every class it stamps.
 
 Why a dedicated counter rather than deriving counts from ``dispatch_api._runs``:
 that map is capacity-bounded (old entries are evicted once it exceeds
@@ -20,7 +19,7 @@ needs no lock — matching ``run_stats``.
 
 from __future__ import annotations
 
-from osprey.mcp_server.dispatch_worker.failure_class import FAILURE_CLASSES, register_counter_hook
+from osprey.mcp_server.dispatch_worker.failure_class import FAILURE_CLASSES
 
 # One monotonic counter per known failure class. Seeded with every valid class
 # so a reader never has to special-case an absent key.
@@ -28,7 +27,7 @@ _counts: dict[str, int] = dict.fromkeys(FAILURE_CLASSES, 0)
 
 
 def increment(failure_class: str) -> None:
-    """Count one stamped error of ``failure_class`` (the counter-hook callback).
+    """Count one stamped error of ``failure_class`` (called by ``_stamp``).
 
     Tolerates an unrecognised class by counting it under its own key, so an
     unexpected value can never silently drop a failure from the lifetime total.
@@ -39,15 +38,6 @@ def increment(failure_class: str) -> None:
 def get_counts() -> dict[str, int]:
     """Return a snapshot copy of the process-lifetime per-class counters."""
     return dict(_counts)
-
-
-def install() -> None:
-    """Wire :func:`increment` into ``failure_class._stamp`` via the seam.
-
-    Called once at worker startup. After this, every ``_stamp`` — at any
-    dispatch error site — bumps the matching lifetime counter here.
-    """
-    register_counter_hook(increment)
 
 
 def reset() -> None:
