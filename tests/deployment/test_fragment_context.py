@@ -284,14 +284,10 @@ def test_the_runtime_list_names_what_the_bundled_template_owns() -> None:
         "osprey_container_project_dir",
         "osprey_container_guarded_run_dir",
         "services.<k>.state_mounts",
-        "services.<k>.writes_enabled",
         "services.<k>.stop_grace_period",
         "services.<k>.ca_env",
         *GRANT_NAMES,
     } == set(APP_RUNTIME_CONTEXT)
-    assert APP_RUNTIME_CONTEXT["services.<k>.writes_enabled"] == (
-        "the render's `control_system.writes` tier arms writes (`asked` or `allowed`)"
-    )
     assert "`drives_target`" in APP_RUNTIME_CONTEXT["service"]
 
 
