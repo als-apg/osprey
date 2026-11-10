@@ -917,11 +917,11 @@ jobs:
         claude plugin marketplace add "$GITHUB_WORKSPACE"
         claude plugin install osprey@osprey
 
-    - name: Check the plugin exposes all ten skills
+    - name: Check the plugin exposes all eleven skills
       run: |
         claude plugin details osprey@osprey | tee /tmp/details.txt
-        grep -q 'Skills (10)' /tmp/details.txt
-        for s in contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
+        grep -q 'Skills (11)' /tmp/details.txt
+        for s in build-app contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
     - *stop-on-failed-cheap-lane
 
