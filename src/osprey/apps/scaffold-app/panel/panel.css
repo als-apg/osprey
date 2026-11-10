@@ -1,0 +1,26 @@
+/* The panel's own layout. The card, the channel label and the target chip are
+   design-system primitives (primitives.css). */
+
+.scaffold {
+  padding: var(--space-4);
+}
+
+.scaffold-card {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.scaffold-readback {
+  margin: var(--space-2) 0;
+  padding: 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 2.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.scaffold-error {
+  color: var(--color-error);
+}
+
+.scaffold-card > [data-field='target'] {
+  margin-left: var(--space-2);
+}

@@ -55,8 +55,11 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.series.loss_refill_bound": (
         "the framework's archive rewrite reads the loss refill bound"
     ),
+    "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
 }
 
 #: Interim: the listed names that had no user when this check was added. Each
@@ -106,7 +109,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.ipc.SETTLE_TIMEOUT_S",
         "osprey_connectors.ipc.verify_child_report",
         "osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR",
-        "osprey_connectors.posture_store.CONTROL_TREE_MARKER_NAME",
         "osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS",
         "osprey_connectors.posture_store.LOGIN_TIERS_KEY",
         "osprey_connectors.posture_store.VALID_POSTURES",

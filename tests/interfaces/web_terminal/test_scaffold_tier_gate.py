@@ -41,10 +41,8 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import (
-    register_scaffold_conflict_handlers,
-    unreadable_config_refusal,
-)
+from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
+from osprey.interfaces.web_terminal.config_view import unreadable_config_refusal
 from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -229,30 +227,25 @@ class TestEnabledServesWrites:
 # ---- Startup: the lifespan resolves the key once, onto app.state ----
 
 
+#: A render every raw reader in the lifespan parses but the deploy's loader
+#: refuses (a connector call bound still spelled ``timeout``): the gates' reader
+#: answers it as unreadable while the rest of start-up carries on.
+UNREADABLE_RENDER = "control_system:\n  connector:\n    epics:\n      timeout: 5\n"
+
+
 def _started_app(
     workspace_dir, configured, *, raises=False, no_config_file=False, monkeypatch=None
 ):
     """Run ``create_app``'s lifespan with *configured* as the key's value.
 
     ``configured`` of ``None`` omits the key, exercising the absent-key path;
-    ``raises=True`` makes the config read blow up, which is the unreadable-config
-    path the gate must close on. The app is handed a real ``config.yml`` under
-    the test's tmp dir, because the gates answer out of the file the lifespan
-    resolved. ``no_config_file=True`` hands it none and leaves neither
+    ``raises=True`` writes :data:`UNREADABLE_RENDER`, which is the
+    unreadable-config path the gate must close on. The app is handed a real
+    ``config.yml`` under the test's tmp dir carrying the key, because the gates
+    answer out of the file the lifespan resolved. ``no_config_file=True`` hands it none and leaves neither
     ``CONFIG_FILE`` nor a ``config.yml`` in the working directory to find (it
-    needs *monkeypatch*). ``get_config_value`` is patched at its definition
-    site because the reader imports it inside the function; every other key it
-    reads falls through to the default the caller passed.
+    needs *monkeypatch*).
     """
-
-    def fake_get_config_value(key, default=None, *args, **kwargs):
-        if key == SCAFFOLD_WRITE_KEY:
-            if raises:
-                raise OSError("config.yml is unreadable")
-            if configured is not None:
-                return configured
-        return default
-
     root = workspace_dir.parent
     if no_config_file:
         empty = root / "empty"
@@ -262,13 +255,15 @@ def _started_app(
         config_path = None
     else:
         config_path = root / "config.yml"
-        config_path.write_text(yaml.safe_dump({"project_name": "scaffold-tier-gate"}))
+        if raises:
+            config_path.write_text(UNREADABLE_RENDER)
+        else:
+            document: dict = {"project_name": "scaffold-tier-gate"}
+            if configured is not None:
+                document["web"] = {"scaffold_gallery": {"write_enabled": configured}}
+            config_path.write_text(yaml.safe_dump(document))
 
-    with terminal_client(
-        workspace_dir,
-        patch("osprey_connectors.config.get_config_value", fake_get_config_value),
-        config_path=config_path,
-    ) as client:
+    with terminal_client(workspace_dir, config_path=config_path) as client:
         yield client
 
 

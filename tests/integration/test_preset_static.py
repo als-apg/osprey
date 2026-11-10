@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.build_profile import _load_preset_raw, resolve_build_profile
-from osprey.cli.build_profile_presets import list_apps, list_tiers
+from osprey.cli.build_profile_presets import list_tiers, preset_apps
 from osprey.cli.templates.artifact_library import validate_artifacts
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -151,7 +151,7 @@ def test_preset_yaml_parses_and_artifacts_resolve(preset: str) -> None:
 
 def _all_layers() -> list[str]:
     """Every bundled tier and app, named ``<kind>/<stem>`` as the preset reader takes it."""
-    return [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()]
+    return [f"tiers/{name}" for name in list_tiers()]
 
 
 def _unknown_web_panels(panels: list[str], config: dict) -> list[str]:
@@ -220,7 +220,7 @@ def test_tier_and_app_web_panels_against_registry(layer: str) -> None:
 
 def test_the_layer_listing_is_not_empty() -> None:
     """Guards the layer parametrization above against running over nothing."""
-    assert {"tiers/readonly", "apps/logbook"} <= set(_all_layers())
+    assert {"tiers/readonly", "tiers/logbook"} <= set(_all_layers())
 
 
 def _iter_skill_files() -> list[Path]:
@@ -367,3 +367,26 @@ def _flatten(node: object, prefix: str = "") -> list[tuple[str, object]]:
     for key, value in node.items():
         out.extend(_flatten(value, f"{prefix}.{key}" if prefix else str(key)))
     return out
+
+
+def test_every_listed_application_ships_beside_the_preset() -> None:
+    """A preset's ``apps:`` block names only applications the package carries.
+
+    Orbit bump ships with OSPREY and no preset turns it on.
+    """
+    apps_dir = PRESETS_DIR / "apps"
+    shipped = {path.name for path in apps_dir.iterdir()}
+    listed = {name for preset in _all_presets() for name in preset_apps(preset)}
+    assert shipped == {"orbit-bump"}
+    assert listed == set()
+    for name in shipped:
+        assert (apps_dir / name / "app.yml").is_file()
+        assert (apps_dir / name / "pyproject.toml").is_file()
+
+
+@pytest.mark.parametrize("layer", _all_layers())
+def test_no_login_spells_the_arming_of_an_application(layer: str) -> None:
+    """A login arms an application by its tier; its file spells no arming and no policy."""
+    document = _load_preset_raw(layer)[0]
+    assert not (document.get("apps") or {})
+    assert not [key for key, _ in _flatten(document) if "mcp__orbit-bump__" in key]

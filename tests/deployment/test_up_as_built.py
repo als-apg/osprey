@@ -1449,13 +1449,19 @@ def built_repo(_real_build):
     from click.testing import CliRunner as _CliRunner
 
     from osprey.cli.build_cmd import build as build_cmd
+    from osprey.deployment import wheel_build
+    from tests.deployment.test_deployment_packages_install import _fake_wheel
 
     repo = build_exemplar_repo(_real_build["parent"] / EXEMPLAR_DIRNAME)
-    result = _CliRunner().invoke(
-        build_cmd,
-        ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
-        catch_exceptions=False,
-    )
+    # The wheel builds run under this module's stand-in subprocess.run, which
+    # makes no file, so the preset's application package gets a stand-in wheel.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(wheel_build, "_build_wheel", _fake_wheel)
+        result = _CliRunner().invoke(
+            build_cmd,
+            ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+            catch_exceptions=False,
+        )
     assert result.exit_code == 0, result.output
     _real_build["repo"] = repo
     return repo
