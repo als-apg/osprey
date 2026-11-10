@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -531,18 +531,27 @@
                   
   <section id="llm-providers">
 <h1>LLM Providers<a class="headerlink" href="#llm-providers" title="Link to this heading">#</a></h1>
-<p>Two separate decisions sit behind every model call OSPREY makes. <em>Which
-provider</em> you use – an Anthropic-native endpoint (Anthropic itself or an
-institutional proxy), an OpenAI-compatible endpoint, or a model served on your
-own hardware – is a matter of endpoints and API keys. <em>Which model handles
-which task</em> is routing, and OSPREY has two consumers to route for: the OSPREY
-agent speaks the Anthropic Messages API, while the MCP tool servers call the
-same named providers directly through LiteLLM. Both draw endpoints and keys
-from one catalog – <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> beside the deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
-rendered into <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> – so a key set there serves both. Which
-provider and model each one runs on is chosen separately: the profile’s
-top-level <code class="docutils literal notranslate"><span class="pre">provider:</span></code> field for the agent, and each tool server’s own
-provider setting, some of which default to the agent’s.</p>
+<p>Use these pages to choose which provider and which model each OSPREY model
+call uses. You make two separate decisions:</p>
+<ul class="simple">
+<li><p><strong>Which provider.</strong> A provider is an endpoint and its API key. It can be an
+Anthropic-native endpoint (Anthropic itself or an institutional proxy), an
+OpenAI-compatible endpoint, or a model served on your own hardware. You
+declare providers in one catalog, <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> beside the deployment’s
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, which is rendered into <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>.</p></li>
+<li><p><strong>Which model handles which task.</strong> This is routing. OSPREY routes for two
+consumers, and you choose the provider and model for each one separately:</p>
+<ul>
+<li><p><strong>The OSPREY agent</strong> speaks the Anthropic Messages API. Set its provider
+and model in the profile’s top-level <code class="docutils literal notranslate"><span class="pre">provider:</span></code> and <code class="docutils literal notranslate"><span class="pre">model:</span></code> fields.</p></li>
+<li><p><strong>The MCP (Model Context Protocol) tool servers</strong> call the same named
+providers directly through LiteLLM. Set each tool server’s own provider
+setting. Some of these default to the agent’s.</p></li>
+</ul>
+</li>
+</ul>
+<p>Both consumers draw endpoints and keys from the same catalog, so a key you set
+there serves both.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -561,11 +570,10 @@ point the agent at one.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Run Open &amp; Local Models</div>
-<p class="sd-card-text">Running the agent on open-weight or self-hosted models: how the local
+<p class="sd-card-text">Run the agent on open-weight or self-hosted models. Covers how the local
 translation proxy bridges an OpenAI-protocol endpoint to the Anthropic
-Messages API, the same way whether the model is remote or on your own
-machine, which open models are known to sustain the full e2e suite, and
-how to benchmark one yourself.</p>
+Messages API, remote or on your own machine. Also lists the open models
+known to sustain the full end-to-end (e2e) test suite, and how to benchmark one yourself.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="run-open-models.html"><span class="doc">Run Open &amp; Local Models</span></a></div>
 </div>

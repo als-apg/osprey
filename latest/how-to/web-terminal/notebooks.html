@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -541,8 +541,8 @@ write gates and with the same refusal text. Notebooks are ordinary files on a
 durable path, so they outlive the container, and the OSPREY agent can edit
 them alongside you.</p>
 <p>The panel starts one kernel, <strong>OSPREY</strong>. A request for any other kernelspec,
-the interpreter’s own <code class="docutils literal notranslate"><span class="pre">python3</span></code> included, is refused, and a notebook that
-names no kernel gets the OSPREY one, so every cell runs under the gates below.</p>
+the interpreter’s own <code class="docutils literal notranslate"><span class="pre">python3</span></code> included, is refused. A notebook that names no
+kernel gets the OSPREY one, so every cell runs under the gates below.</p>
 <section id="turning-the-panel-on">
 <h2>Turning the panel on<a class="headerlink" href="#turning-the-panel-on" title="Link to this heading">#</a></h2>
 <p>The panel is a built-in with the id <code class="docutils literal notranslate"><span class="pre">jupyter</span></code>. The <code class="docutils literal notranslate"><span class="pre">demo</span></code>
@@ -600,8 +600,10 @@ channel nothing serves would fail on its first run.</p>
 <h2>Which machine a kernel writes to<a class="headerlink" href="#which-machine-a-kernel-writes-to" title="Link to this heading">#</a></h2>
 <p>A kernel has no control-system identity of its own, and it follows no chat
 session. Cells read and write through the deployment’s current control target
-and write posture — the same one the control-target block in the sidebar shows and the agent
-uses.</p>
+and write posture, the same ones the control-target chip in the sidebar shows
+and the agent uses. The <em>write posture</em> is the position of the write switch on
+that chip, for example writes asked, allowed or off (see
+<a class="reference internal" href="operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a> for every state the chip shows).</p>
 <p>The kernel re-reads that before <strong>every cell</strong>, so a switch made anywhere, by
 anyone, reaches the next cell you run. A cell can read back what it was routed
 with:</p>
@@ -614,14 +616,37 @@ with:</p>
 </div>
 <p><strong>Nothing restarts.</strong> Switch the control target from the chip, or move the
 write switch, and the next cell you run is routed by the new state.</p>
-<p>Inside the web terminal the control-target block in the sidebar is the only
-place to do that; the JUPYTER tab carries no chip of its own. A notebook
-in a window of its own has no sidebar beside it, so that window shows the
-same chip in its top-right corner. It is the same
-switch either way: a change made from either place lands deployment-wide.</p>
-<p>A cell already running is not re-routed — but taking writes away still
-reaches it. The two directions are not symmetric, and the difference is worth
-knowing:</p>
+<p>Inside the web terminal, the chip in the sidebar is the only place to do that;
+the JUPYTER tab carries no chip of its own. A notebook in a window of its own
+has no sidebar beside it, so that window shows the same chip in its top-right
+corner. It is the same switch either way: a change made from
+either place lands deployment-wide.</p>
+<p>A cell already running is not re-routed, but taking writes away still reaches
+it:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 30.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Change</p></th>
+<th class="head"><p>Reaches the running cell?</p></th>
+<th class="head"><p>Reaches the next cell?</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Turn writes off</p></td>
+<td><p>Yes, at its next write</p></td>
+<td><p>Yes</p></td>
+</tr>
+<tr class="row-odd"><td><p>Widen writes, or switch the machine</p></td>
+<td><p>No</p></td>
+<td><p>Yes</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 <ul class="simple">
 <li><p><strong>Turning writes off lands at once.</strong> The connector re-reads the write
 posture on every write, so the running cell’s very next write is refused.</p></li>
@@ -643,27 +668,34 @@ routed nowhere rather than to a guess:</p>
 </div>
 <p>It works the other way too. From a cell’s first control-system call until that
 cell ends, a switch asked for anywhere in the deployment is refused and names
-the kernel holding the target, so whoever asked knows to interrupt it rather
-than wait on nothing. A cell that touches no channel holds nothing.</p>
-<p>The record a cell reads is the one belonging to whoever the kernel’s terminal
-is acting as, and a kernel finds it without being told. The build points each
-terminal’s container at its own record directory through
-<code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_CONTEXT_DIR</span></code>, and a kernel reads that; where nothing names
-one, it falls back to the agent-data root and the name it is acting as. Where
-its own audit records are filed is a separate question, answered by that name
-rather than by a directory: a kernel starts with most of the environment around
-it stripped away, and <code class="docutils literal notranslate"><span class="pre">OSPREY_AUDIT_IDENTITY</span></code> — the name the deployment
-gives the container it runs in — is what survives the stripping. In a
-multi-user deployment both answers are the user whose terminal the kernel
-belongs to, so a cell reads that user’s own chip settings and nobody else’s.</p>
-<p>Each channel a cell writes leaves one <code class="docutils literal notranslate"><span class="pre">allowed</span></code> record on the
-<code class="docutils literal notranslate"><span class="pre">notebook_kernel</span></code> surface, filed after the put. Its reason says how the write
-ended: <code class="docutils literal notranslate"><span class="pre">write_landed</span></code> when the write was verified, <code class="docutils literal notranslate"><span class="pre">write_unconfirmed</span></code> when
-the value was sent but not verified. The record’s <code class="docutils literal notranslate"><span class="pre">detail</span></code> names the channel
-and the account and host the control system saw the write come from, which is
-what joins it to a gateway’s put-log. A refused write reaches no channel and
-leaves only its refusal record. See <a class="reference internal" href="../../reference/contracts/audit-trail.html#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a>.</p>
-<p>A cell carries no target at all in two cases: the deployment’s control-context
+the kernel holding the target. Whoever asked then knows to interrupt the kernel
+rather than wait on nothing. A cell that touches no channel holds nothing.</p>
+<p>In a multi-user deployment, a cell reads the chip settings of the user whose
+terminal the kernel belongs to, and nobody else’s.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text">Under the hood: whose record a kernel reads, and what a write leaves</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The record a cell reads is the one belonging to whoever the kernel’s
+terminal is acting as, and a kernel finds it without being told. The build
+points each terminal’s container at its own record directory through
+<code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_CONTEXT_DIR</span></code>, and a kernel reads that. Where nothing names
+one, it falls back to the agent-data root and the name it is acting as.</p>
+<p class="sd-card-text">Where its own audit records are filed is a separate question, answered by
+that name rather than by a directory. A kernel starts with most of the
+environment around it stripped away, and <code class="docutils literal notranslate"><span class="pre">OSPREY_AUDIT_IDENTITY</span></code> (the name
+the deployment gives the container it runs in) is what survives the
+stripping. In a multi-user deployment both answers are the user whose
+terminal the kernel belongs to.</p>
+<p class="sd-card-text">Each channel a cell writes leaves one <code class="docutils literal notranslate"><span class="pre">allowed</span></code> record on the
+<code class="docutils literal notranslate"><span class="pre">notebook_kernel</span></code> surface, filed after the put. Its reason says how the
+write ended: <code class="docutils literal notranslate"><span class="pre">write_landed</span></code> when the write was verified,
+<code class="docutils literal notranslate"><span class="pre">write_unconfirmed</span></code> when the value was sent but not verified. The record’s
+<code class="docutils literal notranslate"><span class="pre">detail</span></code> names the channel and the account and host the control system saw
+the write come from. That is what joins it to a gateway’s put-log. A refused
+write reaches no channel and leaves only its refusal record. See
+<a class="reference internal" href="../../reference/contracts/audit-trail.html#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a>.</p>
+</div>
+</details><p>A cell carries no target at all in two cases: the deployment’s control-context
 record is missing or unreadable, or it names a machine this deployment cannot
 build — a target whose connector block was never rendered, or was removed
 under it. Reads then answer from the deployment’s baseline target and every
@@ -724,7 +756,7 @@ never silently replaced.</p></li>
 <h2>Notebooks in a multi-user deployment<a class="headerlink" href="#notebooks-in-a-multi-user-deployment" title="Link to this heading">#</a></h2>
 <p>The multi-user stack gives every user their own container and their own
 volumes, which a redeploy never touches (<a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a>), so
-notebooks are per user. There is no shared notebook folder in this release.
+notebooks are per user. There is no shared notebook folder.
 Sharing a notebook means handing over the file.</p>
 </section>
 <section id="what-a-notebook-output-cannot-run">
@@ -785,9 +817,9 @@ the tooltip reads <em>JUPYTER is starting</em> and the tile shows <em>Starting
 JupyterLab…</em> until the attempt settles. A start that succeeds opens the tab;
 one that fails again shows its new reason.</p>
 <p>A sidecar that dies after it started turns the entry the same way within about
-ten seconds. JupyterLab reads <em>Disconnected</em> first and saves fail, and there is
-nowhere else to save to, so copy any unsaved cells out of the browser before you
-start it again.</p>
+ten seconds. JupyterLab reads <em>Disconnected</em> first and saves fail, with nowhere
+else to save to. Copy any unsaved cells out of the browser before you start it
+again.</p>
 <p>When JupyterLab stops answering but the sidecar still runs, click the <strong>Reload</strong>
 icon on the tile bar. This loads JupyterLab again; the kernels keep running. To
 stop the sidecar and start a new one, open the tile’s <strong>⋯</strong> menu and select
@@ -797,8 +829,8 @@ running kernels stop and their unsaved state is lost.</p>
 sentence as a warning row when the terminal recorded a failure, and a skip row
 otherwise, so it never claims a panel is healthy on evidence it does not have.</p>
 </section>
-<section id="not-in-this-release">
-<h2>Not in this release<a class="headerlink" href="#not-in-this-release" title="Link to this heading">#</a></h2>
+<section id="limitations">
+<h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p>The agent cannot run cells. It edits notebook files; you run them.</p></li>
 <li><p>No real-time collaborative editing. Two people in one notebook fall back to
@@ -872,7 +904,7 @@ the save-time dialog above.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-notebook-output-cannot-run">What a notebook output cannot run</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-tab-is-themed">How the tab is themed</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-tab-fails-to-start">When the tab fails to start</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#not-in-this-release">Not in this release</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
 </ul>
   </nav></div>
 

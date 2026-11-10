@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -539,18 +539,21 @@
 </pre></div>
 </div>
 <p>It boots a local server on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100</span></code> and prints a login URL of
-the form <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100/?token=…</span></code>. Opening that URL (your browser
-opens it for you) signs you in and then redirects to the clean
-<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100</span></code> address; every later request rides the cookie it
-sets. That cookie is good for 12 hours by default and outlives closing the
-browser, so on a console other people sit at, shorten it — set
+the form <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100/?token=…</span></code>. Your browser opens that URL for
+you.</p>
+<p>Opening the URL signs you in and then redirects to the clean
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100</span></code> address. Every later request rides the cookie it
+sets.</p>
+<p>The cookie is good for 12 hours by default, and it outlives closing the
+browser. On a console other people sit at, shorten it: set
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.session_lifetime</span></code> in the deployment’s config
-(see <a class="reference internal" href="multi-user/login.html"><span class="doc">Require a Login</span></a>). The URL is printed once, but the token in it is
-the server’s own secret and keeps working for as long as that server runs —
-treat it like a password rather than a one-shot code.</p>
+(see <a class="reference internal" href="multi-user/login.html"><span class="doc">Require a Login</span></a>).</p>
+<p>The URL is printed once, but the token in it is the server’s own secret. It
+keeps working for as long as that server runs, so treat it like a password
+rather than a one-shot code.</p>
 <p>If <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET</span></code> is already set in the environment you launch
-from, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> uses that value rather than minting one, and says so
-instead of printing a URL — the URL was printed wherever that secret came from.
+from, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> uses that value rather than minting one. It says so
+instead of printing a URL: the URL was printed wherever that secret came from.
 Unset it and start again to get a freshly minted one.</p>
 <p>Override the defaults, or point it at another project, with <code class="docutils literal notranslate"><span class="pre">--host</span></code>,
 <code class="docutils literal notranslate"><span class="pre">--port</span></code>, and <code class="docutils literal notranslate"><span class="pre">--repo</span></code>.</p>
@@ -560,19 +563,20 @@ osprey<span class="w"> </span>web<span class="w"> </span>stop<span class="w">   
 </pre></div>
 </div>
 <p>In background mode the process id and logs are written to
-<code class="docutils literal notranslate"><span class="pre">var/osprey-web.pid</span></code> and <code class="docutils literal notranslate"><span class="pre">var/osprey-web.log</span></code> in the project directory. The
-login token lives only in the running process’s memory and is never written to
-disk, so if you lose the printed URL there is no way to recover it: stop the
-server and start it again (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--detach</span></code>) to
-mint a fresh one. Browsers already signed in stay signed in across that
-restart — their sessions live in a store on disk; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">sessions</span> <span class="pre">clear</span></code>
-(with the server stopped) forgets them.</p>
+<code class="docutils literal notranslate"><span class="pre">var/osprey-web.pid</span></code> and <code class="docutils literal notranslate"><span class="pre">var/osprey-web.log</span></code> in the project directory.</p>
+<p>The login token lives only in the running process’s memory and is never
+written to disk. If you lose the printed URL, there is no way to recover it.
+Stop the server and start it again (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> then
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--detach</span></code>) to mint a fresh one.</p>
+<p>Browsers already signed in stay signed in across that restart, because their
+sessions live in a store on disk. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">sessions</span> <span class="pre">clear</span></code> (with the
+server stopped) forgets them.</p>
 <section id="what-you-get">
 <h2>What you get<a class="headerlink" href="#what-you-get" title="Link to this heading">#</a></h2>
 <p>The window has a sidebar on the left and two panes:</p>
-<ul class="simple">
+<ul>
 <li><p><strong>Sidebar</strong> (left) — the list of everything you can open:
-the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target block</span></a> (which
+the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> (which
 machine this deployment writes to, and whether it may), search, the
 <strong>Sessions</strong> row, the <strong>Apps</strong> and <strong>System</strong> sections, and a footer with <strong>Docs</strong>,
 <strong>Feedback</strong> (see <a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>), <strong>Sign out</strong> (multi-user
@@ -584,28 +588,30 @@ at the left of the Agent bar). It survives reconnects, and you can keep a
 few background conversations alive and hop between them.
 Close the pane with its <strong>×</strong>; the <strong>Sessions</strong> row in the sidebar opens it again.</p></li>
 <li><p><strong>Work pane</strong> (middle) — the artifacts and panels you open from the sidebar,
-in tiles you arrange by dragging (<a class="reference internal" href="#tiles">Tiles</a>). New artifacts,
-plots, and data files appear under their session in the sidebar
-(<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>) as the agent creates them, with no refresh.
-On a fresh demo deployment the tree is not empty: its first
-deploy lays down three past sessions from the <code class="docutils literal notranslate"><span class="pre">demo-history</span></code> scenario,
-with their transcripts and artifacts, which you can open and resume (see
-<a class="reference internal" href="../run-scenarios.html#how-to-run-scenarios"><span class="std std-ref">Run and write scenarios</span></a>). Your
-control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
-on) open here too. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p></li>
+in tiles you arrange by dragging (<a class="reference internal" href="#tiles">Tiles</a>). New artifacts, plots, and data
+files appear under their session in the sidebar (<a class="reference internal" href="#sessions-and-artifacts">Sessions and artifacts</a>)
+as the agent creates them, with no refresh. Your control-system tools
+(Channel Finder, the Logbook, the knowledge panel, and so on) open here too.
+See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p>
+<p>On a fresh demo deployment the tree is not empty. Its first deploy lays down
+three past sessions from the <code class="docutils literal notranslate"><span class="pre">demo-history</span></code> scenario, with their
+transcripts and artifacts. You can open and resume them (see
+<a class="reference internal" href="../run-scenarios.html#how-to-run-scenarios"><span class="std std-ref">Run and write scenarios</span></a>).</p>
+</li>
 </ul>
 <p>The settings drawer (<strong>☰ More</strong> › <strong>Settings</strong>) lets you read and edit the
-project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — and
-the agent’s own setup and memory files — from the browser, so you rarely need
-to drop back to an editor. Changes prompt you to restart the terminal so the
-agent picks them up.</p>
+project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, and the agent’s own setup and memory files, from the
+browser. You rarely need to drop back to an editor. Changes prompt you to
+restart the terminal so the agent picks them up.</p>
 <p>Copying text works the way it does in a desktop terminal: drag over the
-agent’s output and the selection is already on your clipboard — no key to
-press. To grab raw screen text instead (say, while the agent is busy), hold
-Option (macOS) or Shift while dragging, then copy with Cmd+C or Ctrl+Shift+C;
-plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
-this to work in every browser — on a plain <code class="docutils literal notranslate"><span class="pre">http://</span></code> page copying falls
-back to an older browser mechanism that Safari may refuse.</p>
+agent’s output and the selection is already on your clipboard, with no key to
+press.</p>
+<p>To grab raw screen text instead (say, while the agent is busy), hold Option
+(macOS) or Shift while dragging. Then copy with Cmd+C or Ctrl+Shift+C. Plain
+Ctrl+C always interrupts the agent.</p>
+<p>Serve the terminal over HTTPS for copying to work in every browser. On a plain
+<code class="docutils literal notranslate"><span class="pre">http://</span></code> page, copying falls back to an older browser mechanism that Safari
+may refuse.</p>
 </section>
 <section id="tiles">
 <span id="web-terminal-tiles"></span><h2>Tiles<a class="headerlink" href="#tiles" title="Link to this heading">#</a></h2>
@@ -636,47 +642,44 @@ whole side.</p></li>
 header or centre does nothing. The agent pane is always its own tile: a drop
 onto it splits it, and a panel never replaces it.</p>
 <p><strong>×</strong> closes the tile; its space goes to the tile it was split from. The panel
-stays in the sidebar, and its row opens it again. The arrangement — tiles, the
-panel each shows, sizes — is remembered by the browser you set it in. A layout
-saved by an earlier release with several panels in one tile comes back
-showing the panel that was in front; the others are in the sidebar.</p>
+stays in the sidebar, and its row opens it again. The browser you set it in
+remembers the arrangement: tiles, the panel each shows, and sizes.</p>
+<p>A layout saved by an earlier release with several panels in one tile comes
+back showing the panel that was in front. The others are in the sidebar.</p>
 </section>
 <section id="the-chat-and-the-terminal">
 <span id="web-terminal-one-session"></span><h2>The chat and the terminal<a class="headerlink" href="#the-chat-and-the-terminal" title="Link to this heading">#</a></h2>
 <p>The Agent pane is the operator chat. To reach the agent’s terminal, click the
 session title at the left of the Agent bar and pick <strong>Open terminal</strong>, the last
-row; <strong>Back to chat</strong> returns.
-The choice belongs to the browser tab, and a new tab opens on the chat. The
-chat and the terminal are two windows onto one conversation: they share one
-session, one write state and one transcript, and only the one you are looking
-at runs the agent. A deployment can leave the terminal out; see
+row; <strong>Back to chat</strong> returns. The choice belongs to the browser tab, and a new
+tab opens on the chat.</p>
+<p>The chat and the terminal are two windows onto one conversation. They share
+one session, one write state and one transcript, and only the one you are
+looking at runs the agent. A deployment can leave the terminal out; see
 <a class="reference internal" href="../../reference/configuration/config.html#config-web-terminal"><span class="std std-ref">Offering the terminal</span></a>.</p>
-<p>Handing the agent over waits for the work in flight. Switch while the agent is
-mid-turn and the side you arrive in reads <em>Finishing the running turn</em> with
-the time you have been waiting, and offers <strong>Stop and switch now</strong>. Let it
-finish and the conversation reappears where it left off, with everything said
-so far already in the log. Nothing is ended on a clock: only the turn
-finishing, closing the page, or that button ends it. The button interrupts the
-agent, and stops it outright if it has not yielded within five seconds.</p>
-<p>Switch while the other side’s agent is idle and there is nothing to wait for:
-the side you arrive in reads <em>Restarting the agent…</em>, with no
-clock and no stop button. A restart that runs past about four seconds turns
-into the wait above.</p>
-<p>A refusal can meet you instead of the wait. <em>This session is in use in
-another tab.</em> means another browser tab holds it, so close that tab or
-work there instead. <em>The previous agent is still shutting down.</em> is the one
-worth retrying, and the card offers <strong>Retry</strong>.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><strong>Deployments built before this release.</strong> The wait needs the
-<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> hook, which tells the web terminal when a turn starts and
-ends, and a deployment scaffolded earlier does not have it: add
-<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> to the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.
-Without it, switching away from a terminal that might be working never
-waits. It says <em>The agent may still be working.</em> and offers only
-<strong>Stop and switch now</strong>, and a terminal that was idle all along can still
-take the full five seconds to hand over.</p>
-</div>
+<p>Handing the agent over waits for the work in flight. What you see depends on
+what the agent on the other side is doing when you switch:</p>
+<ul class="simple">
+<li><p><strong>Mid-turn.</strong> The side you arrive in reads <em>Finishing the running turn</em>,
+with the time you have been waiting, and offers <strong>Stop and switch now</strong>. Let
+the turn finish and the conversation reappears where it left off, with
+everything said so far already in the log.</p></li>
+<li><p><strong>Idle.</strong> There is nothing to wait for. The side you arrive in reads
+<em>Restarting the agent…</em>, with no clock and no stop button. A restart that
+runs past about four seconds turns into the mid-turn wait.</p></li>
+</ul>
+<p>Nothing ends the wait on a clock: only the turn finishing, closing the page,
+or <strong>Stop and switch now</strong> ends it. The button interrupts the agent, and stops
+it outright if it has not yielded within five seconds. A deployment built
+before this wait existed behaves differently; see
+<a class="reference internal" href="#web-terminal-upgrading"><span class="std std-ref">Upgrading from earlier releases</span></a>.</p>
+<p>A refusal can meet you instead of the wait:</p>
+<ul class="simple">
+<li><p><em>This session is in use in another tab.</em> means another browser tab holds
+it. Close that tab, or work there instead.</p></li>
+<li><p><em>The previous agent is still shutting down.</em> is the one worth retrying, and
+the card offers <strong>Retry</strong>.</p></li>
+</ul>
 <p>The chat and the terminal run the same Claude Code version, the one
 <code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> names. If the chat is refused because that version
 is not installed, the server log says which one to install; see
@@ -696,14 +699,15 @@ From 80 percent it suggests <code class="docutils literal notranslate"><span cla
 <h3>Attaching a file<a class="headerlink" href="#attaching-a-file" title="Link to this heading">#</a></h3>
 <p>Attach a file to a message with the paperclip button. You can also paste an
 image, or drop a file on the composer. The file is uploaded when you attach
-it. The chip shows the file name and its size. To remove a chip, select its
-<strong>x</strong> button. Type your question, then send. The chat does not send a file by
-itself. The agent opens the file with its Read tool.</p>
+it. An attachment chip shows the file name and its size. To remove an
+attachment, select its chip’s <strong>x</strong> button. Type your question, then send.
+The chat does not send a file by itself. The agent opens the file with its
+Read tool.</p>
 <p>The chat accepts images (PNG, JPEG, GIF, WebP), PDF files, and plain-text files
 (TXT, LOG, CSV, JSON, YAML, Markdown, Python). A file can be 20 MB at most. A
 message can carry 10 files. One chat can hold 200 MB of files. A file of
-another type, or a file that is too large, is refused. The chip shows the
-reason.</p>
+another type, or a file that is too large, is refused. The attachment chip
+shows the reason.</p>
 <p>The agent reads an attached file from the uploads directory under the agent
 data directory. The deployment allows the agent to read that directory, so the
 read raises no approval card. A file outside it can still raise one. A file
@@ -712,15 +716,16 @@ that you attach but never send is deleted after 24 hours.</p>
 </section>
 <section id="the-control-target-chip">
 <span id="web-terminal-session-posture"></span><h2>The control-target chip<a class="headerlink" href="#the-control-target-chip" title="Link to this heading">#</a></h2>
-<p>The sidebar carries a block that answers, at a glance, the question every write
-depends on: <em>if the agent writes now, which machine does it land on, and may
-it?</em> It is one row: an icon with the machine’s dot, the machine’s name, the
-write state, a dot for the health of the deployment’s services, and an arrow.
-It reads like this:</p>
+<p>The chip shows which machine the agent writes to and whether it may. It sits
+in the sidebar and answers, at a glance, the question every write depends on:
+<em>if the agent writes now, which machine does it land on, and may it?</em></p>
+<p>It is one row: an icon with the machine’s dot, the machine’s name, the write
+state, a dot for the health of the deployment’s services, and an arrow. It
+reads like this:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>⌖ Rehearsal  writes asked  •  ⇕
 </pre></div>
 </div>
-<p>Put the pointer on the block to see the same facts as one sentence, for
+<p>Put the pointer on the chip to see the same facts as one sentence, for
 example <em>Control system: Rehearsal, writes asked</em>. Put the pointer on the small
 health dot to see the health of the services.</p>
 <p>The first part names the machine this deployment stands on, by what it <strong>is</strong>:</p>
@@ -732,9 +737,9 @@ no hardware behind it. Nothing moves.</p></li>
 served from its container or in process. Nothing moves.</p></li>
 </ul>
 <p>A deployment can put its own names on its machines (<em>Example Research
-Facility storage ring</em> rather than <em>Live</em>); what the machine is stays
-behind the small ⓘ beside its name either way, and that tooltip also keeps the
-controls server’s own technical label.</p>
+Facility storage ring</em> rather than <em>Live</em>). What the machine is stays behind
+the small ⓘ beside its name either way. That tooltip also keeps the controls
+server’s own technical label.</p>
 <p>The second part is <strong>your login’s</strong> write switch for that machine, and what
 the next write would get:</p>
 <ul class="simple">
@@ -748,27 +753,29 @@ refuses the write. The popover shows the phrase for it and who lifts it.</p></li
 <li><p><strong>· program</strong> after any of these — for example <strong>writes off · program</strong>:
 a program’s write authorization you approved is in force on this machine
 (see <a class="reference internal" href="#web-terminal-approve-program"><span class="std std-ref">Approve a program’s writes</span></a>). The word before it is still your
-own switch; the program may write the channels you approved, inside their
+own switch. The program may write the channels you approved, inside their
 ranges, until it ends, whatever your switch says. Its dot is a ring around a
 centre rather than a solid dot. The machine’s <em>off</em> control revokes it, and
 the program’s next write is refused.</p></li>
 </ul>
 <p>A switch is one login’s. Two logins on the same machine each have their own,
 and one login’s position never changes the other’s writes.</p>
-<p>Click the chip and a popover opens next to the sidebar on <strong>every</strong> control
-target the deployment configures, not only the one you are standing on. A
-click outside the popover, Escape, or a change of the window or sidebar width
-closes it. When a confirm dialog is open over the popover, the first Escape
-closes only the dialog.</p>
+<p>Click the chip to open a popover next to the sidebar. It covers <strong>every</strong>
+control target the deployment configures, not only the one you are standing
+on. A click outside the popover, Escape, or a change of the window or sidebar
+width closes it. When a confirm dialog is open over the popover, the first
+Escape closes only the dialog.</p>
 <section id="the-machine-you-are-on-and-the-others">
 <h3>The machine you are on, and the others<a class="headerlink" href="#the-machine-you-are-on-and-the-others" title="Link to this heading">#</a></h3>
-<p>The machine the agent stands on is a card at the top: its name and its writes
+<p>The machine the agent stands on is a card at the top: its name and its write
 switch. Every other machine is a row below the card with the same shape and
-the actions. What writing to a machine means (<em>Writes move hardware</em>, or one
-of the <em>nothing moves</em> lines) sits with its endpoint and the server’s own
-label behind the small ⓘ beside each name, on hover or keyboard focus:</p>
+the actions.</p>
+<p>What writing to a machine means (<em>Writes move hardware</em>, or one of the
+<em>nothing moves</em> lines) sits behind the small ⓘ beside each name, on hover or
+keyboard focus. The machine’s endpoint and the server’s own label sit there
+too. The controls are:</p>
 <ul class="simple">
-<li><p><strong>The writes switch</strong> — per machine, for every session of this login:
+<li><p><strong>The write switch</strong> — per machine, for every session of this login:
 <em>off</em>, <em>asked</em> or <em>allowed</em>. <em>Off</em> is always available. A position your tier
 or a lock forbids is disabled, with the reason on hover.</p></li>
 <li><p><strong>Switch to</strong> — moves the deployment onto that machine. Where a switch is
@@ -782,8 +789,8 @@ the go-live edit.</p></li>
 its name. A machine that answers says nothing about it. Endpoints, gateway
 roles and the age of the last probe stay on the tooltips and in the
 confirmation dialogs, where the decision is actually made.</p>
-<p>The foot has <strong>Turn all writes off</strong>: every switch of your login goes off in
-one click, a machine no longer configured included, and every program
+<p>The foot has <strong>Turn all writes off</strong>. In one click, every switch of your login
+goes off, a machine no longer configured included, and every program
 authorization you approved is revoked. It stops your login’s writes only;
 other logins keep theirs. It is enabled while any of your switches is armed or
 a program authorization of yours is in force.</p>
@@ -792,65 +799,94 @@ a program authorization of yours is in force.</p>
 <span id="web-terminal-approve-program"></span><h3>Approve a program’s writes<a class="headerlink" href="#approve-a-program-s-writes" title="Link to this heading">#</a></h3>
 <p>A program that writes with nobody at a prompt, such as an optimizer run, asks
 for a <strong>write authorization</strong>: these channels, inside these ranges, this many
-writes, until this time. A request that names your login appears in the
-popover under <strong>Programs</strong>, with <strong>Review</strong>. The card shows:</p>
+writes, until this time. To approve a request that names your login:</p>
+<ol class="arabic">
+<li><p>Click the chip. The request appears in the popover under <strong>Programs</strong>, with
+<strong>Review</strong>.</p></li>
+<li><p>Click <strong>Review</strong>.</p>
+<p>While the current values are read, the request line says
+<em>reading values…</em> in place of <strong>Review</strong>; a machine that does not answer
+within a few seconds leaves them <em>not read</em>. The card then shows:</p>
 <ul class="simple">
 <li><p>every channel with the range asked for, the limits-database bound it sits
 inside, and its current value;</p></li>
-<li><p>the number of writes (steps), what the run does at the end (nothing, apply
-the best point found, or restore the values it started from), the expiry, the
-lease the program renews while it runs, the program (holder) and the run’s
-label;</p></li>
+<li><p>the number of writes (steps), what the run does at the end (nothing,
+apply the best point found, or restore the values it started from), the
+expiry, the lease the program renews while it runs, the program (holder)
+and the run’s label;</p></li>
 <li><p>that a write the limits refuse still costs its step.</p></li>
 </ul>
-<p>While the current values are read the request line says <em>reading values…</em>; a
-machine that does not answer within a few seconds leaves them <em>not read</em>.</p>
-<p><strong>Approve</strong> issues it. It is refused, with the reason on the card, when your
-tier is <code class="docutils literal notranslate"><span class="pre">never</span></code> or cannot be read, this terminal runs read-only, a range
-is outside the limits database, a channel has no numeric range there or a
-current value that is not a number, or another program already holds one of
-the channels on this machine. Approving is the confirmation for every write
-the run makes inside it, even when your tier is <em>asked</em>: the program’s writes
-are not prompted one by one. Once approved, the machine’s word reads
-<strong>· program</strong> after it, and the authorization is listed under Programs with
-its steps used of its total, when it ends (the time left; hover for the exact
-time) and <strong>Revoke</strong>.</p>
-<p>A program that issued its own authorization while your switch stood at
-<em>allowed</em> is listed there too, marked self-issued, and an approval refuses to
-overlap it. It has no <strong>Revoke</strong>: moving the machine’s switch off <em>allowed</em>
-ends it.</p>
+</li>
+<li><p>Click <strong>Approve</strong> to issue the authorization.</p>
+<p>Approving is the confirmation for every write the run makes inside it,
+even when your tier is <em>asked</em>: the program’s writes are not prompted one
+by one. Once approved, the machine’s word reads <strong>· program</strong> after it.
+The authorization is listed under <strong>Programs</strong> with its steps used of its
+total, when it ends (the time left; hover for the exact time) and
+<strong>Revoke</strong>.</p>
+</li>
+</ol>
+<p>What can go wrong:</p>
+<ul class="simple">
+<li><p><strong>Approve</strong> is refused, with the reason on the card, when any of these
+holds:</p>
+<ul>
+<li><p>your tier is <code class="docutils literal notranslate"><span class="pre">never</span></code> or cannot be read;</p></li>
+<li><p>this terminal runs read-only;</p></li>
+<li><p>a range is outside the limits database;</p></li>
+<li><p>a channel has no numeric range there, or a current value that is not a
+number;</p></li>
+<li><p>another program already holds one of the channels on this machine.</p></li>
+</ul>
+</li>
+<li><p>A program that issued its own authorization while your switch stood at
+<em>allowed</em> is listed under <strong>Programs</strong> too, marked self-issued, and an
+approval refuses to overlap it. It has no <strong>Revoke</strong>: moving the machine’s
+switch off <em>allowed</em> ends it.</p></li>
+<li><p><strong>Revoke</strong> on an authorization that had already ended says
+<em>Already stopped</em>.</p></li>
+</ul>
 <p>An authorization ends when its steps are used, at its expiry, when the
-program stops renewing its lease, or at a stop. To stop it, use <strong>Revoke</strong>, the
-machine’s <em>off</em> control, or <strong>Turn all writes off</strong>: the program’s next write
-is refused. <strong>Revoke</strong> on one that had already ended says <em>Already stopped</em>.
-One whose steps are used or whose lease lapsed leaves the chip at once.
-Nothing renews an ended authorization; the program asks again. The same approval
-is available without a web terminal through
+program stops renewing its lease, or at a stop. One whose steps are used or
+whose lease lapsed leaves the chip at once. Nothing renews an ended
+authorization; the program asks again.</p>
+<p>To stop an authorization, use <strong>Revoke</strong>, the machine’s <em>off</em> control, or
+<strong>Turn all writes off</strong>. The program’s next write is refused.</p>
+<p>The same approval is available without a web terminal through
 <a class="reference internal" href="../../reference/cli.html#cli-osprey-write-authorization"><span class="std std-ref">osprey write-authorization</span></a>.</p>
 </section>
 <section id="turn-writes-off-or-on">
 <h3>Turn writes off, or on<a class="headerlink" href="#turn-writes-off-or-on" title="Link to this heading">#</a></h3>
 <p>The switch is <strong>per machine</strong>. Turn the real machine off and work on the
-simulator carries on, which is the point: you put the machine you are worried
+simulator carries on. That is the point: you put the machine you are worried
 about out of reach without giving up the one you are working on.</p>
 <p><strong>Narrowing</strong> (to <em>asked</em>, or to <em>off</em>) applies as you click, and nothing
 refuses it — no lock, no read-only run, no second terminal. If a stop cannot
-be recorded you are told plainly that it did not take effect; the chip never
+be recorded, you are told plainly that it did not take effect. The chip never
 shows an off that was not recorded.</p>
 <p><strong>Widening</strong> asks first. The confirmation names the machine and says whether
-writes will still prompt. Tick <em>Don’t ask again on any machine</em> to skip it for
-every move to <em>asked</em> or <em>allowed</em>, the live machine included; Shift-click or
-<em>Ask again</em> in the popover brings it back. If a stop lands while you are
-confirming, the move does not take effect: the chip re-reads and you click again.</p>
+writes will still prompt.</p>
+<ul class="simple">
+<li><p>Tick <em>Don’t ask again on any machine</em> to skip the confirmation for every
+move to <em>asked</em> or <em>allowed</em>, the live machine included.</p></li>
+<li><p>Shift-click, or <em>Ask again</em> in the popover, brings it back.</p></li>
+<li><p>If a stop lands while you are confirming, the move does not take effect.
+The chip re-reads and you click again.</p></li>
+</ul>
 <p><strong>Nothing is restarted.</strong> Every gate reads the switch at the moment of the
-write. A narrowing reaches every next write, runs already going included: the
-agent’s next tool call, a running notebook cell’s or Python run’s next write.
-A widening reaches the agent’s tool writes at their next call; a notebook cell
-or Python run already going keeps the position it started with, and the next
-one follows (<a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>). The confirmation says so.</p>
-<p><strong>What the chip cannot lift.</strong> A write is refused for one reason, the first
-that holds, and locks no click lifts come before the switch. The chip shows
-that reason’s phrase on the row, and the agent is refused in the same words.
+write.</p>
+<ul class="simple">
+<li><p>A narrowing reaches every next write, runs already going included: the
+agent’s next tool call, a running notebook cell’s or Python run’s next
+write.</p></li>
+<li><p>A widening reaches the agent’s tool writes at their next call. A notebook
+cell or Python run already going keeps the position it started with, and
+the next one follows (<a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>). The confirmation says so.</p></li>
+</ul>
+<p><strong>What the chip cannot lift.</strong> A write is refused for one reason: the first
+that holds. Locks that no click lifts are checked before the switch. The chip
+shows that reason’s phrase on the row, and the agent is refused in the same
+words.
 Each phrase ends by naming the machine — <em>(Concerns the rehearsal
 machine.)</em>:</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -895,28 +931,42 @@ until the tier is restored.</p>
 </section>
 <section id="switch-the-deployment-to-another-machine">
 <h3>Switch the deployment to another machine<a class="headerlink" href="#switch-the-deployment-to-another-machine" title="Link to this heading">#</a></h3>
-<p><strong>Switch to</strong> on a row moves the whole deployment onto that machine, after a
-confirmation that says where every control read and write goes next and
-your switch’s position there — the switch is per machine, and it does not
-travel with you. This dialog too can be skipped with its own <em>Don’t ask
-again on any machine</em>. The page that holds the control context runs the same
-checks the agent’s own switch runs — that the move is allowed, and that
-nothing is mid-flight on the machine you are leaving — and records the
-outcome; the deployment’s control-system servers then move themselves onto it
-and report when they have arrived. The row reads <code class="docutils literal notranslate"><span class="pre">switching…</span></code> until every
-one of them has, and then <code class="docutils literal notranslate"><span class="pre">✓</span> <span class="pre">switched</span></code>, or <code class="docutils literal notranslate"><span class="pre">✗</span></code> with the phrase for the
-refusal — the same refusal, for the same reason, the agent is given. A
-server that could not make the move says so by name, so you know which one to
-look at. If nothing answers within 30 seconds the row reads
-<code class="docutils literal notranslate"><span class="pre">request_expired</span></code>: nothing that could carry out the switch was alive to pick
-it up. The outcome line leaves the row after about a minute — an outcome is
-news for as long as someone is watching for it.</p>
-<p>Ask for a second switch while one is still landing and it is refused rather
-than queued, naming the servers still working. Wait for the chip to settle and
-ask again.</p>
+<p><strong>Switch to</strong> on a row moves the whole deployment onto that machine. To
+switch:</p>
+<ol class="arabic">
+<li><p>Click <strong>Switch to</strong> on the machine’s row.</p>
+<p>A confirmation opens. It says where every control read and write goes
+next, and your switch’s position there: the switch is per machine, and it
+does not travel with you. This dialog too can be skipped with its own
+<em>Don’t ask again on any machine</em>.</p>
+</li>
+<li><p>Confirm the move.</p>
+<p>The page that holds the control context runs the same checks the agent’s
+own switch runs. It checks that the move is allowed, and that nothing is
+mid-flight on the machine you are leaving. It records the outcome. The
+deployment’s control-system servers then move themselves onto the machine
+and report when they have arrived.</p>
+</li>
+<li><p>Watch the row. It reads <code class="docutils literal notranslate"><span class="pre">switching…</span></code> until every server has arrived, and
+then <code class="docutils literal notranslate"><span class="pre">✓</span> <span class="pre">switched</span></code>.</p></li>
+</ol>
+<p>The outcome line leaves the row after about a minute — an outcome is news
+for as long as someone is watching for it.</p>
+<p>What can go wrong:</p>
+<ul class="simple">
+<li><p>The row reads <code class="docutils literal notranslate"><span class="pre">✗</span></code> with the phrase for the refusal — the same refusal,
+for the same reason, the agent is given.</p></li>
+<li><p>A server that could not make the move says so by name, so you know which
+one to look at.</p></li>
+<li><p>If nothing answers within 30 seconds, the row reads <code class="docutils literal notranslate"><span class="pre">✗</span> <span class="pre">no</span> <span class="pre">answer</span></code>:
+nothing that could carry out the switch was alive to pick it up.</p></li>
+<li><p>Ask for a second switch while one is still landing and it is refused
+rather than queued, naming the servers still working. Wait for the chip to
+settle and ask again.</p></li>
+</ul>
 <p><strong>Switch to</strong> is the one control a second web terminal of the same login does
-not hold: only the process holding the control context moves the deployment,
-and elsewhere the button’s place names the holder. The writes switches work
+not hold. Only the process holding the control context moves the deployment,
+and elsewhere the button’s place names the holder. The write switches work
 from either.</p>
 <p>What the switch itself is gated on — the approval prompt, the limits
 posture, the archive — is <a class="reference internal" href="../control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>.</p>
@@ -925,21 +975,21 @@ posture, the archive — is <a class="reference internal" href="../control-syste
 <h3>Where the control target and the write state live<a class="headerlink" href="#where-the-control-target-and-the-write-state-live" title="Link to this heading">#</a></h3>
 <p>Both belong to <strong>the login the terminal acts as</strong>, not to any one session,
 and nothing is written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Every session, window and notebook
-kernel of that login sees the same machine and the same switches: turning
+kernel of that login sees the same machine and the same switches. Turning
 writes off on a machine takes them away from all of them, and a switch made in
 one window applies in the other. That is the point — a switch you can
 only see from the page you happen to be on is not a safety control.</p>
-<p>Both are recorded together on disk, written as soon as you click and read back
-when a server starts, so restarting the container never quietly widens a
-switch or moves the deployment off the machine somebody put it on. Coming back
-to the deployment baseline is a switch like any other.</p>
+<p>Both are recorded together on disk. They are written as soon as you click and
+read back when a server starts. Restarting the container therefore never
+quietly widens a switch or moves the deployment off the machine somebody put
+it on. Coming back to the deployment baseline is a switch like any other.</p>
 <p>That record sits in a directory named for whoever the terminal is acting as:
 <code class="docutils literal notranslate"><span class="pre">var/agent_data/control_target/&lt;name&gt;/control_context.json</span></code>. On a multi-user
 deployment every user has their own container and their own volumes
-(<a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a>), so “the deployment” here means the stack that user
-is working in, and <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;</span></code> is that user — alice’s settings are in
-<code class="docutils literal notranslate"><span class="pre">control_target/alice/</span></code> on the host, and no user’s chip decides another
-user’s writes.</p>
+(<a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a>). There, “the deployment” means the stack that user
+is working in, and <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;</span></code> is that user: alice’s settings are in
+<code class="docutils literal notranslate"><span class="pre">control_target/alice/</span></code> on the host. No user’s chip decides another user’s
+writes.</p>
 </section>
 <section id="what-refuses-a-write-and-how-firmly">
 <h3>What refuses a write, and how firmly<a class="headerlink" href="#what-refuses-a-write-and-how-firmly" title="Link to this heading">#</a></h3>
@@ -980,7 +1030,7 @@ refuse.</p></td>
 </div>
 <p>Every layer speaks the phrase from the table above, so a refusal never sends
 you to the wrong control. A switch you turned off sounds like <em>“Writes are
-off; turn it on from the chip in the web terminal. (Concerns the real
+off; turn it on from the chip in the web terminal. (Concerns the live
 machine.)”</em> — and the chip is where you move it. A read-only run says the
 chip cannot lift it, and a refusal nobody set — a switch that cannot be read
 — says to retry, then ask the deployment admin.</p>
@@ -1009,9 +1059,9 @@ chip governs.</p>
 <p>The sidebar is on the left. From top to bottom, it shows:</p>
 <ul>
 <li><p>The OSPREY mark and the label toggle.</p></li>
-<li><p>The control-target block. It is one row that shows the machine that this
+<li><p>The control-target chip. It is one row that shows the machine that this
 deployment writes to, if the agent can write to it, and the health of the
-services. Click the block to open the
+services. Click the chip to open the
 <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target popover</span></a>.</p></li>
 <li><p><strong>Search</strong>. It opens the command palette. The shortcut is ⌘K on macOS and
 Ctrl+K on other systems.</p></li>
@@ -1183,44 +1233,47 @@ the start page.</p>
 <p>The browser remembers the theme, the sidebar
 labels, the open lists in the sidebar, the sidebar groups, and the panel
 layout. A different browser or a different machine starts from the defaults
-of the deployment.</p>
-<p>Earlier releases had a header and a status bar that you could arrange. The
-terminal does not show them, and it does not read the bar arrangements that
-those releases saved.</p>
+of the deployment. For the arrangements earlier releases saved, see
+<a class="reference internal" href="#web-terminal-upgrading"><span class="std std-ref">Upgrading from earlier releases</span></a>.</p>
 </section>
 </section>
 <section id="a-user-s-own-claude-subscription">
 <span id="personal-login"></span><h2>A user’s own Claude subscription<a class="headerlink" href="#a-user-s-own-claude-subscription" title="Link to this heading">#</a></h2>
 <p>By default every terminal authenticates with the deployment’s provider
 (<code class="docutils literal notranslate"><span class="pre">claude_code.provider</span></code>), one gateway and one key. Some sites let a
-colleague use their own Claude subscription inside the terminal while
-forbidding the deployment to hold that person’s credential. The route that
-satisfies both is the interactive <code class="docutils literal notranslate"><span class="pre">/login</span></code> inside the user’s own terminal,
-whose credential stays in that terminal’s config volume.</p>
+colleague use their own Claude subscription inside the terminal, but forbid
+the deployment to hold that person’s credential. The route that satisfies
+both is the interactive <code class="docutils literal notranslate"><span class="pre">/login</span></code> inside the user’s own terminal. Its
+credential stays in that terminal’s config volume.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">claude_code.allow_personal_login</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># default false</span>
 </pre></div>
 </div>
 <p>With the key on, a terminal that holds a completed <code class="docutils literal notranslate"><span class="pre">/login</span></code> is launched
 with the deployment provider withheld: no auth token, base URL or model
-variables and no translation proxy, so Claude Code’s own credential
-precedence falls through to the subscription. The decision is made per
-terminal container at launch, by the presence of the credential file under
-that user’s <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code>; the file is never read, and a login
-survives a container restart because the config volume does. A terminal
-without a login routes to the deployment provider exactly as before and
-shows a dismissable card saying <code class="docutils literal notranslate"><span class="pre">/login</span></code> is on offer. With the key off,
-nothing changes.</p>
-<p>Whether the <code class="docutils literal notranslate"><span class="pre">/login</span></code> flow completes inside a terminal container has not
-been tried yet: the first site that enables the key does that trial. In
-a headless container the CLI should fall back to its paste-a-code path,
-which the terminal can carry.</p>
-<p>Two consequences follow. A login-routed session bypasses the gateway, so it
-leaves no row in the deployment’s spend ledger; that is the point. And
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> can no longer treat a failed probe of the agent provider
-as the whole deployment down: with the key on it stays a warning, naming the
-dispatch worker and the terminals without a login as the ones affected.
-The dispatch worker and every other headless path keep the deployment
+variables, and no translation proxy. Claude Code’s own credential precedence
+then falls through to the subscription.</p>
+<p>The decision is made per terminal container at launch, by the presence of the
+credential file under that user’s <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code>. The file is never
+read. A login survives a container restart, because the config volume does.</p>
+<p>A terminal without a login routes to the deployment provider exactly as
+before, and shows a dismissable card saying <code class="docutils literal notranslate"><span class="pre">/login</span></code> is on offer. With the
+key off, nothing changes.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">/login</span></code> flow inside a terminal container is untested: the first
+site that enables the key does that trial. In a headless container the CLI
+should fall back to its paste-a-code path, which the terminal can carry.</p>
+</div>
+<p>Two consequences follow:</p>
+<ul class="simple">
+<li><p>A login-routed session bypasses the gateway, so it leaves no row in the
+deployment’s spend ledger. That is the point.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> can no longer treat a failed probe of the agent provider
+as the whole deployment down. With the key on, it stays a warning, naming
+the dispatch worker and the terminals without a login as the ones affected.</p></li>
+</ul>
+<p>The dispatch worker and every other headless path keep the deployment
 provider unconditionally.</p>
 </section>
 <section id="documentation-and-feedback-settings">
@@ -1264,6 +1317,21 @@ are discoverable directly in the source
 codebase can wire against them without a hand-maintained list here.</p>
 </div>
 </div>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3" id="web-terminal-upgrading">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-history" viewBox="0 0 16 16" aria-hidden="true"><path d="m.427 1.927 1.215 1.215a8.002 8.002 0 1 1-1.6 5.685.75.75 0 1 1 1.493-.154 6.5 6.5 0 1 0 1.18-4.458l1.358 1.358A.25.25 0 0 1 3.896 6H.25A.25.25 0 0 1 0 5.75V2.104a.25.25 0 0 1 .427-.177ZM7.75 4a.75.75 0 0 1 .75.75v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5A.75.75 0 0 1 7.75 4Z"></path></svg></span><span class="sd-summary-text">Upgrading from earlier releases</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Deployments built before the chat–terminal wait.</strong> The wait needs the
+<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> hook, which tells the web terminal when a turn starts and
+ends. A deployment scaffolded earlier does not have it: add
+<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> to the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<p class="sd-card-text">Without it, switching away from a terminal that might be working never
+waits. It says <em>The agent may still be working.</em> and offers only
+<strong>Stop and switch now</strong>. A terminal that was idle all along can still
+take the full five seconds to hand over.</p>
+<p class="sd-card-text"><strong>The header and status bar.</strong> Earlier releases had a header and a status
+bar that you could arrange. The terminal does not show them, and it does
+not read the bar arrangements that those releases saved.</p>
 </div>
 </details><div class="admonition seealso">
 <p class="admonition-title">See also</p>

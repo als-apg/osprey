@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../run-scenarios.html">Run and write scenarios</a></li>
@@ -536,7 +536,9 @@
 <span id="how-to-chat-bridges"></span><h1>Chat Bridges<a class="headerlink" href="#chat-bridges" title="Link to this heading">#</a></h1>
 <p>A chat bridge lets your team ask the OSPREY agent questions from a chat room
 they already sit in. Someone mentions the agent in the room, and the answer
-comes back in the same conversation — plots and other files included.</p>
+comes back in the same conversation — plots and other files included. A bridge
+is a good way to give a whole team read access to the machine, and a poor way
+to hand out control of it.</p>
 <p>Four chat systems are supported today: <strong>Nextcloud Talk</strong>, <strong>Google Chat</strong>,
 <strong>Microsoft Teams</strong> and <strong>Slack</strong>. They answer the same way and are switched on the same way in
 a profile. You can add others.</p>
@@ -545,11 +547,9 @@ a profile. You can add others.</p>
 <p>A bridge is not a second <a class="reference internal" href="../../web-terminal/index.html"><span class="doc">Web Terminal</span></a>. There is
 no session to keep open, and nobody is asked to approve anything while an answer
 is being worked out.</p>
-<p>A chat question is one headless run of the agent, and what the agent may do
-during that run is decided in advance — by the dispatcher trigger the bridge
-fires, not by the question and not by who asked it. That makes a bridge a good
-way to give a whole team read access to the machine, and a poor way to hand out
-control of it.</p>
+<p>A chat question is one headless run of the agent. What the agent may do during
+that run is decided in advance by the dispatcher trigger the bridge fires, not
+by the question and not by who asked it.</p>
 </section>
 <section id="how-it-works">
 <h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">#</a></h2>
@@ -647,11 +647,11 @@ the dispatcher, waits, and posts back what comes out.</p>
 <strong>adapter</strong>, which knows how messages arrive there and how to post a reply
 there. Everything below it — remembering questions, keeping the conversation,
 handling failures — is shared code that every bridge uses unchanged.</p>
-<p>Notice that every arrow leaving a bridge points outward. A bridge fetches its
-messages — from the chat system, from a queue the chat system feeds, or down a
-connection it opened itself — rather than being called, so it opens no network port, needs no public address, and
-nothing has to be able to reach it. For Teams the one public piece is the relay,
-and that lives in Azure, not in your stack.</p>
+<p>Notice that every arrow leaving a bridge points outward. A bridge is never
+called: it fetches its messages from the chat system, from a queue the chat
+system feeds, or down a connection it opened itself. So it opens no network
+port, needs no public address, and nothing has to be able to reach it. For Teams the one public piece is the
+relay, and that lives in Azure, not in your stack.</p>
 <section id="what-the-bridge-remembers">
 <span id="bridge-memory"></span><h3>What the Bridge Remembers<a class="headerlink" href="#what-the-bridge-remembers" title="Link to this heading">#</a></h3>
 <p>The bridge is the only part of the system that sees a whole conversation, so it
@@ -734,18 +734,20 @@ shared with the conversation’s members</p></td>
 </tbody>
 </table>
 </div>
-<p>The plots-and-files row is the one to read twice. Google Chat can only display an
-image if Google itself can fetch it, so files are published to a world-readable
-address rather than shared privately; Nextcloud Talk keeps them in the room, and
-Teams returns plots inside the conversation and keeps other files in your own
-tenant, readable by the conversation’s members. If a public
-address is not acceptable at your facility, you can turn
-files off in a Google Chat deployment and still get text answers — the Google Chat
-page explains how.</p>
-<p>Microsoft Teams asks the most of you up front, because a Teams bot can only be
-reached over the public internet: you publish a small relay into Azure, and the
-bridge reads what the relay queues. In return, nothing in your stack is exposed,
-and files stay in your own tenant, readable by the conversation’s members. The Microsoft Teams page walks through it.</p>
+<p>The plots-and-files row is the one to read twice:</p>
+<ul class="simple">
+<li><p><strong>Nextcloud Talk</strong> keeps plots and files in the room.</p></li>
+<li><p><strong>Google Chat</strong> publishes them at a public link, because Google must fetch an
+image to display it. The Google Chat page shows how to turn files off and
+keep text answers.</p></li>
+<li><p><strong>Microsoft Teams</strong> returns plots inside the conversation and keeps other
+files in your own tenant, readable by the conversation’s members. It needs a
+small relay in Azure, because a Teams bot is reached only over the public
+internet. Nothing in your stack is exposed. The Microsoft Teams page walks
+through it.</p></li>
+<li><p><strong>Slack</strong> uploads plots and files into the thread, visible to its members
+only.</p></li>
+</ul>
 </section>
 <section id="learn-more">
 <h2>Learn More<a class="headerlink" href="#learn-more" title="Link to this heading">#</a></h2>
@@ -797,7 +799,8 @@ where files stay in the thread.</p>
 <div class="sd-card-title sd-font-weight-bold docutils">
 Add Your Own</div>
 <p class="sd-card-text">What it takes to connect Mattermost, email, or any other service the agent
-should answer from – the developer seam, in the Contributing guide.</p>
+should answer from – the extension point for developers, in the
+Contributing guide.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="../../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a></div>
 </div>

@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../run-scenarios.html">Run and write scenarios</a></li>
@@ -558,7 +558,7 @@ will do it for you.</p></li>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
 <p>The bridge turns a Teams conversation into a way of talking to the agent.
-Someone mentions the bot in a channel or writes to it in a chat, the question is
+Someone mentions the bot in a channel or writes to it in a chat. The question is
 handed to the <a class="reference internal" href="../event-dispatch.html"><span class="doc">event dispatch pipeline</span></a>, and the answer
 is posted back in the same conversation.</p>
 <p>Teams differs from the other two platforms in one way that shapes the setup. A
@@ -573,25 +573,25 @@ you do not write them.</p></li>
 <li><p>The <strong>bridge</strong> itself, running in your stack beside the dispatcher. It pulls
 that queue, and posts replies back through the bot connector.</p></li>
 </ul>
-<p>The bridge is therefore still a <strong>reader of a queue, not a server</strong>: it opens no
-port and nothing has to be able to reach it, which is what lets it run on a
+<p>The bridge is therefore still a <strong>reader of a queue, not a server</strong>. It opens no
+port, and nothing has to be able to reach it. That is what lets it run on a
 control-room network with no inbound path from the internet. The relay is the
 only public surface, and the only thing it can do is put a validated message on
 your queue.</p>
 <p>Like every bridge, it <a class="reference internal" href="index.html#bridge-memory"><span class="std std-ref">remembers each question and conversation</span></a>. What is particular to Teams is that there is no reading
-position to keep: a message the bridge has not finished with stays on the queue,
-so anything sent while the bridge was down is waiting when it comes back.</p>
-<p>Each question gets an acknowledgement as soon as it is picked up and the answer
-when the run finishes, each as its own message; any plots and files follow as
-further messages. Nothing is edited after it is posted. In a channel all of them are
-threaded under the question itself; in a one-to-one or group chat, where Teams
-has no threads, the acknowledgement and the answer open with a quote of the
-question’s first line so it is clear which message is being answered.</p>
+position to keep. A message the bridge has not finished with stays on the queue.
+So anything sent while the bridge was down is waiting when it comes back.</p>
+<p>Each question gets an acknowledgement as soon as it is picked up, and the answer
+when the run finishes, each as its own message. Any plots and files follow as
+further messages. Nothing is edited after it is posted. In a channel all of them
+are threaded under the question itself. A one-to-one or group chat has no
+threads in Teams. There the acknowledgement and the answer open with a quote of
+the question’s first line, so it is clear which message is being answered.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>If your tenant is GCC High</strong>, the differences are two configuration values,
 not a different deployment. Set <code class="docutils literal notranslate"><span class="pre">TEAMS_CLOUD=gcchigh</span></code> on the bridge and the
-same setting on the relay; the sovereign-cloud login host, token scope,
+same setting on the relay. The sovereign-cloud login host, token scope,
 signing-key metadata address and issuer are all selected from that one value.
 Point the CLI at the right cloud first with <code class="docutils literal notranslate"><span class="pre">az</span> <span class="pre">cloud</span> <span class="pre">set</span> <span class="pre">--name</span>
 <span class="pre">AzureUSGovernment</span></code>, and read <code class="docutils literal notranslate"><span class="pre">azurewebsites.us</span></code> wherever the commands below
@@ -600,10 +600,13 @@ say <code class="docutils literal notranslate"><span class="pre">azurewebsites.n
 </section>
 <section id="enable-it-in-a-profile">
 <h2>Enable It in a Profile<a class="headerlink" href="#enable-it-in-a-profile" title="Link to this heading">#</a></h2>
-<p>Add a <code class="docutils literal notranslate"><span class="pre">teams_bridge:</span></code> block to your build profile. Two settings: which
-dispatcher trigger the bridge fires — that trigger decides what the agent is
-allowed to do with a chat question — and whether the agent may &#64;mention people.
-The block is only meaningful next to a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
+<p>Add a <code class="docutils literal notranslate"><span class="pre">teams_bridge:</span></code> block to your build profile. It holds two settings:</p>
+<ul class="simple">
+<li><p>Which dispatcher trigger the bridge fires. That trigger decides what the agent
+is allowed to do with a chat question.</p></li>
+<li><p>Whether the agent may &#64;mention people.</p></li>
+</ul>
+<p>The block is only meaningful next to a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
 <div class="literal-block-wrapper docutils container" id="id1">
 <div class="code-block-caption"><span class="caption-text">profile.yml</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">teams_bridge</span><span class="p">:</span>
@@ -628,16 +631,16 @@ The block is only meaningful next to a <code class="docutils literal notranslate
 <p class="admonition-title">Note</p>
 <p>The bridge and the dispatch pair must sit on the same network. Workers go on
 the host’s network whenever the agent has to reach a control system or a
-co-deployed bridge at a loopback address (<a class="reference internal" href="../../deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a>),
-and this bridge then has to move with them: add
+co-deployed bridge at a loopback address (<a class="reference internal" href="../../deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a>).
+This bridge then has to move with them: add
 <code class="docutils literal notranslate"><span class="pre">services.teams_bridge.network:</span> <span class="pre">host</span></code> to your profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a split pair and names the key to change.</p>
 </div>
 <p>The bot’s credentials and the queue it reads are <strong>not</strong> profile settings. Which
 tenant this deployment authenticates in and which queue it drains differ per
-deployment — and the client secret and the connection string are secrets that
+deployment. The client secret and the connection string are also secrets that
 must never be baked into a build. Listing them under <code class="docutils literal notranslate"><span class="pre">env.required</span></code> documents
-them in <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>; fill the values into the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which
+them in <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. Fill the values into the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which
 is where a secret survives a rebuild. The build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
 from it (created mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, readable only by you).</p>
 <p>Two mistakes are caught at <strong>build</strong> time rather than at runtime: declaring the
@@ -705,13 +708,14 @@ the missing variables at once.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><strong>One bridge per queue.</strong> Deploy exactly one bridge against a given queue.
-Service Bus hands each message to only <em>one</em> of a queue’s readers, so a second
-deployment pointed at the same queue — a staging stack, a container someone
-forgot to remove, another facility reusing the name — does not get its own
-copy of every message. It <strong>silently splits</strong> them: each bridge answers only
-the messages it happened to receive, the other questions look to your team
-like they were ignored, and nothing anywhere logs an error. Give every
-deployment its own queue, and its own relay writing to it.</p>
+Service Bus hands each message to only <em>one</em> of a queue’s readers. So a
+second deployment pointed at the same queue does not get its own copy of
+every message. It <strong>silently splits</strong> them: each bridge answers only the
+messages it happened to receive. The other questions look to your team like
+they were ignored, and nothing anywhere logs an error. The second deployment
+can be a staging stack, a container someone forgot to remove, or another
+facility reusing the name. Give every deployment its own queue, and its own
+relay writing to it.</p>
 </div>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
@@ -814,10 +818,10 @@ the rest of the stack.</p></td>
 </section>
 <section id="bring-it-up">
 <h2>Bring It Up<a class="headerlink" href="#bring-it-up" title="Link to this heading">#</a></h2>
-<p>The commands below use one set of names throughout — resource group
-<code class="docutils literal notranslate"><span class="pre">osprey-teams</span></code>, namespace <code class="docutils literal notranslate"><span class="pre">osprey-teams-bus</span></code>, queue <code class="docutils literal notranslate"><span class="pre">osprey-questions</span></code>,
-Function App <code class="docutils literal notranslate"><span class="pre">osprey-teams-relay</span></code> — so you can paste them in order and change
-the names once, at the top. Namespace, Function App and storage-account names are
+<p>The commands below use one set of names throughout: resource group
+<code class="docutils literal notranslate"><span class="pre">osprey-teams</span></code>, namespace <code class="docutils literal notranslate"><span class="pre">osprey-teams-bus</span></code>, queue <code class="docutils literal notranslate"><span class="pre">osprey-questions</span></code> and
+Function App <code class="docutils literal notranslate"><span class="pre">osprey-teams-relay</span></code>. You can paste them in order and change the
+names once, at the top. Namespace, Function App and storage-account names are
 part of a public address, so they must be unique across Azure; pick something
 with your facility in it if these are taken.</p>
 <p><strong>1. Create a resource group to hold everything.</strong></p>
@@ -860,7 +864,7 @@ az<span class="w"> </span>servicebus<span class="w"> </span>queue<span class="w"
 </pre></div>
 </div>
 <p><strong>4. Register the bot and the identity it speaks as.</strong> The registration’s name
-is internal; the name your team sees replying is the one you give the Teams app
+is internal. The name your team sees replying is the one you give the Teams app
 in step 7. Single-tenant keeps the bot usable only inside your own directory.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>ad<span class="w"> </span>app<span class="w"> </span>create<span class="w"> </span>--display-name<span class="w"> </span><span class="s2">&quot;OSPREY agent&quot;</span><span class="w"> </span>--sign-in-audience<span class="w"> </span>AzureADMyOrg<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--query<span class="w"> </span>appId<span class="w"> </span>--output<span class="w"> </span>tsv
@@ -873,9 +877,9 @@ a client secret, which is shown once and never again:</p>
 <span class="w">  </span>--query<span class="w"> </span>password<span class="w"> </span>--output<span class="w"> </span>tsv
 </pre></div>
 </div>
-<p>Now create the bot resource. Its messaging endpoint is the relay’s address,
-which you can write down before the relay exists — it is the Function App name
-you are going to use in step 5:</p>
+<p>Now create the bot resource. Its messaging endpoint is the relay’s address. You
+can write it down before the relay exists. It is the Function App name you are
+going to use in step 5:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>bot<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>osprey-agent-bot<span class="w"> </span>--sku<span class="w"> </span>F0<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--app-type<span class="w"> </span>SingleTenant<span class="w"> </span>--appid<span class="w"> </span>&lt;app<span class="w"> </span>id&gt;<span class="w"> </span>--tenant-id<span class="w"> </span>&lt;tenant<span class="w"> </span>id&gt;<span class="w"> </span><span class="se">\</span>
@@ -885,9 +889,10 @@ az<span class="w"> </span>bot<span class="w"> </span>msteams<span class="w"> </s
 </div>
 <p>The second command turns on the Teams channel; without it the bot exists but
 Teams will not talk to it.</p>
-<p><strong>5. Create the relay’s Function App.</strong> Flex Consumption with one always-ready
-instance: Teams expects an answer from the endpoint within 15 seconds, and an
-app that has scaled to nothing spends most of that budget starting up.</p>
+<p><strong>5. Create the relay’s Function App.</strong> Use Flex Consumption with one
+always-ready instance. Teams expects an answer from the endpoint within 15
+seconds. An app that has scaled to nothing spends most of that budget starting
+up.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>storage<span class="w"> </span>account<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>ospreyteamsrelay<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--location<span class="w"> </span>westus2<span class="w"> </span>--sku<span class="w"> </span>Standard_LRS
@@ -902,9 +907,9 @@ az<span class="w"> </span>functionapp<span class="w"> </span>scale<span class="w
 </pre></div>
 </div>
 <p>Then give it its settings. These are the relay’s own names and are <strong>not</strong> the
-bridge’s: in particular the connection string here is the <code class="docutils literal notranslate"><span class="pre">relay-send</span></code> one, and
-the setting is called <code class="docutils literal notranslate"><span class="pre">SERVICEBUS_CONNECTION</span></code>, because the Functions host reads
-it directly so the send key never passes through the relay’s own code.</p>
+bridge’s. In particular, the connection string here is the <code class="docutils literal notranslate"><span class="pre">relay-send</span></code> one.
+The setting is called <code class="docutils literal notranslate"><span class="pre">SERVICEBUS_CONNECTION</span></code> because the Functions host reads
+it directly, so the send key never passes through the relay’s own code.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>functionapp<span class="w"> </span>config<span class="w"> </span>appsettings<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>osprey-teams-relay<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--settings<span class="w"> </span><span class="nv">TEAMS_APP_ID</span><span class="o">=</span>&lt;app<span class="w"> </span>id&gt;<span class="w"> </span><span class="se">\</span>
@@ -923,9 +928,9 @@ func<span class="w"> </span>azure<span class="w"> </span>functionapp<span class=
 </div>
 <p>The endpoint is then live at
 <code class="docutils literal notranslate"><span class="pre">https://osprey-teams-relay.azurewebsites.net/api/messages</span></code> — the address you
-gave the bot in step 4. It accepts anonymous requests on purpose: the proof that
-a message is genuine is the signed token Microsoft sends with it, which the relay
-checks against the bot’s app id before anything reaches your queue. A request
+gave the bot in step 4. It accepts anonymous requests on purpose. The proof that
+a message is genuine is the signed token Microsoft sends with it. The relay
+checks that token against the bot’s app id before anything reaches your queue. A request
 that fails that check is refused and never enqueued.</p>
 <p><strong>7. Install the app in Teams.</strong> Build a Teams app package — a <code class="docutils literal notranslate"><span class="pre">manifest.json</span></code>
 plus its two icons, zipped — whose <code class="docutils literal notranslate"><span class="pre">bots</span></code> entry carries the app id from step 4:</p>
@@ -957,9 +962,9 @@ conversations it has been added to.</p>
 <p><strong>9. Optional: give the bot one file library.</strong> Without one, the bridge posts
 plots inline and names every other file it could not deliver. With one, it
 uploads those files there and shares each with the people in the conversation.
-Create or pick a SharePoint document library that <strong>nobody else reads</strong>: a
+Create or pick a SharePoint document library that <strong>nobody else reads</strong>. A
 shared file keeps the library’s own permissions as well as the per-conversation
-share, so a library with broad membership shares wider than the conversation.</p>
+share. So a library with broad membership shares wider than the conversation.</p>
 <p>First look up the site and the library ids:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">SITE_ID</span><span class="o">=</span><span class="k">$(</span>az<span class="w"> </span>rest<span class="w"> </span>--method<span class="w"> </span>get<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--url<span class="w"> </span><span class="s2">&quot;https://graph.microsoft.com/v1.0/sites/contoso.sharepoint.com:/sites/osprey-files&quot;</span><span class="w"> </span><span class="se">\</span>
@@ -1008,10 +1013,10 @@ it starts with everything else:</p>
 </div>
 <p>Then mention the bot in a channel it has been added to and ask it something. If
 nothing happens, work outwards from the bridge: a missing credential stops it at
-startup with the missing variable named. A wrong app id is the quieter failure —
-the bridge runs happily and ignores every channel message, because nothing it
+startup with the missing variable named. A wrong app id is the quieter failure.
+The bridge runs happily and ignores every channel message, because nothing it
 sees looks like a mention of itself. If the bridge looks idle, check the Function
-App’s logs: a message refused there never reaches the queue, and a relay whose
+App’s logs. A message refused there never reaches the queue. A relay whose
 settings name the wrong queue writes where nobody is reading.</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
@@ -1025,33 +1030,34 @@ twice or drop it, and conversations lose their thread of context.</p>
 <span id="what-is-shared-teams"></span><h2>Who Can Ask, and What Is Shared<a class="headerlink" href="#who-can-ask-and-what-is-shared" title="Link to this heading">#</a></h2>
 <p>Who may reach the agent, and what the trigger lets it do, is the same for every
 bridge — see <a class="reference internal" href="index.html#bridge-access"><span class="std std-ref">Who Can Ask</span></a>. What is particular to Microsoft Teams:</p>
-<p><strong>The conversations are the ones the app was added to.</strong> Teams — not Osprey —
-decides who is in those teams and chats, so add the app as deliberately as you
+<p><strong>The conversations are the ones the app was added to.</strong> Teams, not Osprey,
+decides who is in those teams and chats. So add the app as deliberately as you
 would choose who gets an account.</p>
 <p><strong>In a channel or a group chat, only a real &#64;mention of the bot is answered.</strong>
-The bridge matches the mention Teams itself records, not the message text, so
+The bridge matches the mention Teams itself records, not the message text. So
 writing the bot’s name in passing does not trigger it. A one-to-one chat has
 nobody else to address, so every message there is a question.</p>
 <p><strong>Other people’s names survive the question.</strong> When a question mentions a
-colleague as well as the bot, the bot’s own mention is removed as addressing and
-every other mention becomes that person’s display name, so the agent sees who was
-named.</p>
+colleague as well as the bot, the bot’s own mention is removed as addressing.
+Every other mention becomes that person’s display name, so the agent sees who
+was named.</p>
 <p><strong>Who is in the conversation, and &#64;mentions.</strong> Each question reaches the agent
 with who asked it and who is in the conversation; for a channel that is the
 channel’s members. The bridge lists them with the bot’s own sign-in, so there is
 no extra permission to grant. A member’s name is the one Teams lists. If Teams
 lists none, it is the name the bridge has seen that person use or be &#64;mentioned
-under; otherwise the member is listed without a name, and the agent is told not
-to guess. The agent may &#64;mention a member of the same conversation only when
+under. If the bridge has seen none either, the member is listed without a name,
+and the agent is told not to guess. The agent may &#64;mention a member of the same conversation only when
 someone in it asks the agent to pass something on or to notify someone. It
 never does so on its own. Anyone not in the conversation is written as plain
 text. Set <code class="docutils literal notranslate"><span class="pre">mentions:</span> <span class="pre">false</span></code> in the profile block to have every mention posted
 as plain text instead.</p>
 <p><strong>Plots and files.</strong> Each plot arrives as its own message directly after the
-answer, one image per message, attached inline. Every other file — a table, a
-PDF, an image too large to attach — goes into the one file library set aside for
-the bot (step 9), into a folder of its own for the run, and is shared with the
-people in the conversation at the moment it was sent. One message per file
+answer, one image per message, attached inline. Every other file goes into the
+one file library set aside for the bot (step 9). That covers a table, a PDF, or
+an image too large to attach. Each run’s files go into a folder of their own,
+and each file is shared with the people in the conversation at the moment it
+was sent. One message per file
 carries an <strong>Open</strong> button; opening it takes a Microsoft 365 sign-in. People who
 join a channel later cannot open older files, the files do not appear in the
 channel’s Files tab, and the library’s own retention rules apply to them. No
@@ -1063,7 +1069,7 @@ links.</p>
 <p><strong>What the agent cannot exchange in Teams.</strong></p>
 <ul class="simple">
 <li><p><em>Inline images are PNGs up to 1 MB.</em> Each one is fitted into a 1024×1024
-box and re-encoded before posting; one still over 1 MB after that goes to
+box and re-encoded before posting. One still over 1 MB after that goes to
 the file library at its original size instead.</p></li>
 <li><p><em>Documents need the file library.</em> Without <code class="docutils literal notranslate"><span class="pre">TEAMS_FILES_DRIVE_ID</span></code>, PDFs,
 CSVs and other files are not delivered, and one last message names each one
@@ -1073,8 +1079,8 @@ upload or share failed.</p></li>
 <code class="docutils literal notranslate"><span class="pre">teams</span></code> extra, which the shipped image uses. Without it every image takes
 the file library, or is named in the note when there is none.</p></li>
 <li><p><em>Files attached to a question are ignored.</em> Teams attachments are not
-downloaded, so a question that says “look at this log” and attaches one gets
-an answer written without it. Paste the relevant part into the message
+downloaded. So a question that says “look at this log” and attaches one
+gets an answer written without it. Paste the relevant part into the message
 instead.</p></li>
 </ul>
 </div>

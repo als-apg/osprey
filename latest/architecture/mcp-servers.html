@@ -669,7 +669,8 @@ tools into several functional areas.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_register</span></code> – Register a file on disk, or literal text, as a gallery artifact.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_list</span></code> – List this session’s artifacts, optionally narrowed by form or tool;
 <code class="docutils literal notranslate"><span class="pre">scope=&quot;all&quot;</span></code> lists every session’s.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">artifact_read</span></code> – Return an artifact’s metadata and file path, plus its content when small.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_read</span></code> – Return an artifact’s metadata and file path, plus its content when small
+(an image as the image itself).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code> – Delete an artifact from the gallery.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code> – Delete one form, or everything, of this session’s artifacts
 in a single call. The <code class="docutils literal notranslate"><span class="pre">scope</span></code> argument is required.</p></li>
@@ -768,7 +769,7 @@ boundary with limits enforcement and timeout protection, not a sandbox; see
 <li><p><code class="docutils literal notranslate"><span class="pre">execute_file</span></code> – Execute a Python file from the workspace with the same safety envelope as <code class="docutils literal notranslate"><span class="pre">execute</span></code>.</p></li>
 </ul>
 <p>Two more tools are registered only when the render’s facility facts record a pyAML view
-(see <a class="reference internal" href="../how-to/measure-with-pyaml.html"><span class="doc">Measure with the pyAML Tools</span></a>):</p>
+(see <a class="reference internal" href="../how-to/measure-with-pyaml.html"><span class="doc">Measure with the pyAML tools</span></a>):</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> – Measure a response matrix or the chromaticity with pyAML on the
 control target. It steps setpoints, so it is a write: see <a class="reference internal" href="safety-chain.html#architecture-safety-chain-pyaml-tool"><span class="std std-ref">A pyAML tool</span></a>.</p></li>

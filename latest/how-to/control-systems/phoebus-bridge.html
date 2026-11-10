@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -534,9 +534,9 @@
                   
   <section id="connect-the-agent-to-phoebus-displays">
 <span id="phoebus-bridge"></span><h1>Connect the Agent to Phoebus Displays<a class="headerlink" href="#connect-the-agent-to-phoebus-displays" title="Link to this heading">#</a></h1>
-<p>How to let the agent open, read and drive the displays of a running Phoebus
-product through the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> MCP server, which is off in every preset until
-a deployment switches it on.</p>
+<p>This page shows you how to let the agent open, read and drive the displays of
+a running Phoebus product. The agent does this through the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> MCP
+server. The server is off in every preset until a deployment switches it on.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -600,39 +600,47 @@ display.</p></td>
 </tbody>
 </table>
 </div>
-<p>The seven tools other than <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> read displays or open them and
-run without a prompt. <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> is offered only under
+<p>The seven tools other than <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> read or open displays, and they
+run without a prompt. The agent is offered <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> only under
 <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code>, and then it is always asked.</p>
 </section>
 <section id="before-you-start">
 <h2>Before you start<a class="headerlink" href="#before-you-start" title="Link to this heading">#</a></h2>
 <p>The server talks to the <strong>agent bridge</strong>, an HTTP server that runs inside a
 Phoebus product built with it. By default the bridge listens on
-<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:7979</span></code>. It has to be reachable from wherever the
-<code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server runs; this is the check the server’s own error message
-suggests:</p>
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:7979</span></code>.</p>
+<p>Check that the bridge answers from the host where the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server runs.
+This is the check the server’s own error message suggests:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>http://127.0.0.1:7979/displays
 </pre></div>
 </div>
-<p>A bridge that answers returns a JSON list of the open displays. The bridge’s
-port can be changed with the <code class="docutils literal notranslate"><span class="pre">org.phoebus.applications.bridge.web/port</span></code>
-preference in a Phoebus settings file. When it is, <code class="docutils literal notranslate"><span class="pre">phoebus.port</span></code> must be set
-to the same number.</p>
+<p>A bridge that answers returns a JSON list of the open displays.</p>
+<p>To move the bridge to another port, set the
+<code class="docutils literal notranslate"><span class="pre">org.phoebus.applications.bridge.web/port</span></code> preference in a Phoebus settings
+file. Then set <code class="docutils literal notranslate"><span class="pre">phoebus.port</span></code> to the same number.</p>
 </section>
 <section id="enable-the-server">
 <h2>Enable the server<a class="headerlink" href="#enable-the-server" title="Link to this heading">#</a></h2>
-<p>Switch the server on and name the bridge in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block:</p>
+<ol class="arabic">
+<li><p>Switch the server on and name the bridge in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code>
+block:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">claude_code.servers.phoebus.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">phoebus.host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
 <span class="w">  </span><span class="nt">phoebus.port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7979</span>
 </pre></div>
 </div>
-<p>Then run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and restart the stack. The build writes the
-server’s <code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code> into its entry as
-<code class="docutils literal notranslate"><span class="pre">${PHOEBUS_BRIDGE_URL:-http://&lt;phoebus.host&gt;:&lt;phoebus.port&gt;}</span></code>. A
-<code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code> in the agent’s environment therefore wins over both
-keys; without one, the keys decide.</p>
+</li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. The build writes the server’s <code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code>
+into its entry as
+<code class="docutils literal notranslate"><span class="pre">${PHOEBUS_BRIDGE_URL:-http://&lt;phoebus.host&gt;:&lt;phoebus.port&gt;}</span></code>.</p></li>
+<li><p>Restart the stack.</p></li>
+<li><p>Ask the agent to list the open Phoebus displays. It calls
+<code class="docutils literal notranslate"><span class="pre">phoebus_list_displays</span></code>, which lists the same displays as the <code class="docutils literal notranslate"><span class="pre">curl</span></code>
+check.</p></li>
+</ol>
+<p>If the agent’s environment sets <code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code>, that value wins over
+both keys. Otherwise the keys decide.</p>
 </section>
 <section id="register-your-panels">
 <h2>Register your panels<a class="headerlink" href="#register-your-panels" title="Link to this heading">#</a></h2>
@@ -642,39 +650,40 @@ keys; without one, the keys decide.</p>
 <span class="w">  </span><span class="nt">phoebus.panels.overview</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/opt/displays/overview.bob</span>
 </pre></div>
 </div>
-<p>A value may be an absolute path, a <code class="docutils literal notranslate"><span class="pre">file:</span></code> URL, or a path relative to the
-directory of the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the project’s <code class="docutils literal notranslate"><span class="pre">build/</span></code>
-directory, not the profile’s. The path is handed to the Phoebus process, so it
-must name a file that process can read. A name that is not registered is
-refused, and the refusal lists the names that are. <code class="docutils literal notranslate"><span class="pre">phoebus_panel_lookup</span></code>
-answers the other way round: given a display path, it returns the name that
-opens it.</p>
+<p>A value can be an absolute path, a <code class="docutils literal notranslate"><span class="pre">file:</span></code> URL, or a relative path. A
+relative path is relative to the directory of the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.
+That is the project’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> directory, not the profile’s. The path is
+handed to the Phoebus process, so it must name a file that process can read.</p>
+<p>The server refuses a name that is not registered, and the refusal lists the
+names that are. <code class="docutils literal notranslate"><span class="pre">phoebus_panel_lookup</span></code> answers the other way round: given a
+display path, it returns the name that opens it.</p>
 <p>The names belong to the deployment. OSPREY ships none.</p>
 </section>
 <section id="several-terminals-one-phoebus">
 <h2>Several terminals, one Phoebus<a class="headerlink" href="#several-terminals-one-phoebus" title="Link to this heading">#</a></h2>
 <p>Every tool that takes a <code class="docutils literal notranslate"><span class="pre">display</span></code> argument defaults to <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code>, the
-display that has focus in Phoebus. With several web terminals on one bridge,
-that focus is shared, so two terminals working at once can resolve
-<code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> to each other’s display.</p>
+display that has focus in Phoebus. Several web terminals on one bridge share
+that focus. Two terminals working at once can then resolve <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> to
+each other’s display. To prevent this, require a handle:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">phoebus.require_handle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
-<p>With this key set, <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> is refused. Callers pass the handle
-<code class="docutils literal notranslate"><span class="pre">phoebus_open_panel</span></code> returned (<code class="docutils literal notranslate"><span class="pre">&quot;handle:d-3&quot;</span></code>) or an explicit display name
-from <code class="docutils literal notranslate"><span class="pre">phoebus_list_displays</span></code>. <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE</span></code> (<code class="docutils literal notranslate"><span class="pre">1</span></code>/<code class="docutils literal notranslate"><span class="pre">true</span></code>/<code class="docutils literal notranslate"><span class="pre">yes</span></code>/<code class="docutils literal notranslate"><span class="pre">on</span></code>
-or <code class="docutils literal notranslate"><span class="pre">0</span></code>/<code class="docutils literal notranslate"><span class="pre">false</span></code>/<code class="docutils literal notranslate"><span class="pre">no</span></code>/<code class="docutils literal notranslate"><span class="pre">off</span></code>) outranks the key either way.</p>
-<p>A multi-user web-terminal deployment stamps <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE=1</span></code> on
-every terminal whose project runs a Phoebus server. Elsewhere the switch is off
-by default and is turned on with <code class="docutils literal notranslate"><span class="pre">phoebus.require_handle:</span> <span class="pre">true</span></code> or
-<code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE=1</span></code>. <code class="docutils literal notranslate"><span class="pre">phoebus.require_handle:</span> <span class="pre">false</span></code> keeps
-<code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> in a multi-user deployment too.</p>
+<p>With this key set, the server refuses <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code>. Callers pass the handle
+that <code class="docutils literal notranslate"><span class="pre">phoebus_open_panel</span></code> returned (<code class="docutils literal notranslate"><span class="pre">&quot;handle:d-3&quot;</span></code>), or an explicit display
+name from <code class="docutils literal notranslate"><span class="pre">phoebus_list_displays</span></code>. The <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE</span></code> environment
+variable outranks the key either way. It accepts
+<code class="docutils literal notranslate"><span class="pre">1</span></code>/<code class="docutils literal notranslate"><span class="pre">true</span></code>/<code class="docutils literal notranslate"><span class="pre">yes</span></code>/<code class="docutils literal notranslate"><span class="pre">on</span></code> or <code class="docutils literal notranslate"><span class="pre">0</span></code>/<code class="docutils literal notranslate"><span class="pre">false</span></code>/<code class="docutils literal notranslate"><span class="pre">no</span></code>/<code class="docutils literal notranslate"><span class="pre">off</span></code>.</p>
+<p>A multi-user web-terminal deployment sets <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE=1</span></code> on every
+terminal whose project runs a Phoebus server. Elsewhere the switch is off by
+default. Turn it on with <code class="docutils literal notranslate"><span class="pre">phoebus.require_handle:</span> <span class="pre">true</span></code> or
+<code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE=1</span></code>. To keep <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> in a multi-user deployment
+too, set <code class="docutils literal notranslate"><span class="pre">phoebus.require_handle:</span> <span class="pre">false</span></code>.</p>
 </section>
 <section id="data-browser-plots-and-snapshots">
 <h2>Data Browser plots and snapshots<a class="headerlink" href="#data-browser-plots-and-snapshots" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">phoebus_open_databrowser</span></code> writes a <code class="docutils literal notranslate"><span class="pre">.plt</span></code> and opens it live. The archiver
-bound into it comes from <code class="docutils literal notranslate"><span class="pre">PHOEBUS_ARCHIVER_URL</span></code>, else
+<p><code class="docutils literal notranslate"><span class="pre">phoebus_open_databrowser</span></code> writes a <code class="docutils literal notranslate"><span class="pre">.plt</span></code> and opens it live. The plot’s
+archiver comes from <code class="docutils literal notranslate"><span class="pre">PHOEBUS_ARCHIVER_URL</span></code> if it is set, otherwise from
 <code class="docutils literal notranslate"><span class="pre">phoebus.archiver_url</span></code>. With neither set, the plot has no archiver binding
 and shows live values only.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
@@ -687,33 +696,40 @@ the PNG snapshots. By default they go to <code class="docutils literal notransla
 </section>
 <section id="a-second-phoebus">
 <h2>A second Phoebus<a class="headerlink" href="#a-second-phoebus" title="Link to this heading">#</a></h2>
-<p>A second instance of the server is declared with <code class="docutils literal notranslate"><span class="pre">extends</span></code> and given its own
-bridge URL in its <code class="docutils literal notranslate"><span class="pre">env:</span></code>. <code class="docutils literal notranslate"><span class="pre">phoebus2</span></code> is only an example name:</p>
+<p>To add a second instance of the server, declare it with <code class="docutils literal notranslate"><span class="pre">extends</span></code> and give
+it its own bridge URL in its <code class="docutils literal notranslate"><span class="pre">env:</span></code>. <code class="docutils literal notranslate"><span class="pre">phoebus2</span></code> is only an example name:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">claude_code.servers.phoebus2.extends</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">phoebus</span>
 <span class="w">  </span><span class="nt">claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}&quot;</span>
 </pre></div>
 </div>
 <p>The clone reads the same <code class="docutils literal notranslate"><span class="pre">phoebus.*</span></code> keys as the first instance, so only the
-URL tells the two apart. Its <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> is offered and asked like the original’s.</p>
+URL tells the two apart. Its <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> is offered and asked like the
+original’s.</p>
 </section>
 <section id="what-guards-a-drive">
 <h2>What guards a drive<a class="headerlink" href="#what-guards-a-drive" title="Link to this heading">#</a></h2>
 <p>The agent is offered <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> only where the build profile sets
 <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code>. Under the default, <code class="docutils literal notranslate"><span class="pre">read</span></code>, the tool is
-left out of the agent’s tool list and permissions, and the server refuses a
-call to it by the key’s name. Under <code class="docutils literal notranslate"><span class="pre">read_write</span></code> every drive passes the
-write verdict (<a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>) and then the approval
-prompt, is refused while the control target is switched away from the
-deployment’s baseline (<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>), and is audited as a tool
-call. The key is all or nothing, because a panel runs whatever its widgets are
-wired to, so finer control — per panel, widget, channel or mode — belongs to
-the EPICS gateway or access security the Phoebus product connects through.</p>
-<p>A drive does not pass through a connector: the bridge performs it inside the Phoebus process,
-through that product’s own PV connections. Synthetic mode, the default, runs
-the display’s confirm dialogs and enable rules; semantic mode bypasses them. So
-OSPREY’s channel-limits check does not apply to a drive, in either mode. Keep
-<code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> for displays whose controls may be driven as they stand.</p>
+left out of the agent’s tool list and permissions. The server also refuses a
+call to it, and the refusal names the key.</p>
+<p>Under <code class="docutils literal notranslate"><span class="pre">read_write</span></code>, every drive:</p>
+<ul class="simple">
+<li><p>passes the write verdict (<a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>) and then the approval
+prompt;</p></li>
+<li><p>is refused while the control target is switched away from the deployment’s
+baseline (<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>);</p></li>
+<li><p>is audited as a tool call.</p></li>
+</ul>
+<p>The key is all or nothing, because a panel runs whatever its widgets are wired
+to. Finer control (per panel, widget, channel or mode) belongs to the EPICS
+gateway or access security that the Phoebus product connects through.</p>
+<p>A drive does not pass through a connector. The bridge performs it inside the
+Phoebus process, through that product’s own PV connections. Synthetic mode,
+the default, runs the display’s confirm dialogs and enable rules. Semantic mode
+bypasses them. In either mode, OSPREY’s channel-limits check does not apply to
+a drive. Keep <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> for displays whose controls may be driven as
+they stand.</p>
 </section>
 </section>
 

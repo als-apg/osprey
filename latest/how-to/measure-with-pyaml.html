@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Measure with the pyAML Tools &#8212; Osprey Framework dev documentation</title>
+    <title>Measure with the pyAML tools &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-scenarios.html">Run and write scenarios</a></li>
@@ -512,7 +512,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Measure with the pyAML Tools</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Measure with the pyAML tools</span></li>
   </ul>
 </nav>
 </div>
@@ -530,22 +530,28 @@
                 <article class="bd-article">
                   
   <section id="measure-with-the-pyaml-tools">
-<span id="measure-with-pyaml"></span><h1>Measure with the pyAML Tools<a class="headerlink" href="#measure-with-the-pyaml-tools" title="Link to this heading">#</a></h1>
+<span id="measure-with-pyaml"></span><h1>Measure with the pyAML tools<a class="headerlink" href="#measure-with-the-pyaml-tools" title="Link to this heading">#</a></h1>
+<p>This page shows how to take a measurement on the control target through the
+agent, and what happens to the machine while it runs. pyAML is the
+accelerator library the measurement tools drive. The page also says when the
+tools appear and what a measurement asks for. Every parameter and every result
+field is in <a class="reference internal" href="../reference/contracts/python-executor.html#executor-measurement-tools"><span class="std std-ref">Measurement Tools</span></a>.</p>
 <p>A deployment whose build writes a pyAML view gives the agent two tools on the
-<code class="docutils literal notranslate"><span class="pre">python</span></code> server: <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> measures a response matrix or the
-chromaticity on the control target, and <code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> solves a
-served model’s orbit response on its deck. This page says when they appear,
-what a measurement asks for, and what happens to the machine while it runs.
-Every parameter and every result field is in
-<a class="reference internal" href="../reference/contracts/python-executor.html#executor-measurement-tools"><span class="std std-ref">Measurement Tools</span></a>.</p>
+<code class="docutils literal notranslate"><span class="pre">python</span></code> server:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> measures a response matrix or the chromaticity on the
+control target.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> solves a served model’s orbit response on its deck.</p></li>
+</ul>
 <section id="when-the-tools-are-there">
 <h2>When the tools are there<a class="headerlink" href="#when-the-tools-are-there" title="Link to this heading">#</a></h2>
 <p>The build writes <code class="docutils literal notranslate"><span class="pre">data/pyaml/&lt;model&gt;/configuration.yaml</span></code> for each served
 model that names a deck and has a measurement file under
-<code class="docutils literal notranslate"><span class="pre">data/facility/measurement/</span></code> (see <a class="reference internal" href="describe-your-facility.html"><span class="doc">Describe your facility</span></a>). A render
-with at least one such view registers both tools, the <code class="docutils literal notranslate"><span class="pre">pyaml-tools</span></code> skill and
-the prompt section that teaches them; a render with none registers none of the
-three.</p>
+<code class="docutils literal notranslate"><span class="pre">data/facility/measurement/</span></code> (see <a class="reference internal" href="describe-your-facility.html"><span class="doc">Describe your facility</span></a>). This file
+is the model’s <em>pyAML view</em>.</p>
+<p>A render with at least one such view registers three things: both tools, the
+<code class="docutils literal notranslate"><span class="pre">pyaml-tools</span></code> skill, and the prompt section that teaches them. A render with
+no view registers none of the three.</p>
 <p>The measurement file decides which kinds a model takes:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -583,52 +589,85 @@ three.</p>
 </tbody>
 </table>
 </div>
-<p>The tool refuses a kind the file does not list, naming the group or
-instrument the model lacks, or the kinds the file lists when it lacks none;
-such a call is never put to an approver. A model solved in a single pass takes <code class="docutils literal notranslate"><span class="pre">orm</span></code> alone.</p>
+<p>The tool refuses a kind the file does not list, and never puts such a call to
+an approver:</p>
+<ul class="simple">
+<li><p>If the model lacks a group or instrument the kind needs, the refusal names
+it.</p></li>
+<li><p>If the model has every group and instrument but the file does not list the
+kind, the refusal names the kinds the file does list.</p></li>
+</ul>
+<p>A model solved in a single pass takes <code class="docutils literal notranslate"><span class="pre">orm</span></code> alone.</p>
+</section>
+<section id="ask-for-a-measurement">
+<h2>Ask for a measurement<a class="headerlink" href="#ask-for-a-measurement" title="Link to this heading">#</a></h2>
+<p>To measure through the agent:</p>
+<ol class="arabic simple">
+<li><p>Ask the agent for the measurement in plain words, for example “Measure the
+orbit response matrix.” If more than one model has a pyAML view, name the
+model. The agent calls <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code>, and an approval prompt appears.</p></li>
+<li><p>Check the approval prompt. It shows what the call steps; see <a class="reference internal" href="#what-a-measurement-asks">What a
+measurement asks</a>.</p></li>
+<li><p>Approve the call. The measurement steps the setpoints under the control
+target’s run lock; see <a class="reference internal" href="#what-happens-to-the-machine">What happens to the machine</a>.</p></li>
+<li><p>Read the result. The agent answers with the measured values and where it
+saved the data; see <a class="reference internal" href="#the-result">The result</a>.</p></li>
+</ol>
 </section>
 <section id="what-a-measurement-asks">
 <h2>What a measurement asks<a class="headerlink" href="#what-a-measurement-asks" title="Link to this heading">#</a></h2>
 <p>Every <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> call for a kind the model’s file lists asks for
-approval. The prompt shows the model, the
-kind, the modulation, the pyAML view’s path and digest, and every setpoint the
-call steps. A call that would step more setpoints than a prompt lists (500) is
-refused without asking.</p>
-<p>The call runs only on the view the build recorded and the prompt showed. A view
-edited after the build, or one that differs from what the prompt showed, is
-refused before any setpoint moves.</p>
+approval. The prompt shows these:</p>
+<ul class="simple">
+<li><p>the model and the kind;</p></li>
+<li><p>the modulation;</p></li>
+<li><p>the pyAML view’s path and digest;</p></li>
+<li><p>every setpoint the call steps.</p></li>
+</ul>
+<p>A prompt lists at most 500 setpoints. A call that would step more is refused
+without asking.</p>
+<p>The call runs only on the view the build recorded and the prompt showed. A
+view edited after the build, or one that differs from what the prompt showed,
+is refused before any setpoint moves.</p>
 </section>
 <section id="what-happens-to-the-machine">
 <h2>What happens to the machine<a class="headerlink" href="#what-happens-to-the-machine" title="Link to this heading">#</a></h2>
-<p>Each step is the measurement file’s value, shrunk until no setpoint’s largest
-single write exceeds half its <code class="docutils literal notranslate"><span class="pre">max_step</span></code> in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>. A
-strength, <code class="docutils literal notranslate"><span class="pre">max_step</span></code> or write that is not a finite number refuses the
-measurement.</p>
+<p>Each step starts as the measurement file’s value. The tool shrinks it until no
+setpoint’s largest single write exceeds half its <code class="docutils literal notranslate"><span class="pre">max_step</span></code> in
+<code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>. A strength, <code class="docutils literal notranslate"><span class="pre">max_step</span></code> or write that is not a
+finite number refuses the measurement.</p>
 <p>Every write of one measurement runs under the control target’s run lock:</p>
 <ul class="simple">
-<li><p>a second read-write run on the target is refused while it runs;</p></li>
-<li><p>a measurement that stops part-way, fails or is interrupted leaves each
-setpoint where it stopped, and its result’s <code class="docutils literal notranslate"><span class="pre">moved</span></code> lists each setpoint
-whose write may have gone out, an unknown outcome included, with its value
-before the call; report them to the operator;</p></li>
-<li><p>a measurement that reaches the execution timeout is killed like any other
-run, with no early stop; its failure lists only the channels it attempted;</p></li>
-<li><p>a pyAML write from <code class="docutils literal notranslate"><span class="pre">execute</span></code> is refused; measurements go through
+<li><p>A second read-write run on the target is refused while the measurement runs.</p></li>
+<li><p>A measurement that stops part-way, fails or is interrupted leaves each
+setpoint where it stopped.</p></li>
+<li><p>After such a stop, the result’s <code class="docutils literal notranslate"><span class="pre">moved</span></code> lists each setpoint whose write may
+have gone out, an unknown outcome included, with its value before the call.
+The <code class="docutils literal notranslate"><span class="pre">pyaml-tools</span></code> skill tells the agent to report these setpoints to the
+operator.</p></li>
+<li><p>A measurement that reaches the execution timeout is killed like any other
+run, with no early stop. Its failure lists only the channels it attempted.</p></li>
+<li><p>A pyAML write from <code class="docutils literal notranslate"><span class="pre">execute</span></code> is refused; measurements go through
 <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code>.</p></li>
 </ul>
 <p><a class="reference internal" href="../reference/contracts/guarded-run.html#reference-guarded-run"><span class="std std-ref">Guarded Run Contract</span></a> has the lock and what a stopped run leaves.</p>
 </section>
 <section id="the-result">
 <h2>The result<a class="headerlink" href="#the-result" title="Link to this heading">#</a></h2>
-<p>A completed measurement answers with its rows and columns named by address and
-device id, the steps it used, and the measurement saved to the artifact store.
-The saved file is the one the run left in its own execution folder; a run that
+<p>A completed measurement answers with three things:</p>
+<ul class="simple">
+<li><p>its rows and columns, named by address and device id;</p></li>
+<li><p>the steps it used;</p></li>
+<li><p>the measurement, saved to the artifact store.</p></li>
+</ul>
+<p>The saved file is the one the run left in its own execution folder. A run that
 names any other file saves nothing and says so in <code class="docutils literal notranslate"><span class="pre">data_file_refused</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">crm</span></code> by group is sized from the view’s <code class="docutils literal notranslate"><span class="pre">crm.json</span></code>, which the build writes
-whenever every member of the <code class="docutils literal notranslate"><span class="pre">sext</span></code> role’s array (every group the role
-names) has a modelled column; an array with a member the model gives no column
-has no <code class="docutils literal notranslate"><span class="pre">crm.json</span></code>, and its view
-refuses <code class="docutils literal notranslate"><span class="pre">crm</span></code> by group.</p>
+<p><code class="docutils literal notranslate"><span class="pre">trm</span></code> and <code class="docutils literal notranslate"><span class="pre">crm</span></code> can step <em>by group</em>: each column steps every magnet of the
+role’s array (every group the role names) together, by the same integrated
+strength. <code class="docutils literal notranslate"><span class="pre">crm</span></code> by group is sized from the view’s <code class="docutils literal notranslate"><span class="pre">crm.json</span></code>. The build
+writes <code class="docutils literal notranslate"><span class="pre">crm.json</span></code> only when every member of the <code class="docutils literal notranslate"><span class="pre">sext</span></code> role’s array has a
+modelled column. If a member has no modelled column, the view has no
+<code class="docutils literal notranslate"><span class="pre">crm.json</span></code> and refuses <code class="docutils literal notranslate"><span class="pre">crm</span></code> by group.</p>
 </section>
 <section id="the-model-s-answer">
 <h2>The model’s answer<a class="headerlink" href="#the-model-s-answer" title="Link to this heading">#</a></h2>
@@ -687,6 +726,7 @@ and the model’s line up entry by entry.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-tools-are-there">When the tools are there</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ask-for-a-measurement">Ask for a measurement</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-measurement-asks">What a measurement asks</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-happens-to-the-machine">What happens to the machine</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-result">The result</a></li>

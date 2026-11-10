@@ -62,7 +62,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Import a Middle Layer export" href="import-mml-export.html" />
-    <link rel="prev" title="Measure with the pyAML Tools" href="measure-with-pyaml.html" />
+    <link rel="prev" title="Measure with the pyAML tools" href="measure-with-pyaml.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-scenarios.html">Run and write scenarios</a></li>
@@ -662,13 +662,13 @@ database and resolves a query by a different mechanism:</p>
 <h2>In-Context Pipeline<a class="headerlink" href="#in-context-pipeline" title="Link to this heading">#</a></h2>
 <p>Loads the entire channel database into the LLM context for direct semantic
 matching.</p>
-<p><strong>How it works:</strong> a single inner-LLM call — the complete channel database is
-embedded in the system prompt and the model returns the most relevant channels
-in one shot (no query-splitting or iterative-correction stage).</p>
+<p><strong>How it works:</strong> a single inner-LLM call. The complete channel database is
+embedded in the system prompt. The model returns the most relevant channels in
+one shot, with no query-splitting or iterative-correction stage.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the database from the facility description as
-<code class="docutils literal notranslate"><span class="pre">data/channel_finder/in_context.json</span></code>: one row per channel, or per channel
-of the subset the facility tags <code class="docutils literal notranslate"><span class="pre">in_context</span></code>, with its name, address and
-description — see <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a> for the schema.
+<code class="docutils literal notranslate"><span class="pre">data/channel_finder/in_context.json</span></code>. It holds one row per channel, or per
+channel of the subset the facility tags <code class="docutils literal notranslate"><span class="pre">in_context</span></code>, with its name, address
+and description. See <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a> for the schema.
 A facility description with no channel stops the build with
 <code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code>.</p>
 <p>Validate and preview:</p>
@@ -699,26 +699,35 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview<span
 (<code class="docutils literal notranslate"><span class="pre">list_systems</span></code>, <code class="docutils literal notranslate"><span class="pre">list_families</span></code>, <code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code>,
 <code class="docutils literal notranslate"><span class="pre">list_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">get_common_names</span></code>, <code class="docutils literal notranslate"><span class="pre">statistics</span></code>, <code class="docutils literal notranslate"><span class="pre">validate</span></code>, and —
 when DuckDB is installed — <code class="docutils literal notranslate"><span class="pre">run_sql</span></code>). What <code class="docutils literal notranslate"><span class="pre">run_sql</span></code> hands back is bounded
-by <code class="docutils literal notranslate"><span class="pre">channel_finder.query_max_rows</span></code> (default 500): a longer result is cut and
+by <code class="docutils literal notranslate"><span class="pre">channel_finder.query_max_rows</span></code> (default 500). A longer result is cut and
 flagged, naming the key, so the agent narrows the query instead of presenting a
 partial list. The cap is on the agent’s context, not on the database, which is
 why it is set per deployment.</p>
 <p>The database follows MATLAB Middle Layer (MML) functional organization
 (system, then family, then field, then the channel names). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
 writes it from the facility description as
-<code class="docutils literal notranslate"><span class="pre">data/channel_finder/middle_layer.json</span></code>, with the DuckDB copy <code class="docutils literal notranslate"><span class="pre">run_sql</span></code>
-reads beside it as <code class="docutils literal notranslate"><span class="pre">data/channel_finder/middle_layer.duckdb</span></code>: a System is a
-top place; a Family is a group (every group of the facility is one), and the
-devices of a class that no single-class group holds form a Family named by the
-class under their top place; a Field is a channel’s signal, one channel per
-member, described by the vocabulary’s sentence for that signal. A channel whose
-signal some member lacks or has twice, or that has no signal, is keyed by its
-address. A channel belongs to every Family that holds its device. A channel
-listed under several Fields of one Family is found under each of them. A
-facility description with no group and no classed device stops the build with
-<code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code>, as does a channel whose address is the signal another
-channel’s Field in the same Family is keyed by.
-A facility that runs a Middle Layer
+<code class="docutils literal notranslate"><span class="pre">data/channel_finder/middle_layer.json</span></code>. The DuckDB copy <code class="docutils literal notranslate"><span class="pre">run_sql</span></code> reads
+sits beside it as <code class="docutils literal notranslate"><span class="pre">data/channel_finder/middle_layer.duckdb</span></code>. In that
+database:</p>
+<ul class="simple">
+<li><p>A System is a top place.</p></li>
+<li><p>A Family is a group: every group of the facility is one. The devices of a
+class that no single-class group holds form a Family named by the class
+under their top place.</p></li>
+<li><p>A Field is a channel’s signal, one channel per member, described by the
+vocabulary’s sentence for that signal.</p></li>
+</ul>
+<p>A channel whose signal some member lacks or has twice, or that has no signal,
+is keyed by its address. A channel belongs to every Family that holds its
+device. A channel listed under several Fields of one Family is found under each
+of them.</p>
+<p>Two things stop the build with <code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code>:</p>
+<ul class="simple">
+<li><p>a facility description with no group and no classed device;</p></li>
+<li><p>a channel whose address is the signal another channel’s Field in the same
+Family is keyed by.</p></li>
+</ul>
+<p>A facility that runs a Middle Layer
 already has that structure: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code>
 (<a class="reference internal" href="import-mml-export.html"><span class="doc">Import a Middle Layer export</span></a>) brings it into the facility description.</p>
 </section>
@@ -726,20 +735,32 @@ already has that structure: <code class="docutils literal notranslate"><span cla
 <h2>Graph Pipeline<a class="headerlink" href="#graph-pipeline" title="Link to this heading">#</a></h2>
 <p>Searches the facility knowledge graph instead of a channel database. A
 graph-mode project ships no channel database: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the graph
-view <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> from the facility file, and the channel finder
-subagent finds addresses either by keyword lookup in the search index the build
-writes from that view, or by writing read-only Cypher against the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code>
-store seeded from it.</p>
+view <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> from the facility file. The channel finder
+subagent finds addresses in one of two ways:</p>
+<ul class="simple">
+<li><p>by keyword lookup in the search index the build writes from that view;</p></li>
+<li><p>by writing read-only Cypher against the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store seeded from it.</p></li>
+</ul>
 <p><strong>How it works:</strong> five tools, served under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name like
-every other pipeline’s. <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> reports how addresses are spelled and
-what prose the corpus carries; <code class="docutils literal notranslate"><span class="pre">search_channels</span></code> looks a phrase up in the
-search index and returns matching addresses a page at a time, with facet counts
-for section, system, class, signal and direction; <code class="docutils literal notranslate"><span class="pre">example_queries</span></code> returns
-runnable Cypher for the common channel questions, each with framework-default
-parameter values that the seed-time snapshot may replace with values captured
-from this corpus; <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> lists the labels, relationship types and
-property names <em>this</em> graph actually holds; <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> runs one query and
-returns rows. There is no resolution API behind them — the subagent looks a
+every other pipeline’s:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">capabilities</span></code></dt><dd><p>Reports how addresses are spelled and what prose the corpus carries.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">search_channels</span></code></dt><dd><p>Looks a phrase up in the search index and returns matching addresses a page
+at a time, with facet counts for section, system, class, signal and
+direction.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">example_queries</span></code></dt><dd><p>Returns runnable Cypher for the common channel questions, each with
+framework-default parameter values. The seed-time snapshot may replace those
+values with values captured from this corpus.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">get_schema</span></code></dt><dd><p>Lists the labels, relationship types and property names <em>this</em> graph
+actually holds.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code></dt><dd><p>Runs one query and returns rows.</p>
+</dd>
+</dl>
+<p>There is no resolution API behind them — the subagent looks a
 phrase up or adapts an example rather than calling a lookup.</p>
 <p>Configuration is the mode plus the store, and nothing else — no <code class="docutils literal notranslate"><span class="pre">tier</span></code>,
 because the pipeline has no tiered artifacts:</p>
@@ -749,7 +770,7 @@ because the pipeline has no tiered artifacts:</p>
 <p>The render that field produces has no graph entry under
 <code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines</span></code>: that section comes out empty in graph mode,
 because graph names no database file.</p>
-<p>The search index the finder reads needs no key: the build writes it to
+<p>The search index the finder reads needs no key. The build writes it to
 <code class="docutils literal notranslate"><span class="pre">./data/channel_databases/graph.duckdb</span></code> beside the render’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>,
 which is why the mode and the store are the whole of the configuration.</p>
 <p>The store comes from the <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block, either one this deployment
@@ -766,17 +787,24 @@ runs the store; a store the facility hosts holds whatever the facility loaded
 into it. See <a class="reference internal" href="facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a> for what the graph
 holds.</p>
 <p><strong>What the subagent can search</strong> depends on the corpus. On the build’s graph
-view a phrase can be matched against the description written for a single
-channel, against the prose for a group of devices or a top place, and against
-the synonyms an operator would say out loud. A corpus the profile names in
-place of the view (<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>) may carry less prose: there
-the way in is a name, an alternate name, a section or a device class.</p>
+view a phrase can be matched against:</p>
+<ul class="simple">
+<li><p>the description written for a single channel;</p></li>
+<li><p>the prose for a group of devices or a top place;</p></li>
+<li><p>the synonyms an operator would say out loud.</p></li>
+</ul>
+<p>A corpus the profile names in place of the view (<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>)
+may carry less prose. There the way in is a name, an alternate name, a section
+or a device class.</p>
 <p><code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code> have no channel database to open on this pipeline,
-so both report what the store is and which commands act on it. Health reports
-the store and the search index instead of a database: whether the store is
-reachable and how many resources it holds, and whether the index is there and
-was built from the corpus the store was seeded with
-(<a class="reference internal" href="health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p>
+so both report what the store is and which commands act on it.</p>
+<p>Health reports the store and the search index instead of a database
+(<a class="reference internal" href="health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>):</p>
+<ul class="simple">
+<li><p>whether the store is reachable and how many resources it holds;</p></li>
+<li><p>whether the index is there and was built from the corpus the store was
+seeded with.</p></li>
+</ul>
 <p>The web explorer opens on this pipeline too: its Explore view searches the
 index rather than browsing a channel tree, and the device card reads the store.
 See <a class="reference internal" href="#web-interface">Web Interface</a> below.</p>
@@ -790,14 +818,17 @@ terminal (<code class="docutils literal notranslate"><span class="pre">osprey</s
 <p>The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into
 the search box in the panel toolbar (<code class="docutils literal notranslate"><span class="pre">/</span></code> focuses it) and it keeps the
-channels that match all of them — against the address, the description, the
-device or signal name, and the name or synonyms of the device’s class or any
-class above it. Explore and Feedback are at the toolbar’s left, and the result
-count and the search box are at its right.</p>
-<p>The sidebar narrows further: Section, System and Signal count matching
-channels, Device class counts devices and rolls each class up over its
-subclasses, and Direction splits them into read, write, read/write and
-undirected. A class that groups devices without being a kind of device itself
+channels that match all of them. Each word is matched against the address, the
+description, the device or signal name, and the name or synonyms of the
+device’s class or any class above it. Explore and Feedback are at the toolbar’s
+left. The result count and the search box are at its right.</p>
+<p>The sidebar narrows further:</p>
+<ul class="simple">
+<li><p>Section, System and Signal count matching channels.</p></li>
+<li><p>Device class counts devices and rolls each class up over its subclasses.</p></li>
+<li><p>Direction splits them into read, write, read/write and undirected.</p></li>
+</ul>
+<p>A class that groups devices without being a kind of device itself
 is shown in muted italic. Every facet is counted with its own filter lifted, so
 a number says what a second pick in that facet would add. Each facet folds from
 its heading and clears with its ✕. Active filters show as chips you can click
@@ -812,26 +843,39 @@ description. Click a header to sort on it, drag it to move the column, drag its
 right edge to resize it, and double-click that edge to fit it to its content.
 The header’s right-click menu also hides a column, fits all of them, or resets
 the layout. Order, widths and hidden columns are remembered per browser.</p>
-<p>Clicking a device name opens its card beside the results — where it sits in
-the machine, and every channel bound to it grouped by signal — and marks its
-rows; Escape closes it. Tick the rows you want, and <strong>Copy addresses</strong> puts
-them on the clipboard one per line, while <strong>Send to assistant</strong>, offered only
-when the panel runs inside the terminal, puts them into the prompt on one line
-for you to send. The panel never submits anything itself.</p>
+<p>Clicking a device name opens its card beside the results and marks its rows.
+The card shows where the device sits in the machine, and every channel bound to
+it grouped by signal. Escape closes it.</p>
+<p>Tick the rows you want, then:</p>
+<ul class="simple">
+<li><p><strong>Copy addresses</strong> puts them on the clipboard one per line.</p></li>
+<li><p><strong>Send to assistant</strong> puts them into the prompt on one line for you to send.
+It is offered only when the panel runs inside the terminal.</p></li>
+</ul>
+<p>The panel never submits anything itself.</p>
 <p>Right-click a row, a facet value, a chip or a channel in the card for the
-actions that apply there: copy the address, device name or row, send to the
-assistant, open the device, or narrow the search to that row’s section, system
-or signal; the empty results area clears the filters or the selection or
-chooses columns. Shift+F10 or the menu key opens the same menu from the
+actions that apply there:</p>
+<ul class="simple">
+<li><p>copy the address, device name or row;</p></li>
+<li><p>send to the assistant;</p></li>
+<li><p>open the device;</p></li>
+<li><p>narrow the search to that row’s section, system or signal.</p></li>
+</ul>
+<p>Right-click the empty results area to clear the filters or the selection, or to
+choose columns. Shift+F10 or the menu key opens the same menu from the
 keyboard. The
 table is one Tab stop: arrows, Home and End move between rows, Space selects,
 Enter opens the device and ⌘C/Ctrl+C copies the address. A focused header sorts
 on Enter and moves with Alt+←/→.</p>
-<p>The strip below the results names the corpus file and the store it was loaded
-into, the tools the OSPREY agent queries that same store with, and the counts
-of devices, channels, classes, signals and sections read live from the store.
-If the store is unreachable the view says so and offers a Retry, and if it is
-reachable but empty it names the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> command that
+<p>The strip below the results names:</p>
+<ul class="simple">
+<li><p>the corpus file and the store it was loaded into;</p></li>
+<li><p>the tools the OSPREY agent queries that same store with;</p></li>
+<li><p>the counts of devices, channels, classes, signals and sections, read live
+from the store.</p></li>
+</ul>
+<p>If the store is unreachable the view says so and offers a Retry. If it is
+reachable but empty, it names the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> command that
 fills it. Channel validation is not offered on this pipeline. The
 channel-suggestion typeahead in the web panels still works in graph mode:
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the channel names from the facility file and writes them
@@ -857,7 +901,7 @@ the agent, are in <a class="reference internal" href="../reference/contracts/cha
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Measure with the pyAML Tools</p>
+        <p class="prev-next-title">Measure with the pyAML tools</p>
       </div>
     </a>
     <a class="right-next"

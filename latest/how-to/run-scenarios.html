@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Run and write scenarios</a></li>
@@ -531,13 +531,13 @@
                   
   <section id="run-and-write-scenarios">
 <span id="how-to-run-scenarios"></span><h1>Run and write scenarios<a class="headerlink" href="#run-and-write-scenarios" title="Link to this heading">#</a></h1>
-<p>A scenario is one way the simulated machine departs from its baseline: values
-written into its models, faults in a physics model, the history its archive
-shows, and the logbook entries that narrate it. Scenarios are authored under
-<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>, one YAML file each, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> serves
-them from the simulator view under <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>. The
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span></code> commands list, apply and report on them; their options are in
-<a class="reference internal" href="../reference/cli.html#cli-osprey-sim"><span class="std std-ref">osprey sim</span></a>.</p>
+<p>A scenario is one way the simulated machine departs from its baseline. It can
+set values in the machine’s models, write faults into a physics model, shape
+the history the archive shows, and add logbook entries that narrate it.</p>
+<p>You write each scenario as one YAML file under <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> serves the scenarios from the simulator view under
+<code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>. The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span></code> commands list, apply and report
+on them; <a class="reference internal" href="../reference/cli.html#cli-osprey-sim"><span class="std std-ref">osprey sim</span></a> has their options.</p>
 <section id="the-scenarios-the-demo-ships">
 <h2>The scenarios the demo ships<a class="headerlink" href="#the-scenarios-the-demo-ships" title="Link to this heading">#</a></h2>
 <p>The demo preset ships seven scenarios in
@@ -559,17 +559,18 @@ the weeks before the demo and is always in the active set.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code></p></td>
 <td><p>Three thermal excursions on cavity 1 in the week before an
-investigation, each a temperature rise, a reflected-power spike and a
-forward-power trip, the last one a beam dump. The archive shows the
-excursions, the logbook narrates the dump, the investigation and the
-cooling repair, and cavity 1 reads 26.5 degC live. Cavity 2 shows one
-minor excursion for contrast.</p></td>
+investigation. Each is a temperature rise, a reflected-power spike and
+a forward-power trip; the last one is a beam dump. The archive shows
+the excursions. The logbook narrates the dump, the investigation and
+the cooling repair. Cavity 1 reads 26.5 degC live, and cavity 2 shows
+one minor excursion for contrast.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">rf-thermal-live</span></code></p></td>
-<td><p>Live thermal wander on cavity 1: one slow shared driver moves its
-temperature, tuner, reflected and forward power together, each with
-its own noise, for correlation plots. It adds no archived history and
-does not compose with <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code>, which writes the same channels.</p></td>
+<td><p>Live thermal wander on cavity 1, for correlation plots. One slow
+shared driver moves its temperature, tuner, reflected and forward
+power together, each with its own noise. It adds no archived history.
+It does not compose with <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code>, which writes the same
+channels.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vacuum-burst</span></code></p></td>
 <td><p>A vacuum burst in one sector with a correlated beam-current drop at
@@ -601,30 +602,55 @@ without <code class="docutils literal notranslate"><span class="pre">demo-histor
 </section>
 <section id="apply-a-scenario">
 <h2>Apply a scenario<a class="headerlink" href="#apply-a-scenario" title="Link to this heading">#</a></h2>
+<p>Applying a scenario makes it part of the <em>active set</em>: the scenarios the
+simulated machine shows now. <code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always in the active set.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> deletes every entry in the ARIEL logbook and reseeds
+the logbook from the active scenarios. It also rewrites windows of the
+stored archive. On a virtual-accelerator deployment, those windows can
+hold samples recorded from the running machine. The command asks before
+each of these, unless you pass <code class="docutils literal notranslate"><span class="pre">--yes</span></code>. To leave both stores untouched,
+pass <code class="docutils literal notranslate"><span class="pre">--no-seed</span></code>.</p>
+</div>
+<p>To switch the simulated machine to the <code class="docutils literal notranslate"><span class="pre">vacuum-burst</span></code> scenario, run these
+commands in order:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>sim<span class="w"> </span>list
 osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>vacuum-burst
 osprey<span class="w"> </span>sim<span class="w"> </span>status
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code> marks the active set with <code class="docutils literal notranslate"><span class="pre">*</span></code> and says which scenarios
-carry a logbook narrative. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> replaces the active set with
-the names it is given, plus <code class="docutils literal notranslate"><span class="pre">nominal</span></code>, then purges and reseeds the ARIEL
-logbook and rewrites the affected windows of the stored archive, so live
-values, history and narrative tell one story. It asks before the purge and
-the rewrite; <code class="docutils literal notranslate"><span class="pre">--yes</span></code> skips the prompts and <code class="docutils literal notranslate"><span class="pre">--no-seed</span></code> leaves both stores
-untouched.</p>
-<p>Several scenarios apply together only when no two of them write one target,
-a channel or a model’s fault. A set that breaks the rule is refused before
-anything is written, and the refusal names the target. Archive events are not
-a target: events of several scenarios on one channel combine, so
+<ol class="arabic simple">
+<li><p>List the scenarios with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>. The list marks the active set
+with <code class="docutils literal notranslate"><span class="pre">*</span></code> and says which scenarios carry a logbook narrative.</p></li>
+<li><p>Apply the scenario with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">vacuum-burst</span></code>. The command
+replaces the active set with the names you give it, plus <code class="docutils literal notranslate"><span class="pre">nominal</span></code>. It
+then purges and reseeds the logbook and rewrites the affected windows of
+the archive. Live values, history and narrative now tell one story.</p></li>
+<li><p>Check the simulator with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span></code>. It shows each served
+physics model’s status and the log it writes.</p></li>
+</ol>
+<p>Several scenarios apply together only when no two of them write the same
+target, a channel or a model’s fault. A set that breaks this rule is refused
+before anything is written, and the refusal names the target. Archive events
+are not a target: events of several scenarios on one channel combine, so
 <code class="docutils literal notranslate"><span class="pre">[vacuum-burst,</span> <span class="pre">rf-thermal]</span></code> composes.</p>
-<p>Every facility has a scenario named <code class="docutils literal notranslate"><span class="pre">still</span></code> that stills every float reading:
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">still</span></code>, or <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">[still]</span></code> for a
-deployment that should start still. A file may define its own <code class="docutils literal notranslate"><span class="pre">still</span></code>,
-which replaces the built-in one. <code class="docutils literal notranslate"><span class="pre">still</span></code> composes with overrides and faults,
-and is refused beside a scenario that sets the same reading’s <code class="docutils literal notranslate"><span class="pre">noise</span></code> or
-<code class="docutils literal notranslate"><span class="pre">couple</span></code>. It holds in both venues of the simulator.</p>
-<p>Any scenario can still a family of readings by selecting it over the facility
+<section id="hold-readings-still">
+<h3>Hold readings still<a class="headerlink" href="#hold-readings-still" title="Link to this heading">#</a></h3>
+<p>Every facility has a scenario named <code class="docutils literal notranslate"><span class="pre">still</span></code> that stills every float
+reading: the reading serves without drift, couplings or noise. Run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">still</span></code>. For a deployment that should start still, set
+<code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">[still]</span></code>.</p>
+<p>A scenario file may define its own <code class="docutils literal notranslate"><span class="pre">still</span></code>, which replaces the built-in one.
+<code class="docutils literal notranslate"><span class="pre">still</span></code> composes with overrides and faults. It is refused beside a scenario
+that sets the same reading’s <code class="docutils literal notranslate"><span class="pre">noise</span></code> or <code class="docutils literal notranslate"><span class="pre">couple</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">still</span></code> holds in both <em>venues</em> of the simulator. A venue is where the
+simulator runs: in its own container, or inside the process that asks (see
+<a class="reference internal" href="control-systems/use-virtual-accelerator.html#va-two-venues"><span class="std std-ref">Two venues</span></a>).</p>
+</section>
+<section id="select-readings-to-still">
+<h3>Select readings to still<a class="headerlink" href="#select-readings-to-still" title="Link to this heading">#</a></h3>
+<p>Any scenario can still a family of readings by selecting it from the facility
 file’s own records. Each selection names a model or a place, and the build
 resolves it to plain addresses:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">still</span><span class="p">:</span>
@@ -643,14 +669,27 @@ that model.</p></li>
 <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>), not the channel’s own <code class="docutils literal notranslate"><span class="pre">role</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">plane</span></code>: channels whose wiring record has that plane.</p></li>
 </ul>
-<p>The keys of one selection all apply. The build stops on a selection that names
-neither a model nor a place, and on one that matches no float channel; a
-matched channel that is not a float is left out.</p>
+<p>A channel must match every key of a selection. The build stops on a
+selection that names neither a model nor a place. It also stops on a
+selection that matches no float channel. A matched channel that is not a
+float is left out.</p>
+</section>
 </section>
 <section id="write-a-scenario">
 <h2>Write a scenario<a class="headerlink" href="#write-a-scenario" title="Link to this heading">#</a></h2>
-<p>Add <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;.yaml</span></code>; the file name is the scenario
-name. Every key is optional:</p>
+<p>To add a scenario to your facility:</p>
+<ol class="arabic simple">
+<li><p>Create <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;.yaml</span></code>. The file name is the
+scenario name.</p></li>
+<li><p>Add the keys the scenario needs, from the table below. Every key is
+optional.</p></li>
+<li><p>If a logbook entry has attachments, put the files in the folder
+<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;/</span></code> beside the scenario file.</p></li>
+<li><p>Check the sources with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>, which writes nothing.
+An address, model or key the facility does not have stops the check, and
+the error names the file.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. The new scenario appears in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>.</p></li>
+</ol>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 18.0%" />
@@ -671,65 +710,86 @@ scenario is active.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">faults</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{&lt;model&gt;:</span> <span class="pre">{&lt;address</span> <span class="pre">or</span> <span class="pre">engine</span> <span class="pre">variable&gt;:</span> <span class="pre">&lt;value&gt;}}</span></code>, faults written
-into a physics model; a value is a scalar or a map
+into a physics model. A value is a scalar or a map
 <code class="docutils literal notranslate"><span class="pre">{&lt;fault</span> <span class="pre">field&gt;:</span> <span class="pre">&lt;value&gt;}</span></code> such as <code class="docutils literal notranslate"><span class="pre">{polarity:</span> <span class="pre">-1}</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_faults</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{&lt;address&gt;:</span> <span class="pre">stuck</span> <span class="pre">|</span> <span class="pre">frozen</span> <span class="pre">|</span> <span class="pre">disconnected}</span></code>, faults of the channel
-itself, on any simulated channel, wired to a model or not; the table
-below says what each does.</p></td>
+itself. They work on any simulated channel, wired to a model or not.
+<a class="reference internal" href="#channel-faults">Channel faults</a> says what each does.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">archiver</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[{channel,</span> <span class="pre">events}]</span></code>, the history each channel’s archive shows.
-Each event has a <code class="docutils literal notranslate"><span class="pre">shape</span></code>, <code class="docutils literal notranslate"><span class="pre">step</span></code> (<code class="docutils literal notranslate"><span class="pre">to</span></code>), <code class="docutils literal notranslate"><span class="pre">ramp</span></code> (<code class="docutils literal notranslate"><span class="pre">to</span></code>),
-<code class="docutils literal notranslate"><span class="pre">spike</span></code> (<code class="docutils literal notranslate"><span class="pre">amplitude</span></code> and <code class="docutils literal notranslate"><span class="pre">width</span></code>, a Gaussian sigma in seconds),
-<code class="docutils literal notranslate"><span class="pre">burst</span></code> (<code class="docutils literal notranslate"><span class="pre">amplitude</span></code> reached at the event, then an exponential
-decay over <code class="docutils literal notranslate"><span class="pre">decay_s</span></code>, with an optional slower tail <code class="docutils literal notranslate"><span class="pre">tail_decay_s</span></code>
-carrying <code class="docutils literal notranslate"><span class="pre">tail_share</span></code> of it) or <code class="docutils literal notranslate"><span class="pre">loss</span></code> (<code class="docutils literal notranslate"><span class="pre">amount</span></code> dropped at the
-event, refilled only by the channel’s top-off), and one position:
-<code class="docutils literal notranslate"><span class="pre">at_offset</span></code> (seconds from the apply-time anchor; a ramp ends at
-<code class="docutils literal notranslate"><span class="pre">until_offset</span></code>), <code class="docutils literal notranslate"><span class="pre">at_time</span></code> (a daily <code class="docutils literal notranslate"><span class="pre">HH:MM:SS</span></code> in the
-facility time zone) or <code class="docutils literal notranslate"><span class="pre">at_when</span></code> (<code class="docutils literal notranslate"><span class="pre">{days_ago,</span> <span class="pre">time}</span></code>), which places
-an event at the instant a logbook entry’s <code class="docutils literal notranslate"><span class="pre">when</span></code> names. <code class="docutils literal notranslate"><span class="pre">at_time</span></code>
-and <code class="docutils literal notranslate"><span class="pre">at_when</span></code> take every shape but <code class="docutils literal notranslate"><span class="pre">ramp</span></code>. A <code class="docutils literal notranslate"><span class="pre">step</span></code> on a float
-channel may end with <code class="docutils literal notranslate"><span class="pre">until</span></code>, <code class="docutils literal notranslate"><span class="pre">until_offset</span></code> or <code class="docutils literal notranslate"><span class="pre">until_when</span></code>,
-matching its position and later than it; after the end the channel
-returns to its baseline. A daily <code class="docutils literal notranslate"><span class="pre">at_time</span></code> step does not end.</p></td>
+<a class="reference internal" href="#archive-events">Archive events</a> describes the events.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">logbook</span></code></p></td>
 <td><p>The entries the scenario narrates, each with <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>, <code class="docutils literal notranslate"><span class="pre">when</span></code>
 (<code class="docutils literal notranslate"><span class="pre">{days_ago,</span> <span class="pre">time}</span></code>), <code class="docutils literal notranslate"><span class="pre">author</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code> and <code class="docutils literal notranslate"><span class="pre">text</span></code>, and
 optionally <code class="docutils literal notranslate"><span class="pre">tags</span></code>, <code class="docutils literal notranslate"><span class="pre">categories</span></code>, <code class="docutils literal notranslate"><span class="pre">loto_tag</span></code>, <code class="docutils literal notranslate"><span class="pre">extra</span></code> and
-<code class="docutils literal notranslate"><span class="pre">attachments</span></code>.</p></td>
+<code class="docutils literal notranslate"><span class="pre">attachments</span></code>. <code class="docutils literal notranslate"><span class="pre">attachments</span></code> lists the entry’s pictures, each
+<code class="docutils literal notranslate"><span class="pre">{path:</span> <span class="pre">&lt;picture</span> <span class="pre">file&gt;}</span></code> or <code class="docutils literal notranslate"><span class="pre">{plot:</span> <span class="pre">&lt;plot</span> <span class="pre">spec</span> <span class="pre">.json&gt;}</span></code>, relative
+to the folder <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;/</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">drivers</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code></p></td>
 <td><p>Slow shared signals, and the channels that follow them.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">noise</span></code></p></td>
-<td><p>Per-channel noise while the scenario is active, replacing the seed’s:
-<code class="docutils literal notranslate"><span class="pre">{&lt;address&gt;:</span> <span class="pre">{absolute:</span> <span class="pre">&lt;sigma&gt;}}</span></code> with the sigma in the channel’s
-unit, or <code class="docutils literal notranslate"><span class="pre">{&lt;address&gt;:</span> <span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}}</span></code> with the sigma a
-fraction of the reading.</p></td>
+<td><p>Per-channel noise while the scenario is active, replacing the seed’s.
+Write <code class="docutils literal notranslate"><span class="pre">{&lt;address&gt;:</span> <span class="pre">{absolute:</span> <span class="pre">&lt;sigma&gt;}}</span></code> for a sigma in the
+channel’s unit. Write <code class="docutils literal notranslate"><span class="pre">{&lt;address&gt;:</span> <span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}}</span></code> for a
+sigma that is a fraction of the reading.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">still</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">all</span></code>, or a list of addresses and selections (see <a class="reference internal" href="#apply-a-scenario">Apply a scenario</a>):
-while the scenario is active, those readings serve without drift,
-couplings or noise; readout faults still apply.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">all</span></code>, or a list of addresses and selections (see
+<a class="reference internal" href="#select-readings-to-still">Select readings to still</a>). While the scenario is active, those
+readings serve without drift, couplings or noise; readout faults
+still apply.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sessions</span></code></p></td>
-<td><p>Past agent sessions, <code class="docutils literal notranslate"><span class="pre">[{slug,</span> <span class="pre">title,</span> <span class="pre">when,</span> <span class="pre">parts}]</span></code>; each part (a
-<code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts the next) has a <code class="docutils literal notranslate"><span class="pre">title</span></code> and <code class="docutils literal notranslate"><span class="pre">turns</span></code>. A turn has
-<code class="docutils literal notranslate"><span class="pre">prompt</span></code> and <code class="docutils literal notranslate"><span class="pre">steps</span></code> (<code class="docutils literal notranslate"><span class="pre">{tool:</span> <span class="pre">{server,</span> <span class="pre">name},</span> <span class="pre">input,</span> <span class="pre">result,</span>
+<td><p>Past agent sessions, <code class="docutils literal notranslate"><span class="pre">[{slug,</span> <span class="pre">title,</span> <span class="pre">when,</span> <span class="pre">parts}]</span></code>. Each part has
+a <code class="docutils literal notranslate"><span class="pre">title</span></code> and <code class="docutils literal notranslate"><span class="pre">turns</span></code>; a <code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts the next part. A turn
+has <code class="docutils literal notranslate"><span class="pre">prompt</span></code> and <code class="docutils literal notranslate"><span class="pre">steps</span></code> (<code class="docutils literal notranslate"><span class="pre">{tool:</span> <span class="pre">{server,</span> <span class="pre">name},</span> <span class="pre">input,</span> <span class="pre">result,</span>
 <span class="pre">approved?}</span></code> or <code class="docutils literal notranslate"><span class="pre">{answer}</span></code>), and optionally <code class="docutils literal notranslate"><span class="pre">at_offset_s</span></code>,
-<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">logbook_ids</span></code> and <code class="docutils literal notranslate"><span class="pre">artifacts</span></code>. <code class="docutils literal notranslate"><span class="pre">channels</span></code> must be facility channels
-and <code class="docutils literal notranslate"><span class="pre">logbook_ids</span></code> entries of <code class="docutils literal notranslate"><span class="pre">nominal</span></code> or the scenario itself, or
-the build stops. The scenario must also state, under <code class="docutils literal notranslate"><span class="pre">archiver</span></code> and
-<code class="docutils literal notranslate"><span class="pre">logbook</span></code>, the events its sessions tell of, so a resumed session that
-reads the archive sees the same story.</p></td>
+<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">logbook_ids</span></code> and <code class="docutils literal notranslate"><span class="pre">artifacts</span></code>. <code class="docutils literal notranslate"><span class="pre">channels</span></code> must be
+facility channels, and <code class="docutils literal notranslate"><span class="pre">logbook_ids</span></code> entries of <code class="docutils literal notranslate"><span class="pre">nominal</span></code> or the
+scenario itself, or the build stops. The scenario must also state the
+events its sessions tell of, under <code class="docutils literal notranslate"><span class="pre">archiver</span></code> and <code class="docutils literal notranslate"><span class="pre">logbook</span></code>. A
+resumed session that reads the archive then sees the same story.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<section id="archive-events">
+<h3>Archive events<a class="headerlink" href="#archive-events" title="Link to this heading">#</a></h3>
+<p>Each entry under <code class="docutils literal notranslate"><span class="pre">archiver</span></code> names a channel and its <code class="docutils literal notranslate"><span class="pre">events</span></code>. Each event
+has a shape and one position.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">shape</span></code> is one of these:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">step</span></code>, with <code class="docutils literal notranslate"><span class="pre">to</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ramp</span></code>, with <code class="docutils literal notranslate"><span class="pre">to</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">spike</span></code>, with <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> and <code class="docutils literal notranslate"><span class="pre">width</span></code>, a Gaussian sigma in seconds.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">burst</span></code>, with <code class="docutils literal notranslate"><span class="pre">amplitude</span></code>, reached at the event and then decaying
+exponentially over <code class="docutils literal notranslate"><span class="pre">decay_s</span></code>. An optional slower tail <code class="docutils literal notranslate"><span class="pre">tail_decay_s</span></code>
+carries <code class="docutils literal notranslate"><span class="pre">tail_share</span></code> of it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">loss</span></code>, with <code class="docutils literal notranslate"><span class="pre">amount</span></code>, dropped at the event. Only the channel’s top-off
+refills it.</p></li>
+</ul>
+<p>The position is one of these:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">at_offset</span></code>: seconds from the apply-time anchor. A ramp ends at
+<code class="docutils literal notranslate"><span class="pre">until_offset</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">at_time</span></code>: a daily <code class="docutils literal notranslate"><span class="pre">HH:MM:SS</span></code> in the facility time zone.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">at_when</span></code>: <code class="docutils literal notranslate"><span class="pre">{days_ago,</span> <span class="pre">time}</span></code>. It places the event at the instant a
+logbook entry’s <code class="docutils literal notranslate"><span class="pre">when</span></code> names.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">at_time</span></code> and <code class="docutils literal notranslate"><span class="pre">at_when</span></code> take every shape but <code class="docutils literal notranslate"><span class="pre">ramp</span></code>.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">step</span></code> on a float channel may end with <code class="docutils literal notranslate"><span class="pre">until</span></code>, <code class="docutils literal notranslate"><span class="pre">until_offset</span></code> or
+<code class="docutils literal notranslate"><span class="pre">until_when</span></code>. The end must match the step’s position and come later than it.
+After the end, the channel returns to its baseline. A daily <code class="docutils literal notranslate"><span class="pre">at_time</span></code> step
+does not end.</p>
+</section>
+<section id="channel-faults">
+<h3>Channel faults<a class="headerlink" href="#channel-faults" title="Link to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 14.0%" />
@@ -775,16 +835,11 @@ became active</p></td>
 </tbody>
 </table>
 </div>
-<p>A disconnected setpoint’s readback is the disconnected reading; a setpoint
-that is its own readback reads its demand and reports <code class="docutils literal notranslate"><span class="pre">udf</span></code> itself. A
-channel fault holds in both venues of the simulator; <code class="docutils literal notranslate"><span class="pre">offline</span></code>, a read that
-never answers, is not one of them.</p>
-<p>An entry’s <code class="docutils literal notranslate"><span class="pre">attachments</span></code> lists its pictures, each <code class="docutils literal notranslate"><span class="pre">{path:</span> <span class="pre">&lt;picture</span> <span class="pre">file&gt;}</span></code>
-or <code class="docutils literal notranslate"><span class="pre">{plot:</span> <span class="pre">&lt;plot</span> <span class="pre">spec</span> <span class="pre">.json&gt;}</span></code>, relative to the folder
-<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;/</span></code> beside the file. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> to check the sources without writing anything;
-an address, model or key the facility does not have stops the build and names
-the file. The new scenario then appears in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>.</p>
+<p>A disconnected setpoint’s readback is the disconnected reading. A setpoint
+that is its own readback reads its demand and reports <code class="docutils literal notranslate"><span class="pre">udf</span></code> itself.</p>
+<p>A channel fault holds in both venues of the simulator. <code class="docutils literal notranslate"><span class="pre">offline</span></code>, a read
+that never answers, is not one of these faults.</p>
+</section>
 </section>
 </section>
 
@@ -836,8 +891,16 @@ the file. The new scenario then appears in <code class="docutils literal notrans
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-scenarios-the-demo-ships">The scenarios the demo ships</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#apply-a-scenario">Apply a scenario</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-a-scenario">Write a scenario</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#apply-a-scenario">Apply a scenario</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hold-readings-still">Hold readings still</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#select-readings-to-still">Select readings to still</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-a-scenario">Write a scenario</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#archive-events">Archive events</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-faults">Channel faults</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 

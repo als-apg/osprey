@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -534,9 +534,10 @@
                   
   <section id="run-open-local-models">
 <span id="how-to-run-open-models"></span><h1>Run Open &amp; Local Models<a class="headerlink" href="#run-open-local-models" title="Link to this heading">#</a></h1>
-<p>OSPREY runs Claude Code as its agent harness, and the model behind it is a
-configuration choice. This guide covers running the OSPREY agent on
-<strong>open-weight and locally hostable models</strong>.</p>
+<p>Use this guide to run the OSPREY agent on <strong>open-weight and locally hostable
+models</strong>. It shows how to route such a model, which open models are known to
+work, and how to benchmark one yourself. OSPREY runs Claude Code as its agent
+harness, and the model behind it is a configuration choice.</p>
 <section id="two-independent-axes">
 <h2>Two independent axes<a class="headerlink" href="#two-independent-axes" title="Link to this heading">#</a></h2>
 <ul class="simple">
@@ -549,17 +550,18 @@ or self-hosted — is set in configuration, not in code.</p></li>
 </section>
 <section id="how-open-models-are-routed">
 <h2>How open models are routed<a class="headerlink" href="#how-open-models-are-routed" title="Link to this heading">#</a></h2>
-<p>Open models are most often served behind an <strong>OpenAI-compatible</strong> API — that is
-how CBORG, Ollama, and vLLM all expose them — so OSPREY reaches them through the
-local <code class="docutils literal notranslate"><span class="pre">Anthropic</span> <span class="pre">↔</span> <span class="pre">OpenAI</span></code> translation proxy it starts for any OpenAI-protocol
-provider. How that translation works, and the routing every provider follows
-(<a class="reference internal" href="configure-providers.html#provider-routing-diagram"><span class="std std-ref">diagram</span></a>), are in <a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
-<p>One nuance for CBORG: the built-in <code class="docutils literal notranslate"><span class="pre">cborg</span></code> provider uses CBORG’s
-Anthropic-compatible endpoint, which serves the <strong>Claude</strong> models — those go
-direct, with no proxy. CBORG’s <em>open</em> models live on its OpenAI-compatible side,
-so to run one you add your own provider entry pointing there. It then goes
-through the translation proxy like any other OpenAI endpoint:</p>
-<p>In <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, beside the deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<p>OSPREY reaches open models through the local <code class="docutils literal notranslate"><span class="pre">Anthropic</span> <span class="pre">↔</span> <span class="pre">OpenAI</span></code>
+translation proxy. OSPREY starts this proxy for any OpenAI-protocol provider.
+Open models are most often served behind an <strong>OpenAI-compatible</strong> API; that is
+how CBORG, Ollama, and vLLM all expose them. For how that translation works,
+and the routing every provider follows
+(<a class="reference internal" href="configure-providers.html#provider-routing-diagram"><span class="std std-ref">diagram</span></a>), see <a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
+<p>CBORG needs one extra step. The built-in <code class="docutils literal notranslate"><span class="pre">cborg</span></code> provider uses CBORG’s
+Anthropic-compatible endpoint, which serves the <strong>Claude</strong> models. Those go
+direct, with no proxy. CBORG’s <em>open</em> models live on its OpenAI-compatible
+side. To run one, add your own provider entry that points there; it then goes
+through the translation proxy like any other OpenAI endpoint.</p>
+<p>Add the entry in <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, beside the deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">providers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">cborg-open</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${CBORG_OPEN_API_KEY}</span>
@@ -576,42 +578,48 @@ through the translation proxy like any other OpenAI endpoint:</p>
 <p>The entry names <code class="docutils literal notranslate"><span class="pre">gpt-oss-120b</span></code> as its default, so the profile needs no
 <code class="docutils literal notranslate"><span class="pre">model:</span></code>. The provider serves no Claude models, so the build prints one line
 saying Claude Code’s haiku, sonnet and opus aliases point at <code class="docutils literal notranslate"><span class="pre">gpt-oss-120b</span></code>.</p>
-<p>A provider you add yourself takes its key from <code class="docutils literal notranslate"><span class="pre">&lt;NAME&gt;_API_KEY</span></code> — uppercased,
-dashes to underscores — so <code class="docutils literal notranslate"><span class="pre">cborg-open</span></code> reads <code class="docutils literal notranslate"><span class="pre">CBORG_OPEN_API_KEY</span></code>. Put
-<code class="docutils literal notranslate"><span class="pre">CBORG_OPEN_API_KEY=&lt;your</span> <span class="pre">CBORG</span> <span class="pre">key&gt;</span></code> in the repo’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>; the same CBORG
-key serves both entries.</p>
-<p>Any model ID from CBORG’s catalogue works in the <code class="docutils literal notranslate"><span class="pre">models</span></code> list — the
-<em>Benchmark snapshot</em> box on this page shows which ones hold up in practice. The
-provider list and the keys behind it are in <a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
+<p>A provider you add yourself takes its key from <code class="docutils literal notranslate"><span class="pre">&lt;NAME&gt;_API_KEY</span></code>, with the
+name uppercased and dashes turned to underscores. So <code class="docutils literal notranslate"><span class="pre">cborg-open</span></code> reads
+<code class="docutils literal notranslate"><span class="pre">CBORG_OPEN_API_KEY</span></code>. Put <code class="docutils literal notranslate"><span class="pre">CBORG_OPEN_API_KEY=&lt;your</span> <span class="pre">CBORG</span> <span class="pre">key&gt;</span></code> in the
+repo’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>. The same CBORG key serves both entries.</p>
+<p>Any model ID from CBORG’s catalogue works in the <code class="docutils literal notranslate"><span class="pre">models</span></code> list. The
+<em>Historical benchmark snapshot</em> box on this page shows which ones hold up in
+practice. For the provider list and the keys behind it, see
+<a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
 </section>
 <section id="which-models-are-known-to-work">
 <h2>Which models are known to work<a class="headerlink" href="#which-models-are-known-to-work" title="Link to this heading">#</a></h2>
-<p>For an agentic system “runs” means sustaining a multi-step tool-calling loop across
-the <strong>full OSPREY end-to-end suite</strong>, not just emitting plausible text. The
-following open families were verified to complete that suite end-to-end:</p>
+<p>These open families were verified to complete the <strong>full OSPREY end-to-end
+suite</strong>. For an agentic system, “runs” means sustaining a multi-step
+tool-calling loop across that suite, not just emitting plausible text.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-oss</span></code> (20B and 120B)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gemma</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gemma</span></code> (<code class="docutils literal notranslate"><span class="pre">gemma-4</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">cborg-coder</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">qwen-3</span></code> / <code class="docutils literal notranslate"><span class="pre">qwen-3-coder</span></code></p></li>
 </ul>
-<p>This set was chosen from the open models <strong>available on the CBORG provider</strong> — it
-reflects CBORG’s catalogue at benchmark time, not an exhaustive survey of open
-models. Capability varies widely across the set; the snapshot below is the real
-signal, not the bare “it runs” list.</p>
+<p>This set was chosen from the open models <strong>available on the CBORG provider</strong>.
+It reflects CBORG’s catalogue at benchmark time, not an exhaustive survey of
+open models. Capability varies widely across the set. The snapshot below is the
+real signal, not the bare “it runs” list.</p>
 </section>
 <section id="benchmark-it-yourself">
 <h2>Benchmark it yourself<a class="headerlink" href="#benchmark-it-yourself" title="Link to this heading">#</a></h2>
-<p>The numbers are reproducible. OSPREY ships the benchmark toolchain under
-<code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code> (see its <a class="reference external" href="https://github.com/als-apg/osprey/blob/main/scripts/benchmark/README.md">README</a>): it runs the model-driving part of
-<code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code> — the tests that actually exercise the model under test — across a
-matrix of models and renders a per-test pass-rate dashboard. The
-whole run is declared in one file, <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/matrix.yaml</span></code> — each row
-names a <code class="docutils literal notranslate"><span class="pre">provider</span></code> and a model <code class="docutils literal notranslate"><span class="pre">id</span></code>; the launcher resolves credentials,
-derives the route (proxy for OpenAI-protocol models, direct for Anthropic),
-wires the judge, and runs one isolated worker per (model, seed) cell. Adding a
-model — or a provider like the local DeepSeek (<code class="docutils literal notranslate"><span class="pre">ds4</span></code>) server — is a config
-edit, not a script edit.</p>
+<p>To reproduce the numbers, use the benchmark toolchain OSPREY ships under
+<code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code> (see its <a class="reference external" href="https://github.com/als-apg/osprey/blob/main/scripts/benchmark/README.md">README</a>). It runs the
+model-driving part of <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code>, the tests that actually exercise the
+model under test. It runs them across a matrix of models and renders a per-test
+pass-rate dashboard.</p>
+<p>One file declares the whole run: <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/matrix.yaml</span></code>. Each row
+names a <code class="docutils literal notranslate"><span class="pre">provider</span></code> and a model <code class="docutils literal notranslate"><span class="pre">id</span></code>. The launcher then:</p>
+<ul class="simple">
+<li><p>resolves credentials;</p></li>
+<li><p>derives the route (proxy for OpenAI-protocol models, direct for Anthropic);</p></li>
+<li><p>wires the judge;</p></li>
+<li><p>runs one isolated worker per (model, seed) cell.</p></li>
+</ul>
+<p>Adding a model, or a provider like the local DeepSeek (<code class="docutils literal notranslate"><span class="pre">ds4</span></code>) server, is a
+config edit, not a script edit.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># see the resolved plan without running anything</span>
 scripts/benchmark/matrix.py<span class="w"> </span>--dry-run
 
@@ -623,13 +631,14 @@ scripts/benchmark/matrix.py<span class="w"> </span>--parallel<span class="w"> </
 scripts/benchmark/matrix_dashboard.py<span class="w"> </span>--results-dir<span class="w"> </span>results<span class="w"> </span>--out<span class="w"> </span>dashboard.html
 </pre></div>
 </div>
-<p>The dashboard derives every count from the run data at render time — it never
+<p>The dashboard derives every count from the run data at render time. It never
 hard-codes a number, so it stays accurate as the suite grows.</p>
 <div class="important admonition">
-<p class="admonition-title">Benchmark snapshot — OSPREY v2026.6.2</p>
+<p class="admonition-title">Historical benchmark snapshot — OSPREY v2026.6.2</p>
 <p>Pass rates for the open and self-hosted models below, measured on the
-model-driving subset of the e2e suite; single-seed Anthropic columns are a
-control/ceiling reference.</p>
+model-driving subset of the e2e suite in June 2026. This snapshot is
+historical: it is not regenerated with each release. Single-seed Anthropic
+columns are a control/ceiling reference.</p>
 <ul class="simple">
 <li><p><strong>Measured against:</strong> OSPREY <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code></p></li>
 <li><p><strong>Run:</strong> 2026-06-25 · open subjects via CBORG · Anthropic reference columns via als-apg · <code class="docutils literal notranslate"><span class="pre">deepseek-v4</span></code> self-hosted on a Mac Studio (keyless <code class="docutils literal notranslate"><span class="pre">ds4</span></code> server, single seed)</p></li>

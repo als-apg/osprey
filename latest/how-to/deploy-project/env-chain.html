@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -534,7 +534,9 @@
                   
   <section id="environment-variables-the-env-chain">
 <span id="deployment-env-chain"></span><h1>Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)<a class="headerlink" href="#environment-variables-the-env-chain" title="Link to this heading">#</a></h1>
-<p>A deployment reads its environment from two files at the repository root:</p>
+<p>Use this page to set the environment variables a deployment reads, and to act
+on what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reports about them. A deployment reads its environment
+from two files at the repository root, together called the <strong>env chain</strong>:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
@@ -562,16 +564,19 @@ passwords.</p></td>
 </table>
 </div>
 <p><strong>The local file wins.</strong> A variable set in both takes its value from <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
-on every path that reads them — the deploy, the CLI, the containers. That is
-the whole rule: same syntax, same variables, <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> simply sits lower.
-Setting a key in <code class="docutils literal notranslate"><span class="pre">.env</span></code> is how one host departs from a shared default, and
-there is nothing else to do about it — unless the profile has declared that
-variable the shared file’s to decide (see <a class="reference internal" href="#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>).</p>
-<p id="deployment-env-launch-variables"><strong>Launch variables come from the shell only.</strong> <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">HOME</span></code>, <code class="docutils literal notranslate"><span class="pre">SHELL</span></code>,
-the variables that point a shell at its start-up files or run a command at its
-prompt, <code class="docutils literal notranslate"><span class="pre">PS4</span></code>, <code class="docutils literal notranslate"><span class="pre">IFS</span></code>, <code class="docutils literal notranslate"><span class="pre">SHELLOPTS</span></code>, <code class="docutils literal notranslate"><span class="pre">BASHOPTS</span></code>, the Python, Node, Perl,
-Ruby and Java start-up and load-path variables, the glibc variables
-<code class="docutils literal notranslate"><span class="pre">GCONV_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">GLIBC_TUNABLES</span></code>, <code class="docutils literal notranslate"><span class="pre">LOCPATH</span></code>, <code class="docutils literal notranslate"><span class="pre">NLSPATH</span></code> and
+on every path that reads them: the deploy, the CLI, the containers. That is the
+whole rule. Both files use the same syntax and the same variables;
+<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> sits lower.</p>
+<p>To make one host depart from a shared default, set the key in <code class="docutils literal notranslate"><span class="pre">.env</span></code>. There
+is nothing else to do, unless the profile has declared that variable the
+shared file’s to decide (see <a class="reference internal" href="#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>).</p>
+<p id="deployment-env-launch-variables"><strong>Launch variables come from the shell only.</strong> OSPREY never takes the
+variables below from either file, because they decide which program runs, what
+code it loads, or what code an installer fetches: <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">HOME</span></code>,
+<code class="docutils literal notranslate"><span class="pre">SHELL</span></code>, the variables that point a shell at its start-up files or run a
+command at its prompt, <code class="docutils literal notranslate"><span class="pre">PS4</span></code>, <code class="docutils literal notranslate"><span class="pre">IFS</span></code>, <code class="docutils literal notranslate"><span class="pre">SHELLOPTS</span></code>, <code class="docutils literal notranslate"><span class="pre">BASHOPTS</span></code>, the
+Python, Node, Perl, Ruby and Java start-up and load-path variables, the glibc
+variables <code class="docutils literal notranslate"><span class="pre">GCONV_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">GLIBC_TUNABLES</span></code>, <code class="docutils literal notranslate"><span class="pre">LOCPATH</span></code>, <code class="docutils literal notranslate"><span class="pre">NLSPATH</span></code> and
 <code class="docutils literal notranslate"><span class="pre">HOSTALIASES</span></code>, <code class="docutils literal notranslate"><span class="pre">OPENSSL_CONF</span></code>, <code class="docutils literal notranslate"><span class="pre">OPENSSL_MODULES</span></code>, <code class="docutils literal notranslate"><span class="pre">OPENSSL_ENGINES</span></code>,
 <code class="docutils literal notranslate"><span class="pre">XDG_CONFIG_HOME</span></code>, <code class="docutils literal notranslate"><span class="pre">XDG_CONFIG_DIRS</span></code>, <code class="docutils literal notranslate"><span class="pre">XDG_CACHE_HOME</span></code>,
 <code class="docutils literal notranslate"><span class="pre">XDG_DATA_HOME</span></code>, the compilers <code class="docutils literal notranslate"><span class="pre">CC</span></code>, <code class="docutils literal notranslate"><span class="pre">CXX</span></code> and <code class="docutils literal notranslate"><span class="pre">LDSHARED</span></code> and their
@@ -581,33 +586,31 @@ flag and include-path variables, <code class="docutils literal notranslate"><spa
 <code class="docutils literal notranslate"><span class="pre">CLAUDE_ENV_FILE</span></code>, the askpass helpers, <code class="docutils literal notranslate"><span class="pre">PAGER</span></code>, <code class="docutils literal notranslate"><span class="pre">MANPAGER</span></code>,
 <code class="docutils literal notranslate"><span class="pre">LESSOPEN</span></code>, <code class="docutils literal notranslate"><span class="pre">LESSCLOSE</span></code>, <code class="docutils literal notranslate"><span class="pre">EDITOR</span></code>, <code class="docutils literal notranslate"><span class="pre">VISUAL</span></code>, <code class="docutils literal notranslate"><span class="pre">BROWSER</span></code>, and every
 <code class="docutils literal notranslate"><span class="pre">LD_</span></code>, <code class="docutils literal notranslate"><span class="pre">DYLD_</span></code>, <code class="docutils literal notranslate"><span class="pre">BASH_FUNC_</span></code>, <code class="docutils literal notranslate"><span class="pre">GIT_</span></code>, <code class="docutils literal notranslate"><span class="pre">NPM_CONFIG_</span></code>, <code class="docutils literal notranslate"><span class="pre">UV_</span></code>,
-<code class="docutils literal notranslate"><span class="pre">PIP_</span></code> or <code class="docutils literal notranslate"><span class="pre">COMPOSE_</span></code> variable are never taken from either file:
-they decide which program runs, what code it loads, or what code an installer
-fetches. Names match in any case, so <code class="docutils literal notranslate"><span class="pre">path</span></code> is refused like <code class="docutils literal notranslate"><span class="pre">PATH</span></code>. OSPREY
-ignores such a line and warns, naming the variables. Export them in your shell
-instead.</p>
-<p>Both files stay on the host. Neither ever enters a container image: they are
-read at run time and handed to the container runtime, which uses them to fill
-in the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files. A variable reaches
-a running container only where a template maps it in. <em>How</em> the two files are
-handed over differs by compose provider (see
+<code class="docutils literal notranslate"><span class="pre">PIP_</span></code> or <code class="docutils literal notranslate"><span class="pre">COMPOSE_</span></code> variable. Names match in any case, so <code class="docutils literal notranslate"><span class="pre">path</span></code> is
+refused like <code class="docutils literal notranslate"><span class="pre">PATH</span></code>. OSPREY ignores such a line and warns, naming the
+variables. Export them in your shell instead.</p>
+<p>Both files stay on the host. Neither ever enters a container image. They are
+read at run time and handed to the container runtime. The runtime uses them to
+fill in the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files.</p>
+<p>A variable reaches a running container only where a template maps it in.
+<em>How</em> the two files are handed over differs by compose provider (see
 <a class="reference internal" href="index.html#compose-provider-compatibility"><span class="std std-ref">Supported compose providers</span></a>); what they resolve to does not.</p>
-<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> has to exist. Rather than start a stack whose every <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
-substitutes to nothing, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses when the file is missing. On an
-interactive terminal it first offers to seed one, but only when your shell has
-the key to seed it with — this deployment’s own provider auth variable,
-exported. Otherwise start from the example:</p>
+<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> has to exist. When the file is missing, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses rather
+than start a stack whose every <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> substitutes to nothing. On an
+interactive terminal it first offers to seed one. It does so only when your
+shell has the key to seed it with: this deployment’s own provider auth
+variable, exported. Otherwise start from the example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 <span class="c1"># Edit .env with your actual values</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> can give a new repository a head start on this file, once, from
-your shell — see <a class="reference internal" href="../build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
+your shell. See <a class="reference internal" href="../build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
 <section id="the-env-family">
 <h2>The <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family<a class="headerlink" href="#the-env-family" title="Link to this heading">#</a></h2>
-<p>Two files are yours to edit and one is documentation. The rest are written for
-you — most of them derived, rewritten whenever a command needs them, and not
-worth editing because the next command overwrites them:</p>
+<p>Two files are yours to edit and one is documentation. OSPREY writes the rest
+for you. Most of them are derived and rewritten whenever a command needs them.
+Don’t edit those, because the next command overwrites them:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 32.0%" />
@@ -654,12 +657,12 @@ stale local value can be spotted. It stores digests, never values.</p></td>
 <p class="admonition-title">Note</p>
 <p>Upgrading a multi-user deployment</p>
 <p>The web terminals’ env file changed name to <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
-does the rename for you the next time you deploy, and if both names are
-present it keeps the new one and removes the leftover, naming both paths.
-Only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does this, so a stack you stop before you next deploy
-still carries the old name — and because the web stack’s compose file names
-<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> fails with an env-file-not-found error until
-the rename has happened. Do it yourself in that case:</p>
+does the rename for you the next time you deploy. If both names are
+present, it keeps the new one and removes the leftover, naming both paths.</p>
+<p>Only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does this, so a stack you stop before you next deploy
+still carries the old name. The web stack’s compose file names
+<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> fails with an env-file-not-found error
+until the rename has happened. In that case, do the rename yourself:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mv<span class="w"> </span>.env.production<span class="w"> </span>.env.users
 </pre></div>
 </div>
@@ -667,144 +670,167 @@ the rename has happened. Do it yourself in that case:</p>
 </section>
 <section id="what-a-deploy-writes-back">
 <h2>What a deploy writes back<a class="headerlink" href="#what-a-deploy-writes-back" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also <em>writes</em> to <code class="docutils literal notranslate"><span class="pre">.env</span></code>. On first deploy it mints any missing
-service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> or
-<code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so no service ever starts on a blank or publicly-known
-credential, appends them under a “Minted by deploy” heading, and restricts the
-file to owner-only permissions. The agent record’s logins are the exception:
-each has its own <code class="docutils literal notranslate"><span class="pre">.env.agent-record.*</span></code> file at the repo root, mode 0600,
-outside the env chain, so a container is handed only the login it acts as.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes nothing into <code class="docutils literal notranslate"><span class="pre">.env</span></code>: the virtual accelerator reads
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also <em>writes</em> to <code class="docutils literal notranslate"><span class="pre">.env</span></code>. On first deploy it:</p>
+<ul class="simple">
+<li><p>mints any missing service tokens and passwords (for example
+<code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> or <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>), so no service ever
+starts on a blank or publicly-known credential;</p></li>
+<li><p>appends them under a “Minted by deploy” heading;</p></li>
+<li><p>restricts the file to owner-only permissions.</p></li>
+</ul>
+<p>The agent record’s logins are the exception. Each has its own
+<code class="docutils literal notranslate"><span class="pre">.env.agent-record.*</span></code> file at the repo root, mode 0600, outside the env
+chain. So a container is handed only the login it acts as.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes nothing into <code class="docutils literal notranslate"><span class="pre">.env</span></code>. The virtual accelerator reads
 the simulator view the build renders under <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>.</p>
-<p>The deploy’s write is append-only, and a value already on file always wins. A
-value that disagrees with what it would have put there is <em>reported</em>, by name
-and never by value, for you to resolve by hand. That is what makes the stack
-reproducible: a later start comes up on the same credentials the running
-containers were initialized with, instead of minting a second set they do not
-trust. The <code class="docutils literal notranslate"><span class="pre">.env</span></code> beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the deployment’s whole secret
-store — the only copy you maintain. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes no secret into
-<code class="docutils literal notranslate"><span class="pre">build/</span></code> and reads none out of it, so a value you set once survives every
-rebuild; <code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code> is a derived copy the deploy regenerates, so
-wiping <code class="docutils literal notranslate"><span class="pre">build/</span></code> loses nothing — so back <code class="docutils literal notranslate"><span class="pre">.env</span></code> up.</p>
+<p>The deploy’s write is append-only, and a value already on file always wins. If
+a value disagrees with what the deploy would have put there, the deploy
+<em>reports</em> it, by name and never by value, for you to resolve by hand.</p>
+<p>This append-only write makes the stack reproducible. A later start comes up on the same
+credentials the running containers were initialized with, instead of minting a
+second set they do not trust.</p>
+<p><strong>Back up</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>. The <code class="docutils literal notranslate"><span class="pre">.env</span></code> beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the deployment’s
+whole secret store, and the only copy you maintain. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes no
+secret into <code class="docutils literal notranslate"><span class="pre">build/</span></code> and reads none out of it, so a value you set once
+survives every rebuild. <code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code> is a derived copy the deploy
+regenerates, so wiping <code class="docutils literal notranslate"><span class="pre">build/</span></code> loses nothing.</p>
 <p>Minted values only ever land in <code class="docutils literal notranslate"><span class="pre">.env</span></code>, never in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>. A minted
 credential belongs to this host, and <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> is committed.</p>
 </section>
 <section id="what-a-deploy-tells-you-about-the-chain">
-<h2>What a deploy tells you about the chain<a class="headerlink" href="#what-a-deploy-tells-you-about-the-chain" title="Link to this heading">#</a></h2>
-<p>Two layered files make one new mistake possible, so every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reports
-on the chain before it starts anything. Variable names are printed; values never
-are.</p>
-<ul class="simple">
+<span id="deployment-env-chain-report"></span><h2>What a deploy tells you about the chain<a class="headerlink" href="#what-a-deploy-tells-you-about-the-chain" title="Link to this heading">#</a></h2>
+<p>Every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reports on the chain before it starts anything, because two
+layered files make one new mistake possible. It prints variable names, never
+values.</p>
+<ul>
 <li><p><strong>Overrides</strong> — the keys <code class="docutils literal notranslate"><span class="pre">.env</span></code> overrides in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> are listed
 once, by name, as information. That is the chain working as intended.</p></li>
-<li><p><strong>Stale pins</strong> — a warning, and it is reserved for one exact case: <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-still holds the value <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> carried <em>before</em> the shared file
-changed. That is the signature of a value copied from the default of the day
-and then forgotten rather than one this host chose, and the stack starts on
-the superseded value looking perfectly healthy. To adopt the shared value,
-remove the key from <code class="docutils literal notranslate"><span class="pre">.env</span></code>; to keep a local value deliberately, set it to
-the value this host actually wants. The warning repeats until you do one or
-the other.</p></li>
+<li><p><strong>Stale pins</strong> — a warning, reserved for one exact case: <code class="docutils literal notranslate"><span class="pre">.env</span></code> still
+holds the value <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> carried <em>before</em> the shared file changed.
+That is the signature of a value copied from the default of the day and then
+forgotten, rather than one this host chose. The stack starts on the
+superseded value, looking perfectly healthy.</p>
+<ul class="simple">
+<li><p>To adopt the shared value, remove the key from <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p></li>
+<li><p>To keep a local value deliberately, set it to the value this host actually
+wants.</p></li>
+</ul>
+<p>The warning repeats until you do one or the other. A stale pin is a value
+pinned by hand in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that has fallen behind the shared default. It is
+unrelated to <code class="docutils literal notranslate"><span class="pre">env.pinned</span></code> (the next item), and it stays a warning.</p>
+</li>
 <li><p><strong>Pinned variables</strong> — a refusal. A profile can declare that some variables
-are the shared file’s to decide and no one else’s; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> then refuses
-to start when anything contradicts that. See <a class="reference internal" href="#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>.</p></li>
-<li><p><strong>Chain drift</strong> — a refusal. Which env files the stack reads is decided when
-the project is rendered, not when it starts: adding <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> to a
-project built without one puts none of its values into the containers, and
-removing one leaves the render pointing at a file that is gone. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
-refuses and names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Re-render, then start.</p></li>
-<li><p><strong>Shell exports</strong> — when a variable exported in your shell disagrees with the
-value the chain resolves to, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names it and says which of the two
-the compose provider it just probed will actually substitute (see
-<a class="reference internal" href="../../reference/configuration/config.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>). A warning, so the export stays
-available as an escape hatch — except for a pinned name, where it is a
-refusal.</p></li>
+are the shared file’s to decide and no one else’s. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> then
+refuses to start when anything contradicts that. See
+<a class="reference internal" href="#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>.</p></li>
+<li><p><strong>Chain drift</strong> — a refusal. The stack’s env files are fixed when the
+project is rendered, not when it starts. Adding <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> to a project
+built without one puts none of its values into the containers. Removing one
+leaves the render pointing at a file that is gone. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses and
+names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>: re-render, then start.</p></li>
+<li><p><strong>Shell exports</strong> — a warning, so the export stays available as an escape
+hatch; for a pinned name it is a refusal. When a variable exported in your
+shell disagrees with the value the chain resolves to, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names
+it. It also says which of the two the compose provider it just probed will
+actually substitute (see <a class="reference internal" href="../../reference/configuration/config.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>).</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Postgres reads <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code> (as <code class="docutils literal notranslate"><span class="pre">POSTGRES_PASSWORD</span></code>) only when
 initializing a <strong>fresh</strong> data volume. A volume created before the password
-was minted keeps its original password; the <code class="docutils literal notranslate"><span class="pre">${ARIEL_DB_PASSWORD:-ariel}</span></code>
-fallback — applied by the compose template and by the DSN the agent derives
-from <code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code> — keeps such deployments working. To adopt
-the minted password, remove the <code class="docutils literal notranslate"><span class="pre">ariel_postgres_data</span></code> volume and redeploy
-(this deletes the stored logbook data — re-ingest afterwards).</p>
+was minted keeps its original password. The <code class="docutils literal notranslate"><span class="pre">${ARIEL_DB_PASSWORD:-ariel}</span></code>
+fallback keeps such deployments working; the compose template and the DSN
+the agent derives from <code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code> both apply it. To adopt the
+minted password, remove the <code class="docutils literal notranslate"><span class="pre">ariel_postgres_data</span></code> volume and redeploy.
+This deletes the stored logbook data, so re-ingest afterwards.</p>
 <p><code class="docutils literal notranslate"><span class="pre">ARIEL_DB_READONLY_PASSWORD</span></code> is minted beside it and has the same
-fresh-volume caveat: it is the login secret of the SELECT-only role the
-agent’s SQL tool queries through, created by an init script the same
-volume initialization runs. A volume that predates the role simply does not
-have it, and the agent says so once at start-up rather than failing. See
-<a class="reference internal" href="../ariel/search-modes.html#ariel-sql-readonly-role"><span class="std std-ref">Read-only role for the SQL tool</span></a> for adopting the role on an existing
-database.</p>
+fresh-volume caveat. It is the login secret of the SELECT-only role that
+the agent’s SQL tool queries through. An init script creates the role
+during the same volume initialization. A volume that predates the role does
+not have it, and the agent says so once at start-up rather than failing. To
+adopt the role on an existing database, see <a class="reference internal" href="../ariel/search-modes.html#ariel-sql-readonly-role"><span class="std std-ref">Read-only role for the SQL tool</span></a>.</p>
 </div>
 </section>
 <section id="egress-through-a-site-proxy">
 <h2>Egress through a site proxy<a class="headerlink" href="#egress-through-a-site-proxy" title="Link to this heading">#</a></h2>
-<p>A site that reaches the outside world only through a proxy sets the three
-standard names in the chain — in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> when every host goes through
-the same proxy, in <code class="docutils literal notranslate"><span class="pre">.env</span></code> when this one differs:</p>
+<p>If your site reaches the outside world only through a proxy, set the three
+standard names in the chain. Put them in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> when every host goes
+through the same proxy, and in <code class="docutils literal notranslate"><span class="pre">.env</span></code> when this one differs:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">HTTP_PROXY</span><span class="o">=</span>http://proxy.example.com:8080
 <span class="nv">HTTPS_PROXY</span><span class="o">=</span>http://proxy.example.com:8080
 <span class="nv">NO_PROXY</span><span class="o">=</span>localhost,127.0.0.1
 </pre></div>
 </div>
-<p><strong>Spell them in uppercase.</strong> Two containers do not read the chain wholesale and
-are handed these settings instead: the login service (<code class="docutils literal notranslate"><span class="pre">env_file</span></code>
-<code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>) and each per-user terminal (<code class="docutils literal notranslate"><span class="pre">env_file</span></code> the closed allowlist
-<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>). Each setting that has a value reaches both under its uppercase
-name and its lowercase twin, both carrying the uppercase value; a setting with
-no value is not set in them at all, under either spelling, so whatever the
-container runtime injects is left alone (an empty lowercase name would turn the
-proxy off for that scheme). A lowercase <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> in the chain is not
-read, and reaches neither. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> decides which settings have a value,
-from its own environment first and then the chain, each time it renders the
-stack; change one and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again. On a deployment that renders web
-terminals, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns when the chain gives a lowercase name a value and
-its uppercase twin none, naming the file and the variable; the value is left as
-written.</p>
+<p><strong>Spell them in uppercase.</strong> Two containers do not read the chain wholesale.
+They are handed these settings instead:</p>
+<ul class="simple">
+<li><p>the login service (<code class="docutils literal notranslate"><span class="pre">env_file</span></code> <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>);</p></li>
+<li><p>each per-user terminal (<code class="docutils literal notranslate"><span class="pre">env_file</span></code> the closed allowlist <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>).</p></li>
+</ul>
+<p>These rules apply to both containers:</p>
+<ul class="simple">
+<li><p><strong>Only the uppercase names are read.</strong> A lowercase <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> in the
+chain is not read, and reaches neither container.</p></li>
+<li><p><strong>Both containers get both spellings.</strong> Each setting that has a value
+reaches them under its uppercase name and its lowercase twin. Both carry the
+uppercase value.</p></li>
+<li><p><strong>An empty setting is unset.</strong> A setting with no value is not set in them at
+all, under either spelling. So whatever the container runtime injects is
+left alone; an empty lowercase name would turn the proxy off for that scheme.</p></li>
+<li><p><strong>Changes apply at the next</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> decides which
+settings have a value each time it renders the stack. It reads its own
+environment first, then the chain. Change one and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again.</p></li>
+</ul>
+<p>On a deployment that renders web terminals, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns when the chain
+gives a lowercase name a value and its uppercase twin none. The warning names
+the file and the variable; the value is left as written.</p>
 <p>Both of those containers make calls of their own, which is why they get these
-settings. The login service fetches the identity provider’s discovery document at
-the first login; the agent in a terminal reaches the model provider on every
-turn. On a proxied host without these names those calls go out directly, so the
-stack comes up, the health check is green, and they fail. Nothing
-proxy-related belongs in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> or <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>. Those files are a
-credential store and a generated allowlist; proxy settings are configuration
-rather than secrets, and the chain already delivers them (see
+settings. The login service fetches the identity provider’s discovery document
+at the first login. The agent in a terminal reaches the model provider on every
+turn. On a proxied host without these names, those calls go out directly. The
+stack comes up and the health check is green, but the calls fail.</p>
+<p>Nothing proxy-related belongs in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> or <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>. Those files
+are a credential store and a generated allowlist. Proxy settings are
+configuration rather than secrets, and the chain already delivers them (see
 <a class="reference internal" href="../web-terminal/multi-user/login.html#multi-user-require-a-login"><span class="std std-ref">Require a Login</span></a>).</p>
 <p><strong>The trust store comes from the image, not from the chain.</strong> A proxy that
-re-signs TLS with a site certificate authority needs that authority’s
-certificate inside the container, and the chain is the wrong place to put it: a
+re-signs TLS with a site certificate authority (CA) needs that authority’s
+certificate inside the container. The chain is the wrong place to put it. A
 <code class="docutils literal notranslate"><span class="pre">SSL_CERT_FILE</span></code> naming a path the image does not carry stops httpx from
-constructing a client at all. Set <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> instead
-and rebuild — the CA is installed into the project image, each web-terminal
-image and the login sidecar, and each of the three points its own tools
-at the merged bundle. The
+constructing a client at all.</p>
+<p>Set <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> instead, and rebuild. The CA is
+installed into the project image, each web-terminal image and the login
+sidecar. Each of the three points its own tools at the merged bundle. The
 site-CA block <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes into <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> is for the
 <em>containers</em> that read the whole chain, not for this.</p>
 <p><strong>A changed value lands at the next start.</strong> These values are filled in when a
-container is created, so editing the chain does not reach a running stack:
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> is what puts a new proxy into force. Because the value is
-interpolated into the sidecar’s <code class="docutils literal notranslate"><span class="pre">environment:</span></code>, a changed value is a
-service-definition change, so Docker Compose recreates the login service and
-leaves the running terminals alone; podman-compose bounces the whole project.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code> also works, but it is a full stop-and-start on either
+container is created, so editing the chain does not reach a running stack.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> is what puts a new proxy into force. The value is interpolated
+into the sidecar’s <code class="docutils literal notranslate"><span class="pre">environment:</span></code>, so a changed value is a service-definition
+change:</p>
+<ul class="simple">
+<li><p>Docker Compose recreates the login service and leaves the running terminals
+alone.</p></li>
+<li><p>podman-compose bounces the whole project.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code> also works, but it is a full stop-and-start on either
 provider, so every live web-terminal session drops. Pick the moment for it.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>No value in the chain may contain a <code class="docutils literal notranslate"><span class="pre">$</span></code>, and a proxy URL carrying a
-password is the usual way to meet that rule. Container stacks substitute
-<code class="docutils literal notranslate"><span class="pre">$</span></code> sequences on the way through, so what reaches the container is
-silently not what you wrote. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> scans <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> before it starts anything, refuses, and names the variable. The
-remedy is a value without the character — ask for a credential that has
-none.</p>
+<p>No value in the chain may contain a <code class="docutils literal notranslate"><span class="pre">$</span></code>. A proxy URL carrying a password
+is the usual way to break that rule. Container stacks substitute <code class="docutils literal notranslate"><span class="pre">$</span></code>
+sequences on the way through, so what reaches the container is silently not
+what you wrote. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> scans <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code> before it
+starts anything, refuses, and names the variable. The remedy is a value
+without the character: ask for a credential that has none.</p>
 </div>
 </section>
 <section id="pinning-a-variable-to-the-chain">
 <span id="deployment-pinned-env"></span><h2>Pinning a variable to the chain<a class="headerlink" href="#pinning-a-variable-to-the-chain" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> winning is the right default, and for a few variables it is the wrong
-one: a proxy every host at the site has to go through, a hostname the whole
-facility shares. A profile can say so, in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<p>To make the shared file decide a variable, pin it in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+winning is the right default, but for a few variables it is the wrong one. Two
+examples are a proxy every host at the site has to go through, and a hostname
+the whole facility shares:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">env</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">pinned</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HTTPS_PROXY</span>
@@ -812,34 +838,38 @@ facility shares. A profile can say so, in <code class="docutils literal notransl
 </pre></div>
 </div>
 <p>Pinning does not change how a value resolves. It changes what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
-does when something contradicts the declaration: it refuses to start, rather
+does when something contradicts the declaration. It refuses to start, rather
 than let the stack run on a value from a source the deployment said it would
-not come from. Three checks, one for each way that can happen:</p>
-<ul class="simple">
+not come from. There are three checks, one for each way that can happen:</p>
+<ul>
 <li><p><strong>The declaration itself.</strong> Pinning a name the deploy writes for you is
-refused — a service token or password it mints, a service default it records,
-a credential <code class="docutils literal notranslate"><span class="pre">--reuse-stores</span></code> restores from a surviving volume. A pin says
-the chain is the variable’s only source, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writing that same
-name into <code class="docutils literal notranslate"><span class="pre">.env</span></code> contradicts it by construction. The message names each offender and its remedy:
-<code class="docutils literal notranslate"><span class="pre">unpin</span> <span class="pre">&lt;NAME&gt;;</span> <span class="pre">it</span> <span class="pre">is</span> <span class="pre">machine-minted.</span></code> The check covers every name any writer
-can produce, not only the services this deployment currently enables, so
-turning a service on later cannot make a profile that was fine start
-refusing.</p></li>
+refused. That covers a service token or password it mints, a service default
+it records, and a credential <code class="docutils literal notranslate"><span class="pre">--reuse-stores</span></code> restores from a surviving
+volume. A pin says the chain is the variable’s only source. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+writing that same name into <code class="docutils literal notranslate"><span class="pre">.env</span></code> contradicts it by construction.</p>
+<p>The message names each offender and its remedy:
+<code class="docutils literal notranslate"><span class="pre">unpin</span> <span class="pre">&lt;NAME&gt;;</span> <span class="pre">it</span> <span class="pre">is</span> <span class="pre">machine-minted.</span></code> The check covers every name any
+writer can produce, not only the services this deployment currently
+enables. So turning a service on later cannot make a profile that was fine
+start refusing.</p>
+</li>
 <li><p><strong>A local override.</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> setting a pinned name is refused. Without the
-pin that is just this host’s business; with it, the stack would start on a
-value contradicting what the deployment declares it runs on — and nothing
-else would notice, because the override is well-formed and the stack comes up
+pin, that is just this host’s business. With it, the stack would start on a
+value contradicting what the deployment declares it runs on. Nothing else
+would notice, because the override is well-formed and the stack comes up
 healthy.</p></li>
-<li><p><strong>A shell export.</strong> An export disagreeing with the chain is a warning for any
-unpinned variable, deliberately: exporting over the store is a legitimate
-one-off. For a pinned name it is a refusal, under either compose provider.
-Docker Compose would substitute the exported value; podman-compose would
-ignore it. Neither outcome is acceptable for a name the deployment declared
-its own, and a repo must not be startable on one host and refused on another
-for the same shell state, so the answer is the same on both — only the
-explanation differs.</p></li>
+<li><p><strong>A shell export.</strong> An export disagreeing with the chain is deliberately a
+warning for any unpinned variable, because exporting over the store is a
+legitimate one-off. For a pinned name it is a refusal, under either compose
+provider. Docker Compose would substitute the exported value; podman-compose
+would ignore it. Neither outcome is acceptable for a name the deployment
+declared its own.</p>
+<p>A repo must also not be startable on one host and refused on another for
+the same shell state. So the answer is the same on both; only the
+explanation differs.</p>
+</li>
 </ul>
-<p>All three run before any secret is minted and before any image is built, so a
+<p>All three run before any secret is minted and before any image is built. So a
 deploy that is going to stop here stops having provisioned nothing. All three
 print names and never values.</p>
 <p>Either remedy is one edit. To start on the declared value, remove the name from
@@ -848,18 +878,18 @@ name from <code class="docutils literal notranslate"><span class="pre">env.pinne
 <p><strong>A pin covers the chain and the shell, not the files derived from them.</strong>
 Those two are where a value can reach a container while every reading of
 <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> goes on describing something else. <code class="docutils literal notranslate"><span class="pre">.env.users</span></code> carries a
-copy of what the chain already resolved to, and <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> holds credentials
-the deploy mints; neither is a place a pinned variable’s value gets decided, so
+copy of what the chain already resolved to. <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> holds credentials the
+deploy mints. Neither is a place a pinned variable’s value gets decided, so
 there is nothing there for the declaration to contradict.</p>
-<p>The declaration is read from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at the repository root, as
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> emitted it — a flat document. A hand-written profile that
-inherits its <code class="docutils literal notranslate"><span class="pre">env</span></code> block through <code class="docutils literal notranslate"><span class="pre">extends:</span></code> leaves the parent’s pins unread
-and nothing enforced; spell them out in the repository’s own profile.</p>
+<p>Spell out your pins in the repository’s own profile. The declaration is read
+from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at the repository root, as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> emitted it: a
+flat document. A hand-written profile that inherits its <code class="docutils literal notranslate"><span class="pre">env</span></code> block through
+<code class="docutils literal notranslate"><span class="pre">extends:</span></code> leaves the parent’s pins unread and nothing enforced.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The warning <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints as <strong>Stale pin</strong> is a different thing: a
-value pinned by hand in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that has fallen behind the shared default.
-It is unrelated to <code class="docutils literal notranslate"><span class="pre">env.pinned</span></code>, and it stays a warning.</p>
+<p>The warning <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints as <strong>Stale pin</strong> is unrelated to
+<code class="docutils literal notranslate"><span class="pre">env.pinned</span></code>; see the <strong>Stale pins</strong> item under
+<a class="reference internal" href="#deployment-env-chain-report"><span class="std std-ref">What a deploy tells you about the chain</span></a>.</p>
 </div>
 </section>
 </section>

@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -534,7 +534,9 @@
                   
   <section id="the-search-sidecar-qmd">
 <span id="qmd-search-sidecar"></span><h1>The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)<a class="headerlink" href="#the-search-sidecar-qmd" title="Link to this heading">#</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> is a service that indexes a <strong>markdown corpus</strong> and answers hybrid
+<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> is a search service that runs as a <em>sidecar</em>: its own container,
+deployed beside the services that query it. It indexes a <strong>markdown corpus</strong>
+(a directory tree of markdown documents) and answers hybrid
 keyword-plus-semantic queries over HTTP. A deployment runs one <code class="docutils literal notranslate"><span class="pre">qmd</span></code> sidecar
 per corpus. Two parts of OSPREY use them:</p>
 <ul class="simple">
@@ -545,9 +547,11 @@ per corpus. Two parts of OSPREY use them:</p>
 <p>qmd can fan one query out into keyword and vector sub-queries, merge them into a
 bounded candidate pool, and optionally re-score that pool with a small language
 model before returning hits. That is ARIEL’s default <code class="docutils literal notranslate"><span class="pre">qmd</span></code> hybrid strategy.
-The optional <code class="docutils literal notranslate"><span class="pre">rrf</span></code> strategy instead asks qmd only for lexical BM25, gets the
-dense ranking from ARIEL’s configured PostgreSQL semantic search, and applies
-equal-weight RRF itself. This diagram shows qmd’s combined-query path:</p>
+The optional <code class="docutils literal notranslate"><span class="pre">rrf</span></code> strategy instead asks qmd only for lexical BM25 (the
+standard keyword-relevance ranking) results. It gets the dense ranking from
+ARIEL’s configured PostgreSQL semantic search, and merges the two lists itself
+with equal-weight RRF (reciprocal-rank fusion, which scores a hit by its rank
+in each list). This diagram shows qmd’s combined-query path:</p>
 <figure class="only-light align-default" id="id1">
 <a class="only-light reference internal image-reference" href="../../_images/qmd_query_pipeline_light.png"><img alt="A qmd query: lex and vec sub-queries merge into a bounded candidate pool, optionally reranked by a small language model before returning top hits." class="only-light" src="../../_images/qmd_query_pipeline_light.png" style="width: 100%;" />
 </a>
@@ -576,7 +580,7 @@ enhancement module and the <code class="docutils literal notranslate"><span clas
 <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd:local</span></code>, project-prefixed so two OSPREY projects on one host
 cannot race for one tag. The baked-in models make that first build about
 2.1 GB of download; later runs reuse the local tag. A host with no route to
-the internet can supply the models itself — see <a class="reference internal" href="#building-without-egress">Building without egress</a>.</p>
+the internet can supply the models itself — see <a class="reference internal" href="#build-the-image-without-internet-access">Build the image without internet access</a>.</p>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
@@ -591,18 +595,10 @@ the internet can supply the models itself — see <a class="reference internal" 
 </pre></div>
 </div>
 <p>Those four keys are the whole schema for a host that can reach the internet;
-<code class="docutils literal notranslate"><span class="pre">models_dir</span></code> covers one that cannot (see <a class="reference internal" href="#building-without-egress">Building without egress</a>), and
-<code class="docutils literal notranslate"><span class="pre">corpora</span></code> adds corpora of your own (see <a class="reference internal" href="#declaring-more-corpora">Declaring more corpora</a>). Notably
-<strong>there is no ``bind_address`` here</strong> — see <a class="reference internal" href="#where-the-sidecar-listens">Where the sidecar listens</a>
-below.</p>
-<p>Neither consumer strictly needs the sidecar — OKF search falls back to
-substring matching and hybrid logbook search reports an outage — so a
-deployment that does not want a second index can switch it off. That is three
-edits, not one, because any subset leaves either a container nobody queries or
-a search mode with nothing to search: comment out the <code class="docutils literal notranslate"><span class="pre">qmd:</span></code> entry under
-<code class="docutils literal notranslate"><span class="pre">services:</span></code> and the <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">qmd</span></code> line under <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>, and disable
-both <code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> and
-<code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.qmd_export</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">models_dir</span></code> covers one that cannot (see <a class="reference internal" href="#build-the-image-without-internet-access">Build the image without internet
+access</a>), and <code class="docutils literal notranslate"><span class="pre">corpora</span></code> adds corpora of your own (see <a class="reference internal" href="#add-a-corpus">Add a corpus</a>).
+Notably <strong>there is no ``bind_address`` here</strong> — see <a class="reference internal" href="#where-the-sidecar-listens">Where the sidecar
+listens</a> below.</p>
 <p><code class="docutils literal notranslate"><span class="pre">interval</span></code> is a ceiling on staleness, not the usual lag: a corpus writer
 touches a <code class="docutils literal notranslate"><span class="pre">.qmd-touch</span></code> marker file and the sidecar re-indexes within one poll.
 The interval only catches writers that forgot to touch it. Raise it on a large
@@ -610,8 +606,22 @@ corpus — a sweep that finds nothing changed still costs about 12.5 seconds at
 135,000 documents, so the 30-second default leaves the loop busy roughly 42% of
 the time discovering nothing.</p>
 </section>
-<section id="building-without-egress">
-<h2>Building without egress<a class="headerlink" href="#building-without-egress" title="Link to this heading">#</a></h2>
+<section id="turn-the-sidecar-off">
+<h2>Turn the sidecar off<a class="headerlink" href="#turn-the-sidecar-off" title="Link to this heading">#</a></h2>
+<p>Neither consumer strictly needs the sidecar — OKF search falls back to
+substring matching and hybrid logbook search reports an outage — so a
+deployment that does not want a second index can switch it off. That takes
+three edits, not one, because any subset leaves either a container nobody
+queries or a search mode with nothing to search:</p>
+<ol class="arabic simple">
+<li><p>Comment out the <code class="docutils literal notranslate"><span class="pre">qmd:</span></code> entry under <code class="docutils literal notranslate"><span class="pre">services:</span></code>.</p></li>
+<li><p>Comment out the <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">qmd</span></code> line under <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>.</p></li>
+<li><p>Disable both <code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.qmd_export</span></code>.</p></li>
+</ol>
+</section>
+<section id="build-the-image-without-internet-access">
+<h2>Build the image without internet access<a class="headerlink" href="#build-the-image-without-internet-access" title="Link to this heading">#</a></h2>
 <p>Downloading the three model files is the one step of the image build that
 reaches the internet, so on a host without egress the build stalls there.
 <code class="docutils literal notranslate"><span class="pre">models_dir</span></code> names a host directory that already holds those three files:</p>
@@ -689,8 +699,8 @@ chunks fail on every retry. <code class="docutils literal notranslate"><span cla
 the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> category, with a warning when documents still have no vectors and
 are found by keyword search only.</p>
 </section>
-<section id="declaring-more-corpora">
-<h2>Declaring more corpora<a class="headerlink" href="#declaring-more-corpora" title="Link to this heading">#</a></h2>
+<section id="add-a-corpus">
+<h2>Add a corpus<a class="headerlink" href="#add-a-corpus" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">corpora</span></code> adds corpora beyond those two, each served by its own sidecar at
 <code class="docutils literal notranslate"><span class="pre">port</span></code> + 2 onwards, in list order; the family has room for eight.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
@@ -741,15 +751,19 @@ loses any.</p></li>
 <li><p>Each entitled <code class="docutils literal notranslate"><span class="pre">web-&lt;user&gt;</span></code> service is rendered with
 <code class="docutils literal notranslate"><span class="pre">group_add:</span> <span class="pre">[&quot;&lt;gid&gt;&quot;]</span></code>.</p></li>
 </ul>
-<p>Both halves are needed, and this is the part that is easy to get wrong: setgid
-makes <strong>new files inherit the directory’s group</strong>. It does <em>not</em> make any
-container process a member of that group. Without <code class="docutils literal notranslate"><span class="pre">group_add</span></code> the container
-is not in the group at all, and the group-write bit grants it nothing. The
-framework’s own entrypoint adds a third half for the process that actually
-serves requests: it joins the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user to the mounted directory’s group
-before dropping privileges, because <code class="docutils literal notranslate"><span class="pre">group_add</span></code> reaches only the container’s
-initial process. The logbook mirror written by <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> is shared through
-exactly the same mechanism.</p>
+<p>All three pieces are needed, and this is the part that is easy to get wrong:</p>
+<ul class="simple">
+<li><p><strong>The directory’s setgid bit</strong> makes new files inherit the directory’s group.
+It does <em>not</em> make any container process a member of that group.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">group_add</span></code> puts the container in the group. Without it the container is
+not in the group at all, and the group-write bit grants it nothing. It
+reaches only the container’s initial process.</p></li>
+<li><p><strong>The framework’s entrypoint</strong> joins the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user, the process that
+actually serves requests, to the mounted directory’s group before dropping
+privileges.</p></li>
+</ul>
+<p>The logbook mirror written by <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> is shared through exactly the same
+mechanism.</p>
 <p>One limit follows from how Unix works rather than from OSPREY: setgid fixes who
 <em>owns</em> a new file, not its permission bits, which come from the writing
 process’s umask — normally <code class="docutils literal notranslate"><span class="pre">rw-r--r--</span></code>. So the supported cross-container
@@ -929,9 +943,10 @@ build/up lifecycle, image overrides, network binding, and the
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building-without-egress">Building without egress</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-the-sidecar-off">Turn the sidecar off</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-the-image-without-internet-access">Build the image without internet access</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-sidecar-per-corpus">One sidecar per corpus</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#declaring-more-corpora">Declaring more corpora</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#add-a-corpus">Add a corpus</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#sharing-the-knowledge-bundle">Sharing the knowledge bundle</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#disk-footprint">Disk footprint</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-footprint">Memory footprint</a></li>

@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../run-scenarios.html">Run and write scenarios</a></li>
@@ -553,22 +553,25 @@ account, and a message queue.</p></li>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
 <p>The bridge turns a Google Chat conversation into a way of talking to the agent.
-Someone mentions the chat app in a space, Google puts that message on a queue,
-the bridge picks it up and hands the question to the <a class="reference internal" href="../event-dispatch.html"><span class="doc">event dispatch
+Someone mentions the chat app in a space, and Google puts that message on a
+queue. The bridge picks it up and hands the question to the <a class="reference internal" href="../event-dispatch.html"><span class="doc">event dispatch
 pipeline</span></a>, and the answer is posted back in the same
 conversation thread.</p>
 <p>It is a <strong>reader of a queue, not a server</strong>. Google never calls it; it asks
 Google for waiting messages, making only outbound calls.</p>
 <p>Like every bridge, it <a class="reference internal" href="index.html#bridge-memory"><span class="std std-ref">remembers each question and conversation</span></a>. What is particular to Google Chat is that there is no reading
-position to keep: a message the bridge has not finished with stays on the queue,
-so anything sent while the bridge was down is waiting when it comes back.</p>
+position to keep. A message the bridge has not finished with stays on the queue.
+So anything sent while the bridge was down is waiting when it comes back.</p>
 </section>
 <section id="enable-it-in-a-profile">
 <h2>Enable It in a Profile<a class="headerlink" href="#enable-it-in-a-profile" title="Link to this heading">#</a></h2>
-<p>Add a <code class="docutils literal notranslate"><span class="pre">gchat_bridge:</span></code> block to your build profile. Two settings: which
-dispatcher trigger the bridge fires — that trigger decides what the agent is
-allowed to do with a chat question — and whether the agent may &#64;mention people.
-The block is only meaningful next to a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
+<p>Add a <code class="docutils literal notranslate"><span class="pre">gchat_bridge:</span></code> block to your build profile. It holds two settings:</p>
+<ul class="simple">
+<li><p>Which dispatcher trigger the bridge fires. That trigger decides what the agent
+is allowed to do with a chat question.</p></li>
+<li><p>Whether the agent may &#64;mention people.</p></li>
+</ul>
+<p>The block is only meaningful next to a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
 <div class="literal-block-wrapper docutils container" id="id1">
 <div class="code-block-caption"><span class="caption-text">profile.yml</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">gchat_bridge</span><span class="p">:</span>
@@ -591,16 +594,16 @@ The block is only meaningful next to a <code class="docutils literal notranslate
 <p class="admonition-title">Note</p>
 <p>The bridge and the dispatch pair must sit on the same network. Workers go on
 the host’s network whenever the agent has to reach a control system or a
-co-deployed bridge at a loopback address (<a class="reference internal" href="../../deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a>),
-and this bridge then has to move with them: add
+co-deployed bridge at a loopback address (<a class="reference internal" href="../../deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a>).
+This bridge then has to move with them: add
 <code class="docutils literal notranslate"><span class="pre">services.gchat_bridge.network:</span> <span class="pre">host</span></code> to your profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a split pair and names the key to change.</p>
 </div>
 <p>The queue, the service-account key and the bucket for files are <strong>not</strong> profile
 settings. Which queue this deployment reads, which key file it signs in with,
-and which storage bucket files are published through all differ per deployment —
-and the key is a secret that must never be baked into a build. Listing them
-under <code class="docutils literal notranslate"><span class="pre">env.required</span></code> documents them in <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>; fill the values into
+and which storage bucket files are published through all differ per deployment.
+The key is also a secret that must never be baked into a build. Listing them
+under <code class="docutils literal notranslate"><span class="pre">env.required</span></code> documents them in <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. Fill the values into
 the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which is where a secret survives a rebuild. The
 build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it (created mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, readable
 only by you).</p>
@@ -649,12 +652,13 @@ text only. <strong>Read</strong> <a class="reference internal" href="#what-is-sh
 <p class="admonition-title">Warning</p>
 <p><strong>One bridge per queue.</strong> Deploy exactly one bridge against a given
 subscription. Google hands each message to only <em>one</em> of a subscription’s
-readers, so a second deployment pointed at the same subscription — a staging
-stack, a container someone forgot to remove, another facility reusing the
-name — does not get its own copy of every message. It <strong>silently splits</strong>
-them: each bridge answers only the messages it happened to receive, the other
-questions look to your team like they were ignored, and nothing anywhere logs
-an error. Give every deployment its own subscription.</p>
+readers. So a second deployment pointed at the same subscription does not get
+its own copy of every message. It <strong>silently splits</strong> them: each bridge
+answers only the messages it happened to receive. The other questions look to
+your team like they were ignored, and nothing anywhere logs an error. The
+second deployment can be a staging stack, a container someone forgot to
+remove, or another facility reusing the name. Give every deployment its own
+subscription.</p>
 </div>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
@@ -754,13 +758,13 @@ the rest of the stack.</p></td>
 <section id="bring-it-up">
 <h2>Bring It Up<a class="headerlink" href="#bring-it-up" title="Link to this heading">#</a></h2>
 <p><strong>1. Create the chat app and the identity it speaks as.</strong> In your Google Cloud
-project, create a Chat app for the agent — its display name is what your team
+project, create a Chat app for the agent. Its display name is what your team
 sees replying, so make it obvious (for example <code class="docutils literal notranslate"><span class="pre">OSPREY</span> <span class="pre">agent</span></code>). Create a
 service account for it, download a key file for that account, and note the app’s
 own user id (the <code class="docutils literal notranslate"><span class="pre">users/…</span></code> value).</p>
 <p><strong>2. Give this deployment its own queue.</strong> Configure the chat app to publish its
-events to a topic, and create one subscription on that topic for <em>this</em>
-deployment — not one shared with any other. Allow the service account to read
+events to a topic. Create one subscription on that topic for <em>this</em> deployment,
+not one shared with any other. Allow the service account to read
 that subscription. See the warning above for what a shared subscription does.</p>
 <p><strong>3. Add the app to the spaces it should serve.</strong> It only sees conversations it
 has been added to. Add it to each space you want served; people can also message
@@ -785,8 +789,8 @@ it starts with everything else:</p>
 </div>
 <p>Then mention the app in one of its spaces and ask it something. If nothing
 happens, check the service’s logs first: a missing credential stops the bridge at
-startup with the missing variable named. A wrong app id is the quieter failure —
-the bridge runs happily and ignores every message, because nothing it sees looks
+startup with the missing variable named. A wrong app id is the quieter failure.
+The bridge runs happily and ignores every message, because nothing it sees looks
 like a mention of itself.</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
@@ -816,24 +820,24 @@ plain text instead.</p>
 <p>Who may reach the agent, and what the trigger lets it do, is the same for every
 bridge — see <a class="reference internal" href="index.html#bridge-access"><span class="std std-ref">Who Can Ask</span></a>. What is particular to Google Chat:</p>
 <p><strong>The spaces are the ones you added the app to</strong>, plus anyone who messages it
-directly. Google — not Osprey — decides who is in those spaces, so add the app
-as deliberately as you would choose who gets an account.</p>
+directly. Google, not Osprey, decides who is in those spaces. So add the app as
+deliberately as you would choose who gets an account.</p>
 <p><strong>Mentions are matched against the mention Google itself records</strong>, not against
-the message text, so writing the app’s name in passing does not trigger it.</p>
+the message text. So writing the app’s name in passing does not trigger it.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><strong>Plots and files come back as public links.</strong> This is where a Google Chat
 deployment differs sharply from <a class="reference internal" href="nextcloud-talk.html"><span class="doc">Nextcloud Talk</span></a>. Chat
-can only show an image in a message if Google itself can fetch it, so every
-plot or file the agent produces is uploaded to the bucket you configured and
-posted as an ordinary web address that <strong>anyone who has the link can open</strong> —
-no sign-in, no membership check, no expiry. Forwarding the message forwards
+can only show an image in a message if Google itself can fetch it. So every
+plot or file the agent produces is uploaded to the bucket you configured. It
+is posted as an ordinary web address that <strong>anyone who has the link can
+open</strong>: no sign-in, no membership check, no expiry. Forwarding the message forwards
 that access with it, and a link that leaks stays usable until you delete the
 object.</p>
 <p>Treat that bucket as published material. Give it a bucket of its own, holding
-nothing else, in a project with nothing sensitive in it, and consider a rule
-that deletes objects after a while so you are not accumulating a permanent
-public archive of your plots. If publishing this way is not acceptable at
+nothing else, in a project with nothing sensitive in it. Consider a rule that
+deletes objects after a while, so you are not accumulating a permanent public
+archive of your plots. If publishing this way is not acceptable at
 your facility, leave <code class="docutils literal notranslate"><span class="pre">GCS_BUCKET</span></code> unset: the agent then answers text only
 and publishes nothing.</p>
 </div>

@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -534,11 +534,13 @@
                   
   <section id="read-the-record">
 <span id="how-to-read-the-record"></span><h1>Read the Record<a class="headerlink" href="#read-the-record" title="Link to this heading">#</a></h1>
-<p>The agent record holds what the agent was asked, what it answered and what it
-did, as entries of named kinds kept by the <code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service. Beyond
-their own sessions, people read it as a <strong>reader</strong>: a name in the config with a
-key of its own. This page sets readers up, says what each one can and cannot
-see, and what the record can vouch for.</p>
+<p>Use this page to let a person read the agent record beyond their own sessions.
+You name them as a reader, hand over their key, and later rotate or withdraw
+it. The page also says what a reader can and cannot see, and what the record
+can vouch for.</p>
+<p>The <strong>agent record</strong> holds what the agent was asked, what it answered and what
+it did. The <code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service keeps it as entries of named kinds. A
+<strong>reader</strong> is a name in the config with a key of its own.</p>
 <p>For how long the record keeps entries and the daily archive that keeps the
 rest, see <a class="reference internal" href="agent-record.html"><span class="doc">Keep the Agent Record</span></a>.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -552,8 +554,8 @@ rest, see <a class="reference internal" href="agent-record.html"><span class="do
 </div>
 </details><section id="name-the-readers">
 <h2>Name the readers<a class="headerlink" href="#name-the-readers" title="Link to this heading">#</a></h2>
-<p>Readers are listed in the profile’s top-level <code class="docutils literal notranslate"><span class="pre">agent_record:</span></code> block. Each
-entry is one reader:</p>
+<p>List readers in the profile’s top-level <code class="docutils literal notranslate"><span class="pre">agent_record:</span></code> block. Each entry is
+one reader:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">agent_record</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">readers</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span><span class="w">                 </span><span class="c1"># a roster user: same name, same person</span>
@@ -599,15 +601,21 @@ scope, not a limit.</p></td>
 roster user (<code class="docutils literal notranslate"><span class="pre">carol</span></code>).</p>
 <section id="hand-over-the-key">
 <h3>Hand over the key<a class="headerlink" href="#hand-over-the-key" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints each new reader’s key into
-<code class="docutils literal notranslate"><span class="pre">.env.agent-record.reader.&lt;name&gt;</span></code> at the repo root, mode 0600, one line
-<code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_LOGIN=reader.&lt;name&gt;:&lt;key&gt;</span></code>. The deploy prints the file’s
-path, never the key. Read the file and give the key to the person out of band.</p>
+<p>To give a new reader their key:</p>
+<ol class="arabic simple">
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. It mints each new reader’s key into
+<code class="docutils literal notranslate"><span class="pre">.env.agent-record.reader.&lt;name&gt;</span></code> at the repo root, with mode 0600. The
+deploy prints the file’s path, never the key.</p></li>
+<li><p>Read the file. It holds one line,
+<code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_LOGIN=reader.&lt;name&gt;:&lt;key&gt;</span></code>.</p></li>
+<li><p>Give the key to the person out of band.</p></li>
+</ol>
+<p>To change a reader later:</p>
 <ul class="simple">
 <li><p><strong>Rotate</strong> a key: delete the file and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The old key stops
-working and a new file is written.</p></li>
+working and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes a new file.</p></li>
 <li><p><strong>Withdraw</strong> a reader: delete the entry and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The key stops
-working, and the key file is set aside as
+working. The key file is set aside as
 <code class="docutils literal notranslate"><span class="pre">.env.agent-record.reader.&lt;name&gt;.withdrawn-&lt;date&gt;</span></code>, so re-adding the name
 later mints a fresh key.</p></li>
 <li><p><strong>Narrow</strong> a reader: change <code class="docutils literal notranslate"><span class="pre">kinds</span></code> or <code class="docutils literal notranslate"><span class="pre">days_back</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
@@ -621,13 +629,14 @@ on the history page and with its key. Within them a reader sees every
 identity’s sessions. A reader writes nothing: its key reads, and no entry
 is ever filed under it.</p>
 <p>In a browser, a reader reads on the history page, served at <code class="docutils literal notranslate"><span class="pre">/history/</span></code> on
-the <strong>history page’s origin</strong>: the web tier’s second server on its own port
-(<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_port</span></code>, or the browser-facing origin
-<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_origin</span></code> names behind a load balancer). Pages
-on the terminals’ origin, where agent-written HTML runs, cannot read from it.
-A roster user named as a reader signs in as themselves; a reader off the
-roster is recognised by its <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>. The page, and who else sees what
-on it, is described in <a class="reference internal" href="../web-terminal/multi-user/index.html#multi-user-history-page"><span class="std std-ref">The history page</span></a>.</p>
+the <strong>history page’s origin</strong>. That origin is the web tier’s second server on
+its own port (<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_port</span></code>). Behind a load balancer,
+it is the browser-facing origin <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_origin</span></code> names.
+Pages on the terminals’ origin, where agent-written HTML runs, cannot read from
+it.</p>
+<p>A roster user named as a reader signs in as themselves. A reader off the roster
+is recognised by its <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>. For the page, and who else sees what on
+it, see <a class="reference internal" href="../web-terminal/multi-user/index.html#multi-user-history-page"><span class="std std-ref">The history page</span></a>.</p>
 </section>
 <section id="what-the-record-can-vouch-for">
 <h2>What the record can vouch for<a class="headerlink" href="#what-the-record-can-vouch-for" title="Link to this heading">#</a></h2>
@@ -641,20 +650,20 @@ own user, and the credential files are within its reach.</p></li>
 <li><p><strong>Within one container, any process can write that user’s record.</strong> The
 login belongs to the container, not to one process in it.</p></li>
 <li><p><strong>Prompts and events are reported by the sender.</strong> The record files an
-entry under the identity it arrived from — its spool directory, its login
-or its transcript root — never a name the sender wrote; what the entry says
-happened is the sender’s account of it.</p></li>
-<li><p><strong>Agent-authored session plans run inside the queueserver container.</strong> Its
-preflight entries are therefore trusted narrowly: on a person’s own history
-page a preflight entry appears only when it matches that person’s own
+entry under the identity it arrived from: its spool directory, its login or
+its transcript root. It never uses a name the sender wrote. What the entry
+says happened is the sender’s account of it.</p></li>
+<li><p><strong>Agent-authored session plans run inside the queueserver container.</strong> So
+the record trusts its preflight entries narrowly. On a person’s own history
+page, a preflight entry appears only when it matches that person’s own
 queue-submit call within 60 seconds. Readers and <code class="docutils literal notranslate"><span class="pre">history:</span> <span class="pre">all</span></code> viewers see
 every preflight entry as stored.</p></li>
 <li><p><strong>The logins are told apart by their tokens</strong>, not by the address they
 connect from.</p></li>
-<li><p><strong>Each fact is stored once.</strong> An entry’s key is fixed by its source, and a
-key already stored is never stored again, so a restart, a resumed session or
-a rewritten transcript adds no second copy. While the record’s store is
-unreachable, senders’ spools are kept, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> shows each
+<li><p><strong>Each fact is stored once.</strong> An entry’s source fixes its key, and the
+record never stores a key twice. So a restart, a resumed session or a
+rewritten transcript adds no second copy. While the record’s store is
+unreachable, the senders keep their spools, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> shows each
 source’s backlog.</p></li>
 <li><p><strong>The record keeps</strong> <code class="docutils literal notranslate"><span class="pre">retention_days</span></code> <strong>of history.</strong> The daily archive
 keeps the rest (<a class="reference internal" href="agent-record.html"><span class="doc">Keep the Agent Record</span></a>).</p></li>

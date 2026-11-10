@@ -458,13 +458,13 @@ extend.</p>
 <p>This page is the map, not the tutorial. For each seam it names the class or
 registry to work against, one test that pins that seam’s behaviour, and the
 how-to a deployer uses to switch your implementation on. The base classes and
-the tests beside them are written to be read, so the fastest route to working
+the tests beside them are written to be read. So the fastest route to working
 code is to hand both to a coding agent and let it draft against them.</p>
 <p>Everything on this page assumes a development checkout — see
 <a class="reference internal" href="development-setup.html"><span class="doc">Development Setup</span></a>.</p>
-<p>Each seam’s registration lives in your deployment’s own registry module, and
-the framework finds that file through the <code class="docutils literal notranslate"><span class="pre">registry_path</span></code> key in its
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — set it in your profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, as
+<p>Each seam’s registration lives in your deployment’s own registry module. The
+framework finds that file through the <code class="docutils literal notranslate"><span class="pre">registry_path</span></code> key in its
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Set it in your profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, as
 <code class="docutils literal notranslate"><span class="pre">registry_path:</span> <span class="pre">project/registry.py</span></code>. <code class="docutils literal notranslate"><span class="pre">application.registry_path</span></code> is
 accepted as an alias, and the <code class="docutils literal notranslate"><span class="pre">REGISTRY_PATH</span></code> environment variable outranks
 both, as <a class="reference internal" href="../reference/configuration/environment-variables.html"><span class="doc">Environment Variables</span></a> records. Without
@@ -478,9 +478,9 @@ register is reachable.</p>
 <code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/src/osprey_connectors/control_system/</span></code> — and
 return the <code class="docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="docutils literal notranslate"><span class="pre">ChannelMetadata</span></code> and <code class="docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>
 models it defines. A write’s result carries the <code class="docutils literal notranslate"><span class="pre">outcome</span></code> your connector
-determined — use the shared <code class="docutils literal notranslate"><span class="pre">values_match</span></code> helper from the same module to
-compare what you read back against what was sent, so your connector confirms a
-write exactly as every other one does. Register it with
+determined. Use the shared <code class="docutils literal notranslate"><span class="pre">values_match</span></code> helper from the same module to
+compare what you read back against what was sent. That way your connector
+confirms a write exactly as every other one does. Register it with
 <code class="docutils literal notranslate"><span class="pre">ConnectorFactory.register_control_system</span></code>, or ship it as an
 <code class="docutils literal notranslate"><span class="pre">osprey.registry.base.ConnectorRegistration</span></code> passed to
 <code class="docutils literal notranslate"><span class="pre">osprey.registry.helpers.extend_framework_registry</span></code>. Pinning test:
@@ -499,8 +499,8 @@ the same two ways, with <code class="docutils literal notranslate"><span class="
 can also select one without registering it, by setting <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> to its
 dotted module path. Either way it is configured from <code class="docutils literal notranslate"><span class="pre">archiver.settings</span></code>, which
 the factory hands to <code class="docutils literal notranslate"><span class="pre">connect()</span></code>. The return
-shape is a contract of its own — one row per sample, historical enum values
-as strings rather than indices — and it is written down under “Archiver
+shape is a contract of its own: one row per sample, historical enum values
+as strings rather than indices. It is written down under “Archiver
 Connectors” in <a class="reference internal" href="../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>. Pinning test:
 <code class="docutils literal notranslate"><span class="pre">tests/connectors/test_archiver_mock_default.py</span></code>, which holds the
 <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> key to a fail-closed default so a missing archiver never
@@ -514,8 +514,8 @@ needs no Python at all — it is an entry in the <code class="docutils literal n
 <a class="reference internal" href="../how-to/agent-interfaces/add-mcp-server.html"><span class="doc">Add an MCP Server</span></a>. A <em>framework</em> server is the
 developer seam: a package under <code class="docutils literal notranslate"><span class="pre">src/osprey/mcp_server/</span></code> holding a
 module-level <code class="docutils literal notranslate"><span class="pre">FastMCP</span></code> instance and a <code class="docutils literal notranslate"><span class="pre">create_server()</span></code> factory in
-<code class="docutils literal notranslate"><span class="pre">server.py</span></code>, one tool per module under <code class="docutils literal notranslate"><span class="pre">tools/</span></code>, and an
-<code class="docutils literal notranslate"><span class="pre">osprey.registry.mcp.ServerDefinition</span></code> added to <code class="docutils literal notranslate"><span class="pre">FRAMEWORK_SERVERS</span></code> in
+<code class="docutils literal notranslate"><span class="pre">server.py</span></code>, and one tool per module under <code class="docutils literal notranslate"><span class="pre">tools/</span></code>. The server also needs
+an <code class="docutils literal notranslate"><span class="pre">osprey.registry.mcp.ServerDefinition</span></code> added to <code class="docutils literal notranslate"><span class="pre">FRAMEWORK_SERVERS</span></code> in
 <code class="docutils literal notranslate"><span class="pre">src/osprey/registry/mcp.py</span></code>. The controls server
 (<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.control_system</span></code>) is the canonical example to copy.
 Pinning test: <code class="docutils literal notranslate"><span class="pre">tests/registry/test_mcp.py</span></code>, which resolves those definitions
@@ -532,8 +532,8 @@ and one class, <code class="docutils literal notranslate"><span class="pre">ospr
 docstring first: it carries the failure contract member by member, and getting
 it wrong is the one mistake that leaves a bridge looking healthy while losing
 answers. A bridge that can list who is in a conversation also implements the
-optional <code class="docutils literal notranslate"><span class="pre">osprey.bridges.core.ports.RoomRoster</span></code>; the engine then tells the
-agent who is in the room, and the bridge renders the agent’s <code class="docutils literal notranslate"><span class="pre">&lt;&#64;ID&gt;</span></code> mentions
+optional <code class="docutils literal notranslate"><span class="pre">osprey.bridges.core.ports.RoomRoster</span></code>. The engine then tells the
+agent who is in the room. The bridge renders the agent’s <code class="docutils literal notranslate"><span class="pre">&lt;&#64;ID&gt;</span></code> mentions
 in its own chat system’s syntax. Copy <code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/google_chat/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/nextcloud_talk/</span></code>, <code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/teams/</span></code> or
 <code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/slack/</span></code>, and
@@ -545,35 +545,44 @@ from <a class="reference internal" href="../how-to/agent-interfaces/chat-bridges
 <section id="trigger-source">
 <span id="extending-trigger-source"></span><h2>Trigger source<a class="headerlink" href="#trigger-source" title="Link to this heading">#</a></h2>
 <p>A trigger source is what wakes the event dispatcher, as a webhook call, a
-fixed interval or an EPICS channel crossing does; a message queue or a file
-drop would each be a new one. Write a class matching
-<code class="docutils literal notranslate"><span class="pre">osprey.dispatch.sources.base.TriggerSource</span></code>: a <code class="docutils literal notranslate"><span class="pre">source_type</span></code> class
-attribute, <code class="docutils literal notranslate"><span class="pre">register_routes</span></code>, which runs before the dispatcher’s app is built
-and does something only for a source that serves HTTP routes, and <code class="docutils literal notranslate"><span class="pre">start</span></code> and
-<code class="docutils literal notranslate"><span class="pre">stop</span></code>, which run with the event loop going. <code class="docutils literal notranslate"><span class="pre">start</span></code> receives the triggers
-that name this source and a fire callback. The source reads each trigger’s own
-<code class="docutils literal notranslate"><span class="pre">source_config</span></code> and awaits the callback with the trigger and a payload
-mapping for every event it detects. Stamp the event’s instant as a
-timezone-aware <code class="docutils literal notranslate"><span class="pre">datetime</span></code>: the dispatcher stores it as given and shows it to
-the agent in the facility zone, while a time carried as text reaches the agent
-unchanged. The callback returns the queued run’s id, returns <code class="docutils literal notranslate"><span class="pre">None</span></code> when the
-trigger is disabled, and raises
-<code class="docutils literal notranslate"><span class="pre">osprey.dispatch.pool.QueueFullError</span></code> when the queue is full; what happens
-then is the source’s decision, and every shipped source logs the event and
-drops it. A fire from a source is attributed to nobody.</p>
+fixed interval or an EPICS channel crossing does. A message queue or a file
+drop would each be a new one. To write a trigger source:</p>
+<ol class="arabic simple">
+<li><p>Write a class matching <code class="docutils literal notranslate"><span class="pre">osprey.dispatch.sources.base.TriggerSource</span></code>.</p></li>
+<li><p>Give it a <code class="docutils literal notranslate"><span class="pre">source_type</span></code> class attribute.</p></li>
+<li><p>Implement <code class="docutils literal notranslate"><span class="pre">register_routes</span></code>. It runs before the dispatcher’s app is built,
+and does something only for a source that serves HTTP routes.</p></li>
+<li><p>Implement <code class="docutils literal notranslate"><span class="pre">start</span></code> and <code class="docutils literal notranslate"><span class="pre">stop</span></code>, which run with the event loop going.
+<code class="docutils literal notranslate"><span class="pre">start</span></code> receives the triggers that name this source and a fire callback.</p></li>
+<li><p>Read each trigger’s own <code class="docutils literal notranslate"><span class="pre">source_config</span></code>. For every event the source
+detects, await the callback with the trigger and a payload mapping.</p></li>
+<li><p>Stamp the event’s instant as a timezone-aware <code class="docutils literal notranslate"><span class="pre">datetime</span></code>. The dispatcher
+stores it as given and shows it to the agent in the facility zone. A time
+carried as text reaches the agent unchanged.</p></li>
+<li><p>Handle the callback’s result. It returns the queued run’s id, or <code class="docutils literal notranslate"><span class="pre">None</span></code>
+when the trigger is disabled. It raises
+<code class="docutils literal notranslate"><span class="pre">osprey.dispatch.pool.QueueFullError</span></code> when the queue is full. What happens
+then is the source’s decision; every shipped source logs the event and
+drops it.</p></li>
+<li><p>Declare the class as an entry point (below) and install the package where
+the dispatcher runs.</p></li>
+</ol>
+<p>A fire from a source is attributed to nobody.</p>
 <p>This seam is the exception to the registry-module paragraph that opens this
-page: sources are not registered in a registry module. They are found through a Python package
-entry point, in the group OSPREY declares its own three under —
-<code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey.trigger_sources&quot;]</span></code> in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> —
-and the entry point’s name is the <code class="docutils literal notranslate"><span class="pre">source:</span></code> value a trigger writes.
+page: sources are not registered in a registry module. They are found through
+a Python package entry point in
+<code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey.trigger_sources&quot;]</span></code>, the group under which
+OSPREY’s own <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> declares its three sources. The entry point’s name is
+the <code class="docutils literal notranslate"><span class="pre">source:</span></code> value a trigger writes.
 <code class="docutils literal notranslate"><span class="pre">osprey.dispatch.source_registry.SourceRegistry</span></code> loads the group when the
-dispatcher starts, and the dispatcher does not start when an entry point’s
+dispatcher starts. The dispatcher does not start when an entry point’s
 class lacks the three methods, or when one name is claimed by two different
-classes. The package has to be installed wherever the dispatcher runs: a
+classes.</p>
+<p>The package has to be installed wherever the dispatcher runs. A
 dispatcher started with <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.dispatch</span></code> finds it in that
-environment, while the image OSPREY builds for the containerized dispatcher
-installs OSPREY alone, so a container deployment names an image that carries
-the package through <code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.image</span></code>
+environment. The image OSPREY builds for the containerized dispatcher
+installs OSPREY alone. So a container deployment names an image that carries
+the package, through <code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.image</span></code>
 (<a class="reference internal" href="../reference/configuration/config.html#deployment-image-overrides"><span class="std std-ref">Overriding Service Images</span></a>). Copy
 <code class="docutils literal notranslate"><span class="pre">src/osprey/dispatch/sources/cron.py</span></code> for a source with no routes, or
 <code class="docutils literal notranslate"><span class="pre">src/osprey/dispatch/sources/webhook.py</span></code> for one that serves them. Pinning
@@ -582,12 +591,17 @@ test: <code class="docutils literal notranslate"><span class="pre">tests/dispatc
 </section>
 <section id="ariel">
 <span id="extending-ariel"></span><h2>ARIEL<a class="headerlink" href="#ariel" title="Link to this heading">#</a></h2>
-<p>ARIEL is the interface to logbook data, and it has three seams: a <strong>facility
-adapter</strong> (<code class="docutils literal notranslate"><span class="pre">osprey.services.ariel_search.ingestion.base.FacilityAdapter</span></code>)
-that reads your logbook and normalises it, an <strong>enhancement module</strong>
-(<code class="docutils literal notranslate"><span class="pre">osprey.services.ariel_search.enhancement.base.BaseEnhancementModule</span></code>) that
-enriches stored entries, and a <strong>search module</strong> that exposes a new way to
-query them. All three are registered through
+<p>ARIEL is the interface to logbook data, and it has three seams:</p>
+<ul class="simple">
+<li><p>a <strong>facility adapter</strong>
+(<code class="docutils literal notranslate"><span class="pre">osprey.services.ariel_search.ingestion.base.FacilityAdapter</span></code>) that reads
+your logbook and normalises it</p></li>
+<li><p>an <strong>enhancement module</strong>
+(<code class="docutils literal notranslate"><span class="pre">osprey.services.ariel_search.enhancement.base.BaseEnhancementModule</span></code>)
+that enriches stored entries</p></li>
+<li><p>a <strong>search module</strong> that exposes a new way to query them</p></li>
+</ul>
+<p>All three are registered through
 <code class="docutils literal notranslate"><span class="pre">osprey.registry.helpers.extend_framework_registry</span></code> with the matching
 <code class="docutils literal notranslate"><span class="pre">osprey.registry.base.ArielIngestionAdapterRegistration</span></code>,
 <code class="docutils literal notranslate"><span class="pre">ArielEnhancementModuleRegistration</span></code> or <code class="docutils literal notranslate"><span class="pre">ArielSearchModuleRegistration</span></code>,
@@ -596,7 +610,7 @@ your build profile, not an ARIEL extension. Pinning test:
 <code class="docutils literal notranslate"><span class="pre">tests/registry/test_ariel_module_registrations.py</span></code>; deployer view:
 <a class="reference internal" href="../how-to/ariel/data-ingestion.html"><span class="doc">Data Ingestion</span></a>.</p>
 <p>A facility adapter may also declare the fields an author fills in when writing
-an entry, through two optional hooks on the same class:
+an entry. It does so through two optional hooks on the same class:
 <code class="docutils literal notranslate"><span class="pre">get_entry_field_descriptors</span></code> returns <code class="docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> declarations
 and <code class="docutils literal notranslate"><span class="pre">get_entry_field_options</span></code> lists a <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code> field’s choices.
 Both default to declaring nothing, which keeps the built-in entry form. The
@@ -610,36 +624,42 @@ Entry Fields section of <a class="reference internal" href="../how-to/ariel/data
 <section id="health-plugin">
 <span id="extending-health-plugin"></span><h2>Health plugin<a class="headerlink" href="#health-plugin" title="Link to this heading">#</a></h2>
 <p>Most health checks are declarative YAML. A plugin is for the ones that need
-real Python — querying a facility service, computing a derived state. Write a
-module that exposes <code class="docutils literal notranslate"><span class="pre">get_health_categories()</span></code>, returning a mapping of
-category name to a callable (sync or async) that produces a list of
-<code class="docutils literal notranslate"><span class="pre">osprey.health.models.CheckResult</span></code>, then name it under <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code> —
-either as a dotted path to an importable module (<code class="docutils literal notranslate"><span class="pre">my_package.health_checks</span></code>)
-or as a path to a <code class="docutils literal notranslate"><span class="pre">.py</span></code> file (<code class="docutils literal notranslate"><span class="pre">./health/facility_checks.py</span></code>). A relative
-file path is resolved against the project root, the same anchor <code class="docutils literal notranslate"><span class="pre">data/</span></code> and
-<code class="docutils literal notranslate"><span class="pre">plans/</span></code> use, so a deployment can keep its checks beside its profile without
-packaging them or setting <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code>. A file loaded that way is given a
-synthetic module name derived from its path and is <strong>re-executed</strong> every time
-the health config is reloaded, so it must not keep state at module level.
-<code class="docutils literal notranslate"><span class="pre">osprey.health.plugins.load_plugin_categories</span></code> loads it, and does so
-fail-safe: a plugin that will not import, returns the wrong type, or collides
+real Python — querying a facility service, computing a derived state. To
+write a health plugin:</p>
+<ol class="arabic simple">
+<li><p>Write a module that exposes <code class="docutils literal notranslate"><span class="pre">get_health_categories()</span></code>. It returns a
+mapping of category name to a callable (sync or async) that produces a list
+of <code class="docutils literal notranslate"><span class="pre">osprey.health.models.CheckResult</span></code>.</p></li>
+<li><p>Name the module under <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code>, either as a dotted path to an
+importable module (<code class="docutils literal notranslate"><span class="pre">my_package.health_checks</span></code>) or as a path to a <code class="docutils literal notranslate"><span class="pre">.py</span></code>
+file (<code class="docutils literal notranslate"><span class="pre">./health/facility_checks.py</span></code>).</p></li>
+</ol>
+<p>A relative file path is resolved against the project root, the same anchor
+<code class="docutils literal notranslate"><span class="pre">data/</span></code> and <code class="docutils literal notranslate"><span class="pre">plans/</span></code> use. So a deployment can keep its checks beside its
+profile without packaging them or setting <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code>. A file loaded that
+way is given a synthetic module name derived from its path. It is
+<strong>re-executed</strong> every time the health config is reloaded, so it must not keep
+state at module level.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey.health.plugins.load_plugin_categories</span></code> loads the plugin, and does so
+fail-safe. A plugin that will not import, returns the wrong type, or collides
 with an existing category name becomes one <code class="docutils literal notranslate"><span class="pre">error</span></code> row rather than a crashed
-suite. A category callable normally takes no arguments. An <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">def</span></code> one
+suite.</p>
+<p>A category callable normally takes no arguments. An <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">def</span></code> one
 may instead declare a <code class="docutils literal notranslate"><span class="pre">runtime</span></code> parameter and receive the suite’s shared
-<code class="docutils literal notranslate"><span class="pre">osprey.health.runtime.HealthRuntime</span></code>, so <code class="docutils literal notranslate"><span class="pre">await</span> <span class="pre">runtime.get_connector()</span></code>
-hands back the one control-system connector the whole run shares instead of
+<code class="docutils literal notranslate"><span class="pre">osprey.health.runtime.HealthRuntime</span></code>. Then <code class="docutils literal notranslate"><span class="pre">await</span> <span class="pre">runtime.get_connector()</span></code>
+hands back the one control-system connector the whole run shares, instead of
 opening a second Channel Access context. The runtime is valid only for that
-call. A sync callable cannot take it — it runs on a worker thread with no event
-loop — and one that declares <code class="docutils literal notranslate"><span class="pre">runtime</span></code> is refused with an <code class="docutils literal notranslate"><span class="pre">error</span></code> row
-saying to make it <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">def</span></code>. Pinning test:
+call. A sync callable cannot take it: it runs on a worker thread with no event
+loop. A sync callable that declares <code class="docutils literal notranslate"><span class="pre">runtime</span></code> is refused with an <code class="docutils literal notranslate"><span class="pre">error</span></code>
+row saying to make it <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">def</span></code>. Pinning test:
 <code class="docutils literal notranslate"><span class="pre">tests/health/test_plugins.py</span></code>. Config side:
 <a class="reference internal" href="../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>.</p>
 </section>
 <section id="panel">
 <span id="extending-panel"></span><h2>Panel<a class="headerlink" href="#panel" title="Link to this heading">#</a></h2>
-<p>A panel is a tab in the Web Terminal. The supported route is the guided skill
-— <code class="docutils literal notranslate"><span class="pre">/osprey:panel</span></code>, whose source is <code class="docutils literal notranslate"><span class="pre">plugins/osprey/skills/panel/</span></code> —
-which walks a coding agent through a bundle that already meets every rule: a
+<p>A panel is a tab in the Web Terminal. The supported route is the guided skill,
+<code class="docutils literal notranslate"><span class="pre">/osprey:panel</span></code>, whose source is <code class="docutils literal notranslate"><span class="pre">plugins/osprey/skills/panel/</span></code>. The skill
+walks a coding agent through a bundle that already meets every rule: a
 directory under the project’s <code class="docutils literal notranslate"><span class="pre">panels/</span></code> holding a <code class="docutils literal notranslate"><span class="pre">manifest.json</span></code> and an
 entry HTML file. Discovery is off until a deployer sets
 <code class="docutils literal notranslate"><span class="pre">web.allow_runtime_panels</span></code>, and it is fail-closed, so a malformed bundle is
@@ -676,36 +696,50 @@ entrypoint. A different pyAT deck needs no code at all (see “Bringing your own
 model” on <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>). The shipped pyat plug-in,
 <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code>, is the reference implementation.</p>
 <p>What a plug-in is given and asked for:</p>
-<ul class="simple">
+<ul>
 <li><p><strong>Registration.</strong> A plug-in is a module registered under the
 <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point group in its package’s own
 <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, under the name a model record’s <code class="docutils literal notranslate"><span class="pre">engine</span></code> gives. The
 composite looks it up with <code class="docutils literal notranslate"><span class="pre">metadata.entry_points(group=ENGINE_GROUP,</span>
 <span class="pre">name=...)</span></code>; an engine no package registers fails that model.</p></li>
 <li><p><strong>Build-time contract.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> calls four pure functions of the
-module, none of which builds a model: <code class="docutils literal notranslate"><span class="pre">locate</span></code> gives an element’s place
-along the deck, <code class="docutils literal notranslate"><span class="pre">prepare</span></code> checks the deck against the model’s settings,
-<code class="docutils literal notranslate"><span class="pre">start_values</span></code> derives each wired channel’s operating point from the deck,
-and <code class="docutils literal notranslate"><span class="pre">describe(record)</span></code> says what one wiring record is. <code class="docutils literal notranslate"><span class="pre">describe</span></code>
-returns <code class="docutils literal notranslate"><span class="pre">{role,</span> <span class="pre">plane,</span> <span class="pre">refresh}</span></code>: <code class="docutils literal notranslate"><span class="pre">role</span></code> is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>,
-<code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>; <code class="docutils literal notranslate"><span class="pre">plane</span></code> is <code class="docutils literal notranslate"><span class="pre">x</span></code> or <code class="docutils literal notranslate"><span class="pre">y</span></code> for a record that
-steers or reads one transverse plane, else <code class="docutils literal notranslate"><span class="pre">None</span></code>; <code class="docutils literal notranslate"><span class="pre">refresh</span></code> is
-<code class="docutils literal notranslate"><span class="pre">pass</span></code> for a value each write’s solve updates, or <code class="docutils literal notranslate"><span class="pre">periodic</span></code> for one
-only the periodic solve publishes. The build stamps the description into each wiring record
-of the simulator view, so no reader re-derives it from engine attributes.</p></li>
+module, none of which builds a model:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">locate</span></code> gives an element’s place along the deck.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prepare</span></code> checks the deck against the model’s settings.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">start_values</span></code> derives each wired channel’s operating point from the
+deck.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">describe(record)</span></code> says what one wiring record is.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">describe</span></code> returns <code class="docutils literal notranslate"><span class="pre">{role,</span> <span class="pre">plane,</span> <span class="pre">refresh}</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">role</span></code> is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">plane</span></code> is <code class="docutils literal notranslate"><span class="pre">x</span></code> or <code class="docutils literal notranslate"><span class="pre">y</span></code> for a record that steers or reads one
+transverse plane, else <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">refresh</span></code> is <code class="docutils literal notranslate"><span class="pre">pass</span></code> for a value each write’s solve updates, or
+<code class="docutils literal notranslate"><span class="pre">periodic</span></code> for one only the periodic solve publishes.</p></li>
+</ul>
+<p>The build stamps the description into each wiring record of the simulator
+view, so no reader re-derives it from engine attributes.</p>
+</li>
 <li><p><strong>Build.</strong> The composite calls the module’s
 <code class="docutils literal notranslate"><span class="pre">build(model,</span> <span class="pre">wiring,</span> <span class="pre">deck,</span> <span class="pre">settings,</span> <span class="pre">active=...)</span></code> once per served model.
-<code class="docutils literal notranslate"><span class="pre">wiring</span></code> is the model’s wiring records from the simulator view’s
-<code class="docutils literal notranslate"><span class="pre">variables.json</span></code>, <code class="docutils literal notranslate"><span class="pre">deck</span></code> is the path of the model’s deck,
-<code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>, or <code class="docutils literal notranslate"><span class="pre">None</span></code> for a model that names none,
-<code class="docutils literal notranslate"><span class="pre">settings</span></code> is the model record’s settings, and <code class="docutils literal notranslate"><span class="pre">active</span></code> holds the active
-scenarios’ setpoint values and fault seeds. It returns the <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>.</p></li>
+It returns the <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>. The arguments:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">wiring</span></code> is the model’s wiring records from the simulator view’s
+<code class="docutils literal notranslate"><span class="pre">variables.json</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">deck</span></code> is the path of the model’s deck, <code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>,
+or <code class="docutils literal notranslate"><span class="pre">None</span></code> for a model that names none.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">settings</span></code> is the model record’s settings.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">active</span></code> holds the active scenarios’ setpoint values and fault seeds.</p></li>
+</ul>
+</li>
 <li><p><strong>Set and get.</strong> The composite reaches the model only through its <code class="docutils literal notranslate"><span class="pre">set()</span></code>
 and <code class="docutils literal notranslate"><span class="pre">get()</span></code>. Each variable is named for the channel address its wiring
 record claims, so a plug-in parses no channel names.</p></li>
-<li><p><strong>Report a failed build.</strong> A <code class="docutils literal notranslate"><span class="pre">build</span></code> that raises leaves the model failed:
-its <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> channel carries the text the module’s
-optional <code class="docutils literal notranslate"><span class="pre">error_text(exc)</span></code> gives, else the exception’s own text, and the
+<li><p><strong>Report a failed build.</strong> A <code class="docutils literal notranslate"><span class="pre">build</span></code> that raises leaves the model failed.
+Its <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> channel carries the text the module’s
+optional <code class="docutils literal notranslate"><span class="pre">error_text(exc)</span></code> gives, else the exception’s own text. The
 rest of the namespace is still served.</p></li>
 <li><p><strong>The contract in code.</strong> <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.EnginePlugin</span></code> names
 the five functions above, and <code class="docutils literal notranslate"><span class="pre">isinstance(module,</span> <span class="pre">EnginePlugin)</span></code> checks a
@@ -733,8 +767,8 @@ The image boot check and the container test fixtures wait on that line and
 read the count out of it. A first pass that fails exits non-zero without
 it.</p></li>
 <li><p><strong>SIGTERM.</strong> The image’s command <code class="docutils literal notranslate"><span class="pre">exec</span></code>s Python, so the entrypoint is
-the container’s first process and receives <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">stop</span></code>’s SIGTERM
-itself; it handles SIGTERM as it handles SIGINT and leaves through the
+the container’s first process. It receives <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">stop</span></code>’s SIGTERM
+itself. It handles SIGTERM as it handles SIGINT and leaves through the
 runner’s own exit.</p></li>
 <li><p><strong>One image for every instance.</strong> With a live stand-in, both containers run
 the same image and the same entrypoint; <code class="docutils literal notranslate"><span class="pre">VA_INSTANCE</span></code> tells them apart.</p></li>
@@ -773,7 +807,7 @@ in <code class="docutils literal notranslate"><span class="pre">src/osprey/templ
 comes from <code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/tool_names.py</span></code>.</p>
 <p>A lint holds the boundary. Ruff’s banned-api rule (<code class="docutils literal notranslate"><span class="pre">TID251</span></code>, configured in
 <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>) refuses an import of <code class="docutils literal notranslate"><span class="pre">claude_agent_sdk</span></code> anywhere in
-<code class="docutils literal notranslate"><span class="pre">src/</span></code> or <code class="docutils literal notranslate"><span class="pre">packages/</span></code> outside the adapter, and the unit suite refuses the
+<code class="docutils literal notranslate"><span class="pre">src/</span></code> or <code class="docutils literal notranslate"><span class="pre">packages/</span></code> outside the adapter. The unit suite refuses the
 same import, including the dynamic imports ruff cannot see. No module is exempt
 by name. Tests and developer scripts sit outside the shipped trees and drive the
 SDK directly. New code that needs the agent calls the adapter; a Claude-specific

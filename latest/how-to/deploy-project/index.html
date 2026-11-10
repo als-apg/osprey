@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -531,7 +531,10 @@
                   
   <section id="container-deployment">
 <h1>Container Deployment<a class="headerlink" href="#container-deployment" title="Link to this heading">#</a></h1>
-<p>How to run a deployment’s containerized services.</p>
+<p>Use this page when you add or customize a containerized service in a
+deployment. It shows how to configure services, how <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> turn them into running containers, and how to keep a deployment
+up to date.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -547,31 +550,41 @@
 </div>
 </details><div class="admonition tip">
 <p class="admonition-title">Tip</p>
-<p>This page is the operator/service-author reference for the container side of
-a deployment. For the end-to-end walkthrough — deployment repository, CI
-pipeline, stack up — follow <a class="reference internal" href="../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>, which also covers the
-commands you run day to day once the stack is up. For the
-full <code class="docutils literal notranslate"><span class="pre">services:</span></code> schema as authored inside a build profile, see
-<a class="reference internal" href="../../reference/configuration/profile.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
+<p>This page is the operator and service-author reference for the container
+side of a deployment. For related tasks, go elsewhere:</p>
+<ul class="simple">
+<li><p>To follow the end-to-end walkthrough (deployment repository, CI pipeline,
+stack up), and for the commands you run day to day once the stack is up,
+see <a class="reference internal" href="../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p></li>
+<li><p>To look up the full <code class="docutils literal notranslate"><span class="pre">services:</span></code> schema as authored inside a build
+profile, see <a class="reference internal" href="../../reference/configuration/profile.html#profile-services"><span class="std std-ref">Services</span></a>.</p></li>
+</ul>
 </div>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders each service’s Jinja2 Docker Compose template and
-copies source and configuration into a per-service build directory; <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">up</span></code> hands the result to Docker or Podman Compose. A deployment created from the
-<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset deploys a full stack out of the box:
-<code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, <code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>,
-<code class="docutils literal notranslate"><span class="pre">bluesky</span></code> (with its co-deployed Tiled data server), <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>,
-<code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code>, and the multi-user web-terminal stack. Every deployment, the
-minimal <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> one included, also runs <code class="docutils literal notranslate"><span class="pre">agent-record</span></code>, which keeps
-the agent record (<a class="reference internal" href="../health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>).
-You only need this page when you add or customize a containerized service.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> <em>renders</em> the deployment into <code class="docutils literal notranslate"><span class="pre">build/</span></code>. It fills in each
+service’s Jinja2 Docker Compose template, and copies source and configuration
+into a per-service build directory. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> hands the result to Docker or
+Podman Compose.</p>
+<p>A deployment created from the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset deploys a full stack out of the
+box:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">postgresql</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bluesky</span></code> (with its co-deployed Tiled data server);</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code>;</p></li>
+<li><p>the multi-user web-terminal stack.</p></li>
+</ul>
+<p>Every deployment, the minimal <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> one included, also runs
+<code class="docutils literal notranslate"><span class="pre">agent-record</span></code>, which keeps the agent record
+(<a class="reference internal" href="../health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>).</p>
 </section>
 <section id="service-configuration">
 <h2>Service Configuration<a class="headerlink" href="#service-configuration" title="Link to this heading">#</a></h2>
-<p>Services are declared under <code class="docutils literal notranslate"><span class="pre">services:</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and selected for
-deployment via <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>. A minimal example (one of the services
-the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships with):</p>
+<p>Declare services under <code class="docutils literal notranslate"><span class="pre">services:</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, and select them for
+deployment with <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>. Here is a minimal example, one of the
+services the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships with:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/postgresql</span>
@@ -585,57 +598,72 @@ the <code class="docutils literal notranslate"><span class="pre">demo</span></co
 </div>
 <p>Each service entry must point <code class="docutils literal notranslate"><span class="pre">path:</span></code> at a directory containing a
 <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template. Everything else under the service key is
-project-specific configuration exposed to the template as
-<code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>. Beyond <code class="docutils literal notranslate"><span class="pre">path</span></code>, a service entry may also
-declare <code class="docutils literal notranslate"><span class="pre">copy_src</span></code> and <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>
-(a multi-container service is expressed by the <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>
-template defining more than one compose service). For how facility services
-are declared inside a build profile, see <a class="reference internal" href="../../reference/configuration/profile.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
+project-specific configuration. The template sees it as
+<code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>.</p>
+<p>Beyond <code class="docutils literal notranslate"><span class="pre">path</span></code>, a service entry may also declare <code class="docutils literal notranslate"><span class="pre">copy_src</span></code> and
+<code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>. To make a multi-container service, define more than one
+compose service in its <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template. For how facility
+services are declared inside a build profile, see <a class="reference internal" href="../../reference/configuration/profile.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
 <section id="service-lookup-namespaces">
 <h3>Service lookup namespaces<a class="headerlink" href="#service-lookup-namespaces" title="Link to this heading">#</a></h3>
-<p>A name in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is looked up by its literal spelling — there
-is no search order. A plain name like <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> resolves to top-level
-<code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code>. A dotted name picks its namespace explicitly:
-<code class="docutils literal notranslate"><span class="pre">osprey.&lt;name&gt;</span></code> reads <code class="docutils literal notranslate"><span class="pre">osprey.services.&lt;name&gt;</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">applications.&lt;app&gt;.&lt;name&gt;</span></code> reads <code class="docutils literal notranslate"><span class="pre">applications.&lt;app&gt;.services.&lt;name&gt;</span></code>.
-The flat form shown above is the common case; the namespaced forms exist for
-build profiles that ship multiple applications.</p>
+<p>A name in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is looked up by its literal spelling; there is
+no search order.</p>
+<ul class="simple">
+<li><p>A plain name like <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> resolves to top-level
+<code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey.&lt;name&gt;</span></code> reads <code class="docutils literal notranslate"><span class="pre">osprey.services.&lt;name&gt;</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">applications.&lt;app&gt;.&lt;name&gt;</span></code> reads <code class="docutils literal notranslate"><span class="pre">applications.&lt;app&gt;.services.&lt;name&gt;</span></code>.</p></li>
+</ul>
+<p>The flat form shown above is the common case. The dotted, namespaced forms
+exist for build profiles that ship multiple applications.</p>
 </section>
 <section id="the-graph-store-graphdb">
 <h3>The graph store (<code class="docutils literal notranslate"><span class="pre">graphdb</span></code>)<a class="headerlink" href="#the-graph-store-graphdb" title="Link to this heading">#</a></h3>
-<p>Alongside <code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset
-deploys a <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> service: a Neo4j store holding the facility’s knowledge
-graph. Its <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block names the image, the bolt port the seeder
-and the health checks dial (<code class="docutils literal notranslate"><span class="pre">port_host</span></code>), the HTTP port of the Neo4j Browser an
-operator opens (<code class="docutils literal notranslate"><span class="pre">http_port_host</span></code>), the corpus the store seeds (<code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>,
-resolved against the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> directory, and filled with the graph view the
-build writes from the facility file, <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>, when the block
-does not spell one), and the JVM memory the container runs with.</p>
-<p>Two more keys bound what one <em>query</em> may cost rather than what the container may
-use: <code class="docutils literal notranslate"><span class="pre">query_timeout_s</span></code> (15 seconds by default) is the transaction timeout the
-store enforces on a single query, so a runaway traversal is cancelled
-server-side rather than left open by a client that has given up, and
-<code class="docutils literal notranslate"><span class="pre">query_max_rows</span></code> (200) is how many rows come back before the answer is
-truncated. The OSPREY agent’s graph search reads both, and tells you when a
-result was cut short. Raising them spends the agent’s context window rather than
-the store’s memory — a few thousand rows crowd out the conversation long before
-they trouble Neo4j. For what the agent does with the store once it is up — the
-query tools and the read-only posture — see
+<p>Alongside <code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset deploys a <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> service: a
+Neo4j store holding the facility’s knowledge graph. Its <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code>
+block names:</p>
+<ul class="simple">
+<li><p>the image;</p></li>
+<li><p>the bolt port the seeder and the health checks dial (<code class="docutils literal notranslate"><span class="pre">port_host</span></code>);</p></li>
+<li><p>the HTTP port of the Neo4j Browser an operator opens (<code class="docutils literal notranslate"><span class="pre">http_port_host</span></code>);</p></li>
+<li><p>the corpus the store seeds (<code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>);</p></li>
+<li><p>the JVM memory the container runs with.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> resolves against the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> directory. When the block
+does not spell one, it is filled with the graph view the build writes from the
+facility file, <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>.</p>
+<p>Two more keys bound what one <em>query</em> may cost, rather than what the container
+may use:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">query_timeout_s</span></code> (15 seconds by default) is the transaction timeout the
+store enforces on a single query. So a runaway traversal is cancelled
+server-side, rather than left open by a client that has given up.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">query_max_rows</span></code> (200) is how many rows come back before the answer is
+truncated.</p></li>
+</ul>
+<p>The OSPREY agent’s graph search reads both, and tells you when a result was cut
+short. Raising them spends the agent’s context window rather than the store’s
+memory. A few thousand rows crowd out the conversation long before they trouble
+Neo4j. For what the agent does with the store once it is up, including the
+query tools and the read-only posture, see
 <a class="reference internal" href="../facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
-<p>The block carries <strong>no password</strong>, deliberately — the same convention
+<p>The block deliberately carries <strong>no password</strong>, the same convention
 <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> follows. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> into the
-project <code class="docutils literal notranslate"><span class="pre">.env</span></code> when it is unset, and the container reads it from there; a
-password written into <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> would be read by nobody.</p>
-<p>Every deploy starts the store ahead of the rest of the stack, bootstraps it, and
-compares the store’s seed marker with the digest of <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>. A store that
-already holds that corpus is left alone; any other store, an empty one included,
-is wiped and the corpus imported, so a changed facility file reaches the store
-on the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> with no seeding step. A store whose graph configuration is
-not OSPREY’s is replaced the same way. If bootstrapping or seeding fails the
-deploy warns and carries on, naming <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>, which
-finishes the job once the cause is fixed.</p>
+project <code class="docutils literal notranslate"><span class="pre">.env</span></code> when it is unset, and the container reads it from there.
+Nothing reads a password written into <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+<p>Every deploy starts the store ahead of the rest of the stack and bootstraps it.
+It then compares the store’s seed marker with the digest of <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>:</p>
+<ul class="simple">
+<li><p>A store that already holds that corpus is left alone.</p></li>
+<li><p>Any other store, an empty one included, is wiped and the corpus imported. So
+a changed facility file reaches the store on the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>, with no seeding step.</p></li>
+<li><p>A store whose graph configuration is not OSPREY’s is replaced the same way.</p></li>
+</ul>
+<p>If bootstrapping or seeding fails, the deploy warns and carries on. It names
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>, which finishes the job once the cause is fixed.</p>
 <p>To query a graph store this deployment does <em>not</em> run, point the block at it
-instead of deploying one — see
+instead of deploying one. See
 <a class="reference internal" href="../facility-knowledge/use-facility-graph.html#graph-external-store"><span class="std std-ref">Pointing at a store the facility runs</span></a>.</p>
 </section>
 </section>
@@ -656,43 +684,49 @@ osprey<span class="w"> </span>users<span class="w"> </span>prune<span class="w">
 </pre></div>
 </div>
 <p>Full command and flag reference: <a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a>.</p>
-<p>Every verb acts on the deployment repository enclosing the working directory —
-the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above it. <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> names another
-one explicitly.</p>
+<p>Every verb acts on the deployment repository enclosing the working directory:
+the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above it. To name another one explicitly,
+pass <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code>.</p>
 </section>
 <section id="container-runtime-selection">
 <h2>Container Runtime Selection<a class="headerlink" href="#container-runtime-selection" title="Link to this heading">#</a></h2>
-<p>The runtime is chosen once, by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, and recorded in
-<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> as <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code>. With the
-default <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">auto</span></code> the build takes Docker when its daemon
-answers and Podman otherwise; an explicit <code class="docutils literal notranslate"><span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code> in the
-profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block is taken as written; a tier or app file may not
-state one. Every render of the build (each tier, app and image copy) records
-the same answer, and a host where no runtime answers records <code class="docutils literal notranslate"><span class="pre">auto</span></code>. Every
-later verb — <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">reset</span></code>, the port preflight —
-reads the recorded runtime and talks only to it. If that runtime says it is not running, or does
-not answer within two minutes, the verb refuses and says which; it never
-switches to the other runtime, because a stack started under Docker is invisible
-from Podman and a <code class="docutils literal notranslate"><span class="pre">down</span></code> served there would report it stopped while it keeps
-running.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> chooses the container runtime once, and records it in
+<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> as <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code>.</p>
+<ul class="simple">
+<li><p>With the default <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">auto</span></code>, the build takes Docker when its
+daemon answers, and Podman otherwise. A host where no runtime answers
+records <code class="docutils literal notranslate"><span class="pre">auto</span></code>.</p></li>
+<li><p>An explicit <code class="docutils literal notranslate"><span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code> in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block is
+taken as written. A tier or app file may not state one.</p></li>
+</ul>
+<p>Every render of the build (each tier, app and image copy) records the same
+answer. Every later verb reads the recorded runtime and talks only to it. That
+covers <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">reset</span></code> and the port preflight. If that
+runtime says it is not running, or does not answer within two minutes, the verb
+refuses and says which. It never switches to the other runtime. A stack started
+under Docker is invisible from Podman, so a <code class="docutils literal notranslate"><span class="pre">down</span></code> served there would report
+it stopped while it keeps running.</p>
 <p>To move a deployment to the other runtime, stop it where it runs, then build
 again on the new runtime. <code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME=docker|podman</span></code> in the
-environment overrides the recorded value for one invocation; use it only for
-a stack you know runs there. When a host has both runtimes installed and
-<code class="docutils literal notranslate"><span class="pre">auto</span></code> skips one because its probe failed, the build logs a warning naming
-the probe.</p>
+environment overrides the recorded value for one invocation. Use it only for a
+stack you know runs there. When a host has both runtimes installed and <code class="docutils literal notranslate"><span class="pre">auto</span></code>
+skips one because its probe failed, the build logs a warning naming the probe.</p>
 <p>On a host with the <code class="docutils literal notranslate"><span class="pre">podman-docker</span></code> package (standard on RHEL), <code class="docutils literal notranslate"><span class="pre">docker</span></code> is
-podman’s Docker-CLI emulation: it answers every probe because podman does.
+podman’s Docker-CLI emulation. It answers every probe because podman does.
 <code class="docutils literal notranslate"><span class="pre">auto</span></code> recognises it and records <code class="docutils literal notranslate"><span class="pre">podman</span></code>, which is what such a host runs
-on. A <code class="docutils literal notranslate"><span class="pre">docker</span></code> set explicitly on such a host is refused rather than quietly
-re-pointed, with the setting to change; a <code class="docutils literal notranslate"><span class="pre">docker</span></code> an earlier build recorded
-from <code class="docutils literal notranslate"><span class="pre">auto</span></code> is fixed by running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> again.</p>
+on.</p>
+<ul class="simple">
+<li><p>A <code class="docutils literal notranslate"><span class="pre">docker</span></code> set explicitly on such a host is refused rather than quietly
+re-pointed. The message names the setting to change.</p></li>
+<li><p>A <code class="docutils literal notranslate"><span class="pre">docker</span></code> that an earlier build recorded from <code class="docutils literal notranslate"><span class="pre">auto</span></code> is fixed by running
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> again.</p></li>
+</ul>
 <section id="supported-compose-providers">
 <span id="compose-provider-compatibility"></span><h3>Supported compose providers<a class="headerlink" href="#supported-compose-providers" title="Link to this heading">#</a></h3>
-<p>Choosing the runtime is only half the answer. Before it starts anything,
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> asks that runtime which compose implementation stands behind it
-(<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span> <span class="pre">version</span></code> / <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span> <span class="pre">version</span></code>) and reads the banner
-that comes back. Two are supported:</p>
+<p>OSPREY supports two compose providers. Before it starts anything,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> asks the runtime which compose implementation stands behind it
+(<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span> <span class="pre">version</span></code> / <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span> <span class="pre">version</span></code>). It reads the banner
+that comes back. The supported providers are:</p>
 <ul class="simple">
 <li><p><strong>Docker Compose v2</strong> — any 2.x release.</p></li>
 <li><p><strong>podman-compose 1.0.6 or newer.</strong> 1.0.6 is what EPEL 8 ships as standard
@@ -763,17 +797,17 @@ built from source.</p></li>
 </div>
 <p>The answer comes from the banner, never from the command you typed.
 <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span></code> is a dispatcher that hands the work to whichever provider
-the host has configured, so on a host that delegates to Docker Compose v2 a
+the host has configured. So on a host that delegates to Docker Compose v2, a
 <code class="docutils literal notranslate"><span class="pre">podman</span></code> command reports the Docker banner and is treated as Docker Compose
 v2. What matters is the provider that parses the command, not the binary that
 forwards it.</p>
 <p>Anything else is refused before a single container is touched: an unrecognized
 banner, Compose v1, a podman-compose below 1.0.6, or a probe that could not run
 at all. The refusal names what was wrong and prints what the provider reported,
-so you can see what the host actually has. Refusing rather than guessing is the
-point — a provider handed the wrong command shape does not report an
-unsupported deployment, it starts a stack whose file paths resolve against the
-wrong directory.</p>
+so you can see what the host actually has.</p>
+<p>Refusing rather than guessing is the point. A provider handed the wrong command
+shape does not report an unsupported deployment. It starts a stack whose file
+paths resolve against the wrong directory.</p>
 </section>
 <section id="what-the-provider-changes">
 <h3>What the provider changes<a class="headerlink" href="#what-the-provider-changes" title="Link to this heading">#</a></h3>
@@ -797,50 +831,59 @@ spell those labels.</p>
 # plus COMPOSE_PROJECT_DIR=&lt;repo&gt; in the command&#39;s environment
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">.osprey-compose.yml</span></code> is every rendered compose file and the labels override
-merged into a single document at the repository root, and <code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code> is the env chain
-merged the same way (see <a class="reference internal" href="env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>). Both are machine
-artifacts: rewritten from scratch by every command that needs them, kept out of
-version control and out of every container build context, and removed by
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code>. Neither holds a resolved secret — <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> references are
-copied through exactly as the rendered files spell them, so filling them in
-stays the runtime’s job.</p>
-<p>The merge exists because of where podman-compose looks for relative paths.
-Versions 1.0.6 – 1.3.0 change directory twice while assembling a project and
-end up in the directory of the <em>first</em> <code class="docutils literal notranslate"><span class="pre">-f</span></code> file, overriding
-<code class="docutils literal notranslate"><span class="pre">COMPOSE_PROJECT_DIR</span></code>; 1.4.1 and newer change directory once, to
-<code class="docutils literal notranslate"><span class="pre">COMPOSE_PROJECT_DIR</span></code>. A <code class="docutils literal notranslate"><span class="pre">-f</span></code> list pointing into <code class="docutils literal notranslate"><span class="pre">build/</span></code> therefore
-resolves every relative path in the rendered files — <code class="docutils literal notranslate"><span class="pre">env_file:</span></code> entries,
-bind mounts — against <code class="docutils literal notranslate"><span class="pre">build/</span></code> on one version and against the repository root
-on the next, from identical inputs and without an error on either. One document
-at the repository root makes both readings land in the same place.</p>
+<p><code class="docutils literal notranslate"><span class="pre">.osprey-compose.yml</span></code> is every rendered compose file and the labels override,
+merged into a single document at the repository root. <code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code> is
+the env chain merged the same way (see <a class="reference internal" href="env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>). Both are
+machine artifacts:</p>
+<ul class="simple">
+<li><p>every command that needs them rewrites them from scratch;</p></li>
+<li><p>they are kept out of version control and out of every container build
+context;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> removes them.</p></li>
+</ul>
+<p>Neither holds a resolved secret. <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> references are copied through
+exactly as the rendered files spell them, so filling them in stays the
+runtime’s job.</p>
+<p>The merge exists because of where podman-compose looks for relative paths:</p>
+<ul class="simple">
+<li><p>Versions 1.0.6 – 1.3.0 change directory twice while assembling a project.
+They end up in the directory of the <em>first</em> <code class="docutils literal notranslate"><span class="pre">-f</span></code> file, overriding
+<code class="docutils literal notranslate"><span class="pre">COMPOSE_PROJECT_DIR</span></code>.</p></li>
+<li><p>Versions 1.4.1 and newer change directory once, to <code class="docutils literal notranslate"><span class="pre">COMPOSE_PROJECT_DIR</span></code>.</p></li>
+</ul>
+<p>So a <code class="docutils literal notranslate"><span class="pre">-f</span></code> list pointing into <code class="docutils literal notranslate"><span class="pre">build/</span></code> resolves every relative path in the
+rendered files differently by version. <code class="docutils literal notranslate"><span class="pre">env_file:</span></code> entries and bind mounts
+resolve against <code class="docutils literal notranslate"><span class="pre">build/</span></code> on one version and against the repository root on
+the next. That happens from identical inputs, and without an error on either.
+One document at the repository root makes both readings land in the same
+place.</p>
 </section>
 <section id="no-compose-profiles">
 <h3>No compose profiles<a class="headerlink" href="#no-compose-profiles" title="Link to this heading">#</a></h3>
-<p>OSPREY renders no <code class="docutils literal notranslate"><span class="pre">profiles:</span></code> key and passes no <code class="docutils literal notranslate"><span class="pre">--profile</span></code>, anywhere.
-Which services a deployment runs is settled when it is built, by
-<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>: a service you did not deploy is absent from the render
-rather than present and switched off. podman-compose’s handling of profiles
-varies between versions, and the failure it can produce is the worst kind — a
-service quietly left out of the project, with a deploy that reports success.
-Every deployed service is in the <code class="docutils literal notranslate"><span class="pre">-f</span></code> list, and everything in the <code class="docutils literal notranslate"><span class="pre">-f</span></code> list
-starts.</p>
-<p>If you write your own service template, leave <code class="docutils literal notranslate"><span class="pre">profiles:</span></code> out of it.</p>
+<p>If you write your own service template, leave <code class="docutils literal notranslate"><span class="pre">profiles:</span></code> out of it.
+OSPREY renders no <code class="docutils literal notranslate"><span class="pre">profiles:</span></code> key and passes no <code class="docutils literal notranslate"><span class="pre">--profile</span></code>, anywhere.</p>
+<p><code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> settles which services a deployment runs when it is
+built. A service you did not deploy is absent from the render, rather than
+present and switched off. podman-compose’s handling of profiles varies between
+versions. The failure it can produce is the worst kind: a service quietly left
+out of the project, with a deploy that reports success. Every deployed service
+is in the <code class="docutils literal notranslate"><span class="pre">-f</span></code> list, and everything in the <code class="docutils literal notranslate"><span class="pre">-f</span></code> list starts.</p>
 </section>
 <section id="where-var-values-come-from">
 <h3>Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from<a class="headerlink" href="#where-var-values-come-from" title="Link to this heading">#</a></h3>
 <p>Compose fills in <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders from the env file(s) the command
-passes and from the shell you typed it in, and the two supported providers
-disagree about which wins. The precedence table, and what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does
-about the disagreement, are in <a class="reference internal" href="../../reference/configuration/config.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>.</p>
+passes and from the shell you typed it in. The two supported providers disagree
+about which wins. For the precedence table, and what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does about
+the disagreement, see <a class="reference internal" href="../../reference/configuration/config.html#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>.</p>
 </section>
 <section id="podman-s-network-backend-required-by-the-bluesky-and-optimizer-stacks">
 <span id="podman-network-backend"></span><h3>Podman’s network backend (required by the Bluesky and optimizer stacks)<a class="headerlink" href="#podman-s-network-backend-required-by-the-bluesky-and-optimizer-stacks" title="Link to this heading">#</a></h3>
-<p>The <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> service puts its bridge, RE Manager and Redis on an internal
-network and dual-homes the queueserver across two networks; the <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>
-service does the same with the optimizer and its Redis job store. Resolving one
-container by name from another is therefore load-bearing, and on Podman that
-depends on which networking backend the host runs:</p>
+<p>On Podman, the Bluesky and optimizer stacks need the <strong>netavark</strong> network
+backend. The <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> service puts its bridge, RE Manager and Redis on an
+internal network. It <em>dual-homes</em> the queueserver: it attaches it to two
+networks. The <code class="docutils literal notranslate"><span class="pre">optimizer</span></code> service does the same with the optimizer and its
+Redis job store. So these containers must resolve each other by name. On
+Podman, that depends on which networking backend the host runs:</p>
 <ul class="simple">
 <li><p><strong>netavark</strong> (Podman 4.0+ default) — ships aardvark-dns, which serves
 container-name DNS on every network a container is attached to. <strong>Required.</strong></p></li>
@@ -849,29 +892,31 @@ aardvark-dns. A dual-homed container receives only its <em>first</em> network’
 resolver, so <code class="docutils literal notranslate"><span class="pre">bluesky-queueserver</span></code> can never resolve <code class="docutils literal notranslate"><span class="pre">bluesky-redis</span></code>, nor
 <code class="docutils literal notranslate"><span class="pre">optimizer</span></code> its <code class="docutils literal notranslate"><span class="pre">optimizer-redis</span></code>.</p></li>
 </ul>
-<p>On <code class="docutils literal notranslate"><span class="pre">cni</span></code> that container never becomes healthy and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> aborts — the
+<p>On <code class="docutils literal notranslate"><span class="pre">cni</span></code> that container never becomes healthy and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> aborts. The
 whole deployment is down, on a DNS fact nothing in the deploy output points at.
-So <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> checks the backend up front and refuses, before touching a
-container, when <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> or <code class="docutils literal notranslate"><span class="pre">optimizer</span></code> is deployed on a <code class="docutils literal notranslate"><span class="pre">cni</span></code> host. Only
-those two stacks need this; every other service here runs fine on either
+So <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> checks the backend up front. It refuses, before touching a
+container, when <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> or <code class="docutils literal notranslate"><span class="pre">optimizer</span></code> is deployed on a <code class="docutils literal notranslate"><span class="pre">cni</span></code> host.</p>
+<p>Only those two stacks need this. Every other service here runs fine on either
 backend, and a Docker host is unaffected.</p>
 <p>To switch a host over, install <code class="docutils literal notranslate"><span class="pre">aardvark-dns</span></code> and set the backend in
-<code class="docutils literal notranslate"><span class="pre">containers.conf</span></code> (<code class="docutils literal notranslate"><span class="pre">/etc/containers/containers.conf</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">~/.config/containers/containers.conf</span></code> for a rootless deployment):</p>
+<code class="docutils literal notranslate"><span class="pre">containers.conf</span></code>. That file is <code class="docutils literal notranslate"><span class="pre">/etc/containers/containers.conf</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">~/.config/containers/containers.conf</span></code> for a rootless deployment:</p>
 <div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[network]</span>
 <span class="na">network_backend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;netavark&quot;</span>
 </pre></div>
 </div>
-<p>Existing Podman networks were created by the old backend and must be recreated
-afterwards — <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">network</span> <span class="pre">rm</span></code> for the project’s own networks, or
+<p>Afterwards, recreate the existing Podman networks, because the old backend
+created them. Use <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">network</span> <span class="pre">rm</span></code> for the project’s own networks, or
 <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">system</span> <span class="pre">reset</span></code> on a host with nothing else to lose. Check the result
 with <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">info</span> <span class="pre">--format</span> <span class="pre">'{{.Host.NetworkBackend}}'</span></code>.</p>
 </section>
 </section>
-<section id="deployment-workflow">
-<h2>Deployment Workflow<a class="headerlink" href="#deployment-workflow" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the compose files; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts what it
-rendered. Steps 1–9 happen at build time, step 10 at start:</p>
+<section id="what-osprey-build-and-osprey-up-do">
+<h2>What osprey build and osprey up do<a class="headerlink" href="#what-osprey-build-and-osprey-up-do" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the compose files, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts what it
+rendered. This list is what the two commands do, in order; you don’t run these
+steps yourself. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> does steps 1–9, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does step
+10:</p>
 <ol class="arabic simple">
 <li><p>Resolve the deployment repository and load <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> via <code class="docutils literal notranslate"><span class="pre">ConfigBuilder</span></code>.</p></li>
 <li><p>Apply <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> (<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> by default; change it with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.deployment.bind_address=0.0.0.0</span></code> and rebuild).</p></li>
@@ -887,25 +932,26 @@ rendered. Steps 1–9 happen at build time, step 10 at start:</p>
 <section id="how-osprey-up-waits">
 <span id="deployment-start-waits"></span><h3>How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> waits<a class="headerlink" href="#how-osprey-up-waits" title="Link to this heading">#</a></h3>
 <p>A start is finished when the stack answers, not when compose returns.</p>
-<p><strong>Each compose start is watched and bounded.</strong> Every 30 seconds a <code class="docutils literal notranslate"><span class="pre">compose</span>
-<span class="pre">up</span></code> that is still running prints which of the project’s containers are not up
-yet (<code class="docutils literal notranslate"><span class="pre">created</span></code>, <code class="docutils literal notranslate"><span class="pre">starting</span></code>, <code class="docutils literal notranslate"><span class="pre">unhealthy</span></code>, <code class="docutils literal notranslate"><span class="pre">exited</span></code>) and the last line
-compose wrote. podman-compose waits on a dependency’s health with no limit of
-its own, so a dependency that is never created (a full disk) or never becomes
-healthy (a service that fails at startup) would otherwise hold the start
-forever. Past the time limit the start is stopped and fails with what it was
-waiting on and the last log lines of every container that exited or is
+<p><strong>Each compose start is watched and bounded.</strong> Every 30 seconds, a
+<code class="docutils literal notranslate"><span class="pre">compose</span> <span class="pre">up</span></code> that is still running prints a progress report. The report
+names the project’s containers that are not up yet (<code class="docutils literal notranslate"><span class="pre">created</span></code>, <code class="docutils literal notranslate"><span class="pre">starting</span></code>,
+<code class="docutils literal notranslate"><span class="pre">unhealthy</span></code>, <code class="docutils literal notranslate"><span class="pre">exited</span></code>), and the last line compose wrote.</p>
+<p>podman-compose waits on a dependency’s health with no limit of its own. A
+dependency that is never created (a full disk) or never becomes healthy (a
+service that fails at startup) would otherwise hold the start forever. Past the
+time limit, the start is stopped and fails. The failure names what it was
+waiting on, with the last log lines of every container that exited or is
 unhealthy. Ctrl-C prints the same account.</p>
 <p><strong>Web terminals are waited for.</strong> With <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> enabled,
-<code class="docutils literal notranslate"><span class="pre">up</span></code> runs each web-stack service’s own healthcheck until it passes and
-reports each one as it does (<code class="docutils literal notranslate"><span class="pre">·</span> <span class="pre">terminal</span> <span class="pre">alice</span> <span class="pre">ready</span> <span class="pre">(21s)</span></code>). A terminal
-that stops, or does not answer within the window, fails the start; nothing is
-torn down, and the message names the terminals that are serving beside the
-ones that are not, with the log lines of each one that is not. While a
-terminal’s app is still starting, nginx answers for it with a page that
-reloads itself instead of a bare <code class="docutils literal notranslate"><span class="pre">502</span> <span class="pre">Bad</span> <span class="pre">Gateway</span></code>.</p>
-<p>Both limits are settings: the environment variable wins over the top-level
-config key, and each takes a number of seconds.</p>
+<code class="docutils literal notranslate"><span class="pre">up</span></code> runs each web-stack service’s own healthcheck until it passes. It
+reports each one as it does (<code class="docutils literal notranslate"><span class="pre">·</span> <span class="pre">terminal</span> <span class="pre">alice</span> <span class="pre">ready</span> <span class="pre">(21s)</span></code>). A terminal that
+stops, or does not answer within the window, fails the start. Nothing is torn
+down. The message names the terminals that are serving beside the ones that
+are not, with the log lines of each one that is not. While a terminal’s app is
+still starting, nginx answers for it with a page that reloads itself, instead
+of a bare <code class="docutils literal notranslate"><span class="pre">502</span> <span class="pre">Bad</span> <span class="pre">Gateway</span></code>.</p>
+<p>Both limits are settings, and each takes a number of seconds. The environment
+variable wins over the top-level config key.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 35.0%" />
@@ -934,10 +980,10 @@ config key, and each takes a number of seconds.</p>
 </section>
 <section id="keeping-a-rendered-deployment-up-to-date">
 <h2>Keeping a Rendered Deployment Up to Date<a class="headerlink" href="#keeping-a-rendered-deployment-up-to-date" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">build/</span></code> is a <em>rendered artifact</em>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes its <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-and service scaffolding from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts exactly
-what that render describes. Nothing is re-derived at start time, so a change to
-the profile only reaches the containers once you rebuild.</p>
+<p>A change to the profile reaches the containers only once you rebuild.
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> is a <em>rendered artifact</em>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes its <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+and service scaffolding from <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts exactly what
+that render describes, and re-derives nothing at start time.</p>
 <p>To pick up a profile edit:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span> <span class="n">build</span>
 <span class="n">osprey</span> <span class="n">up</span> <span class="o">-</span><span class="n">d</span>
@@ -947,40 +993,48 @@ the profile only reaches the containers once you rebuild.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span> <span class="n">up</span> <span class="o">--</span><span class="n">build</span> <span class="o">-</span><span class="n">d</span>
 </pre></div>
 </div>
-<p>Every build wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> and preserves what you own: the env
-chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code> — your provider keys, plus the service
-tokens and passwords your existing container volumes were initialized with),
-the agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code> history.
-<code class="docutils literal notranslate"><span class="pre">data/</span></code> in the build zone is re-materialized from the profile; the source
-zone is never touched by a build.</p>
-<p>Three guards keep <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> from starting something you did not mean to:</p>
+<p>Every build wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code>, and preserves what you own:</p>
 <ul class="simple">
+<li><p>the env chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code>): your provider keys, plus the
+service tokens and passwords your existing container volumes were
+initialized with;</p></li>
+<li><p>the agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/</span></code>;</p></li>
+<li><p>the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code> history.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">data/</span></code> in the <em>build zone</em> (<code class="docutils literal notranslate"><span class="pre">build/</span></code>) is re-materialized from the profile.
+A build never touches the <em>source zone</em>: the files you author, such as
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">data/</span></code> at the repository root.</p>
+<p>Three guards keep <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> from starting something you did not mean to:</p>
+<ul>
 <li><p><strong>Ownership refusal</strong> — every container records which checkout created it.
 Before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> touches a container, it checks the ones already running
-under this deployment’s <code class="docutils literal notranslate"><span class="pre">project_name</span></code>; if they came from another checkout
+under this deployment’s <code class="docutils literal notranslate"><span class="pre">project_name</span></code>. If they came from another checkout
 of the repository, it refuses and names that checkout. Stop the deployment
 there, or give this copy its own <code class="docutils literal notranslate"><span class="pre">project_name</span></code> in a variant overlay
-(<a class="reference internal" href="networking.html#deploy-two-checkouts-one-host"><span class="std std-ref">Two checkouts of one repository on one host</span></a>).</p></li>
-<li><p><strong>Drift refusal</strong> — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> recomputes a fingerprint over the resolved
-profile (stamped into <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code> at build time) and compares it
-with the stamp. If the profile has moved on, <code class="docutils literal notranslate"><span class="pre">up</span></code> refuses and says what
-changed, because starting would deploy something other than what the profile
-now describes. Rebuild with <code class="docutils literal notranslate"><span class="pre">--build</span></code>, or start the old render knowingly
-with <code class="docutils literal notranslate"><span class="pre">--as-built</span></code>. The fingerprint covers the profile’s data tree and
-convention directories as well as <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so regenerating a channel
-database or adding a rule trips it too. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> reports the same
-comparison without acting on it.</p></li>
-<li><p><strong>Endpoint summary</strong> — every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> ends with a summary of
-the published service endpoints, including an explicit <code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">terminal</span>
-<span class="pre">(not</span> <span class="pre">configured</span> <span class="pre">in</span> <span class="pre">this</span> <span class="pre">project)</span></code> line when the config declares no web
-tier, so a missing service is a stated fact rather than a silent absence.</p></li>
+(<a class="reference internal" href="networking.html#deploy-two-checkouts-one-host"><span class="std std-ref">Two checkouts of one repository on one host</span></a>). A <em>variant overlay</em> is a small
+per-host file beside the profile (<a class="reference internal" href="../build-profiles.html#profile-host-variants"><span class="std std-ref">One repository, several hosts</span></a>).</p></li>
+<li><p><strong>Drift refusal</strong> — <em>drift</em> means the profile changed after the last build.
+At build time, OSPREY stamps a fingerprint of the resolved profile into
+<code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> recomputes the fingerprint and
+compares it with the stamp. If the profile has moved on, <code class="docutils literal notranslate"><span class="pre">up</span></code> refuses and
+says what changed, because starting would deploy something other than what
+the profile now describes. Rebuild with <code class="docutils literal notranslate"><span class="pre">--build</span></code>, or start the old render
+knowingly with <code class="docutils literal notranslate"><span class="pre">--as-built</span></code>.</p>
+<p>The fingerprint covers <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, the profile’s data tree and its
+convention directories (see <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>). So regenerating
+a channel database or adding a rule trips it too. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> reports
+the same comparison without acting on it.</p>
+</li>
+<li><p><strong>Endpoint summary</strong> — every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> ends with a summary of the
+published service endpoints. When the config declares no web tier, it
+includes an explicit <code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">terminal</span> <span class="pre">(not</span> <span class="pre">configured</span> <span class="pre">in</span> <span class="pre">this</span> <span class="pre">project)</span></code> line.
+So a missing service is a stated fact rather than a silent absence.</p></li>
 </ul>
 </section>
 <section id="going-deeper">
 <h2>Going Deeper<a class="headerlink" href="#going-deeper" title="Link to this heading">#</a></h2>
-<p>The rest of the container story lives on three focused subpages — the
-reference material you need when you author or customize a service, expose
-the stack beyond one machine, or manage its configuration values:</p>
+<p>Use these subpages when you author or customize a service, expose the stack
+beyond one machine, or manage its configuration values:</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-3 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -1041,10 +1095,10 @@ listens.</p>
 </section>
 <section id="development-mode">
 <span id="id1"></span><h2>Development Mode<a class="headerlink" href="#development-mode" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">--dev</span></code> flag runs the deployment on your locally installed Osprey
-source instead of the PyPI version. Dev-ness is a property of the <em>build</em>:
+<p>To run the deployment on your locally installed OSPREY source instead of the
+PyPI version, use the <code class="docutils literal notranslate"><span class="pre">--dev</span></code> flag. Dev mode is a property of the <em>build</em>.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--dev</span></code> stages a wheel from your local source into each
-service’s build context and marks the render as a dev build. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span>
+service’s build context, and marks the render as a dev build. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span>
 <span class="pre">--dev</span></code> then starts that render with freshly rebuilt images:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>--dev
 osprey<span class="w"> </span>up<span class="w"> </span>--dev
@@ -1053,68 +1107,79 @@ osprey<span class="w"> </span>up<span class="w"> </span>--dev
 osprey<span class="w"> </span>up<span class="w"> </span>--build<span class="w"> </span>--dev
 </pre></div>
 </div>
-<p>Your dev source is baked into the images at build time; nothing changes
-inside an already-running container. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> on a build that was
-rendered without <code class="docutils literal notranslate"><span class="pre">--dev</span></code> refuses rather than silently starting the
-published release, and a plain <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> of a dev build warns that the
-images carry your local checkout.</p>
+<p>Your dev source is baked into the images at build time. Nothing changes inside
+an already-running container.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> on a build rendered without <code class="docutils literal notranslate"><span class="pre">--dev</span></code> refuses, rather
+than silently starting the published release.</p></li>
+<li><p>A plain <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> of a dev build warns that the images carry your local
+checkout.</p></li>
+</ul>
 <p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> requires the Python <code class="docutils literal notranslate"><span class="pre">build</span></code> package:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>build<span class="w">   </span><span class="c1"># or: pip install build</span>
 </pre></div>
 </div>
 <p>It also needs the checkout’s release tags. Each wheel takes its version from
-git tags: the framework from <code class="docutils literal notranslate"><span class="pre">v*</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> from its own
-<code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code>. A checkout without a connectors tag reachable builds
-that package as <code class="docutils literal notranslate"><span class="pre">0.0.postN</span></code>, which the framework’s requirement on it refuses,
-and <code class="docutils literal notranslate"><span class="pre">--dev</span></code> stops before staging and says so. Run <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">fetch</span> <span class="pre">--tags</span></code>; a
-fork or an internal mirror must sync the <code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code> tags as well
-as the <code class="docutils literal notranslate"><span class="pre">v*</span></code> ones.</p>
+git tags: the framework from <code class="docutils literal notranslate"><span class="pre">v*</span></code>, and <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> from its own
+<code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code>. A checkout with no connectors tag reachable builds
+that package as <code class="docutils literal notranslate"><span class="pre">0.0.postN</span></code>. The framework’s requirement on it refuses that
+version, so <code class="docutils literal notranslate"><span class="pre">--dev</span></code> stops before staging and says so.</p>
+<p>To fix it, run <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">fetch</span> <span class="pre">--tags</span></code>. A fork or an internal mirror must sync the
+<code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code> tags as well as the <code class="docutils literal notranslate"><span class="pre">v*</span></code> ones.</p>
 <p>A dev build installs third-party packages at the versions the checkout’s
-<code class="docutils literal notranslate"><span class="pre">uv.lock</span></code> holds, not the newest the index has that day, so the images run
-your code against the dependency set the repo’s own tests ran with. Each build
-context receives <code class="docutils literal notranslate"><span class="pre">osprey-lock-constraints.txt</span></code>, the lock exported with
-<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">export</span> <span class="pre">--locked</span></code>, and every install layer in the image is held to it;
-nothing is installed as <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> from the index. The same applies
-to the project venv <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> creates when it installs an editable
-checkout. <code class="docutils literal notranslate"><span class="pre">--dev</span></code> therefore needs <code class="docutils literal notranslate"><span class="pre">uv</span></code> on the host and a current lock: with
-no <code class="docutils literal notranslate"><span class="pre">uv.lock</span></code>, or one out of date with <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, it stops and tells
-you to run <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">lock</span></code>. A release build stages no such file and resolves from
-the index as before.</p>
+<code class="docutils literal notranslate"><span class="pre">uv.lock</span></code> holds, not the newest the index has that day. So the images run
+your code against the dependency set the repo’s own tests ran with.</p>
+<ul class="simple">
+<li><p>Each build context receives <code class="docutils literal notranslate"><span class="pre">osprey-lock-constraints.txt</span></code>, the lock
+exported with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">export</span> <span class="pre">--locked</span></code>.</p></li>
+<li><p>Every install layer in the image is held to it. Nothing is installed as
+<code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> from the index.</p></li>
+<li><p>The same applies to the project venv <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> creates when it
+installs an editable checkout.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> therefore needs <code class="docutils literal notranslate"><span class="pre">uv</span></code> on the host and a current lock. With no
+<code class="docutils literal notranslate"><span class="pre">uv.lock</span></code>, or one out of date with <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, it stops and tells you
+to run <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">lock</span></code>. A release build stages no such file, and resolves from the
+index as before.</p>
 <p>The optimizer image takes torch’s CPU build from the PyTorch index
-(<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_TORCH_INDEX_URL</span></code>), and the lock pins exactly that build
+(<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_TORCH_INDEX_URL</span></code>). The lock pins exactly that build
 (<code class="docutils literal notranslate"><span class="pre">torch==&lt;version&gt;+cpu</span></code>). A site that empties the variable and serves torch
-from its own mirror must mirror the <code class="docutils literal notranslate"><span class="pre">+cpu</span></code> build; a mirror carrying only
-PyPI’s plain torch has no candidate the lock admits, and the dev build of that
+from its own mirror must mirror the <code class="docutils literal notranslate"><span class="pre">+cpu</span></code> build. A mirror carrying only
+PyPI’s plain torch has no candidate the lock admits, so the dev build of that
 image fails.</p>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
-<p><strong>Services fail to start:</strong> Check logs (<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code> or
-<code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code>), verify <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> syntax, ensure <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-variables are set, confirm service paths contain <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>.</p>
-<p><strong>Port conflicts:</strong> <code class="docutils literal notranslate"><span class="pre">lsof</span> <span class="pre">-i</span> <span class="pre">:&lt;port&gt;</span></code> to find the culprit; update
+<p><strong>Services fail to start:</strong></p>
+<ol class="arabic simple">
+<li><p>Check the logs (<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code>).</p></li>
+<li><p>Verify the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> syntax.</p></li>
+<li><p>Make sure the <code class="docutils literal notranslate"><span class="pre">.env</span></code> variables are set.</p></li>
+<li><p>Confirm the service paths contain <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>.</p></li>
+</ol>
+<p><strong>Port conflicts:</strong> run <code class="docutils literal notranslate"><span class="pre">lsof</span> <span class="pre">-i</span> <span class="pre">:&lt;port&gt;</span></code> to find the culprit, then update
 <code class="docutils literal notranslate"><span class="pre">port_host</span></code>.</p>
 <p><strong>Template errors:</strong> Verify Jinja2 syntax (<code class="docutils literal notranslate"><span class="pre">{{var}}</span></code> not <code class="docutils literal notranslate"><span class="pre">{var}</span></code>);
 inspect rendered files under <code class="docutils literal notranslate"><span class="pre">build/services/&lt;name&gt;/</span></code>.</p>
 <p><strong>Daemon not running:</strong> Both Docker and Podman print platform-specific
 hints; on macOS, start Docker Desktop or run <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">machine</span> <span class="pre">start</span></code>.</p>
 <p><strong>Runtime did not answer:</strong> each verb waits for <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">ps</span></code> (or <code class="docutils literal notranslate"><span class="pre">podman</span>
-<span class="pre">ps</span></code>) to answer, says it is still waiting after 5 seconds, and stops after 2
-minutes. Run the same command yourself; if it hangs there too, restart the
+<span class="pre">ps</span></code>) to answer. It says it is still waiting after 5 seconds, and stops after 2
+minutes. Run the same command yourself. If it hangs there too, restart the
 runtime.</p>
 <p><strong>A start stopped at its time limit, or a terminal was not ready:</strong> the
-failure lists what was still pending and the last log lines of each container
-that exited or is unhealthy; that log is usually the cause. If the start is
-only slow (images pulled over a slow link, a loaded host), raise the limit
-(<a class="reference internal" href="#deployment-start-waits"><span class="std std-ref">How osprey up waits</span></a>).</p>
-<p><strong>“Unsupported compose provider”:</strong> the host’s compose implementation is not
-one OSPREY can drive correctly, and it stopped before starting anything. The
-message prints the version banner it got; compare it against
-<a class="reference internal" href="#compose-provider-compatibility"><span class="std std-ref">Supported compose providers</span></a> and either upgrade the provider or point
-<code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME</span></code> at the other runtime.</p>
-<p><strong>``–dev`` issues:</strong> Confirm the Osprey wheel (<code class="docutils literal notranslate"><span class="pre">.whl</span></code>) exists in the
-service build directory, and that the image was rebuilt after your source
-change — rerun <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--build</span> <span class="pre">--dev</span></code> to re-render and rebuild it.</p>
+failure lists what was still pending. It also shows the last log lines of each
+container that exited or is unhealthy; that log is usually the cause. If the
+start is only slow (images pulled over a slow link, a loaded host), raise the
+limit (<a class="reference internal" href="#deployment-start-waits"><span class="std std-ref">How osprey up waits</span></a>).</p>
+<p><strong>“Unsupported compose provider”:</strong> OSPREY cannot drive the host’s compose
+implementation correctly, so it stopped before starting anything. The message
+prints the version banner it got. Compare it against
+<a class="reference internal" href="#compose-provider-compatibility"><span class="std std-ref">Supported compose providers</span></a>. Then either upgrade the provider, or
+point <code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME</span></code> at the other runtime.</p>
+<p><strong>``–dev`` issues:</strong> Confirm the OSPREY wheel (<code class="docutils literal notranslate"><span class="pre">.whl</span></code>) exists in the
+service build directory. Confirm the image was rebuilt after your source
+change. To re-render and rebuild it, rerun <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--build</span> <span class="pre">--dev</span></code>.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -1196,7 +1261,7 @@ co-deploy, documented with the ARIEL logbook search it serves.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#podman-s-network-backend-required-by-the-bluesky-and-optimizer-stacks">Podman’s network backend (required by the Bluesky and optimizer stacks)</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-build-and-osprey-up-do">What osprey build and osprey up do</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-osprey-up-waits">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> waits</a></li>
 </ul>
 </li>

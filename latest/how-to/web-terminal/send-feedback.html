@@ -443,9 +443,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
@@ -545,9 +545,12 @@ channel the sender picks. Facility staff read those records back with
 <a class="reference internal" href="#feedback-retrieval"><span class="std std-ref">Read the feedback a deployment collected</span></a> below.</p>
 <section id="choose-a-channel">
 <h2>Choose a channel<a class="headerlink" href="#choose-a-channel" title="Link to this heading">#</a></h2>
-<p><strong>Local</strong> and <strong>Email</strong> are always offered; between them sits one channel per
-issue tracker the facility configured — a GitHub repository or a GitLab
-project, captioned however the facility named it. Switching between channels
+<p>Pick <strong>Local</strong> when the report is for this deployment’s operators (the usual
+case in a control room). It keeps the report on this deployment, and it is the
+only channel that works with outbound access blocked.</p>
+<p><strong>Local</strong> and <strong>Email</strong> are always offered. Between them sits one channel per
+issue tracker the facility configured (a GitHub repository or a GitLab
+project), captioned however the facility named it. Switching between channels
 keeps the typed text and both checkboxes as they were.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -571,10 +574,10 @@ blocked.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>An issue tracker</strong> (GitHub or GitLab)</p></td>
 <td><p>Also opens a new-issue tab on that tracker. Without session context the
-issue body arrives complete; with it, the whole report — text, metadata,
-session context — is copied to the clipboard and the issue body is a
-single line saying to paste it there, because the context is far too
-large to prefill.</p></td>
+issue body arrives complete. With it, the whole report (text, metadata,
+session context) is copied to the clipboard, and the issue body is a
+single line saying to paste it there: the context is far too large to
+prefill.</p></td>
 <td><p>The report belongs with the people who read that tracker, and the
 sender has an account there.</p></td>
 </tr>
@@ -595,8 +598,8 @@ host, on any channel.</p>
 <p>Both outbound channels write the same record on the deployment as a Local send
 does, so the facility keeps its own copy of every report even when the
 conversation continues in a public issue.</p>
-<p>A tracker the deployment has not configured is not offered at all; if the
-Email channel has no address behind it, its radio button still appears but the
+<p>A tracker the deployment has not configured is not offered at all. If the
+Email channel has no address behind it, its radio button still appears, but the
 action is refused with a short explanation rather than aiming the report
 somewhere nobody reads. See <a class="reference internal" href="../../reference/configuration/config.html#feedback-configuration"><span class="std std-ref">Documentation and feedback keys</span></a>.</p>
 </section>
@@ -611,10 +614,19 @@ leaves the page — the same list as this section.</p>
 <li><p>the sender’s username, when the deployment knows it (in a single-user or
 development setup this falls back to the account the server runs under).</p></li>
 </ul>
-<p><strong>Deployment metadata</strong> — the checkbox is <strong>on</strong> by default. It adds the OSPREY
-version, the application name, and the sender’s browser, and that is all it
-governs: turning it off does not remove the text, the timestamp, or the
-username, which travel either way.</p>
+<p><strong>Deployment metadata</strong> — the checkbox is <strong>on</strong> by default. It adds:</p>
+<ul class="simple">
+<li><p>the OSPREY version,</p></li>
+<li><p>the preset the deployment was built from, with a short prefix of its hash,</p></li>
+<li><p>the channel-finder mode,</p></li>
+<li><p>the application name,</p></li>
+<li><p>the sender’s browser,</p></li>
+<li><p>an <em>escalate to OSPREY</em> link, when the deployment has one configured: a
+prefilled upstream issue that carries the deployment’s identity and none of
+the report’s text, for a maintainer who forwards a framework bug.</p></li>
+</ul>
+<p>Turning it off does not remove the text, the timestamp, or the username, which
+travel either way.</p>
 <p><strong>Session context</strong> — the checkbox is <strong>off</strong> by default, and is greyed out with
 “no session yet” when there is no live session to attach. It adds:</p>
 <ul class="simple">
@@ -631,10 +643,11 @@ no session owns from the same time window.</p></li>
 <p>The second section is not this session’s work: it may come from the chat panel
 or a CLI conversation. Only titles and ids appear — never contents — but a
 sender attaching context to a <strong>public</strong> issue should know it is there.</p>
-<p>Session context is triaged newest-first and truncated to fit a size budget, so a
-long session is attached in part rather than in full. The outbound copy — the
-clipboard payload behind a GitHub issue or a mail draft — is trimmed harder
-than the record kept on the deployment, which holds a much larger version.
+<p>Session context has a size budget. When a session is over it, the oldest
+content within each part is dropped first, so a long session is attached in
+part, with its most recent activity kept. The outbound copy (the clipboard payload behind a GitHub issue
+or a mail draft) is trimmed harder than the record kept on the deployment,
+which holds a much larger version.
 Where the session had no readable transcript, the dialog says so and the
 outbound copy carries the text, the metadata and a one-line note instead of a
 silently empty context.</p>
@@ -666,57 +679,62 @@ written to yet prints one sentence rather than an empty table.</p>
 which version of the application, how it went out, where it was truncated — and
 the captured session alongside it, as one JSON array with one object per
 submission. Records are written as they are read, so a large store never has to
-fit in memory. With <code class="docutils literal notranslate"><span class="pre">--output</span></code> the file holds the export and everything else
-stays on the terminal; without it, stdout carries the JSON document and nothing
-else, with errors and the closing summary on standard error.</p>
-<section id="where-the-records-live">
-<h3>Where the records live<a class="headerlink" href="#where-the-records-live" title="Link to this heading">#</a></h3>
-<p>The two deployment shapes are read in two different ways, and the command picks
-the right one for you. What decides is whether the deployment has a web-terminal
-roster — a non-empty <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.users</span></code> list:</p>
-<p><strong>Multi-user deployment.</strong> Each person on the roster has their own web terminal
-and their own workspace volume, and their feedback stays in it. Reading the
-deployment’s feedback starts a short-lived, read-only container on each person’s
-workspace in turn and reads the store through it. <strong>The deployment’s container
-runtime has to be running</strong>; with it stopped the command fails loudly instead of
-reporting a deployment with no feedback in it. A workspace that cannot be read
-is named on screen and the rest of the deployment is still listed or exported,
-so one broken volume never hides everybody else’s reports. The export’s closing
-summary distinguishes a workspace that contributed nothing from one that was
-only partly readable. If <em>nothing at all</em> could be read, the command stops
-rather than printing “no feedback”.</p>
-<p>A roster user’s workspace volume is created when their web terminal container
-first starts, so a repository that has been built but never brought up with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> has no volumes to read. Every user then reads as unreadable, and
-the command stops with that rather than reporting an empty deployment.</p>
-<p><strong>Single-user deployment.</strong> There is one store, on this machine, under the
-deployment’s own agent-data directory, and it is read straight off disk — no
-container, nothing to start first. This is also the shape a development setup
-has.</p>
+fit in memory. With <code class="docutils literal notranslate"><span class="pre">--output</span></code>, the file holds the export and everything else
+stays on the terminal. Without it, stdout carries the JSON document and nothing
+else, and errors and the closing summary go to standard error.</p>
+<p>On a multi-user deployment, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span></code> reads each person’s
+workspace volume through a container, so <strong>the deployment’s container runtime
+has to be running</strong>. A single-user deployment is read straight off disk.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p><code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> is honoured differently by the two branches, and only
-one of them can warn you.</p>
-<p>The <strong>single-user</strong> reader resolves the store through that key, so relocating
-it relocates the store and the reader together — and a <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative value,
-which puts the data where the reader cannot follow, is refused loudly with
-that explanation.</p>
-<p>The <strong>multi-user</strong> reader never consults the key at all: it mounts each
-person’s workspace volume and reads a fixed path inside it. A rostered
-deployment whose <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> is <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative writes its
-feedback into a different volume — one these commands do not mount — and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">list</span></code> then exits <code class="docutils literal notranslate"><span class="pre">0</span></code> reporting that no feedback has been
-sent. Nothing detects that case, so on a multi-user deployment give
-<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> a path relative to the deployment repo, or an
-absolute one — anything but <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative — and do not read an empty listing
-as proof that nobody has written in.</p>
+<p>On a multi-user deployment, never give <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code> a
+<code class="docutils literal notranslate"><span class="pre">~</span></code>-relative path: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span></code> cannot see what is written there.
+Use a path relative to the deployment repo, or an absolute one.</p>
+<p>The feedback still gets written, but into a volume these commands do not
+mount.</p>
 </div>
-<p>Exit status is <code class="docutils literal notranslate"><span class="pre">0</span></code> when the read succeeded — including a deployment that has
-collected no feedback — and non-zero when the repository has no build, when
+<p>The multi-user reader never consults <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>: it mounts each
+person’s workspace volume and reads a fixed path inside it. With a
+<code class="docutils literal notranslate"><span class="pre">~</span></code>-relative value, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">feedback</span> <span class="pre">list</span></code> exits <code class="docutils literal notranslate"><span class="pre">0</span></code> reporting that no
+feedback has been sent. Nothing detects that case, so do not read an empty
+listing as proof that nobody has written in.</p>
+<p>The single-user reader resolves the store through that key, so relocating it
+relocates the store and the reader together, and it refuses a <code class="docutils literal notranslate"><span class="pre">~</span></code>-relative value loudly
+with that explanation.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-database" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5c0-.626.292-1.165.7-1.59.406-.422.956-.767 1.579-1.041C4.525.32 6.195 0 8 0c1.805 0 3.475.32 4.722.869.622.274 1.172.62 1.578 1.04.408.426.7.965.7 1.591v9c0 .626-.292 1.165-.7 1.59-.406.422-.956.767-1.579 1.041C11.476 15.68 9.806 16 8 16c-1.805 0-3.475-.32-4.721-.869-.623-.274-1.173-.62-1.579-1.04-.408-.426-.7-.965-.7-1.591Zm1.5 0c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 5.205 6.353 5.5 8 5.5c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55 0-.133-.058-.318-.282-.551-.227-.237-.591-.483-1.101-.707C11.102 1.795 9.647 1.5 8 1.5c-1.646 0-3.101.295-4.118.742-.508.224-.873.471-1.1.708-.224.232-.282.417-.282.55Zm0 4.5c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 9.705 6.353 10 8 10c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55V5.724c-.241.15-.503.286-.778.407C11.475 6.68 9.805 7 8 7c-1.805 0-3.475-.32-4.721-.869a6.15 6.15 0 0 1-.779-.407Zm0 2.225V12.5c0 .133.058.318.282.55.227.237.592.484 1.1.708 1.016.447 2.471.742 4.118.742 1.647 0 3.102-.295 4.117-.742.51-.224.874-.47 1.101-.707.224-.233.282-.418.282-.551v-2.275c-.241.15-.503.285-.778.406-1.247.549-2.917.869-4.722.869-1.805 0-3.475-.32-4.721-.869a6.327 6.327 0 0 1-.779-.406Z"></path></svg></span><span class="sd-summary-text">Where the records live</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The two deployment shapes are read in two different ways, and the command
+picks the right one for you. What decides is whether the deployment has a
+web-terminal roster: a non-empty <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.users</span></code> list.</p>
+<p class="sd-card-text"><strong>Multi-user deployment.</strong> Each person on the roster has their own web
+terminal and their own workspace volume, and their feedback stays in it.
+Reading the deployment’s feedback starts a short-lived, read-only container
+on each person’s workspace in turn and reads the store through it. <strong>The
+deployment’s container runtime has to be running</strong>. With it stopped, the
+command fails loudly instead of reporting a deployment with no feedback in
+it.</p>
+<p class="sd-card-text">A workspace that cannot be read is named on screen, and the rest of the
+deployment is still listed or exported, so one broken volume never hides
+everybody else’s reports. The export’s closing summary distinguishes a
+workspace that contributed nothing from one that was only partly readable.
+If <em>nothing at all</em> could be read, the command stops rather than printing
+“no feedback”.</p>
+<p class="sd-card-text">A roster user’s workspace volume is created when their web terminal
+container first starts. A repository that has been built but never brought
+up with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> therefore has no volumes to read. Every user then reads
+as unreadable, and the command stops with that rather than reporting an
+empty deployment.</p>
+<p class="sd-card-text"><strong>Single-user deployment.</strong> There is one store, on this machine, under the
+deployment’s own agent-data directory, and it is read straight off disk: no
+container, nothing to start first. This is also the shape a development
+setup has.</p>
+</div>
+</details><p>Exit status is <code class="docutils literal notranslate"><span class="pre">0</span></code> when the read succeeded, including a deployment that has
+collected no feedback. It is non-zero when the repository has no build, when
 every workspace failed to read, and when an export stopped part-way. A part-way
 export still parses: it holds what was read, and the summary says how much that
 was.</p>
-</section>
 </section>
 <section id="point-the-channels-at-your-facility">
 <h2>Point the channels at your facility<a class="headerlink" href="#point-the-channels-at-your-facility" title="Link to this heading">#</a></h2>
@@ -801,10 +819,7 @@ and read.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-channel">Choose a channel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-attached">What gets attached</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#copy-session-context">Copy session context</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-the-feedback-a-deployment-collected">Read the feedback a deployment collected</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-records-live">Where the records live</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-the-feedback-a-deployment-collected">Read the feedback a deployment collected</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-channels-at-your-facility">Point the channels at your facility</a></li>
 </ul>
   </nav></div>

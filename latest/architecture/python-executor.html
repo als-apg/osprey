@@ -462,13 +462,13 @@
 <span id="architecture-python-executor"></span><h1>Python Executor<a class="headerlink" href="#python-executor" title="Link to this heading">#</a></h1>
 <p>The Python Execution Service runs user-provided code in a separate host
 subprocess with layered safety checks, a process boundary, and timeout
-enforcement. It is a process boundary on the host, not a sandbox or container:
-the code runs with an allowlisted copy of the executor’s environment, not the
-executor’s own, and not inside an isolated machine (see
-<a class="reference internal" href="#python-executor-secrets-zone"><span class="std std-ref">The secrets zone</span></a>). Code it runs can
-write anywhere the executor process can, apart from the deployment’s own
-sources and render — see <a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>, which also
-says plainly how far that protection goes.
+enforcement. It is a process boundary on the host, not a sandbox or container.
+The code runs with an allowlisted copy of the executor’s environment, not the
+executor’s own (see <a class="reference internal" href="#python-executor-secrets-zone"><span class="std std-ref">The secrets zone</span></a>). It does not run
+inside an isolated machine. Code it runs can write anywhere the executor
+process can, apart from the deployment’s own sources and render.
+<a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a> covers those, and also says plainly how
+far that protection goes.
 The OSPREY agent uses it via the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.</p>
 <section id="what-it-does">
@@ -518,20 +518,23 @@ see <a class="reference internal" href="#executor-environment"><span class="std 
 A <code class="docutils literal notranslate"><span class="pre">save_artifact(obj,</span> <span class="pre">title=&quot;Untitled&quot;,</span> <span class="pre">description=&quot;&quot;,</span> <span class="pre">artifact_type=None,</span> <span class="pre">category=&quot;&quot;)</span></code>
 helper is injected into the subprocess namespace for saving objects to the
 artifact gallery. The <code class="docutils literal notranslate"><span class="pre">artifact_type</span></code> parameter overrides automatic type
-detection (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;figure&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;dataframe&quot;</span></code>); <code class="docutils literal notranslate"><span class="pre">category</span></code> is a free-form
+detection (for example <code class="docutils literal notranslate"><span class="pre">&quot;figure&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;dataframe&quot;</span></code>); <code class="docutils literal notranslate"><span class="pre">category</span></code> is a free-form
 grouping label used by the gallery UI.</p>
-<p>A render that carries a pyAML view adds two tools to the same server, and a
-render without one registers neither: <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> measures a response
-matrix or the chromaticity on the control target through a generated script,
-every write of one measurement under the control target’s run lock, and
-<code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> solves a served model’s orbit response on its deck
-in a sandbox child (see <a class="reference internal" href="../how-to/measure-with-pyaml.html"><span class="doc">Measure with the pyAML Tools</span></a>).</p>
+<p>A render that carries a pyAML view adds two tools to the same server. A render
+without one registers neither (see <a class="reference internal" href="../how-to/measure-with-pyaml.html"><span class="doc">Measure with the pyAML tools</span></a>):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> measures a response matrix or the chromaticity on the
+control target through a generated script. Every write of one measurement
+is made under the control target’s run lock.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> solves a served model’s orbit response on its deck
+in a sandbox child.</p></li>
+</ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> and
 <code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> tool parameters and the JSON they return are
 documented in <a class="reference internal" href="../reference/contracts/python-executor.html"><span class="doc">Python Executor Contract</span></a>.</p>
-<p>A deployment can also turn on code review: a second AI agent reads the code before the
-operator is asked to approve it, following instructions the deployment writes, and can stop
-it. That review is not one of the layers on this page, which hold whatever it says: see
+<p>A deployment can also turn on code review. A second AI agent then reads the code
+before the operator is asked to approve it. The reviewer follows instructions the
+deployment writes, and can stop the code. That review is not one of the layers on this page, which hold whatever it says: see
 <a class="reference internal" href="safety-chain.html#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a>.</p>
 </section>
 <section id="where-code-runs">
@@ -545,15 +548,15 @@ between:</p>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">subprocess</span></code> is the default and the key can be left out entirely. Two other
-spellings load: <code class="docutils literal notranslate"><span class="pre">local</span></code> is an alias for this same backend and is accepted
-silently, and <code class="docutils literal notranslate"><span class="pre">container</span></code> is treated as <code class="docutils literal notranslate"><span class="pre">subprocess</span></code> and logs a one-time
+spellings load. <code class="docutils literal notranslate"><span class="pre">local</span></code> is an alias for this same backend and is accepted
+silently. <code class="docutils literal notranslate"><span class="pre">container</span></code> is treated as <code class="docutils literal notranslate"><span class="pre">subprocess</span></code> and logs a one-time
 warning naming the config file it came from. Any other value is a
 configuration error.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code> wraps user code with runtime guards (e.g. the
+<p>The <code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code> wraps user code with runtime guards, writes the
+wrapped script to an execution folder, and runs it. One of the guards is the
 raw-put block, which refuses a direct <code class="docutils literal notranslate"><span class="pre">aioca.caput()</span></code> so that every write
-goes through the connector), writes the wrapped script to an execution folder,
-and runs it. The subprocess working directory is
-set to the project root so that relative workspace paths (e.g.
+goes through the connector. The subprocess working directory is
+set to the project root so that relative workspace paths (for example
 <code class="docutils literal notranslate"><span class="pre">_agent_data/data/002_archiver_read.json</span></code>) resolve correctly.</p>
 </section>
 <section id="the-execution-environment">
@@ -561,7 +564,7 @@ set to the project root so that relative workspace paths (e.g.
 <p>Executed code runs in the project’s own virtual environment
 (<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;/.venv</span></code>) when the project has one, and otherwise in the
 interpreter running Osprey. <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> records no interpreter path and
-offers no setting to point execution somewhere else — which environment
+offers no setting to point execution somewhere else. Which environment
 exists is decided when the project is built, from the build profile’s
 <code class="docutils literal notranslate"><span class="pre">environment:</span></code> block (see <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
 <p>Anything installed in that environment is importable by executed code:</p>
@@ -601,10 +604,10 @@ change.</p></li>
 (<code class="docutils literal notranslate"><span class="pre">detect_control_system_operations</span></code>)—identifies read and write
 patterns. In <code class="docutils literal notranslate"><span class="pre">readonly</span></code> mode, detected writes cause immediate
 rejection.</p></li>
-<li><p><strong>Approved-call check</strong> (<code class="docutils literal notranslate"><span class="pre">_check_approved_call</span></code>)—before it spawns a
-<code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run of a governed tool (<code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>,
-<code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code>), the executor reads the record the approval hook left
-for this tool call, a person’s or the switch’s. The call’s
+<li><p><strong>Approved-call check</strong> (<code class="docutils literal notranslate"><span class="pre">_check_approved_call</span></code>)—the executor reads an
+approval record before it spawns a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run of a governed tool
+(<code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code>). The record is the one
+the approval hook left for this tool call, a person’s or the switch’s. The call’s
 <code class="docutils literal notranslate"><span class="pre">approved_target</span></code> must equal what the prompt recorded and name the
 run’s own control target; for <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> the call’s <code class="docutils literal notranslate"><span class="pre">approved_view_sha256</span></code>
 must equal the recorded view digest as well. Without a record,
@@ -618,9 +621,9 @@ approval hook gets no read-write run, whatever <code class="docutils literal not
 <li><p><strong>Readonly runtime guard</strong>—the declared mode is exported into the
 subprocess as <code class="docutils literal notranslate"><span class="pre">OSPREY_EXECUTION_MODE</span></code>. In a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run every
 entry point listed under <a class="reference internal" href="#python-executor-write-surface"><span class="std std-ref">What counts as a control-system write</span></a> is
-replaced with a refusing function, the connectors refuse
+replaced with a refusing function. The connectors refuse
 <code class="docutils literal notranslate"><span class="pre">write_channel</span></code>, and the EPICS connector stays on the <code class="docutils literal notranslate"><span class="pre">read_only</span></code>
-gateway — so a write is refused at runtime and at the network layer
+gateway. So a write is refused at runtime and at the network layer,
 however it is spelled.</p></li>
 <li><p><strong>Filesystem guard</strong>—the runtime half of layer 2, patched into the
 subprocess so it also sees paths the source did not spell out. Emitted
@@ -630,9 +633,9 @@ mode)—in a <code class="docutils literal notranslate"><span class="pre">readwr
 <code class="docutils literal notranslate"><span class="pre">write_channels()</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code>, and nowhere else. The
 connector underneath them is what applies the write posture, the limits
 database and the audit record, so a client library called directly is a
-route around all three. Every client put entry point the connector can
-stand in for is replaced with one that calls through only while a
-connector is making the put, and otherwise raises
+route around all three. The block replaces every client put entry point
+the connector can stand in for. The replacement calls through only while a
+connector is making the put. Otherwise it raises
 <code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code> with reason <code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE</span></code>, whatever the
 value. Nothing is sent. The PVAccess puts are the exception until the
 connector writes PVAccess: they pass the block and are limits-checked
@@ -661,8 +664,8 @@ process is killed if it exceeds the limit.</p></li>
 <section id="what-counts-as-a-control-system-write">
 <span id="python-executor-write-surface"></span><h3>What counts as a control-system write<a class="headerlink" href="#what-counts-as-a-control-system-write" title="Link to this heading">#</a></h3>
 <p>A <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run refuses all of the following. The list is generated from
-one table in the code (<code class="docutils literal notranslate"><span class="pre">services/python_executor/write_surface.py</span></code>), so
-adding a library there is all it takes to enforce it — the runtime guard,
+one table in the code (<code class="docutils literal notranslate"><span class="pre">services/python_executor/write_surface.py</span></code>).
+Adding a library there is all it takes to enforce it: the runtime guard,
 the import denylist and this page all read that one table. A <code class="docutils literal notranslate"><span class="pre">readwrite</span></code>
 run refuses the client puts of the same table unless a connector makes them;
 see <a class="reference internal" href="#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>.</p>
@@ -686,21 +689,33 @@ through</p></li>
 cothread clients; <code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> on the server side</p></li>
 <li><p><strong>caproto</strong> — <code class="docutils literal notranslate"><span class="pre">sync.client.write</span></code> and <code class="docutils literal notranslate"><span class="pre">sync.client.read_write_read</span></code>,
 <code class="docutils literal notranslate"><span class="pre">threading.client.PV.write</span></code>, <code class="docutils literal notranslate"><span class="pre">Batch.write</span></code>, <code class="docutils literal notranslate"><span class="pre">asyncio.client.PV.write</span></code></p></li>
-<li><p><strong>pvaPy</strong> — every <code class="docutils literal notranslate"><span class="pre">Channel.put*</span></code> method, including the typed setters
-such as <code class="docutils literal notranslate"><span class="pre">putDouble</span></code> and <code class="docutils literal notranslate"><span class="pre">putScalarArray</span></code>, and <code class="docutils literal notranslate"><span class="pre">asyncPut</span></code>,
-<code class="docutils literal notranslate"><span class="pre">parsePut</span></code> and <code class="docutils literal notranslate"><span class="pre">parsePutGet</span></code> alongside them, on a Channel Access
-channel and a PVAccess one alike; <code class="docutils literal notranslate"><span class="pre">MultiChannel.put</span></code> and
-<code class="docutils literal notranslate"><span class="pre">putAsDoubleArray</span></code>; <code class="docutils literal notranslate"><span class="pre">RpcClient.invoke</span></code>; and on the server side
-<code class="docutils literal notranslate"><span class="pre">PvaServer</span></code>/<code class="docutils literal notranslate"><span class="pre">PvaMirrorServer.update</span></code> and <code class="docutils literal notranslate"><span class="pre">updateUnchecked</span></code> and the
-in-process IOC’s <code class="docutils literal notranslate"><span class="pre">CaIoc.putField</span></code>, <code class="docutils literal notranslate"><span class="pre">dbpf</span></code>, <code class="docutils literal notranslate"><span class="pre">iocInit</span></code> and <code class="docutils literal notranslate"><span class="pre">start</span></code></p></li>
+<li><p><strong>pvaPy</strong>:</p>
+<ul>
+<li><p>every <code class="docutils literal notranslate"><span class="pre">Channel.put*</span></code> method, on a Channel Access channel and a PVAccess
+one alike. This includes the typed setters such as <code class="docutils literal notranslate"><span class="pre">putDouble</span></code> and
+<code class="docutils literal notranslate"><span class="pre">putScalarArray</span></code>, and <code class="docutils literal notranslate"><span class="pre">asyncPut</span></code>, <code class="docutils literal notranslate"><span class="pre">parsePut</span></code> and <code class="docutils literal notranslate"><span class="pre">parsePutGet</span></code>
+alongside them</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MultiChannel.put</span></code> and <code class="docutils literal notranslate"><span class="pre">putAsDoubleArray</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">RpcClient.invoke</span></code></p></li>
+<li><p>on the server side, <code class="docutils literal notranslate"><span class="pre">PvaServer</span></code>/<code class="docutils literal notranslate"><span class="pre">PvaMirrorServer.update</span></code> and
+<code class="docutils literal notranslate"><span class="pre">updateUnchecked</span></code>, and the in-process IOC’s <code class="docutils literal notranslate"><span class="pre">CaIoc.putField</span></code>,
+<code class="docutils literal notranslate"><span class="pre">dbpf</span></code>, <code class="docutils literal notranslate"><span class="pre">iocInit</span></code> and <code class="docutils literal notranslate"><span class="pre">start</span></code></p></li>
+</ul>
+</li>
 <li><p><strong>doocs4py</strong> — <code class="docutils literal notranslate"><span class="pre">set</span></code>, the call the DOOCS connector writes through</p></li>
-<li><p><strong>Tango</strong> — <code class="docutils literal notranslate"><span class="pre">DeviceProxy.write_attribute</span></code> and its variants,
-<code class="docutils literal notranslate"><span class="pre">AttributeProxy.write</span></code>, <code class="docutils literal notranslate"><span class="pre">Group</span></code> attribute writes, and <code class="docutils literal notranslate"><span class="pre">command_inout</span></code>
-(a Tango command acts on the device rather than reading it), refused on the
-<code class="docutils literal notranslate"><span class="pre">Connection</span></code> base that defines it as well as on <code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code></p></li>
+<li><p><strong>Tango</strong>:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">DeviceProxy.write_attribute</span></code> and its variants</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">AttributeProxy.write</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Group</span></code> attribute writes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">command_inout</span></code>, refused on the <code class="docutils literal notranslate"><span class="pre">Connection</span></code> base that defines it as
+well as on <code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code>. A Tango command acts on the device rather
+than reading it.</p></li>
+</ul>
+</li>
 </ul>
 <p><strong>Acquisition frameworks.</strong> These drive hardware through a client below them,
-so their write entry points refuse — but they are also ordinary document and
+so their write entry points refuse. They are also ordinary document and
 analysis libraries, so <em>importing</em> them stays allowed in a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run:</p>
 <ul class="simple">
 <li><p><strong>ophyd-async</strong> — <code class="docutils literal notranslate"><span class="pre">SignalW.set</span></code> / <code class="docutils literal notranslate"><span class="pre">SignalRW.set</span></code>, and <code class="docutils literal notranslate"><span class="pre">SignalX</span></code>
@@ -739,8 +754,8 @@ outside the executor.</p>
 <section id="what-a-readwrite-run-refuses">
 <span id="python-executor-armed-block"></span><h3>What a readwrite run refuses<a class="headerlink" href="#what-a-readwrite-run-refuses" title="Link to this heading">#</a></h3>
 <p>A <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run may write, but only through the connector. The raw-put
-block (layer 8) reads the same table as the list above and splits its client
-rows into four buckets, so the page and the executor agree on every row:</p>
+block (layer 8) reads the same table as the list above. It splits the table’s
+client rows into four buckets, so the page and the executor agree on every row:</p>
 <p><code class="docutils literal notranslate"><span class="pre">_ARMED_BLOCKED</span></code> — <strong>refused</strong> unless a connector is making the put. The
 refusal does not depend on the value: an in-range <code class="docutils literal notranslate"><span class="pre">caput</span></code> is refused like an
 out-of-range one, because the connector is where a write is checked and
@@ -759,26 +774,31 @@ recorded.</p>
 <li><p><strong>Tango</strong> — the attribute writes on <code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code> (also under the
 legacy <code class="docutils literal notranslate"><span class="pre">PyTango</span></code> name), <code class="docutils literal notranslate"><span class="pre">AttributeProxy.write</span></code> and its variants, and
 <code class="docutils literal notranslate"><span class="pre">Group.write_attribute</span></code></p></li>
-<li><p><strong>pvaPy</strong> — <code class="docutils literal notranslate"><span class="pre">MultiChannel.put</span></code> and <code class="docutils literal notranslate"><span class="pre">putAsDoubleArray</span></code>, a write to a
-list of channels on either provider; and <code class="docutils literal notranslate"><span class="pre">CaIoc.putField</span></code>, <code class="docutils literal notranslate"><span class="pre">dbpf</span></code>,
-<code class="docutils literal notranslate"><span class="pre">iocInit</span></code> and <code class="docutils literal notranslate"><span class="pre">start</span></code>, because a record of an IOC running inside the
-script can carry an output link to a real channel, and setting it — or
-starting the IOC that scans it — writes that channel</p></li>
+<li><p><strong>pvaPy</strong>:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">MultiChannel.put</span></code> and <code class="docutils literal notranslate"><span class="pre">putAsDoubleArray</span></code>, a write to a list of
+channels on either provider</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">CaIoc.putField</span></code>, <code class="docutils literal notranslate"><span class="pre">dbpf</span></code>, <code class="docutils literal notranslate"><span class="pre">iocInit</span></code> and <code class="docutils literal notranslate"><span class="pre">start</span></code>, because a record of
+an IOC running inside the script can carry an output link to a real
+channel. Setting that record writes the channel, and so does starting
+the IOC that scans it</p></li>
+</ul>
+</li>
 </ul>
 <p>One class is answered per channel rather than per method. A pvaPy <code class="docutils literal notranslate"><span class="pre">Channel</span></code>
-opened with <code class="docutils literal notranslate"><span class="pre">pvaccess.CA</span></code> is a Channel Access channel, and every put on it
-is a raw Channel Access write — the one <code class="docutils literal notranslate"><span class="pre">caput</span></code> makes — so it is refused
-here like <code class="docutils literal notranslate"><span class="pre">caput</span></code> (<code class="docutils literal notranslate"><span class="pre">_ARMED_CA_PROVIDER</span></code>). pvaPy gives a channel no way to
-name its provider, so the block records the provider as each channel is
-constructed; a channel it holds no record for is refused rather than trusted.</p>
+opened with <code class="docutils literal notranslate"><span class="pre">pvaccess.CA</span></code> is a Channel Access channel. Every put on it is a
+raw Channel Access write, the one <code class="docutils literal notranslate"><span class="pre">caput</span></code> makes, so it is refused here like
+<code class="docutils literal notranslate"><span class="pre">caput</span></code> (<code class="docutils literal notranslate"><span class="pre">_ARMED_CA_PROVIDER</span></code>). pvaPy gives a channel no way to name its
+provider, so the block records the provider as each channel is constructed.
+A channel it holds no record for is refused rather than trusted.</p>
 <p><code class="docutils literal notranslate"><span class="pre">_ARMED_CHECKED</span></code> — <strong>limits-checked, not refused</strong>: the PVAccess puts.
-The connector reads PVAccess but does not write it yet, so a raw put is the
+The connector reads PVAccess but does not write it yet. So a raw put is the
 one PVAccess write route a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run has, and refusing it would take
 PVAccess writes away from every deployment. These keep the posture they had
-before the raw-put block: the approval hook gates the run, and in an
-executor run with the limits database on each put is validated before it
-reaches the network (a <code class="docutils literal notranslate"><span class="pre">parsePut</span></code> or a builder callable carries no value to
-check and is refused). A run with limits off lets them through. They move to
+before the raw-put block. The approval hook gates the run. In an executor run
+with the limits database on, each put is validated before it reaches the
+network. There, a <code class="docutils literal notranslate"><span class="pre">parsePut</span></code> or a builder callable carries no value to
+check and is refused. A run with limits off lets them through. They move to
 <code class="docutils literal notranslate"><span class="pre">_ARMED_BLOCKED</span></code> once the connector writes PVAccess.</p>
 <ul class="simple">
 <li><p><strong>p4p</strong> — <code class="docutils literal notranslate"><span class="pre">Context.put</span></code> for the raw, thread, asyncio and cothread
@@ -793,24 +813,26 @@ An rpc payload or a Tango command has no channel value a connector write could
 carry, so no <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> call can stand in for one. An executor run with
 the limits database on <strong>refuses</strong> them, because nothing could bound them; a
 run with limits off <strong>lets them through</strong>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">_ARMED_PASSED</span></code> — <strong>let through</strong>, because they write no device: p4p’s
-<code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> and pvaPy’s <code class="docutils literal notranslate"><span class="pre">PvaServer</span></code>/<code class="docutils literal notranslate"><span class="pre">PvaMirrorServer</span></code>
-<code class="docutils literal notranslate"><span class="pre">update</span></code> and <code class="docutils literal notranslate"><span class="pre">updateUnchecked</span></code> serve a PV rather than write one, and
-Tango’s <code class="docutils literal notranslate"><span class="pre">DeviceProxy.put_property</span></code> writes the Tango database, not a
-channel.</p>
+<p><code class="docutils literal notranslate"><span class="pre">_ARMED_PASSED</span></code> — <strong>let through</strong>, because they write no device:</p>
+<ul class="simple">
+<li><p>p4p’s <code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> and pvaPy’s <code class="docutils literal notranslate"><span class="pre">PvaServer</span></code>/<code class="docutils literal notranslate"><span class="pre">PvaMirrorServer</span></code>
+<code class="docutils literal notranslate"><span class="pre">update</span></code> and <code class="docutils literal notranslate"><span class="pre">updateUnchecked</span></code> serve a PV rather than write one.</p></li>
+<li><p>Tango’s <code class="docutils literal notranslate"><span class="pre">DeviceProxy.put_property</span></code> writes the Tango database, not a
+channel.</p></li>
+</ul>
 <p>The acquisition frameworks and the routes out of Python are not rows of the
 armed block. ophyd-async and a Bluesky <code class="docutils literal notranslate"><span class="pre">RunEngine</span></code> are refused in a
-<code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run by the client put underneath them — an ophyd-async signal
+<code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run by the client put underneath them. An ophyd-async signal
 written directly, or a <code class="docutils literal notranslate"><span class="pre">RunEngine</span></code> driving ophyd or ophyd-async devices,
-ends in an aioca put and is refused like any raw put (a device on the p4p
-backend ends in a PVAccess put, limits-checked as above). A plan belongs on
+ends in an aioca put. That put is refused like any raw put. A device on the
+p4p backend ends in a PVAccess put instead, limits-checked as above. A plan belongs on
 a Bluesky lane queue, where it runs unchanged. <code class="docutils literal notranslate"><span class="pre">subprocess</span></code> and <code class="docutils literal notranslate"><span class="pre">ctypes</span></code>
 are untouched by the armed block; the prohibited-import check refuses
 <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">subprocess</span></code> in every mode.</p>
 <p><strong>How a connector’s put is told apart.</strong> A connector opens the <em>write door</em>
 (<code class="docutils literal notranslate"><span class="pre">osprey_connectors.control_system.write_door</span></code>) around its own call into the
-client library, after its write-posture check, and a blocked row calls
-through only while the door is open. The door is a context variable, so it
+client library, after its write-posture check. A blocked row calls through
+only while the door is open. The door is a context variable, so it
 reaches the connector’s own code and <code class="docutils literal notranslate"><span class="pre">asyncio.to_thread</span></code> started from it,
 and nothing else; see <a class="reference internal" href="../reference/contracts/connectors.html#connector-write-door"><span class="std std-ref">The write door</span></a>. It records who is making
 the put. It is not a sandbox, and code that goes around the client library
@@ -820,8 +842,9 @@ altogether is not stopped by it. These are the <strong>cooperative bypasses</str
 (the <code class="docutils literal notranslate"><span class="pre">ca_array_put</span></code>, <code class="docutils literal notranslate"><span class="pre">ca_array_put_callback</span></code> and <code class="docutils literal notranslate"><span class="pre">ca_sg_array_put</span></code>
 symbols), or through a raw socket;</p></li>
 <li><p>a put from a callback of a user-installed pyepics under
-<code class="docutils literal notranslate"><span class="pre">PREEMPTIVE_CALLBACK=False</span></code>: pyepics then runs callbacks while a thread polls, and the poll inside a connector’s
-own waiting put is inside the open door;</p></li>
+<code class="docutils literal notranslate"><span class="pre">PREEMPTIVE_CALLBACK=False</span></code>. pyepics then runs callbacks while a thread
+polls, and the poll inside a connector’s own waiting put is inside the open
+door;</p></li>
 <li><p>a connector subclass written in the run itself, whose <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> the
 base class wraps like any other.</p></li>
 </ul>
@@ -840,8 +863,8 @@ recognises the marker <code class="docutils literal notranslate"><span class="pr
 files the refusal in the audit log with reason <code class="docutils literal notranslate"><span class="pre">raw_client_write</span></code>, with the
 same operator alert a readonly refusal raises.</p>
 <p><strong>Before the run.</strong> For the <code class="docutils literal notranslate"><span class="pre">execute</span></code> tool in a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run, the
-approval hook refuses the unambiguous raw spellings before any human is asked
-to approve: <code class="docutils literal notranslate"><span class="pre">caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">caput_many(</span></code>, <code class="docutils literal notranslate"><span class="pre">epics.caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">PV(...).put(</span></code>,
+approval hook acts before any human is asked to approve. It refuses the
+unambiguous raw spellings: <code class="docutils literal notranslate"><span class="pre">caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">caput_many(</span></code>, <code class="docutils literal notranslate"><span class="pre">epics.caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">PV(...).put(</span></code>,
 <code class="docutils literal notranslate"><span class="pre">aioca.caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">write_door</span></code> and <code class="docutils literal notranslate"><span class="pre">open_door</span></code>. It reads
 the source with comments and string literals removed, so a spelling inside a
 comment or a message does not count. The hook answers with a <code class="docutils literal notranslate"><span class="pre">deny</span></code> and the
@@ -852,11 +875,15 @@ before. <code class="docutils literal notranslate"><span class="pre">execute_fil
 about as before and relies on the runtime block.</p>
 <p><strong>A notebook kernel’s mode.</strong> A notebook kernel installs the same block in its
 <code class="docutils literal notranslate"><span class="pre">no_client</span></code> mode, and never the armed one; <code class="docutils literal notranslate"><span class="pre">no_client</span></code> is never embedded in
-an executor run. It refuses the import of every package in <code class="docutils literal notranslate"><span class="pre">CLIENT_PACKAGES</span></code>
-— the top-level names of the armed block’s client rows — and a client shared
-library (<code class="docutils literal notranslate"><span class="pre">libca</span></code>, the PVAccess libraries) loaded through Python’s two
-loaders, <code class="docutils literal notranslate"><span class="pre">ctypes</span></code> and <code class="docutils literal notranslate"><span class="pre">cffi</span></code>, for reads as for writes, with
-<code class="docutils literal notranslate"><span class="pre">ClientLibraryRefusedError</span></code> and reason <code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_IMPORT</span></code>. A client
+an executor run. It refuses, for reads as for writes:</p>
+<ul class="simple">
+<li><p>the import of every package in <code class="docutils literal notranslate"><span class="pre">CLIENT_PACKAGES</span></code>, the top-level names of
+the armed block’s client rows</p></li>
+<li><p>a client shared library (<code class="docutils literal notranslate"><span class="pre">libca</span></code>, the PVAccess libraries) loaded through
+Python’s two loaders, <code class="docutils literal notranslate"><span class="pre">ctypes</span></code> and <code class="docutils literal notranslate"><span class="pre">cffi</span></code></p></li>
+</ul>
+<p>Both refusals carry <code class="docutils literal notranslate"><span class="pre">ClientLibraryRefusedError</span></code> and reason
+<code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_IMPORT</span></code>. A client
 already loaded when the block is installed cannot be unloaded, so the install
 refuses it and the kernel does not start. Like the armed block it is
 cooperative: it keeps honest cell code on the connector path and is not a
@@ -866,7 +893,7 @@ sandbox (see <a class="reference internal" href="safety-chain.html#architecture-
 <section id="writing-from-executed-code">
 <span id="python-executor-write-channel"></span><h3>Writing from executed code<a class="headerlink" href="#writing-from-executed-code" title="Link to this heading">#</a></h3>
 <p>Replace a raw client put with the runtime’s own write call. It takes the same
-address and value, goes through the deployment’s connector, and so gets the
+address and value and goes through the deployment’s connector. So it gets the
 write posture, the limits check, the approval that admitted the run, and the
 audit record:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Refused in every run:</span>
@@ -893,17 +920,22 @@ Four locations are protected:</p>
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, and the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> inside it is where the next
 run reads its own permissions from. A write here is either lost at the next
 build or, worse, survives as a rendered setting nobody wrote.</p></li>
-<li><p><strong>The profile sources</strong> — what the build reads to produce that render:
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (with <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> and
-<code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> beside it), the <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">profiles/</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code> and <code class="docutils literal notranslate"><span class="pre">scripts/</span></code> directories, the convention
-directories (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, <code class="docutils literal notranslate"><span class="pre">agents/</span></code>, <code class="docutils literal notranslate"><span class="pre">commands/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">output-styles/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">services/</span></code>) and the <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror.</p></li>
+<li><p><strong>The profile sources</strong> — what the build reads to produce that render:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, with <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> beside it</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">profiles/</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code> and <code class="docutils literal notranslate"><span class="pre">scripts/</span></code>
+directories</p></li>
+<li><p>the convention directories (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, <code class="docutils literal notranslate"><span class="pre">agents/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">commands/</span></code>, <code class="docutils literal notranslate"><span class="pre">output-styles/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>, <code class="docutils literal notranslate"><span class="pre">services/</span></code>)</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror</p></li>
+</ul>
+</li>
 <li><p><strong>The agent record’s directories</strong> (<code class="docutils literal notranslate"><span class="pre">var/spool/</span></code>, <code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">var/state/</span></code> and <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code>) — the spool the record is read from,
-the record itself, the services’ own state and the daily archive, which
-together hold the record of what was refused. A run that could rewrite them
+the record itself, the services’ own state and the daily archive. Together
+they hold the record of what was refused. A run that could rewrite them
 could erase or forge the evidence of its own refusal.</p></li>
 <li><p><strong>The pre-upgrade audit files</strong> — the files a deployment kept before the
 agent record. Nothing writes them, and they stay protected for the
@@ -916,9 +948,9 @@ A companion boundary, <a class="reference internal" href="../reference/configura
 named files and config keys to every agent-side writer (the settings panels,
 the galleries, the <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool) rather than to executed code.</p>
 <p>The agent’s own data zone (<code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code>) and the run’s execution folder
-are carved back out, so analysis output, figures and saved artifacts keep
-working normally — as does everything else on disk the executor process can
-reach.</p>
+are carved back out. As a result, analysis output, figures and saved
+artifacts keep working normally, as does everything else on disk the executor
+process can reach.</p>
 <p><strong>Both modes, same answer.</strong> <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> buys a run human approval to move a
 magnet; it buys no approval to rewrite <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. Only the wording of the
 refusal changes — a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run is told the mode, a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run is
@@ -928,21 +960,21 @@ of these, edit the profile source yourself and run <code class="docutils literal
 (see <a class="reference internal" href="#python-executor-secrets-zone"><span class="std std-ref">The secrets zone</span></a>).</p>
 <p>Two layers enforce the set:</p>
 <ol class="arabic simple">
-<li><p><strong>Before the run.</strong> The submitted source is walked for write calls —
+<li><p><strong>Before the run.</strong> The submitted source is walked for write calls:
 <code class="docutils literal notranslate"><span class="pre">open()</span></code> in a write mode, <code class="docutils literal notranslate"><span class="pre">Path.write_text</span></code>/<code class="docutils literal notranslate"><span class="pre">Path.open</span></code>, the
 <code class="docutils literal notranslate"><span class="pre">shutil</span></code> copy/move/remove family, <code class="docutils literal notranslate"><span class="pre">os.remove</span></code>/<code class="docutils literal notranslate"><span class="pre">rename</span></code>/<code class="docutils literal notranslate"><span class="pre">mkdir</span></code> and
-friends — and any whose path is written out as a literal landing inside a
-protected location is refused before anything is spawned, so the agent gets
-a readable message instead of a traceback. A path the code computes at
+friends. Any call whose path is written out as a literal landing inside a
+protected location is refused before anything is spawned. That way the
+agent gets a readable message instead of a traceback. A path the code computes at
 runtime is deliberately <em>not</em> guessed at here; it is left to layer 2.
 The same pass refuses code that names the runtime guard’s own internals,
 which is the one thing that guard cannot police for itself.</p></li>
 <li><p><strong>During the run.</strong> A guard is emitted into the subprocess, ahead of the
-submitted code, that intercepts the filesystem entry points (<code class="docutils literal notranslate"><span class="pre">open</span></code>,
+submitted code. It intercepts the filesystem entry points (<code class="docutils literal notranslate"><span class="pre">open</span></code>,
 <code class="docutils literal notranslate"><span class="pre">io.open</span></code>, <code class="docutils literal notranslate"><span class="pre">os.open</span></code>, <code class="docutils literal notranslate"><span class="pre">os.truncate</span></code>, <code class="docutils literal notranslate"><span class="pre">os.remove</span></code>, <code class="docutils literal notranslate"><span class="pre">os.unlink</span></code>,
 <code class="docutils literal notranslate"><span class="pre">os.rmdir</span></code>, <code class="docutils literal notranslate"><span class="pre">os.removedirs</span></code>, <code class="docutils literal notranslate"><span class="pre">os.rename</span></code>, <code class="docutils literal notranslate"><span class="pre">os.replace</span></code>,
 <code class="docutils literal notranslate"><span class="pre">os.makedirs</span></code>, <code class="docutils literal notranslate"><span class="pre">os.mkdir</span></code>, <code class="docutils literal notranslate"><span class="pre">os.symlink</span></code>, <code class="docutils literal notranslate"><span class="pre">os.link</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">shutil.copy</span></code>, <code class="docutils literal notranslate"><span class="pre">copy2</span></code>, <code class="docutils literal notranslate"><span class="pre">copyfile</span></code>, <code class="docutils literal notranslate"><span class="pre">move</span></code> and <code class="docutils literal notranslate"><span class="pre">rmtree</span></code>) and
+<code class="docutils literal notranslate"><span class="pre">shutil.copy</span></code>, <code class="docutils literal notranslate"><span class="pre">copy2</span></code>, <code class="docutils literal notranslate"><span class="pre">copyfile</span></code>, <code class="docutils literal notranslate"><span class="pre">move</span></code> and <code class="docutils literal notranslate"><span class="pre">rmtree</span></code>). It
 raises <code class="docutils literal notranslate"><span class="pre">PermissionError</span></code> for a write landing in a protected location,
 however the path was assembled. The protected locations are resolved by
 the parent process and baked into the guard as fixed strings; the
@@ -951,14 +983,14 @@ subprocess never works them out for itself.</p></li>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>The runtime guard is <strong>defense in depth, not a security boundary.</strong> It runs
-inside the same process as the code it is guarding, so code written to
-defeat it can simply switch it off — nothing placed <em>inside</em> a process can
+inside the same process as the code it is guarding. So code written to
+defeat it can simply switch it off: nothing placed <em>inside</em> a process can
 be hidden from that process. What the guard reliably stops is the honest
 miss: the computed or concatenated path the pre-run pass cannot see, and the
 everyday accident of writing output one directory too high.</p>
 <p>What contains code that is deliberately attacking this boundary is the
 operating system. In a container deployment the render zone and the profile
-sources are owned by a different user than the one the agent runs as, so the
+sources are owned by a different user than the one the agent runs as. So the
 refusal is the kernel’s rather than Python’s. On a bare host, treat the
 guard as a safety net and not as a wall.</p>
 </div>
@@ -967,34 +999,34 @@ guard as a safety net and not as a wall.</p>
 <p>The workspace server’s visualization sandbox is built from the same guard
 with the verdict inverted — nothing is reachable unless a directory says
 so. It intercepts only <code class="docutils literal notranslate"><span class="pre">open</span></code> and <code class="docutils literal notranslate"><span class="pre">io.open</span></code>, and <code class="docutils literal notranslate"><span class="pre">io.open</span></code> for write
-modes alone: CPython routes <code class="docutils literal notranslate"><span class="pre">pathlib</span></code> through it, so guarding reads there
-would change what plotting code is allowed to <em>read</em> today.</p>
+modes alone. CPython routes <code class="docutils literal notranslate"><span class="pre">pathlib</span></code> through <code class="docutils literal notranslate"><span class="pre">io.open</span></code>, so guarding
+reads there would change what plotting code is allowed to <em>read</em> today.</p>
 </div>
 </section>
 <section id="the-secrets-zone">
 <span id="python-executor-secrets-zone"></span><h3>The secrets zone<a class="headerlink" href="#the-secrets-zone" title="Link to this heading">#</a></h3>
-<p>Executed code gets a fixed set of environment variables from the executor —
-paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
-control-system client settings and the osprey names the run reads — plus any
-names listed in <code class="docutils literal notranslate"><span class="pre">python_executor.child_env_passthrough</span></code> (see
-<a class="reference internal" href="../reference/configuration/config.html#config-python-executor"><span class="std std-ref">python_executor: — how long one agent script may run, and what it inherits</span></a>). A credential osprey holds cannot be listed
-there. The child does not load the project’s env chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>,
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>) itself.</p>
+<p>Executed code gets a fixed set of environment variables from the executor,
+plus any names listed in <code class="docutils literal notranslate"><span class="pre">python_executor.child_env_passthrough</span></code> (see
+<a class="reference internal" href="../reference/configuration/config.html#config-python-executor"><span class="std std-ref">python_executor: — how long one agent script may run, and what it inherits</span></a>). The fixed set covers paths, locale, the
+interpreter, TLS trust, proxies, plotting caches, the control-system client
+settings and the osprey names the run reads. A credential osprey holds cannot
+be listed in <code class="docutils literal notranslate"><span class="pre">child_env_passthrough</span></code>. The child does not load the project’s
+env chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, <code class="docutils literal notranslate"><span class="pre">.env</span></code>) itself.</p>
 <p>Opening one of the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> files, or any <code class="docutils literal notranslate"><span class="pre">/proc/*/environ</span></code> or
-<code class="docutils literal notranslate"><span class="pre">/proc/*/cmdline</span></code>, is refused in both modes, for reads and writes; the
+<code class="docutils literal notranslate"><span class="pre">/proc/*/cmdline</span></code>, is refused in both modes, for reads and writes. The
 visualization sandbox refuses the same opens, <code class="docutils literal notranslate"><span class="pre">pathlib</span></code> reads included. A
 <code class="docutils literal notranslate"><span class="pre">readonly</span></code> refusal is reported like any other runtime refusal; a
 <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> one is refused and not audited, as for protected paths.</p>
-<p>This is the same in-process guard as the write side, so code that deliberately
+<p>This is the same in-process guard as the write side. So code that deliberately
 disarms it is contained only by the operating system: files the executing
 account can read stay readable to it.</p>
 </section>
 <section id="write-posture">
 <span id="python-executor-session-posture"></span><h3>Write posture<a class="headerlink" href="#write-posture" title="Link to this heading">#</a></h3>
 <p>A <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> <code class="docutils literal notranslate"><span class="pre">execute</span></code> asks the write verdict (<a class="reference internal" href="../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>)
-when the run is requested — the login’s tier, then its switch for the run’s
-control target, read fresh, so a flip made mid-conversation applies to the next
-run. A refused run gets the verdict’s phrase and its trailer, for example:</p>
+when the run is requested. The verdict reads the login’s tier, then its switch
+for the run’s control target, read fresh. So a flip made mid-conversation
+applies to the next run. A refused run gets the verdict’s phrase and its trailer, for example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Writes</span> <span class="n">are</span> <span class="n">off</span><span class="p">;</span> <span class="n">turn</span> <span class="n">it</span> <span class="n">on</span> <span class="kn">from</span><span class="w"> </span><span class="nn">the</span> <span class="n">chip</span> <span class="ow">in</span> <span class="n">the</span> <span class="n">web</span> <span class="n">terminal</span><span class="o">.</span>
 <span class="p">[</span><span class="n">osprey</span><span class="o">-</span><span class="n">refusal</span><span class="p">:</span> <span class="n">switch_off</span><span class="p">]</span>
 </pre></div>
@@ -1005,13 +1037,13 @@ than granted the most permissive answer. The agent is told to re-run as
 switch from the chip. The phrase names no config key: the deployment’s
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is not what the operator changes here.</p>
 <p>A run that has already started cannot be <em>widened</em>: it keeps the launch pin it
-started under, and a write it attempts on a machine it was launched with writes
+started under. A write it attempts on a machine it was launched with writes
 held off for is refused <code class="docutils literal notranslate"><span class="pre">launch_pinned</span></code>. A switch turned off mid-run is
 honoured by the connector inside the sandbox at the moment of the write.</p>
 <p>A run is also refused outright while a control-target switch has not yet
 reached every control-system server. The sandbox is stamped with the target and
-the switch generation it was launched for, and a run that could be routed to
-either of two machines is not launched at all — the refusal names the servers
+the switch generation it was launched for. A run that could be routed to
+either of two machines is not launched at all. The refusal names the servers
 still working, and the run is worth retrying once the chip settles.</p>
 </section>
 <section id="when-a-write-is-refused">
@@ -1022,15 +1054,15 @@ still working, and the run is worth retrying once the chip settles.</p>
 <li><p>The operator is alerted — the Web Terminal reports that a write was
 attempted and blocked, not merely that a script failed.</p></li>
 <li><p>The attempt is recorded in the audit trail, as one <code class="docutils literal notranslate"><span class="pre">audit</span></code> entry in the
-agent record — with a timestamp, who was acting, the write posture in
+agent record. The entry holds a timestamp, who was acting, the write posture in
 force, the layer that refused (the entry’s <code class="docutils literal notranslate"><span class="pre">reason</span></code>), and the offending
 source kept verbatim. Builds never touch the record, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code>
 keeps it unless you pass <code class="docutils literal notranslate"><span class="pre">--purge-audit</span></code>.</p></li>
 </ol>
 <p>The entry is filed under the identity that was acting, so on a multi-user
 deployment each person’s refusals are their own. The pre-run pass
-records in both execution modes — the path policy refuses a write into the
-protected set whether the run asked for <code class="docutils literal notranslate"><span class="pre">readonly</span></code> or <code class="docutils literal notranslate"><span class="pre">readwrite</span></code>, and the
+records in both execution modes. The path policy refuses a write into the
+protected set whether the run asked for <code class="docutils literal notranslate"><span class="pre">readonly</span></code> or <code class="docutils literal notranslate"><span class="pre">readwrite</span></code>. The
 record’s <code class="docutils literal notranslate"><span class="pre">detail</span></code> says which mode the run was submitted under, so a readwrite
 refusal is never presented as a readonly one.</p>
 <p>One case is still deliberately unrecorded: a protected-path write the <em>runtime</em>

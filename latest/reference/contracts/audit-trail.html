@@ -485,33 +485,36 @@
 <span id="reference-audit-trail"></span><h1>Audit Trail Contract<a class="headerlink" href="#audit-trail-contract" title="Link to this heading">#</a></h1>
 <p>Every safety-relevant decision a deployment makes is one <code class="docutils literal notranslate"><span class="pre">audit</span></code> entry in
 the agent record. The process that decided appends it to its own identity’s
-spool, <code class="docutils literal notranslate"><span class="pre">var/spool/&lt;identity&gt;/</span></code>, and the <code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service takes it in
-from there; the surface that decided is in the entry’s <code class="docutils literal notranslate"><span class="pre">surface</span></code> field. The
+spool, <code class="docutils literal notranslate"><span class="pre">var/spool/&lt;identity&gt;/</span></code>. The <code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service takes it in
+from there. The entry’s <code class="docutils literal notranslate"><span class="pre">surface</span></code> field names the surface that decided. The
 trail has two halves: the record, which keeps every entry for
 <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>, and the archive, which keeps each closed day
 for good, exported as <code class="docutils literal notranslate"><span class="pre">var/archive/&lt;day&gt;/agent_record/entries.parquet</span></code>
 (<a class="reference internal" href="../../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>). This page is the shape of
 that trail — which surface files a decision, what each field holds, who can
-read it, and what the trail does not promise. For the policy that produces most of the
-refusals see <a class="reference internal" href="../configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>; for the
-per-target write posture that refuses control-system writes see
+read it, and what the trail does not promise. For the policy that produces
+most of the refusals, see <a class="reference internal" href="../configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>. For
+the per-target write posture that refuses control-system writes see
 <a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>.</p>
 <p>Both halves are durable by construction: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> re-renders
 <code class="docutils literal notranslate"><span class="pre">build/</span></code> wholesale and never touches <code class="docutils literal notranslate"><span class="pre">var/</span></code>. A plain <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps
 the audit files written before the agent record (<code class="docutils literal notranslate"><span class="pre">var/audit</span></code>), the agent
-record and <code class="docutils literal notranslate"><span class="pre">var/archive</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code> removes
-<code class="docutils literal notranslate"><span class="pre">var/audit</span></code>, the agent record on either backend (with the ClickHouse
-backend’s data volume), the spool feeding it and the record’s
-exports in the archive (<code class="docutils literal notranslate"><span class="pre">var/archive/&lt;day&gt;/agent_record/</span></code>), and appends an
-<code class="docutils literal notranslate"><span class="pre">agent_record_purged</span></code> line to each of those days’ manifests. It keeps the rest
-of <code class="docutils literal notranslate"><span class="pre">var/archive</span></code>: the artifact and Bluesky copies and the manifests
-themselves.</p>
+record and <code class="docutils literal notranslate"><span class="pre">var/archive</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code> removes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">var/audit</span></code></p></li>
+<li><p>the agent record on either backend, with the ClickHouse backend’s data volume</p></li>
+<li><p>the spool feeding it</p></li>
+<li><p>the record’s exports in the archive (<code class="docutils literal notranslate"><span class="pre">var/archive/&lt;day&gt;/agent_record/</span></code>)</p></li>
+</ul>
+<p>It also appends an <code class="docutils literal notranslate"><span class="pre">agent_record_purged</span></code> line to each of those days’
+manifests. It keeps the rest of <code class="docutils literal notranslate"><span class="pre">var/archive</span></code>: the artifact and Bluesky
+copies and the manifests themselves.</p>
 <section id="entries-by-surface">
 <span id="audit-trail-files"></span><h2>Entries, by surface<a class="headerlink" href="#entries-by-surface" title="Link to this heading">#</a></h2>
-<p>The identity is whoever was acting, so on a multi-user deployment each
-person’s entries are written from their own spool and the record files them
-under that person (<a class="reference internal" href="#audit-trail-identity-ladder"><span class="std std-ref">how it is resolved</span></a>);
-the <code class="docutils literal notranslate"><span class="pre">surface</span></code> is the layer that decided, so a gallery refusal and a config
+<p>The identity is whoever was acting. So on a multi-user deployment, each
+person’s entries are written from their own spool, and the record files them
+under that person (<a class="reference internal" href="#audit-trail-identity-ladder"><span class="std std-ref">how it is resolved</span></a>).
+The <code class="docutils literal notranslate"><span class="pre">surface</span></code> is the layer that decided, so a gallery refusal and a config
 refusal never share one.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -603,18 +606,21 @@ answer to a flag — see <a class="reference internal" href="watchdog.html#refer
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">decision</span></code> reads <code class="docutils literal notranslate"><span class="pre">allowed</span></code> or <code class="docutils literal notranslate"><span class="pre">refused</span></code> on almost all of them.
 <code class="docutils literal notranslate"><span class="pre">hook_approval</span></code> has three words of its own, all on the same
-<code class="docutils literal notranslate"><span class="pre">tool_use_id</span></code>: <code class="docutils literal notranslate"><span class="pre">ask</span></code> when the hook put the call in front of an approver,
-then <code class="docutils literal notranslate"><span class="pre">approved</span></code> when the harness reported that the call ran, or <code class="docutils literal notranslate"><span class="pre">denied</span></code>
-when the turn ended without it — declined or interrupted. A write the
-switch’s <em>allowed</em> position let run has no <code class="docutils literal notranslate"><span class="pre">ask</span></code>: its <code class="docutils literal notranslate"><span class="pre">approved</span></code> names
-<code class="docutils literal notranslate"><span class="pre">approver=write_switch</span></code> in <code class="docutils literal notranslate"><span class="pre">detail</span></code>.
+<code class="docutils literal notranslate"><span class="pre">tool_use_id</span></code>. <code class="docutils literal notranslate"><span class="pre">ask</span></code> comes first, then either <code class="docutils literal notranslate"><span class="pre">approved</span></code> or <code class="docutils literal notranslate"><span class="pre">denied</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ask</span></code>: the hook put the call in front of an approver.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">approved</span></code>: the harness reported that the call ran.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">denied</span></code>: the turn ended without it — declined or interrupted.</p></li>
+</ul>
+<p>A write the switch’s <em>allowed</em> position let run has no <code class="docutils literal notranslate"><span class="pre">ask</span></code>: its
+<code class="docutils literal notranslate"><span class="pre">approved</span></code> names <code class="docutils literal notranslate"><span class="pre">approver=write_switch</span></code> in <code class="docutils literal notranslate"><span class="pre">detail</span></code>.
 <code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code> has its own too: <code class="docutils literal notranslate"><span class="pre">flagged</span></code>, <code class="docutils literal notranslate"><span class="pre">clear</span></code>, <code class="docutils literal notranslate"><span class="pre">unavailable</span></code>,
 <code class="docutils literal notranslate"><span class="pre">stop</span></code>, <code class="docutils literal notranslate"><span class="pre">continue</span></code> and <code class="docutils literal notranslate"><span class="pre">stop_unconfirmed</span></code>.</p>
 <p>Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves <code class="docutils literal notranslate"><span class="pre">http_mutation</span></code>
-entries next to the config edits. One asymmetry worth knowing
-before you go looking: a <em>refused</em> WebSocket upgrade is recorded, an admitted
-one is not — a live session’s activity is its tool records, not its
+entries next to the config edits. One asymmetry is worth knowing
+before you go looking. A <em>refused</em> WebSocket upgrade is recorded; an admitted
+one is not. A live session’s activity is its tool records, not its
 connection.</p>
 </section>
 <section id="the-record">
@@ -719,14 +725,14 @@ surfaces the role the login service forwarded. Absent otherwise</p></td>
 <p>A <code class="docutils literal notranslate"><span class="pre">PUT</span></code> that would have changed many protected keys at once names the first
 ten and counts the rest in the message, but <strong>every changed key gets its own
 entry</strong>. The cap trims the message, never the audit. A refused request leaves
-exactly those entries and no others: the surface that decided files the record,
-and the layers around it stand aside rather than filing the same refusal
+exactly those entries and no others. The surface that decided files the record.
+The layers around it stand aside rather than filing the same refusal
 again.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>Recording is best-effort; refusing is not.</strong> An unwritable spool or a
-record that is down degrades the trail and never turns a refusal into
-a server error — an error that reads like the gate malfunctioned is the one
+record that is down degrades the trail. It never turns a refusal into
+a server error. An error that reads like the gate malfunctioned is the one
 shape an operator could mistake for a gate that failed open.</p>
 </div>
 <section id="the-login-behind-the-record">
@@ -775,17 +781,17 @@ against. Such a session has no opener, and none is recorded</p></td>
 <p>Two forwarded headers carry that from the login service through nginx:
 <code class="docutils literal notranslate"><span class="pre">X-Osprey-Auth-Account</span></code> names the card, <code class="docutils literal notranslate"><span class="pre">X-Osprey-Auth-Subject</span></code> names the
 login that proved it. Under <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">password</span></code> they hold the same value
-on a person’s own card, because the roster username <em>is</em> the proof; on a shared
-card the subject header names the opener instead, and under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> the two
+on a person’s own card, because the roster username <em>is</em> the proof. On a shared
+card, the subject header names the opener instead. Under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, the two
 part on every card. Where a card’s <code class="docutils literal notranslate"><span class="pre">access:</span></code> rule admitted the session, that
 header carries the asserted identity rather than a roster name. Either way only
 the account is a name a container can compare itself against.</p>
 <p>A deployment that pins an older login-service image with <code class="docutils literal notranslate"><span class="pre">auth.image</span></code> gets no
 account header. The container then falls back to comparing the subject, as it
-did before this release. Where the mapped subject is not the roster name — an
-opaque <code class="docutils literal notranslate"><span class="pre">sub</span></code> or an email, the usual case — it never matches, so
-<code class="docutils literal notranslate"><span class="pre">expected_account=</span></code> and a warning ride every audited request. Building against
-this release’s image is what clears it.</p>
+did before this release. Usually the mapped subject is not the roster name
+but an opaque <code class="docutils literal notranslate"><span class="pre">sub</span></code> or an email. Wherever it is not the roster name, it never
+matches, so <code class="docutils literal notranslate"><span class="pre">expected_account=</span></code> and a warning ride every audited request.
+Building against this release’s image is what clears it.</p>
 </section>
 <section id="who-the-control-system-saw">
 <span id="audit-trail-attribution"></span><h3>Who the control system saw<a class="headerlink" href="#who-the-control-system-saw" title="Link to this heading">#</a></h3>
@@ -797,7 +803,7 @@ shared writer, and <code class="docutils literal notranslate"><span class="pre">
 same name beside the person, so a put-log line can be joined back to who asked
 for the write.</p>
 <p>The names are read in the process that writes, never from an environment
-variable, and travel as keys in <code class="docutils literal notranslate"><span class="pre">detail</span></code> on a plain record and as noted
+variable. They travel as keys in <code class="docutils literal notranslate"><span class="pre">detail</span></code> on a plain record, and as noted
 <code class="docutils literal notranslate"><span class="pre">facts</span></code> on a <a class="reference internal" href="#audit-trail-tool-call"><span class="std std-ref">tool-call record</span></a>.
 <code class="docutils literal notranslate"><span class="pre">ca_user</span></code>, <code class="docutils literal notranslate"><span class="pre">ca_host</span></code> and <code class="docutils literal notranslate"><span class="pre">owner</span></code> are in both:</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -949,9 +955,9 @@ header, so no session naming it could be minted</p></td>
 </div>
 <p><strong>The first two are login-time gates, and they do not re-evaluate.</strong> Neither
 claim is written into the session, so no later request can be measured against
-it: a token is refused for either reason at the moment it arrives, and a
+it. A token is refused for either reason at the moment it arrives. A
 session already open is untouched by what those claims would say now. Principal
-coverage is the opposite — the card’s principal set is matched against the
+coverage is the opposite. The card’s principal set is matched against the
 session’s identity on <em>every</em> request, so withdrawing a principal closes the
 card on the next one.</p>
 <p><code class="docutils literal notranslate"><span class="pre">detail</span></code> on these records names a claim at most. The asserted address, its
@@ -964,7 +970,7 @@ instead: the browser sees the ordinary refusal, and the fix is
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">&lt;user&gt;</span></code>.</p>
 <p>A login at <code class="docutils literal notranslate"><span class="pre">/auth/enter</span></code>, which names no card
 (<a class="reference internal" href="../../how-to/web-terminal/multi-user/login.html#multi-user-own-terminal-entry"><span class="std std-ref">Log in without choosing a card</span></a>), files <code class="docutils literal notranslate"><span class="pre">no_card</span></code> when it proved who
-arrived but no card admits them; the fix is the roster or a card’s
+arrived but no card admits them. The fix is the roster or a card’s
 <code class="docutils literal notranslate"><span class="pre">access:</span></code>, never the password or the provider. A card-less single sign-on
 refused before any card is known files under the subject <code class="docutils literal notranslate"><span class="pre">(sign-in)</span></code>, never
 under the asserted identity.</p>
@@ -975,9 +981,9 @@ under the asserted identity.</p>
 <p>The default records hold identifiers and, except on the two surfaces in
 <a class="reference internal" href="#audit-trail-payloads"><span class="std std-ref">What the trail is not</span></a>, never values. Beside them, every
 osprey MCP server files one <code class="docutils literal notranslate"><span class="pre">audit</span></code> entry on the <code class="docutils literal notranslate"><span class="pre">tool_call</span></code> surface for
-each call that ran against something worth naming: a control target, an
-approval, or facts the tool noted while it ran. There is no switch; it is
-always written.</p>
+each call that ran against something worth naming. Something worth naming is
+a control target, an approval, or facts the tool noted while it ran. There is
+no switch; it is always written.</p>
 <p>It carries no arguments and no result: the agent’s transcript, which the record
 holds too, has both once, joined by <code class="docutils literal notranslate"><span class="pre">tool_use_id</span></code>. Nor does it repeat the
 decision and reason the default record for the same call holds. It does not use
@@ -1025,13 +1031,13 @@ attribution facts in <a class="reference internal" href="#audit-trail-attributio
 </tbody>
 </table>
 </div>
-<p>The Tiled catalog a plan lane writes is not part of the audit trail and stays
-out of the agent record and the archive: it is beamline data, with its own
+<p>The Tiled catalog a plan lane writes is not part of the audit trail. It stays
+out of the agent record and the archive. It is beamline data, with its own
 retention and backup, not a record of what the agent was asked and did.</p>
 </section>
 <section id="which-directory-a-record-lands-in">
 <span id="audit-trail-identity-ladder"></span><h2>Which directory a record lands in<a class="headerlink" href="#which-directory-a-record-lands-in" title="Link to this heading">#</a></h2>
-<p>The acting identity is resolved once, by one ladder, and the same answer is
+<p>The acting identity is resolved once, by one ladder. The same answer is
 used twice: as the record’s <code class="docutils literal notranslate"><span class="pre">actor</span></code> field and as the spool directory the
 entry is written to, <code class="docutils literal notranslate"><span class="pre">var/spool/&lt;identity&gt;/</span></code>. The record takes the identity
 from that directory, never from the entry, so an entry cannot claim to be
@@ -1070,12 +1076,12 @@ record.</p></td>
 </tbody>
 </table>
 </div>
-<p><strong>The hostname is never a rung.</strong> It looks like an identity and is not one: a
+<p><strong>The hostname is never a rung.</strong> It looks like an identity and is not one. A
 host-network container reports the shared host’s name, so every service on the
-box would collide into one identity, and a bridge-network container reports a
+box would collide into one identity. A bridge-network container reports a
 fresh container id on every restart.</p>
 <p>A value carrying a path separator, or naming <code class="docutils literal notranslate"><span class="pre">.</span></code> or <code class="docutils literal notranslate"><span class="pre">..</span></code>, is not a usable
-identity and falls to the next rung — the same string becomes a directory name,
+identity and falls to the next rung. The same string becomes a directory name,
 and <code class="docutils literal notranslate"><span class="pre">../elsewhere</span></code> would file one service’s records under another’s spool.</p>
 <p><strong>These variables are the framework’s, not yours to set.</strong> The build renders
 them into each container from the roster and the service derivation. Setting
@@ -1092,13 +1098,13 @@ evidence of what it did.</p>
 own, and the record answers each login only what that login may see. A
 terminal’s login reads what its own identity wrote, so alice’s terminal cannot
 read bob’s entries, though both are in one record. Inside a container the admin
-tier reads its own entries without a shell: <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/audit/recent</span></code> returns
+tier reads its own entries without a shell. <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/audit/recent</span></code> returns
 the newest <code class="docutils literal notranslate"><span class="pre">audit</span></code> entries this identity wrote, newest first, behind the same
 switch as the Config panel (<code class="docutils literal notranslate"><span class="pre">web.config_panel.enabled</span></code>). It never reaches
 another identity’s.</p>
-<p><strong>The deployment-wide view is a reader’s.</strong> A question spanning several people
-is answered by a reader, a person the profile names under
-<code class="docutils literal notranslate"><span class="pre">agent_record.readers</span></code>, on the history page or with a reader key
+<p><strong>The deployment-wide view is a reader’s.</strong> A reader is a person the profile
+names under <code class="docutils literal notranslate"><span class="pre">agent_record.readers</span></code>. A question spanning several people
+is answered by a reader, on the history page or with a reader key
 (<a class="reference internal" href="../../how-to/health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>). Past the retention
 window, it is answered from the archive on the deploy host, where whoever owns
 <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> reads every day’s export.</p>
@@ -1107,24 +1113,26 @@ window, it is answered from the archive on the deploy host, where whoever owns
 <span id="audit-trail-payloads"></span><h2>What the trail is not<a class="headerlink" href="#what-the-trail-is-not" title="Link to this heading">#</a></h2>
 <p><strong>It is append-only, not tamper-evident.</strong> Entries are only ever added, and
 OSPREY never rewrites one; it removes them only by whole day, under the
-retention rule below. But there is no hash chain and no signature: anyone who
+retention rule below. But there is no hash chain and no signature. Anyone who
 can write the record’s files or the archive can edit or delete entries —
-the host’s administrator included — and nothing in a later read would show
+the host’s administrator included. Nothing in a later read would show
 that they had. It is an operational record of what the deployment
 decided, which is what answers “what happened here”. If you need something that
 holds against someone with write access, ship the archive’s day files off the
-host as they are written, to a collector the deployment cannot reach back into.</p>
+host as they are written. Send them to a collector the deployment cannot reach
+back into.</p>
 <p><strong>The record keeps it for a window; the archive keeps it for good.</strong> The
-record removes whole arrival days past <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>, and
-only the days the archive already holds, so no entry leaves the record before
-it has a lasting copy. Nothing in OSPREY deletes the archive’s exports except
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>, which marks each day it purged in that day’s
+record removes whole arrival days past <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>. It
+removes only the days the archive already holds, so no entry leaves the record
+before it has a lasting copy. Nothing in OSPREY deletes the archive’s exports
+except <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>, which marks each day it purged in that day’s
 manifest.</p>
 <p><strong>Two surfaces carry a payload:</strong> <code class="docutils literal notranslate"><span class="pre">executor</span></code> and <code class="docutils literal notranslate"><span class="pre">canopy</span></code>. Every other
-default record holds identifiers and config keys only — a surface name, a
-username, a tool name, a dotted key, a short reason — never a config value, a
-prompt, or an agent message. A record of a write that does not say what the
-write <em>was</em> is an alert, not an audit trail, so there are two exceptions:</p>
+default record holds identifiers and config keys only: a surface name, a
+username, a tool name, a dotted key, a short reason. It never holds a config
+value, a prompt, or an agent message. A record of a write that does not say
+what the write <em>was</em> is an alert, not an audit trail, so there are two
+exceptions:</p>
 <ul class="simple">
 <li><p><strong>The Python executor.</strong> A refused run records the code it refused, whole, in
 a <code class="docutils literal notranslate"><span class="pre">source</span></code> field (8000 characters, with <code class="docutils literal notranslate"><span class="pre">source_truncated:</span> <span class="pre">true</span></code> where a
@@ -1133,13 +1141,13 @@ longer script was cut).</p></li>
 its outcome, a refusal — carries the value, as the last two <code class="docutils literal notranslate"><span class="pre">detail</span></code>
 tokens, <code class="docutils literal notranslate"><span class="pre">value_len=&lt;n&gt;</span> <span class="pre">value=&lt;text&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">value_len</span></code> is the length of the
 whole value. The text keeps at most 256 characters, fewer where the rest of
-<code class="docutils literal notranslate"><span class="pre">detail</span></code> leaves less room, and is written as a JSON string with no
+<code class="docutils literal notranslate"><span class="pre">detail</span></code> leaves less room. It is written as a JSON string with no
 whitespace, so a value cannot forge a token. A panel write is one click with
 no tool call behind it, so no tool-call record holds the value.</p></li>
 </ul>
-<p>What that means for anyone reading or forwarding the trail: <code class="docutils literal notranslate"><span class="pre">executor</span></code>
+<p>This matters for anyone reading or forwarding the trail. <code class="docutils literal notranslate"><span class="pre">executor</span></code>
 contains whatever the agent tried to run, including anything the conversation
-put into the script, and <code class="docutils literal notranslate"><span class="pre">canopy</span></code> contains every value a person sent to the
+put into the script. <code class="docutils literal notranslate"><span class="pre">canopy</span></code> contains every value a person sent to the
 machine from a panel. Give both the same care as the code and the setpoints
 themselves, and expect <code class="docutils literal notranslate"><span class="pre">executor</span></code> to be the surface that grows.</p>
 </section>

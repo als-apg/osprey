@@ -473,7 +473,9 @@ It does not reduce how much git transfers.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>Registering a marketplace named <code class="docutils literal notranslate"><span class="pre">osprey</span></code> from a second source — a local
-clone, say — silently repoints the name to that source.</p>
+clone, say — silently repoints the name to that source. To restore it, run
+the first command above again to re-add the marketplace from
+<code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code>.</p>
 </div>
 <section id="inside-a-deployment-repository">
 <h3>Inside a deployment repository<a class="headerlink" href="#inside-a-deployment-repository" title="Link to this heading">#</a></h3>
@@ -482,10 +484,9 @@ clone, say — silently repoints the name to that source.</p>
 </pre></div>
 </div>
 <p>Sessions launched by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> and by the web terminal run with
-<code class="docutils literal notranslate"><span class="pre">--setting-sources</span> <span class="pre">project</span></code>. Those sessions cannot see user-scope plugins
-(verified 2026-09-01), so without the project-scope install the skills never
-load there. The install writes <code class="docutils literal notranslate"><span class="pre">enabledPlugins</span></code> into the repository’s
-<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">--setting-sources</span> <span class="pre">project</span></code>. Those sessions cannot see user-scope plugins,
+so without the project-scope install the skills never load there. The install
+writes <code class="docutils literal notranslate"><span class="pre">enabledPlugins</span></code> into the repository’s <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>.</p>
 </section>
 <section id="updating">
 <h3>Updating<a class="headerlink" href="#updating" title="Link to this heading">#</a></h3>
@@ -516,11 +517,7 @@ codex<span class="w"> </span>plugin<span class="w"> </span>add<span class="w"> <
 </div>
 <p>Codex invokes a skill with a leading <code class="docutils literal notranslate"><span class="pre">$</span></code>, for example <code class="docutils literal notranslate"><span class="pre">$contribute</span></code>. The
 skills themselves are the same files the Claude Code plugin serves.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Command syntax per <a class="reference external" href="https://learn.chatgpt.com/docs/developer-commands">learn.chatgpt.com/docs/developer-commands</a>, retrieved 2026-09-01,
-and verified against codex-cli 0.149 on 2026-09-02.</p>
-</div>
+<p>Command syntax: <a class="reference external" href="https://learn.chatgpt.com/docs/developer-commands">learn.chatgpt.com/docs/developer-commands</a>.</p>
 </section>
 <section id="the-ten-skills">
 <h2>The ten skills<a class="headerlink" href="#the-ten-skills" title="Link to this heading">#</a></h2>
