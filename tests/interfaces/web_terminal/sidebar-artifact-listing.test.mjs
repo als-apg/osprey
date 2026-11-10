@@ -363,3 +363,75 @@ describe('fetchSummary', () => {
     expect(await mod.fetchSummary(['t1'])).toBeNull();
   });
 });
+
+describe('the summary against live frames', () => {
+  const T = '2026-11-10T01:00:00Z';
+  const empty = (/** @type {string} */ tid) => ({
+    counts: { [tid]: { total: 0, by_form: {} } },
+    owned_total: 0,
+  });
+
+  test('an answer asked before a frame moved its session does not undo the frame; it is asked again', async () => {
+    const data = mod.createTreeData({ onChange });
+    /** @type {(value: unknown) => void} */
+    let answer = () => {};
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const asked = data.summarize(['t1']);
+    // The upload lands and is announced while the summary is on its way back.
+    data.added(entry('u1', T, { owner: 't1', form: 'images' }), []);
+    expect(data.totals.counts.t1.by_form.images).toBe(1);
+    // The fresh answer counts the upload.
+    fetchMock.mockResolvedValueOnce(
+      reply({ counts: { t1: { total: 1, by_form: { images: 1 } } }, owned_total: 1 })
+    );
+    answer(reply(empty('t1')));
+    await asked;
+    expect(data.totals.counts.t1).toEqual({ total: 1, by_form: { images: 1 } });
+    expect(data.totals.ownedTotal).toBe(1);
+    expect(fetchMock.mock.calls.map((_, n) => sent(n))).toEqual([
+      { sessions: ['t1'] },
+      { sessions: ['t1'] },
+    ]);
+  });
+
+  test('an owner a frame changed in flight is asked again on both sides; untouched ones are not', async () => {
+    const data = mod.createTreeData({ onChange });
+    data.added(entry('u1', T, { owner: 't0', form: 'images' }), []);
+    /** @type {(value: unknown) => void} */
+    let answer = () => {};
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const asked = data.summarize(['t0', 't1', 't2']);
+    // The turn-end stamp moves the upload from t0 to t1.
+    data.updated(entry('u1', T, { owner: 't1', form: 'images' }), []);
+    fetchMock.mockResolvedValueOnce(
+      reply({
+        counts: { t0: { total: 0, by_form: {} }, t1: { total: 1, by_form: { images: 1 } } },
+        owned_total: 1,
+      })
+    );
+    answer(
+      reply({
+        counts: {
+          t0: { total: 1, by_form: { images: 1 } },
+          t1: { total: 0, by_form: {} },
+          t2: { total: 3, by_form: { plots: 3 } },
+        },
+        owned_total: 4,
+      })
+    );
+    await asked;
+    expect(data.totals.counts.t0.total).toBe(0);
+    expect(data.totals.counts.t1.by_form.images).toBe(1);
+    expect(data.totals.counts.t2.total).toBe(3);
+    expect(sent(1)).toEqual({ sessions: ['t0', 't1'] });
+  });
+
+  test('a frame with no summary in flight asks nothing', async () => {
+    const data = mod.createTreeData({ onChange });
+    fetchMock.mockResolvedValueOnce(reply(empty('t1')));
+    await data.summarize(['t1']);
+    data.added(entry('u1', T, { owner: 't1', form: 'images' }), []);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(data.totals.counts.t1.by_form.images).toBe(1);
+  });
+});
