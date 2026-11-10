@@ -131,7 +131,9 @@ def _menu_key(page: Page, target: Locator, *, aria: str | None = None) -> list[s
     labels = _labels(menu)
     page.keyboard.press("Escape")
     expect(menu).to_have_count(0, timeout=5_000)
-    assert page.evaluate("(el) => document.activeElement === el", before)
+    # Focus comes back after the menu is gone, not with it: wait for it rather
+    # than read it once, which races the close on a loaded runner.
+    page.wait_for_function("(el) => document.activeElement === el", arg=before, timeout=5_000)
     return labels
 
 
