@@ -23,7 +23,7 @@ from osprey.phoebus_agent_access import DRIVE_TOOL, READ, READ_WRITE, SERVER_TEM
 # The leaf, not ``osprey.profiles.web_panels``: that module loads starlette and
 # the web credential module, which a registry every build imports must not.
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS, SidecarPanel
-from osprey.utils.owner_header import OWNER_HEADER
+from osprey.utils.owner_header import OWNER_HEADER, SESSION_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey_connectors.identity import IDENTITY_ENV_LADDER
 from osprey_connectors.posture_store import (
@@ -805,7 +805,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         # fired from a held session.
         headers={
             "Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}",
-            "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+            SESSION_HEADER: "${OSPREY_SESSION_ID:-}",
         },
         # Conditional on the EVENTS panel, read through the same predicate that
         # grants the dispatcher token itself (see the ctx key's own comment in
@@ -897,7 +897,7 @@ def derive_panel_servers(
             url=f"{PANEL_PROXY_ORIGIN}/panel/{panel_id}{panel.mcp_path}",
             headers={
                 "Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}",
-                "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+                SESSION_HEADER: "${OSPREY_SESSION_ID:-}",
             },
             condition=f"{PANEL_DECLARED_CONDITION_PREFIX}{panel_id}",
             permissions_allow=list(panel.mcp_allow),

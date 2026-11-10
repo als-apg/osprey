@@ -103,7 +103,9 @@ names the same reason.
 
 Where a watchdog has flagged the session, the hook's verdict (gate 2), the server (gate 3) and
 the connector (gate 4) each refuse the write with ``session_held``, and so does a CANOPY
-panel's connector for a click (:ref:`architecture-safety-chain-panel-write`). The approval prompt does
+panel's connector for a click (:ref:`architecture-safety-chain-panel-write`). The terminal's
+panel proxy refuses an application panel's write, before it reaches the container: the
+agent's, which names its session, and the operator's. The approval prompt does
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 :ref:`Safety watchdogs <architecture-safety-watchdogs>`.
 
@@ -171,10 +173,10 @@ What watchdogs do not cover
 - **Only the prompt.** A watchdog judges when a prompt arrives, not after each tool call or
   at the end of a turn. The decision engine sees only about the last 30,000 tokens of a
   session, and it does not treat what a tool returned as hostile.
-- **Only the agent's writes, and CANOPY's.** A write the operator makes from a notebook cell or
-  the BLUESKY panel is not held. CANOPY is the one held operator surface: the agent opens and
-  arranges its screens and drafts, so a held agent could stage a click. A CANOPY panel is held
-  while any live session of its terminal is.
+- **Only the agent's writes, CANOPY's and the applications'.** A write the operator makes from
+  a notebook cell or the BLUESKY panel is not held. CANOPY and the application panels are the
+  held operator surfaces: the agent drives them too, so a held agent could stage a click. Such
+  a panel is held while any live session of its terminal is.
 - **Not motion already running.** A plan the agent started keeps running; stop it with the
   existing tools.
 - **Only the web terminal holds.** ``osprey chat`` or a bare ``claude`` in a built project
