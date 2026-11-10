@@ -1043,10 +1043,10 @@ A login whose image is built elsewhere states its <code class="docutils literal 
 project the image was built from, in its own file (and may state its
 <code class="docutils literal notranslate"><span class="pre">image</span></code>); its terminal runs in <code class="docutils literal notranslate"><span class="pre">/app/&lt;project&gt;</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">&lt;tag&gt;</span></code> is <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>, <code class="docutils literal notranslate"><span class="pre">latest</span></code> when unset.
-A <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> in it is expanded from the environment of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, and a
-variable that is unset there expands to nothing.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> warns when the whole tag comes out empty
-(code <code class="docutils literal notranslate"><span class="pre">web_terminals.empty_image_tag</span></code>).</p>
+A <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> in it is expanded from the environment of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.
+In registry mode a variable that is unset or empty there is refused by lint,
+the build and <code class="docutils literal notranslate"><span class="pre">up</span></code> (code <code class="docutils literal notranslate"><span class="pre">web_terminals.empty_image_tag</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;</span></code> is the top-level <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, with no
 scheme.
 It is the only namespace: two deployments that share a registry keep their

@@ -900,7 +900,9 @@ every write goes through.</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> — a service directory that carries one earns its own image-build
 job in the pipeline:</p>
-<div class="highlight-dockerfile notranslate"><div class="highlight"><pre><span></span><span class="k">FROM</span><span class="w"> </span><span class="s">python:3.11-slim</span>
+<div class="highlight-dockerfile notranslate"><div class="highlight"><pre><span></span><span class="c"># Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.</span>
+<span class="k">ARG</span><span class="w"> </span><span class="nv">OSPREY_BASE_REGISTRY</span><span class="o">=</span><span class="s2">&quot;docker.io&quot;</span>
+<span class="k">FROM</span><span class="w"> </span><span class="s">${OSPREY_BASE_REGISTRY}/library/python:3.11-slim</span>
 
 <span class="k">WORKDIR</span><span class="w"> </span><span class="s">/app</span>
 
@@ -919,7 +921,8 @@ job in the pipeline:</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> — the same channel every packaged service uses: one
 compose template per service directory, rendered by the build.</p>
-<div class="highlight-jinja notranslate"><div class="highlight"><pre><span></span><span class="x">services:</span>
+<div class="highlight-jinja notranslate"><div class="highlight"><pre><span></span><span class="cp">{%</span>- <span class="k">import</span> <span class="s2">&quot;services/_site_image_args.j2&quot;</span> <span class="k">as</span> <span class="nv">site</span> -<span class="cp">%}</span>
+<span class="x">services:</span>
 <span class="x">  facility-mcp:</span>
 <span class="x">    image: ${OSPREY_FACILITY_MCP_IMAGE:-</span><span class="cp">{{</span> <span class="o">(</span><span class="nv">services</span><span class="o">[</span><span class="s1">&#39;facility-mcp&#39;</span><span class="o">]</span> <span class="o">|</span> <span class="nf">default</span><span class="o">({}))</span><span class="nv">.image</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="nv">osprey_labels.project_name</span> <span class="o">~</span> <span class="s1">&#39;-facility-mcp:local&#39;</span><span class="o">)</span> <span class="cp">}}</span><span class="x">}</span>
 <span class="x">    build:</span>
@@ -928,6 +931,9 @@ compose template per service directory, rendered by the build.</p>
 <span class="x">      # own subdir — so the context is the service directory by name.</span>
 <span class="x">      context: ./facility-mcp</span>
 <span class="x">      dockerfile: Dockerfile</span>
+<span class="cp">{%</span>- <span class="k">if</span> <span class="nv">site_image_build_args</span> <span class="cp">%}</span>
+<span class="x">      args:</span><span class="cp">{{</span> <span class="nv">site.build_args</span><span class="o">(</span><span class="nv">site_image_build_args</span><span class="o">)</span> <span class="cp">}}</span>
+<span class="cp">{%</span>- <span class="k">endif</span> <span class="cp">%}</span>
 <span class="x">    # container_name is a HOST-GLOBAL identifier: namespace it per-project so</span>
 <span class="x">    # two OSPREY projects can run this service on one host.</span>
 <span class="x">    container_name: </span><span class="cp">{{</span> <span class="nv">osprey_labels.project_name</span> <span class="cp">}}</span><span class="x">-facility-mcp</span>
@@ -994,7 +1000,6 @@ file:</p>
 <span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey</span>
 <span class="w">    </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/opt/demo-facility</span>
 <span class="w">  </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<span class="w">  </span><span class="nt">ci_image_prefix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mirror.example.org/dockerhub</span>
 </pre></div>
 </div>
 <p>Substitute your own registry and host. <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> carries no scheme — it
@@ -1002,10 +1007,6 @@ appears verbatim inside an image name. <code class="docutils literal notranslate
 whoever presses the deploy button, and <code class="docutils literal notranslate"><span class="pre">host.project_path</span></code> is where this
 repository is checked out on that server. Credentials are <em>named</em> here, never
 written here.</p>
-<p><code class="docutils literal notranslate"><span class="pre">ci_image_prefix</span></code> is where the pipeline pulls the images its own <em>jobs</em> run
-in — Python, Docker and Alpine — so a runner with no route to Docker Hub takes
-them from a mirror instead; leave the key out and the pipeline names the public
-images, which is what a runner with internet access wants.</p>
 <p><code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> says the deploy host builds the web-terminal images
 itself from the rendered login projects, rather than pulling them from a
 registry.</p>
@@ -1023,6 +1024,14 @@ config for you. Saying it in both places is refused by name — the two are
 free to disagree, and the disagreement decides whether the host builds images
 or pulls them.</p>
 </div>
+<p>A runner or deploy host with no route to Docker Hub names a site mirror of it
+under <code class="docutils literal notranslate"><span class="pre">config:</span></code>; leave the key out where Docker Hub is reachable:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">images.base_registry</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mirror.example.org/dockerhub</span>
+</pre></div>
+</div>
+<p>The pipeline’s job images, the base image of every image this repository
+builds, and the Docker Hub images <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> pulls then come from it.</p>
 </section>
 <section id="step-6-add-the-secrets">
 <h2>Step 6 — Add the secrets<a class="headerlink" href="#step-6-add-the-secrets" title="Link to this heading">#</a></h2>

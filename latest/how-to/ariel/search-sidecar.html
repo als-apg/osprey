@@ -681,6 +681,9 @@ derived from configuration you already have:</p>
 </tbody>
 </table>
 </div>
+<p>Embedding is most of an index build, so the <code class="docutils literal notranslate"><span class="pre">ariel</span></code> sidecar computes vectors
+only when ARIEL’s hybrid search queries them: with <code class="docutils literal notranslate"><span class="pre">strategy:</span> <span class="pre">rrf</span></code>, or with
+hybrid search off, it builds the keyword index alone. <code class="docutils literal notranslate"><span class="pre">okf</span></code> always embeds.</p>
 <p>Each sidecar is the compose service <code class="docutils literal notranslate"><span class="pre">qmd-&lt;corpus&gt;</span></code> (<code class="docutils literal notranslate"><span class="pre">qmd-okf</span></code>,
 <code class="docutils literal notranslate"><span class="pre">qmd-ariel</span></code>, …), all running the one image. Its corpus is bind-mounted
 <strong>read-only</strong> at <code class="docutils literal notranslate"><span class="pre">/corpus/&lt;corpus&gt;</span></code> and indexed as a collection of the same
@@ -722,7 +725,11 @@ are found by keyword search only.</p>
 <p>A corpus’s index comes to exist in one of two ways:</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">managed</span></code> (the default)</dt><dd><p>The sidecar indexes <code class="docutils literal notranslate"><span class="pre">source</span></code>, a directory of markdown, and keeps the
-index current itself, exactly as it does for <code class="docutils literal notranslate"><span class="pre">okf</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel</span></code>.</p>
+index current itself, exactly as it does for <code class="docutils literal notranslate"><span class="pre">okf</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel</span></code>.
+<code class="docutils literal notranslate"><span class="pre">embed:</span> <span class="pre">false</span></code>, for a corpus searched by keyword alone, skips the
+embedding pass; a vector search on that corpus returns nothing. Turning
+<code class="docutils literal notranslate"><span class="pre">embed</span></code> off rebuilds the keyword index once, with the search port closed
+meanwhile; turning it back on embeds the pending documents, no rebuild.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">prebuilt</span></code></dt><dd><p>The index was built elsewhere — typically on a GPU host, where embedding
 runs several times faster than on a CPU — and <code class="docutils literal notranslate"><span class="pre">index_dir</span></code> is the

@@ -1340,9 +1340,9 @@ auth method, and by the build itself even with <code class="docutils literal not
 <ul class="simple">
 <li><p><strong>The value must be a usable account name</strong>
 (<code class="docutils literal notranslate"><span class="pre">web_terminals.invalid_user_control_identity</span></code>). It must be a string of
-lowercase letters, digits, <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">-</span></code>, starting with a letter or <code class="docutils literal notranslate"><span class="pre">_</span></code>,
-at most 32 characters. <code class="docutils literal notranslate"><span class="pre">root</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and every <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> name are
-reserved for the framework, and the accounts the base image already ships
+lowercase letters, digits, <code class="docutils literal notranslate"><span class="pre">.</span></code>, <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">-</span></code>, starting with a letter or
+<code class="docutils literal notranslate"><span class="pre">_</span></code>, at most 32 characters. <code class="docutils literal notranslate"><span class="pre">root</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and every <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey.*</span></code> name are reserved for the framework, and the accounts the base image already ships
 (<code class="docutils literal notranslate"><span class="pre">daemon</span></code>, <code class="docutils literal notranslate"><span class="pre">nobody</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">backup</span></code> and the rest) are refused too.</p></li>
 <li><p><strong>A shared card cannot carry one</strong> (<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_control_identity</span></code>).
 Everyone who opens a shared card writes through it, so a fixed name would

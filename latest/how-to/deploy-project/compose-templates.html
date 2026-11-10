@@ -755,18 +755,19 @@ fails at <code class="docutils literal notranslate"><span class="pre">up</span><
 <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code> for a single build.</p></td>
 </tr>
 <tr class="row-odd"><td><p>The upstream pins</p></td>
-<td><p>One row at a time: <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> (or the row’s
-<code class="docutils literal notranslate"><span class="pre">OSPREY_..._IMAGE</span></code> variable) naming your mirrored copy. The agent
-record’s ClickHouse store has no variable: the profile’s
-<code class="docutils literal notranslate"><span class="pre">agent_record.clickhouse.image</span></code> names its mirrored copy.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> (or <code class="docutils literal notranslate"><span class="pre">OSPREY_BASE_REGISTRY</span></code>) moves every
+Docker Hub pin onto your mirror at once; a <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> row
+(or its <code class="docutils literal notranslate"><span class="pre">OSPREY_..._IMAGE</span></code>) still names one outright. tiled is on
+ghcr.io and needs its row. The agent record’s ClickHouse store has no
+variable: the profile’s <code class="docutils literal notranslate"><span class="pre">agent_record.clickhouse.image</span></code> names it.</p></td>
 </tr>
 <tr class="row-even"><td><p>The web tier’s images, auth sidecar included</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">registry.url</span></code> plus <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p>nginx</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.nginx_image</span></code>. <strong>It carries no environment
-variable</strong>, so a mirror reaches it through <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> only —
-there is no one-shell equivalent.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> reaches it too.
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.nginx_image</span></code> names it outright; <strong>that key
+carries no environment variable</strong>.</p></td>
 </tr>
 </tbody>
 </table>
@@ -775,27 +776,18 @@ there is no one-shell equivalent.</p></td>
 <span class="nt">images</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator</span>
 <span class="w">  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.08.1&quot;</span>
+<span class="w">  </span><span class="nt">base_registry</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/dockerhub</span>
 
 <span class="nt">registry</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator</span>
 
 <span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/pgvector/pgvector:pg16</span>
-<span class="w">  </span><span class="nt">mongodb</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/mongo:7</span>
-<span class="w">  </span><span class="nt">graphdb</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/neo4j:5.26-community</span>
 <span class="w">  </span><span class="nt">bluesky</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tiled_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/tiled:0.2.18</span>
-<span class="w">    </span><span class="nt">redis_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/redis:7.4-alpine</span>
-<span class="w">  </span><span class="nt">optimizer</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">redis_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/redis:7.4-alpine</span>
 
 <span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image_tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.08.1&quot;</span>
-<span class="w">    </span><span class="nt">nginx_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/nginx:1.31-alpine</span>
 </pre></div>
 </div>
 <p>Copy only the rows for services you actually deploy — the upstream pins for a

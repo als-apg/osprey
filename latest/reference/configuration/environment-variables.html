@@ -531,14 +531,16 @@ use the runtime <code class="docutils literal notranslate"><span class="pre">var
 <code class="docutils literal notranslate"><span class="pre">images.tag</span></code> — see <a class="reference internal" href="config.html#deployment-image-overrides"><span class="std std-ref">the two image axes</span></a>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code>,
-<code class="docutils literal notranslate"><span class="pre">PIP_EXTRA_INDEX_URL</span></code></p></td>
+<code class="docutils literal notranslate"><span class="pre">PIP_EXTRA_INDEX_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_BASE_REGISTRY</span></code></p></td>
 <td><p>The site’s build settings — a CA bundle for a TLS-intercepting proxy, a
-proxy bypass list, and the package indexes pip resolves from — for one
-build, outranking <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> /
-<code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> exactly as the
-two image axes outrank <code class="docutils literal notranslate"><span class="pre">images.registry</span></code> / <code class="docutils literal notranslate"><span class="pre">images.tag</span></code>. Whichever
-layer wins is handed to the project image, each web-terminal
-image and the login sidecar — see
+proxy bypass list, the package indexes pip resolves from, and the
+registry standing in for docker.io — for one build,
+outranking <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> /
+<code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> /
+<code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> exactly as the two image axes outrank
+<code class="docutils literal notranslate"><span class="pre">images.registry</span></code> / <code class="docutils literal notranslate"><span class="pre">images.tag</span></code>. Whichever layer wins is handed to
+every image <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds, service images included; the registry
+also moves every Docker Hub image it pulls — see
 <a class="reference internal" href="../../how-to/deploy-project/project-image.html"><span class="doc">The Project Image</span></a>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code></p></td>
@@ -546,9 +548,10 @@ image and the login sidecar — see
 bundles <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> downloads. The equivalent config key is
 <code class="docutils literal notranslate"><span class="pre">offline</span></code>; use the variable for a single run, the key for a
 deployment that is always firewalled. Whichever layer wins is also
-passed to those same three builds as the <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code> build
-argument, which runs <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> inside the image, so the
-mode an image was built for and the mode it serves in cannot disagree.</p></td>
+passed to every image <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds as the <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code>
+build argument; the recipes that serve web assets (the project image and
+the bluesky-web image) run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> under it, so the mode
+an image was built for and the mode it serves in cannot disagree.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_CA_BUNDLE</span></code></p></td>
 <td><p>Path to a CA bundle for hosts behind a TLS-intercepting proxy, so

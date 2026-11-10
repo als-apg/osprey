@@ -651,10 +651,10 @@ image.</p>
 <ul class="simple">
 <li><p>the top-level <code class="docutils literal notranslate"><span class="pre">offline</span></code> key</p></li>
 <li><p>the <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code>
-/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> block</p></li>
+/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> / <code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> block</p></li>
 </ul>
-<p>It resolves them once and hands them to the three images built from these
-recipes: the project image, each web-terminal image and the login sidecar. Set
+<p>It resolves them once and hands them to every image it builds: the project
+image, each web-terminal image, the login sidecar and each service image. Set
 them there and a site network is configured in one place.</p>
 <p>The build arguments below are the same settings under the names a hand-run
 <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code> uses. An environment variable of the same name
@@ -694,18 +694,25 @@ resolves from PyPI.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
 <td><p>A second index, consulted after the first. Same handling.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BASE_REGISTRY</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">docker.io</span></code></p></td>
+<td><p>Registry standing in for <code class="docutils literal notranslate"><span class="pre">docker.io</span></code>: the base image is
+<code class="docutils literal notranslate"><span class="pre">${OSPREY_BASE_REGISTRY}/library/&lt;image&gt;</span></code>. The mirror must keep Docker
+Hub’s paths; pull-through caches such as a Harbor proxy project, an
+Artifactory remote and a Nexus docker proxy do.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> vendors web assets (JS/CSS/fonts) into the image via
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> so the web UI works without internet access.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">CLAUDE_CLI_VERSION</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CLAUDE_CLI_VERSION</span></code></p></td>
 <td><p>pinned at build time</p></td>
 <td><p>Version of the agent CLI installed into the image. The default pin
 matches the framework version that generated the Dockerfile; override
 to test a newer CLI without regenerating the project.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
 <td><p>Name of a site CA file staged in the build context, for networks
 where a proxy re-signs TLS with its own CA — see

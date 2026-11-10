@@ -1850,8 +1850,8 @@ is what it always was — <code class="docutils literal notranslate"><span class
 deployment that never heard of them is unaffected.</p></li>
 </ul>
 <p>The axes never touch an upstream pin. Prefixing <code class="docutils literal notranslate"><span class="pre">mongo:7</span></code> with your
-registry would name an image that exists in no registry; mirror those through
-their own row instead.</p>
+registry would name an image that exists in no registry.
+<code class="docutils literal notranslate"><span class="pre">images.base_registry</span></code> moves the Docker Hub ones onto a mirror; a <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> pin moves one.</p>
 </section>
 </section>
 <section id="where-var-values-come-from">
