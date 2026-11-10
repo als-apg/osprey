@@ -120,7 +120,7 @@ docker run -d --name omb-bench-ariel-pg --restart unless-stopped \
   -e POSTGRES_USER=ariel -e POSTGRES_PASSWORD=ariel -e POSTGRES_DB=ariel \
   -p 127.0.0.1:5432:5432 pgvector/pgvector:pg16
 ``` Mid-session,
-`tests/e2e/provider_refusal.py` holds the rule: auth, network and unserved-model refusals
+`tests/e2e/refusals.py` holds the rule: auth, network and unserved-model refusals
 are always setup errors, a rate limit or 5xx only if no model turn happened.
 
 The other in-scope tests carry `harness_benchmark` (the assertion is OSPREY's,
