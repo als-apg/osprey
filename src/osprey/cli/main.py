@@ -65,7 +65,6 @@ class LazyGroup(click.Group):
             "validate": "osprey.cli.validate_cmd",
             "chat": "osprey.cli.chat_cmd",  # Agent session against build/
             "health": "osprey.cli.health_cmd",
-            "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
             "ariel": "osprey.cli.ariel",  # ARIEL search service
             "archive": "osprey.cli.archive_cmd",  # Artifacts and plan-queue history
@@ -148,7 +147,6 @@ class LazyGroup(click.Group):
             "config",
             "health",
             "channel-finder",
-            "eject",
             "ariel",
             "archive",
             "history",
