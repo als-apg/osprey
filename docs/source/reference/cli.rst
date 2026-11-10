@@ -34,6 +34,7 @@ names another one explicitly.
    osprey reset              # Wipe it back to a fresh state
    osprey config             # Show the deployment configuration
    osprey chat               # Talk to this deployment's agent
+   osprey query              # Send one prompt to the agent, print the answer, exit
    osprey users              # Manage web-terminal users
    osprey write-authorization # Approve, list and revoke programs' write authorizations
    osprey feedback           # Read feedback sent from the web terminals
@@ -43,6 +44,7 @@ names another one explicitly.
    osprey knowledge          # Facility knowledge bundles and graph corpus
    osprey facility           # Check and show the facility description under data/facility/
    osprey app                # Make and check a deployment's apps
+   osprey sim                # Simulation scenario commands
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy artifacts and plan-queue history into var/archive
@@ -125,11 +127,24 @@ handy for a second stack beside one already on the default 10000 block).
 
 ``--force`` — Re-materialize the source zone of an existing deployment
 repository, discarding edits to ``profile.yml``, ``data/``, ``tiers/``,
-``apps/``, ``triggers.yml``, ``web-terminal-context/``, and ``.env.example``. In
-``providers.yml`` the entries OSPREY ships are reset to the packaged values and
-the ones you added are kept. Never touches ``.env``, ``.git``, ``var/``,
-``build/``, ``.gitignore``, ``README.md``, ``ci-extra.yml``, the CI file,
-``scripts/verify.sh``, or ``mcp_servers/``.
+``apps/``, ``triggers.yml``, ``web-terminal-context/``, ``watchdogs/``, and
+``.env.example``. In ``providers.yml`` the entries OSPREY ships are reset to the
+packaged values and the ones you added are kept. Never touches ``.env``,
+``.git``, ``var/``, ``build/``, ``.gitignore``, ``.env.shared``, ``README.md``,
+``ci-extra.yml``, the CI file, ``scripts/verify.sh``, ``mcp_servers/``, or
+``rules/``.
+
+``--reset`` — Start over on a name used before. Deleting a deployment's
+directory leaves its containers and data volumes behind, because they are keyed
+on the ``project_name``: a repository re-created under that name meets them,
+and its first ``osprey up`` refuses to start while an old store would reject
+the freshly minted credential. ``--reset`` makes the removal
+``osprey reset --yes`` makes (the containers, data volumes and images, and,
+when the repository still exists, the agent's memory, ``build/`` and the tokens
+minted into ``.env``), then re-materializes the source zone as ``--force`` does.
+**The data is lost, and nothing asks you to confirm.** It refuses up front when
+no container runtime answers. To keep the old data instead, pass
+``--reuse-stores`` to ``osprey up``.
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
 
@@ -397,6 +412,9 @@ variables.
 ``--runtime-root PATH`` — Override ``project_root`` in the rendered config, for
 a build whose output runs somewhere other than where it was made.
 
+``--dev`` — Render a dev build: bake the local osprey checkout into the service
+images instead of the published release. ``osprey up --dev`` starts it.
+
 ``--repo DIRECTORY`` — Deployment repository to act on (default: the nearest
 ``profile.yml`` at or above the working directory).
 
@@ -452,8 +470,9 @@ with ``osprey set config.deployment.bind_address=0.0.0.0``, then rebuild.
 
 ``-d, --detached`` — Run services in the background.
 
-``--dev`` — Bake the local osprey checkout into the images instead of the
-published release.
+``--dev`` — Start the dev render, with freshly built images running the local
+osprey checkout instead of the published release. Needs a dev build
+(``osprey build --dev``), or ``--build`` to chain one.
 
 ``--build`` — Re-render ``build/`` from ``profile.yml`` first, then start it.
 
@@ -461,7 +480,13 @@ published release.
 has moved on.
 
 ``--keep-archiver-base`` — Keep the existing archiver history even when the
-profile's retention/cadence knobs no longer match it.
+profile's retention/cadence knobs no longer match it. Without it, changed knobs
+rebuild the base series and discard recorded samples.
+
+``--reuse-stores`` — Adopt the data volumes an earlier deployment of this name
+left behind, keeping their contents: each store's original credential is
+restored to ``.env`` in place of the one just generated. Only possible while the
+store's container survives.
 
 osprey down
 -----------
@@ -482,9 +507,10 @@ osprey restart
 
 Stop and start this deployment again. Takes the same options as ``up``:
 ``-d/--detached``, ``--dev``, ``--build``, ``--as-built``,
-``--keep-archiver-base``. The stop half acts on the runtime and compose project
-the last ``osprey up`` recorded; the start half picks the runtime the setting
-selects now.
+``--keep-archiver-base``, ``--reuse-stores``. ``--reuse-stores`` is checked
+before the stop, since stopping removes the containers it reads from. The stop
+half acts on the runtime and compose project the last ``osprey up`` recorded;
+the start half picks the runtime the setting selects now.
 
 osprey status
 -------------
@@ -872,12 +898,12 @@ the command is the service's entry and is not run by hand.
 
 .. code-block:: bash
 
-   osprey history [--host HOST] [--port PORT]
+   osprey history [--host HOST] [-p, --port PORT]
 
 ``--host HOST`` -- Interface to listen on (default ``127.0.0.1``; the service
 listens on every interface of its container).
 
-``--port PORT`` -- Port to serve on (default ``8000``).
+``-p, --port PORT`` -- Port to serve on (default ``8000``).
 
 The page reads the agent record at ``OSPREY_AGENT_RECORD_URL`` with the
 record's ``history`` login (``OSPREY_AGENT_RECORD_LOGIN``), naming the viewer
@@ -1054,8 +1080,11 @@ Copy framework services to your project for customization.
 ``osprey eject list``
    List all ejectable framework capabilities and services.
 
-``osprey eject service NAME [--output PATH] [--include-tests]``
-   Copy a framework service directory locally.
+``osprey eject service NAME [-o, --output PATH] [--include-tests]``
+   Copy a framework service directory locally, sub-modules included.
+   ``-o, --output PATH`` names the destination (default:
+   ``./src/<package>/services/<name>/``); ``--include-tests`` also copies the
+   service's test files.
 
 .. code-block:: bash
 
@@ -1070,15 +1099,22 @@ channel databases.
 
 Options: ``--project PATH``, ``-v, --verbose``
 
-``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
+``osprey channel-finder validate [-d, --database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
    Validate a channel database JSON file. ``--pipeline`` names the paradigm: the
    file is read as that paradigm, and without ``--database`` it is the one at
    ``channel_finder.pipelines.<pipeline>.database.path`` --- the command refuses,
    naming that key, when it is unset. Without ``--pipeline`` the paradigm is
    auto-detected from the project's config.
 
-``osprey channel-finder preview``
-   Preview a channel database with flexible display options.
+``osprey channel-finder preview [--depth N] [--max-items N] [--sections LIST] [--focus PATH] [--database PATH] [--full]``
+   Preview a channel database as a tree; the paradigm is auto-detected from
+   the project's config. ``--depth`` is the tree depth to display and
+   ``--max-items`` the most items shown per level (both default ``3``; ``-1``
+   for unlimited). ``--sections`` is a comma-separated list of ``tree``,
+   ``stats``, ``breakdown``, ``samples`` or ``all`` (default ``tree``).
+   ``--focus`` shows one path only (``M:QB`` for the QB family in the M
+   system). ``--database`` reads that file instead of the configured one, and
+   ``--full`` shows the complete hierarchy (``--depth -1 --max-items -1``).
 
 ``osprey channel-finder benchmark --model PROVIDER/WIRE_ID [--queries SPEC] [--runs-per-query N] [--concurrency N] [--output-dir DIR] [--queries-path PATH] [-v]``
    Run the benchmark harness against a channel-finder pipeline using a
@@ -1353,7 +1389,7 @@ osprey ariel
 Manage the ARIEL logbook search service. Run from anywhere inside a deployment
 repo: the commands read its ``build/config.yml``.
 
-``osprey ariel quickstart [--source PATH]``
+``osprey ariel quickstart [-s, --source PATH]``
    Full setup: migrate, then ingest ``--source`` or the configured ingestion
    source; with neither, enhance what the logbook already holds (a deploy
    seeds it from the active scenarios).
@@ -1373,18 +1409,22 @@ repo: the commands read its ``build/config.yml``.
    build; on a fresh database, runs a full ingest. ``--watch`` keeps polling
    the source after the sync.
 
-``osprey ariel ingest --source PATH [--adapter TYPE] [--since DATE] [--limit N] [--dry-run]``
+``osprey ariel ingest -s, --source PATH [-a, --adapter TYPE] [--since DATE] [--limit N] [--dry-run]``
    Ingest logbook entries from file or URL.
 
-``osprey ariel watch [--source PATH] [--adapter TYPE] [--once] [--interval N] [--dry-run]``
+``osprey ariel watch [-s, --source PATH] [-a, --adapter TYPE] [--once] [--interval N] [--dry-run]``
    Poll the source for new entries and ingest them. ``--once`` runs a single
    poll cycle. Nothing is ingested until one earlier ``ingest`` has run,
    unless ``ingestion.watch.require_initial_ingest`` is false.
 
-``osprey ariel enhance [--module NAME] [--force] [--limit N] [--retry-failed]``
+``osprey ariel enhance [-m, --module NAME] [--force] [--limit N] [--retry-failed] [--refresh-stale] [--entry ID]``
    Run the enhancement modules over entries not yet enhanced. ``--force``
    re-runs the text modules; ``--retry-failed`` retries what ``--module``
-   gave up on.
+   gave up on. ``--refresh-stale``, with ``--module image_caption``, captions
+   again the pictures captioned with an older prompt. ``--entry ID``, with
+   ``--module``, re-runs that module for one failed or stale entry; it is the
+   command an entry's enhancement card shows, and it takes no option besides
+   ``--module``.
 
 ``osprey ariel qmd-resync [--rebuild]``
    Re-export entries the qmd markdown mirror never saw --- entries created in
@@ -1420,7 +1460,7 @@ repo: the commands read its ``build/config.yml``.
    when the table predates the key column (``schema behind code: run osprey
    ariel migrate``).
 
-``osprey ariel purge [--yes] [--embeddings-only]``
+``osprey ariel purge [-y, --yes] [--embeddings-only]``
    Delete all ARIEL data. ``--embeddings-only`` keeps the entries and clears
    the embedding tables.
 
@@ -1447,7 +1487,8 @@ osprey web
 Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
 ``osprey web [OPTIONS]``
-   Start the web terminal server (default: ``http://127.0.0.1:10100``). On
+   Start the web terminal server (default: ``127.0.0.1`` at the port layout's
+   web port, ``port_base`` + 100, so ``10100`` on the default block). On
    startup it prints a login URL (``…/?token=…``) that signs you in and then
    redirects to the clean address. The cookie it sets lasts
    ``modules.web_terminals.auth.session_lifetime`` seconds (default ``43200``,
@@ -1456,10 +1497,11 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    URL is printed once, but its token is the server's own secret and stays
    valid for the life of the process — treat it like a password.
 
-   ``-p, --port INTEGER`` — Port (default: from config, else the port layout's ``10100``).
+   ``-p, --port INTEGER`` — Port (default: ``OSPREY_WEB_PORT``, then config, else
+   the port layout's web port, ``port_base`` + 100).
    0 lets the system choose; the startup line names the port; not with ``--reload``.
 
-   ``--host TEXT`` — Host to bind to (default: ``127.0.0.1``).
+   ``--host TEXT`` — Host to bind to (default: from config, else ``127.0.0.1``).
 
    ``--shell TEXT`` — Shell command to run (default: ``claude``).
 
@@ -1471,13 +1513,16 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
    ``--reload`` — Auto-reload for development.
 
-``osprey web stop``
+   ``--skip-preflight`` — Skip the pre-flight checks (companion port collisions
+   and the like) and start anyway. Without it, a failed check refuses the start.
+
+``osprey web stop [--repo DIRECTORY]``
    Stop a background web terminal server.
 
 ``osprey web sessions``
    Group for the commands that manage the sessions kept on disk.
 
-``osprey web sessions clear``
+``osprey web sessions clear [--repo DIRECTORY] [--force]``
    Forget the sessions this project has kept on disk, so everyone has to open
    the login URL again. It refuses to run while a server is using them — stop
    it first with ``osprey web stop``.
@@ -1657,7 +1702,8 @@ All subcommands accept a common flag:
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
    allocation, reserved service names, duplicate users, tier and app references).
    Exits non-zero on error-severity findings; warnings do not fail the check,
-   so it is safe to wire into a CI gate.
+   so it is safe to wire into a CI gate. The retired ``--config`` is refused,
+   as under ``render`` below.
 
 ``osprey scaffold web-terminals render [--repo DIRECTORY] -o DIRECTORY``
    Render the multi-user deployment artifacts (docker-compose overlay, nginx
@@ -1665,6 +1711,9 @@ All subcommands accept a common flag:
    default and aborts on errors; ``--no-lint`` skips the pre-check.
 
    Both verbs read the stanza from the repository's built ``config.yml``.
+   ``--config`` is retired: it is still accepted so that an old command line
+   gets an error naming what replaced it (``--repo`` and the built
+   ``config.yml``), and the verb exits 1 without doing anything.
 
 .. code-block:: bash
 

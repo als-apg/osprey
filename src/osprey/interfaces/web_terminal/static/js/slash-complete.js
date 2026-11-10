@@ -38,7 +38,8 @@ export function kindTag(command) {
       ? 'A skill. The agent may also use it on its own.'
       : 'A skill only you run. The agent does not use it on its own.';
   } else {
-    tag.textContent = command.kind === 'builtin' ? 'built-in' : 'command';
+    tag.textContent =
+      command.kind === 'builtin' || command.kind === 'browser' ? 'built-in' : 'command';
   }
   return tag;
 }

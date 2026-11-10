@@ -33,7 +33,6 @@ class _SiteGatewayAdapter(BaseProvider):
     description = "A gateway a site registers for itself"
     requires_api_key = True
     requires_base_url = False
-    requires_model_id = False
     supports_proxy = False
     api_key_env_var = SITE_GATEWAY_VAR
 

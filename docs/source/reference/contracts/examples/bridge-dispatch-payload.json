@@ -1,0 +1,17 @@
+{
+  "question": "now plot that over 24 hours",
+  "asker": {"id": "users/111", "name": "Alice"},
+  "room": {"members": [{"id": "users/111", "name": "Alice"},
+                       {"id": "users/222", "name": "Carol"},
+                       {"id": "users/333", "name": null}],
+           "mentions": "To @mention a member of this room, write <@ID> ..."},
+  "conversation_so_far": [{"question": "...", "answer": "...", "ts": 1757000000.0,
+                           "run_id": "run-...", "artifacts": [],
+                           "asked_by": {"id": "users/222", "name": "Carol"},
+                           "answer_chars": 4210}],
+  "prior_answer_runs": ["run-..."],
+  "reply_to": {"sender": "Alice", "text": "the vacuum trace from this morning"},
+  "input_files": [{"filename": "trace.png", "mime": "image/png",
+                   "content_b64": "...", "ingest": true}],
+  "skipped_attachments": [{"filename": "scan.h5", "reason": "..."}]
+}

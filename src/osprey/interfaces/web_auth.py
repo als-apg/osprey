@@ -302,6 +302,10 @@ def _digest(session_id: str) -> str:
     return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
 
 
+#: Read back only by the web terminal that writes it, under its own uid: it holds login sessions.
+_SESSIONS_FILE_MODE = 0o600
+
+
 class SessionStore:
     """The on-disk half of the browser-session map.
 
@@ -477,7 +481,7 @@ class SessionStore:
         atomic_replace(
             self._path,
             json.dumps(payload, sort_keys=True).encode("utf-8"),
-            mode=0o600,
+            mode=_SESSIONS_FILE_MODE,
             sync="best_effort",
         )
 
