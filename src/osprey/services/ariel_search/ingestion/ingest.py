@@ -111,8 +111,10 @@ async def ingest_one(
     """
     entry_id = entry["entry_id"]
     await extract_metadata_from_attachments(entry, adapter=adapter)
-    # Read from the facility logbook, so the facility has a page for it.
-    entry["metadata"] = with_sync_status(entry.get("metadata"), SyncStatus.SYNCED)
+    # Read from the adapter's source: a facility page exists unless that source
+    # is one the facility never sees (the same file a local-only write lands in).
+    status = SyncStatus.LOCAL_ONLY if adapter.writes_local_only else SyncStatus.SYNCED
+    entry["metadata"] = with_sync_status(entry.get("metadata"), status)
 
     if not (await repo.schema_facts()).has_copy_state:
         await repo.upsert_entry(entry)

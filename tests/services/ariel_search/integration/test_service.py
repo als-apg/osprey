@@ -289,6 +289,7 @@ class TestCreateEntryFollowsUpReadback:
         assert result.sync_status == SyncStatus.SYNCED
         stored = await repository.get_entry(child_id)
         assert stored["metadata"]["follows_up"] == parent_id
-        # the read-back is otherwise the authority: its keys replace the local copy's
+        # the read-back is otherwise the authority: its keys replace the local copy's,
+        # and it records that the facility now holds the entry
         assert stored["metadata"]["logbook"] == "Operations"
-        assert "sync_status" not in stored["metadata"]
+        assert stored["metadata"]["sync_status"] == SyncStatus.SYNCED.value

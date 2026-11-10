@@ -3732,6 +3732,7 @@ async def seed_logbook_entries(
         guess_mime_type,
         store_native_attachment,
     )
+    from osprey.services.ariel_search.entry_url import SIMULATION_SOURCE_SYSTEM
     from osprey.services.ariel_search.models import SyncStatus, with_sync_status
 
     config = _ariel_config(config_dict)
@@ -3739,7 +3740,7 @@ async def seed_logbook_entries(
     pictures = pictures or {}
     count = 0
     async with service:
-        run_id = await service.repository.start_ingestion_run("Simulation")
+        run_id = await service.repository.start_ingestion_run(SIMULATION_SOURCE_SYSTEM)
         try:
             for entry in entries:
                 entry = {

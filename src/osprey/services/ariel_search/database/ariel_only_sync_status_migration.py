@@ -22,7 +22,9 @@ from typing import TYPE_CHECKING
 from osprey.services.ariel_search.database.migrations import BaseMigration
 from osprey.services.ariel_search.entry_url import (
     ARIEL_NATIVE_SOURCE_SYSTEM,
+    LEGACY_LOGBOOK_WEB_SOURCE_SYSTEM,
     LOGBOOK_WEB_SOURCE_SYSTEM,
+    SIMULATION_SOURCE_SYSTEM,
 )
 from osprey.services.ariel_search.models import SyncStatus
 from osprey_connectors.logger import get_logger
@@ -36,8 +38,8 @@ logger = get_logger("ariel")
 ARIEL_ONLY_SOURCE_SYSTEMS = (
     ARIEL_NATIVE_SOURCE_SYSTEM,
     LOGBOOK_WEB_SOURCE_SYSTEM,
-    "ARIEL Web",
-    "Simulation",
+    LEGACY_LOGBOOK_WEB_SOURCE_SYSTEM,
+    SIMULATION_SOURCE_SYSTEM,
 )
 
 _STAMP_SQL = """

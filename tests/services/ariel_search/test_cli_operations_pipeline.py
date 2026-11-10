@@ -1963,7 +1963,48 @@ class TestWritePathsRecordSyncStatus:
         from osprey.services.ariel_search.ingestion.ingest import ingest_one
 
         entry = {**_entries(1)[0], "metadata": {"logbook": "Ops"}}
-        await ingest_one(entry, MagicMock(), mock_repository, [], mock_repository.config, None)
+        adapter = MagicMock(writes_local_only=False)
+        await ingest_one(entry, adapter, mock_repository, [], mock_repository.config, None)
 
         stored = mock_repository.upsert_entry.call_args.args[0]
         assert stored["metadata"] == {"logbook": "Ops", "sync_status": "synced"}
+
+    async def test_a_generic_json_entry_stays_local_only_through_ingest(
+        self, tmp_path, mock_repository
+    ):
+        """An entry written to the JSON file and read back from it keeps no facility link."""
+        from unittest.mock import patch
+
+        from osprey.services.ariel_search.config import ARIELConfig
+        from osprey.services.ariel_search.entry_url import build_entry_url
+        from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
+        from osprey.services.ariel_search.ingestion.ingest import ingest_one
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        source = tmp_path / "logbook.json"
+        source.write_text('{"entries": []}')
+        adapter = GenericJSONAdapter(
+            ARIELConfig.from_dict(
+                {
+                    "database": {"uri": "postgresql://test"},
+                    "ingestion": {"adapter": "generic_json", "source_url": str(source)},
+                }
+            )
+        )
+        entry_id = await adapter.create_entry(FacilityEntryCreateRequest(subject="S", details="D"))
+
+        (entry,) = [e async for e in adapter.fetch_entries()]
+        assert entry["entry_id"] == entry_id
+        await ingest_one(entry, adapter, mock_repository, [], mock_repository.config, None)
+
+        stored = mock_repository.upsert_entry.call_args.args[0]
+        assert stored["metadata"]["sync_status"] == "local_only"
+        with patch(
+            "osprey_connectors.config.get_config_value",
+            lambda path, default=None, _config_path=None: (
+                "https://logbook.example/{entry_id}"
+                if path == "ariel.entry_url_template"
+                else default
+            ),
+        ):
+            assert build_entry_url(entry_id, metadata=stored["metadata"]) is None

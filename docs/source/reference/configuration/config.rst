@@ -953,8 +953,8 @@ agent is told to link that URL as given and never to build one, so with the key
 unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
 because the logbook has no page for it. Every write records which kind an entry
 is in ``metadata.sync_status``, and the URL reads that alone: ``local_only`` for
-an entry ``entry_create`` wrote directly, a Logbook web save, a simulation seed
-or a publish the logbook did not take; ``pending_sync`` or ``synced`` for an
+an entry ``entry_create`` wrote directly, a Logbook web save, a simulation seed,
+an entry of a Generic JSON file or a publish the logbook did not take; ``pending_sync`` or ``synced`` for an
 entry the facility logbook holds. Entries stored before the field was recorded
 everywhere are stamped once by the ``ariel_only_sync_status`` migration. A
 ``sql_query`` row also gets none when looking up the ``metadata`` it does not

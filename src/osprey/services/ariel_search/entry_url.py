@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ARIEL_NATIVE_SOURCE_SYSTEM",
+    "LEGACY_LOGBOOK_WEB_SOURCE_SYSTEM",
     "LOGBOOK_WEB_SOURCE_SYSTEM",
+    "SIMULATION_SOURCE_SYSTEM",
     "build_entry_url",
     "is_ariel_only",
 ]
@@ -36,6 +38,13 @@ ARIEL_NATIVE_SOURCE_SYSTEM = "ARIEL MCP"
 # locally (no facility write path). Entries saved before it was introduced keep
 # their stored "ARIEL Web"; nothing rewrites them.
 LOGBOOK_WEB_SOURCE_SYSTEM = "OSPREY Logbook Web"
+
+# The name such saves were stored under before LOGBOOK_WEB_SOURCE_SYSTEM; the
+# logbook_web_source_system migration renames it.
+LEGACY_LOGBOOK_WEB_SOURCE_SYSTEM = "ARIEL Web"
+
+# The source_system value of an entry seeded from a simulation scenario bundle.
+SIMULATION_SOURCE_SYSTEM = "Simulation"
 
 # One-time guard so a malformed template does not spam the per-entry hot path.
 _entry_url_template_warned = False
