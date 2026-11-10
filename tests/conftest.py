@@ -1493,7 +1493,7 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
         # that counts builder calls by patching the package attribute still
         # sees this path go through it.
         from osprey.services.channel_finder.graph_index import build_graph_index
-        from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+        from osprey.services.graph_store.seeder import ttl_sha256
 
         try:
             digest = ttl_sha256(target.corpus_path.read_text(encoding="utf-8"))

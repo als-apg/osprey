@@ -32,17 +32,13 @@ Public API — consumed by the ``sdk_runner`` and ``dispatch_api`` stamp sites
 * :func:`is_budget_subtype` — ``True`` for a ``ResultMessage`` subtype that
   signals a resource cap; reuses ``agent_runner.verdict._BUDGET_SUBTYPES`` (the
   single source of truth) rather than re-listing the subtypes.
-* :func:`register_counter_hook` — install the process-lifetime per-class
-  counter callback. The counters module is owned by a separate task; until a
-  hook is registered, :func:`_stamp` only stamps and does not count.
 * :func:`_stamp` — write the class and tool-call count onto an error result and
-  bump the per-class counter via the registered hook.
+  bump the process-lifetime per-class counter in ``counters``.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 # Single source of truth for the resource-cap subtypes. Reused, not duplicated,
@@ -171,42 +167,19 @@ def is_budget_subtype(subtype: str | None) -> bool:
     return subtype is not None and subtype in _BUDGET_SUBTYPES
 
 
-# ---------------------------------------------------------------------------
-# Per-class counter seam
-# ---------------------------------------------------------------------------
-
-# Decoupling seam for the process-lifetime per-class counters, whose module is
-# owned by a later task. That module calls :func:`register_counter_hook` once at
-# import/boot to install a callback; :func:`_stamp` invokes it (if present) with
-# the failure class it just stamped. Keeping the dependency inverted this way
-# lets the two modules ship and be tested independently.
-_counter_hook: Callable[[str], None] | None = None
-
-
-def register_counter_hook(hook: Callable[[str], None] | None) -> None:
-    """Install (or clear, with ``None``) the per-class counter callback.
-
-    The callback receives the stamped ``failure_class`` string and is expected
-    to increment a process-lifetime counter for it. Passing ``None`` detaches
-    the hook (useful for test isolation).
-    """
-    global _counter_hook
-    _counter_hook = hook
-
-
 def _bump_counter(failure_class: str) -> None:
-    """Invoke the registered counter hook, swallowing any error it raises.
+    """Bump the process-lifetime counter for ``failure_class``, swallowing errors.
 
-    Counting is observability, never load-bearing: a broken or absent hook must
-    not turn a stamped error result into a second failure.
+    Counting is observability, never load-bearing: a counter failure must not
+    turn a stamped error result into a second failure. ``counters`` imports this
+    module's :data:`FAILURE_CLASSES`, so it is imported here, at call time.
     """
-    hook = _counter_hook
-    if hook is None:
-        return
     try:
-        hook(failure_class)
+        from osprey.mcp_server.dispatch_worker import counters
+
+        counters.increment(failure_class)
     except Exception:  # pragma: no cover - defensive
-        logger.debug("failure-class counter hook raised for %r", failure_class, exc_info=True)
+        logger.debug("failure-class counter raised for %r", failure_class, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +198,7 @@ def _stamp(
     * ``result["num_tool_calls"]`` is set to ``num_tool_calls`` (``None`` is a
       valid value — the count is unknown at some sites).
 
-    The process-lifetime per-class counter for ``failure_class`` is bumped via
-    the registered hook (a no-op until one is registered).
+    The process-lifetime per-class counter for ``failure_class`` is bumped.
 
     Args:
         result: The error-result dict to annotate.

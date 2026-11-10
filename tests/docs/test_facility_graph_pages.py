@@ -119,20 +119,20 @@ def _page_cypher() -> str:
 
 
 def test_the_page_initialises_n10s_with_the_seeder_settings() -> None:
-    from osprey.services.facility_knowledge.seeder import N10S_GRAPH_CONFIG
+    from osprey.services.graph_store import N10S_GRAPH_CONFIG
 
     assert graphconfig_init_params(_page_cypher()) == N10S_GRAPH_CONFIG
 
 
 def test_the_page_creates_the_constraint_the_seeder_creates() -> None:
-    from osprey.services.facility_knowledge.seeder.graph_seeder import _CONSTRAINT_CYPHER
+    from osprey.services.graph_store.seeder import _CONSTRAINT_CYPHER
 
     assert constraint_statement(_page_cypher()) == _CONSTRAINT_CYPHER
 
 
 def test_a_mutated_cypher_block_is_caught() -> None:
-    from osprey.services.facility_knowledge.seeder import N10S_GRAPH_CONFIG
-    from osprey.services.facility_knowledge.seeder.graph_seeder import _CONSTRAINT_CYPHER
+    from osprey.services.graph_store import N10S_GRAPH_CONFIG
+    from osprey.services.graph_store.seeder import _CONSTRAINT_CYPHER
 
     cypher = _page_cypher()
     assert graphconfig_init_params(cypher.replace("'ARRAY'", "'OVERWRITE'")) != N10S_GRAPH_CONFIG

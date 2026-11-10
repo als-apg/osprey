@@ -28,7 +28,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from osprey.services.facility_knowledge.seeder import prompt_snapshot as mod
+from osprey.services.graph_store import prompt_snapshot as mod
 from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -516,7 +516,7 @@ class TestBakeSnapshot:
             EXAMPLE_QUERIES as cf_examples,
         )
         from osprey.mcp_server.graph.tools.examples_data import EXAMPLE_QUERIES as graph_examples
-        from osprey.services.facility_knowledge.seeder import graph_seeder
+        from osprey.services.graph_store import seeder as graph_seeder
 
         monkeypatch.setattr(graph_seeder, "read_marker", lambda session: "0123456789abcdef")
         monkeypatch.setattr(graph_seeder, "resource_count", lambda session: 42)
@@ -550,7 +550,7 @@ class TestBakeSnapshot:
 
     def test_a_store_that_answers_only_the_schema_still_bakes(self, tmp_path: Path, monkeypatch):
         """`osprey up` stages this bake: a partial store degrades, never raises."""
-        from osprey.services.facility_knowledge.seeder import graph_seeder
+        from osprey.services.graph_store import seeder as graph_seeder
 
         monkeypatch.setattr(graph_seeder, "read_marker", lambda session: None)
         monkeypatch.setattr(graph_seeder, "resource_count", lambda session: 0)
@@ -571,7 +571,7 @@ class TestBakeSnapshot:
         `osprey up` stages this bake; a store erroring on the two new queries has
         to leave the deploy with a prompt rather than an exception.
         """
-        from osprey.services.facility_knowledge.seeder import graph_seeder
+        from osprey.services.graph_store import seeder as graph_seeder
 
         monkeypatch.setattr(graph_seeder, "read_marker", lambda session: "0123456789abcdef")
         monkeypatch.setattr(graph_seeder, "resource_count", lambda session: 42)

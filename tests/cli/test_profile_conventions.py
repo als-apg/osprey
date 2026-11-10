@@ -45,7 +45,6 @@ from osprey.cli.profile_conventions import (
     convention_slot_for,
     destination_for,
     facility_mirror_violation,
-    flatten_dotted,
     flatten_key_paths,
     handwritten_limits_violation,
     is_protected_key,
@@ -59,7 +58,6 @@ from osprey.cli.profile_conventions import (
     reserved_path_channel,
     unknown_root_entries,
     validate_convention_sources,
-    validate_project_mirror,
     warn_unknown_root_entries,
 )
 from osprey.utils.workspace import LAYER_DIRNAMES, RUNTIME_WRITE_PATH_KEYS, TIERS_DIRNAME
@@ -255,21 +253,21 @@ def test_unreserved_paths_are_writable_by_the_mirror(allowed: str):
     assert reserved_path_channel(allowed) is None
 
 
-def test_validate_project_mirror_accepts_a_clean_tree(profile_dir: Path):
+def test_mirror_validation_accepts_a_clean_tree(profile_dir: Path):
     mirror = profile_dir / "project"
     _write(mirror / "docs" / "runbook.md")
     _write(mirror / ".gitignore", "_agent_data/\n")
-    validate_project_mirror(mirror)
+    validate_convention_sources(profile_dir)
 
 
-def test_validate_project_mirror_reports_every_violation(profile_dir: Path):
+def test_mirror_validation_reports_every_violation(profile_dir: Path):
     mirror = profile_dir / "project"
     _write(mirror / "config.yml")
     _write(mirror / ".claude" / "settings.json")
     _write(mirror / "docs" / "runbook.md")
 
     with pytest.raises(BuildProfileError) as excinfo:
-        validate_project_mirror(mirror)
+        validate_convention_sources(profile_dir)
 
     message = str(excinfo.value)
     assert "project/config.yml" in message
@@ -297,7 +295,7 @@ def test_mirror_refusal_states_the_exact_move(profile_dir: Path, mirrored: str, 
     _write(mirror / mirrored)
 
     with pytest.raises(BuildProfileError) as excinfo:
-        validate_project_mirror(mirror)
+        validate_convention_sources(profile_dir)
 
     assert f"Move it: project/{mirrored} → {slot}" in str(excinfo.value)
 
@@ -308,7 +306,7 @@ def test_mirror_refusal_omits_a_move_when_no_directory_owns_the_path(profile_dir
     _write(mirror / ".mcp.json")
 
     with pytest.raises(BuildProfileError) as excinfo:
-        validate_project_mirror(mirror)
+        validate_convention_sources(profile_dir)
 
     message = str(excinfo.value)
     assert "`mcp_servers:`" in message
@@ -324,8 +322,8 @@ def test_convention_slot_for_inverts_destination_for():
     assert convention_slot_for("config.yml") is None
 
 
-def test_validate_project_mirror_tolerates_a_missing_mirror(profile_dir: Path):
-    validate_project_mirror(profile_dir / "project")
+def test_mirror_validation_tolerates_a_missing_mirror(profile_dir: Path):
+    validate_convention_sources(profile_dir)
 
 
 # ── Facility mirror patterns ─────────────────────────────────────────
@@ -643,7 +641,7 @@ def test_mirrored_base_md_is_rejected_naming_the_slot(profile_dir: Path):
     _write(profile_dir / PROJECT_MIRROR_DIR / "docker" / "web-terminal-context" / "base.md")
 
     with pytest.raises(BuildProfileError) as excinfo:
-        validate_project_mirror(profile_dir / PROJECT_MIRROR_DIR)
+        validate_convention_sources(profile_dir)
 
     message = str(excinfo.value)
     assert f"`{PER_USER_CONTEXT_DIRNAME}/{CONTEXT_BASELINE_FILENAME}` slot" in message
@@ -1214,7 +1212,7 @@ def test_a_mirrored_limits_file_is_refused_by_the_limits_stop(profile_dir: Path)
     mirror = profile_dir / "project" / "data"
     _write(mirror / "channel_limits.json", "{}\n")
 
-    validate_project_mirror(profile_dir)  # does not raise
+    validate_convention_sources(profile_dir)  # does not raise
     assert reserved_path_channel("data/channel_limits.json") is None
     assert is_reserved_write("data/channel_limits.json") is not None
     stop = handwritten_limits_violation(profile_dir / "data", profile_dir)
@@ -1591,17 +1589,17 @@ def _config_doc() -> dict:
     }
 
 
-def test_flatten_dotted_leaves_lists_and_scalars_whole():
-    flat = flatten_dotted(_config_doc())
-    assert flat["control_system.limits_checking.enabled"] is True
-    assert flat["control_system.write_tools"] == ["set_pv"]
-    assert flat["logging.level"] == "INFO"
-    assert "control_system" not in flat
+def test_flatten_key_paths_leaves_lists_and_scalars_whole():
+    flat = flatten_key_paths(_config_doc())
+    assert flat[("control_system", "limits_checking", "enabled")] is True
+    assert flat[("control_system", "write_tools")] == ["set_pv"]
+    assert flat[("logging", "level")] == "INFO"
+    assert ("control_system",) not in flat
 
 
-def test_flatten_dotted_keeps_an_empty_mapping_as_a_leaf():
+def test_flatten_key_paths_keeps_an_empty_mapping_as_a_leaf():
     """Otherwise an emptied subtree vanishes and reads as an untouched one."""
-    assert flatten_dotted({"approval": {}}) == {"approval": {}}
+    assert flatten_key_paths({"approval": {}}) == {("approval",): {}}
 
 
 def test_protected_view_keeps_only_protected_keys():
@@ -1728,9 +1726,13 @@ def test_a_dotted_name_cannot_impersonate_a_nested_key():
     flat_name = protected_view(".mcp.json", {"mcpServers": {"evil.srv": {"command": "sh"}}})
     nested = protected_view(".mcp.json", {"mcpServers": {"evil": {"srv": {"command": "sh"}}}})
     assert flat_name != nested
-    assert set(flatten_dotted({"mcpServers": {"evil.srv": {"command": "sh"}}})) == set(
-        flatten_dotted({"mcpServers": {"evil": {"srv": {"command": "sh"}}}})
-    )  # the dotted rendering really does collide — hence the tuple keys
+    assert {
+        ".".join(path)
+        for path in flatten_key_paths({"mcpServers": {"evil.srv": {"command": "sh"}}})
+    } == {
+        ".".join(path)
+        for path in flatten_key_paths({"mcpServers": {"evil": {"srv": {"command": "sh"}}}})
+    }  # the dotted rendering really does collide — hence the tuple keys
 
 
 # ── Posture: is the rendered render still setup_patch-capable? ────────

@@ -1,3 +1,1 @@
-The framework floors `osprey-connectors` at 2026.11.8, the first release with
-`safety_file.ensure_shared_dir` and the named group-shared modes its writers
-now create their directories and files through.
+The framework requires `osprey-connectors>=2026.11.8`, the first release whose simulator view reader names a wiring record's engine role `engine_role` (`Binding.engine_role`, `ENGINE_ROLES`), which the virtual accelerator's runner, the model request and the apps SDK read. The simulator view no longer carries the transitional `role` copy of `engine_role` that connectors before 2026.11.8 read.

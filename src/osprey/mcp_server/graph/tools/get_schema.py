@@ -17,8 +17,8 @@ corpus carries bookkeeping the agent must never see or query:
   excluded the day it appears rather than the day someone remembers it.
 
 Both rules live in
-:mod:`osprey.services.facility_knowledge.seeder.prompt_snapshot`, whose
-:func:`~osprey.services.facility_knowledge.seeder.prompt_snapshot.collect_schema`
+:mod:`osprey.services.graph_store.prompt_snapshot`, whose
+:func:`~osprey.services.graph_store.prompt_snapshot.collect_schema`
 this tool serves: the seed-time capture baked into the agent prompt and this
 live answer are the same collection, so the exclusions cannot drift apart. This
 module keeps aliases to the shared names so the vocabulary contract stays
@@ -35,7 +35,7 @@ from fastmcp.exceptions import ToolError
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.mcp_server.graph.server import make_error, mcp
 from osprey.mcp_server.graph.server_context import GraphStoreError, get_server_context
-from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
+from osprey.services.graph_store.prompt_snapshot import (
     BOOKKEEPING_LABELS,
     BOOKKEEPING_PROPERTIES,
     collect_schema,

@@ -192,7 +192,9 @@ because your own routes will do the same:
 to the backend; ``owner_from_header`` reads it and ``owner_target`` turns it
 into that login's control target, the machine its chip points at. The backend
 never chooses a machine itself, and the same route answers two operators from
-two machines when their chips differ.
+two machines when their chips differ. Two Channel Access machines are the
+exception: a process has one Channel Access context, so ``build_connector``
+refuses a second until the backend restarts.
 
 **It writes through the connector, under that login.** ``build_connector``
 asks OSPREY for a connector to the target; ``bind_owner`` names whose write it

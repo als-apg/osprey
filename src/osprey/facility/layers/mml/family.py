@@ -39,6 +39,7 @@ __all__ = [
     "FieldView",
     "device_rows",
     "family_views",
+    "is_family_dict",
     "system_bodies",
 ]
 
@@ -61,6 +62,41 @@ _SETUP_KEYS: tuple[str, ...] = ("setup", "_setup")
 
 #: Provenance of a description carried over from the export.
 _IMPORTED = "imported"
+
+
+def is_family_dict(name: str, value: object) -> bool:
+    """True when *value*, found under *name*, has the shape of a middle-layer family.
+
+    A family is a dict holding at least one field --- a sub-dict carrying a key
+    of ``CHANNEL_KEYS`` --- or a ``DeviceList``, at the family level or in its
+    ``setup``/``_setup`` block. The rule is structural so that any facility's
+    family names qualify. A name starting with ``_`` is metadata and never a
+    family, and neither ``setup`` nor a ``_``-prefixed sub-dict is a field, so
+    a channel key inside one does not make its parent a family.
+
+    Args:
+        name: The key the value sits under in its parent dict.
+        value: The candidate family body.
+
+    Returns:
+        Whether the value is a family.
+    """
+    if name.startswith("_") or not isinstance(value, dict):
+        return False
+    if "DeviceList" in value:
+        return True
+    for key, child in value.items():
+        if not isinstance(child, dict):
+            continue
+        if key in _SETUP_KEYS:
+            if "DeviceList" in child:
+                return True
+            continue
+        if key.startswith("_"):
+            continue
+        if any(channel_key in child for channel_key in CHANNEL_KEYS):
+            return True
+    return False
 
 
 def _nonblank(value: Any) -> str | None:

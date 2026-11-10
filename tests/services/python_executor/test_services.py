@@ -24,7 +24,6 @@ from osprey.services.python_executor.services import (
     _serialize_matplotlib_figure,
     make_json_serializable,
     serialize_results_to_file,
-    serialize_results_to_file_async,
 )
 
 # ---------------------------------------------------------------------------
@@ -197,23 +196,3 @@ class TestSerializeResultsToFile:
         assert meta["success"] is False
         assert meta["error"] is not None
         assert "fallback_error" in meta
-
-
-class TestSerializeResultsToFileAsync:
-    async def test_async_success_writes_file(self, tmp_path):
-        target = tmp_path / "results.json"
-        meta = await serialize_results_to_file_async({"k": 1}, str(target))
-        assert meta["success"] is True
-        assert json.loads(target.read_text()) == {"k": 1}
-
-    async def test_async_serialisation_error_writes_fallback(self, tmp_path, monkeypatch):
-        target = tmp_path / "results.json"
-
-        def boom(_results):
-            raise ValueError("nope")
-
-        monkeypatch.setattr(services_mod, "make_json_serializable", boom)
-        meta = await serialize_results_to_file_async({"k": 1}, str(target))
-        assert meta["success"] is False
-        assert meta["fallback_saved"] is True
-        assert json.loads(target.read_text())["_serialization_failed"] is True

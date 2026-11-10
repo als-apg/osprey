@@ -169,8 +169,3 @@ language via the agent, or invoke the CLI directly:
 
    osprey channel-finder validate     # check the configured database
    osprey channel-finder benchmark    # evaluate on a query dataset
-
-.. tip::
-
-   Use ``osprey eject service channel_finder`` to copy the channel finder
-   service source into your project for custom modifications.

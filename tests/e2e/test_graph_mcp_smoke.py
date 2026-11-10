@@ -386,7 +386,7 @@ def _seed_demo_corpus(repo: Path) -> str:
     three minutes and one LLM call later.
     """
     from osprey.deployment import container_lifecycle
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
     connection = container_lifecycle._graphdb_connection(config, repo)
