@@ -209,7 +209,8 @@ def _profile_edits() -> dict[str, Any]:
     built config, not assumed. The preset's ``services:`` block holds the record
     archive, which runs the same project image as the dispatch stack, so it goes
     with it: ``services: {}`` is the spelling because a single service cannot be
-    nulled.
+    nulled. The preset's bundled application goes the same way, under ``apps: {}``:
+    it would deploy beside this world.
 
     ``virtual_accelerator.live_standin: null`` switches the preset's live
     stand-in off — the delete-the-line escape the profile documents, spelled as
@@ -257,6 +258,7 @@ def _profile_edits() -> dict[str, Any]:
         "bluesky_web": None,
         "dispatch": None,
         "services": {},
+        "apps": {},
     }
 
 

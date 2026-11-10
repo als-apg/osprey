@@ -62,6 +62,11 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Generic, TypeAlias, TypeVar
 
+from osprey.interfaces.web_terminal.config_view import (
+    UNREADABLE,
+    terminal_config,
+    unreadable_config_refusal,
+)
 from osprey_connectors.control_context import (
     OWNER_CONTROLS_SERVER,
     OWNER_WEB_TERMINAL,
@@ -551,14 +556,22 @@ class ControlContextOwnerTask:
     def _baseline(self) -> str:
         """The target this deployment's own config selects.
 
+        Read from :meth:`_rendered_config`. A render that cannot be read raises
+        ``ValueError`` naming the file rather than guessing a baseline: the
+        claim then fails the way any claim fails (logged, the roster read-only,
+        the next tick tries again), and a record already owned here is never
+        asked for one.
+
         Imported where it is used: this module is reached on every web-terminal
         import, and the controls-server package is a heavier dependency than a
         record writer should carry.
         """
         from osprey.mcp_server.control_system.connector_host_manager import baseline_target
-        from osprey_connectors.workspace import load_osprey_config
 
-        return baseline_target(load_osprey_config())
+        config = self._rendered_config()
+        if config is UNREADABLE:
+            raise ValueError(unreadable_config_refusal(self._config_path() or ""))
+        return baseline_target(config)
 
     # -- answering a switch request ----------------------------------------
 
@@ -624,7 +637,9 @@ class ControlContextOwnerTask:
 
         config = self._rendered_config()
         config_path = self._config_path()
-        baseline = self._baseline()
+        # An unreadable render carries through, so the gate refuses the request
+        # with a reason the requester can read instead of leaving it to expire.
+        baseline = record.target if config is UNREADABLE else self._baseline()
         for path in paths:
             request = self._triage(path, config, baseline, reports, config_path=config_path)
             if request is not None:
@@ -632,16 +647,26 @@ class ControlContextOwnerTask:
         return None
 
     def _rendered_config(self) -> Any:
-        """The whole rendered config, which is what the switch gate reads."""
-        from osprey_connectors.workspace import load_osprey_config
+        """The whole rendered config, which is what the claim and the switch gate read.
 
-        return load_osprey_config()
+        The terminal's own file — the one ``app.state.config_path`` resolved —
+        through its :class:`~osprey.interfaces.web_terminal.config_view.TerminalConfigView`,
+        so the owner claims from the render its terminal serves. With no file
+        resolved it reads an empty render (``{}``); a file that cannot be read
+        answers :data:`~osprey.interfaces.web_terminal.config_view.UNREADABLE`.
+        """
+        view = terminal_config(self._app)
+        if view.path is None:
+            return {}
+        return view.render()
 
-    def _config_path(self) -> str:
-        """The file :meth:`_rendered_config` reads, which the switch gate fills unset gateway ports from."""
-        from osprey_connectors.workspace import resolve_config_path
+    def _config_path(self) -> str | None:
+        """The file :meth:`_rendered_config` reads, which the switch gate fills unset gateway ports from.
 
-        return str(resolve_config_path())
+        The terminal's own config file, or ``None`` when it resolved none.
+        """
+        path = terminal_config(self._app).path
+        return None if path is None else str(path)
 
     def _triage(
         self,
@@ -779,6 +804,8 @@ class ControlContextOwnerTask:
         from osprey.mcp_server.control_system import target_eligibility
 
         config = request.config
+        if config is UNREADABLE:
+            raise ValueError(unreadable_config_refusal(request.config_path or ""))
         section = config.get("control_system") if isinstance(config, dict) else None
         return target_eligibility.evaluate_switch(
             config,

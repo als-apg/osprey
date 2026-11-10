@@ -1,0 +1,1 @@
+A panel's roster grant is one `panel_grant.credentials` list, rendered by the shared `services/_panel_grant.j2` macro; a template still reading `bluesky_panel_secret_env_vars` or `bluesky_panel_roster_owners` is refused at build.

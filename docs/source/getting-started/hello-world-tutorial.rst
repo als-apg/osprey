@@ -71,7 +71,7 @@ Step 2: Read profile.yml — It Is the Curriculum
 Open ``profile.yml``. This one file is the manifest for the whole deployment,
 and the preset deliberately leaves most of it unset — because every key it
 leaves unset is emitted into your copy as a **commented block** you can turn on
-later. The hello-world preset's minimalism yields exactly **15** such blocks,
+later. The hello-world preset's minimalism yields exactly **16** such blocks,
 covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.
@@ -93,7 +93,7 @@ write-safety chain), three rules, and one output style:
      - approval       # Gate hardware-write tool calls on human approval prompt
      - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
 
-``build/.claude/hooks/`` also holds four helper scripts. The hooks import
+``build/.claude/hooks/`` also holds five helper scripts. The hooks import
 them; they are not hooks themselves.
 
 And all remaining configuration lives in the ``config:`` block, one dotted key
@@ -428,7 +428,7 @@ commented blocks map everything it can become.
 - **How it works**: :doc:`conceptual-tutorial` explains the MCP server
   architecture, the connector system, and the safety mechanisms in depth.
 - **The profile format**: :doc:`../how-to/build-profiles` documents every key
-  those 15 commented blocks can hold.
+  those 16 commented blocks can hold.
 - **CLI reference**: :doc:`/reference/cli` covers all ``osprey``
   commands.
 

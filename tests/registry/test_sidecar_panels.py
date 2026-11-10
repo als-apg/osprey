@@ -47,7 +47,17 @@ def test_the_notebooks_panel_keeps_the_first_row():
     assert list(SIDECAR_PANELS) == ["jupyter", "canopy"]
 
 
-@pytest.mark.parametrize("name", ["SidecarPanel", "SIDECAR_PANELS", "JUPYTER_PANEL_ID"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "SidecarPanel",
+        "SIDECAR_PANELS",
+        "JUPYTER_PANEL_ID",
+        "ApplicationPanel",
+        "PanelRegistry",
+        "SIDECAR_REGISTRY",
+    ],
+)
 def test_the_panel_module_re_exports_the_leaf_registry(name):
     """One registry under two names. A test that adds a panel through
     ``web_panels.SIDECAR_PANELS`` has to reach a reader that imported the leaf,
@@ -134,3 +144,33 @@ def test_importing_the_package_does_not_build_the_web_application():
     assert imported == "False", "importing the package built the web application"
     # …and the lazy export still resolves to the real function.
     assert run_web_module == "osprey.interfaces.web_terminal.app"
+
+
+def test_the_sidecar_registry_opens_each_opted_in_transport_on_three_verbs():
+    """A sidecar that sets ``agent_hop`` opens ``GET|POST|DELETE`` on its MCP path, no more."""
+    expected = {
+        (method, f"/panel/{panel_id}{panel.mcp_path}")
+        for panel_id, panel in SIDECAR_PANELS.items()
+        if panel.agent_hop and panel.mcp_path
+        for method in ("GET", "POST", "DELETE")
+    }
+
+    assert expected
+    assert sidecar_panels.SIDECAR_REGISTRY.agent_routes() == expected
+
+
+def test_an_application_route_composes_under_its_panel():
+    registry = sidecar_panels.PanelRegistry(
+        {}, {"knob": sidecar_panels.ApplicationPanel("knob", (("post", "/api/write"),))}
+    )
+
+    assert registry.agent_routes() == {("POST", "/panel/knob/api/write")}
+
+
+def test_an_application_route_without_a_leading_slash_adds_nothing():
+    """Spliced onto the id, ``knobapi/write`` would name a route below another panel id."""
+    registry = sidecar_panels.PanelRegistry(
+        {}, {"knob": sidecar_panels.ApplicationPanel("knob", (("POST", "api/write"),))}
+    )
+
+    assert registry.agent_routes() == frozenset()
