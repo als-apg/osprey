@@ -1392,14 +1392,14 @@ the connector-host pool sets that variable for a child whose key names one; a
 gateway choice and a child’s report take <a class="reference internal" href="#osprey_connectors.write_authorization.authorized_write_verdict" title="osprey_connectors.write_authorization.authorized_write_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">authorized_write_verdict()</span></code></a>.</p>
 <p><strong>1. Two files, two writers.</strong> The grant is <code class="docutils literal notranslate"><span class="pre">&lt;authorizations</span> <span class="pre">dir&gt;/&lt;id&gt;.json</span></code>,
 written once by the approver’s process and afterwards only to mark it
-revoked (<a class="reference internal" href="#osprey_connectors.write_authorization.issue_grant" title="osprey_connectors.write_authorization.issue_grant"><code class="xref py py-func docutils literal notranslate"><span class="pre">issue_grant()</span></code></a>, <a class="reference internal" href="#osprey_connectors.write_authorization.revoke_grants" title="osprey_connectors.write_authorization.revoke_grants"><code class="xref py py-func docutils literal notranslate"><span class="pre">revoke_grants()</span></code></a>). The authorizations
+revoked (<code class="xref py py-func docutils literal notranslate"><span class="pre">_issue_grant()</span></code>, <a class="reference internal" href="#osprey_connectors.write_authorization.revoke_grants" title="osprey_connectors.write_authorization.revoke_grants"><code class="xref py py-func docutils literal notranslate"><span class="pre">revoke_grants()</span></code></a>). The authorizations
 directory is the owner’s: <a class="reference internal" href="#osprey_connectors.write_authorization.AUTHORIZATIONS_DIR_NAME" title="osprey_connectors.write_authorization.AUTHORIZATIONS_DIR_NAME"><code class="xref py py-data docutils literal notranslate"><span class="pre">AUTHORIZATIONS_DIR_NAME</span></code></a> inside the owner’s
 directory of the read-only control-context tree when one is bound, else inside
 this host’s <a class="reference internal" href="#osprey_connectors.posture_store.state_dir" title="osprey_connectors.posture_store.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">state_dir()</span></code></a>. The <strong>ledger</strong>
 is <code class="docutils literal notranslate"><span class="pre">&lt;ledger</span> <span class="pre">dir&gt;/&lt;id&gt;.ledger.json</span></code>, written only by the holder: the holder
 opens it with its lease (<a class="reference internal" href="#osprey_connectors.write_authorization.start_lease" title="osprey_connectors.write_authorization.start_lease"><code class="xref py py-func docutils literal notranslate"><span class="pre">start_lease()</span></code></a>), its heartbeat renews the lease
 (<a class="reference internal" href="#osprey_connectors.write_authorization.renew_lease" title="osprey_connectors.write_authorization.renew_lease"><code class="xref py py-func docutils literal notranslate"><span class="pre">renew_lease()</span></code></a>), and the connector child appends one step per write call
-(<a class="reference internal" href="#osprey_connectors.write_authorization.spend_step" title="osprey_connectors.write_authorization.spend_step"><code class="xref py py-func docutils literal notranslate"><span class="pre">spend_step()</span></code></a>). The ledger directory is <a class="reference internal" href="#osprey_connectors.write_authorization.LEDGER_DIR_ENV_VAR" title="osprey_connectors.write_authorization.LEDGER_DIR_ENV_VAR"><code class="xref py py-data docutils literal notranslate"><span class="pre">LEDGER_DIR_ENV_VAR</span></code></a>, else,
+(<code class="xref py py-func docutils literal notranslate"><span class="pre">_spend()</span></code>). The ledger directory is <a class="reference internal" href="#osprey_connectors.write_authorization.LEDGER_DIR_ENV_VAR" title="osprey_connectors.write_authorization.LEDGER_DIR_ENV_VAR"><code class="xref py py-data docutils literal notranslate"><span class="pre">LEDGER_DIR_ENV_VAR</span></code></a>, else,
 on a host with no tree bound, the host’s authorizations directory; under a
 bound tree with no ledger directory there is none, and every write refuses.
 The control-context record is not touched: <code class="docutils literal notranslate"><span class="pre">control_context.json</span></code> keeps its
@@ -1414,7 +1414,7 @@ absent is no authorization (<code class="docutils literal notranslate"><span cla
 there refuses (<code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code>), and so do a missing or unusable ledger
 directory and a ledger that cannot be read. A ledger that is absent has no
 lease, and refuses <code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code>.</p>
-<p><strong>3. The verdict.</strong> <a class="reference internal" href="#osprey_connectors.write_authorization.authorization_verdict" title="osprey_connectors.write_authorization.authorization_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">authorization_verdict()</span></code></a> judges one write call — a
+<p><strong>3. The verdict.</strong> <code class="xref py py-func docutils literal notranslate"><span class="pre">_verdict()</span></code> judges one write call — a
 whole batch of <code class="docutils literal notranslate"><span class="pre">(channel,</span> <span class="pre">value)</span></code> operations — in one total order: the launch
 pin (<code class="xref py py-func docutils literal notranslate"><span class="pre">_launch_pin_term()</span></code>, read here
 because the switch verdict reaches it only with the switch on), the owner, the
@@ -1427,7 +1427,7 @@ that names an authorization, whenever that verdict allows or refuses only
 <code class="docutils literal notranslate"><span class="pre">switch_off</span></code>, this one in its place. An authorization never lifts a tier, an
 unknown owner, an unreadable record, a pin or a hold, and a person turning the
 switch on mid-run never lifts the bounds.</p>
-<p><strong>4. One write call is one step.</strong> <a class="reference internal" href="#osprey_connectors.write_authorization.spend_step" title="osprey_connectors.write_authorization.spend_step"><code class="xref py py-func docutils literal notranslate"><span class="pre">spend_step()</span></code></a> takes the ledger’s lock
+<p><strong>4. One write call is one step.</strong> <code class="xref py py-func docutils literal notranslate"><span class="pre">_spend()</span></code> takes the ledger’s lock
 (an exclusive <code class="docutils literal notranslate"><span class="pre">flock</span></code> on <code class="docutils literal notranslate"><span class="pre">&lt;ledger&gt;.lock</span></code> beside it, as
 <a class="reference internal" href="#module-osprey_connectors.session_hold" title="osprey_connectors.session_hold"><code class="xref py py-mod docutils literal notranslate"><span class="pre">session_hold</span></code></a> takes its record’s), re-judges the whole
 verdict against the ledger it read under that lock, and appends the step
@@ -1443,8 +1443,8 @@ is refused. The switch’s own verdict has the same window.</p>
 <p><strong>5. The lease.</strong> The holder renews <code class="docutils literal notranslate"><span class="pre">lease_until_ns</span></code>; a lease that lapses
 ends the authorization for good — <a class="reference internal" href="#osprey_connectors.write_authorization.renew_lease" title="osprey_connectors.write_authorization.renew_lease"><code class="xref py py-func docutils literal notranslate"><span class="pre">renew_lease()</span></code></a> refuses once it has
 lapsed. Where the reader shares the holder’s PID namespace, the holder’s PID,
-its start time and its state are also asked (<a class="reference internal" href="#osprey_connectors.write_authorization.pid_namespace" title="osprey_connectors.write_authorization.pid_namespace"><code class="xref py py-func docutils literal notranslate"><span class="pre">pid_namespace()</span></code></a>,
-<a class="reference internal" href="#osprey_connectors.write_authorization.process_start_time" title="osprey_connectors.write_authorization.process_start_time"><code class="xref py py-func docutils literal notranslate"><span class="pre">process_start_time()</span></code></a>): a dead, reused or zombie PID lapses the lease
+its start time and its state are also asked (<code class="xref py py-func docutils literal notranslate"><span class="pre">_pid_namespace()</span></code>,
+<code class="xref py py-func docutils literal notranslate"><span class="pre">_process_start_time()</span></code>): a dead, reused or zombie PID lapses the lease
 before its time. From another namespace the lease time alone decides.</p>
 <p><strong>6. Self-issue at ``allowed``.</strong> A holder whose owner’s switch stands at
 <code class="docutils literal notranslate"><span class="pre">allowed</span></code> for the machine may write its own grant into its ledger directory
@@ -1454,8 +1454,8 @@ leaves <code class="docutils literal notranslate"><span class="pre">allowed</spa
 does not revive it. A grant found in the ledger directory that claims any
 other surface is not honoured at all, because the holder can write there.</p>
 <p><strong>7. Overlap.</strong> Two programs steering one channel of one machine is never what
-an approver meant: <a class="reference internal" href="#osprey_connectors.write_authorization.auth_overlap" title="osprey_connectors.write_authorization.auth_overlap"><code class="xref py py-func docutils literal notranslate"><span class="pre">auth_overlap()</span></code></a> finds the live grant of another holder
-sharing a channel, and <a class="reference internal" href="#osprey_connectors.write_authorization.issue_grant" title="osprey_connectors.write_authorization.issue_grant"><code class="xref py py-func docutils literal notranslate"><span class="pre">issue_grant()</span></code></a> refuses <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code> under the
+an approver meant: <code class="xref py py-func docutils literal notranslate"><span class="pre">_auth_overlap()</span></code> finds the live grant of another holder
+sharing a channel, and <code class="xref py py-func docutils literal notranslate"><span class="pre">_issue_grant()</span></code> refuses <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code> under the
 directory’s lock, so two approvals cannot both pass the check. A grant whose
 every ledger in sight shows its lease time passed, by a grace for clock skew,
 does not count: no write may use it. This assumes a holder keeps one ledger
@@ -1469,7 +1469,7 @@ refuses every write under it already, and a file nobody can clear from the
 chip must not veto every approval.</p>
 <p><strong>8. Requests, approval and the stop.</strong> A holder asks with a <strong>request</strong>,
 <code class="docutils literal notranslate"><span class="pre">&lt;ledger</span> <span class="pre">dir&gt;/requests/&lt;id&gt;.json</span></code> (<a class="reference internal" href="#osprey_connectors.write_authorization.write_request" title="osprey_connectors.write_authorization.write_request"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_request()</span></code></a>), read the way a
-grant is read (<a class="reference internal" href="#osprey_connectors.write_authorization.parse_request" title="osprey_connectors.write_authorization.parse_request"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_request()</span></code></a>, <a class="reference internal" href="#osprey_connectors.write_authorization.list_requests" title="osprey_connectors.write_authorization.list_requests"><code class="xref py py-func docutils literal notranslate"><span class="pre">list_requests()</span></code></a>); a web terminal
+grant is read (<code class="xref py py-func docutils literal notranslate"><span class="pre">_parse_request()</span></code>, <a class="reference internal" href="#osprey_connectors.write_authorization.list_requests" title="osprey_connectors.write_authorization.list_requests"><code class="xref py py-func docutils literal notranslate"><span class="pre">list_requests()</span></code></a>); a web terminal
 reads the holders’ requests from a read-only bind, <a class="reference internal" href="#osprey_connectors.write_authorization.REQUESTS_DIR_ENV_VAR" title="osprey_connectors.write_authorization.REQUESTS_DIR_ENV_VAR"><code class="xref py py-data docutils literal notranslate"><span class="pre">REQUESTS_DIR_ENV_VAR</span></code></a>.
 A person acting as the owner approves it (<a class="reference internal" href="#osprey_connectors.write_authorization.approve_request" title="osprey_connectors.write_authorization.approve_request"><code class="xref py py-func docutils literal notranslate"><span class="pre">approve_request()</span></code></a>): under the
 owner’s record lock, then the grants directory’s — the one lock order every
@@ -1481,16 +1481,10 @@ grant on the machines a stop names inside its record lock
 a stop whose marks cannot be written moves the record’s epoch instead, which
 ends every grant of that owner. Every lock here is created at 0o660 whatever
 the umask, because a grants directory is written by several uids through its
-group. A listing removes grants that ended more than <a class="reference internal" href="#osprey_connectors.write_authorization.PRUNE_AFTER_S" title="osprey_connectors.write_authorization.PRUNE_AFTER_S"><code class="xref py py-data docutils literal notranslate"><span class="pre">PRUNE_AFTER_S</span></code></a> ago
+group. A listing removes grants that ended more than <code class="xref py py-data docutils literal notranslate"><span class="pre">_PRUNE_AFTER_S</span></code> ago
 (<a class="reference internal" href="#osprey_connectors.write_authorization.prune_grants" title="osprey_connectors.write_authorization.prune_grants"><code class="xref py py-func docutils literal notranslate"><span class="pre">prune_grants()</span></code></a>).</p>
 <p>This module imports nothing from <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and sits above the record and the
 posture store, which it reads.</p>
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.APPROVAL_SURFACES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">APPROVAL_SURFACES</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('chip',</span> <span class="pre">'cli')</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.APPROVAL_SURFACES" title="Link to this definition">#</a></dt>
-<dd><p>The surfaces a person approves from.</p>
-</dd></dl>
-
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.write_authorization.AUTHORIZATIONS_DIR_NAME">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">AUTHORIZATIONS_DIR_NAME</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'authorizations'</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.AUTHORIZATIONS_DIR_NAME" title="Link to this definition">#</a></dt>
@@ -1507,13 +1501,6 @@ authorization its writes are judged by.</p>
 <dd class="field-odd"><p>The environment variable a holder’s connector child carries</p>
 </dd>
 </dl>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.COMPLETIONS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">COMPLETIONS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('none',</span> <span class="pre">'apply_best',</span> <span class="pre">'restore')</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.COMPLETIONS" title="Link to this definition">#</a></dt>
-<dd><p>What a run does once its evaluations are done, each a write the budget pays
-for: nothing, the best point found, or the values it started from.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -1558,14 +1545,6 @@ evaluations, so no plan, typo or forged file asks for an unbounded budget.</p>
 </dd></dl>
 
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.PRUNE_AFTER_S">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">PRUNE_AFTER_S</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3600.0</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.PRUNE_AFTER_S" title="Link to this definition">#</a></dt>
-<dd><p>How long a revoked or expired grant is kept before a listing removes it, so
-a holder whose stop has just landed is still told <code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code> (or
-<code class="docutils literal notranslate"><span class="pre">auth_expired</span></code>) rather than that no authorization exists.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.write_authorization.REQUESTS_DIR_ENV_VAR">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">REQUESTS_DIR_ENV_VAR</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'OSPREY_WRITE_REQUESTS_DIR'</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.REQUESTS_DIR_ENV_VAR" title="Link to this definition">#</a></dt>
 <dd><p>The environment variable naming the directory a web terminal reads holders’
@@ -1579,27 +1558,9 @@ requests from: a read-only bind of <code class="docutils literal notranslate"><s
 </dd></dl>
 
 <dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.SCHEMA_VERSION">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">SCHEMA_VERSION</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.SCHEMA_VERSION" title="Link to this definition">#</a></dt>
-<dd><p>The format of both files. Any other value is unreadable, and refuses.</p>
-</dd></dl>
-
-<dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.write_authorization.SELF_ISSUE_SURFACE">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">SELF_ISSUE_SURFACE</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'write_switch'</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.SELF_ISSUE_SURFACE" title="Link to this definition">#</a></dt>
 <dd><p>The surface of a self-issued grant.</p>
-</dd></dl>
-
-<dl class="py data">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.SURFACES">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">SURFACES</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('chip',</span> <span class="pre">'cli',</span> <span class="pre">'write_switch')</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.SURFACES" title="Link to this definition">#</a></dt>
-<dd><p>the web terminal’s chip, the CLI, or the switch
-itself standing at <code class="docutils literal notranslate"><span class="pre">allowed</span></code> (a self-issued grant).</p>
-<dl class="field-list simple">
-<dt class="field-odd">Type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>Who recorded an approval</p>
-</dd>
-</dl>
 </dd></dl>
 
 <dl class="py class">
@@ -1822,7 +1783,7 @@ whose epoch has moved since (a stop of every machine) ends it.</p></li>
 <dt class="field-odd">Variables<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>grant</strong> (<a class="reference internal" href="#osprey_connectors.write_authorization.Grant" title="osprey_connectors.write_authorization.Grant"><em>osprey_connectors.write_authorization.Grant</em></a>) – The grant.</p></li>
-<li><p><strong>in_force</strong> (<em>bool</em>) – <a class="reference internal" href="#osprey_connectors.write_authorization.grant_in_force" title="osprey_connectors.write_authorization.grant_in_force"><code class="xref py py-func docutils literal notranslate"><span class="pre">grant_in_force()</span></code></a>, and the holder’s ledger has not
+<li><p><strong>in_force</strong> (<em>bool</em>) – <code class="xref py py-func docutils literal notranslate"><span class="pre">_grant_in_force()</span></code>, and the holder’s ledger has not
 ended it: a grant whose lease lapsed or whose every step is spent
 refuses the next write, so it is not shown standing.</p></li>
 <li><p><strong>used</strong> (<em>int</em><em> | </em><em>None</em>) – The steps the ledger counts; <code class="docutils literal notranslate"><span class="pre">0</span></code> while there is no ledger yet,
@@ -1873,7 +1834,7 @@ refuses the next write, so it is not shown standing.</p></li>
 to rely on the lease time alone.</p></li>
 <li><p><strong>holder_start</strong> (<em>str</em><em> | </em><em>None</em>) – That process’s start time as the kernel states it, so a
 reused PID is not taken for it; <code class="docutils literal notranslate"><span class="pre">None</span></code> where nothing states it.</p></li>
-<li><p><strong>pid_ns</strong> (<em>str</em><em> | </em><em>None</em>) – That process’s PID namespace (<a class="reference internal" href="#osprey_connectors.write_authorization.pid_namespace" title="osprey_connectors.write_authorization.pid_namespace"><code class="xref py py-func docutils literal notranslate"><span class="pre">pid_namespace()</span></code></a>), so a
+<li><p><strong>pid_ns</strong> (<em>str</em><em> | </em><em>None</em>) – That process’s PID namespace (<code class="xref py py-func docutils literal notranslate"><span class="pre">_pid_namespace()</span></code>), so a
 reader in another namespace does not look its PID up.</p></li>
 <li><p><strong>lease_until_ns</strong> (<em>int</em>) – When the lease lapses unless renewed first.</p></li>
 <li><p><strong>steps</strong> (<em>tuple</em><em>[</em><a class="reference internal" href="#osprey_connectors.write_authorization.LedgerStep" title="osprey_connectors.write_authorization.LedgerStep"><em>osprey_connectors.write_authorization.LedgerStep</em></a><em>, </em><em>...</em><em>]</em>) – Every write call spent, in order, numbered from 1.</p></li>
@@ -2009,7 +1970,7 @@ the holder will write it.</p></li>
 <li><p><strong>expires_at_ns</strong> (<em>int</em>) – When the authorization is to end whatever happens.</p></li>
 <li><p><strong>lease_s</strong> (<em>float</em>) – How long one renewal of the holder’s lease lasts.</p></li>
 <li><p><strong>label</strong> (<em>str</em>) – The run, free text.</p></li>
-<li><p><strong>completion</strong> (<em>Literal</em><em>[</em><em>'none'</em><em>, </em><em>'apply_best'</em><em>, </em><em>'restore'</em><em>]</em>) – Which completion the run will perform (<a class="reference internal" href="#osprey_connectors.write_authorization.COMPLETIONS" title="osprey_connectors.write_authorization.COMPLETIONS"><code class="xref py py-data docutils literal notranslate"><span class="pre">COMPLETIONS</span></code></a>).</p></li>
+<li><p><strong>completion</strong> (<em>Literal</em><em>[</em><em>'none'</em><em>, </em><em>'apply_best'</em><em>, </em><em>'restore'</em><em>]</em>) – Which completion the run will perform (<code class="xref py py-data docutils literal notranslate"><span class="pre">_COMPLETIONS</span></code>).</p></li>
 </ul>
 </dd>
 </dl>
@@ -2112,7 +2073,7 @@ directory beside it.</p>
 keeps: the record, then the grants directory): the record is read — one
 that cannot be read refuses, one that is not there is created on the
 request’s machine with every switch off, and one with no epoch is given
-one — the grant is stamped with that epoch, and <a class="reference internal" href="#osprey_connectors.write_authorization.issue_grant" title="osprey_connectors.write_authorization.issue_grant"><code class="xref py py-func docutils literal notranslate"><span class="pre">issue_grant()</span></code></a> checks
+one — the grant is stamped with that epoch, and <code class="xref py py-func docutils literal notranslate"><span class="pre">_issue_grant()</span></code> checks
 it against every grant in the directory and the self-issued ones in
 <em>peers</em> (default: <a class="reference internal" href="#osprey_connectors.write_authorization.self_issued_directories" title="osprey_connectors.write_authorization.self_issued_directories"><code class="xref py py-func docutils literal notranslate"><span class="pre">self_issued_directories()</span></code></a>) before writing. A stop of every machine
 moving the epoch after this ends the grant; a stop of this machine that
@@ -2177,85 +2138,6 @@ under, then opens its lease (<a class="reference internal" href="#osprey_connect
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.auth_overlap">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">auth_overlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">candidate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">existing</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">now_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ledger_dirs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#auth_overlap"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.auth_overlap" title="Link to this definition">#</a></dt>
-<dd><p>The first grant in <em>existing</em> that <em>candidate</em> must not be issued beside, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
-<p>One that is live (not revoked, not expired), held by another holder, on
-the same machine, listing a channel <em>candidate</em> lists, and whose lease
-time has not passed in its ledgers in <em>ledger_dirs</em> (<code class="xref py py-func docutils literal notranslate"><span class="pre">_lease_ended()</span></code>):
-a run that finished, failed or crashed stops renewing, so its grant stops
-blocking once its lease runs out rather than at its expiry. A run that is
-paused still renews, and still blocks. The same holder may hold two: a
-program runs one job at a time and is judged by its own budget. A
-person’s own writes are never blocked by a grant.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.write_authorization.Grant" title="osprey_connectors.write_authorization.Grant"><em>Grant</em></a> | None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.authorization_verdict">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">authorization_verdict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">section</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">operations</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">authorization</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">owner</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#authorization_verdict"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.authorization_verdict" title="Link to this definition">#</a></dt>
-<dd><p>Whether one write call of <em>operations</em> may go ahead under <em>authorization</em>.</p>
-<p>The terms, in order; the first that refuses names the reason:</p>
-<ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code> — <em>authorization</em> is not a well-formed id.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">launch_pinned</span></code> — the launch pin is <code class="docutils literal notranslate"><span class="pre">pinned</span></code> or <code class="docutils literal notranslate"><span class="pre">unreadable</span></code> for
-<em>target</em>: a sandbox pinned at launch is not opened by a grant.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">owner_unscheduled</span></code> / <code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code> / <code class="docutils literal notranslate"><span class="pre">owner_foreign</span></code> — the owner
-ladder names nobody, or (with no tree bound) another login than this
-host’s.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">record_unavailable</span></code> — the owner’s record cannot be read.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">switch_off</span></code> — no grant has this id; <code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code> — one is
-there and cannot be read (module rule 2), or one in the holder’s own
-directory that is not self-issued.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_holder</span></code> — the grant names another owner, or a holder other than
-<a class="reference internal" href="utilities.html#osprey_connectors.identity.acting_identity" title="osprey_connectors.identity.acting_identity"><code class="xref py py-func docutils literal notranslate"><span class="pre">acting_identity()</span></code></a>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_channel</span></code> — the grant covers another machine.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code> — the grant is marked revoked, or the record’s
-<code class="docutils literal notranslate"><span class="pre">switch_epoch</span></code> is no longer the grant’s (or there is no record).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_expired</span></code> — its expiry has passed.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code> — a self-issued grant whose owner’s switch is not at
-<code class="docutils literal notranslate"><span class="pre">allowed</span></code> for <em>target</em> now (<a class="reference internal" href="#osprey_connectors.write_authorization.spend_step" title="osprey_connectors.write_authorization.spend_step"><code class="xref py py-func docutils literal notranslate"><span class="pre">spend_step()</span></code></a> then ends its lease).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_channel</span></code> — the batch is empty or names a channel the grant does
-not list; <code class="docutils literal notranslate"><span class="pre">auth_range</span></code> — a value that is not a finite number inside
-its channel’s range. The whole batch is judged before anything is
-written.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code> — no ledger directory, or a ledger that cannot be
-read; <code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code> — no ledger, a lease past its time, or a
-holder the kernel says is gone.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_exhausted</span></code> — every step has been spent.</p></li>
-</ol>
-<p>This reads and never writes, so it is the answer for a report or a
-gateway choice; a write spends its step through <a class="reference internal" href="#osprey_connectors.write_authorization.spend_step" title="osprey_connectors.write_authorization.spend_step"><code class="xref py py-func docutils literal notranslate"><span class="pre">spend_step()</span></code></a>. It
-does not repeat the switch verdict’s read-only, tier and hold terms:
-<a class="reference internal" href="#osprey_connectors.write_authorization.authorized_execution_verdict" title="osprey_connectors.write_authorization.authorized_execution_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">authorized_execution_verdict()</span></code></a> is the composition a write path takes.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p></li>
-<li><p><strong>target</strong> (<em>str</em><em> | </em><em>None</em>) – The control target the write lands on.</p></li>
-<li><p><strong>operations</strong> (<em>Sequence</em><em>[</em><em>tuple</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>] </em><em>| </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The write call’s <code class="docutils literal notranslate"><span class="pre">(channel,</span> <span class="pre">value)</span></code> pairs, or a mapping.</p></li>
-<li><p><strong>authorization</strong> (<em>str</em>) – The id the process names.</p></li>
-<li><p><strong>owner</strong> (<em>str</em><em> | </em><a class="reference internal" href="#osprey_connectors.posture_store.NoOwner" title="osprey_connectors.posture_store.NoOwner"><em>NoOwner</em></a><em> | </em><em>None</em>) – Whose switch the grant stands in for; <code class="docutils literal notranslate"><span class="pre">None</span></code> asks
-<a class="reference internal" href="#osprey_connectors.posture_store.current_owner" title="osprey_connectors.posture_store.current_owner"><code class="xref py py-func docutils literal notranslate"><span class="pre">current_owner()</span></code></a>.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A <a class="reference internal" href="#osprey_connectors.posture_store.WriteVerdict" title="osprey_connectors.posture_store.WriteVerdict"><code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerdict</span></code></a> whose
-<code class="docutils literal notranslate"><span class="pre">authorization</span></code> names the id and whose <code class="docutils literal notranslate"><span class="pre">position</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code>.
-Never raises: a verdict that cannot be reached refuses
-<code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code>.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.posture_store.WriteVerdict" title="osprey_connectors.posture_store.WriteVerdict"><em>WriteVerdict</em></a></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.write_authorization.authorizations_dir">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">authorizations_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">owner</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#authorizations_dir"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.authorizations_dir" title="Link to this definition">#</a></dt>
 <dd><p>The directory <em>owner</em>’s grants live in, as this process reaches it.</p>
@@ -2286,10 +2168,10 @@ place: a person turning the switch on mid-run does not lift the bounds.</p>
 <li><p><strong>target</strong> (<em>str</em><em> | </em><em>None</em>) – The control target the write lands on.</p></li>
 <li><p><strong>operations</strong> (<em>Sequence</em><em>[</em><em>tuple</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>] </em><em>| </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The write call’s <code class="docutils literal notranslate"><span class="pre">(channel,</span> <span class="pre">value)</span></code> pairs.</p></li>
 <li><p><strong>authorization</strong> (<em>str</em><em> | </em><em>None</em>) – The id the process names, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
-<li><p><strong>owner</strong> (<em>str</em><em> | </em><a class="reference internal" href="#osprey_connectors.posture_store.NoOwner" title="osprey_connectors.posture_store.NoOwner"><em>NoOwner</em></a><em> | </em><em>None</em>) – As for <a class="reference internal" href="#osprey_connectors.write_authorization.authorization_verdict" title="osprey_connectors.write_authorization.authorization_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">authorization_verdict()</span></code></a>.</p></li>
+<li><p><strong>owner</strong> (<em>str</em><em> | </em><a class="reference internal" href="#osprey_connectors.posture_store.NoOwner" title="osprey_connectors.posture_store.NoOwner"><em>NoOwner</em></a><em> | </em><em>None</em>) – As for <code class="xref py py-func docutils literal notranslate"><span class="pre">_verdict()</span></code>.</p></li>
 <li><p><strong>session_keys</strong> (<em>Sequence</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – As for
 <a class="reference internal" href="#osprey_connectors.posture_store.execution_verdict" title="osprey_connectors.posture_store.execution_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">execution_verdict()</span></code></a>.</p></li>
-<li><p><strong>spend</strong> (<em>bool</em>) – Spend the step (<a class="reference internal" href="#osprey_connectors.write_authorization.spend_step" title="osprey_connectors.write_authorization.spend_step"><code class="xref py py-func docutils literal notranslate"><span class="pre">spend_step()</span></code></a>) rather than only judge.</p></li>
+<li><p><strong>spend</strong> (<em>bool</em>) – Spend the step (<code class="xref py py-func docutils literal notranslate"><span class="pre">_spend()</span></code>) rather than only judge.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -2331,21 +2213,6 @@ follow a session’s hold. It reads and never spends.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.grant_in_force">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">grant_in_force</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grant</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">record</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">now_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#grant_in_force"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.grant_in_force" title="Link to this definition">#</a></dt>
-<dd><p>Whether <em>grant</em> still stands against its owner’s <em>record</em>: what a chip shows as live.</p>
-<p>Not revoked, not expired, and issued under the record’s epoch. The lease
-and the steps are the holder’s and are not asked. A self-issued grant also
-needs the record’s switch for its machine at <code class="docutils literal notranslate"><span class="pre">allowed</span></code>: once it has left,
-the holder’s next write ends it for good, so it is not shown standing.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>bool</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.write_authorization.grant_standing">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">grant_standing</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grant</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">record</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ledger_dirs</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">now_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#grant_standing"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.grant_standing" title="Link to this definition">#</a></dt>
 <dd><p>Whether <em>grant</em> still stands for a listing, its holder’s ledger asked.</p>
@@ -2356,39 +2223,6 @@ and <code class="docutils literal notranslate"><span class="pre">osprey</span> <
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.write_authorization.GrantStanding" title="osprey_connectors.write_authorization.GrantStanding"><em>GrantStanding</em></a></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.issue_grant">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">issue_grant</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grant</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">directory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">peers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#issue_grant"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.issue_grant" title="Link to this definition">#</a></dt>
-<dd><p>Write <em>grant</em> as a new file, after checking it overlaps no live grant.</p>
-<p>The approver’s writer. <em>directory</em> defaults to the grant’s owner’s
-authorizations directory as this process reaches it. The check and the
-write are one hold of the directory’s lock, so two approvals of
-overlapping grants in one directory cannot both pass. A grant file that
-cannot be read in the directory is logged and left out of the check.</p>
-<p><em>peers</em> are the ledger directories holding the holders’ self-issued
-grants (<a class="reference internal" href="#osprey_connectors.write_authorization.self_issued_directories" title="osprey_connectors.write_authorization.self_issued_directories"><code class="xref py py-func docutils literal notranslate"><span class="pre">self_issued_directories()</span></code></a>), read under the same hold
-(<code class="xref py py-func docutils literal notranslate"><span class="pre">_peer_grants()</span></code>); their locks are not taken.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>The path written.</p>
-</dd>
-<dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><ul class="simple">
-<li><p><strong>ValueError</strong> – <em>grant</em> is not a grant this version can read back, or
-    its budget, expiry or lease is past a ceiling
-    (<code class="xref py py-func docutils literal notranslate"><span class="pre">_within_ceilings()</span></code>); nothing is written.</p></li>
-<li><p><strong>FileExistsError</strong> – A grant with this id exists.</p></li>
-<li><p><a class="reference internal" href="#osprey_connectors.write_authorization.AuthorizationRefused" title="osprey_connectors.write_authorization.AuthorizationRefused"><strong>AuthorizationRefused</strong></a> – <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code>.</p></li>
-<li><p><strong>RuntimeError</strong> – No directory is reachable, or the lock was not acquired.</p></li>
-<li><p><strong>OSError</strong> – The directory is not a plain directory, or the write failed.</p></li>
-</ul>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Path</em></p>
 </dd>
 </dl>
 </dd></dl>
@@ -2463,89 +2297,8 @@ so the verdict refuses it rather than treating the process as naming none.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.parse_grant">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">parse_grant</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#parse_grant"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.parse_grant" title="Link to this definition">#</a></dt>
-<dd><p>A grant out of its JSON text, bytes or decoded object.</p>
-<p>Every field must be present with its type, and nothing else may be: an
-unknown schema, a missing or extra field, a repeated key, a bound that is
-not a finite number, a range with <code class="docutils literal notranslate"><span class="pre">min</span></code> above <code class="docutils literal notranslate"><span class="pre">max</span></code>, a <code class="docutils literal notranslate"><span class="pre">steps</span></code> below
-one, an expiry not after the issue, an unknown surface — each is a grant
-this version cannot honour. The ceilings are a writer’s check
-(<code class="xref py py-func docutils literal notranslate"><span class="pre">_within_ceilings()</span></code>), not a reader’s.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – The payload is not a grant this version can read.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.write_authorization.Grant" title="osprey_connectors.write_authorization.Grant"><em>Grant</em></a></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.parse_ledger">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">parse_ledger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#parse_ledger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.parse_ledger" title="Link to this definition">#</a></dt>
-<dd><p>A ledger out of its JSON text, bytes or decoded object.</p>
-<p>The same strictness as <a class="reference internal" href="#osprey_connectors.write_authorization.parse_grant" title="osprey_connectors.write_authorization.parse_grant"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_grant()</span></code></a>; the steps must be numbered
-1, 2, … in order, each naming at least one channel.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – The payload is not a ledger this version can read.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.write_authorization.Ledger" title="osprey_connectors.write_authorization.Ledger"><em>Ledger</em></a></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.parse_request">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">parse_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#parse_request"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.parse_request" title="Link to this definition">#</a></dt>
-<dd><p>A request out of its JSON text, bytes or decoded object.</p>
-<p>The grant’s strictness (<a class="reference internal" href="#osprey_connectors.write_authorization.parse_grant" title="osprey_connectors.write_authorization.parse_grant"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_grant()</span></code></a>): every field present with its
-type and nothing else, no repeated key, every bound a finite number with
-<code class="docutils literal notranslate"><span class="pre">min</span> <span class="pre">&lt;=</span> <span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">steps</span></code> at least one, an expiry after the request, a
-positive lease and a known completion. As for a grant, the ceilings are
-checked when a request is written (<a class="reference internal" href="#osprey_connectors.write_authorization.write_request" title="osprey_connectors.write_authorization.write_request"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_request()</span></code></a>), not read.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – The payload is not a request this version can read.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.write_authorization.WriteRequest" title="osprey_connectors.write_authorization.WriteRequest"><em>WriteRequest</em></a></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.pid_namespace">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">pid_namespace</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#pid_namespace"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.pid_namespace" title="Link to this definition">#</a></dt>
-<dd><p>This process’s PID namespace as the kernel names it, or <code class="docutils literal notranslate"><span class="pre">None</span></code> where nothing does.</p>
-<p>Only ever compared with another process’s, which is what says whether a PID
-means the same thing to both. <code class="docutils literal notranslate"><span class="pre">None</span></code> on a platform with no <code class="docutils literal notranslate"><span class="pre">/proc</span></code>.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>str | None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.process_start_time">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">process_start_time</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pid</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#process_start_time"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.process_start_time" title="Link to this definition">#</a></dt>
-<dd><p>When <em>pid</em> started, in the kernel’s own units, or <code class="docutils literal notranslate"><span class="pre">None</span></code> where nothing states it.</p>
-<p>Only ever compared with itself, which is what tells a holder from a process
-that reused its PID. <code class="docutils literal notranslate"><span class="pre">None</span></code> on a platform with no <code class="docutils literal notranslate"><span class="pre">/proc</span></code>.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>str | None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.write_authorization.prune_grants">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">prune_grants</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">directory</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">now_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">after_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">PRUNE_AFTER_S</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#prune_grants"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.prune_grants" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">prune_grants</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">directory</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">now_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">after_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">_PRUNE_AFTER_S</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#prune_grants"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.prune_grants" title="Link to this definition">#</a></dt>
 <dd><p>Remove the grants in <em>directory</em> that ended more than <em>after_s</em> ago; the ids removed.</p>
 <p>A grant has ended once it is revoked or expired; a grant still in force,
 and one that cannot be read, are left alone (an unreadable file refuses
@@ -2561,22 +2314,6 @@ none. Never removes a ledger, which is the holder’s.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>tuple[str, …]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.read_ledger">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">read_ledger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">authorization</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#read_ledger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.read_ledger" title="Link to this definition">#</a></dt>
-<dd><p>The ledger of <em>authorization</em> in <em>directory</em>, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when absent.</p>
-<p>For a surface that shows a holder’s consumption (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code>); the
-same fail-closed reader the verdict uses.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – The ledger is there and cannot be read.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.write_authorization.Ledger" title="osprey_connectors.write_authorization.Ledger"><em>Ledger</em></a> | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2664,7 +2401,7 @@ into this process’s ledger directory with approver surface
 <code class="docutils literal notranslate"><span class="pre">write_switch</span></code>, then the verdict is taken again: if the switch moved or a
 stop came in between, the grant is removed and the issue refused. It is
 honoured afterwards only while the position stays <code class="docutils literal notranslate"><span class="pre">allowed</span></code>; the first
-write after it leaves <code class="docutils literal notranslate"><span class="pre">allowed</span></code> ends it for good (<a class="reference internal" href="#osprey_connectors.write_authorization.spend_step" title="osprey_connectors.write_authorization.spend_step"><code class="xref py py-func docutils literal notranslate"><span class="pre">spend_step()</span></code></a>).</p>
+write after it leaves <code class="docutils literal notranslate"><span class="pre">allowed</span></code> ends it for good (<code class="xref py py-func docutils literal notranslate"><span class="pre">_spend()</span></code>).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -2694,46 +2431,6 @@ ledger directory a web terminal carries read-only
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>tuple[<em>Path</em>, …]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.self_issued_grants">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">self_issued_grants</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">directory</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#self_issued_grants"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.self_issued_grants" title="Link to this definition">#</a></dt>
-<dd><p>The self-issued grants in a ledger <em>directory</em>, and the paths that could not be read.</p>
-<p><a class="reference internal" href="#osprey_connectors.write_authorization.list_grants" title="osprey_connectors.write_authorization.list_grants"><code class="xref py py-func docutils literal notranslate"><span class="pre">list_grants()</span></code></a>, keeping only the grants approved by the switch
-(<a class="reference internal" href="#osprey_connectors.write_authorization.SELF_ISSUE_SURFACE" title="osprey_connectors.write_authorization.SELF_ISSUE_SURFACE"><code class="xref py py-data docutils literal notranslate"><span class="pre">SELF_ISSUE_SURFACE</span></code></a>): a grant there claiming any other surface is
-never honoured, because the holder can write there, so it is not listed.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>OSError</strong> – The directory is a link or cannot be listed.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>tuple[tuple[<a class="reference internal" href="#osprey_connectors.write_authorization.Grant" title="osprey_connectors.write_authorization.Grant"><em>Grant</em></a>, …], tuple[<em>Path</em>, …]]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="osprey_connectors.write_authorization.spend_step">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">spend_step</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">section</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">operations</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">authorization</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">owner</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#spend_step"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.spend_step" title="Link to this definition">#</a></dt>
-<dd><p>Judge one write call and, when it is allowed, spend its step first.</p>
-<p>Under the ledger’s lock: the whole <a class="reference internal" href="#osprey_connectors.write_authorization.authorization_verdict" title="osprey_connectors.write_authorization.authorization_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">authorization_verdict()</span></code></a> against
-the ledger read inside the lock, then one step appended (<code class="docutils literal notranslate"><span class="pre">n</span></code> the next
-number, the time, the batch’s channels) and the ledger replaced whole. An
-allowed answer means the step is on disk; the caller writes only then, so
-a crash after this costs the step. Concurrent callers in any process are
-serialised by the lock, so no two of them spend the last step.</p>
-<p>A write the ledger could not record refuses <code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code>. A
-self-issued grant refused because its switch has left <code class="docutils literal notranslate"><span class="pre">allowed</span></code> has its
-lease lapsed here as well, so the switch coming back does not revive it.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>As <a class="reference internal" href="#osprey_connectors.write_authorization.authorization_verdict" title="osprey_connectors.write_authorization.authorization_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">authorization_verdict()</span></code></a>. Never raises.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.posture_store.WriteVerdict" title="osprey_connectors.posture_store.WriteVerdict"><em>WriteVerdict</em></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -4834,20 +4531,15 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.state_dir"><code class="docutils literal notranslate"><span class="pre">state_dir()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.write_ceiling"><code class="docutils literal notranslate"><span class="pre">write_ceiling()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.posture_store.write_verdict"><code class="docutils literal notranslate"><span class="pre">write_verdict()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.APPROVAL_SURFACES"><code class="docutils literal notranslate"><span class="pre">APPROVAL_SURFACES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.AUTHORIZATIONS_DIR_NAME"><code class="docutils literal notranslate"><span class="pre">AUTHORIZATIONS_DIR_NAME</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.AUTHORIZATION_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">AUTHORIZATION_ENV_VAR</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.COMPLETIONS"><code class="docutils literal notranslate"><span class="pre">COMPLETIONS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.LEDGER_DIR_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">LEDGER_DIR_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.LEDGER_VIEW_DIR_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">LEDGER_VIEW_DIR_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.MAX_EXPIRES_S"><code class="docutils literal notranslate"><span class="pre">MAX_EXPIRES_S</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.MAX_STEPS"><code class="docutils literal notranslate"><span class="pre">MAX_STEPS</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.PRUNE_AFTER_S"><code class="docutils literal notranslate"><span class="pre">PRUNE_AFTER_S</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.REQUESTS_DIR_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">REQUESTS_DIR_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.REQUESTS_DIR_NAME"><code class="docutils literal notranslate"><span class="pre">REQUESTS_DIR_NAME</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.SCHEMA_VERSION"><code class="docutils literal notranslate"><span class="pre">SCHEMA_VERSION</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.SELF_ISSUE_SURFACE"><code class="docutils literal notranslate"><span class="pre">SELF_ISSUE_SURFACE</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.SURFACES"><code class="docutils literal notranslate"><span class="pre">SURFACES</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.Approver"><code class="docutils literal notranslate"><span class="pre">Approver</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.Approver.identity"><code class="docutils literal notranslate"><span class="pre">Approver.identity</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.Approver.surface"><code class="docutils literal notranslate"><span class="pre">Approver.surface</span></code></a></li>
@@ -4936,34 +4628,22 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.approve_request"><code class="docutils literal notranslate"><span class="pre">approve_request()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.approved_grant"><code class="docutils literal notranslate"><span class="pre">approved_grant()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.auth_overlap"><code class="docutils literal notranslate"><span class="pre">auth_overlap()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.authorization_verdict"><code class="docutils literal notranslate"><span class="pre">authorization_verdict()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.authorizations_dir"><code class="docutils literal notranslate"><span class="pre">authorizations_dir()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.authorized_execution_verdict"><code class="docutils literal notranslate"><span class="pre">authorized_execution_verdict()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.authorized_write_verdict"><code class="docutils literal notranslate"><span class="pre">authorized_write_verdict()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.grant_in_force"><code class="docutils literal notranslate"><span class="pre">grant_in_force()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.grant_standing"><code class="docutils literal notranslate"><span class="pre">grant_standing()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.issue_grant"><code class="docutils literal notranslate"><span class="pre">issue_grant()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.ledger_dir"><code class="docutils literal notranslate"><span class="pre">ledger_dir()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.list_grants"><code class="docutils literal notranslate"><span class="pre">list_grants()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.list_requests"><code class="docutils literal notranslate"><span class="pre">list_requests()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.listed_grants"><code class="docutils literal notranslate"><span class="pre">listed_grants()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.named_authorization"><code class="docutils literal notranslate"><span class="pre">named_authorization()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.parse_grant"><code class="docutils literal notranslate"><span class="pre">parse_grant()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.parse_ledger"><code class="docutils literal notranslate"><span class="pre">parse_ledger()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.parse_request"><code class="docutils literal notranslate"><span class="pre">parse_request()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.pid_namespace"><code class="docutils literal notranslate"><span class="pre">pid_namespace()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.process_start_time"><code class="docutils literal notranslate"><span class="pre">process_start_time()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.prune_grants"><code class="docutils literal notranslate"><span class="pre">prune_grants()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.read_ledger"><code class="docutils literal notranslate"><span class="pre">read_ledger()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.read_request"><code class="docutils literal notranslate"><span class="pre">read_request()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.renew_lease"><code class="docutils literal notranslate"><span class="pre">renew_lease()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.requests_dir"><code class="docutils literal notranslate"><span class="pre">requests_dir()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.revoke_grants"><code class="docutils literal notranslate"><span class="pre">revoke_grants()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.self_issue"><code class="docutils literal notranslate"><span class="pre">self_issue()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.self_issued_directories"><code class="docutils literal notranslate"><span class="pre">self_issued_directories()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.self_issued_grants"><code class="docutils literal notranslate"><span class="pre">self_issued_grants()</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.spend_step"><code class="docutils literal notranslate"><span class="pre">spend_step()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.start_lease"><code class="docutils literal notranslate"><span class="pre">start_lease()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.withdraw_request"><code class="docutils literal notranslate"><span class="pre">withdraw_request()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.write_request"><code class="docutils literal notranslate"><span class="pre">write_request()</span></code></a></li>

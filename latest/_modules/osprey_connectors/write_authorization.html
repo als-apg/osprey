@@ -449,14 +449,14 @@
 
 <span class="sd">**1. Two files, two writers.** The grant is ``&lt;authorizations dir&gt;/&lt;id&gt;.json``,</span>
 <span class="sd">written once by the approver&#39;s process and afterwards only to mark it</span>
-<span class="sd">revoked (:func:`issue_grant`, :func:`revoke_grants`). The authorizations</span>
+<span class="sd">revoked (:func:`_issue_grant`, :func:`revoke_grants`). The authorizations</span>
 <span class="sd">directory is the owner&#39;s: :data:`AUTHORIZATIONS_DIR_NAME` inside the owner&#39;s</span>
 <span class="sd">directory of the read-only control-context tree when one is bound, else inside</span>
 <span class="sd">this host&#39;s :func:`~osprey_connectors.posture_store.state_dir`. The **ledger**</span>
 <span class="sd">is ``&lt;ledger dir&gt;/&lt;id&gt;.ledger.json``, written only by the holder: the holder</span>
 <span class="sd">opens it with its lease (:func:`start_lease`), its heartbeat renews the lease</span>
 <span class="sd">(:func:`renew_lease`), and the connector child appends one step per write call</span>
-<span class="sd">(:func:`spend_step`). The ledger directory is :data:`LEDGER_DIR_ENV_VAR`, else,</span>
+<span class="sd">(:func:`_spend`). The ledger directory is :data:`LEDGER_DIR_ENV_VAR`, else,</span>
 <span class="sd">on a host with no tree bound, the host&#39;s authorizations directory; under a</span>
 <span class="sd">bound tree with no ledger directory there is none, and every write refuses.</span>
 <span class="sd">The control-context record is not touched: ``control_context.json`` keeps its</span>
@@ -473,7 +473,7 @@
 <span class="sd">directory and a ledger that cannot be read. A ledger that is absent has no</span>
 <span class="sd">lease, and refuses ``auth_lease_lapsed``.</span>
 
-<span class="sd">**3. The verdict.** :func:`authorization_verdict` judges one write call — a</span>
+<span class="sd">**3. The verdict.** :func:`_verdict` judges one write call — a</span>
 <span class="sd">whole batch of ``(channel, value)`` operations — in one total order: the launch</span>
 <span class="sd">pin (:func:`~osprey_connectors.posture_store._launch_pin_term`, read here</span>
 <span class="sd">because the switch verdict reaches it only with the switch on), the owner, the</span>
@@ -487,7 +487,7 @@
 <span class="sd">unknown owner, an unreadable record, a pin or a hold, and a person turning the</span>
 <span class="sd">switch on mid-run never lifts the bounds.</span>
 
-<span class="sd">**4. One write call is one step.** :func:`spend_step` takes the ledger&#39;s lock</span>
+<span class="sd">**4. One write call is one step.** :func:`_spend` takes the ledger&#39;s lock</span>
 <span class="sd">(an exclusive ``flock`` on ``&lt;ledger&gt;.lock`` beside it, as</span>
 <span class="sd">:mod:`~osprey_connectors.session_hold` takes its record&#39;s), re-judges the whole</span>
 <span class="sd">verdict against the ledger it read under that lock, and appends the step</span>
@@ -505,8 +505,8 @@
 <span class="sd">**5. The lease.** The holder renews ``lease_until_ns``; a lease that lapses</span>
 <span class="sd">ends the authorization for good — :func:`renew_lease` refuses once it has</span>
 <span class="sd">lapsed. Where the reader shares the holder&#39;s PID namespace, the holder&#39;s PID,</span>
-<span class="sd">its start time and its state are also asked (:func:`pid_namespace`,</span>
-<span class="sd">:func:`process_start_time`): a dead, reused or zombie PID lapses the lease</span>
+<span class="sd">its start time and its state are also asked (:func:`_pid_namespace`,</span>
+<span class="sd">:func:`_process_start_time`): a dead, reused or zombie PID lapses the lease</span>
 <span class="sd">before its time. From another namespace the lease time alone decides.</span>
 
 <span class="sd">**6. Self-issue at ``allowed``.** A holder whose owner&#39;s switch stands at</span>
@@ -518,8 +518,8 @@
 <span class="sd">other surface is not honoured at all, because the holder can write there.</span>
 
 <span class="sd">**7. Overlap.** Two programs steering one channel of one machine is never what</span>
-<span class="sd">an approver meant: :func:`auth_overlap` finds the live grant of another holder</span>
-<span class="sd">sharing a channel, and :func:`issue_grant` refuses ``auth_overlap`` under the</span>
+<span class="sd">an approver meant: :func:`_auth_overlap` finds the live grant of another holder</span>
+<span class="sd">sharing a channel, and :func:`_issue_grant` refuses ``auth_overlap`` under the</span>
 <span class="sd">directory&#39;s lock, so two approvals cannot both pass the check. A grant whose</span>
 <span class="sd">every ledger in sight shows its lease time passed, by a grace for clock skew,</span>
 <span class="sd">does not count: no write may use it. This assumes a holder keeps one ledger</span>
@@ -534,7 +534,7 @@
 
 <span class="sd">**8. Requests, approval and the stop.** A holder asks with a **request**,</span>
 <span class="sd">``&lt;ledger dir&gt;/requests/&lt;id&gt;.json`` (:func:`write_request`), read the way a</span>
-<span class="sd">grant is read (:func:`parse_request`, :func:`list_requests`); a web terminal</span>
+<span class="sd">grant is read (:func:`_parse_request`, :func:`list_requests`); a web terminal</span>
 <span class="sd">reads the holders&#39; requests from a read-only bind, :data:`REQUESTS_DIR_ENV_VAR`.</span>
 <span class="sd">A person acting as the owner approves it (:func:`approve_request`): under the</span>
 <span class="sd">owner&#39;s record lock, then the grants directory&#39;s — the one lock order every</span>
@@ -546,7 +546,7 @@
 <span class="sd">a stop whose marks cannot be written moves the record&#39;s epoch instead, which</span>
 <span class="sd">ends every grant of that owner. Every lock here is created at 0o660 whatever</span>
 <span class="sd">the umask, because a grants directory is written by several uids through its</span>
-<span class="sd">group. A listing removes grants that ended more than :data:`PRUNE_AFTER_S` ago</span>
+<span class="sd">group. A listing removes grants that ended more than :data:`_PRUNE_AFTER_S` ago</span>
 <span class="sd">(:func:`prune_grants`).</span>
 
 <span class="sd">This module imports nothing from ``osprey`` and sits above the record and the</span>
@@ -581,20 +581,15 @@
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.write_authorization&quot;</span><span class="p">)</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;APPROVAL_SURFACES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;AUTHORIZATIONS_DIR_NAME&quot;</span><span class="p">,</span>
     <span class="s2">&quot;AUTHORIZATION_ENV_VAR&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;COMPLETIONS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LEDGER_DIR_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LEDGER_VIEW_DIR_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;MAX_EXPIRES_S&quot;</span><span class="p">,</span>
     <span class="s2">&quot;MAX_STEPS&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;PRUNE_AFTER_S&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REQUESTS_DIR_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REQUESTS_DIR_NAME&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;SCHEMA_VERSION&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SELF_ISSUE_SURFACE&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;SURFACES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Approver&quot;</span><span class="p">,</span>
     <span class="s2">&quot;AuthorizationRefused&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ChannelRange&quot;</span><span class="p">,</span>
@@ -606,34 +601,22 @@
     <span class="s2">&quot;WriteRequest&quot;</span><span class="p">,</span>
     <span class="s2">&quot;approve_request&quot;</span><span class="p">,</span>
     <span class="s2">&quot;approved_grant&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;auth_overlap&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;authorization_verdict&quot;</span><span class="p">,</span>
     <span class="s2">&quot;authorizations_dir&quot;</span><span class="p">,</span>
     <span class="s2">&quot;authorized_execution_verdict&quot;</span><span class="p">,</span>
     <span class="s2">&quot;authorized_write_verdict&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;grant_in_force&quot;</span><span class="p">,</span>
     <span class="s2">&quot;grant_standing&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;issue_grant&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ledger_dir&quot;</span><span class="p">,</span>
     <span class="s2">&quot;list_grants&quot;</span><span class="p">,</span>
     <span class="s2">&quot;list_requests&quot;</span><span class="p">,</span>
     <span class="s2">&quot;listed_grants&quot;</span><span class="p">,</span>
     <span class="s2">&quot;named_authorization&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;parse_grant&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;parse_ledger&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;parse_request&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;pid_namespace&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;process_start_time&quot;</span><span class="p">,</span>
     <span class="s2">&quot;prune_grants&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;read_ledger&quot;</span><span class="p">,</span>
     <span class="s2">&quot;read_request&quot;</span><span class="p">,</span>
     <span class="s2">&quot;renew_lease&quot;</span><span class="p">,</span>
     <span class="s2">&quot;requests_dir&quot;</span><span class="p">,</span>
     <span class="s2">&quot;revoke_grants&quot;</span><span class="p">,</span>
     <span class="s2">&quot;self_issue&quot;</span><span class="p">,</span>
     <span class="s2">&quot;self_issued_directories&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;self_issued_grants&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;spend_step&quot;</span><span class="p">,</span>
     <span class="s2">&quot;start_lease&quot;</span><span class="p">,</span>
     <span class="s2">&quot;withdraw_request&quot;</span><span class="p">,</span>
     <span class="s2">&quot;write_request&quot;</span><span class="p">,</span>
@@ -651,7 +634,7 @@
 <span class="n">AUTHORIZATIONS_DIR_NAME</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;authorizations&quot;</span>
 
 <span class="c1">#: The format of both files. Any other value is unreadable, and refuses.</span>
-<span class="n">SCHEMA_VERSION</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">_SCHEMA_VERSION</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1</span>
 
 <span class="c1">#: The most write calls one grant or request may allow: far above any run&#39;s</span>
 <span class="c1">#: evaluations, so no plan, typo or forged file asks for an unbounded budget.</span>
@@ -671,7 +654,7 @@
 
 <span class="c1">#: Who recorded an approval: the web terminal&#39;s chip, the CLI, or the switch</span>
 <span class="c1">#: itself standing at ``allowed`` (a self-issued grant).</span>
-<span class="n">SURFACES</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;chip&quot;</span><span class="p">,</span> <span class="s2">&quot;cli&quot;</span><span class="p">,</span> <span class="s2">&quot;write_switch&quot;</span><span class="p">)</span>
+<span class="n">_SURFACES</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;chip&quot;</span><span class="p">,</span> <span class="s2">&quot;cli&quot;</span><span class="p">,</span> <span class="s2">&quot;write_switch&quot;</span><span class="p">)</span>
 
 <span class="c1">#: The surface of a self-issued grant.</span>
 <span class="n">SELF_ISSUE_SURFACE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;write_switch&quot;</span>
@@ -798,7 +781,7 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;This grant as the JSON object its file holds.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span>
+            <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span>
             <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
             <span class="s2">&quot;owner&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">,</span>
             <span class="s2">&quot;holder&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">holder</span><span class="p">,</span>
@@ -859,7 +842,7 @@
 <span class="sd">            to rely on the lease time alone.</span>
 <span class="sd">        holder_start: That process&#39;s start time as the kernel states it, so a</span>
 <span class="sd">            reused PID is not taken for it; ``None`` where nothing states it.</span>
-<span class="sd">        pid_ns: That process&#39;s PID namespace (:func:`pid_namespace`), so a</span>
+<span class="sd">        pid_ns: That process&#39;s PID namespace (:func:`_pid_namespace`), so a</span>
 <span class="sd">            reader in another namespace does not look its PID up.</span>
 <span class="sd">        lease_until_ns: When the lease lapses unless renewed first.</span>
 <span class="sd">        steps: Every write call spent, in order, numbered from 1.</span>
@@ -877,7 +860,7 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;This ledger as the JSON object its file holds.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span>
+            <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span>
             <span class="s2">&quot;authorization&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">authorization</span><span class="p">,</span>
             <span class="s2">&quot;holder_pid&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">holder_pid</span><span class="p">,</span>
             <span class="s2">&quot;holder_start&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">holder_start</span><span class="p">,</span>
@@ -968,7 +951,7 @@
 
 <span class="sd">    The ceilings are :data:`MAX_STEPS`, :data:`MAX_EXPIRES_S` from *start_ns*,</span>
 <span class="sd">    and :data:`_MAX_LEASE_S`. Every new grant and request is written through</span>
-<span class="sd">    this (:func:`issue_grant`, :func:`write_request`), so an approval and a</span>
+<span class="sd">    this (:func:`_issue_grant`, :func:`write_request`), so an approval and a</span>
 <span class="sd">    self-issue meet the same ceilings. Reading does not apply them: a file</span>
 <span class="sd">    already on disk past a ceiling is honoured as it was before the ceilings,</span>
 <span class="sd">    so readers of every version agree on it.</span>
@@ -1030,9 +1013,7 @@
     <span class="k">return</span> <span class="n">channels</span>
 
 
-<div class="viewcode-block" id="parse_grant">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.parse_grant">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">parse_grant</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Grant</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_grant</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Grant</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A grant out of its JSON text, bytes or decoded object.</span>
 
 <span class="sd">    Every field must be present with its type, and nothing else may be: an</span>
@@ -1047,12 +1028,12 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">_load_json</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="nb">bytearray</span><span class="p">)</span> <span class="k">else</span> <span class="n">raw</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">_exact_keys</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">_GRANT_KEYS</span><span class="p">,</span> <span class="s2">&quot;the grant&quot;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;schema&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">SCHEMA_VERSION</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the grant&#39;s schema is not </span><span class="si">{</span><span class="n">SCHEMA_VERSION</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;schema&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_SCHEMA_VERSION</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the grant&#39;s schema is not </span><span class="si">{</span><span class="n">_SCHEMA_VERSION</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">approver</span> <span class="o">=</span> <span class="n">_exact_keys</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;approver&quot;</span><span class="p">],</span> <span class="n">_APPROVER_KEYS</span><span class="p">,</span> <span class="s2">&quot;the approver&quot;</span><span class="p">)</span>
     <span class="n">surface</span> <span class="o">=</span> <span class="n">approver</span><span class="p">[</span><span class="s2">&quot;surface&quot;</span><span class="p">]</span>
-    <span class="k">if</span> <span class="n">surface</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">SURFACES</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the approver&#39;s surface </span><span class="si">{</span><span class="n">surface</span><span class="si">!r}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">SURFACES</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">surface</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_SURFACES</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the approver&#39;s surface </span><span class="si">{</span><span class="n">surface</span><span class="si">!r}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">_SURFACES</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">revoked_raw</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;revoked&quot;</span><span class="p">]</span>
     <span class="n">revoked</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">revoked_raw</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -1089,8 +1070,7 @@
         <span class="p">),</span>
         <span class="n">label</span><span class="o">=</span><span class="n">label</span><span class="p">,</span>
         <span class="n">revoked</span><span class="o">=</span><span class="n">revoked</span><span class="p">,</span>
-    <span class="p">)</span></div>
-
+    <span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_optional_str</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
@@ -1099,12 +1079,10 @@
     <span class="k">return</span> <span class="n">value</span>
 
 
-<div class="viewcode-block" id="parse_ledger">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.parse_ledger">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">parse_ledger</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Ledger</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_ledger</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Ledger</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A ledger out of its JSON text, bytes or decoded object.</span>
 
-<span class="sd">    The same strictness as :func:`parse_grant`; the steps must be numbered</span>
+<span class="sd">    The same strictness as :func:`_parse_grant`; the steps must be numbered</span>
 <span class="sd">    1, 2, … in order, each naming at least one channel.</span>
 
 <span class="sd">    Raises:</span>
@@ -1112,8 +1090,8 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">_load_json</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="nb">bytearray</span><span class="p">)</span> <span class="k">else</span> <span class="n">raw</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">_exact_keys</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">_LEDGER_KEYS</span><span class="p">,</span> <span class="s2">&quot;the ledger&quot;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;schema&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">SCHEMA_VERSION</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the ledger&#39;s schema is not </span><span class="si">{</span><span class="n">SCHEMA_VERSION</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;schema&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_SCHEMA_VERSION</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the ledger&#39;s schema is not </span><span class="si">{</span><span class="n">_SCHEMA_VERSION</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">holder_pid</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;holder_pid&quot;</span><span class="p">]</span>
     <span class="k">if</span> <span class="n">holder_pid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">holder_pid</span> <span class="o">=</span> <span class="n">_integer</span><span class="p">(</span><span class="n">holder_pid</span><span class="p">,</span> <span class="s2">&quot;holder_pid&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
@@ -1146,8 +1124,7 @@
         <span class="n">pid_ns</span><span class="o">=</span><span class="n">_optional_str</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;pid_ns&quot;</span><span class="p">],</span> <span class="s2">&quot;pid_ns&quot;</span><span class="p">),</span>
         <span class="n">lease_until_ns</span><span class="o">=</span><span class="n">_integer</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;lease_until_ns&quot;</span><span class="p">],</span> <span class="s2">&quot;lease_until_ns&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
         <span class="n">steps</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">steps</span><span class="p">),</span>
-    <span class="p">)</span></div>
-
+    <span class="p">)</span>
 
 
 <span class="c1"># -- where the files are ------------------------------------------------------</span>
@@ -1312,7 +1289,7 @@
         <span class="k">return</span> <span class="n">directory</span><span class="p">,</span> <span class="kc">None</span>
     <span class="n">path</span> <span class="o">=</span> <span class="n">place</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">authorization</span><span class="si">}{</span><span class="n">_GRANT_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">grant</span> <span class="o">=</span> <span class="n">parse_grant</span><span class="p">(</span><span class="n">_read_no_follow</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_GRANT_READ_LIMIT</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
+        <span class="n">grant</span> <span class="o">=</span> <span class="n">_parse_grant</span><span class="p">(</span><span class="n">_read_no_follow</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_GRANT_READ_LIMIT</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
     <span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
         <span class="k">return</span> <span class="s2">&quot;absent&quot;</span><span class="p">,</span> <span class="kc">None</span>
     <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># every failure on a present grant refuses</span>
@@ -1331,7 +1308,7 @@
         <span class="k">return</span> <span class="s2">&quot;unreadable&quot;</span><span class="p">,</span> <span class="kc">None</span>
     <span class="n">path</span> <span class="o">=</span> <span class="n">place</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">authorization</span><span class="si">}{</span><span class="n">_LEDGER_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">ledger</span> <span class="o">=</span> <span class="n">parse_ledger</span><span class="p">(</span><span class="n">_read_no_follow</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_LEDGER_READ_LIMIT</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
+        <span class="n">ledger</span> <span class="o">=</span> <span class="n">_parse_ledger</span><span class="p">(</span><span class="n">_read_no_follow</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_LEDGER_READ_LIMIT</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
     <span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
         <span class="k">return</span> <span class="s2">&quot;absent&quot;</span><span class="p">,</span> <span class="kc">None</span>
     <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># every failure on a present ledger refuses</span>
@@ -1404,22 +1381,17 @@
         <span class="k">return</span> <span class="kc">None</span>
 
 
-<div class="viewcode-block" id="process_start_time">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.process_start_time">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">process_start_time</span><span class="p">(</span><span class="n">pid</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_process_start_time</span><span class="p">(</span><span class="n">pid</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;When *pid* started, in the kernel&#39;s own units, or ``None`` where nothing states it.</span>
 
 <span class="sd">    Only ever compared with itself, which is what tells a holder from a process</span>
 <span class="sd">    that reused its PID. ``None`` on a platform with no ``/proc``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">kernel</span> <span class="o">=</span> <span class="n">_kernel_stat</span><span class="p">(</span><span class="n">pid</span><span class="p">)</span>
-    <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">kernel</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">kernel</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span></div>
+    <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">kernel</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">kernel</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
 
 
-
-<div class="viewcode-block" id="pid_namespace">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.pid_namespace">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">pid_namespace</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_pid_namespace</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;This process&#39;s PID namespace as the kernel names it, or ``None`` where nothing does.</span>
 
 <span class="sd">    Only ever compared with another process&#39;s, which is what says whether a PID</span>
@@ -1428,8 +1400,7 @@
     <span class="k">try</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">readlink</span><span class="p">(</span><span class="n">_PID_NS_LINK</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span></div>
-
+        <span class="k">return</span> <span class="kc">None</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_holder_live</span><span class="p">(</span><span class="n">ledger</span><span class="p">:</span> <span class="n">Ledger</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
@@ -1439,7 +1410,7 @@
 <span class="sd">    and the answer is ``True``: the lease time decides alone. ``None`` matches</span>
 <span class="sd">    ``None``, so two processes on a platform without ``/proc`` compare.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">ledger</span><span class="o">.</span><span class="n">holder_pid</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">ledger</span><span class="o">.</span><span class="n">pid_ns</span> <span class="o">!=</span> <span class="n">pid_namespace</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">ledger</span><span class="o">.</span><span class="n">holder_pid</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">ledger</span><span class="o">.</span><span class="n">pid_ns</span> <span class="o">!=</span> <span class="n">_pid_namespace</span><span class="p">():</span>
         <span class="k">return</span> <span class="kc">True</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">control_context</span><span class="o">.</span><span class="n">is_process_alive</span><span class="p">(</span><span class="n">ledger</span><span class="o">.</span><span class="n">holder_pid</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">False</span>
@@ -1459,7 +1430,7 @@
 
 <span class="c1">#: The operations a gateway choice or a child&#39;s report is judged on: whether</span>
 <span class="c1">#: the authorization would allow a write at all, every channel term skipped.</span>
-<span class="c1">#: Never a write&#39;s own operations: :func:`spend_step` cannot be handed it.</span>
+<span class="c1">#: Never a write&#39;s own operations: :func:`_spend` cannot be handed it.</span>
 <span class="n">_ANY_WRITE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
 
 
@@ -1630,15 +1601,13 @@
     <span class="p">)</span>
 
 
-<div class="viewcode-block" id="authorization_verdict">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.authorization_verdict">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">authorization_verdict</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_verdict</span><span class="p">(</span>
     <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">operations</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">|</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">operations</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">authorization</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">basis</span><span class="p">:</span> <span class="n">_Basis</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether one write call of *operations* may go ahead under *authorization*.</span>
 
@@ -1661,7 +1630,7 @@
 <span class="sd">       ``switch_epoch`` is no longer the grant&#39;s (or there is no record).</span>
 <span class="sd">    9. ``auth_expired`` — its expiry has passed.</span>
 <span class="sd">    10. ``auth_revoked`` — a self-issued grant whose owner&#39;s switch is not at</span>
-<span class="sd">        ``allowed`` for *target* now (:func:`spend_step` then ends its lease).</span>
+<span class="sd">        ``allowed`` for *target* now (:func:`_spend` then ends its lease).</span>
 <span class="sd">    11. ``auth_channel`` — the batch is empty or names a channel the grant does</span>
 <span class="sd">        not list; ``auth_range`` — a value that is not a finite number inside</span>
 <span class="sd">        its channel&#39;s range. The whole batch is judged before anything is</span>
@@ -1672,17 +1641,20 @@
 <span class="sd">    13. ``auth_exhausted`` — every step has been spent.</span>
 
 <span class="sd">    This reads and never writes, so it is the answer for a report or a</span>
-<span class="sd">    gateway choice; a write spends its step through :func:`spend_step`. It</span>
+<span class="sd">    gateway choice; a write spends its step through :func:`_spend`. It</span>
 <span class="sd">    does not repeat the switch verdict&#39;s read-only, tier and hold terms:</span>
 <span class="sd">    :func:`authorized_execution_verdict` is the composition a write path takes.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        section: The ``control_system`` section of the resolved config.</span>
 <span class="sd">        target: The control target the write lands on.</span>
-<span class="sd">        operations: The write call&#39;s ``(channel, value)`` pairs, or a mapping.</span>
+<span class="sd">        operations: The write call&#39;s ``(channel, value)`` pairs, or a mapping;</span>
+<span class="sd">            :data:`_ANY_WRITE` for a verdict on any write.</span>
 <span class="sd">        authorization: The id the process names.</span>
 <span class="sd">        owner: Whose switch the grant stands in for; ``None`` asks</span>
 <span class="sd">            :func:`~osprey_connectors.posture_store.current_owner`.</span>
+<span class="sd">        basis: The record and switch verdict the caller already read, or</span>
+<span class="sd">            ``None`` to read them here.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        A :class:`~osprey_connectors.posture_store.WriteVerdict` whose</span>
@@ -1690,19 +1662,6 @@
 <span class="sd">        Never raises: a verdict that cannot be reached refuses</span>
 <span class="sd">        ``auth_unreadable``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="n">authorization</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span></div>
-
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_verdict</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">operations</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">authorization</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">basis</span><span class="p">:</span> <span class="n">_Basis</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;:func:`authorization_verdict` on *basis*; *operations* may be :data:`_ANY_WRITE`.&quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">_judge</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="n">authorization</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">_now_ns</span><span class="p">(),</span> <span class="n">basis</span><span class="p">)</span><span class="o">.</span><span class="n">verdict</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># a verdict that cannot be reached refuses; it never raises</span>
@@ -1803,19 +1762,17 @@
         <span class="n">_write_json</span><span class="p">(</span><span class="n">place</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">authorization</span><span class="si">}{</span><span class="n">_LEDGER_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">lapsed</span><span class="o">.</span><span class="n">to_payload</span><span class="p">())</span>
 
 
-<div class="viewcode-block" id="spend_step">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.spend_step">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">spend_step</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_spend</span><span class="p">(</span>
     <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">operations</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">|</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">operations</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">authorization</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">basis</span><span class="p">:</span> <span class="n">_Basis</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Judge one write call and, when it is allowed, spend its step first.</span>
 
-<span class="sd">    Under the ledger&#39;s lock: the whole :func:`authorization_verdict` against</span>
+<span class="sd">    Under the ledger&#39;s lock: the whole :func:`_verdict` against</span>
 <span class="sd">    the ledger read inside the lock, then one step appended (``n`` the next</span>
 <span class="sd">    number, the time, the batch&#39;s channels) and the ledger replaced whole. An</span>
 <span class="sd">    allowed answer means the step is on disk; the caller writes only then, so</span>
@@ -1825,23 +1782,11 @@
 <span class="sd">    A write the ledger could not record refuses ``auth_unreadable``. A</span>
 <span class="sd">    self-issued grant refused because its switch has left ``allowed`` has its</span>
 <span class="sd">    lease lapsed here as well, so the switch coming back does not revive it.</span>
+<span class="sd">    A write&#39;s own operations only: :data:`_ANY_WRITE` refuses.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        As :func:`authorization_verdict`. Never raises.</span>
+<span class="sd">        As :func:`_verdict`. Never raises.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">_spend</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="n">authorization</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span></div>
-
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_spend</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">operations</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">authorization</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">basis</span><span class="p">:</span> <span class="n">_Basis</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;:func:`spend_step` on *basis*. A write&#39;s own operations only, never :data:`_ANY_WRITE`.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">operations</span> <span class="ow">is</span> <span class="n">_ANY_WRITE</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">_unreachable</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">authorization</span><span class="p">,</span> <span class="s2">&quot;spend without a write&quot;</span><span class="p">)</span>
     <span class="k">try</span><span class="p">:</span>
@@ -1897,10 +1842,10 @@
 <span class="sd">        target: The control target the write lands on.</span>
 <span class="sd">        operations: The write call&#39;s ``(channel, value)`` pairs.</span>
 <span class="sd">        authorization: The id the process names, or ``None``.</span>
-<span class="sd">        owner: As for :func:`authorization_verdict`.</span>
+<span class="sd">        owner: As for :func:`_verdict`.</span>
 <span class="sd">        session_keys: As for</span>
 <span class="sd">            :func:`~osprey_connectors.posture_store.execution_verdict`.</span>
-<span class="sd">        spend: Spend the step (:func:`spend_step`) rather than only judge.</span>
+<span class="sd">        spend: Spend the step (:func:`_spend`) rather than only judge.</span>
 
 <span class="sd">    The record is read once: the authorization&#39;s terms are judged on the</span>
 <span class="sd">    record the switch verdict read, and a self-issued grant&#39;s position on that</span>
@@ -2020,8 +1965,8 @@
         <span class="n">ledger</span> <span class="o">=</span> <span class="n">Ledger</span><span class="p">(</span>
             <span class="n">authorization</span><span class="o">=</span><span class="n">authorization</span><span class="p">,</span>
             <span class="n">holder_pid</span><span class="o">=</span><span class="n">pid</span><span class="p">,</span>
-            <span class="n">holder_start</span><span class="o">=</span><span class="n">process_start_time</span><span class="p">(</span><span class="n">pid</span><span class="p">),</span>
-            <span class="n">pid_ns</span><span class="o">=</span><span class="n">pid_namespace</span><span class="p">(),</span>
+            <span class="n">holder_start</span><span class="o">=</span><span class="n">_process_start_time</span><span class="p">(</span><span class="n">pid</span><span class="p">),</span>
+            <span class="n">pid_ns</span><span class="o">=</span><span class="n">_pid_namespace</span><span class="p">(),</span>
             <span class="n">lease_until_ns</span><span class="o">=</span><span class="n">now</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">lease_s</span> <span class="o">*</span> <span class="mf">1e9</span><span class="p">),</span>
         <span class="p">)</span>
         <span class="n">_write_json</span><span class="p">(</span><span class="n">place</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">authorization</span><span class="si">}{</span><span class="n">_LEDGER_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">ledger</span><span class="o">.</span><span class="n">to_payload</span><span class="p">())</span>
@@ -2046,7 +1991,7 @@
             <span class="n">status</span><span class="p">,</span> <span class="n">ledger</span> <span class="o">=</span> <span class="n">_read_ledger_at</span><span class="p">(</span><span class="n">place</span><span class="p">,</span> <span class="n">authorization</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">status</span> <span class="o">!=</span> <span class="s2">&quot;ok&quot;</span> <span class="ow">or</span> <span class="n">ledger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="k">return</span> <span class="kc">False</span>
-            <span class="k">if</span> <span class="n">ledger</span><span class="o">.</span><span class="n">holder_pid</span> <span class="o">!=</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span> <span class="ow">or</span> <span class="n">ledger</span><span class="o">.</span><span class="n">pid_ns</span> <span class="o">!=</span> <span class="n">pid_namespace</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">ledger</span><span class="o">.</span><span class="n">holder_pid</span> <span class="o">!=</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span> <span class="ow">or</span> <span class="n">ledger</span><span class="o">.</span><span class="n">pid_ns</span> <span class="o">!=</span> <span class="n">_pid_namespace</span><span class="p">():</span>
                 <span class="k">return</span> <span class="kc">False</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">_lease_live</span><span class="p">(</span><span class="n">ledger</span><span class="p">,</span> <span class="n">now</span><span class="p">):</span>
                 <span class="k">return</span> <span class="kc">False</span>
@@ -2138,9 +2083,7 @@
     <span class="p">)</span>
 
 
-<div class="viewcode-block" id="auth_overlap">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.auth_overlap">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">auth_overlap</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_auth_overlap</span><span class="p">(</span>
     <span class="n">candidate</span><span class="p">:</span> <span class="n">Grant</span><span class="p">,</span>
     <span class="n">existing</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Grant</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
@@ -2169,14 +2112,13 @@
             <span class="n">grant</span><span class="p">,</span> <span class="n">directories</span><span class="p">,</span> <span class="n">now</span>
         <span class="p">):</span>
             <span class="k">return</span> <span class="n">grant</span>
-    <span class="k">return</span> <span class="kc">None</span></div>
-
+    <span class="k">return</span> <span class="kc">None</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_peer_grants</span><span class="p">(</span><span class="n">peers</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span> <span class="n">own</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Grant</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The self-issued grants in the ledger directories *peers*, *own* left out.</span>
 
-<span class="sd">    Only a grant approved by the switch (:func:`self_issued_grants`) is</span>
+<span class="sd">    Only a grant approved by the switch (:func:`_self_issued_grants`) is</span>
 <span class="sd">    counted, because only that one is honoured there. A directory that cannot</span>
 <span class="sd">    be listed and a grant file that cannot be read are logged and skipped: the</span>
 <span class="sd">    check is the approver&#39;s courtesy, not the boundary, and a file a holder</span>
@@ -2190,7 +2132,7 @@
             <span class="k">continue</span>
         <span class="n">seen</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="n">found</span><span class="p">,</span> <span class="n">unreadable</span> <span class="o">=</span> <span class="n">self_issued_grants</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">peer</span><span class="p">))</span>
+            <span class="n">found</span><span class="p">,</span> <span class="n">unreadable</span> <span class="o">=</span> <span class="n">_self_issued_grants</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">peer</span><span class="p">))</span>
         <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;The self-issued grants in </span><span class="si">%s</span><span class="s2"> cannot be listed: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">peer</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
             <span class="k">continue</span>
@@ -2202,9 +2144,9 @@
     <span class="k">return</span> <span class="n">grants</span>
 
 
-<div class="viewcode-block" id="issue_grant">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.issue_grant">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">issue_grant</span><span class="p">(</span><span class="n">grant</span><span class="p">:</span> <span class="n">Grant</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">directory</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">peers</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_issue_grant</span><span class="p">(</span>
+    <span class="n">grant</span><span class="p">:</span> <span class="n">Grant</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">directory</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">peers</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Write *grant* as a new file, after checking it overlaps no live grant.</span>
 
 <span class="sd">    The approver&#39;s writer. *directory* defaults to the grant&#39;s owner&#39;s</span>
@@ -2230,7 +2172,7 @@
 <span class="sd">        OSError: The directory is not a plain directory, or the write failed.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">grant</span><span class="o">.</span><span class="n">to_payload</span><span class="p">()</span>
-    <span class="n">parse_grant</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">))</span>  <span class="c1"># what is written must read back</span>
+    <span class="n">_parse_grant</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">))</span>  <span class="c1"># what is written must read back</span>
     <span class="n">_within_ceilings</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">steps</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">issued_at_ns</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">expires_at_ns</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">lease_s</span><span class="p">)</span>
     <span class="n">target_dir</span> <span class="o">=</span> <span class="n">_grant_directory</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">owner</span><span class="p">)</span>
     <span class="n">_prepare_directory</span><span class="p">(</span><span class="n">target_dir</span><span class="p">)</span>
@@ -2244,7 +2186,7 @@
                 <span class="s2">&quot;Unreadable grants beside </span><span class="si">%s</span><span class="s2">, left out of the overlap check: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">unreadable</span>
             <span class="p">)</span>
         <span class="n">peers</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">peers</span><span class="p">)</span>
-        <span class="n">held</span> <span class="o">=</span> <span class="n">auth_overlap</span><span class="p">(</span>
+        <span class="n">held</span> <span class="o">=</span> <span class="n">_auth_overlap</span><span class="p">(</span>
             <span class="n">grant</span><span class="p">,</span>
             <span class="p">[</span><span class="o">*</span><span class="n">existing</span><span class="p">,</span> <span class="o">*</span><span class="n">_peer_grants</span><span class="p">(</span><span class="n">peers</span><span class="p">,</span> <span class="n">target_dir</span><span class="p">)],</span>
             <span class="n">ledger_dirs</span><span class="o">=</span><span class="p">(</span><span class="n">target_dir</span><span class="p">,</span> <span class="o">*</span><span class="n">peers</span><span class="p">),</span>
@@ -2254,8 +2196,7 @@
                 <span class="s2">&quot;auth_overlap&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Held by </span><span class="si">{</span><span class="n">held</span><span class="o">.</span><span class="n">holder</span><span class="si">}</span><span class="s2"> under </span><span class="si">{</span><span class="n">held</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">held</span><span class="o">.</span><span class="n">label</span><span class="si">}</span><span class="s2">).&quot;</span>
             <span class="p">)</span>
         <span class="n">_write_json</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">payload</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">path</span></div>
-
+    <span class="k">return</span> <span class="n">path</span>
 
 
 <div class="viewcode-block" id="revoke_grants">
@@ -2336,7 +2277,7 @@
 <span class="sd">    ``write_switch``, then the verdict is taken again: if the switch moved or a</span>
 <span class="sd">    stop came in between, the grant is removed and the issue refused. It is</span>
 <span class="sd">    honoured afterwards only while the position stays ``allowed``; the first</span>
-<span class="sd">    write after it leaves ``allowed`` ends it for good (:func:`spend_step`).</span>
+<span class="sd">    write after it leaves ``allowed`` ends it for good (:func:`_spend`).</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: The channels, steps, expiry or lease are malformed, or</span>
@@ -2383,7 +2324,7 @@
         <span class="n">label</span><span class="o">=</span><span class="n">label</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">place</span> <span class="o">=</span> <span class="n">_checked_ledger_place</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">create</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-    <span class="n">path</span> <span class="o">=</span> <span class="n">issue_grant</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">directory</span><span class="o">=</span><span class="n">place</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="n">peers</span><span class="o">=</span><span class="n">self_issued_directories</span><span class="p">())</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">_issue_grant</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">directory</span><span class="o">=</span><span class="n">place</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="n">peers</span><span class="o">=</span><span class="n">self_issued_directories</span><span class="p">())</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">epoch_at_allowed</span><span class="p">()</span> <span class="o">!=</span> <span class="n">epoch</span><span class="p">:</span>
             <span class="k">raise</span> <span class="n">AuthorizationRefused</span><span class="p">(</span><span class="s2">&quot;auth_revoked&quot;</span><span class="p">,</span> <span class="s2">&quot;A stop came during the issue.&quot;</span><span class="p">)</span>
@@ -2425,9 +2366,7 @@
 
 
 
-<div class="viewcode-block" id="self_issued_grants">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.self_issued_grants">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">self_issued_grants</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Grant</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Path</span><span class="p">,</span> <span class="o">...</span><span class="p">]]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_self_issued_grants</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Grant</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Path</span><span class="p">,</span> <span class="o">...</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The self-issued grants in a ledger *directory*, and the paths that could not be read.</span>
 
 <span class="sd">    :func:`list_grants`, keeping only the grants approved by the switch</span>
@@ -2441,13 +2380,10 @@
     <span class="k">return</span> <span class="p">(</span>
         <span class="nb">tuple</span><span class="p">(</span><span class="n">grant</span> <span class="k">for</span> <span class="n">grant</span> <span class="ow">in</span> <span class="n">grants</span> <span class="k">if</span> <span class="n">grant</span><span class="o">.</span><span class="n">approver</span><span class="o">.</span><span class="n">surface</span> <span class="o">==</span> <span class="n">SELF_ISSUE_SURFACE</span><span class="p">),</span>
         <span class="n">unreadable</span><span class="p">,</span>
-    <span class="p">)</span></div>
+    <span class="p">)</span>
 
 
-
-<div class="viewcode-block" id="grant_in_force">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.grant_in_force">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">grant_in_force</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_grant_in_force</span><span class="p">(</span>
     <span class="n">grant</span><span class="p">:</span> <span class="n">Grant</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">control_context</span><span class="o">.</span><span class="n">ControlContext</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">now_ns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *grant* still stands against its owner&#39;s *record*: what a chip shows as live.</span>
@@ -2464,14 +2400,13 @@
         <span class="k">return</span> <span class="kc">False</span>
     <span class="k">if</span> <span class="n">grant</span><span class="o">.</span><span class="n">approver</span><span class="o">.</span><span class="n">surface</span> <span class="o">==</span> <span class="n">SELF_ISSUE_SURFACE</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">control_context</span><span class="o">.</span><span class="n">switch_position</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">target</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;allowed&quot;</span>
-    <span class="k">return</span> <span class="kc">True</span></div>
-
+    <span class="k">return</span> <span class="kc">True</span>
 
 
 <span class="c1">#: How long a revoked or expired grant is kept before a listing removes it, so</span>
 <span class="c1">#: a holder whose stop has just landed is still told ``auth_revoked`` (or</span>
 <span class="c1">#: ``auth_expired``) rather than that no authorization exists.</span>
-<span class="n">PRUNE_AFTER_S</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mf">3600.0</span>
+<span class="n">_PRUNE_AFTER_S</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mf">3600.0</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_ended_at</span><span class="p">(</span><span class="n">grant</span><span class="p">:</span> <span class="n">Grant</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
@@ -2484,7 +2419,7 @@
 <div class="viewcode-block" id="prune_grants">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.prune_grants">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">prune_grants</span><span class="p">(</span>
-    <span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">now_ns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">after_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">PRUNE_AFTER_S</span>
+    <span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">now_ns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">after_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">_PRUNE_AFTER_S</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Remove the grants in *directory* that ended more than *after_s* ago; the ids removed.</span>
 
@@ -2531,24 +2466,6 @@
             <span class="k">yield</span> <span class="n">ledger</span>
 
 
-<div class="viewcode-block" id="read_ledger">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.read_ledger">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">read_ledger</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Ledger</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ledger of *authorization* in *directory*, or ``None`` when absent.</span>
-
-<span class="sd">    For a surface that shows a holder&#39;s consumption (``osprey status``); the</span>
-<span class="sd">    same fail-closed reader the verdict uses.</span>
-
-<span class="sd">    Raises:</span>
-<span class="sd">        ValueError: The ledger is there and cannot be read.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">status</span><span class="p">,</span> <span class="n">ledger</span> <span class="o">=</span> <span class="n">_read_ledger_at</span><span class="p">(</span><span class="n">_Place</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">directory</span><span class="p">)),</span> <span class="n">_authorization_id</span><span class="p">(</span><span class="n">authorization</span><span class="p">))</span>
-    <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;unreadable&quot;</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;The write ledger of </span><span class="si">{</span><span class="n">authorization</span><span class="si">}</span><span class="s2"> cannot be read&quot;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">ledger</span></div>
-
-
-
 <div class="viewcode-block" id="GrantStanding">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.GrantStanding">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -2557,7 +2474,7 @@
 
 <span class="sd">    Attributes:</span>
 <span class="sd">        grant: The grant.</span>
-<span class="sd">        in_force: :func:`grant_in_force`, and the holder&#39;s ledger has not</span>
+<span class="sd">        in_force: :func:`_grant_in_force`, and the holder&#39;s ledger has not</span>
 <span class="sd">            ended it: a grant whose lease lapsed or whose every step is spent</span>
 <span class="sd">            refuses the next write, so it is not shown standing.</span>
 <span class="sd">        used: The steps the ledger counts; ``0`` while there is no ledger yet,</span>
@@ -2589,7 +2506,7 @@
 <span class="sd">    and ``osprey status`` — answers through this, so they agree.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">now</span> <span class="o">=</span> <span class="n">_now_ns</span><span class="p">()</span> <span class="k">if</span> <span class="n">now_ns</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">now_ns</span>
-    <span class="n">in_force</span> <span class="o">=</span> <span class="n">grant_in_force</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">record</span><span class="p">,</span> <span class="n">now_ns</span><span class="o">=</span><span class="n">now</span><span class="p">)</span>
+    <span class="n">in_force</span> <span class="o">=</span> <span class="n">_grant_in_force</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">record</span><span class="p">,</span> <span class="n">now_ns</span><span class="o">=</span><span class="n">now</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">ledger</span> <span class="ow">in</span> <span class="n">_ledgers_of</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">ledger_dirs</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">ledger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">GrantStanding</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">in_force</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
@@ -2621,7 +2538,7 @@
             <span class="k">continue</span>
         <span class="n">listed</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">directory</span><span class="p">))</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="n">found</span><span class="p">,</span> <span class="n">broken</span> <span class="o">=</span> <span class="p">(</span><span class="n">self_issued_grants</span> <span class="k">if</span> <span class="n">self_issued</span> <span class="k">else</span> <span class="n">list_grants</span><span class="p">)(</span><span class="n">directory</span><span class="p">)</span>
+            <span class="n">found</span><span class="p">,</span> <span class="n">broken</span> <span class="o">=</span> <span class="p">(</span><span class="n">_self_issued_grants</span> <span class="k">if</span> <span class="n">self_issued</span> <span class="k">else</span> <span class="n">list_grants</span><span class="p">)(</span><span class="n">directory</span><span class="p">)</span>
         <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Could not list the authorizations in </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">directory</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
             <span class="n">unreadable</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
@@ -2672,7 +2589,7 @@
 
 <span class="c1">#: What a run does once its evaluations are done, each a write the budget pays</span>
 <span class="c1">#: for: nothing, the best point found, or the values it started from.</span>
-<span class="n">COMPLETIONS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;none&quot;</span><span class="p">,</span> <span class="s2">&quot;apply_best&quot;</span><span class="p">,</span> <span class="s2">&quot;restore&quot;</span><span class="p">)</span>
+<span class="n">_COMPLETIONS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;none&quot;</span><span class="p">,</span> <span class="s2">&quot;apply_best&quot;</span><span class="p">,</span> <span class="s2">&quot;restore&quot;</span><span class="p">)</span>
 
 <span class="c1">#: A request is a few hundred bytes plus one line per channel.</span>
 <span class="n">_REQUEST_READ_LIMIT</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span>
@@ -2717,7 +2634,7 @@
 <span class="sd">        expires_at_ns: When the authorization is to end whatever happens.</span>
 <span class="sd">        lease_s: How long one renewal of the holder&#39;s lease lasts.</span>
 <span class="sd">        label: The run, free text.</span>
-<span class="sd">        completion: Which completion the run will perform (:data:`COMPLETIONS`).</span>
+<span class="sd">        completion: Which completion the run will perform (:data:`_COMPLETIONS`).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span>
@@ -2737,7 +2654,7 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;This request as the JSON object its file holds.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">SCHEMA_VERSION</span><span class="p">,</span>
+            <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span>
             <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
             <span class="s2">&quot;owner&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">,</span>
             <span class="s2">&quot;holder&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">holder</span><span class="p">,</span>
@@ -2777,12 +2694,10 @@
 
 
 
-<div class="viewcode-block" id="parse_request">
-<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.parse_request">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">parse_request</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteRequest</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_request</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteRequest</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A request out of its JSON text, bytes or decoded object.</span>
 
-<span class="sd">    The grant&#39;s strictness (:func:`parse_grant`): every field present with its</span>
+<span class="sd">    The grant&#39;s strictness (:func:`_parse_grant`): every field present with its</span>
 <span class="sd">    type and nothing else, no repeated key, every bound a finite number with</span>
 <span class="sd">    ``min &lt;= max``, ``steps`` at least one, an expiry after the request, a</span>
 <span class="sd">    positive lease and a known completion. As for a grant, the ceilings are</span>
@@ -2793,8 +2708,8 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">_load_json</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="nb">bytearray</span><span class="p">)</span> <span class="k">else</span> <span class="n">raw</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">_exact_keys</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">_REQUEST_KEYS</span><span class="p">,</span> <span class="s2">&quot;the request&quot;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;schema&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">SCHEMA_VERSION</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the request&#39;s schema is not </span><span class="si">{</span><span class="n">SCHEMA_VERSION</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;schema&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_SCHEMA_VERSION</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the request&#39;s schema is not </span><span class="si">{</span><span class="n">_SCHEMA_VERSION</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">requested</span> <span class="o">=</span> <span class="n">_integer</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;requested_at_ns&quot;</span><span class="p">],</span> <span class="s2">&quot;requested_at_ns&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
     <span class="n">expires</span> <span class="o">=</span> <span class="n">_integer</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;expires_at_ns&quot;</span><span class="p">],</span> <span class="s2">&quot;expires_at_ns&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">expires</span> <span class="o">&lt;=</span> <span class="n">requested</span><span class="p">:</span>
@@ -2807,8 +2722,8 @@
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;label is not a string&quot;</span><span class="p">)</span>
     <span class="n">completion</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;completion&quot;</span><span class="p">]</span>
-    <span class="k">if</span> <span class="n">completion</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">COMPLETIONS</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;completion </span><span class="si">{</span><span class="n">completion</span><span class="si">!r}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">COMPLETIONS</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">completion</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_COMPLETIONS</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;completion </span><span class="si">{</span><span class="n">completion</span><span class="si">!r}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">_COMPLETIONS</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">WriteRequest</span><span class="p">(</span>
         <span class="nb">id</span><span class="o">=</span><span class="n">_authorization_id</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]),</span>
         <span class="n">owner</span><span class="o">=</span><span class="n">_name</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;owner&quot;</span><span class="p">],</span> <span class="s2">&quot;owner&quot;</span><span class="p">),</span>
@@ -2821,8 +2736,7 @@
         <span class="n">lease_s</span><span class="o">=</span><span class="n">lease_s</span><span class="p">,</span>
         <span class="n">label</span><span class="o">=</span><span class="n">label</span><span class="p">,</span>
         <span class="n">completion</span><span class="o">=</span><span class="n">completion</span><span class="p">,</span>
-    <span class="p">)</span></div>
-
+    <span class="p">)</span>
 
 
 <div class="viewcode-block" id="requests_dir">
@@ -2857,7 +2771,7 @@
 <span class="sd">            another id.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-    <span class="n">request</span> <span class="o">=</span> <span class="n">parse_request</span><span class="p">(</span><span class="n">_read_no_follow</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_REQUEST_READ_LIMIT</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
+    <span class="n">request</span> <span class="o">=</span> <span class="n">_parse_request</span><span class="p">(</span><span class="n">_read_no_follow</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">_REQUEST_READ_LIMIT</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
     <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="si">}{</span><span class="n">_GRANT_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> does not name the request it holds, </span><span class="si">{</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">request</span></div>
@@ -2945,7 +2859,7 @@
         <span class="n">completion</span><span class="o">=</span><span class="n">completion</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">to_payload</span><span class="p">()</span>
-    <span class="n">parse_request</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">))</span>  <span class="c1"># what is written must read back</span>
+    <span class="n">_parse_request</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">))</span>  <span class="c1"># what is written must read back</span>
     <span class="n">_within_ceilings</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">steps</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">requested_at_ns</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">expires_at_ns</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">lease_s</span><span class="p">)</span>
     <span class="n">place</span> <span class="o">=</span> <span class="n">_checked_ledger_place</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">create</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="n">directory</span> <span class="o">=</span> <span class="n">place</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">REQUESTS_DIR_NAME</span>
@@ -2979,7 +2893,7 @@
 <span class="c1"># -- approval -------------------------------------------------------------------</span>
 
 <span class="c1">#: The surfaces a person approves from.</span>
-<span class="n">APPROVAL_SURFACES</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;chip&quot;</span><span class="p">,</span> <span class="s2">&quot;cli&quot;</span><span class="p">)</span>
+<span class="n">_APPROVAL_SURFACES</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;chip&quot;</span><span class="p">,</span> <span class="s2">&quot;cli&quot;</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="approve_request">
@@ -3004,7 +2918,7 @@
 <span class="sd">    keeps: the record, then the grants directory): the record is read — one</span>
 <span class="sd">    that cannot be read refuses, one that is not there is created on the</span>
 <span class="sd">    request&#39;s machine with every switch off, and one with no epoch is given</span>
-<span class="sd">    one — the grant is stamped with that epoch, and :func:`issue_grant` checks</span>
+<span class="sd">    one — the grant is stamped with that epoch, and :func:`_issue_grant` checks</span>
 <span class="sd">    it against every grant in the directory and the self-issued ones in</span>
 <span class="sd">    *peers* (default: :func:`self_issued_directories`) before writing. A stop of every machine</span>
 <span class="sd">    moving the epoch after this ends the grant; a stop of this machine that</span>
@@ -3036,8 +2950,8 @@
 <span class="sd">        RuntimeError: A lock was not acquired in time, or no record path resolves.</span>
 <span class="sd">        OSError: A write failed.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">surface</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">APPROVAL_SURFACES</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;surface </span><span class="si">{</span><span class="n">surface</span><span class="si">!r}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">APPROVAL_SURFACES</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">surface</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_APPROVAL_SURFACES</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;surface </span><span class="si">{</span><span class="n">surface</span><span class="si">!r}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">_APPROVAL_SURFACES</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">identity</span> <span class="o">=</span> <span class="n">approver</span> <span class="ow">or</span> <span class="n">acting_identity</span><span class="p">()</span>
     <span class="k">if</span> <span class="n">record_file</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">owner</span> <span class="o">!=</span> <span class="n">acting_identity</span><span class="p">():</span>
@@ -3057,7 +2971,7 @@
                 <span class="n">approver</span><span class="o">=</span><span class="n">Approver</span><span class="p">(</span><span class="n">identity</span><span class="o">=</span><span class="n">identity</span><span class="p">,</span> <span class="n">surface</span><span class="o">=</span><span class="n">surface</span><span class="p">,</span> <span class="n">at_ns</span><span class="o">=</span><span class="n">now</span><span class="p">),</span>
                 <span class="n">issued_at_ns</span><span class="o">=</span><span class="n">now</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="n">issue_grant</span><span class="p">(</span>
+            <span class="n">_issue_grant</span><span class="p">(</span>
                 <span class="n">grant</span><span class="p">,</span>
                 <span class="n">directory</span><span class="o">=</span><span class="n">directory</span><span class="p">,</span>
                 <span class="n">peers</span><span class="o">=</span><span class="n">self_issued_directories</span><span class="p">()</span> <span class="k">if</span> <span class="n">peers</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">peers</span><span class="p">,</span>
