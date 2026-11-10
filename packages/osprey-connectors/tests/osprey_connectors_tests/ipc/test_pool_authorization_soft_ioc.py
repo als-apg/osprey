@@ -32,8 +32,8 @@ from osprey_connectors.write_authorization import (
     Approver,
     ChannelRange,
     Grant,
-    issue_grant,
-    parse_ledger,
+    _issue_grant,
+    _parse_ledger,
     revoke_grants,
     start_lease,
 )
@@ -125,7 +125,7 @@ def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = Tr
         approver=Approver(identity="alice", surface="chip", at_ns=now),
         label="run-1",
     )
-    issue_grant(grant)
+    _issue_grant(grant)
     if lease:
         start_lease(grant.id)
     return grant
@@ -134,7 +134,7 @@ def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = Tr
 def spent(grant: Grant) -> int:
     directory = wa.ledger_dir()
     assert directory is not None
-    return len(parse_ledger((directory / f"{grant.id}.ledger.json").read_text()).steps)
+    return len(_parse_ledger((directory / f"{grant.id}.ledger.json").read_text()).steps)
 
 
 async def value(connector: Any, channel: str) -> Any:

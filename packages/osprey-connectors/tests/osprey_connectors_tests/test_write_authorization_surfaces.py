@@ -29,21 +29,18 @@ from osprey_connectors.write_authorization import (
     Grant,
     Revocation,
     WriteRequest,
+    _grant_in_force,
+    _issue_grant,
+    _parse_request,
+    _self_issued_grants,
     approve_request,
     approved_grant,
-    authorization_verdict,
-    grant_in_force,
-    issue_grant,
     list_grants,
     list_requests,
-    parse_request,
     prune_grants,
-    read_ledger,
     read_request,
     self_issue,
     self_issued_directories,
-    self_issued_grants,
-    spend_step,
     start_lease,
     withdraw_request,
     write_request,
@@ -74,6 +71,11 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv(session_hold.HOLD_DIR_ENV_VAR, raising=False)
     write_control_context(data, switch={})
     return data
+
+
+def spend(section: Any, target: str, operations: Any, *, authorization: str) -> Any:
+    """One write call judged and its step spent, with no switch verdict read first."""
+    return wa._spend(section, target, operations, authorization, None, None)
 
 
 def epoch() -> int:
@@ -148,20 +150,20 @@ def request_payload(**fields: Any) -> dict[str, Any]:
 class TestStopRevokes:
     def test_a_named_stop_ends_the_next_write_through_the_spend(self):
         grant = make_grant()
-        issue_grant(grant)
+        _issue_grant(grant)
         start_lease(grant.id)
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).allowed
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
         control_context.set_switch([TARGET], "off")
         control_context.invalidate_cache()
-        answer = spend_step(SECTION, TARGET, OPS, authorization=grant.id)
+        answer = spend(SECTION, TARGET, OPS, authorization=grant.id)
         assert (answer.allowed, answer.reason) == (False, "auth_revoked")
         assert ME in (answer.detail or "")
 
     def test_a_named_stop_names_its_machines_only(self):
         on_va = make_grant()
         on_live = make_grant(target="live", channels={"L:SP": ChannelRange(0, 1)})
-        issue_grant(on_va)
-        issue_grant(on_live)
+        _issue_grant(on_va)
+        _issue_grant(on_live)
         control_context.set_switch(["live"], "off", by="alice")
         stored = {g.id: g for g in list_grants(own_dir())[0]}
         assert stored[on_va.id].revoked is None
@@ -171,7 +173,7 @@ class TestStopRevokes:
     def test_all_off_revokes_every_grant_and_moves_the_epoch(self):
         grants = [make_grant(), make_grant(target="live")]
         for grant in grants:
-            issue_grant(grant)
+            _issue_grant(grant)
         before = epoch()
         control_context.set_switch("all", "off")
         assert epoch() > before
@@ -179,7 +181,7 @@ class TestStopRevokes:
 
     def test_a_stop_with_no_record_still_marks_the_grants(self):
         grant = make_grant()
-        issue_grant(grant)
+        _issue_grant(grant)
         path = control_context.record_path()
         assert path is not None
         path.unlink()
@@ -188,7 +190,7 @@ class TestStopRevokes:
 
     def test_a_widening_revokes_nothing(self):
         grant = make_grant()
-        issue_grant(grant)
+        _issue_grant(grant)
         control_context.set_switch([TARGET], "asked", epoch=epoch())
         assert list_grants(own_dir())[0][0].revoked is None
 
@@ -198,8 +200,8 @@ class TestStopRevokes:
     ):
         on_va = make_grant()
         on_live = make_grant(target="live", channels={"L:SP": ChannelRange(0, 1)})
-        issue_grant(on_va)
-        issue_grant(on_live)
+        _issue_grant(on_va)
+        _issue_grant(on_live)
         control_context.set_switch([TARGET], "asked", epoch=epoch())
         before = epoch()
 
@@ -214,15 +216,15 @@ class TestStopRevokes:
         assert record.switch_epoch == stored.switch_epoch
         assert control_context.switch_position(record, TARGET) == "off"
         assert epoch() > before  # wider than asked: every machine's grants end
-        assert not grant_in_force(on_va, record)
-        assert not grant_in_force(on_live, record)
+        assert not _grant_in_force(on_va, record)
+        assert not _grant_in_force(on_live, record)
 
     def test_a_lock_is_created_group_writable_whatever_the_umask(self):
         directory = own_dir()
         directory.mkdir(parents=True, exist_ok=True)
         previous = os.umask(0o077)
         try:
-            issue_grant(make_grant())
+            _issue_grant(make_grant())
         finally:
             os.umask(previous)
         lock = directory / "authorizations.lock"
@@ -234,7 +236,7 @@ class TestStopRevokes:
         # this uid reaches it through the group, read-only. The owner bits stand
         # in for that here (0o440), which the same uid is held to.
         grant = make_grant()
-        issue_grant(grant)
+        _issue_grant(grant)
         lock = own_dir() / "authorizations.lock"
         lock.chmod(0o440)
         before = epoch()
@@ -250,7 +252,7 @@ class TestStopRevokes:
 class TestRequestFormat:
     def test_round_trip(self):
         payload = request_payload()
-        request = parse_request(json.dumps(payload))
+        request = _parse_request(json.dumps(payload))
         assert request.to_payload() == payload
         assert request.channels["A:SP"] == ChannelRange(0.0, 10.0)
         assert request.completion == "restore"
@@ -275,7 +277,7 @@ class TestRequestFormat:
     )
     def test_anything_else_is_unreadable(self, change: dict[str, Any]):
         with pytest.raises(ValueError):
-            parse_request(request_payload(**change))
+            _parse_request(request_payload(**change))
 
     @pytest.mark.parametrize(
         "change",
@@ -291,7 +293,7 @@ class TestRequestFormat:
     ):
         """The ceilings are the writer's: a file on disk past one is honoured as before."""
         payload = request_payload(**change)
-        assert parse_request(json.dumps(payload)).to_payload() == payload
+        assert _parse_request(json.dumps(payload)).to_payload() == payload
         ledgers = tmp_path / "ledger"
         ledgers.mkdir()
         monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(ledgers))
@@ -302,11 +304,11 @@ class TestRequestFormat:
     def test_a_non_finite_bound_and_a_repeated_key_are_unreadable(self):
         text = json.dumps(request_payload()).replace("10.0", "NaN")
         with pytest.raises(ValueError):
-            parse_request(text)
+            _parse_request(text)
         with pytest.raises(ValueError):
-            parse_request('{"schema": 1, "schema": 1}')
+            _parse_request('{"schema": 1, "schema": 1}')
         with pytest.raises(ValueError):
-            parse_request(request_payload(channels={"A:SP": {"min": 0, "max": float("inf")}}))
+            _parse_request(request_payload(channels={"A:SP": {"min": 0, "max": float("inf")}}))
 
     def test_the_holder_writes_into_its_ledger_directory(self, tmp_path, monkeypatch):
         ledgers = tmp_path / "ledger"
@@ -330,7 +332,7 @@ class TestRequestFormat:
     def test_a_listing_reports_what_it_cannot_read_and_skips_other_names(self, tmp_path):
         directory = tmp_path / "requests"
         directory.mkdir()
-        good = parse_request(request_payload())
+        good = _parse_request(request_payload())
         (directory / f"{good.id}.json").write_text(json.dumps(good.to_payload()))
         broken = directory / f"{uuid.uuid4().hex}.json"
         broken.write_text("{")
@@ -376,7 +378,7 @@ class TestApproval:
         )
         assert approved_grant(request.id) == grant
         start_lease(grant.id)
-        assert authorization_verdict(SECTION, TARGET, OPS, authorization=grant.id).allowed
+        assert wa._verdict(SECTION, TARGET, OPS, grant.id, None, None).allowed
 
     def test_an_approval_is_issued_once(self):
         request = ask()
@@ -408,7 +410,7 @@ class TestApproval:
         assert refused.value.reason == "auth_expired"
 
     def test_another_owners_request_needs_its_record(self):
-        request = parse_request(request_payload(owner="bob"))
+        request = _parse_request(request_payload(owner="bob"))
         with pytest.raises(AuthorizationRefused) as refused:
             approve_request(request, surface="cli")
         assert refused.value.reason == "owner_foreign"
@@ -422,7 +424,7 @@ class TestApproval:
 
     def test_the_record_lock_is_held_around_the_issue(self, monkeypatch):
         held: list[bool] = []
-        real = wa.issue_grant
+        real = wa._issue_grant
 
         def probe(grant: Grant, **kwargs: Any) -> Path:
             path = control_context.record_path()
@@ -442,7 +444,7 @@ class TestApproval:
                 os.close(fd)
             return real(grant, **kwargs)
 
-        monkeypatch.setattr(wa, "issue_grant", probe)
+        monkeypatch.setattr(wa, "_issue_grant", probe)
         approve_request(ask(), surface="cli")
         assert held == [True]
 
@@ -452,7 +454,7 @@ class TestApproval:
 
 def _tree_grant(tree: Path, owner: str, **fields: Any) -> Grant:
     grant = make_grant(owner=owner, **fields)
-    issue_grant(grant, directory=tree / owner / "authorizations")
+    _issue_grant(grant, directory=tree / owner / "authorizations")
     return grant
 
 
@@ -463,7 +465,7 @@ class TestOverlap:
 
     def test_another_holders_grant_beside_it_on_the_channel_refuses(self):
         held = make_grant(holder="bluesky")
-        issue_grant(held, directory=own_dir())
+        _issue_grant(held, directory=own_dir())
         with pytest.raises(AuthorizationRefused) as refused:
             approve_request(ask(), surface="chip")
         assert refused.value.reason == "auth_overlap"
@@ -481,7 +483,7 @@ class TestOverlap:
         ids=["other-channel", "other-machine", "revoked", "same-holder"],
     )
     def test_what_does_not_overlap(self, fields):
-        issue_grant(make_grant(**fields), directory=own_dir())
+        _issue_grant(make_grant(**fields), directory=own_dir())
         assert approve_request(ask(), surface="chip").id
 
     def test_another_owners_grant_is_not_read(self, tree):
@@ -512,7 +514,7 @@ class TestOverlap:
             holder="tuning-scripts",
             approver=Approver(identity="tuning-scripts", surface="write_switch", at_ns=1),
         )
-        issue_grant(held, directory=ledgers)
+        _issue_grant(held, directory=ledgers)
         monkeypatch.setenv(wa.LEDGER_VIEW_DIR_ENV_VAR, str(ledgers))
         assert ledgers in self_issued_directories()
         with pytest.raises(AuthorizationRefused) as refused:
@@ -525,12 +527,12 @@ class TestOverlap:
         ledgers = tmp_path / "write_ledger"
         own = make_grant(approver=Approver(identity=ME, surface="write_switch", at_ns=1))
         planted = make_grant(approver=Approver(identity=ME, surface="chip", at_ns=1))
-        issue_grant(own, directory=ledgers)
-        issue_grant(planted, directory=ledgers, peers=())
-        assert [g.id for g in self_issued_grants(ledgers)[0]] == [own.id]
+        _issue_grant(own, directory=ledgers)
+        _issue_grant(planted, directory=ledgers, peers=())
+        assert [g.id for g in _self_issued_grants(ledgers)[0]] == [own.id]
 
     def test_self_issue_refuses_another_holders_self_issued_grant(self):
-        issue_grant(
+        _issue_grant(
             make_grant(
                 holder="bluesky",
                 approver=Approver(identity="bluesky", surface="write_switch", at_ns=1),
@@ -558,7 +560,7 @@ class TestPruneAndShow:
         stopped_now = make_grant(revoked=Revocation(at_ns=now, by="bob"))
         expired_long_ago = make_grant(issued_at_ns=now - 3 * hour, expires_at_ns=now - 2 * hour)
         for grant in (live, stopped_long_ago, stopped_now, expired_long_ago):
-            issue_grant(grant, directory=own_dir())
+            _issue_grant(grant, directory=own_dir())
         broken = own_dir() / f"{uuid.uuid4().hex}.json"
         broken.write_text("{")
         removed = prune_grants(own_dir(), now_ns=now)
@@ -569,49 +571,49 @@ class TestPruneAndShow:
 
     def test_a_recently_stopped_holder_still_hears_auth_revoked(self):
         grant = make_grant()
-        issue_grant(grant)
+        _issue_grant(grant)
         start_lease(grant.id)
         control_context.set_switch([TARGET], "off")
         prune_grants(own_dir())
-        answer = authorization_verdict(SECTION, TARGET, OPS, authorization=grant.id)
+        answer = wa._verdict(SECTION, TARGET, OPS, grant.id, None, None)
         assert answer.reason == "auth_revoked"
 
     def test_in_force_is_live_under_the_records_epoch(self):
         grant = make_grant()
         control_context.invalidate_cache()
         record = control_context.read_record()
-        assert grant_in_force(grant, record)
-        assert not grant_in_force(grant, None)
-        assert not grant_in_force(grant, record, now_ns=FAR_FUTURE_NS)
+        assert _grant_in_force(grant, record)
+        assert not _grant_in_force(grant, None)
+        assert not _grant_in_force(grant, record, now_ns=FAR_FUTURE_NS)
         stale = make_grant(switch_epoch=grant.switch_epoch - 1)
-        assert not grant_in_force(stale, record)
+        assert not _grant_in_force(stale, record)
 
     def test_a_self_issued_grant_is_in_force_only_at_allowed(self):
         control_context.set_switch([TARGET], "allowed", epoch=epoch())
         grant = make_grant(approver=Approver(identity=ME, surface="write_switch", at_ns=1))
         control_context.invalidate_cache()
-        assert grant_in_force(grant, control_context.read_record())
+        assert _grant_in_force(grant, control_context.read_record())
         control_context.set_switch([TARGET], "asked")
         control_context.invalidate_cache()
-        assert not grant_in_force(grant, control_context.read_record())
+        assert not _grant_in_force(grant, control_context.read_record())
 
     def test_a_grant_its_ledger_ended_is_not_in_force(self):
         grant = make_grant(steps=1)
-        issue_grant(grant)
+        _issue_grant(grant)
         control_context.invalidate_cache()
         record = control_context.read_record()
         ledgers = [own_dir()]
         assert wa.grant_standing(grant, record, ledgers) == wa.GrantStanding(grant, True, 0, None)
         start_lease(grant.id)
         assert wa.grant_standing(grant, record, ledgers).in_force
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).allowed
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
         spent = wa.grant_standing(grant, record, ledgers)
         assert (spent.in_force, spent.used) == (False, 1)
-        assert grant_in_force(grant, record)  # the grant alone still stands
+        assert _grant_in_force(grant, record)  # the grant alone still stands
 
     def test_a_grant_whose_lease_lapsed_is_not_in_force(self):
         grant = make_grant()
-        issue_grant(grant)
+        _issue_grant(grant)
         start_lease(grant.id)
         control_context.invalidate_cache()
         record = control_context.read_record()
@@ -621,7 +623,7 @@ class TestPruneAndShow:
 
     def test_an_unreadable_ledger_counts_nothing(self):
         grant = make_grant()
-        issue_grant(grant)
+        _issue_grant(grant)
         (own_dir() / f"{grant.id}.ledger.json").write_text("{")
         control_context.invalidate_cache()
         standing = wa.grant_standing(grant, control_context.read_record(), [own_dir()])
@@ -629,26 +631,14 @@ class TestPruneAndShow:
 
     def test_listed_grants_reads_each_directory_once_and_each_grant_once(self, tmp_path):
         mine = make_grant()
-        issue_grant(mine)
+        _issue_grant(mine)
         ledgers = tmp_path / "write_ledger"
         own = make_grant(approver=Approver(identity=ME, surface="write_switch", at_ns=1))
         planted = make_grant(approver=Approver(identity=ME, surface="chip", at_ns=1))
-        issue_grant(own, directory=ledgers)
-        issue_grant(planted, directory=ledgers, peers=())
+        _issue_grant(own, directory=ledgers)
+        _issue_grant(planted, directory=ledgers, peers=())
         broken = ledgers / f"{uuid.uuid4().hex}.json"
         broken.write_text("{")
         found, unreadable = wa.listed_grants([own_dir(), own_dir()], [ledgers, own_dir()])
         assert [(g.id, d) for g, d in found] == [(mine.id, own_dir()), (own.id, ledgers)]
         assert unreadable == [broken]
-
-    def test_read_ledger(self):
-        grant = make_grant()
-        issue_grant(grant)
-        start_lease(grant.id)
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).allowed
-        ledger = read_ledger(own_dir(), grant.id)
-        assert ledger is not None and len(ledger.steps) == 1
-        assert read_ledger(own_dir(), uuid.uuid4().hex) is None
-        (own_dir() / f"{grant.id}.ledger.json").write_text("{")
-        with pytest.raises(ValueError):
-            read_ledger(own_dir(), grant.id)

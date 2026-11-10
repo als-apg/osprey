@@ -135,7 +135,7 @@ services:
       # authorization's steps and the run renews its lease. Bound with the
       # tree, because under a bound tree a writer with no ledger directory has
       # every write refused.
-      OSPREY_WRITE_LEDGER_DIR: {{ write_ledger_container_dir }}
+      {{ write_ledger_env }}: {{ write_ledger_container_dir }}
 {%- endif %}
 {{- hostenv.passthrough(svc) }}
     volumes:

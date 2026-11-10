@@ -2936,6 +2936,9 @@ def _inject_project_metadata(config):
         write_ledger_relpath()
     )
     config_with_labels["write_ledger_container_dir"] = WRITE_LEDGER_CONTAINER_DIR
+    from osprey_connectors.write_authorization import LEDGER_DIR_ENV_VAR
+
+    config_with_labels["write_ledger_env"] = LEDGER_DIR_ENV_VAR
 
     # ARIEL's markdown mirror, in the same two spellings and for the same
     # reason as the spool and state zones above: the HOST bind source compose resolves
