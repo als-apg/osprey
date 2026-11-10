@@ -394,8 +394,10 @@ shape.
 
 **A failed model does not take the machine down.** Each served physics model
 has a status channel, ``<code>:SIM:<model>:STATUS``, which exists in no other
-view. A model whose engine raises while building or reading it (over a deck
-that does not load, say) is left failed: its status channel carries the
+view. Every served model also has read-only IOC health channels,
+``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``. A model whose
+engine raises while building or reading it (over a deck that does not load,
+say) is left failed: its status channel carries the
 engine's error text, and every other model and every texture channel is still
 served. ``osprey sim status`` prints one ``<model>: <status>`` line per served
 model, ``ok`` or ``FAILED:`` and that text, exits 1 when a model failed, and

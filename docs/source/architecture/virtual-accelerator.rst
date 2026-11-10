@@ -40,9 +40,11 @@ What gets served
 
 The served list is the simulator view's ``addresses.json``: its ``channels``,
 every channel address the facility declares, then one
-``<code>:SIM:<model>:STATUS`` address for each served physics model. Which
-models are served is the view's ``served_models.json``, with the texture model
-always last. A physics model is one child of the composite, built from the
+``<code>:SIM:<model>:STATUS`` address for each served physics model, then the
+view's ``ioc_health`` list: read-only ``<code>:SIM:<model>:HEARTBEAT``,
+``UPTIME`` and ``ENGINEER`` addresses for every served model, texture
+included. Which models are served is the view's ``served_models.json``, with
+the texture model always last. A physics model is one child of the composite, built from the
 view's ``variables.json`` and its deck, ``decks/<model>.<its suffix>``, through the
 engine plug-in its record names; the texture serves every channel no model
 wires. The container's ready line prints how many channels it serves, so the
