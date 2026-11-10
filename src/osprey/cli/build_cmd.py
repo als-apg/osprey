@@ -3974,15 +3974,15 @@ def _build_repo(
         for web_warning in web_warnings:
             output.note(f"⚠ {web_warning}")
 
-        # The note the `provenance:` stamp promises: one line whenever the preset
-        # has moved on since this profile was materialized. Never a refusal, and
-        # the same line `osprey validate` prints.
+        # One line when the presets this repo took have changed since it last
+        # took them, pointing at `osprey init --revalidate`. Never a refusal,
+        # and the same line `osprey validate` prints.
         if build_profile.provenance is not None:
-            from .build_profile_drift import preset_drift_report
+            from .build_profile_updates import preset_update_note
 
-            drift = preset_drift_report(profile_path, build_profile.provenance)
-            if drift.note:
-                output.note(drift.note)
+            update_note = preset_update_note(profile_path)
+            if update_note:
+                output.note(update_note)
 
         # A fresh staging tree, and the output zone it will replace. Both are
         # created now: the venv below is written into `build/` directly, at the

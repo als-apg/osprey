@@ -232,10 +232,10 @@ _REQUIRES_VERSION_COMMENT = (
 # reads it — the header says the same thing for people.
 _PROVENANCE_COMMENT = [
     "# What this profile was materialized from. Emitted, not hand-written: a",
-    "# build compares it against the installed preset and mentions it when the",
-    "# preset has moved on. This profile is the source of truth: edit it freely.",
+    "# build mentions it when the preset has changed since the repo last took",
+    "# it. This profile is the source of truth: edit it freely.",
     "# `providers_hash` is the same record for providers.yml beside this file;",
-    "# `osprey init --revalidate` adds the packaged entries and keys it lacks.",
+    "# `osprey init --revalidate` applies what the presets changed since.",
 ]
 
 # Round-trip mode preserves comments, key order, and quoting style (same
@@ -1327,8 +1327,8 @@ def emit_layer_delta_yaml(
 
     provenance = (
         f"# What this file was materialized from. Emitted, not hand-written: `osprey\n"
-        f"# validate` compares it against the installed {word} and mentions it when\n"
-        f"# the {word} has moved on. This file is the source of truth: edit it freely.\n"
+        f"# validate` mentions it when the {word} has changed since the repo last\n"
+        f"# took it. This file is the source of truth: edit it freely.\n"
         f"provenance:\n"
         f"  preset: {stem}\n"
         f"  preset_hash: {preset_hash}\n"
@@ -1354,6 +1354,7 @@ _ZONE_MAP = """\
 #          +---- edit -> osprey build -> osprey up --------------+
 #
 #   SOURCE   yours to edit, kept in git: this file, data/, tiers/, apps/
+#   RECORD   .osprey/, what the presets produced. Kept in git. Not edited
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept"""
@@ -1394,8 +1395,8 @@ def materialized_profile(
 ) -> dict[str, Any]:
     """The profile ``osprey init`` writes for *preset_name* today, as data.
 
-    The reference a materialized profile is compared with
-    (:func:`~osprey.cli.build_profile_drift.preset_drift_report`): not the
+    What the saved copy records for ``profile.yml``, and what it is compared
+    with (:mod:`~osprey.cli.build_profile_updates`): not the
     preset's raw layer, which no repo ever holds, but the document the emitter
     makes of it — ``extends`` resolved, defaults synthesized, ``config:``
     prefixes collapsed, ``dispatch.triggers`` repointed at the file the repo

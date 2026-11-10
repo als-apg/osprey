@@ -132,13 +132,14 @@ class ProfileProvenance:
     """What a materialized profile was emitted from (``provenance:``).
 
     Written by ``osprey init`` and never by hand. It is the MACHINE-READABLE record of the profile's source — the emitted header
-    says the same thing in prose, for people — and it is what
-    :func:`~osprey.cli.build_profile_drift.preset_drift_report` compares against
-    the installed preset to notice that the preset has moved on since the
-    profile was materialized (FR-6). A profile is the source of truth once it
-    exists, so a difference from the preset is never overwritten or refused:
-    ``osprey validate`` and ``osprey build`` only say when the preset has moved
-    on.
+    says the same thing in prose, for people. What the preset produced is
+    saved beside it, under ``.osprey/preset-base/``
+    (:mod:`~osprey.cli.build_profile_updates`), and that saved copy, not this
+    hash, is what tells a preset's later changes from the operator's edits. A
+    profile is the source of truth once it exists, so a difference from the
+    preset is never refused: ``osprey validate`` and ``osprey build`` only say
+    when the preset has changed since, and ``osprey init --revalidate`` applies
+    what it changed.
     """
 
     preset: str

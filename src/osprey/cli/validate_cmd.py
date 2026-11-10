@@ -109,9 +109,9 @@ def check_profile_file(profile_file: Path) -> None:
         limits_block_errors,
         profile_dispatch_tier,
     )
-    from .build_profile_drift import preset_drift_report
     from .build_profile_presets import bundled_layer_file_refusal
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
+    from .build_profile_updates import preset_update_note
     from .profile_root import resolve_profile_root
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
@@ -210,18 +210,16 @@ def check_profile_file(profile_file: Path) -> None:
     ):
         note(f"⚠ {warning}")
 
-    # Whether the preset a materialized profile, tier or application came from
-    # has moved on since `osprey init` wrote it: one line each, never a refusal.
-    # The profile is the operator's to edit, so a difference between it and its
-    # preset is not a fault, and a key-by-key comparison of the two cannot tell
-    # an edit from a line the preset gained since. The real checks above are
-    # what refuse.
+    # Whether the presets this repo took have changed since it last took them:
+    # one line, never a refusal. The profile is the operator's to edit, and
+    # applying what a preset changed is `osprey init --revalidate`'s job. The
+    # real checks above are what refuse.
     try:
-        report_card = preset_drift_report(profile_file, build_profile.provenance)
+        update_note = preset_update_note(profile_file)
     except BuildProfileError as e:
         raise click.UsageError(str(e)) from e
-    if report_card.note:
-        note(report_card.note)
+    if update_note:
+        note(update_note)
 
     # Before the verdict, and worded as `osprey build` words it: the reader has
     # to know WHICH document was judged before being told it is fine.
