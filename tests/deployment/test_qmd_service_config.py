@@ -359,6 +359,24 @@ class TestCorpora:
         assert resolved.for_corpus("ascc").port == 9003
         assert resolved.for_corpus("ascc").base_url == "http://127.0.0.1:9003"
 
+    def test_a_declared_corpus_embeds_unless_switched_off(self) -> None:
+        resolved = resolve_qmd_service_config(
+            {
+                "services": {
+                    "qmd": {
+                        "corpora": [
+                            {"name": "papers", "source": "./p"},
+                            {"name": "ascc", "source": "./a", "embed": False},
+                        ],
+                    }
+                }
+            }
+        )
+        assert [(c.name, c.embed) for c in resolved.corpora] == [
+            ("papers", True),
+            ("ascc", False),
+        ]
+
     def test_resolve_corpus_config_without_a_block_is_none(self) -> None:
         assert resolve_qmd_corpus_config({}, "okf") is None
 
@@ -379,6 +397,11 @@ class TestCorpora:
             ([{"name": "a", "source": "./x", "index_dir": "/i"}], "corpus is managed"),
             ([{"name": "a", "index": "remote", "source": "./x"}], "index must be"),
             ([{"name": "a", "source": "./x", "catalogue": "t"}], "unknown key"),
+            ([{"name": "a", "source": "./x", "embed": "no"}], "embed must be true or false"),
+            (
+                [{"name": "a", "index": "prebuilt", "index_dir": "/i", "embed": False}],
+                "embed applies to a managed corpus",
+            ),
             ([{"name": f"c{i}", "source": "./x"} for i in range(9)], "room for 8"),
         ],
     )

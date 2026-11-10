@@ -82,7 +82,10 @@ on the difference:
   answer in time. It names the channel under ``channel_address`` and is no
   ``ConnectionError``: the connector keeps serving every other channel, and
   nothing is restarted. The controls tools report it as error type
-  ``channel_unreachable``, naming the channel under ``details.channel``.
+  ``channel_unreachable``, naming the channel under ``details.channel``. The
+  error also states whether the active target's gateway answered when the
+  channel failed, under ``details.target_reachability``: ``state`` is
+  ``reached``, ``down``, or ``unmeasured`` when no gateway could be probed.
 - ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
   context, its service or its connector-host child. It is a
   ``ConnectionError``. Its supervisor replaces the connector once per
@@ -321,8 +324,14 @@ and a switch moved to *asked* or *allowed* does not widen it. The how-to is
 
 **Three files, three writers.** Each is read the fail-closed way: no symbolic
 link followed, a bounded read, a regular file, exactly the fields below, no
-repeated key, every number finite. A file that is there and cannot be read
-refuses; an absent grant is no authorization (``switch_off``).
+repeated key, every number finite. A request or grant is written only inside
+three ceilings: at most 100000 ``steps`` (``MAX_STEPS``), an ``expires_at_ns``
+at most 24 hours after its ``requested_at_ns`` or ``issued_at_ns``
+(``MAX_EXPIRES_S``), and a ``lease_s`` of at most 600 seconds; a write past
+one raises ``ValueError`` and writes nothing. Reading does not apply them, so
+a file already on disk past a ceiling is honoured as before. A file that is
+there and cannot be read refuses; an absent grant is no authorization
+(``switch_off``).
 
 .. list-table::
    :header-rows: 1
@@ -371,15 +380,19 @@ grants directory's — the one lock order every writer of both keeps — stamps
 the record's ``switch_epoch`` on the grant, and refuses ``auth_overlap`` when
 a live grant of another holder lists one of the channels on the same machine:
 one in the owner's own directory, or a self-issued one in the ledger directory
-the approver sees. Another owner's directory is not read. A grant file that
-cannot be read is logged and left out of that check; it refuses every write
-under it already. Both surfaces also refuse a target the deployment does not
-configure, a ceiling of ``never`` or ``unknown``, a range outside the limits
-database, and a channel without a numeric range there; the chip also refuses
-in a read-only run. The ceiling is the one the program's own writes will meet:
-for a request in ``var/write_ledger/requests`` (a program in a shared
-container), the login map the build staged for those containers; for one filed
-on the host, the rendered config, as the web terminal on the host reads it.
+the approver sees. A grant whose every ledger the approver sees shows its
+lease time passed by more than a minute (its holder stopped renewing; the
+minute is a grace for the two clocks) does not count; one with no ledger in
+sight, or a ledger that cannot be read, does, until it expires. Another
+owner's directory is not read. A grant file that cannot be read is logged and
+left out of that check; it refuses every write under it already. Both
+surfaces also refuse a target the deployment does not configure, a ceiling of
+``never`` or ``unknown``, a range outside the limits database, and a channel
+without a numeric range there; the chip also refuses in a read-only run. The
+ceiling is the one the program's own writes will meet: for a request in
+``var/write_ledger/requests`` (a program in a shared container), the login map
+the build staged for those containers; for one filed on the host, the rendered
+config, as the web terminal on the host reads it.
 A refusal names every channel that cannot be approved.
 
 An approval is the confirmation for every write the run makes inside it, a

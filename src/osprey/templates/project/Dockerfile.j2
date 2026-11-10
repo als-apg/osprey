@@ -63,8 +63,12 @@
 #   OSPREY_SITE_CA      name of a site CA file staged in the build context, for
 #                       networks where a proxy re-signs TLS with its own CA.
 #                       Unset (the default), the CA layer is a no-op.
+#   OSPREY_BASE_REGISTRY  registry standing in for docker.io (default docker.io);
+#                       the base image is
+#                       ${OSPREY_BASE_REGISTRY}/library/python:{{ image_python }}-slim.
 
-FROM {% if image_platform %}--platform={{ image_platform }} {% endif %}python:{{ image_python }}-slim
+ARG OSPREY_BASE_REGISTRY="docker.io"
+FROM {% if image_platform %}--platform={{ image_platform }} {% endif %}${OSPREY_BASE_REGISTRY}/library/python:{{ image_python }}-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework declares only

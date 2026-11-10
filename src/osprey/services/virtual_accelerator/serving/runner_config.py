@@ -158,12 +158,12 @@ def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
         and the model's status address.
     """
     bindings = view.bindings(served_only=False)
-    settings = [binding for binding in bindings if binding.role == SETPOINT]
+    settings = [binding for binding in bindings if binding.engine_role == SETPOINT]
     pairs = {binding.address: view.channel(binding.address).pair for binding in settings}
     paired = {pair for pair in pairs.values() if pair is not None}
     computed: dict[str, set[str]] = {}
     for binding in bindings:
-        if binding.role != SETPOINT and binding.address not in paired:
+        if binding.engine_role != SETPOINT and binding.address not in paired:
             computed.setdefault(binding.model, set()).add(binding.address)
     for model, address in view.status_addresses().items():
         computed.setdefault(model, set()).add(address)

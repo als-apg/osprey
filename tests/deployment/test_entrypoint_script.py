@@ -45,6 +45,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.control_identity import validate_identity
+
 #: The shipped template, which is what a build copies into the render.
 TEMPLATE = (
     Path(__file__).resolve().parents[2]
@@ -136,6 +138,14 @@ GID_MAP_SEP = "\t"
 #: points the script's copy at a fabricated file, because no test host is a
 #: rootless container and macOS has no ``/proc`` at all.
 UID_MAP_PATH = "/proc/self/uid_map"
+
+#: Where the script reads whether SELinux is enforcing. Re-pointed in every
+#: sandbox run, so a test host with a real selinuxfs never answers for the case.
+SELINUX_ENFORCE_PATH = "/sys/fs/selinux/enforce"
+
+#: Where the script reads this process's security context. Re-pointed in every
+#: sandbox run for the same reason: a Linux runner's real file is readable.
+PROC_ATTR_PATH = "/proc/self/attr/current"
 
 #: The kernel's spelling of "no user namespace": container root is host root.
 IDENTITY_UID_MAP = "         0          0 4294967295\n"
@@ -286,6 +296,13 @@ class TestScriptShape:
         only, and not guessed from the runtime."""
         assert f"UID_MAP={UID_MAP_PATH}\n" in text
         assert not re.search(r"OSPREY_[A-Z_]*UID_MAP", text), "the map path is taken from the env"
+
+    def test_the_selinux_state_is_the_kernels(self, text: str):
+        """Read from the paths the kernel states it at, never from the env."""
+        assert f"SELINUX_ENFORCE={SELINUX_ENFORCE_PATH}\n" in text
+        assert f"PROC_ATTR={PROC_ATTR_PATH}\n" in text
+        assert not re.search(r"OSPREY_[A-Z_]*SELINUX", text), "the enforce path is from the env"
+        assert not re.search(r"OSPREY_[A-Z_]*PROC_ATTR", text), "the context path is from the env"
 
     def test_the_gid_is_stat_ed_off_the_mount(self, text: str):
         """Not passed in. A gid rendered into the compose file is the host's
@@ -475,6 +492,8 @@ class Sandbox:
         read_probe_rc: int | None = None,
         traverse_probe_rc: int | None = None,
         uid_map: str | None = None,
+        selinux_enforce: str | None = None,
+        proc_attr: str | None = None,
         identity: str | None = None,
         module: str | None = "present",
         apply_rc: int = 0,
@@ -494,6 +513,9 @@ class Sandbox:
             uid_map_file.write_text(uid_map)
             assert UID_MAP_PATH in script_text
             script_text = script_text.replace(UID_MAP_PATH, str(uid_map_file))
+        # The SELinux state is re-pointed on every run, and the file written
+        # only when the case names one: `None` is "no selinuxfs" on every host.
+        script_text = self._repoint_selinux(script_text, selinux_enforce, proc_attr)
         self.script.write_text(script_text)
         bindir = self._stubs(
             uid=uid,
@@ -595,6 +617,20 @@ class Sandbox:
             assert state == "present", state
         return path
 
+    def _repoint_selinux(
+        self, script_text: str, selinux_enforce: str | None, proc_attr: str | None
+    ) -> str:
+        for path, name, content in (
+            (SELINUX_ENFORCE_PATH, "selinux-enforce", selinux_enforce),
+            (PROC_ATTR_PATH, "proc-attr-current", proc_attr),
+        ):
+            target = self.tmp / name
+            if content is not None:
+                target.write_text(content)
+            assert path in script_text
+            script_text = script_text.replace(path, str(target))
+        return script_text
+
     def call_probe(
         self, var: str, directory: Path | str, mode: str | None = None
     ) -> subprocess.CompletedProcess[str]:
@@ -612,7 +648,7 @@ class Sandbox:
         sourced = self.tmp / "sourced-entrypoint.sh"
         text = TEMPLATE.read_text().rstrip()
         assert text.endswith(MAIN_INVOCATION), "the script no longer ends in its own call"
-        sourced.write_text(text[: -len(MAIN_INVOCATION)])
+        sourced.write_text(self._repoint_selinux(text[: -len(MAIN_INVOCATION)], None, None))
         bindir = self._stubs(
             uid=0,
             groupadd_rc=0,
@@ -1255,6 +1291,150 @@ class TestTheControlContextProbes:
             f"probe osprey -r {tree}",
             f"probe osprey -x {tree}",
         ], "a probe saw a truncated path"
+
+
+LABELLED = "system_u:system_r:container_t:s0:c123,c456\0"
+
+
+class TestTheSelinuxHint:
+    """A failed access probe names the SELinux label as a cause to check,
+    on a host that confines this container with SELinux, and only there."""
+
+    HINT = "container_file_t"
+
+    # The kernel's shape: selinuxfs writes the mode with no newline, and the
+    # process attribute ends in a NUL, not a newline.
+
+    def test_an_enforcing_host_adds_the_hint_to_the_write_warning(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce="1")
+
+        assert run.returncode == 0, run.stderr
+        assert self.HINT in run.stderr, run.stderr
+        assert "ls -Zd" in run.stderr, run.stderr
+        assert "ausearch -m avc -ts recent" in run.stderr, run.stderr
+        assert len(_warnings(run)) == 1, run.stderr
+        assert "gosu" in run.order, "the hint blocked the container's boot"
+
+    def test_an_enforcing_host_adds_the_hint_to_the_enter_failure(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, traverse_probe_rc=1, selinux_enforce="1")
+
+        assert run.returncode == 0, run.stderr
+        assert self.HINT in run.stderr, run.stderr
+
+    def test_an_enforcing_host_adds_the_hint_to_the_read_warning(self, sandbox: Sandbox):
+        tree = sandbox.control_tree_mount(gid=3000)
+
+        run = sandbox.run(control_tree=tree, read_probe_rc=1, selinux_enforce="1")
+
+        assert run.returncode == 0, run.stderr
+        assert self.HINT in run.stderr, run.stderr
+        assert len(_warnings(run)) == 1, run.stderr
+
+    def test_a_labelled_container_adds_the_hint_when_the_enforce_file_is_masked(
+        self, sandbox: Sandbox
+    ):
+        """Rootless podman can mask selinuxfs inside the container; the
+        process's own label still says SELinux confines it."""
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr=LABELLED,
+        )
+
+        assert run.returncode == 0, run.stderr
+        assert self.HINT in run.stderr, run.stderr
+        assert "SELinux labels this container" in run.stderr, run.stderr
+        assert len(_warnings(run)) == 1, run.stderr
+
+    def test_an_unconfined_container_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool, probe_rc=1, selinux_enforce=None, proc_attr="unconfined\0"
+        )
+
+        assert self.HINT not in run.stderr, run.stderr
+
+    def test_a_super_privileged_container_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="system_u:system_r:spc_t:s0\0",
+        )
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+    def test_an_unconfined_label_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="unconfined_u:unconfined_r:unconfined_t:s0\0",
+        )
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+    def test_a_container_family_label_adds_the_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="system_u:system_r:container_init_t:s0:c1,c2\0",
+        )
+
+        assert self.HINT in run.stderr, run.stderr
+        assert "SELinux labels this container" in run.stderr, run.stderr
+
+    def test_a_permissive_host_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce="0")
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert self.HINT not in run.stderr, run.stderr
+
+    def test_a_permissive_host_silences_a_labelled_container(self, sandbox: Sandbox):
+        """A readable enforce file reading 0 means SELinux denies nothing, so
+        no SELinux cause is named, whatever the process's label says."""
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce="0", proc_attr=LABELLED)
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert self.HINT not in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+    def test_a_host_without_selinuxfs_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce=None, proc_attr=None)
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert self.HINT not in run.stderr, run.stderr
+
+    def test_a_passing_probe_says_nothing_about_selinux(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=0, selinux_enforce="1")
+
+        assert run.returncode == 0, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
 
 
 class TestTheProbeSurvivesItsOwnMisuse:
@@ -2110,3 +2290,59 @@ class TestTheIdentityOnANonRootStart:
         run = sandbox.run(uid=1000, identity="osprey-dispatch-1")
 
         assert run.apply_calls == []
+
+
+def _admits(name: str, *, allow_service: bool) -> bool:
+    try:
+        validate_identity(name, allow_service=allow_service)
+    except ValueError:
+        return False
+    return True
+
+
+#: One name per class the two predicates could split on.
+_IDENTITY_NAMES = [
+    "alice",
+    "j.doe",
+    "_svc",
+    "osprey-sidecar",
+    "osprey-dispatch-worker-1",
+    "osprey-",
+    "osprey.x",
+    "osprey",
+    "root",
+    "daemon",
+    "osprey-Upper",
+    "osprey-a$b",
+    "osprey-" + "a" * 26,
+]
+
+_ADMITTED = [n for n in _IDENTITY_NAMES if _admits(n, allow_service=True)]
+_REFUSED_SERVICE_SHAPED = [
+    n for n in _IDENTITY_NAMES if n.startswith("osprey-") and not _admits(n, allow_service=True)
+]
+
+
+class TestTheServiceRuleIsOneRule:
+    """The shell restates the module's service predicate because it decides exactly
+    when the module cannot run; this pins the two as one rule."""
+
+    @pytest.mark.parametrize("name", _ADMITTED)
+    def test_the_shell_warns_exactly_on_the_modules_service_names(
+        self, sandbox: Sandbox, name: str
+    ):
+        service = not _admits(name, allow_service=False)
+        run = sandbox.run(identity=name, with_python=False)
+
+        assert (run.returncode == 0 and run.skipped == "apply-failed") == service, run.stderr
+
+    @pytest.mark.parametrize("name", _REFUSED_SERVICE_SHAPED)
+    def test_a_service_shaped_name_the_module_refuses_runs_as_osprey(
+        self, sandbox: Sandbox, name: str
+    ):
+        run = sandbox.run(identity=name, apply_rc=1)
+
+        assert run.returncode == 0, run.stderr
+        assert run.skipped == "apply-failed"
+        assert run.order[-3:] == ["gosu", "osprey", "cmd"], run.order
+        assert "control identity: uid 1000 is" not in run.stderr, run.stderr

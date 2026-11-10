@@ -183,6 +183,17 @@ class FacilityAdapter(ABC):
         return False
 
     @property
+    def writes_local_only(self) -> bool:
+        """Whether ``create_entry`` writes somewhere the facility logbook never sees.
+
+        Default ``False``: a write reaches the facility logbook, so the entry is
+        recorded ``pending_sync`` until it is read back. An adapter whose writes
+        stay local (e.g. a local JSON file) overrides this to ``True``; its
+        entries are recorded ``local_only`` and never read back.
+        """
+        return False
+
+    @property
     def requires_write_auth(self) -> bool:
         """Whether ``create_entry`` requires operator credentials to publish.
 

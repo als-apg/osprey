@@ -41,6 +41,21 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.ipc.FrameDecodeError": "a caller tells a bad frame read from the others",
     "osprey_connectors.ipc.FrameEncodeError": "a caller tells a bad frame write from the others",
+    "osprey_connectors.ipc.GATEWAYS_MISSING": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
+    "osprey_connectors.ipc.GATEWAYS_NONE_DECLARED": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
+    "osprey_connectors.ipc.GATEWAYS_ROWS": (
+        "a caller names the verdict that a target declares gateway rows"
+    ),
+    "osprey_connectors.ipc.declared_gateways": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
@@ -56,6 +71,10 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.pv_directory.contract.PutLog": (
         "an out-of-tree put-log backend subclasses it"
+    ),
+    "osprey_connectors.safety_file.SHARED_DIR_MODE": (
+        "transitional: its framework users land with the connectors floor bump to "
+        ">=2026.11.8 (#2571)"
     ),
     "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
         "the framework's archive rewrite reads the burst window"
@@ -178,10 +197,10 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.simulation.values.VALUE_TYPES",
         "osprey_connectors.simulation.values.WAVEFORM",
         "osprey_connectors.simulation.view.Binding",
+        "osprey_connectors.simulation.view.ENGINE_ROLES",
         "osprey_connectors.simulation.view.NO_VIEW_MESSAGE",
         "osprey_connectors.simulation.view.PLANES",
         "osprey_connectors.simulation.view.REFRESH",
-        "osprey_connectors.simulation.view.ROLES",
         "osprey_connectors.simulation.write_active_state",
         "osprey_connectors.standin.ARCHIVER_RECORDER_SERVICE",
         "osprey_connectors.standin.DEPLOYED_SERVICES_KEY",

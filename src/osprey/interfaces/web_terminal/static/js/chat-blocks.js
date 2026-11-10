@@ -34,6 +34,7 @@ import { elem, formatElapsed } from './chat-dom.js';
  * @property {(startedAt: number) => void} start - tick from *startedAt* (epoch ms)
  * @property {() => void} stop
  * @property {() => void} flourish - the osprey beats its wings twice, quicker, then rolls: a live finish
+ * @property {(on: boolean) => void} setCompacting - show the folding stack while the conversation is compacted
  */
 
 /**
@@ -64,6 +65,8 @@ export function thoughtLabel(ms) {
  * activity in a shimmer, and the elapsed time. The renderer decides when it
  * shows; the loader owns its label and its clock. The mark is the brand, and
  * this line is the one place in a turn it flies: the rows carry glyphs.
+ * While the conversation is compacted, a stack of lines folds into one
+ * beside the label (setCompacting).
  * @returns {LoaderHandle}
  */
 export function createLoader() {
@@ -75,13 +78,17 @@ export function createLoader() {
   bird.addEventListener('animationend', (event) => {
     if (event.animationName === 'op-osprey-roll') bird.classList.remove('flying');
   });
+  // Hidden unless the loader is compacting: the CSS keys on data-mode.
+  const stack = elem('span', 'op-loader-compact');
+  stack.setAttribute('aria-hidden', 'true');
+  stack.append(elem('i', ''), elem('i', ''), elem('i', ''));
   const label = elem('span', 'op-loader-label op-shimmer', 'Working…');
   const sep = elem('span', 'op-loader-sep', '·');
   sep.setAttribute('aria-hidden', 'true');
   // Off the live region: the label is the announcement; the clock is for the eye.
   const time = elem('span', 'op-loader-time', '0.0s');
   time.setAttribute('aria-live', 'off');
-  el.append(bird, label, sep, time);
+  el.append(bird, stack, label, sep, time);
 
   let since = 0;
   /** @type {number | null} */
@@ -110,6 +117,10 @@ export function createLoader() {
     },
     flourish() {
       bird.classList.add('flying');
+    },
+    setCompacting(on) {
+      if (on) el.dataset.mode = 'compacting';
+      else delete el.dataset.mode;
     },
   };
 }

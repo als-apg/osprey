@@ -112,6 +112,11 @@ HEALTH_TIMEOUT="${OSPREY_QMD_HEALTH_TIMEOUT:-900}"
 # Escape hatch: force the full rebuild path even when the embedder matches.
 FORCE_REINDEX="${OSPREY_QMD_FORCE_REINDEX:-0}"
 
+# `0`: the index is keyword-only. `qmd embed` never runs, at startup or on an
+# update, and a vector query on this corpus returns nothing. Set for a corpus
+# whose clients query BM25 alone; anything else embeds.
+EMBED="${OSPREY_QMD_EMBED:-1}"
+
 CONFIG_FILE="$STATE_DIR/.qmd/index.yml"
 DB_FILE="$STATE_DIR/.qmd/index.sqlite"
 IDENTITY_STAMP="$STATE_DIR/.qmd/osprey-embed-identity"
@@ -163,7 +168,7 @@ stop_child() {
 
 on_term() {
     log "signal received; shutting down"
-    stop_child "$HEARTBEAT_PID"
+    stop_heartbeat
     # Forwarder first: stop accepting new connections before the daemon behind
     # it goes away, so in-flight clients see a closed port rather than a hang.
     stop_child "$SOCAT_PID"
@@ -192,21 +197,51 @@ run_stage() {
 
 # Periodic "still working" line for the stages that can run for tens of
 # minutes. Without it a full rebuild looks indistinguishable from a hang.
+#
+# stop_heartbeat has to leave no process behind wherever its signal lands,
+# and a stage that finishes at once stops the heartbeat a moment after its
+# start. Two windows decide the shape:
+# - The stop signal is USR1, which nothing here traps. A forked child keeps
+#   the parent's handlers until the shell resets them, and dash drops a
+#   trapped signal that lands in that gap: a TERM there would be lost and
+#   stop_heartbeat would wait out the sleep. An untrapped USR1 kills the
+#   subshell outright before its own trap is set, when it has no sleep yet.
+# - A shell runs a trap between commands, so the signal can land after
+#   `sleep &` has forked and before `$!` is saved. The trap therefore kills
+#   only the sleep it knows of and raises a flag; the loop reads the flag once
+#   the pid is saved and after every wait, kills the sleep it just started,
+#   and reaps it before the subshell exits.
 start_heartbeat() {
     _label=$1
     (
+        _hb_sleep=""
+        _hb_stop=""
+        trap '_hb_stop=1; [ -z "$_hb_sleep" ] || kill "$_hb_sleep" 2>/dev/null || :' USR1
         _t0=$(date +%s)
-        while :; do
-            sleep 120
+        while [ -z "$_hb_stop" ]; do
+            sleep 120 &
+            _hb_sleep=$!
+            if [ -n "$_hb_stop" ]; then
+                kill "$_hb_sleep" 2>/dev/null || :
+                break
+            fi
+            wait "$_hb_sleep" || :
+            _hb_sleep=""
+            [ -z "$_hb_stop" ] || break
             _elapsed=$(( $(date +%s) - _t0 ))
             log "  ... $_label still running ($(fmt_duration "$_elapsed") elapsed)"
         done
+        wait
+        exit 0
     ) &
     HEARTBEAT_PID=$!
 }
 
 stop_heartbeat() {
-    stop_child "$HEARTBEAT_PID"
+    if [ -n "$HEARTBEAT_PID" ]; then
+        kill -USR1 "$HEARTBEAT_PID" 2>/dev/null || true
+        wait "$HEARTBEAT_PID" 2>/dev/null || true
+    fi
     HEARTBEAT_PID=""
 }
 
@@ -389,9 +424,15 @@ add_env_collections() {
     done
 }
 
-# The embedder that produced the stored vectors, versus the one baked into this
-# image. A mismatch means every vector in the index is in a different embedding
-# space and comparing them is meaningless, so the index has to be rebuilt.
+# What this index was built with: the embedder and whether it embedded. The
+# stamp holds the embedder on its first line and the embed mode on an
+# `embed=0|1` line; a stamp without that line comes from an index that always
+# embedded. A different embedder means every stored vector is in another
+# embedding space and comparing them is meaningless, so the index is rebuilt.
+# An index that embedded, on a corpus with embedding now off, holds vectors
+# this corpus must not serve, so it is rebuilt as a keyword index. An index
+# that did not embed, on a corpus with embedding now on, only has every
+# document pending, which the incremental pass embeds.
 decide_build_mode() {
     _want="${OSPREY_QMD_EMBED_MODEL_ID:-}"
     [ -n "$_want" ] || die "no embedder identity available (OSPREY_QMD_EMBED_MODEL_ID is unset and ${OSPREY_QMD_MODEL_IDENTITY_FILE:-the identity file} was not readable); refusing to index against an unknown embedder"
@@ -406,13 +447,21 @@ decide_build_mode() {
         BUILD_MODE=full
         BUILD_REASON="index exists but records no embedder identity"
     else
-        _have=$(cat "$IDENTITY_STAMP" 2>/dev/null || printf '')
-        if [ "$_have" = "$_want" ]; then
-            BUILD_MODE=incremental
-            BUILD_REASON="embedder unchanged ($_want)"
-        else
+        _have=$(sed -n 1p "$IDENTITY_STAMP" 2>/dev/null || printf '')
+        _had_embed=$(sed -n 's/^embed=//p' "$IDENTITY_STAMP" 2>/dev/null || printf '')
+        [ -n "$_had_embed" ] || _had_embed=1
+        if [ "$_have" != "$_want" ]; then
             BUILD_MODE=full
             BUILD_REASON="embedder changed: index was built with '$_have', image supplies '$_want'"
+        elif [ "$_had_embed" != 0 ] && [ "$EMBED" = 0 ]; then
+            BUILD_MODE=full
+            BUILD_REASON="embedding turned off: the index holds vectors from an earlier pass and this corpus has embedding off"
+        elif [ "$_had_embed" = 0 ] && [ "$EMBED" != 0 ]; then
+            BUILD_MODE=incremental
+            BUILD_REASON="embedding turned on; embedding the pending documents"
+        else
+            BUILD_MODE=incremental
+            BUILD_REASON="embedder unchanged ($_want)"
         fi
     fi
     EMBED_IDENTITY=$_want
@@ -420,7 +469,11 @@ decide_build_mode() {
 
 announce_full_build() {
     log "FULL REINDEX required: $BUILD_REASON"
-    log "  Every document will be re-scanned and every embedding recomputed."
+    if [ "$EMBED" = 0 ]; then
+        log "  Every document will be re-scanned; embedding is off for this corpus."
+    else
+        log "  Every document will be re-scanned and every embedding recomputed."
+    fi
     log "  This is slow by nature: at ~135,000 documents it measured"
     log "  41 minutes -- 17 for the keyword index, 24 for the embeddings."
     log "  The search endpoint on port $PORT stays CLOSED until it finishes."
@@ -458,6 +511,16 @@ embed_until_done() {
     done
 }
 
+# The embedding step of a pass. With embedding off it only records how many
+# documents have no vectors, which for a keyword-only index is all of them.
+embed_pass() {
+    if [ "$EMBED" = 0 ]; then
+        EMBED_PENDING=$(status_field "$(qmd status 2>&1 || true)" Pending)
+        return 0
+    fi
+    embed_until_done
+}
+
 run_startup_pass() {
     decide_build_mode
 
@@ -487,17 +550,23 @@ run_startup_pass() {
 
     # `qmd update` deliberately does not embed -- it reports how many hashes
     # need vectors and leaves them pending. Without this step the index would
-    # serve keyword hits and silently return nothing for vector searches.
-    log "computing embeddings ('qmd embed')"
-    start_heartbeat "embedding"
-    embed_until_done
-    stop_heartbeat
+    # serve keyword hits and silently return nothing for vector searches,
+    # which is what a corpus with embedding off asks for.
+    if [ "$EMBED" = 0 ]; then
+        log "embedding off (OSPREY_QMD_EMBED=0): keyword index only"
+        embed_pass
+    else
+        log "computing embeddings ('qmd embed')"
+        start_heartbeat "embedding"
+        embed_pass
+        stop_heartbeat
+    fi
 
     _pass_elapsed=$(( $(date +%s) - _pass_t0 ))
     log "startup pass finished in $(fmt_duration "$_pass_elapsed")"
 
     assert_index_populated
-    printf '%s\n' "$EMBED_IDENTITY" > "$IDENTITY_STAMP"
+    printf '%s\nembed=%s\n' "$EMBED_IDENTITY" "$EMBED" > "$IDENTITY_STAMP"
 }
 
 # A prebuilt index is served as it arrived, so the checks a build would have
@@ -509,7 +578,7 @@ check_prebuilt_index() {
     _want="${OSPREY_QMD_EMBED_MODEL_ID:-}"
     [ -n "$_want" ] || die "no embedder identity available (OSPREY_QMD_EMBED_MODEL_ID is unset); refusing to serve a prebuilt index against an unknown embedder"
     if [ -f "$IDENTITY_STAMP" ]; then
-        _have=$(cat "$IDENTITY_STAMP" 2>/dev/null || printf '')
+        _have=$(sed -n 1p "$IDENTITY_STAMP" 2>/dev/null || printf '')
         [ "$_have" = "$_want" ] \
             || die "prebuilt index was built with embedder '$_have', this image queries with '$_want'; rebuild the index with this image"
     else
@@ -548,7 +617,7 @@ assert_index_populated() {
         die "index is empty after the startup pass; refusing to serve. Nothing would be findable, and a healthy-looking empty sidecar is worse than a sidecar that will not start. Check the collection paths above and the corpus mounts."
     fi
 
-    if [ "$BUILD_MODE" = full ] && [ "$_vectors" -eq 0 ]; then
+    if [ "$BUILD_MODE" = full ] && [ "$EMBED" != 0 ] && [ "$_vectors" -eq 0 ]; then
         die "full rebuild produced $_total document(s) but 0 embeddings; refusing to serve, because every vector search would return nothing. Check the 'qmd embed' output above."
     fi
 }
@@ -671,7 +740,7 @@ run_update() {
     _upd_t0=$(date +%s)
     log "update triggered by $_upd_reason"
     run_stage qmd update || log "WARNING: 'qmd update' exited non-zero; keeping the previous index and continuing"
-    embed_until_done
+    embed_pass
     log "update finished in $(fmt_duration "$(( $(date +%s) - _upd_t0 ))")"
 }
 

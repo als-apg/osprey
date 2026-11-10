@@ -91,11 +91,12 @@ from osprey.services.ariel_search.search.base import (
 )
 from osprey.services.ariel_search.subject import entry_subject
 from osprey.services.qmd import QMDClient, QMDClientError, QMDUnavailableError
+from osprey.services.qmd.client import SearchType
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
-    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.config import ARIELConfig, SearchModuleConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.enhancement.status import EnhancementContext
     from osprey.services.ariel_search.filters import EntryFilter
@@ -182,6 +183,21 @@ class HybridSearchSettings:
 
     @classmethod
     def from_ariel_config(cls, config: ARIELConfig | None) -> HybridSearchSettings:
+        """Read the hybrid module's settings from a loaded ARIEL configuration.
+
+        Args:
+            config: The loaded ARIEL configuration, or ``None``.
+
+        Returns:
+            The resolved settings, as :meth:`from_module` reads them.
+
+        Raises:
+            ValueError: As :meth:`from_module` raises it.
+        """
+        return cls.from_module(config.search_modules.get("hybrid") if config is not None else None)
+
+    @classmethod
+    def from_module(cls, module: SearchModuleConfig | None) -> HybridSearchSettings:
         """Read the module's ``settings`` block, defaults filled in.
 
         An absent block is the normal case and yields the defaults. A *present*
@@ -191,7 +207,7 @@ class HybridSearchSettings:
         refusal.
 
         Args:
-            config: The loaded ARIEL configuration, or ``None``.
+            module: The ``search_modules.hybrid`` block, or ``None``.
 
         Returns:
             The resolved settings.
@@ -201,7 +217,6 @@ class HybridSearchSettings:
                 but not a boolean, or
                 ``candidate_limit`` is present but not a positive integer.
         """
-        module = config.search_modules.get("hybrid") if config is not None else None
         settings = module.settings if module is not None else None
         if not isinstance(settings, dict):
             return cls()
@@ -229,6 +244,36 @@ class HybridSearchSettings:
             )
 
         return cls(strategy=strategy, rerank=rerank, candidate_limit=candidate_limit)
+
+    @property
+    def qmd_lanes(self) -> tuple[SearchType, ...]:
+        """The sub-queries hybrid search sends to the ``ariel`` sidecar.
+
+        Lexical comes first because qmd weights the first sub-query double. The
+        sidecar computes vectors exactly when ``"vec"`` is among these lanes.
+        """
+        return ("lex",) if self.strategy == "rrf" else ("lex", "vec")
+
+
+def qmd_lanes(hybrid: SearchModuleConfig | None) -> tuple[SearchType, ...]:
+    """The qmd lanes ARIEL's hybrid search queries, ``()`` when it is off.
+
+    A disabled module's settings are never parsed, as ARIEL's config check
+    consults only an enabled module.
+
+    Args:
+        hybrid: The ``search_modules.hybrid`` block, or ``None``.
+
+    Returns:
+        The lanes, lexical first.
+
+    Raises:
+        ValueError: If the enabled module's settings are malformed, as
+            :meth:`HybridSearchSettings.from_module` raises it.
+    """
+    if hybrid is None or not hybrid.enabled:
+        return ()
+    return HybridSearchSettings.from_module(hybrid).qmd_lanes
 
 
 @dataclass(frozen=True)
@@ -750,7 +795,7 @@ async def _ranked_search(
                 query_expansion.flattened_text if query_expansion else query,
                 limit=fetch_limit,
                 rerank=rerank,
-                lexical_only=rrf,
+                search_types=settings.qmd_lanes,
                 candidate_limit=candidate_limit,
             )
             if paging is not None and paging.rerank:
@@ -760,7 +805,7 @@ async def _ranked_search(
                     query_expansion.flattened_text if query_expansion else query,
                     limit=fetch_limit,
                     rerank=True,
-                    lexical_only=rrf,
+                    search_types=settings.qmd_lanes,
                     candidate_limit=candidate_limit,
                 )
                 diagnostics = (*diagnostics, *rerank_diagnostics)
@@ -1075,7 +1120,7 @@ async def _fetch_hits(
     *,
     limit: int,
     rerank: bool,
-    lexical_only: bool,
+    search_types: tuple[SearchType, ...],
     candidate_limit: int | None,
 ) -> tuple[list[QMDSearchResult], tuple[SearchDiagnostic, ...]]:
     """Ask the sidecar to rank, degrading to the unreranked ordering if it must.
@@ -1090,7 +1135,8 @@ async def _fetch_hits(
         text: The query text as the sidecar should see it.
         limit: How many hits to ask for.
         rerank: Whether to run the reranker at all.
-        lexical_only: Ask qmd for BM25 results only, for ARIEL's RRF strategy.
+        search_types: The qmd sub-queries to send, as
+            :attr:`HybridSearchSettings.qmd_lanes` names them.
         candidate_limit: Candidate depth for the RRF BM25 lane and qmd's
             ``candidateLimit`` for a qmd query.
 
@@ -1106,7 +1152,6 @@ async def _fetch_hits(
     async def run(
         *,
         rerank: bool,
-        lexical_only: bool = False,
         query_limit: int | None = None,
     ) -> list[QMDSearchResult]:
         # The client is synchronous by design (stdlib urllib, no new dependency),
@@ -1117,7 +1162,7 @@ async def _fetch_hits(
             collection,
             text,
             limit=query_limit or limit,
-            search_types=("lex",) if lexical_only else ("lex", "vec"),
+            search_types=search_types,
             rerank=rerank,
             candidate_limit=candidate_limit,
         )
@@ -1126,8 +1171,7 @@ async def _fetch_hits(
         lane_limit = max(limit, candidate_limit or limit)
         return await run(
             rerank=False,
-            lexical_only=lexical_only,
-            query_limit=lane_limit if lexical_only else None,
+            query_limit=lane_limit if "vec" not in search_types else None,
         ), ()
 
     try:

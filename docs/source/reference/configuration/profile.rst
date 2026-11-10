@@ -167,8 +167,8 @@ Profile YAML reference
      - mapping
      - absent
      - Where the project is built, pushed and run: ``ci``, ``host``,
-       ``registry``, ``image_source``, ``ci_image_prefix`` and
-       ``external_projects``. ``osprey scaffold ci`` renders the CI files from
+       ``registry``, ``image_source`` and ``external_projects``.
+       ``osprey scaffold ci`` renders the CI files from
        it. When the profile configures web terminals, the build also writes
        its image source, and its registry URL when ``config:`` names none, into
        the rendered config the web-terminal stack reads (see
@@ -1773,15 +1773,18 @@ run and turning it on does not widen the run:
   limits database; a step per evaluation (``n_initial + n_iterations``,
   each evaluation one write call) plus one for the completion write when
   ``on_complete`` is ``apply_best`` (the default) or ``restore``, none for
-  ``hold``; an eight-hour expiry (``OPTIMIZER_AUTHORIZATION_EXPIRES_S``) and a
-  lease the run renews every 20 seconds. An evaluation whose objective is
-  re-measured only reads it again: it writes once and spends one step.
+  ``hold``; an eight-hour expiry (``OPTIMIZER_AUTHORIZATION_EXPIRES_S``, held
+  just under 24 hours) and a lease the run renews every 20 seconds. An
+  evaluation whose objective is re-measured only reads it again: it writes
+  once and spends one step.
 * **How it gets it.** While the owner's switch for the machine stands at
   *allowed*, the run writes its own. Otherwise it writes a request, its job's
   ``write_authorization.state`` reads ``awaiting``, and the owner approves it
   from the chip or with ``osprey write-authorization approve``. A request that
   waits longer than 15 minutes (``OPTIMIZER_AUTHORIZATION_WAIT_S``) ends the
-  run ``authorization_timeout``; a cancel while it waits withdraws it.
+  run ``authorization_timeout``; a cancel while it waits withdraws it. A run
+  that needs more than 100000 steps ends ``authorization_too_many_steps``
+  before it writes or asks for anything.
 * **How it ends.** A run whose authorization is spent (``auth_exhausted``),
   stopped (``auth_revoked``), expired, lapsed (``auth_lease_lapsed``) or
   written outside (``auth_range``, ``auth_channel``) ends with that reason in
@@ -1789,6 +1792,11 @@ run and turning it on does not widen the run:
   saved, and writes nothing more. Nothing asks again. A cancelled or failed run
   writes nothing either: restoring its starting setpoints is the operator's
   call. A run that issued its own grant marks it revoked when it is done.
+  One a person approved stands until its expiry, but once the run stops
+  renewing its lease — it finished, failed or crashed — it no longer blocks
+  an approval of another program on its channels, about two minutes later,
+  when the approver can see the run's ledger; with none in sight it blocks
+  until it expires. A paused run still renews, so it still blocks.
 
 The results restore (``POST /results/{env}/{timestamp}/restore``, after its
 preview), ``PUT /environments/{name}/variables`` and ``POST
@@ -1836,5 +1844,4 @@ there; every write is then refused ``auth_unreadable``.
 .. code-block:: yaml
 
    optimizer:
-     targets: [va, standin]
      environments_dir: optimizer/environments

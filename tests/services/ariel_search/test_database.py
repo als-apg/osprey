@@ -949,6 +949,7 @@ class TestGetEnabledMigrations:
             "entry_subject_backfill",
             "follows_up_index",
             "logbook_web_source_system",
+            "ariel_only_sync_status",
         ]
 
     def test_unimportable_migration_is_skipped_with_warning(self, monkeypatch, caplog) -> None:

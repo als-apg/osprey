@@ -218,10 +218,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.deployment.web_terminals.render import (
-    _DEFAULT_NGINX_IMAGE,
-    render_web_terminals,
-)
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
+from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.interfaces.design_system.favicon import favicon_data_uri
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX
@@ -936,9 +934,9 @@ def _assert_the_frozen_image_tag_predates_the_current_default() -> None:
     """
     live = _image_tag_in(_token_render()["docker-compose.web.yml"])
     assert live, "today's render spells no front-proxy image tag — the mask has stopped matching"
-    assert live == _DEFAULT_NGINX_IMAGE.split(":", 1)[1], (
+    assert live == UPSTREAM_IMAGES["nginx"].split(":", 1)[1], (
         f"today's `token` render spells front-proxy tag {live!r}, which is not the "
-        f"renderer's default {_DEFAULT_NGINX_IMAGE!r} — the mask is watching a line "
+        f"renderer's default {UPSTREAM_IMAGES['nginx']!r} — the mask is watching a line "
         f"the renderer no longer owns."
     )
 

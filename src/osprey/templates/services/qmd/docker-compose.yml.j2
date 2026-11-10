@@ -20,6 +20,8 @@
     package index — are rendered by the shared macro rather than spelled out
     per template, so every image OSPREY builds is handed the same set. -#}
 {%- import "services/_site_image_args.j2" as site -%}
+{#- The own-image build gate, as a one-key election (see `builds` below). -#}
+{%- import "services/_own_image.j2" as own -%}
 {#- Paths inside the container. Each is used twice (as a mount target and as
     the environment variable that tells the entrypoint where to look), so they
     are named once here: a volume mounted at one path while the process reads
@@ -33,7 +35,9 @@
     `| default(...)` filters here. That module is the single place those
     numbers are defined, and the compose fragment, the entrypoint and the
     Python client all have to agree on them. -#}
-{%- set builds = not services.qmd.image or services.qmd.image == osprey_images.qmd -%}
+{%- set builder = namespace(key=none) -%}
+{{- own.elect(builder, ['qmd'], services, osprey_images.qmd) -}}
+{%- set builds = builder.key is not none -%}
 # One qmd search sidecar per corpus: each corpus has its own index, its own
 # container and its own port in the qmd family, so a small corpus never shares
 # a vector scan, an update sweep or a rebuild with a large one. The corpus list
@@ -135,6 +139,9 @@ services:
       OSPREY_QMD_CORPUS_PATH: "{{ corpus.target }}"
 {%- endif %}
       OSPREY_QMD_INDEX_MODE: "{{ corpus.index }}"
+      # Off: the sidecar builds the keyword index only, for a corpus whose
+      # clients query BM25 alone.
+      OSPREY_QMD_EMBED: "{{ '1' if corpus.embed else '0' }}"
       # Fallback sweep period, NOT the expected freshness lag: a corpus writer
       # touches its `.qmd-touch` marker and the sidecar re-indexes within a
       # poll. The sweep only catches writers that forgot to touch it, and its

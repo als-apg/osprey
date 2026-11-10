@@ -26,6 +26,7 @@ from docs.screenshots.contact_sheet import SEEDED_SESSIONS, hermetic_hub
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 try:
+    from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import Page, expect
 
     _PLAYWRIGHT_AVAILABLE = True
@@ -118,15 +119,29 @@ def _tile(page: Page, panel_id: str):
     return page.locator(f'.tile-tab[data-panel-id="iframe:{panel_id}"]')
 
 
+#: Where a frame is while it is between documents: no path, so a poll reads on.
+_MID_NAVIGATION = {"path": None, "hash": None, "query": ""}
+
+
 def _frame_location(page: Page, panel_id: str) -> dict:
-    """Where the panel's frame is, once it has loaded a document of this panel."""
+    """Where the panel's frame is, once it has loaded a document of this panel.
+
+    The session's apply can move the frame to its page while it is read; a read
+    that lands mid-navigation answers :data:`_MID_NAVIGATION` rather than raising.
+    """
     frame = page.locator(f'iframe.panel-iframe[data-panel-id="{panel_id}"]')
     expect(frame).to_be_attached(timeout=_TIMEOUT_MS)
-    return (
-        frame.element_handle()
-        .content_frame()
-        .evaluate("() => ({path: location.pathname, hash: location.hash, query: location.search})")
-    )
+    try:
+        content = frame.element_handle().content_frame()
+        if content is None:
+            return _MID_NAVIGATION
+        return content.evaluate(
+            "() => ({path: location.pathname, hash: location.hash, query: location.search})"
+        )
+    except PlaywrightError as error:
+        if "Execution context was destroyed" not in error.message:
+            raise
+        return _MID_NAVIGATION
 
 
 def _expect_on_screen_at(page: Page, panel_id: str, path: str, hash_: str) -> None:

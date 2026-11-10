@@ -72,34 +72,36 @@ def test_native_source_system_constant():
 )
 def test_build_entry_url_substitutes_the_id_into_the_template(entry_id, expected):
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        url = server.build_entry_url(entry_id, "Facility eLog")
+        url = server.build_entry_url(entry_id)
     assert url == expected
 
 
-def test_build_entry_url_source_system_defaults_to_facility():
-    """A facility entry with no explicit source_system still renders (default None)."""
+def test_build_entry_url_renders_an_entry_without_sync_status():
+    """An entry whose metadata records no sync_status is a facility entry."""
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        url = server.build_entry_url("42")
+        url = server.build_entry_url("42", metadata={"logbook": "Ops"})
     assert url == "https://logbook.example/olog.php?id=42"
 
 
 def test_build_entry_url_none_when_template_unset():
     """FR3: no template configured -> None."""
     with patch("osprey_connectors.config.get_config_value", _fake_config(None)):
-        assert server.build_entry_url("175353", "Facility eLog") is None
+        assert server.build_entry_url("175353") is None
 
 
-def test_build_entry_url_none_for_native_source():
-    """FR7: ARIEL-native entries emit no url even with a template set."""
+def test_build_entry_url_none_for_local_only_entry():
+    """FR7: a local-only entry (e.g. ARIEL-native) emits no url even with a template set."""
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        assert server.build_entry_url("ariel-deadbeef", "ARIEL MCP") is None
+        assert (
+            server.build_entry_url("ariel-deadbeef", metadata={"sync_status": "local_only"}) is None
+        )
 
 
 @pytest.mark.parametrize("empty", ["", "   ", None])
 def test_build_entry_url_none_for_empty_id(empty):
     """An empty/blank entry_id yields no url."""
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        assert server.build_entry_url(empty, "Facility eLog") is None
+        assert server.build_entry_url(empty) is None
 
 
 def test_build_entry_url_fails_safe_when_config_unavailable():
@@ -110,7 +112,7 @@ def test_build_entry_url_fails_safe_when_config_unavailable():
         raise FileNotFoundError("No config.yml found in current directory")
 
     with patch("osprey_connectors.config.get_config_value", _boom):
-        assert server.build_entry_url("175353", "Facility eLog") is None
+        assert server.build_entry_url("175353") is None
 
 
 @pytest.mark.parametrize(
@@ -123,7 +125,7 @@ def test_build_entry_url_fails_safe_when_config_unavailable():
 def test_build_entry_url_malformed_template_fails_safe(bad_template):
     """FR6: a malformed template returns None and never raises."""
     with patch("osprey_connectors.config.get_config_value", _fake_config(bad_template)):
-        assert server.build_entry_url("175353", "Facility eLog") is None
+        assert server.build_entry_url("175353") is None
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +175,11 @@ def test_serialize_entry_omits_entry_url_when_unset():
 
 
 def test_serialize_entry_omits_entry_url_for_native():
-    """FR7: an ARIEL-native entry carries no entry_url even when configured."""
+    """FR7: an ARIEL-native entry, stored ``local_only``, carries no entry_url."""
+    entry = {**_entry(source_system="ARIEL MCP"), "metadata": {"sync_status": "local_only"}}
     with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         result = server.serialize_entry(
-            _entry(source_system="ARIEL MCP"),
+            entry,
             text_limit=DEFAULT_LISTING_TEXT_CHARS,
             attachment_limit=0,
             attachment_rows=None,
@@ -234,52 +237,61 @@ def test_server_re_exports_the_shared_producer():
 
 
 @pytest.mark.parametrize(
-    ("source_system", "metadata", "expected"),
+    ("metadata", "expected"),
     [
-        ("ARIEL MCP", None, True),  # MCP-native entry
-        ("ARIEL MCP", {"sync_status": "synced"}, True),
-        ("OSPREY Logbook Web", {"sync_status": "local_only"}, True),  # local-only web save
-        ("Generic JSON", {"sync_status": "local_only"}, True),
-        ("OSPREY Logbook Web", {"sync_status": "synced"}, False),
-        ("OSPREY Logbook Web", {"sync_status": "pending_sync"}, False),
-        ("Facility eLog", None, False),
-        ("Facility eLog", {}, False),
-        (None, None, False),
-        ("Facility eLog", "not-a-mapping", False),
+        ({"sync_status": "local_only"}, True),
+        ({"sync_status": "synced"}, False),
+        ({"sync_status": "pending_sync"}, False),
+        ({}, False),
+        (None, False),
+        ("not-a-mapping", False),
     ],
 )
-def test_is_ariel_only(source_system, metadata, expected):
-    """One predicate: local-only sync status, or the ARIEL-native source."""
+def test_is_ariel_only(metadata, expected):
+    """One predicate: the entry's recorded sync status."""
     from osprey.services.ariel_search.entry_url import is_ariel_only
 
-    assert is_ariel_only(source_system, metadata) is expected
+    assert is_ariel_only(metadata) is expected
+
+
+def test_is_ariel_only_reads_sync_status_alone():
+    """The source name is not an input: only ``metadata`` decides."""
+    import inspect
+
+    from osprey.services.ariel_search.entry_url import build_entry_url, is_ariel_only
+
+    assert list(inspect.signature(is_ariel_only).parameters) == ["metadata"]
+    assert list(inspect.signature(build_entry_url).parameters) == ["entry_id", "metadata"]
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+        # An ARIEL-native source name with a synced status renders: the name is not consulted.
+        assert build_entry_url("7", metadata={"sync_status": "synced"}) is not None
 
 
 @pytest.mark.parametrize(
-    ("template", "source_system", "metadata", "expected"),
+    ("template", "metadata", "expected"),
     [
-        (GENERIC_TEMPLATE, "Facility eLog", None, "https://logbook.example/olog.php?id=7"),
-        (GENERIC_TEMPLATE, "ARIEL MCP", None, None),  # MCP native
-        (GENERIC_TEMPLATE, "OSPREY Logbook Web", {"sync_status": "local_only"}, None),  # local-only
-        (None, "Facility eLog", None, None),  # no template
-        ("", "Facility eLog", None, None),  # blank template
+        (GENERIC_TEMPLATE, None, "https://logbook.example/olog.php?id=7"),
+        (GENERIC_TEMPLATE, {"sync_status": "synced"}, "https://logbook.example/olog.php?id=7"),
+        (GENERIC_TEMPLATE, {"sync_status": "local_only"}, None),  # local-only
+        (None, None, None),  # no template
+        ("", None, None),  # blank template
     ],
 )
-def test_service_build_entry_url(template, source_system, metadata, expected):
-    """The service producer: template set gives a URL; MCP native, a local-only
-    ``OSPREY Logbook Web`` entry and no template give None."""
+def test_service_build_entry_url(template, metadata, expected):
+    """The service producer: template set gives a URL; a local-only entry and no
+    template give None."""
     from osprey.services.ariel_search.entry_url import build_entry_url
 
     with patch("osprey_connectors.config.get_config_value", _fake_config(template)):
-        assert build_entry_url("7", source_system, metadata=metadata) == expected
+        assert build_entry_url("7", metadata=metadata) == expected
 
 
 def test_service_build_entry_url_metadata_is_keyword_only():
-    """``metadata`` is keyword-only so the positional two-arg callers stay valid."""
+    """``metadata`` is keyword-only."""
     from osprey.services.ariel_search.entry_url import build_entry_url
 
     with pytest.raises(TypeError):
-        build_entry_url("7", "OSPREY Logbook Web", {"sync_status": "local_only"})  # type: ignore[misc]
+        build_entry_url("7", {"sync_status": "local_only"})  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +337,7 @@ async def test_entry_get_omits_entry_url_for_native(ariel_registry):
     """FR7: entry_get on an ARIEL-native entry emits no entry_url."""
     ariel_registry()
     entry = make_mock_entry(entry_id="ariel-deadbeef", source_system="ARIEL MCP")
+    entry["metadata"]["sync_status"] = "local_only"
 
     mock_service = AsyncMock()
     mock_service.repository.get_entry.return_value = entry
@@ -352,6 +365,11 @@ async def test_sql_query_rows_gain_entry_url(ariel_registry):
     ]
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
+    # Neither row selects metadata, so their sync status is looked up.
+    mock_service.repository.get_entries_by_ids.return_value = [
+        {"entry_id": "e1", "metadata": {}},
+        {"entry_id": "n1", "metadata": {"sync_status": "local_only"}},
+    ]
 
     with (
         patch_ariel_service(mock_service),
@@ -522,6 +540,22 @@ async def test_sql_query_rows_with_both_columns_skip_the_lookup(ariel_registry):
                 "metadata": {"sync_status": "local_only"},
             },
             {"entry_id": "f-1", "source_system": "Facility eLog", "metadata": {}},
+        ],
+        [],
+    )
+
+    assert "entry_url" not in rows[0]
+    assert rows[1]["entry_url"] == "https://logbook.example/olog.php?id=f-1"
+    lookup.assert_not_awaited()
+
+
+async def test_sql_query_rows_with_metadata_alone_skip_the_lookup(ariel_registry):
+    """``metadata`` alone decides: a row without ``source_system`` needs no lookup."""
+    ariel_registry(database=_SQL_STORE)
+    rows, lookup = await _sql_rows(
+        [
+            {"entry_id": "n-1", "metadata": {"sync_status": "local_only"}},
+            {"entry_id": "f-1", "metadata": {"sync_status": "synced"}},
         ],
         [],
     )

@@ -187,7 +187,7 @@ services:
       start_period: 30s
 
   optimizer-redis:
-    image: ${OSPREY_OPTIMIZER_REDIS_IMAGE:-{{ svc.redis_image | default('redis:7.4-alpine') }}}
+    image: ${OSPREY_OPTIMIZER_REDIS_IMAGE:-{{ svc.redis_image | default(upstream_images.redis) }}}
     container_name: {{ osprey_labels.project_name }}-optimizer-redis
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped

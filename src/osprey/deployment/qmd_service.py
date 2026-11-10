@@ -18,6 +18,9 @@ Config shape, as it appears in a project's ``config.yml``::
           - name: papers
             index: prebuilt
             index_dir: /srv/qmd/papers-index
+          - name: ascc
+            source: ./data/ascc
+            embed: false                     # keyword index only
 
 One sidecar per corpus
 ----------------------
@@ -39,6 +42,10 @@ Each names a collection (``name``) and how its index comes to exist:
 * ``index: prebuilt`` — the index was built elsewhere, typically on a GPU host
   where embedding is several times faster, and ``index_dir`` is the directory
   holding its ``.qmd/index.sqlite``. The sidecar only serves it.
+
+A managed corpus takes ``embed: false`` when its clients query BM25 alone: the
+sidecar then builds the keyword index only, never runs ``qmd embed``, and a
+vector query on that corpus returns nothing. Default true.
 
 ``models_dir`` is the one key that changes how the sidecar is *built*. By
 default the image bakes its three GGUF models in at build time, which needs
@@ -250,12 +257,15 @@ class DeclaredCorpus:
             for a prebuilt one, whose index already holds the text.
         index_dir: The directory holding a prebuilt index's ``.qmd/``, as
             written. Required for, and only allowed on, a prebuilt corpus.
+        embed: False: the sidecar builds the keyword index only and never
+            computes vectors. Only allowed off on a managed corpus.
     """
 
     name: str
     index: str = INDEX_MANAGED
     source: str | None = None
     index_dir: str | None = None
+    embed: bool = True
 
 
 @dataclass(frozen=True)
@@ -458,7 +468,7 @@ def _declared_corpora(raw: Any) -> tuple[DeclaredCorpus, ...]:
         where = f"{CORPORA_CONFIG_KEY}[{position}]"
         if not isinstance(entry, Mapping):
             raise ValueError(f"{where} must be a mapping with a `name`, got {entry!r}")
-        unknown = set(entry) - {"name", "index", "source", "index_dir"}
+        unknown = set(entry) - {"name", "index", "source", "index_dir", "embed"}
         if unknown:
             raise ValueError(f"{where} has unknown key(s): {', '.join(sorted(map(str, unknown)))}")
         name = entry.get("name")
@@ -492,7 +502,14 @@ def _declared_corpora(raw: Any) -> tuple[DeclaredCorpus, ...]:
             )
         if index == INDEX_PREBUILT and index_dir is None:
             raise ValueError(f"{where} is a prebuilt corpus and needs the `index_dir` to serve")
-        corpora.append(DeclaredCorpus(name, index, source, index_dir))
+        embed = entry.get("embed", True)
+        if not isinstance(embed, bool):
+            raise ValueError(f"{where}.embed must be true or false, got {embed!r}")
+        if index == INDEX_PREBUILT and "embed" in entry:
+            raise ValueError(
+                f"{where}.embed applies to a managed corpus; a prebuilt index is served as built"
+            )
+        corpora.append(DeclaredCorpus(name, index, source, index_dir, embed))
     return tuple(corpora)
 
 

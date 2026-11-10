@@ -19,7 +19,9 @@
 # This image is built locally by `osprey up`; override with
 # OSPREY_BLUESKY_WEB_IMAGE to use a prebuilt/published image.
 
-FROM python:3.11-slim
+# Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
+ARG OSPREY_BASE_REGISTRY="docker.io"
+FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim
 
 WORKDIR /app
 
@@ -222,6 +224,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         && pip check ; \
     fi \
     && rm -rf /tmp/ctx
+
+# Optional offline mode: vendor the panels' web assets into the image so they
+# load without internet access. `0` is falsy for is_offline().
+ARG OSPREY_OFFLINE="0"
+RUN if [ "$OSPREY_OFFLINE" = "1" ]; then osprey vendor fetch; fi
+ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}
 
 # Project metadata, kept as the final metadata-only layer so the shared deps
 # cache chain above stays identical across projects (a per-project value here

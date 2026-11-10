@@ -143,7 +143,7 @@ def test_publishing_only_changes_serves_what_a_full_publish_serves(
     correctors = sorted(
         binding.address
         for binding in view.bindings()
-        if binding.role == "setpoint"
+        if binding.engine_role == "setpoint"
         and binding.direction == "write"
         and binding.plane is not None
         and view.channel(binding.address).writable

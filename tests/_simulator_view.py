@@ -129,7 +129,7 @@ def write_texture_view(
             takes them.
         models: Served physics models, each a ``variables.json`` model record
             (``name``, ``engine``, ``settings``, ``deck`` and ``wiring``, every
-            wiring record carrying its ``role``, ``plane`` and ``refresh``);
+            wiring record carrying its ``engine_role``, ``plane`` and ``refresh``);
             each is listed as served with its status and IOC health addresses.
 
     Returns:

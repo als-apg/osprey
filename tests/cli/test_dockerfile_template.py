@@ -57,6 +57,7 @@ EXPECTED_ARGS = {
     "PIP_EXTRA_INDEX_URL": "",
     "OSPREY_OFFLINE": "0",
     "OSPREY_SITE_CA": "",
+    "OSPREY_BASE_REGISTRY": "docker.io",
 }
 
 
@@ -114,7 +115,7 @@ class TestDockerfileContent:
 
     def test_base_image_port_and_project_path(self, hello_project):
         text = (hello_project / "Dockerfile").read_text()
-        assert "FROM python:3.12-slim" in text
+        assert "FROM ${OSPREY_BASE_REGISTRY}/library/python:3.12-slim" in text
         # The exposed port is the layout's `web` slot at the deployment's base,
         # not a literal — moving `deployment.port_base` moves this line.
         assert f"EXPOSE {default_port('web', base=DEFAULT_PORT_BASE)}" in text
@@ -124,7 +125,9 @@ class TestDockerfileContent:
     def test_the_base_python_is_the_one_the_wheels_are_judged_against(self, hello_project):
         """One constant: the FROM and the deployment-wheel fit check cannot disagree."""
         text = (hello_project / "Dockerfile").read_text()
-        assert f"\nFROM python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim\n" in text
+        assert (
+            f"\nFROM ${{OSPREY_BASE_REGISTRY}}/library/python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim\n"
+        ) in text
 
     def test_arg_contract(self, hello_project):
         """Exactly the contract ARGs, with the documented defaults."""
@@ -1868,7 +1871,8 @@ class TestImagePlatform:
     def test_a_stated_platform_is_named_on_the_from_line(self, platform_project):
         text = (platform_project / "Dockerfile").read_text()
         assert (
-            f"\nFROM --platform=linux/amd64 python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim\n"
+            "\nFROM --platform=linux/amd64 ${OSPREY_BASE_REGISTRY}/library/"
+            f"python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim\n"
         ) in text
 
     def test_the_fit_check_the_argv_the_override_and_the_from_agree(
