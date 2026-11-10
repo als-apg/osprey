@@ -2039,6 +2039,8 @@ keys:
   claude_code.servers.ariel.enabled: {covered-by: claude_code.servers.ariel, default: derived, default_note: the ariel server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.channel-finder: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.channel-finder.enabled: {covered-by: claude_code.servers.channel-finder, default: derived, default_note: the channel-finder server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.pv-directory: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.pv-directory.enabled: {covered-by: claude_code.servers.pv-directory, default: derived, default_note: the pv-directory server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.osprey_facility_knowledge: {evidence: 'osprey_facility_knowledge', default: n/a}
   claude_code.servers.osprey_facility_knowledge.enabled: {covered-by: claude_code.servers.osprey_facility_knowledge, default: derived, default_note: "the osprey_facility_knowledge server's FRAMEWORK_SERVERS default_enabled"}
   claude_code.servers.bluesky: {covered-by: claude_code.servers, default: n/a}
@@ -4202,7 +4204,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 363
+  expected_union_size: 365
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

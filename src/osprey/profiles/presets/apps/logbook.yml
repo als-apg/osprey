@@ -95,6 +95,8 @@ config:
   claude_code.servers.channel-finder.enabled: false
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
+  # Channel records and alarms are the `channel-finder` app's.
+  claude_code.servers.pv-directory.enabled: false
   # The facility knowledge bundle answers "how is the machine documented"; that
   # is the `knowledge` app's question, not this one's.
   claude_code.servers.osprey_facility_knowledge.enabled: false
