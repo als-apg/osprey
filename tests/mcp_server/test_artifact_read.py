@@ -2,10 +2,12 @@
 
 It always answers metadata and the absolute file path; ``content`` only when the
 file is within the 100 KB cap and decodes as text (a JSON file parsed). A small
-binary or an over-cap file is a success with ``content_omitted``. An unknown id
+binary or an over-cap file is a success with ``content_omitted``; a PNG, JPEG, GIF
+or WebP within its own cap comes back as image content. An unknown id
 is ``not_found``; a file missing on disk is ``file_not_found``.
 """
 
+import base64
 import json
 from pathlib import Path
 
@@ -386,15 +388,78 @@ class TestReadAbsorbsGet:
 
     @pytest.mark.asyncio
     async def test_small_binary_is_a_success_without_content(self, store, read_tool):
-        png = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 4
-        entry = _save_file(store, png, "plot.png", artifact_type="image", mime_type="image/png")
+        blob = b"\x00\xff" + bytes(range(256)) * 4
+        entry = _save_file(store, blob, "dump.bin")
 
         result = await _read(read_tool, entry.id)
 
         assert result["content_omitted"] == "binary"
         assert "content" not in result
-        assert result["file_path"].endswith(".png")
-        assert result["mime_type"] == "image/png"
+        assert result["file_path"].endswith(".bin")
+
+
+_PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 4
+
+
+class TestReadImage:
+    """An image artifact comes back as image content, so the model sees the figure."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("filename", "mime"),
+        [
+            ("plot.png", "image/png"),
+            ("photo.jpg", "image/jpeg"),
+            ("anim.gif", "image/gif"),
+            ("shot.webp", "image/webp"),
+        ],
+    )
+    async def test_an_image_is_returned_as_image_content_beside_its_metadata(
+        self, store, read_tool, filename, mime
+    ):
+        entry = _save_file(store, _PNG, filename, artifact_type="image", mime_type=mime)
+
+        result = await read_tool(artifact_id=entry.id)
+
+        text, image = result.content
+        meta = json.loads(text.text)
+        assert meta["artifact_id"] == entry.id
+        assert meta["mime_type"] == mime
+        assert "content_omitted" not in meta
+        assert image.type == "image"
+        assert image.mimeType == mime
+        assert base64.b64decode(image.data) == _PNG
+
+    @pytest.mark.asyncio
+    async def test_an_image_past_the_inline_text_cap_is_still_shown(self, store, read_tool):
+        big = _PNG + b"\x00" * (200 * 1024)
+        entry = _save_file(store, big, "plot.png", artifact_type="image", mime_type="image/png")
+
+        result = await read_tool(artifact_id=entry.id)
+
+        assert base64.b64decode(result.content[1].data) == big
+
+    @pytest.mark.asyncio
+    async def test_an_image_past_the_image_cap_is_omitted_as_too_large(
+        self, store, read_tool, monkeypatch
+    ):
+        from osprey.mcp_server.workspace.tools import artifact_query
+
+        monkeypatch.setattr(artifact_query, "_MAX_IMAGE_SIZE", len(_PNG) - 1)
+        entry = _save_file(store, _PNG, "plot.png", artifact_type="image", mime_type="image/png")
+
+        result = await _read(read_tool, entry.id)
+
+        assert result["content_omitted"] == "too_large"
+
+    @pytest.mark.asyncio
+    async def test_another_image_type_stays_binary(self, store, read_tool):
+        tiff = b"II*\x00" + bytes(range(256))
+        entry = _save_file(store, tiff, "scan.tiff", artifact_type="image", mime_type="image/tiff")
+
+        result = await _read(read_tool, entry.id)
+
+        assert result["content_omitted"] == "binary"
 
     @pytest.mark.asyncio
     async def test_large_text_is_a_success_with_preview_and_suggestions(self, store, read_tool):
