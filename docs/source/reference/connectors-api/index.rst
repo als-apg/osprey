@@ -38,4 +38,5 @@ says which release added what.
    deployment
    supervision
    simulation
+   pv-directory
    utilities
