@@ -1290,7 +1290,7 @@ jobs:
     timeout-minutes: 60
     # Model-spending lane (see the header note). Gating, no continue-on-error.
     needs: changes
-    if: >-
+    if: &full-ci-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request'
       && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
@@ -1311,17 +1311,16 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Pre-flight LLM endpoint reachability check
+    - &llm-preflight-probe
+      name: Pre-flight LLM endpoint reachability check
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
-        # Defense in depth: surface "secret unset" or "GitHub Actions IP not
-        # allowlisted" failures clearly here, instead of buried under confusing
-        # 4xx errors flooding pytest output 5+ minutes later.
-        # See CHANGELOG entry on the cborg → ALS-APG CI swap for full context.
+        # Fail fast on an unset secret or a non-allowlisted runner IP, rather than
+        # under a flood of 4xx errors minutes into the tests.
         if [ -z "${ALS_APG_API_KEY:-}" ]; then
           echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          echo "   (Check repo secrets; required for the agentic-per-preset job.)"
+          echo "   (Check repo secrets; every LLM-calling lane needs it.)"
           exit 1
         fi
         ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
@@ -1398,29 +1397,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as agentic-per-preset; see comment there for rationale.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - *install-pinned-cli
 
@@ -1812,29 +1789,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as e2e-tests: fail fast if the proxy is unreachable.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - *install-pinned-cli
 
@@ -1872,29 +1827,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as e2e-tests: fail fast if the proxy is unreachable.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - *install-pinned-cli
 
@@ -1993,13 +1926,7 @@ jobs:
     # Model-spending lane. The deploy also stands up the multi-user web tier, so
     # this lane carries the T1-T4 proofs in tests/e2e/test_dispatch_deploy.py.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
-        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *full-ci-pr-or-secret-revalidation
 
     steps:
     - *free-runner-disk
@@ -2014,30 +1941,7 @@ jobs:
 
     - *install-osprey
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as e2e-tests: fail fast if the proxy is unreachable
-        # rather than burning a multi-minute container build first.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - &build-qmd-image
       name: Build the qmd sidecar image
@@ -2078,13 +1982,7 @@ jobs:
     # Model-spending lane. The single-user narrowing chain must be deployed, not
     # simulated. Its own job: the stack publishes the usual VA ports.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
-        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *full-ci-pr-or-secret-revalidation
 
     steps:
     - *free-runner-disk
@@ -2099,30 +1997,7 @@ jobs:
 
     - *install-osprey
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as e2e-tests: fail fast if the proxy is unreachable
-        # rather than burning a multi-minute container build first.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - *build-qmd-image
 
@@ -2157,13 +2032,7 @@ jobs:
     # Model-spending lane: live `osprey query`/`chat` against the host-local agent
     # record, then `osprey up --dev` takes the record over and hands it back.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
-        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *full-ci-pr-or-secret-revalidation
     timeout-minutes: 60
 
     steps:
@@ -2179,30 +2048,7 @@ jobs:
 
     - *install-osprey
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as dispatch-overlay-e2e: fail fast if the proxy is
-        # unreachable rather than burning a multi-minute container build first.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - *install-pinned-cli
 
@@ -2258,13 +2104,7 @@ jobs:
     runs-on: ubuntu-latest
     # Model-spending lane, shaped like dispatch-deploy-e2e.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
-        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *full-ci-pr-or-secret-revalidation
     # Same budget as dispatch-deploy-e2e: the project image builds cold.
     timeout-minutes: 60
 
@@ -2281,30 +2121,7 @@ jobs:
 
     - *install-osprey
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as dispatch-deploy-e2e: fail fast if the proxy is
-        # unreachable rather than burning a multi-minute container build first.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - *build-qmd-image
 
@@ -2340,7 +2157,7 @@ jobs:
     # No secrets needed, but same-repo only: house policy for every image
     # build-and-deploy job.
     needs: changes
-    if: >-
+    if: &same-repo-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request'
       && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
@@ -2384,10 +2201,7 @@ jobs:
     timeout-minutes: 60
     # Same-repo only (house policy, as bluesky-deploy-e2e). No secrets.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
 
     steps:
     - *checkout-full-history
@@ -2416,10 +2230,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets (as bluesky-deploy-e2e).
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Co-deploys the VA (cold PyAT build) with the bridge, Tiled and the sidecar.
     timeout-minutes: 45
 
@@ -2461,10 +2272,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets (as bluesky-deploy-e2e).
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # The test's own timeouts allow 25 min for a cold VA build and deploy before
     # the CA proofs start.
     timeout-minutes: 45
@@ -2509,10 +2317,7 @@ jobs:
     # port 5064, and more than one full VA/bridge/Tiled stack at once is more
     # than a runner has.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Bounds the realistic run (later modules reuse the first's images), not the
     # ~82+ min sum of every module's internal caps, so the suite's own named
     # timeouts report a genuine hang.
@@ -2602,10 +2407,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # From the suite's internal caps: the 2400 s `osprey up` budget is spent twice
     # (stage 8 redeploys), plus the queue drain and stage 6's long abort scan.
     timeout-minutes: 75
@@ -2650,13 +2452,7 @@ jobs:
     runs-on: ubuntu-latest
     # Model-spending lane: both live tests drive a real agent.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
-        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *full-ci-pr-or-secret-revalidation
     # Sized from the fixture's named caps: the module-scoped deploy alone can take
     # 56 min before a test runs, and a shorter cap would cut off the fixture's own
     # timeout report. Not the pathological sum (workflow.rst, "Measured CI Figures").
@@ -2675,30 +2471,7 @@ jobs:
 
     - *install-osprey
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as dispatch-overlay-e2e: fail fast if the proxy is
-        # unreachable rather than burning a multi-minute stack build first.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - *install-pinned-cli
 
@@ -2776,10 +2549,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets; test_secret_free_lane_has_no_llm_secret guards it.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Cold VA image build plus a default-knob archive seed (itself budgeted at
     # 3 min inside the test).
     timeout-minutes: 45
@@ -2825,10 +2595,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     timeout-minutes: 30
 
     steps:
@@ -2865,10 +2632,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets (as bluesky-deploy-e2e).
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Builds the demo preset's images first; a fully cold runner has been seen
     # still building at 15 min, so the caps fit that worst case.
     timeout-minutes: 30
@@ -2912,10 +2676,7 @@ jobs:
     timeout-minutes: 60
     # Gating (promoted from advisory). Same-repo only, no secrets, no VA image.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
 
     steps:
     - *free-runner-disk
@@ -2957,10 +2718,7 @@ jobs:
     # only, no secrets; needs the emulated VA image (its no-write proof reads a
     # real setpoint over CA).
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     timeout-minutes: 45
 
     steps:
@@ -3001,13 +2759,7 @@ jobs:
     runs-on: ubuntu-latest
     # Model-spending lane.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
-        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *full-ci-pr-or-secret-revalidation
     # A job-level `permissions:` REPLACES the defaults, so `contents: read` is
     # restated; `packages: read` because the Talk fixture is a PRIVATE ghcr package.
     permissions:
@@ -3048,33 +2800,7 @@ jobs:
         echo "Pulling fixture image: $IMAGE"
         docker pull "$IMAGE"
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as e2e-tests. The deterministic half of this module needs no
-        # provider key (a dispatch is observed as "the dedup entry carries a
-        # run_id", which the engine persists before any agent work), but the
-        # agentic half in the same file reads real model output — so a dead
-        # endpoint should fail here, not after ~20min of provisioning.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - name: Run Nextcloud Talk bridge E2E
       timeout-minutes: 40
@@ -3094,13 +2820,7 @@ jobs:
     runs-on: ubuntu-latest
     # Model-spending lane.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
-        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *full-ci-pr-or-secret-revalidation
     # `permissions:` replaces the defaults; no `packages: read`, the emulator image
     # is public.
     permissions:
@@ -3138,33 +2858,7 @@ jobs:
         echo "Pulling emulator image: $IMAGE"
         docker pull "$IMAGE"
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as e2e-tests. The deterministic tier of this module needs
-        # no provider key (a dispatch is observed as "the dedup entry carries a
-        # run_id", which the engine persists before any agent work), but the
-        # agentic tier in the same file reads real model output — so a dead
-        # endpoint should fail here, not after the emulator pull and a build.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     # Separate steps, no xdist: both files use one fixed-name emulator container
     # whose start pre-cleans that name, so they must never overlap.
@@ -3345,10 +3039,7 @@ jobs:
     # Same-repo PRs, any base: every resource carries a per-run uuid, nothing
     # host-global.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
 
     steps:
     - *free-runner-disk
@@ -3440,10 +3131,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
 
     steps:
     - *free-runner-disk
@@ -3639,10 +3327,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Above the test's own BUILD_TIMEOUT (1200 s) plus setup, so the test kills a
     # slow build and prints its log.
     timeout-minutes: 40
@@ -3675,10 +3360,7 @@ jobs:
     # Same-repo only, every base (nothing destructive, project names it owns),
     # no secrets. Sized for two project-image builds.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     timeout-minutes: 40
 
     steps:
@@ -3787,7 +3469,7 @@ jobs:
     # pip install with a C toolchain). PRs into main AND epic/*: a safety lane
     # that only ran after the epic merged could go red inside a green gate.
     needs: changes
-    if: >-
+    if: &main-or-epic-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request'
       && needs.changes.outputs.docs_only != 'true'
         && github.event.pull_request.head.repo.full_name == github.repository
@@ -3851,13 +3533,7 @@ jobs:
     # Proves both sidecar-less postures (`auth.method: token` and `none`);
     # auth-perimeter-e2e covers the authenticated perimeter.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && (github.event.pull_request.base.ref == 'main'
-        || startsWith(github.event.pull_request.base.ref, 'epic/')))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *main-or-epic-pr-or-secret-revalidation
 
     steps:
     - *free-runner-disk
@@ -3927,13 +3603,7 @@ jobs:
     # sidecar establishes reaches the container, picks its tier, and lands in its
     # own audit ledger.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && (github.event.pull_request.base.ref == 'main'
-        || startsWith(github.event.pull_request.base.ref, 'epic/')))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *main-or-epic-pr-or-secret-revalidation
 
     steps:
     - *free-runner-disk
@@ -4030,10 +3700,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets (fake key, no model).
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # One cold render build; the module caps its own `up` at 40 min, so this is
     # a backstop.
     timeout-minutes: 75
@@ -4181,13 +3848,7 @@ jobs:
     # Secret-free. PRs into main AND epic/* (unlike the podman lifecycle lane): the
     # network axis and podman-compose provider are built on epic phase branches.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && (github.event.pull_request.base.ref == 'main'
-        || startsWith(github.event.pull_request.base.ref, 'epic/')))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *main-or-epic-pr-or-secret-revalidation
 
     steps:
     # Out-of-disk here showed up as podman-compose 1.0.6 answering `up -d` 0 with
@@ -4342,10 +4003,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Cold cache fetches 2.1 GB of models and embeds the corpus before serving.
     # Covers the step caps (125 + 15 + 55 + 10) plus the image build;
     # tests/integration/test_qmd_sidecar_time_budget.py checks it.
@@ -4478,10 +4136,7 @@ jobs:
     # Same-repo only, no secrets: both targets are local CA servers. The
     # agent-driven half is target-switch-agentic-e2e.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Two cold image builds plus the three modules (figures in workflow.rst,
     # "Measured CI Figures"). Tighter than its neighbours: no stack is deployed.
     timeout-minutes: 30
@@ -4574,13 +4229,7 @@ jobs:
     # the only granularity for that. Model-spending lane, gated as
     # scan-agentic-e2e.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
-        && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *full-ci-pr-or-secret-revalidation
     # Two cold builds plus the module, flaky-rerun headroom (two scenarios carry
     # reruns=2) and one attempt of S4's 900 s timeout (a timeout is not an
     # AssertionError, so it is not rerun). Not the pathological sum, as
@@ -4598,30 +4247,7 @@ jobs:
 
     - *install-osprey
 
-    - name: Pre-flight LLM endpoint reachability check
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        # Same probe as scan-agentic-e2e: fail fast if the proxy is
-        # unreachable rather than burning two multi-minute image builds first.
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          head -c 500 /tmp/probe.txt; echo
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+    - *llm-preflight-probe
 
     - *assert-container-runtime
 
@@ -4704,10 +4330,7 @@ jobs:
     # Same-repo only, no credentials: every assertion reads back from a container
     # this job built.
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Serially these suites took 22-24 min (4 build + 18 pytest), so they are split
     # into three cells balanced by measured module times (~6-7 min of pytest
     # each, ~11-12 min per green cell). Boot bounds per module are in each module
@@ -4829,10 +4452,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same-repo only, no secrets (the .env is seeded from .env.example).
     needs: changes
-    if: >-
-      (github.event_name == 'pull_request'
-      && needs.changes.outputs.docs_only != 'true' && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # Sized like bluesky-deploy-e2e (same init/build/up/down surface).
     timeout-minutes: 60
 
