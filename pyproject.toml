@@ -1027,8 +1027,6 @@ ignore_imports = [
     # removable now: a registration nothing resolves
     # A string, not an import: `registry/builtins.py` registers the service
     # `module_path="osprey.services.channel_finder"`.
-    # removable now: the MML family rule belongs to the facility layer
-    "osprey.facility.layers.mml.loaders.json_any -> osprey.services.channel_finder.tools.preview_database",
 ]
 
 [[tool.importlinter.contracts]]
