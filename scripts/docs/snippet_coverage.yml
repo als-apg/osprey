@@ -1,0 +1,397 @@
+# Which docs code blocks a test reads. Read by scripts/docs/snippet_coverage.py.
+#
+# One claim per test and way of reading. A block on a docs page is "tested"
+# when a claim under `tested:` matches it:
+#
+#   test:       the test file, relative to the repo root
+#   pages:      pages relative to docs/source; globs allowed (`*` stays in one
+#               directory, `**/` spans any). A literalinclude claim may name the
+#               included file instead (how-to/control-systems/examples/*.py).
+#   languages:  block languages the test reads: the code-block argument (`text`
+#               when there is none), `literal` for a paragraph ending in `::`,
+#               `literalinclude` for an included file
+#   kind:       runs   - executes the block, or loads it through the code that owns it
+#               checks - parses it, or resolves the names it spells
+#               pins   - compares its text or value with a value the code holds
+#   contains:   optional; the claim covers only blocks whose text contains this
+#               (for a test that reads one block among several on a page)
+#   what:       one line: what the test does to the block
+#
+# A test belongs here only if it reads the content of a block. Tests that read
+# prose, inline literals, tables or headings are not claims, and neither are
+# word bans that scan every page (they are listed under `not_counted:` so a
+# reader can see they were weighed).
+#
+# The ledger is kept by hand. The only automatic honesty checks: the test file
+# exists, names each claimed page (its stem, or `docs/source` for a `**` glob)
+# and the claim matches at least one block.
+#
+# `pending:` holds claims of tests on open pull requests, with the PR number.
+# Until the test is on disk the report shows what it would cover. Once it is (a
+# new file exists, or a widened file contains `marker:`) the claim counts as
+# tested, so the PRs can merge in any order; --check only notes it. A tidy-up
+# commit after they merge moves the claims to `tested:` and regenerates the
+# baseline.
+
+tested:
+  - test: tests/docs/test_cli_page_commands.py
+    pages: [reference/cli.rst]
+    languages: [bash]
+    kind: checks
+    contains: "osprey "
+    what: every line starting with `osprey` resolves to a verb click registers
+
+  - test: tests/docs/test_connector_examples.py
+    pages: [how-to/control-systems/examples/*.py, how-to/control-systems/examples/*.out]
+    languages: [literalinclude]
+    kind: runs
+    what: each script runs against a soft IOC, a stub archiver or a built simulator; its stdout must equal the .out file
+
+  - test: tests/docs/test_connector_config_examples.py
+    pages: [how-to/control-systems/examples/*.yml]
+    languages: [literalinclude]
+    kind: runs
+    what: each file's keys are manifest keys and its sections pass the build's own checks
+
+  - test: tests/docs/test_hello_world_tutorial_sql.py
+    pages: [getting-started/hello-world-tutorial.sql]
+    languages: [literalinclude]
+    kind: runs
+    what: DuckDB runs the query unchanged over a real record export
+
+  - test: tests/docs/test_hello_world_addresses.py
+    pages: [getting-started/hello-world-tutorial.rst]
+    languages: [text, yaml, json]
+    kind: checks
+    contains: "SR:"
+    what: every channel address the block names is a channel of the hello-world facility
+
+  - test: tests/docs/test_project_image_build_lines.py
+    pages: [how-to/deploy-project/project-image.rst]
+    languages: [bash]
+    kind: checks
+    what: no command changes directory; every docker build names the rendered context and recipe
+
+  - test: tests/docs/test_picture_search_docs.py
+    pages: [how-to/ariel/picture-search.rst]
+    languages: [bash]
+    kind: pins
+    contains: "llama-server "
+    what: the llama-server command's alias, flags and model files equal the presets'
+
+  - test: tests/docs/test_picture_search_docs.py
+    pages: [how-to/ariel/picture-search.rst]
+    languages: [bash]
+    kind: checks
+    contains: "cmake -B build"
+    what: the build is static and carries no retired flags
+
+  - test: tests/docs/test_picture_search_docs.py
+    pages: [how-to/ariel/picture-search.rst]
+    languages: [yaml]
+    kind: pins
+    contains: "llama-cpp:"
+    what: the providers stanza parses to the packaged llama-cpp entry
+
+  - test: tests/docs/test_picture_search_docs.py
+    pages: [how-to/ariel/picture-search.rst]
+    languages: [yaml]
+    kind: pins
+    contains: "copy_on_ingest"
+    what: the upgrade-note config lines equal every preset's values
+
+  - test: tests/docs/test_picture_search_docs.py
+    pages: [how-to/ariel/picture-search.rst]
+    languages: [sql]
+    kind: pins
+    contains: "SELECT count(*) FROM enhanced_entries"
+    what: the count query is the fold predicate, verbatim
+
+  - test: tests/docs/test_picture_search_docs.py
+    pages: [how-to/ariel/data-ingestion.rst]
+    languages: [yaml]
+    kind: checks
+    contains: "image_caption:\n      prompt_template"
+    what: the caption prompt example parses and keeps the placeholders the module needs
+
+  - test: tests/docs/test_service_image_table.py
+    pages: [how-to/deploy-project/compose-templates.rst]
+    languages: [yaml]
+    kind: pins
+    contains: "all four channels, one mirror"
+    what: the mirror example parses and mirrors every upstream pin the compose templates spell
+
+  - test: tests/docs/test_web_terminal_image_names.py
+    pages: [how-to/web-terminal/multi-user/index.rst]
+    languages: [yaml, text]
+    kind: runs
+    contains: "registry.example.org/accelerator/demo"
+    what: the worked example's config goes through resolve_cards; the listed images are what it returns
+
+  - test: tests/docs/test_login_guide_contract.py
+    pages: ["**/*.rst"]
+    languages: [bash, console, text, literal]
+    kind: checks
+    contains: "osprey users "
+    what: every `osprey users <verb>` names a verb the CLI registers
+
+not_counted:
+  - test: tests/docs/test_no_model_tier_words.py
+    why: bans haiku/sonnet/opus as YAML keys on every page; says nothing else about the block
+  - test: tests/services/bluesky_bridge/test_contract_guards.py
+    why: bans run-metadata wire words in write-plans.rst code regions; says nothing else about the block
+  - test: tests/docs/test_config_reference_keys.py
+    why: reads inline literals on the configuration reference pages, not blocks
+
+pending:
+  # Claims of tests on open pull requests, read from each PR branch on 2026-11-05.
+  - test: tests/docs/test_web_terminal_lint_examples.py
+    pr: 2429
+    pages: [how-to/web-terminal/multi-user/login.rst, how-to/web-terminal/multi-user/index.rst]
+    languages: [yaml]
+    kind: runs
+    contains: "web_terminals:"
+    what: merges each roster block into the demo preset and runs the build's profile lint on it
+  - test: tests/docs/test_ariel_parser_examples.py
+    pr: 2428
+    pages: [how-to/ariel/search-modes.rst]
+    languages: [text]
+    kind: runs
+    what: query, glob and regex example lines go through parse_keyword_query and the translated patterns
+  - test: tests/docs/test_ariel_parser_examples.py
+    pr: 2428
+    pages: [how-to/ariel/search-modes.rst]
+    languages: [yaml]
+    kind: runs
+    contains: "concepts:"
+    what: the vocabulary loads with load_vocabulary and passes `osprey ariel vocab-check`
+  - test: tests/docs/test_ariel_parser_examples.py
+    pr: 2428
+    pages: [how-to/ariel/search-modes.rst]
+    languages: [json]
+    kind: pins
+    contains: '"original"'
+    what: the expansion equals expand_query under the config defaults
+  - test: tests/docs/test_facility_graph_pages.py
+    pr: 2424
+    pages: [how-to/facility-knowledge/use-facility-graph.rst]
+    languages: [cypher]
+    kind: pins
+    what: the graph-config map and the constraint equal the seeder's
+  - test: tests/docs/test_facility_graph_pages.py
+    pr: 2424
+    pages: [how-to/facility-knowledge/facility-rules.rst]
+    languages: [yaml]
+    kind: checks
+    what: rules entries resolve against the build's artifact catalog
+  - test: tests/docs/test_config_page_tables.py
+    pr: 2423
+    pages: [reference/configuration/config.rst]
+    languages: [yaml]
+    kind: runs
+    contains: "registry: registry.example.org/accelerator"
+    what: the images block goes through resolve_image_defaults
+  - test: tests/docs/test_config_page_tables.py
+    pr: 2423
+    pages: [reference/configuration/config.rst]
+    languages: [bash]
+    kind: runs
+    contains: "OSPREY_IMAGE_TAG=2026.08.1 osprey build"
+    what: the OSPREY_IMAGE_* assignments go through resolve_image_defaults
+  - test: tests/docs/test_partial_answers_page.py
+    pr: 2422
+    pages: [reference/contracts/partial-answers.rst]
+    languages: [json]
+    kind: runs
+    what: the answer map goes through answer_map and the channel-read writer
+  - test: tests/docs/test_architecture_pinned_tables.py
+    pr: 2421
+    pages: [index.rst]
+    languages: [bibtex]
+    kind: pins
+    what: the citation equals CITATION.cff
+  - test: tests/docs/test_facility_page_snippets.py
+    pr: 2420
+    pages: [how-to/describe-your-facility.rst, how-to/import-mml-export.rst]
+    languages: [yaml]
+    kind: runs
+    what: each block is pasted into a scratch copy of the example preset and validated, or run through the MML mapping
+  - test: tests/docs/test_facility_page_snippets.py
+    pr: 2420
+    pages: [how-to/describe-your-facility.rst]
+    languages: [literalinclude]
+    kind: checks
+    what: the included channel list is imported and validated; the other includes resolve inside the example preset
+  - test: tests/docs/test_contributing_citations.py
+    pr: 2416
+    pages: [contributing/development-setup.rst, contributing/workflow.rst]
+    languages: [bash]
+    kind: checks
+    what: check.py verbs and flags, npm scripts, paths and workflow inputs resolve against their owners
+  - test: tests/docs/test_config_yaml_blocks.py
+    pr: 2414
+    pages: ["**/*.rst"]
+    languages: [yaml]
+    kind: checks
+    what: every config key is a manifest key; profile-form keys are the loader's; health blocks parse
+  - test: tests/docs/test_chat_bridge_pages.py
+    pr: 2413
+    pages: [how-to/agent-interfaces/chat-bridges/*.rst]
+    languages: [literalinclude]
+    kind: runs
+    what: the included bridge profiles load with load_profile; env.required equals the bridge's startup list
+  - test: tests/docs/test_chat_bridge_pages.py
+    pr: 2413
+    pages: [how-to/agent-interfaces/chat-bridges/*.rst]
+    languages: [bash]
+    kind: checks
+    what: the .env names are the ones the bridge reads, and the reverse
+  - test: tests/docs/test_event_dispatch_examples.py
+    pr: 2413
+    pages: [how-to/agent-interfaces/event-dispatch.rst]
+    languages: [literalinclude]
+    kind: runs
+    what: each triggers file loads with load_triggers and arms its sources
+  - test: tests/docs/test_event_dispatch_examples.py
+    pr: 2413
+    pages: [how-to/agent-interfaces/event-dispatch.rst]
+    languages: [bash]
+    kind: checks
+    what: the NAME= assignments are the variables the dispatcher's processes read
+  - test: tests/docs/test_build_profiles_page.py
+    pr: 2412
+    pages: [how-to/build-profiles.rst]
+    languages: [text]
+    kind: pins
+    contains: "my-facility/"
+    what: the init tree lists what `osprey init` writes for both presets
+  - test: tests/docs/test_contract_examples.py
+    pr: 2411
+    pages: [reference/contracts/*.rst]
+    languages: [literalinclude]
+    kind: runs
+    what: each contract example is rebuilt, loaded or run by the code that owns its shape
+  - test: tests/docs/test_contract_examples.py
+    pr: 2411
+    pages: [reference/contracts/health-json.rst]
+    languages: [bash]
+    kind: runs
+    what: every jq program runs over the health-report example
+  - test: tests/docs/test_ports_page.py
+    pr: 2410
+    pages: [reference/ports.rst]
+    languages: [yaml]
+    kind: runs
+    what: each block loads with load_profile and moves the port base
+  - test: tests/docs/test_environment_variant_block.py
+    pr: 2410
+    pages: [reference/configuration/environment-variables.rst]
+    languages: [text]
+    kind: runs
+    contains: ".env.variant:"
+    what: the shown line, written to the shown file, selects the variant through resolve_variant_selection
+  - test: tests/docs/test_web_terminal_quoted_strings.py
+    pr: 2409
+    pages: [how-to/web-terminal/notebooks.rst]
+    languages: [text, python]
+    kind: pins
+    what: quoted hints, env names and runtime imports equal the kernel's and executor's constants
+  - test: tests/docs/test_web_terminal_quoted_strings.py
+    pr: 2409
+    pages: [how-to/web-terminal/panels.rst]
+    languages: [javascript, html]
+    kind: checks
+    what: postMessage types and stylesheet links are ones the terminal defines or serves
+  - test: tests/docs/test_web_terminal_quoted_strings.py
+    pr: 2409
+    pages: [how-to/web-terminal/panels.rst, how-to/web-terminal/theming.rst, how-to/web-terminal/canopy.rst]
+    languages: [yaml]
+    kind: checks
+    what: theme names are known themes; preset stanzas are subsets of the preset
+  - test: tests/docs/test_cli_page_options.py
+    pr: 2408
+    pages: [reference/cli.rst]
+    languages: [bash, text]
+    kind: checks
+    what: each section, its blocks included, names every visible option of its verb
+  - test: tests/docs/test_compose_template_excerpt.py
+    pr: 2407
+    pages: [how-to/deploy-project/compose-templates.rst]
+    languages: [yaml]
+    kind: pins
+    contains: "container_name: {{ osprey_labels.project_name }}-ariel-postgres"
+    what: every excerpt line is a line of the shipped postgresql template
+  - test: tests/docs/test_compose_template_excerpt.py
+    pr: 2407
+    pages: [how-to/deploy-project/compose-templates.rst]
+    languages: [literal]
+    kind: pins
+    contains: "osprey.env.digest:"
+    what: the label line is a line of a shipped compose template
+  - test: tests/docs/test_knowledge_cli_help.py
+    pr: 2407
+    pages: [how-to/facility-knowledge/okf-bundle.rst]
+    languages: [literalinclude]
+    kind: pins
+    what: the included help screen equals `osprey knowledge --help`
+  - test: tests/docs/test_tutorial_excerpts.py
+    pr: 2406
+    pages: [getting-started/hello-world-tutorial.rst]
+    languages: [yaml]
+    kind: pins
+    what: the hooks and config excerpts are lines of the hello-world preset
+  - test: tests/docs/test_tutorial_excerpts.py
+    pr: 2406
+    pages: [getting-started/hello-world-tutorial.rst]
+    languages: [text]
+    kind: pins
+    contains: "Created my-first-agent"
+    what: every row of the init summary is a line `osprey init` prints
+  - test: tests/docs/test_hello_world_addresses.py
+    pr: 2406
+    marker: "_family"
+    pages: [getting-started/hello-world-tutorial.rst, getting-started/demo.rst]
+    languages: [bash, json, text, yaml, literalinclude]
+    kind: checks
+    what: every channel address, includes too, is a channel of the tutorial's facility
+  - test: tests/docs/test_howto_quoted_facts.py
+    pr: 2405
+    pages: [how-to/control-systems/code-review.rst]
+    languages: [literalinclude]
+    kind: runs
+    what: the code-review profile loads and passes the build's code-review check
+  - test: tests/docs/test_howto_quoted_facts.py
+    pr: 2405
+    pages: [how-to/control-systems/use-virtual-accelerator.rst, how-to/bluesky/queue.rst]
+    languages: [text]
+    kind: pins
+    what: the retired-mock refusal and the queue routes equal the code's
+  - test: tests/docs/test_howto_quoted_facts.py
+    pr: 2405
+    pages: [how-to/control-systems/use-connectors.rst]
+    languages: [literal]
+    kind: pins
+    contains: "jlab-archiver-client>=4.0.1"
+    what: the version floor equals the connector's _REQUIRED_CLIENT
+  - test: tests/docs/test_howto_quoted_facts.py
+    pr: 2405
+    pages: [how-to/control-systems/phoebus-bridge.rst]
+    languages: [bash]
+    kind: pins
+    contains: "curl http://127.0.0.1:7979/displays"
+    what: the curl line equals the bridge tool's hint
+  - test: tests/docs/test_howto_quoted_facts.py
+    pr: 2405
+    pages: [how-to/agent-interfaces/cli-agent.rst]
+    languages: [json]
+    kind: pins
+    contains: '"final_text"'
+    what: the keys equal the recorded `osprey query --json` keyset
+  - test: tests/docs/test_cli_page_commands.py
+    pr: 2404
+    marker: "_joined_block_lines"
+    pages: ["**/*.rst"]
+    languages: [bash, console, text, literal, yaml]
+    kind: checks
+    contains: "osprey "
+    what: every `osprey` line in any block resolves in the click tree, options and choices included
