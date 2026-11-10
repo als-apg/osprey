@@ -486,17 +486,17 @@ get the same facility-knowledge-graph agent and tools, and — the preset runs
 store. They are attached renders that deploy no services of their own, and
 their containers run with ``network_mode: host``, so they reach the hosting
 deployment's store on ``localhost``. The build copies the bolt port from the
-hosting deployment's render into each tier and app. The graph view is the one
+hosting deployment's render into each login. The graph view is the one
 thing a render is *not* told: each render keeps ``services.graphdb.ttl_path``
 as its own and derives its search index from it.
 
 Two consequences worth knowing before you move anything:
 
 * **Move the port on the hosting deployment and every render follows.** A
-  tier or app built beside its deployment is told the store's bolt port from the
+  login built beside its deployment is told the store's bolt port from the
   deployment's own render — the same way it is told the qmd sidecar's port,
   the Postgres the logbook lives in and the rest (:doc:`/how-to/build-profiles`) — so
-  nothing in a tier or app file restates it, and one that restates it
+  nothing in a login file restates it, and one that restates it
   with a different number is refused at build time.
 * A ``deployment.bind_address`` pinned to a specific non-loopback interface
   publishes the store there and not on ``localhost``, so the renders would no

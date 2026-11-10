@@ -386,7 +386,11 @@ def _material_input_digests(inputs: Iterable[ProfileInput]) -> dict[str, str]:
             continue
         digest = hashlib.sha256()
         _fold_source_tree(
-            digest, entry.label, entry.path, skip_runtime_output=entry.skips_runtime_output
+            digest,
+            entry.label,
+            entry.path,
+            skip_runtime_output=entry.skips_runtime_output,
+            skip=entry.build_output,
         )
         digests[f"{MATERIAL_PREFIX}{entry.key}"] = digest.hexdigest()
     return digests

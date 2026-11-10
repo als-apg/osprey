@@ -1,0 +1,104 @@
+# channel-finder.yml
+# Channel finder login: find a channel address by browsing the facility's channel hierarchy.
+#
+# A narrow login (`lists: own`), opened from a shared card on the landing page
+# by everyone on the roster once `modules.web_terminals.shared` names it. Its
+# lists below are the whole selection: nothing is inherited from the
+# deployment's lists and nothing is subtracted from them. The deployment's
+# PreToolUse guards reach it whatever its hooks list says.
+#
+# This login does one thing: turn a description ("the horizontal corrector
+# setpoints in sector 5") into channel addresses. Services, data and provider
+# are profile.yml's: it reads the channel database in the deployment's data
+# tree and runs no graph, so it works the same on a deployment that runs no
+# graph store. The model is profile.yml's too, unless a top-level `model:`
+# here names one the provider serves. It cannot read a channel's value, move
+# hardware, run Python, or search the logbook.
+#
+# A shared login is read-only on the machine whatever its config says: the
+# build pins writes never and adds the writes-check hook itself. The write pin
+# below says the same thing on purpose, so the file reads as what it renders.
+#
+# The other two bundled shared logins are `logbook` and `knowledge`.
+
+name: Channel Finder
+
+# The whole selection is the lists below.
+lists: own
+
+# The channel-finder brief: how to query, narrow and report channel addresses.
+claude_md_template: CLAUDE.channel-finder.md.j2
+
+# Open on the CHANNELS tab.
+default_panel: channel-finder
+
+# File-based: the hierarchical channel database from the deployment's data
+# tree, browsed level by level. No graph store is needed.
+channel_finder_mode: hierarchical
+
+hooks:
+  - approval          # Enforce config.yml approval policy (fail-closed default for any write tool)
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+  - config-drift      # Warn at session start when the build is out of date
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Tell the agent which web terminal panels exist
+  - workspace-delta   # Report web workspace changes since the agent's last turn
+  - control-context   # Tell the agent the active control target and each target's write state
+  - turn-state        # Tell the web terminal when a turn starts and ends
+
+rules:
+  # The safety rule governs no tool this login carries today. It stays because
+  # the login runs inside a deployment that does move hardware.
+  - safety            # Core safety rules: never write without approval
+  - error-handling    # Standard error handling and retry guidance
+  - artifacts         # Rules for saving diagnostic artifacts
+  - facility          # Facility-level conventions (naming, units, logbook)
+  - workflows         # Approved workflow patterns (plan, delegate, parallelize)
+  - timezone          # Always localise timestamps to facility timezone
+
+# No skills: every bundled skill either writes to the logbook, drives the
+# machine or needs the Python sandbox, and this login reaches none of them.
+skills: []
+
+agents:
+  - channel-finder    # Finds channel addresses (the mode above decides how)
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - channel-finder    # Interactive channel-finder web UI
+
+# No tool servers of its own; the deployment's facility servers are not this
+# login's to inherit.
+mcp_servers: {}
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY, as in the deployment's own config: block. These win over
+# the deployment's config; the deployment's own tool-server switches never
+# reach this render, so every server this login does without is named here.
+config:
+  # No control-system surface: each line is a decision about a server the
+  # deployment runs.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  # The logbook is the `logbook` login's, the knowledge bundle the `knowledge`
+  # login's.
+  claude_code.servers.ariel.enabled: false
+  claude_code.servers.osprey_facility_knowledge.enabled: false
+  # No graph: this login is file-based, so it never dials the deployment's graph
+  # store even when one runs.
+  claude_code.servers.graph.enabled: false
+  # Kept on: `osprey_workspace` (the Workspace tab) and `channel-finder` (the
+  # point of this login). The event dispatcher renders only with the EVENTS
+  # panel, which no shared login carries.
+  #
+  # The write boundary: `never`, the only value a shared login may spell.
+  control_system.writes: never
+  # No control-target picker in the title bar: nothing here reaches the machine.
+  web.control_target_picker: false

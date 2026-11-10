@@ -42,7 +42,7 @@
     {
       "file": "tests/facility/test_nominal_goldens.py",
       "pin": "text:assert checked == {value}",
-      "value": 713
+      "value": 725
     },
     {
       "file": "tests/facility/golden/nominal_va.json",

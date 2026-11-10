@@ -244,6 +244,23 @@ def test_render_write_is_refused(project: _Project):
     assert out.startswith("REFUSED:"), out
 
 
+@pytest.mark.parametrize("mode", ["readonly", "readwrite"])
+def test_application_directory_writes_are_refused(project: _Project, mode: str):
+    """``apps/<name>/`` is deployment source though no longer a layer directory."""
+    target = project.root / "apps" / "knob" / "app.yml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    out = project.probe(f"open({str(target)!r}, 'w').close()", execution_mode=mode)
+    assert out.startswith("REFUSED:"), out
+
+
+def test_the_applications_directory_is_named_explicitly() -> None:
+    """It left the layer directories, so the protected set names it on its own."""
+    from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES
+
+    assert APPS_DIRNAME not in LAYER_DIRNAMES
+    assert APPS_DIRNAME in PROFILE_SOURCE_ENTRIES
+
+
 @pytest.mark.parametrize("form", _WRITE_FORMS, ids=lambda f: f.name)
 def test_pre_upgrade_audit_tree_writes_are_refused(project: _Project, form: _WriteForm):
     """The audit files a deployment kept before the agent record stay on disk
@@ -522,6 +539,7 @@ def test_protected_roots_cover_render_zone_sources_and_ledger(project: _Project)
         project.root / PRE_UPGRADE_AUDIT_RELPATH,
         project.root / "profile.yml",
         project.root / TIERS_DIRNAME,
+        project.root / "apps",
         *(project.root / retired for retired in RETIRED_LAYER_DIRS),
         project.root / "project",
         project.root / "skills",
