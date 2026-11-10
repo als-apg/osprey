@@ -56,6 +56,11 @@ the dotted form; the reason is under "Configuration overrides" in
      - Seconds between the simulator's ticks. Absent means ``1.0``; every
        shipped preset sets ``1.0``. A value of ``0`` or less stops the build
        with a ``profile-invalid`` line naming the key.
+   * - ``simulation.fast_tick_s``
+     - Seconds between the served simulator's timed passes, which advance
+       its evolving state between ticks. Absent means ``0.1``; no shipped
+       preset sets it. A value of ``0`` or less stops the build with a
+       ``profile-invalid`` line naming the key.
    * - ``simulation.default_scenarios``
      - The scenarios a deployment that has never chosen a set starts in, by
        name from the facility's scenarios. ``osprey up`` activates them
