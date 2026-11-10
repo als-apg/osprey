@@ -483,6 +483,9 @@
     <span class="s2">&quot;subsection&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DEFAULT_CA_PORT&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DEFAULT_PVA_PORT&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;GATEWAYS_MISSING&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;GATEWAYS_NONE_DECLARED&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;GATEWAYS_ROWS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;MODE_ADDR_LIST&quot;</span><span class="p">,</span>
     <span class="s2">&quot;MODE_NAME_SERVER&quot;</span><span class="p">,</span>
     <span class="s2">&quot;NEVER_LIVE_TYPES&quot;</span><span class="p">,</span>
@@ -494,6 +497,7 @@
     <span class="s2">&quot;TargetDerivation&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Verification&quot;</span><span class="p">,</span>
     <span class="s2">&quot;connector_block&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;declared_gateways&quot;</span><span class="p">,</span>
     <span class="s2">&quot;derive_endpoints&quot;</span><span class="p">,</span>
     <span class="s2">&quot;live_collision&quot;</span><span class="p">,</span>
     <span class="s2">&quot;readonly_gateway_refusal&quot;</span><span class="p">,</span>
@@ -518,6 +522,13 @@
 <span class="c1">#: is passed to p4p without one, so its row carries ``None``.</span>
 <span class="n">DEFAULT_CA_PORT</span> <span class="o">=</span> <span class="mi">5064</span>
 <span class="n">DEFAULT_PVA_PORT</span> <span class="o">=</span> <span class="mi">5075</span>
+
+<span class="c1">#: How a connector block spells its ``gateways`` table, as</span>
+<span class="c1">#: :func:`declared_gateways` reads it: an explicit ``gateways: []`` (nothing to</span>
+<span class="c1">#: probe), no table anybody filled in, or rows.</span>
+<span class="n">GATEWAYS_NONE_DECLARED</span> <span class="o">=</span> <span class="s2">&quot;none_declared&quot;</span>
+<span class="n">GATEWAYS_MISSING</span> <span class="o">=</span> <span class="s2">&quot;missing&quot;</span>
+<span class="n">GATEWAYS_ROWS</span> <span class="o">=</span> <span class="s2">&quot;rows&quot;</span>
 
 
 <div class="viewcode-block" id="Endpoint">
@@ -556,10 +567,12 @@
 <span class="sd">    (:func:`~osprey_connectors.types.connector_transport`), so a child that</span>
 <span class="sd">    built the other venue of the simulator is refused by what it echoes.</span>
 
-<span class="sd">    ``declares_no_endpoints`` is true only for a block that spells an explicit</span>
-<span class="sd">    empty ``gateways: []``: the facility saying this target has nothing to</span>
-<span class="sd">    probe. A missing table is not that statement — a forgotten table must never</span>
-<span class="sd">    read as a direct connection — so it leaves this false.</span>
+<span class="sd">    ``gateways_declared`` is :func:`declared_gateways` of the block: only an</span>
+<span class="sd">    explicit empty ``gateways: []`` is :data:`GATEWAYS_NONE_DECLARED`, the</span>
+<span class="sd">    facility saying this target has nothing to probe. A missing table is not that</span>
+<span class="sd">    statement — a forgotten table must never read as a direct connection — so it</span>
+<span class="sd">    is :data:`GATEWAYS_MISSING`. The simulator served in process reads no block,</span>
+<span class="sd">    and keeps the default.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span>
@@ -567,7 +580,12 @@
     <span class="n">endpoints</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Endpoint</span><span class="p">]</span>
     <span class="n">selected_role</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">transport</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
-    <span class="n">declares_no_endpoints</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">gateways_declared</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">GATEWAYS_MISSING</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">declares_no_endpoints</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether the block spells ``gateways: []``, and so has nothing to probe.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gateways_declared</span> <span class="o">==</span> <span class="n">GATEWAYS_NONE_DECLARED</span>
 
 <div class="viewcode-block" id="TargetDerivation.selected_endpoint">
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.TargetDerivation.selected_endpoint">[docs]</a>
@@ -776,18 +794,27 @@
             <span class="n">gateways</span><span class="p">,</span> <span class="n">writes_enabled</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">writes_enabled</span><span class="p">),</span> <span class="n">readonly_run</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">readonly_run</span><span class="p">)</span>
         <span class="p">),</span>
         <span class="n">transport</span><span class="o">=</span><span class="n">transport</span><span class="p">,</span>
-        <span class="n">declares_no_endpoints</span><span class="o">=</span><span class="n">_declares_no_endpoints</span><span class="p">(</span><span class="n">block</span><span class="p">),</span>
+        <span class="n">gateways_declared</span><span class="o">=</span><span class="n">declared_gateways</span><span class="p">(</span><span class="n">block</span><span class="p">),</span>
     <span class="p">)</span></div>
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_declares_no_endpoints</span><span class="p">(</span><span class="n">block</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a connector *block* spells ``gateways: []``, and so has nothing to probe.</span>
+<div class="viewcode-block" id="declared_gateways">
+<a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.declared_gateways">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">declared_gateways</span><span class="p">(</span><span class="n">block</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;How a connector *block* spells its ``gateways`` table: the one reader of that fact.</span>
 
-<span class="sd">    Only the explicit empty list counts. A missing table, ``null`` or ``{}``</span>
-<span class="sd">    reads as a table nobody filled in, never as &quot;nothing to probe&quot;.</span>
+<span class="sd">    Only the explicit empty list is :data:`GATEWAYS_NONE_DECLARED`. A block that</span>
+<span class="sd">    is not a mapping, or whose table is missing, ``null``, ``{}`` or anything but</span>
+<span class="sd">    a non-empty mapping, is :data:`GATEWAYS_MISSING` — a table nobody filled in,</span>
+<span class="sd">    never &quot;nothing to probe&quot;. A non-empty mapping is :data:`GATEWAYS_ROWS`.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gateways&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">GATEWAYS_MISSING</span>
+    <span class="k">if</span> <span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gateways&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="p">[]:</span>
+        <span class="k">return</span> <span class="n">GATEWAYS_NONE_DECLARED</span>
+    <span class="k">return</span> <span class="n">GATEWAYS_ROWS</span> <span class="k">if</span> <span class="n">subsection</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="s2">&quot;gateways&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="n">GATEWAYS_MISSING</span></div>
+
 
 
 <span class="c1"># ---------------------------------------------------------------------------</span>
