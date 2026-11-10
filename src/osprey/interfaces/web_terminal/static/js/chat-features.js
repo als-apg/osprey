@@ -18,6 +18,7 @@ import { exportConversation, initChatExport } from './chat-export.js';
 import { initChatMcp } from './chat-mcp.js';
 import { installChatMenus } from './chat-menus.js';
 import { initChatTasks } from './chat-tasks.js';
+import { initChatVoice } from './chat-voice.js';
 
 /**
  * @typedef {object} ChatFeatureContext
@@ -25,6 +26,7 @@ import { initChatTasks } from './chat-tasks.js';
  * @property {HTMLElement} messages - the message log
  * @property {HTMLElement} inputArea - the composer
  * @property {HTMLTextAreaElement} textarea - the composer's text box
+ * @property {HTMLButtonElement} sendBtn - the composer's Send button
  * @property {ReturnType<typeof import('./chat-render.js').createChatRenderer>} renderer
  * @property {() => string} getKey - the session key the console shows now
  * @property {(transform: (prompt: string) => string) => void} onBeforeSend -
@@ -50,6 +52,8 @@ export function initChatFeatures(ctx) {
   initChatAttachments(ctx);
   initChatTasks(ctx);
   initChatMcp(ctx);
+  // Hold-to-talk and Listen mode beside Send (local Whisper on the server).
+  initChatVoice(ctx);
   // Message and log context menus: Copy, Quote in prompt; Scroll to latest,
   // Export conversation, New session.
   installChatMenus({ ...ctx, onExport: exportConversation });

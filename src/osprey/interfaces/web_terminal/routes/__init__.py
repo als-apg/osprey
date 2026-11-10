@@ -29,6 +29,7 @@ from osprey.interfaces.web_terminal.routes.session import router as session_rout
 from osprey.interfaces.web_terminal.routes.session_handoff import (
     router as session_handoff_router,
 )
+from osprey.interfaces.web_terminal.routes.speech import router as speech_router
 from osprey.interfaces.web_terminal.routes.websocket import router as websocket_router
 from osprey.interfaces.web_terminal.routes.write_authorizations import (
     router as write_authorizations_router,
@@ -51,6 +52,7 @@ router.include_router(scaffold_router)
 router.include_router(websocket_router)
 router.include_router(chat_router)
 router.include_router(chat_attachments_router)
+router.include_router(speech_router)
 router.include_router(proxy_router)
 router.include_router(write_authorizations_router)
 

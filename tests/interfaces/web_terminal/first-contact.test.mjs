@@ -77,6 +77,11 @@ const transport = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => transport);
+// Voice input asks the server whether it can work; it plays no part in first
+// contact.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-voice.js', () => ({
+  initChatVoice: () => {},
+}));
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/first-contact.js')} */
 let fc;

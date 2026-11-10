@@ -2166,6 +2166,71 @@ html[data-agent-surface="terminal"] #operator-container {
   height: 14px;
 }
 
+/* Voice input before Send (chat-voice.js): the hold-to-talk mic and the
+   Listen toggle, outlined like the "/" button. Red and pulsing while they
+   record, so the operator can see the microphone is live; accent while
+   Listen waits for the push-to-talk mic or a clip is being transcribed. */
+.op-input-controls .op-mic-btn,
+.op-input-controls .op-listen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.op-input-controls .op-mic-btn[hidden],
+.op-input-controls .op-listen-btn[hidden] {
+  display: none;
+}
+
+.op-input-controls .op-mic-btn:hover:not(:disabled),
+.op-input-controls .op-listen-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+  background: var(--accent-tint-08);
+}
+
+.op-input-controls .op-mic-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.op-input-controls .op-mic-btn[data-state='starting'],
+.op-input-controls .op-mic-btn[data-state='transcribing'],
+.op-input-controls .op-listen-btn[data-state='starting'],
+.op-input-controls .op-listen-btn[data-state='listening'] {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+}
+
+.op-input-controls .op-mic-btn[data-state='recording'],
+.op-input-controls .op-listen-btn[data-state='hearing'] {
+  color: var(--color-error);
+  border-color: var(--color-error);
+  background: var(--error-tint-08);
+  animation: ledPulse 1.5s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .op-input-controls .op-mic-btn[data-state='recording'],
+  .op-input-controls .op-listen-btn[data-state='hearing'] {
+    animation: none;
+  }
+}
+
 /* ---- Slash-command suggestions ---- */
 
 .op-slash-popup {
