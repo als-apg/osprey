@@ -364,7 +364,8 @@ def panel_preset_errors(name: str, layout: Any, is_known: Callable[[str], bool])
         return [f"{where} {refusal}"]
     return [
         f"Unknown {where} member {key!r}: not in web_panels (the selection is what "
-        f"shows a tab) and not universal ({sorted(UNIVERSAL_PANELS)})"
+        f"shows a tab), not universal ({sorted(UNIVERSAL_PANELS)}) and not the panel "
+        f"of an application this login shows"
         for key in layout_keys(layout)
         if not is_known(key)
     ]
