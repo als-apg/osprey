@@ -41,6 +41,7 @@ from osprey.docs_links import DEPLOY_DOCS_URL
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
 from osprey.utils.shell_resolver import resolve_shell_command
 from osprey.version import pins_prerelease
+from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_deploy import DeployConfig
 from .build_profile_emit import effective_web_terminals
@@ -241,8 +242,8 @@ class CIContext:
             configured and none is needed.
         registry_host: The half ``docker login`` takes.
         registry_token_var: Variable naming the registry credential.
-        ci_image_prefix: Registry and path the pipeline's own base images are
-            pulled from, already shaped as a prefix (trailing slash, or empty).
+        base_registry: The registry standing in for docker.io the pipeline's
+            upstream images come from, empty when the profile declares none.
             Deliberately separate from ``registry_url``: that names where this
             deployment's images live, not where upstream ones are mirrored.
         deploy_host: Address the pipeline SSHes to.
@@ -272,11 +273,17 @@ class CIContext:
     deploy_host: str
     deploy_user: str
     deploy_path: str
-    ci_image_prefix: str = ""
+    base_registry: str = ""
     service_images: list[str] = field(default_factory=list)
     external_projects: list[dict[str, str]] = field(default_factory=list)
     environment_url: str | None = None
     runs_verify_on_up: bool = False
+
+    def hub_image(self, reference: str) -> str:
+        """*reference*, a Docker Hub image, as the pipeline pulls it."""
+        from osprey.deployment.compose_generator import hub_image
+
+        return hub_image(reference, self.base_registry)
 
     @property
     def has_images_stage(self) -> bool:
@@ -544,7 +551,7 @@ def build_ci_context(
         deploy_host=deploy.host.fqdn or deploy.host.name,
         deploy_user=deploy.host.user,
         deploy_path=deploy.host.project_path,
-        ci_image_prefix=deploy.ci_image_prefix,
+        base_registry=_profile_base_registry(_config_block(profile)),
         service_images=service_image_names(profile, profile_dir),
         external_projects=[
             {
@@ -985,6 +992,26 @@ def _config_block(profile: dict[str, Any]) -> dict[str, Any]:
     """The profile's ``config:`` overrides, or an empty mapping."""
     config = profile.get("config")
     return config if isinstance(config, dict) else {}
+
+
+def _profile_base_registry(config: dict[str, Any]) -> str:
+    """The registry standing in for docker.io the profile's ``config:`` block names.
+
+    Read from the profile alone, with no environment layer, so the committed
+    pipeline is a function of the repository and not of the shell that
+    scaffolded it.
+
+    Raises:
+        BuildProfileError: If the value is not a scalar an image reference can
+            carry.
+    """
+    from osprey.deployment.compose_generator import _axis_config_value
+
+    key = "images.base_registry"
+    try:
+        return str(_axis_config_value(key, _dotted(config, key))).strip().rstrip("/")
+    except ValueError as exc:
+        raise BuildProfileError(str(exc)) from exc
 
 
 def _dotted(config: dict[str, Any], key: str) -> Any:

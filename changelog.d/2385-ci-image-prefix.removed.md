@@ -1,0 +1,1 @@
+**Breaking change:** the deploy block's `ci_image_prefix` is gone and a profile that sets it is refused. Set `images.base_registry` under `config:` instead. It keeps Docker Hub's paths, so the pipeline pulls `<mirror>/library/python:3.12-slim` where it pulled `<prefix>python:3.12-slim`.
