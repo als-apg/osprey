@@ -7562,10 +7562,9 @@ def test_proxy_teardown_runs_even_when_the_assertion_fails__mutation_drops_the_c
 PRIVSPLIT_JOB = "privilege-split-e2e"
 
 #: Jobs deliberately OUTSIDE ``all-checks-passed.needs``. Every entry needs a
-#: reason: ``channel-finder-benchmarks`` is a manually dispatched quality score
-#: (pinned by ``test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it``),
-#: ``tier2-model-benchmark`` is a manually dispatched model benchmark (pinned
-#: by ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), ``qmd-cache-warmup``
+#: reason: ``benchmarks`` is a manually dispatched quality score and model
+#: benchmark (pinned by ``test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it``
+#: and ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), ``qmd-cache-warmup``
 #: runs on main pushes only, whose own run its failure already turns red (needed,
 #: it failed every revalidation as a skipped lane), and the gate cannot depend on itself. Anything else that is not in
 #: ``needs`` can go red forever inside a green check — the 17 privilege-split
@@ -11487,7 +11486,6 @@ def test_the_on_main_check_refuses_a_commit_main_cannot_reach(tmp_path: Path) ->
 STUB_DISTRIBUTIONS = {
     "types-PyYAML": "yaml",
     "types-Markdown": "markdown",
-    "types-aiofiles": "aiofiles",
 }
 
 
@@ -11517,8 +11515,8 @@ def test_the_type_check_declares_a_stub_for_every_stubless_import(
 
 @pytest.mark.parametrize("distribution", sorted(STUB_DISTRIBUTIONS))
 def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -> None:
-    """Dropping any one of the three must fail: one absent stub is refused by
-    the gate exactly as thoroughly as three are."""
+    """Dropping either one must fail: one absent stub is refused by the gate
+    exactly as thoroughly as both are."""
     mutated = _load_pyproject()
     mutated["project"]["optional-dependencies"]["dev"] = [
         dep

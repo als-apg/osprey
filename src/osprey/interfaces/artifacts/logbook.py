@@ -649,9 +649,9 @@ async def submit(req: SubmitRequest):
         # Resolve artifact attachments if provided
         if req.artifact_ids:
             try:
-                from osprey.mcp_server.ariel.tools.entry import _resolve_artifacts
+                from osprey.agent_runner.artifact_resolve import resolve_artifact_paths
 
-                artifact_paths = await _resolve_artifacts(req.artifact_ids)
+                artifact_paths = await resolve_artifact_paths(req.artifact_ids)
                 draft_data["attachment_paths"].extend(artifact_paths)
             except Exception as exc:
                 raise HTTPException(

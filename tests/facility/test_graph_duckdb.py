@@ -66,7 +66,7 @@ def test_the_render_seeds_its_store_from_the_graph_view(
 
 
 def test_the_index_digest_is_the_graph_views(built_demo: BuiltProject) -> None:
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     corpus = built_demo.build_dir / CORPUS
     expected = ttl_sha256(corpus.read_text(encoding="utf-8"))

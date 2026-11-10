@@ -27,12 +27,13 @@
 {%- set config_file = svc.config_file | default('', true) %}
 {%- set state_mounts = svc.state_mounts | default([], true) %}
 {%- set identity = svc.audit_identity | default('', true) %}
-{#- The drives_target section: the staged config carrying the login map and, on an
-    armed render, the read-only control tree are what make an owned write judgeable
-    here, and the section is driven by the projected field, never by a name. A
-    container missing either refuses every owned write, and a `never` render refuses
-    before an owner is read, which is why the tree bind is gated on
-    `svc.writes_enabled`, the render's login tier. #}
+{#- The drives_target section: the staged config carrying the login map and the
+    read-only control tree are what make an owned write judgeable here, and the
+    section is driven by the projected field, never by a name. A container missing
+    either refuses every owned write. The tree is bound on every render, `never`
+    included: it is also where a read learns which machine the request's owner is
+    on, and a `never` render refuses every write before an owner is read, so the
+    bind arms nothing. #}
 
 services:
   {{ key }}:
@@ -100,11 +101,10 @@ services:
       # Guarded runs' locks, bound below; named for the entrypoint, which joins
       # the directory's group before it drops privileges.
       OSPREY_GUARDED_RUN_DIR: {{ osprey_container_guarded_run_dir }}
-{%- if svc.writes_enabled %}
-      # The read-only control tree, bound below: naming it arms the read of the
-      # record the identity behind an owned write last wrote.
+      # The read-only control tree, bound below: every login's record, which
+      # says the machine a request's owner is on and what an owned write by
+      # that owner is judged against.
       OSPREY_CONTROL_CONTEXT_TREE: {{ osprey_container_control_tree_dir }}
-{%- endif %}
 {%- if svc.ca_env %}
       # Channel Access from the bridge: the target's name server, with broadcast
       # discovery off, since UDP discovery does not cross the container boundary.
@@ -132,9 +132,7 @@ services:
 {%- if svc.drives_target %}
       - ./build/services/{{ key }}/config.yml:{{ osprey_container_project_dir }}/build/config.yml:ro
       - {{ osprey_guarded_run_mount.source }}:{{ osprey_container_guarded_run_dir }}
-{%- if svc.writes_enabled %}
       - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
-{%- endif %}
 {%- endif %}
 {%- endif %}
 {{- net.network(svc) }}

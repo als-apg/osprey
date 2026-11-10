@@ -1,6 +1,6 @@
 """Process-lifetime failure counters and boot nonce on the worker /health payload.
 
-Verifies the counters are driven by _stamp (via the counter-hook seam), are
+Verifies the counters are driven by _stamp, are
 exposed on /health as provider_errors / infrastructure_errors, stay monotonic
 and independent of the evictable _runs map, and that the boot nonce is stable
 within a process. Existing /health fields are unchanged.
@@ -15,12 +15,10 @@ from osprey.mcp_server.dispatch_worker import counters, dispatch_api, failure_cl
 
 @pytest.fixture(autouse=True)
 def _wired_counters(worker_record):  # noqa: ARG001 - /health reads the worker's record
-    """Install the counter hook and isolate counter + run state per test."""
+    """Isolate counter + run state per test."""
     counters.reset()
-    counters.install()  # register_counter_hook(increment)
     dispatch_api._runs.clear()
     yield
-    failure_class.register_counter_hook(None)
     counters.reset()
     dispatch_api._runs.clear()
 

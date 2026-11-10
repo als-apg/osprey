@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from osprey.services.graph_store.seeder import local_name
+
 if TYPE_CHECKING:
     # Only imported at type-checking time so the runtime import stays lazy.
     from rdflib import Graph, Node
@@ -102,26 +104,6 @@ class DeviceStub:
     title: str
     channels: list[ChannelRow] = field(default_factory=list)
     body: str = ""
-
-
-# ---------------------------------------------------------------------------
-# Public helpers
-# ---------------------------------------------------------------------------
-
-
-def local_name(iri: str) -> str:
-    """Return the local name fragment of an IRI (after the last ``/`` or ``#``).
-
-    This is the single source of truth for IRI → local-name derivation.  It is
-    exported from the ``seeder`` subpackage and reused by the knowledge CLI so
-    that stub *placement* (the bundle filename) and stub *identity* (the OKF §2
-    concept ID) are computed by exactly one rule, including ``#``-fragment IRIs.
-    """
-    for sep in ("#", "/"):
-        idx = iri.rfind(sep)
-        if idx != -1:
-            return iri[idx + 1 :]
-    return iri
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,11 @@
-"""Lane labels, latency columns and model rows of the benchmark dashboard
-(scripts/benchmark/matrix_dashboard.py)."""
+"""Tier sections, time and token columns and model rows of the benchmark
+dashboard (scripts/benchmark/matrix_dashboard.py)."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -29,7 +30,17 @@ dash = _load_dashboard()
 
 _CAP = "tests/e2e/test_cap.py::test_task"
 _CAP2 = "tests/e2e/test_cap.py::test_other_task"
-_HARNESS = "tests/e2e/test_harness.py::test_hook_blocks"
+_HARD = "tests/e2e/test_hard.py::test_diagnosis"
+
+
+def _meta(tier: int, title: str) -> dict:
+    return {
+        "lane": "agentic",
+        "tier": tier,
+        "title": title,
+        "asks": f"{title}?",
+        "passes_if": f"{title} done",
+    }
 
 
 def _summary(model: str, seed: int, tests: list[dict]) -> dict:
@@ -51,17 +62,38 @@ def _summary(model: str, seed: int, tests: list[dict]) -> dict:
 def _write_results(results: Path) -> None:
     results.mkdir()
     (results / "m__seed1.lanes.json").write_text(
-        json.dumps({_CAP: "agentic", _CAP2: "agentic", _HARNESS: "harness"})
+        json.dumps(
+            {
+                _CAP: _meta(1, "Read one channel"),
+                _CAP2: _meta(1, "Find a BPM address"),
+                _HARD: _meta(2, "Diagnose a beam dump"),
+            }
+        )
     )
     tests = [
         {"name": _CAP, "outcome": "passed", "duration_s": 100.0},
         {"name": _CAP2, "outcome": "failed", "duration_s": 300.0},
-        {"name": _HARNESS, "outcome": "passed", "duration_s": 20.0},
+        {"name": _HARD, "outcome": "passed", "duration_s": 2000.0},
     ]
     (results / "m__seed1.json").write_text(json.dumps(_summary("m", 1, tests)))
     queries = [
-        {"test": _CAP, "duration_ms": 100_000, "duration_api_ms": 90_000, "output_tokens": 900},
-        {"test": _CAP2, "duration_ms": 300_000, "duration_api_ms": 210_000, "output_tokens": 2100},
+        {
+            "test": _CAP,
+            "duration_ms": 100_000,
+            "duration_api_ms": 90_000,
+            "output_tokens": 900,
+            "model_wait_ms": 60_000,
+            "span_ms": 100_000,
+        },
+        {
+            "test": _CAP2,
+            "duration_ms": 300_000,
+            "duration_api_ms": 210_000,
+            "output_tokens": 2100,
+            "model_wait_ms": 240_000,
+            "span_ms": 300_000,
+        },
+        {"test": _HARD, "duration_ms": 2_000_000, "duration_api_ms": 1_000_000, "output_tokens": 9},
     ]
     (results / "m__seed1.queries.jsonl").write_text("".join(json.dumps(q) + "\n" for q in queries))
 
@@ -70,17 +102,48 @@ def test_latency_stats_from_tests_and_query_log(tmp_path):
     results = tmp_path / "results"
     _write_results(results)
     runs = dash.load(str(results))
-    lanes = dash.load_lanes(str(results))
+    tiers = dash.load_tiers(str(results))
     queries = dash.load_query_timing(str(results))
 
-    stats = dash.latency_stats("m", runs, queries, lanes)
+    def tier1(key):
+        return tiers[key]["tier"] == 1
 
-    # median over the model's capability-lane tests only (100 s and 300 s), harness excluded
+    stats = dash.latency_stats("m", runs, queries, tier1)
+
+    # median over the model's Tier 1 tests only (100 s and 300 s), Tier 2 excluded
     assert stats["median_task_s"] == 200.0
-    # 300 s of 400 s spent waiting on the model
+    # median output tokens per Tier 1 task (900 and 2100)
+    assert stats["tokens_per_task"] == 1500.0
+    # 300 s of the 400 s the Tier 1 queries spanned spent waiting on the model
     assert stats["model_share"] == 0.75
     # 3000 output tokens over 300 s of model time
     assert stats["tokens_per_s"] == 10.0
+
+
+def test_model_share_is_the_measured_wait_not_the_summed_request_time(tmp_path):
+    """The SDK's ``duration_api_ms`` sums every request, so concurrent ones (a
+    subagent beside the main agent) push it past the query's wall time; the
+    share must come from the transcript-measured wait, and a record without it
+    gives no share rather than the summed figure."""
+    results = tmp_path / "results"
+    _write_results(results)
+    overlapping = {
+        "test": _CAP,
+        "duration_ms": 42_400,
+        "duration_api_ms": 45_812,  # the smoke run's 108 %
+        "output_tokens": 1041,
+        "model_wait_ms": 30_000,
+        "span_ms": 42_000,
+    }
+    (results / "m__seed1.queries.jsonl").write_text(json.dumps(overlapping) + "\n")
+    queries = dash.load_query_timing(str(results))
+    stats = dash.latency_stats("m", dash.load(str(results)), queries)
+    assert stats["model_share"] == 30_000 / 42_000
+
+    legacy = {k: v for k, v in overlapping.items() if k not in ("model_wait_ms", "span_ms")}
+    (results / "m__seed1.queries.jsonl").write_text(json.dumps(legacy) + "\n")
+    queries = dash.load_query_timing(str(results))
+    assert dash.latency_stats("m", dash.load(str(results)), queries)["model_share"] is None
 
 
 def test_latency_stats_without_query_log_keeps_the_task_time(tmp_path):
@@ -88,10 +151,9 @@ def test_latency_stats_without_query_log_keeps_the_task_time(tmp_path):
     _write_results(results)
     (results / "m__seed1.queries.jsonl").unlink()
     runs = dash.load(str(results))
-    stats = dash.latency_stats(
-        "m", runs, dash.load_query_timing(str(results)), dash.load_lanes(str(results))
-    )
-    assert stats["median_task_s"] == 200.0
+    stats = dash.latency_stats("m", runs, dash.load_query_timing(str(results)))
+    assert stats["median_task_s"] == 300.0  # all three tests: 100, 300, 2000
+    assert stats["tokens_per_task"] is None
     assert stats["model_share"] is None
     assert stats["tokens_per_s"] is None
 
@@ -102,7 +164,7 @@ def test_query_log_is_not_read_as_a_run_summary(tmp_path):
     assert set(dash.load(str(results))) == {("m", 1)}
 
 
-def test_rendered_page_names_the_lanes_and_shows_only_models_with_data(tmp_path):
+def test_rendered_page_groups_by_tier_and_shows_only_models_with_data(tmp_path):
     results = tmp_path / "results"
     _write_results(results)
     out = tmp_path / "dash.html"
@@ -120,9 +182,21 @@ def test_rendered_page_names_the_lanes_and_shows_only_models_with_data(tmp_path)
         timeout=120,
     )
     page = out.read_text()
-    assert "Capability lane" in page and "Harness lane" in page
-    assert "Tier 0" not in page and "Tier 1" not in page
-    assert "median task" in page
+    assert page.index("Tier 1 · basic") < page.index("Tier 2 · benchmark")
+    assert "Tier 0" not in page and "Capability lane" not in page and "Harness lane" not in page
+    assert "median task" in page and "tokens / task" in page and "all green" in page
+    # a row is the plain title, expanding to the ask and the pass condition; the
+    # file name is the small grey line under it
+    assert "<summary>Diagnose a beam dump</summary>" in page
+    assert "<b>asks</b> Diagnose a beam dump?" in page
+    assert "<div class=file>test_hard.py::test_diagnosis</div>" in page
+    # the excluded files are one sentence; their names sit in a collapsed list
+    footer = page[page.index("<footer>") :]
+    assert "e2e files that don't drive a model are not on the board" in footer
+    assert footer.index("<details>") < footer.index("test_llm_providers.py")
+    assert "tests/e2e/</code> suite" not in page
+    # Tier 2 counts each model's first-attempt passes
+    assert re.search(r"first-attempt passes</td>\s*<td>1/1</td>", page)
     # models from earlier runs with no results here get no empty row
     assert "gpt-oss-20b" not in page
     assert "CBORG open models" not in page
@@ -139,3 +213,138 @@ def test_running_cell_takes_its_provider_from_the_worker_log(tmp_path):
     (results / "k__seed2.run.log").write_text(">> model=k seed=2 provider=ds4 route=proxy\n")
     runs = dash.load(str(results))
     assert dash.provider_of("k", runs) == "ds4"
+
+
+def test_rendered_artifact_names_the_judge_the_runs_recorded(tmp_path):
+    results = tmp_path / "results"
+    _write_results(results)
+    summary = json.loads((results / "m__seed1.json").read_text())
+    summary["judge"] = "claude-haiku-5-5"
+    (results / "m__seed1.json").write_text(json.dumps(summary))
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [
+            sys.executable,
+            str(_BENCH / "matrix_dashboard.py"),
+            "--results-dir",
+            str(results),
+            "--out",
+            str(out),
+            "--artifact",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    assert "graded by <code>claude-haiku-5-5</code>" in out.read_text()
+
+
+def test_a_vision_test_on_a_model_without_vision_reads_not_applicable(tmp_path):
+    """Owner ruling 2026-11-06: the vision task shows "n/a: no vision" in a
+    text-only model's cell, is not hidden, and does not cost that model its
+    all-green check."""
+    results = tmp_path / "results"
+    results.mkdir()
+    vision = "tests/e2e/test_ariel_picture_agentic.py::test_agent_reads_the_attached_plot"
+    (results / "t__seed1.lanes.json").write_text(
+        json.dumps({_CAP: _meta(1, "Read one channel"), vision: _meta(1, "Read a logbook plot")})
+    )
+    tests = [
+        {"name": _CAP, "outcome": "passed", "duration_s": 10.0},
+        {
+            "name": vision,
+            "outcome": "skipped",
+            "duration_s": 0.1,
+            "reason": "n/a: no vision (provider cborg does not carry images on its route)",
+        },
+    ]
+    (results / "t__seed1.json").write_text(json.dumps(_summary("t", 1, tests)))
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [sys.executable, str(_BENCH / "matrix_dashboard.py"), "--results-dir", str(results)]
+        + ["--out", str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    page = out.read_text()
+    row = page[page.index("<summary>Read a logbook plot</summary>") :]
+    assert "<td class=muted>n/a: no vision</td>" in row[: row.index("</tr>")]
+    # the one Tier 1 test that applies passed, so the model is all green
+    assert "<span class=ok>✓</span>" in page
+    assert dash.not_applicable_label(tests[1]) == "n/a: no vision"
+    assert dash.not_applicable_label({**tests[1], "reason": "ARIEL DB not up"}) is None
+    assert dash.not_applicable_label(tests[0]) is None
+
+
+def test_a_setup_error_costs_the_model_nothing_and_is_not_called_green(tmp_path):
+    """No agent ran, so the model neither failed nor passed: the check says errors,
+    not a cross, not a tick, and the time of the dead setup is not a task's time."""
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "t__seed1.lanes.json").write_text(json.dumps({_CAP: _meta(1, "Read one channel")}))
+    tests = [{"name": _CAP, "outcome": "error", "duration_s": 180.0}]
+    (results / "t__seed1.json").write_text(json.dumps(_summary("t", 1, tests)))
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [sys.executable, str(_BENCH / "matrix_dashboard.py"), "--results-dir", str(results)]
+        + ["--out", str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    page = out.read_text()
+    assert "1 setup error(s)" in page
+    assert "class=no" not in page.split("<style>")[1].split("</style>")[1]
+    assert "class=ok" not in page.split("<style>")[1].split("</style>")[1]
+    assert dash.latency_stats("t", dash.load(str(results)), {})["median_task_s"] is None
+
+
+def test_a_refused_cell_says_who_refused_and_counts_for_nothing(tmp_path):
+    results = tmp_path / "results"
+    results.mkdir()
+    message = "als-apg refused m: 400: Invalid model name"
+    (results / "m__seed1.json").write_text(
+        json.dumps({**_summary("m", 1, []), "setup_error": message})
+    )
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [sys.executable, str(_BENCH / "matrix_dashboard.py"), "--results-dir", str(results)]
+        + ["--out", str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    page = out.read_text()
+    assert "setup error" in page and message in page
+    assert "class=no" not in page.split("</style>")[1]
+    assert "class=ok" not in page.split("</style>")[1]
+
+
+def test_the_methodology_counts_the_tests_the_page_shows(tmp_path):
+    """Two cells that ran different tests: the lead number is every tiered test shown
+    (three), not the larger cell's total (two)."""
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "a__seed1.lanes.json").write_text(
+        json.dumps({_CAP: _meta(1, "One"), _CAP2: _meta(1, "Two"), _HARD: _meta(2, "Three")})
+    )
+    first = [
+        {"name": _CAP, "outcome": "passed", "duration_s": 1.0},
+        {"name": _CAP2, "outcome": "passed", "duration_s": 1.0},
+    ]
+    second = [{"name": _HARD, "outcome": "passed", "duration_s": 1.0}]
+    (results / "a__seed1.json").write_text(json.dumps(_summary("a", 1, first)))
+    (results / "b__seed1.json").write_text(json.dumps(_summary("b", 1, second)))
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [sys.executable, str(_BENCH / "matrix_dashboard.py"), "--results-dir", str(results)]
+        + ["--out", str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    page = out.read_text()
+    assert "The <b>3</b> agentic e2e tests (2 in Tier 1, 1 in Tier 2)" in page
+    assert "Tier 3 (facility-scale tasks) is not built yet." in page
+    assert "planned" not in page

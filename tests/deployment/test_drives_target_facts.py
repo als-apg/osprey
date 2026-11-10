@@ -2,8 +2,8 @@
 
 A container declaring ``drives_target`` judges owned writes in its own process.
 What makes that judgeable is what this section binds: the staged config carrying
-the login map, the guarded-run root and, on an armed render, the read-only control
-tree. The limits database is the copy the project image bakes beside its config.
+the login map, the guarded-run root and the read-only control tree, which a read
+needs too, to answer for the owner's machine. The limits database is the copy the project image bakes beside its config.
 The facts come from the deployment's own config, so the role is the only thing a
 service has to declare.
 """
@@ -200,7 +200,13 @@ def test_a_tiered_worker_keeps_its_root_and_the_container_keeps_its_own(repo: Pa
     assert not any("fixture-readonly" in str(volume) for volume in svc["volumes"])
 
 
-def test_a_never_render_mounts_no_control_tree(repo: Path) -> None:
+def test_a_never_render_binds_the_control_tree_read_only(repo: Path) -> None:
+    """A read answers for the owner's machine on a ``never`` root too.
+
+    The tree says which target each login's session is on, which a read needs
+    as much as a write; the ``never`` tier still refuses every write before an
+    owner is read, so binding it arms nothing.
+    """
     config = {**_config(_section("never")), "limits_mount": LIMITS_MOUNT}
 
     svc, _ = _render(repo, config)
@@ -208,10 +214,12 @@ def test_a_never_render_mounts_no_control_tree(repo: Path) -> None:
     metadata = _inject_project_metadata(config)
     guarded = metadata["osprey_guarded_run_mount"]
     project = metadata["osprey_container_project_dir"]
-    assert "OSPREY_CONTROL_CONTEXT_TREE" not in svc["environment"]
+    tree = metadata["osprey_container_control_tree_dir"]
+    assert svc["environment"]["OSPREY_CONTROL_CONTEXT_TREE"] == tree
     assert svc["stop_grace_period"] == "15s"
     assert set(svc["volumes"]) == {
         f"./build/services/{KEY}/config.yml:{project}/build/config.yml:ro",
+        _tree_mount(metadata),
         f"{guarded['source']}:{metadata['osprey_container_guarded_run_dir']}",
         f"{metadata['osprey_spool_mount_source']}/{IDENTITY}:"
         f"{metadata['osprey_container_spool_dir']}/{IDENTITY}",

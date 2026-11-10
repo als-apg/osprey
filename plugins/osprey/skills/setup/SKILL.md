@@ -158,7 +158,7 @@ with no OSPREY, and the status-quo card. On "nothing yet" every value is `?`.
 - Framework version: `build/.osprey-manifest.json` `creation.osprey_version`, or `?` when
   the repo was never built. `requires_osprey_version` is a schema floor, shown as one.
 - Agent model pins: every `claude_code.agent_models.<agent>` key in `profile.yml`'s
-  `config:` block and in each `tiers/*.yml` and `apps/*.yml`, plus the `model:` line of each
+  `config:` block and in each `tiers/*.yml`, plus the `model:` line of each
   `agents/<name>.md`. `osprey profile card --json` does not carry them. They are the
   AGENT box's `models` line.
 - **Reference-facility material is recognized here.** A file whose content still
@@ -254,8 +254,10 @@ ships `code:` only.
      remedy.
 8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
 9. Core four, hardwired, resolved before wrap-up. **Provider, its key, and each agent's
-   model**: the list is `providers.yml` beside the profile; `osprey init` writes
-   `.env.example`, never `.env`, so the key goes into a `.env` you create from it, and a
+   model**: the list is `providers.yml` beside the profile; `osprey init` always writes
+   `.env.example` and seeds `.env` only from what it already has — a key the shell
+   exports, the preset's `env.defaults` — so on a bare hello-world there is none: the
+   key goes into `.env`, created from the example when absent, and a
    key deferred is an Open entry naming the variable. Once the ports in step 5 have made
    the agent list final, draw the MODELS card in `references/cards.md`: every agent runs
    the main model unless the user pins it, one
@@ -266,6 +268,9 @@ ships `code:` only.
    containers and is what hello-world emits, `serving: served` is a
    containerized soft-IOC — or a real one; `osprey init --help` lists every connector.
    **Write access and safety**, where enabling writes forces the limits conversation.
+   The ceiling is `control_system.writes`: `never` (what hello-world emits), `asked`
+   or `allowed`. `osprey set` only lowers it, so raising it is a hand edit of
+   `profile.yml` or a tier file; the comment above the key says what each value arms.
    **Project identity**.
 10. **Base demo material.** hello-world emits two demo items of its own: the
     `example_server` MCP example (keep or remove) and three demo records in
@@ -289,15 +294,15 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
   record from it, and every file `osprey facility import mml` writes under
   `data/facility/imported/mml/` is `built`.
 - Write limits: absent, empty, or ported, never a hand-written min or max.
-- Tiers, apps and users: emit all, then prune. One ordering, one home:
+- Tiers, shared logins and users: emit all, then prune. One ordering, one home:
   `references/knowledge-starter.md` §6, which the web-terminal recipe points at too.
 - Triggers: never pulled; `dispatch.triggers` names a bundled set or a repo path.
 - ARIEL vocabulary and lattice: skeleton or facility file only, then recorded for curation.
 
 ### 4. CLOSE
 
-**Ledger gate first, mechanical.** Walk `data/`, `tiers/`, `apps/`, `web-terminal-context/`,
-`mcp_servers/` and every `services.*` block in the profile against `## Ledger`. Render
+**Ledger gate first, mechanical.** Walk `data/`, `tiers/`, `apps/`, `watchdogs/`,
+`web-terminal-context/`, `mcp_servers/` and every `services.*` block in the profile against `## Ledger`. Render
 the LEDGER GATE panel from `references/cards.md`. Wrap-up is blocked while any path has
 no row, or any row reads `reference facility`. Each blocking row is resolved with the
 user as `localize`, `refresh`, `remove`, or `keep — <reason>`; nothing is resolved

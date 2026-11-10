@@ -2,8 +2,9 @@
 
 It never changes a value the repo's catalog states, an edited entry OSPREY
 ships included. It adds the packaged entries the file lacks and the packaged
-keys an existing entry lacks. ``osprey validate`` names each place a packaged
-entry differs from what this OSPREY ships, as preset drift.
+keys an existing entry lacks, except one a deviation marker claims absent.
+``osprey validate`` names each place a packaged entry differs from what this
+OSPREY ships, as preset drift.
 """
 
 from __future__ import annotations
@@ -16,7 +17,11 @@ from click.testing import CliRunner
 from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
+from tests.fixtures.lifecycle_repo import (
+    build_exemplar_repo,
+    packaged_providers_yml,
+    preserved_environ,
+)
 
 PROJECT = "als-exemplar"
 PACKAGED_OLLAMA_URL = "    base_url: ${OLLAMA_HOST:-http://localhost:11434}\n"
@@ -81,3 +86,46 @@ def test_validate_names_the_differing_entry_and_key(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "providers.ollama.base_url" in result.output
     assert "http://doudna:11434" in result.output
+
+
+def _claimed_absent(tmp_path: Path, block: str, marker: str) -> Path:
+    """The exemplar with *block* of its catalog replaced by a deviation *marker* claiming it."""
+    repo = build_exemplar_repo(tmp_path / PROJECT)
+    catalog = repo / PROVIDERS_FILENAME
+    text = catalog.read_text(encoding="utf-8")
+    assert text.count(block) == 1, block
+    catalog.write_text(text.replace(block, f"{marker}\n"), encoding="utf-8")
+    return repo
+
+
+def test_a_packaged_entry_a_marker_claims_absent_is_not_added(tmp_path: Path) -> None:
+    from osprey.cli.profile_cmd import _catalog_entry_blocks
+
+    block = _catalog_entry_blocks(packaged_providers_yml())["openrouter"]
+    repo = _claimed_absent(
+        tmp_path, block, "  # DEVIATION: providers.openrouter: no route out of this site."
+    )
+    catalog = repo / PROVIDERS_FILENAME
+    before = catalog.read_text(encoding="utf-8")
+
+    _revalidate(repo)
+
+    assert catalog.read_text(encoding="utf-8") == before
+    with preserved_environ():
+        result = CliRunner().invoke(validate, ["--repo", str(repo)])
+    assert "openrouter" not in result.output
+    assert "marks no difference" not in result.output
+
+
+def test_a_packaged_key_a_marker_claims_absent_is_not_added(tmp_path: Path) -> None:
+    repo = _claimed_absent(
+        tmp_path,
+        PACKAGED_CBORG_HEALTH,
+        "    # DEVIATION: providers.cborg.health_model: probed with the default model.",
+    )
+    catalog = repo / PROVIDERS_FILENAME
+    before = catalog.read_text(encoding="utf-8")
+
+    _revalidate(repo)
+
+    assert catalog.read_text(encoding="utf-8") == before

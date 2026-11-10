@@ -216,8 +216,35 @@ class Delta:
 
 
 #: Provider catalog entries ``providers.yml`` carries beyond the frozen fixtures.
-#: Empty while the fixtures list the whole catalog under ``api.providers``.
-_CATALOG_ADDITIONS: tuple[str, ...] = ()
+#: Every render lists the whole catalog under ``api.providers``, so every document
+#: of every frozen cell gains them.
+_CATALOG_ADDITIONS: tuple[str, ...] = ("vllm",)
+
+#: Every render a demo cell freezes.
+_DEMO_RENDERS = (
+    "root",
+    "admin",
+    "channel-finder",
+    "knowledge",
+    "logbook",
+    "readonly",
+    "readwrite",
+)
+
+
+def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The ``api.providers`` delta each of *documents* gains from the catalog additions.
+
+    Args:
+        documents: The rendered documents the cell emits.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="api.providers", added=_CATALOG_ADDITIONS)
+        for document in documents
+    )
 
 
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
@@ -225,7 +252,13 @@ _CATALOG_ADDITIONS: tuple[str, ...] = ()
 #: mapping must equal its fixture exactly. See the module docstring for how to
 #: spell a delta. The fixtures stay frozen at the baseline: the render-identity
 #: proof is the baseline render plus exactly these leaves.
-CELL_DELTAS: dict[str, tuple[Delta, ...]] = {}
+CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
+    "hello-world/unset": _catalog_addition_deltas("root"),
+    **{
+        f"demo/{mode}": _catalog_addition_deltas(*_DEMO_RENDERS)
+        for mode in ("in_context", "hierarchical", "middle_layer", "graph")
+    },
+}
 
 #: Logins whose staged tier posture each cell is allowed to differ from its
 #: frozen ``staged/login_tiers.yml`` by, as ``login -> (fixture, live)`` — the

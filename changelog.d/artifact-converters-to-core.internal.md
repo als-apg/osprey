@@ -1,0 +1,1 @@
+The artifact converter registry moves to `osprey.stores.artifact_converters`, and `resolve_artifact_paths` in `osprey.agent_runner.artifact_resolve` is the one entry point for logbook attachments, so core no longer imports the ARIEL MCP package.

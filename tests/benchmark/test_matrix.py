@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -454,3 +456,157 @@ def test_drive_writes_markers_and_resumes(tmp_path, monkeypatch):
         cfg, results_dir=results, parallel=2, only=None, providers={"als-apg"}, extra_env={}
     )
     assert calls == []
+
+
+# --- the shipped grid --------------------------------------------------------
+
+
+def _shipped(monkeypatch) -> matrix.MatrixConfig:
+    pytest.importorskip("yaml")
+    monkeypatch.setenv("ALS_APG_BASE_URL", GATEWAY_ORIGIN)
+    return matrix.load_config(matrix.DEFAULT_CONFIG)
+
+
+def test_shipped_grid_is_the_open_models_and_the_current_claude_references(monkeypatch):
+    cfg = _shipped(monkeypatch)
+
+    by_provider: dict[str, set[str]] = {}
+    for row in cfg.models:
+        by_provider.setdefault(row["provider"], set()).add(row["id"])
+    assert by_provider == {
+        "cborg": {
+            "gpt-oss-20b",
+            "gpt-oss-120b",
+            "gemma-4",
+            "cborg-coder",
+            "google/qwen-3-coder",
+            "google/qwen-3",
+        },
+        "als-apg": {"claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"},
+    }
+    assert {c.seed for c in matrix.expand_grid(cfg)} == {1, 2, 3}
+
+
+def test_shipped_grid_judges_every_cell_with_haiku_5_5_on_als_apg(monkeypatch):
+    cfg = _shipped(monkeypatch)
+
+    for name, provider in cfg.providers.items():
+        assert provider["judge"] == {"via": "als-apg", "model": "claude-haiku-5-5"}, name
+
+
+def test_main_hands_the_selection_to_every_cell(monkeypatch):
+    seen: dict[str, str] = {}
+
+    def fake_drive(_cfg, **kwargs):
+        seen.update(kwargs["extra_env"])
+        return 0
+
+    monkeypatch.setenv("ALS_APG_BASE_URL", GATEWAY_ORIGIN)
+    monkeypatch.setattr(matrix, "drive", fake_drive)
+
+    matrix.main(["--select", "vacuum_burst or sector_bpms"])
+    assert seen["OSPREY_BENCH_SELECT"] == "vacuum_burst or sector_bpms"
+
+    # Unselected, the variable is blanked so an exported one cannot narrow a run.
+    seen.clear()
+    monkeypatch.setenv("OSPREY_BENCH_SELECT", "stale")
+    matrix.main([])
+    assert seen["OSPREY_BENCH_SELECT"] == ""
+
+
+@pytest.mark.usefixtures("keys")
+def test_run_cell_tells_the_worker_where_the_results_go(tmp_path, monkeypatch):
+    """The worker writes its summary where drive() looks for it on resume."""
+    seen: dict[str, str] = {}
+
+    def fake_call(_argv, *, env, **_kwargs):
+        seen.update(env)
+        return 0
+
+    monkeypatch.setattr(matrix.subprocess, "call", fake_call)
+    cell = matrix.build_cell(_cfg(), {"id": "gpt-oss-20b", "provider": "cborg"}, 1)
+    results = tmp_path / "smoke"
+    results.mkdir()
+
+    matrix.run_cell(cell, results, results / "matrix.log", {})
+    assert seen["OSPREY_BENCH_RESULTS_DIR"] == str(results.resolve())
+
+
+def test_a_cell_its_provider_refused_is_not_done(tmp_path):
+    """Resume runs it again: the VPN came back, or the gateway added the model."""
+    summary = tmp_path / "m__seed1.json"
+    assert not matrix.cell_is_done(summary)
+    summary.write_text('{"setup_error": "als-apg refused m: 400"}')
+    assert not matrix.cell_is_done(summary)
+    summary.write_text('{"total": 3}')
+    assert matrix.cell_is_done(summary)
+
+
+def test_the_matrix_is_not_complete_while_a_cell_was_refused(tmp_path, monkeypatch):
+    """A refused cell writes a summary with a setup error and nothing else. The
+    driver must not log MATRIX_EXIT_0 then: the dashboard would call the run complete."""
+    cfg = _cfg()
+    results = tmp_path / "results"
+
+    def refuse(cell, results_dir, log_path, extra_env):  # noqa: ARG001 - run_cell's signature
+        (results_dir / cell.summary_json).write_text('{"setup_error": "p refused m: 403"}')
+        return 2
+
+    monkeypatch.setattr(matrix, "run_cell", refuse)
+    rc = matrix.drive(
+        cfg, results_dir=results, parallel=1, only=None, providers={"als-apg"}, extra_env={}
+    )
+    log = (results / "matrix.log").read_text()
+    assert rc == 1
+    assert "MATRIX_EXIT_0" not in log
+    assert "MATRIX_EXIT_1" in log and "1 of 1 cell(s) did not run (claude-sonnet-4-6 seed1)" in log
+
+
+def test_concurrent_cells_build_in_port_blocks_of_their_own(tmp_path, monkeypatch):
+    """Cells are separate pytest runs, each pytest-xdist worker 0. On one block they
+    share an artifact gallery, and one cell's focus call reaches the other's gallery
+    and is refused (HTTP 401)."""
+    cfg = _cfg()
+    results = tmp_path / "results"
+    running: dict[str, str] = {}  # summary file -> block, one per cell
+    seen: list[set[str]] = []
+    lock = threading.Lock()
+
+    def fake_run_cell(cell, results_dir, log_path, extra_env):  # noqa: ARG001 - run_cell's signature
+        with lock:
+            running[cell.summary_json] = extra_env["OSPREY_E2E_PORT_BASE"]
+        time.sleep(0.2)
+        with lock:
+            seen.append(set(running.values()))
+            running.pop(cell.summary_json)
+        (results_dir / cell.summary_json).write_text("{}")
+        return 0
+
+    monkeypatch.setattr(matrix, "run_cell", fake_run_cell)
+    matrix.drive(cfg, results_dir=results, parallel=2, only=None, providers={"cborg"}, extra_env={})
+    assert any(len(blocks) == 2 for blocks in seen), "both cells ran at once on distinct blocks"
+    assert all(int(b) in matrix.CELL_PORT_BLOCKS[:2] for blocks in seen for b in blocks)
+
+
+def test_every_cell_block_is_booked_against_port_reservations():
+    """A reservation (the machine-switch tests reserve their IOC ports) must never
+    land inside another running cell's block."""
+    from osprey_connectors_tests._harness import _ports
+
+    for block in matrix.CELL_PORT_BLOCKS:
+        assert all(
+            any(port in booked for booked in _ports.BOOKED_BLOCKS)
+            for port in range(block, block + 1000)
+        ), f"cell block {block} is not booked"
+
+
+def test_more_parallel_cells_than_port_blocks_is_refused(tmp_path):
+    with pytest.raises(SystemExit, match="port block"):
+        matrix.drive(
+            _cfg(),
+            results_dir=tmp_path,
+            parallel=matrix.MAX_PARALLEL + 1,
+            only=None,
+            providers=None,
+            extra_env={},
+        )
