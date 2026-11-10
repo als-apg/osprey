@@ -1622,7 +1622,7 @@ def _approve_program(repo: Path, owner: str, *, holder: str = "optimizer", targe
     from osprey_connectors import write_authorization as wa
     from osprey_connectors.control_context import RECORD_FILENAME
 
-    request = wa.parse_request(
+    request = wa._parse_request(
         {
             "schema": 1,
             "id": uuid.uuid4().hex,

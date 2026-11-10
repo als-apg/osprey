@@ -50,18 +50,22 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import signal
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from types import FrameType
 from typing import Any
 
 import httpx
 from websockets.sync.client import connect as ws_connect
 
-from osprey.bridges.core import PipelineDeps, build_deps, run_forever
+from osprey.bridges.core import (
+    PipelineDeps,
+    build_deps,
+    configure_bridge_logging,
+    install_signal_handlers,
+    run_forever,
+)
 
 from .client import SlackAuthError, SlackWebClient
 from .config import SlackBridgeConfig, require_boot
@@ -72,11 +76,6 @@ from .receiver import Ingest, serve
 from .socket import SocketModeConnection
 
 logger = logging.getLogger(__name__)
-
-LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
-"""Timestamp, level, logger, message — plain stdlib handlers on stderr, which Python
-line-buffers even when it is a pipe, so a container log line is visible as it
-happens."""
 
 QUIET_LIBRARIES = ("httpx", "httpcore", "websockets")
 """Loggers demoted to WARNING: each logs per request or per frame at INFO, and this
@@ -96,17 +95,6 @@ INGEST_JOIN_SEC = 5.0
 """How long :func:`run` waits for the ingest thread on the way out. The socket reads
 with a one-second timeout, so a healthy thread is gone well inside this; one that is
 not is a daemon and cannot hold the process up."""
-
-
-def configure_logging() -> None:
-    """Send INFO and above to stderr in :data:`LOG_FORMAT`.
-
-    A no-op when the root logger already has handlers (``basicConfig``'s own
-    behaviour), so a host that configured logging first keeps its configuration.
-    """
-    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-    for name in QUIET_LIBRARIES:
-        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def config_from_env() -> SlackBridgeConfig:
@@ -282,21 +270,6 @@ def run(
         ingest.join(timeout=INGEST_JOIN_SEC)
 
 
-def install_signal_handlers(stop: threading.Event) -> None:
-    """Make SIGTERM and SIGINT set ``stop``.
-
-    Main thread only — :func:`signal.signal` refuses to run anywhere else — which is
-    why :func:`main` installs these and :func:`run` does not.
-    """
-
-    def _handler(signum: int, _frame: FrameType | None) -> None:
-        logger.info("received %s; shutting down", signal.Signals(signum).name)
-        stop.set()
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, _handler)
-
-
 def _cannot_start(exc: BaseException) -> SystemExit:
     logger.error("cannot start: %s", exc)
     return SystemExit(CANNOT_START.format(reason=exc))
@@ -311,7 +284,7 @@ def main() -> None:
             allowed to escape as a traceback, because the one thing an operator needs
             from a failed boot is the cause.
     """
-    configure_logging()
+    configure_bridge_logging(QUIET_LIBRARIES)
     try:
         cfg = config_from_env()
     except ValueError as exc:

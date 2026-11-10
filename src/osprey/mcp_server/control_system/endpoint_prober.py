@@ -360,6 +360,32 @@ class EndpointProber:
                 for role, row in zip(roles, rows, strict=True)
             }
 
+    async def measure(self, target: str, gateway: str) -> EndpointRow | None:
+        """Probe *target*'s endpoint at *gateway* now, outside the sweep.
+
+        For a caller that needs the answer at this moment rather than as of the
+        last sweep: a channel that just failed to answer. The row is returned
+        and not cached, so the sweep stays the cache's only writer and
+        ``down_since`` keeps counting sweeps.
+
+        Args:
+            target: The control target the gateway belongs to.
+            gateway: ``host:port`` of the endpoint to probe, as a row reports it.
+
+        Returns:
+            The row, or ``None`` when *target* has no endpoint at *gateway* —
+            underivable, or a connector that dials no gateway.
+        """
+        try:
+            endpoints = derive_endpoints(self._config, target).endpoints
+        except Exception as exc:
+            logger.debug("No endpoints derivable for target %r: %s", target, exc)
+            return None
+        for endpoint in endpoints.values():
+            if f"{endpoint.host}:{endpoint.port}" == gateway:
+                return await self._probe(endpoint)
+        return None
+
     def _carry_down_since(self, row: EndpointRow, previous: EndpointRow | None) -> EndpointRow:
         """*row* with ``down_since`` set for an ``unreachable`` measurement.
 

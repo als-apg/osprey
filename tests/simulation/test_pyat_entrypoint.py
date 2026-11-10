@@ -574,17 +574,17 @@ class TestDescribe:
     ):
         described = engine.describe(record)
         assert (
-            described["role"],
+            described["engine_role"],
             described["plane"],
             described["refresh"],
             described["kind"],
         ) == expected
-        assert set(described) == {"role", "plane", "refresh", "kind"}
+        assert set(described) == {"engine_role", "plane", "refresh", "kind"}
 
     def test_a_wiring_object_reads_like_a_mapping(self):
         record = Wiring("M/A", "A", element="BPM1", engine={"axis": "x"})
         assert engine.describe(record) == {
-            "role": "monitor",
+            "engine_role": "monitor",
             "plane": "x",
             "refresh": "pass",
             "kind": "monitor",

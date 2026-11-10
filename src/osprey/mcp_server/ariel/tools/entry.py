@@ -43,6 +43,7 @@ from osprey.services.ariel_search.entry_fields import (
     resolve_entry_write,
     validate_entry_fields,
 )
+from osprey.services.ariel_search.models import SyncStatus, with_sync_status
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
@@ -206,9 +207,7 @@ async def entry_get(
         }
         if summaries:
             result["attachment_count"] = len(summaries)
-        entry_url = build_entry_url(
-            entry["entry_id"], entry["source_system"], metadata=entry.get("metadata")
-        )
+        entry_url = build_entry_url(entry["entry_id"], metadata=entry.get("metadata"))
         if entry_url is not None:
             result["entry_url"] = entry_url
         spans = entry.get("facility_refs")
@@ -743,7 +742,8 @@ async def entry_create(
             "author": author or "Anonymous",
             "raw_text": f"{subject}\n\n{details}",
             "attachments": [],
-            "metadata": resolved.local_metadata,
+            # ARIEL-native: the facility logbook has no page for it.
+            "metadata": with_sync_status(resolved.local_metadata, SyncStatus.LOCAL_ONLY),
             "created_at": now,
             "updated_at": now,
         }

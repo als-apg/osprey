@@ -157,7 +157,7 @@ class TestLaptop:
 
     def test_a_missing_request_and_another_owners_are_refused(self, tmp_path):
         assert run("approve", uuid.uuid4().hex, "--yes").exit_code != 0
-        foreign = wa.parse_request(
+        foreign = wa._parse_request(
             {**ask().to_payload(), "id": uuid.uuid4().hex, "owner": "someone-else"}
         )
         path = tmp_path / f"{foreign.id}.json"
@@ -167,7 +167,7 @@ class TestLaptop:
 
     def test_a_request_past_a_ceiling_is_refused_and_writes_nothing(self, tmp_path):
         """A file read back fine but past a ceiling: the approval's write refuses it."""
-        over = wa.parse_request(
+        over = wa._parse_request(
             {**ask().to_payload(), "id": uuid.uuid4().hex, "steps": wa.MAX_STEPS + 1}
         )
         path = tmp_path / f"{over.id}.json"
@@ -225,7 +225,7 @@ class TestDeployment:
         on_host: bool = False,
     ) -> wa.WriteRequest:
         """File a request as a program in a container does, or *on_host* with no ledger bound."""
-        request = wa.parse_request(
+        request = wa._parse_request(
             {
                 "schema": 1,
                 "id": uuid.uuid4().hex,
@@ -399,7 +399,7 @@ class TestDeployment:
             label="scan",
         )
         ledger = repo / "var" / "write_ledger"
-        wa.issue_grant(grant, directory=ledger, peers=())
+        wa._issue_grant(grant, directory=ledger, peers=())
         listed = json.loads(run("list", "--json").output)
         assert [(a["id"], a["self_issued"], a["in_force"]) for a in listed["authorizations"]] == [
             (grant.id, True, True)

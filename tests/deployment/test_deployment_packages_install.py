@@ -305,7 +305,10 @@ def test_the_python_a_wheel_is_judged_against_is_the_images() -> None:
     context: dict[str, Any] = {}
     _default_image_facts(context)
     major, minor = image_facts.IMAGE_PYTHON
-    assert Template(from_line).render(context) == f"FROM python:{major}.{minor}-slim"
+    assert (
+        Template(from_line).render(context)
+        == f"FROM ${{OSPREY_BASE_REGISTRY}}/library/python:{major}.{minor}-slim"
+    )
 
 
 def _build_with_members(

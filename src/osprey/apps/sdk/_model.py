@@ -241,13 +241,13 @@ def model_members(model: str, render_root: Path | None = None) -> ModelMembers:
     for binding in chosen.bindings:
         if binding.plane not in _PLANES or binding.element is None:
             continue
-        if binding.role not in ("monitor", "setpoint"):
+        if binding.engine_role not in ("monitor", "setpoint"):
             continue
         element = str(binding.element)
         index = int(element_index(chosen.deck, element, model=model))
         s_m = float(engine.locate(chosen.deck, element, model=model)[0])
         unit = _unit(view, binding.address)
-        if binding.role == "monitor":
+        if binding.engine_role == "monitor":
             bpms.append(
                 Member(
                     element=element,

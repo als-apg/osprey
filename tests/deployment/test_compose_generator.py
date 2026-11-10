@@ -51,6 +51,7 @@ from osprey.deployment.compose_generator import (
     guarded_run_relpath,
     prepare_compose_files,
     resolve_project_name,
+    resolve_upstream_images,
     resolve_user_volume_names,
     simulator_log_mount_sources,
 )
@@ -60,6 +61,7 @@ from osprey.deployment.control_identity import (
 )
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.members import WORKSPACE_MEMBERS
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
@@ -412,6 +414,7 @@ def _dispatcher_context(**service_overrides: object) -> dict:
         "system": {"timezone": "UTC"},
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_images": _image_defaults(),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
     }
@@ -1741,6 +1744,7 @@ def _render_bluesky_template(
         "deployed_services": deployed,
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_images": _image_defaults(),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
         **_control_identity_context(),
@@ -2371,7 +2375,9 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(
     bpms = _orm_stack.select_bpms(repo, count=None, model=model)
     assert bpms, f"model {model} serves no monitor the worker registered"
     view = _facility_select.repo_view(repo)
-    model_monitors = {binding.address for binding in view.bindings(role="monitor", model=model)}
+    model_monitors = {
+        binding.address for binding in view.bindings(engine_role="monitor", model=model)
+    }
     assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
 
 
@@ -2652,21 +2658,8 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_BLUESKY_TEMPLATE = (
-    _REPO_ROOT / "src" / "osprey" / "templates" / "services" / "bluesky" / "docker-compose.yml.j2"
-)
 _CONFIG_KEY_MANIFEST = _REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
-
-
-def _compose_default_image(template: Path, image_ref: str) -> str:
-    """The ``<ref>:<tag>`` a compose template spells in its Jinja ``default('…')``."""
-    match = re.search(
-        r"default\('(" + re.escape(image_ref) + r":[^')\s]+)'\)",
-        template.read_text(encoding="utf-8"),
-    )
-    assert match, f"{template.relative_to(_REPO_ROOT)} no longer pins {image_ref} as default('…')"
-    return match.group(1)
 
 
 def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
@@ -2679,7 +2672,7 @@ def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
     """
     from packaging.version import Version
 
-    image = _compose_default_image(_BLUESKY_TEMPLATE, "ghcr.io/bluesky/tiled")
+    image = UPSTREAM_IMAGES["tiled"]
     server = image.rsplit(":", 1)[1]
     floor_match = re.search(
         r'"tiled\[client\]>=([^",\s]+)"', _PYPROJECT.read_text(encoding="utf-8")
@@ -2687,37 +2680,29 @@ def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
     assert floor_match, "pyproject.toml no longer declares a tiled[client]>= floor"
     floor = floor_match.group(1)
     assert Version(server) >= Version(floor), (
-        f"{_BLUESKY_TEMPLATE.relative_to(_REPO_ROOT)} pins ghcr.io/bluesky/tiled:{server}, "
+        f"the upstream image catalogue pins {image}, "
         f"older than the tiled[client]>={floor} floor in pyproject.toml."
     )
 
 
 @pytest.mark.parametrize(
-    ("key", "template", "image_ref"),
-    [
-        (
-            "services.bluesky.tiled_image",
-            _BLUESKY_TEMPLATE,
-            "ghcr.io/bluesky/tiled",
-        ),
-    ],
+    ("key", "entry"),
+    [("services.bluesky.tiled_image", "tiled")],
     ids=["tiled"],
 )
-def test_the_manifest_default_matches_the_compose_default(
-    key: str, template: Path, image_ref: str
-) -> None:
+def test_the_manifest_default_matches_the_catalogue_default(key: str, entry: str) -> None:
     """A pin spelled in two files is the same pin in both.
 
     The config-key manifest documents the default of the key that overrides the
-    image, and the compose template renders it; a bump that reaches one and not
-    the other documents an image the stack does not run.
+    image, and the compose template renders the upstream image catalogue's
+    entry; a bump that reaches one and not the other documents an image the
+    stack does not run.
     """
     manifest = yaml.safe_load(_CONFIG_KEY_MANIFEST.read_text(encoding="utf-8"))
     documented = manifest["keys"][key]["default"]
-    rendered = _compose_default_image(template, image_ref)
-    assert documented == rendered, (
-        f"config_key_manifest.yml documents {key} = {documented!r}, but "
-        f"{template.relative_to(_REPO_ROOT)} defaults it to {rendered!r}."
+    assert documented == UPSTREAM_IMAGES[entry], (
+        f"config_key_manifest.yml documents {key} = {documented!r}, but the "
+        f"upstream image catalogue's {entry!r} entry is {UPSTREAM_IMAGES[entry]!r}."
     )
 
 
@@ -2760,6 +2745,7 @@ def _render_postgres_template(project_name: str) -> str:
             "project_root": f"/r/{project_name}",
         },
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
 
@@ -2815,6 +2801,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
         system={"timezone": "UTC"},
         osprey_labels={"project_name": "p", "project_root": "/r/p"},
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
     svc = yaml.safe_load(rendered)["services"]["postgresql"]
@@ -2851,6 +2838,7 @@ def _render_mongodb_template(project_name: str = "proj-a", **mongodb_config: obj
             "project_root": f"/r/{project_name}",
         },
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
 
@@ -3261,6 +3249,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "project_root": f"/r/{project_name}",
         },
         "osprey_images": _image_defaults(project_name),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "",
         "osprey_env_present": False,
         "deployed_services": [],
@@ -4526,6 +4515,7 @@ def _render_bridge_template(
             "project_root": f"/r/{project_name}",
         },
         osprey_images=_image_defaults(project_name),
+        upstream_images=resolve_upstream_images({}),
         osprey_ports=_layout_ports_for(),
         osprey_version="",
         osprey_env_present=env_present,
@@ -8207,12 +8197,15 @@ class TestStageSiteImageArgsForContext:
         assert self._resolve({"project_name": "p"}, context) == {}
         assert [path.name for path in context.iterdir()] == ["Dockerfile"]
 
-    def test_a_context_that_builds_nothing_is_left_alone(self, tmp_path: Path) -> None:
+    def test_a_context_that_builds_nothing_is_left_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A pure-image service gets no staged CA it would never COPY.
 
         Its compose fragment declares no ``build:`` block at all, so a file
         staged beside it is dead weight that also churns the context hash.
         """
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
         context = tmp_path / "postgresql"
         context.mkdir()
         source = tmp_path / "site-ca.pem"
@@ -8221,7 +8214,39 @@ class TestStageSiteImageArgsForContext:
         assert (
             self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context) == {}
         )
+        assert self._resolve({"project_name": "p", "offline": True}, context) == {}
         assert list(context.iterdir()) == []
+
+    def test_offline_reaches_a_built_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An offline deployment tells every image it builds, in the spelling recipes compare."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+
+        assert self._resolve({"project_name": "p", "offline": True}, self._context(tmp_path)) == {
+            "OSPREY_OFFLINE": "1"
+        }
+
+    def test_an_online_deployment_renders_no_offline_arg(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``offline: false`` renders the args block an online deployment always had."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+
+        assert self._resolve({"project_name": "p", "offline": False}, self._context(tmp_path)) == {}
+
+    def test_the_environment_overrides_the_offline_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``OSPREY_OFFLINE`` wins over the config key, as the serving check reads it."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+        context = self._context(tmp_path)
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
+        assert self._resolve({"project_name": "p", "offline": True}, context) == {}
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        assert self._resolve({"project_name": "p"}, context) == {"OSPREY_OFFLINE": "1"}
 
     def test_the_pip_axes_are_carried_through_verbatim(self, tmp_path: Path) -> None:
         """The three pip axes need no rewriting — they are values, not paths."""
@@ -8239,6 +8264,28 @@ class TestStageSiteImageArgsForContext:
             "PIP_INDEX_URL": "https://mirror.example.org/simple",
             "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
         }
+
+    def test_the_base_registry_is_carried_without_a_trailing_slash(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both spellings of a mirror path resolve to the one the recipes join with ``/``."""
+        monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+        context = self._context(tmp_path)
+
+        for spelling in ("mirror.example.org/dockerhub/", "mirror.example.org/dockerhub"):
+            config = {"project_name": "p", "images": {"base_registry": spelling}}
+            assert self._resolve(config, context) == {
+                "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub"
+            }
+
+    def test_a_slash_alone_declares_no_base_registry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A value with nothing before its slash leaves the recipes' own default standing."""
+        monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+        config = {"project_name": "p", "images": {"base_registry": "/"}}
+
+        assert self._resolve(config, self._context(tmp_path)) == {}
 
     def test_the_site_ca_is_named_by_its_context_filename(self, tmp_path: Path) -> None:
         """The operator's host path never reaches the rendered fragment.
@@ -8283,6 +8330,64 @@ class TestStageSiteImageArgsForContext:
         )
 
         assert args == {"OSPREY_SITE_CA": SITE_CA_CONTEXT_FILENAME}
+
+
+class TestHubImage:
+    """A Docker Hub reference, moved onto the registry that stands in for docker.io.
+
+    The mirror keeps Docker Hub's paths, so an official image gains the
+    ``library/`` namespace Docker Hub files it under and a namespaced image keeps
+    its own; a reference naming another registry is not Docker Hub's to move.
+    """
+
+    MIRROR = "mirror.example.org/dockerhub"
+
+    @staticmethod
+    def _hub_image(reference: str, base_registry: str) -> str:
+        from osprey.deployment.compose_generator import hub_image
+
+        return hub_image(reference, base_registry)
+
+    def test_an_official_image_gains_library(self) -> None:
+        assert (
+            self._hub_image("redis:7.4-alpine", self.MIRROR)
+            == f"{self.MIRROR}/library/redis:7.4-alpine"
+        )
+
+    def test_a_namespaced_image_keeps_its_path(self) -> None:
+        assert (
+            self._hub_image("pgvector/pgvector:pg16", self.MIRROR)
+            == f"{self.MIRROR}/pgvector/pgvector:pg16"
+        )
+
+    def test_a_docker_io_reference_is_rebased(self) -> None:
+        assert (
+            self._hub_image("docker.io/library/alpine:3.20", self.MIRROR)
+            == f"{self.MIRROR}/library/alpine:3.20"
+        )
+        assert (
+            self._hub_image("docker.io/clickhouse/clickhouse-server:26.8", self.MIRROR)
+            == f"{self.MIRROR}/clickhouse/clickhouse-server:26.8"
+        )
+
+    @pytest.mark.parametrize(
+        "reference",
+        [
+            "ghcr.io/bluesky/tiled:0.2.18",
+            "registry.example.org:5000/team/image:1",
+            "localhost/image:1",
+            "localhost:5000/image:1",
+        ],
+    )
+    def test_another_registry_is_left_alone(self, reference: str) -> None:
+        assert self._hub_image(reference, self.MIRROR) == reference
+
+    @pytest.mark.parametrize(
+        "reference",
+        ["redis:7.4-alpine", "pgvector/pgvector:pg16", "docker.io/library/alpine:3.20"],
+    )
+    def test_no_base_registry_leaves_every_reference_unchanged(self, reference: str) -> None:
+        assert self._hub_image(reference, "") == reference
 
 
 class TestEnsureGroupSharedDirExact:

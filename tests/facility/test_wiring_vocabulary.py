@@ -1,6 +1,6 @@
 """The words a wiring record's description uses are the schema's words.
 
-The simulator reads ``role``, ``plane``, ``refresh`` and ``marks`` off each
+The simulator reads ``engine_role``, ``plane``, ``refresh`` and ``marks`` off each
 wiring entry by the vocabulary its view module states; the facility schema
 states the same four slots as enums. The two are one vocabulary.
 """
@@ -8,11 +8,11 @@ states the same four slots as enums. The two are one vocabulary.
 from __future__ import annotations
 
 from osprey.facility.schema import core
-from osprey_connectors.simulation.view import MARKS, PLANES, REFRESH, ROLES
+from osprey_connectors.simulation.view import ENGINE_ROLES, MARKS, PLANES, REFRESH
 
 
-def test_the_roles_are_the_schemas_wiring_roles() -> None:
-    assert set(ROLES) == {member.value for member in core.WiringRoleEnum}
+def test_the_engine_roles_are_the_schemas_engine_roles() -> None:
+    assert set(ENGINE_ROLES) == {member.value for member in core.EngineRoleEnum}
 
 
 def test_the_planes_are_the_schemas_planes() -> None:

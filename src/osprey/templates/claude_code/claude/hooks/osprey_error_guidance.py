@@ -77,7 +77,7 @@ ERROR_CLASS_MAP = {
     # envelope; "control system" only when the controls server says so.
     "connection_error": "Connection",
     "timeout_error": "Connection",
-    # One channel's device did not answer; the control system as a whole did.
+    # One channel did not answer; the envelope states whether the target does.
     "channel_unreachable": "Connection",
     "service_unavailable": "Connection",
     # A switch that was attempted and did not complete: the destination did

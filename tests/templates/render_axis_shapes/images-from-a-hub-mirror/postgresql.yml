@@ -1,0 +1,111 @@
+services:
+  postgresql:
+    # Public upstream image, overridable like every other service image
+    # (env → config → default): set OSPREY_POSTGRES_IMAGE, or
+    # services.postgresql.image in config.yml, to point at a mirror or a
+    # pinned digest (e.g. for air-gapped registries).
+    image: ${OSPREY_POSTGRES_IMAGE:-mirror.example.org/dockerhub/pgvector/pgvector:pg16}
+    # container_name is a HOST-GLOBAL docker identifier: a bare `ariel-postgres`
+    # collides when two OSPREY projects deploy postgres on one host, forcing them
+    # to serialize. Namespace it per-project so concurrent deploys don't fight
+    # over one name. The DNS hostname the ARIEL DSN resolves (`ariel-postgres`) is
+    # pinned separately via a network alias below, so the DSN is unaffected.
+    container_name: golden-project-ariel-postgres
+    restart: unless-stopped
+    # POSIX shared memory for the server's dynamic shared memory segments.
+    # PostgreSQL's `dynamic_shared_memory_type` is `posix` by default, so every
+    # parallel worker's DSA -- a parallel index build's graph, a parallel hash
+    # join, a bitmap scan -- is a file under /dev/shm, and the container runtime
+    # caps that mount at 64 MiB. The invariant this value has to satisfy is that
+    # the mount exceeds `maintenance_work_mem` (64 MiB by default) with room to
+    # spare, because a parallel index build grows its segment in steps and fails
+    # on the step that crosses the cap, not on its first allocation. At 64 MiB an
+    # HNSW build over a large embedding table dies with `could not resize shared
+    # memory segment ... No space left on device` while the host still has
+    # hundreds of gigabytes free -- an error that reads like a full disk and is
+    # not one. 1 GiB is the conventional floor for a containerized PostgreSQL and
+    # clears the class rather than today's instance.
+    #
+    # Raising `maintenance_work_mem` or `shared_buffers` past this value
+    # re-creates that failure, so the two move together.
+    shm_size: 1gb
+    ports:
+      # `port_host` used to carry no default at all: a config that named the
+      # block but omitted the key rendered an empty host half
+      # (`127.0.0.1::5432`) — no render-time error, just a malformed publish
+      # that docker compose rejected later, at `up`. It now falls back to the
+      # layout value for the deployment's own `deployment.port_base`, which is
+      # the number every other reader of this store already resolves, so an
+      # omitted key renders the port it would have had to be set to.
+      #
+      # An entirely absent `services.postgresql` block still fails the render
+      # itself, exactly as before: the attribute lookup happens first, so
+      # `| default(...)` never runs and cannot rescue an undefined parent.
+      #
+      # The container half stays 5432 — postgres's own port inside its
+      # namespace, which does not move with the block. Only the host half is
+      # layout-derived.
+      - "127.0.0.1:10800:5432"
+    environment:
+      POSTGRES_DB: ariel
+      POSTGRES_USER: ariel
+      # Sourced from the project .env: `osprey up` mints a strong
+      # ARIEL_DB_PASSWORD when unset, and the agent's DSN — derived from this
+      # `services.postgresql` block by `resolve_ariel_dsn` unless an explicit
+      # `ariel.database.uri` overrides it — reads the SAME env var, so the
+      # container and the agent authenticate with one value. The `services.postgresql`
+      # block in config.yml carries no `password:` key — one set there would be
+      # read by nothing and would silently lose to the minted variable. The `ariel` fallback
+      # applies only before the first deploy or on a bare `docker compose up`.
+      # NOTE: Postgres reads POSTGRES_PASSWORD only when
+      # initializing a FRESH data volume; a pre-existing volume keeps its
+      # original password until recreated.
+      POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-ariel}
+      # The login secret for the SELECT-only role the initdb script below
+      # creates — the identity the agent's raw-SQL tool connects as, so a
+      # dangerous function it names is refused by the server instead of by a
+      # pattern match over the query text. Minted beside ARIEL_DB_PASSWORD by
+      # `osprey up` and read by the same derived-DSN path, one rung along. It is
+      # passed into the container rather than substituted into the mounted
+      # script because the script is rendered at build time and the secret lives
+      # in the project .env. Same fresh-volume caveat as POSTGRES_PASSWORD.
+      ARIEL_DB_READONLY_PASSWORD: ${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}
+      TZ: UTC
+    volumes:
+      - ariel_postgres_data:/var/lib/postgresql/data
+      # INITDB-ONLY: the entrypoint runs everything under this directory once,
+      # while it initializes a fresh data volume, and never looks at it again.
+      # So the read-only role arrives with a new store and a store that predates
+      # it keeps the role it has — the agent then starts without its SQL tool,
+      # which refuses every query with one warning at start-up. Adopting the
+      # role on an existing volume is the one-shot command in the
+      # "Read-only role for the SQL tool" section of the ARIEL search-modes
+      # how-to, which runs this same file by hand.
+      - ./build/services/postgresql/10-readonly-role.sh:/docker-entrypoint-initdb.d/10-readonly-role.sh:ro
+    networks:
+      # The container_name above is now per-project, but the ARIEL DSN
+      # (`postgresql://ariel:ariel@ariel-postgres:5432/ariel`) hosts the stable
+      # name `ariel-postgres`. Pin it as a network alias so in-network consumers
+      # keep resolving it regardless of the namespaced container_name — without
+      # this, the DSN breaks with "could not translate host name".
+      osprey-network:
+        aliases:
+          - ariel-postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ariel -d ariel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # F2: this bind works only because pgvector/pgvector:pg16 already owns
+  # /var/lib/postgresql/data as uid 999 in its base image — the container's
+  # postgres process runs as that uid and needs write access to the mount.
+  # Changing PGDATA (moving the data directory elsewhere) or swapping the
+  # base image for one that owns the path under a different uid breaks this
+  # silently: the volume mounts fine, but postgres fails to start (or starts
+  # against an unwritable directory) with no error surfaced here.
+  ariel_postgres_data:
+
+networks:
+  osprey-network:

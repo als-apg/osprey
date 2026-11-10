@@ -403,8 +403,8 @@ class TestUpsertEntryReingestHazards:
         those five columns are upstream's to own. If one is dropped from the
         DO UPDATE set, an entry edited in the source logbook silently stays
         frozen at whatever ARIEL first saw, with no error anywhere. ``metadata``
-        is overwritten too, except that a stored ``follows_up`` survives an
-        incoming metadata that lacks the key.
+        is overwritten too, except that a stored ``follows_up`` or
+        ``sync_status`` survives an incoming metadata that lacks the key.
         """
         repo = _current_repo(fake_pool)
 
@@ -415,7 +415,8 @@ class TestUpsertEntryReingestHazards:
             assert f"{column} = EXCLUDED.{column}" in update_clause
         assert "metadata = CASE" in update_clause
         assert "ELSE EXCLUDED.metadata" in update_clause
-        assert "NOT (EXCLUDED.metadata ? 'follows_up')" in update_clause
+        assert "ARRAY['follows_up', 'sync_status']" in update_clause
+        assert "NOT (EXCLUDED.metadata ? carried.key)" in update_clause
 
     async def test_empty_incoming_attachments_preserve_stored_ones(
         self,

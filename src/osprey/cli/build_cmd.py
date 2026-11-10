@@ -210,8 +210,9 @@ _NON_SOURCE_ROOT_ENTRIES: frozenset[str] = frozenset(
 #: render its honest answer is this machine's — a path no container has, which
 #: leaves every server and every hook in the image unable to start. Its value is
 #: the interpreter of ``templates/project/Dockerfile.j2``'s
-#: ``FROM python:<IMAGE_PYTHON>-slim`` base, which the official python images
-#: install at ``/usr/local/bin/python``; the version is
+#: ``FROM ${OSPREY_BASE_REGISTRY}/library/python:<IMAGE_PYTHON>-slim`` base,
+#: which the official python images install at ``/usr/local/bin/python``; the
+#: version is
 #: :data:`osprey.deployment.image_facts.IMAGE_PYTHON`. The coupling to that base
 #: image is pinned by a test, so a base change cannot silently invalidate this
 #: constant.

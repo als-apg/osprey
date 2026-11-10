@@ -412,14 +412,17 @@ def _deps_layer_dockerfile(rendered: str) -> str:
         "any stages it copies from) rather than letting this take the first FROM"
     )
     from_line = from_lines[0]
-    args = [text for text in instructions if text.startswith("ARG ")]
+    from_index = instructions.index(from_line)
+    # An ARG ahead of the FROM is global and the FROM line reads it, so it stays ahead.
+    global_args = [text for text in instructions[:from_index] if text.startswith("ARG ")]
+    args = [text for text in instructions[from_index:] if text.startswith("ARG ")]
     apt_preamble = _only_instruction(instructions, "RUN", "Acquire::Retries", "apt preamble RUN")
     deps_copy = _deps_copy(instructions)
     deps_run = _deps_run(instructions)
 
     return (
         "# syntax=docker/dockerfile:1\n"
-        + "\n".join([from_line, *args, apt_preamble, deps_copy, deps_run])
+        + "\n".join([*global_args, from_line, *args, apt_preamble, deps_copy, deps_run])
         + "\n"
     )
 

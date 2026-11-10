@@ -735,9 +735,9 @@ auth method, and by the build itself even with ``--no-lint``:
 
 - **The value must be a usable account name**
   (``web_terminals.invalid_user_control_identity``). It must be a string of
-  lowercase letters, digits, ``_`` and ``-``, starting with a letter or ``_``,
-  at most 32 characters. ``root``, ``osprey`` and every ``osprey-*`` name are
-  reserved for the framework, and the accounts the base image already ships
+  lowercase letters, digits, ``.``, ``_`` and ``-``, starting with a letter or
+  ``_``, at most 32 characters. ``root``, ``osprey`` and every ``osprey-*`` and
+  ``osprey.*`` name are reserved for the framework, and the accounts the base image already ships
   (``daemon``, ``nobody``, ``list``, ``backup`` and the rest) are refused too.
 - **A shared card cannot carry one** (``web_terminals.shared_card_control_identity``).
   Everyone who opens a shared card writes through it, so a fixed name would

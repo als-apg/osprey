@@ -15,6 +15,9 @@ export const WORKING_LABEL = 'Working…';
 /** The loader's label while the turn waits on a background agent. */
 export const BACKGROUND_WAIT_LABEL = 'Waiting for the background agent…';
 
+/** The loader's label while the CLI summarises the conversation; it also sets the loader's mode. */
+export const COMPACTING_LABEL = 'Compacting the conversation…';
+
 /**
  * @typedef {object} SystemEffect
  * @property {boolean} [stopStreaming] - the reply text being streamed ends here
@@ -57,11 +60,16 @@ export function systemFrame(event) {
           ? ` · ${Math.round(event.pre_tokens / 1000)}k tokens summarized`
           : '';
       const how = event.trigger === 'auto' ? ' automatically' : '';
-      return { closeText: true, notice: `Conversation compacted${how}${tokens}` };
+      // The boundary is where the summary lands: the loader leaves its compacting mode.
+      return {
+        closeText: true,
+        activity: WORKING_LABEL,
+        notice: `Conversation compacted${how}${tokens}`,
+      };
     }
     case 'status':
       return event.status === 'compacting'
-        ? { stopStreaming: true, activity: 'Compacting the conversation…' }
+        ? { stopStreaming: true, activity: COMPACTING_LABEL }
         : null;
     case 'api_retry': {
       const code = event.error_status ? ` (${event.error_status})` : '';

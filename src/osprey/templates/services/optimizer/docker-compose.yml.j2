@@ -135,7 +135,7 @@ services:
       # authorization's steps and the run renews its lease. Bound with the
       # tree, because under a bound tree a writer with no ledger directory has
       # every write refused.
-      OSPREY_WRITE_LEDGER_DIR: {{ write_ledger_container_dir }}
+      {{ write_ledger_env }}: {{ write_ledger_container_dir }}
 {%- endif %}
 {{- hostenv.passthrough(svc) }}
     volumes:
@@ -187,7 +187,7 @@ services:
       start_period: 30s
 
   optimizer-redis:
-    image: ${OSPREY_OPTIMIZER_REDIS_IMAGE:-{{ svc.redis_image | default('redis:7.4-alpine') }}}
+    image: ${OSPREY_OPTIMIZER_REDIS_IMAGE:-{{ svc.redis_image | default(upstream_images.redis) }}}
     container_name: {{ osprey_labels.project_name }}-optimizer-redis
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped

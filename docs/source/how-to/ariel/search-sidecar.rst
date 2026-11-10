@@ -151,6 +151,10 @@ derived from configuration you already have:
      - ``ariel.enhancement_modules.qmd_export`` → ``mirror_path``
      - the export is enabled and names a path
 
+Embedding is most of an index build, so the ``ariel`` sidecar computes vectors
+only when ARIEL's hybrid search queries them: with ``strategy: rrf``, or with
+hybrid search off, it builds the keyword index alone. ``okf`` always embeds.
+
 Each sidecar is the compose service ``qmd-<corpus>`` (``qmd-okf``,
 ``qmd-ariel``, …), all running the one image. Its corpus is bind-mounted
 **read-only** at ``/corpus/<corpus>`` and indexed as a collection of the same
@@ -199,6 +203,10 @@ A corpus's index comes to exist in one of two ways:
 ``managed`` (the default)
     The sidecar indexes ``source``, a directory of markdown, and keeps the
     index current itself, exactly as it does for ``okf`` and ``ariel``.
+    ``embed: false``, for a corpus searched by keyword alone, skips the
+    embedding pass; a vector search on that corpus returns nothing. Turning
+    ``embed`` off rebuilds the keyword index once, with the search port closed
+    meanwhile; turning it back on embeds the pending documents, no rebuild.
 
 ``prebuilt``
     The index was built elsewhere --- typically on a GPU host, where embedding

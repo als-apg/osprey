@@ -215,16 +215,17 @@ fails at ``up`` on the image it forgot:
      - Set the registry axis once — ``images.registry``, or
        ``OSPREY_IMAGE_REGISTRY`` for a single build.
    * - The upstream pins
-     - One row at a time: ``services.<name>.image`` (or the row's
-       ``OSPREY_..._IMAGE`` variable) naming your mirrored copy. The agent
-       record's ClickHouse store has no variable: the profile's
-       ``agent_record.clickhouse.image`` names its mirrored copy.
+     - ``images.base_registry`` (or ``OSPREY_BASE_REGISTRY``) moves every
+       Docker Hub pin onto your mirror at once; a ``services.<name>.image`` row
+       (or its ``OSPREY_..._IMAGE``) still names one outright. tiled is on
+       ghcr.io and needs its row. The agent record's ClickHouse store has no
+       variable: the profile's ``agent_record.clickhouse.image`` names it.
    * - The web tier's images, auth sidecar included
      - ``registry.url`` plus ``modules.web_terminals.image_tag``.
    * - nginx
-     - ``modules.web_terminals.nginx_image``. **It carries no environment
-       variable**, so a mirror reaches it through ``config.yml`` only —
-       there is no one-shell equivalent.
+     - ``images.base_registry`` reaches it too.
+       ``modules.web_terminals.nginx_image`` names it outright; **that key
+       carries no environment variable**.
 
 .. code-block:: yaml
 
@@ -232,27 +233,18 @@ fails at ``up`` on the image it forgot:
    images:
      registry: registry.example.org/accelerator
      tag: "2026.08.1"
+     base_registry: registry.example.org/dockerhub
 
    registry:
      url: registry.example.org/accelerator
 
    services:
-     postgresql:
-       image: registry.example.org/mirror/pgvector/pgvector:pg16
-     mongodb:
-       image: registry.example.org/mirror/mongo:7
-     graphdb:
-       image: registry.example.org/mirror/neo4j:5.26-community
      bluesky:
        tiled_image: registry.example.org/mirror/tiled:0.2.18
-       redis_image: registry.example.org/mirror/redis:7.4-alpine
-     optimizer:
-       redis_image: registry.example.org/mirror/redis:7.4-alpine
 
    modules:
      web_terminals:
        image_tag: "2026.08.1"
-       nginx_image: registry.example.org/mirror/nginx:1.31-alpine
 
 Copy only the rows for services you actually deploy — the upstream pins for a
 service that is not in ``deployed_services`` are never rendered.

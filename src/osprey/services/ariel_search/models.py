@@ -9,7 +9,7 @@ This module defines the core data models for ARIEL search service:
 
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from enum import Enum
@@ -25,6 +25,17 @@ class SyncStatus(Enum):
     SYNCED = "synced"
     PENDING_SYNC = "pending_sync"
     LOCAL_ONLY = "local_only"
+
+
+def with_sync_status(metadata: Any, status: SyncStatus) -> dict[str, Any]:
+    """A copy of an entry's ``metadata`` that records ``status`` as its ``sync_status``.
+
+    Every write path stores an entry through this, so a stored row always says
+    whether the facility logbook has a page for it. A non-mapping ``metadata``
+    is replaced by an empty one.
+    """
+    base = dict(metadata) if isinstance(metadata, Mapping) else {}
+    return {**base, "sync_status": status.value}
 
 
 @dataclass(frozen=True)
