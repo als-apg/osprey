@@ -39,6 +39,8 @@ The tree
      fixes.yaml                corrections to records another source states
      imported/<layer>/         records an importer wrote
      knowledge/                the facility knowledge pages
+     ariel/vocabulary.yml      the logbook shorthand ARIEL expands
+     benchmarks/               the channel-finder benchmark queries
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
@@ -225,15 +227,19 @@ steps; each is described in :doc:`/how-to/import-mml-export`.
    ``imported/mml/mapping.yaml`` and stops with ``import mml: mapping-draft``.
    The mapping holds every decision the export does not state.
 
-3. **Review the mapping.** Replace every ``null``. The top-level blocks are
-   ``models`` (what each exported system is called as a model),
-   ``section_order``, ``families`` (each family's ``class``, ``devices``,
-   ``description`` and ``fields``) and ``directions`` (whether each field is
-   ``read`` or ``write``). Where the export leaves a family's shape open, a
-   ``judgments:`` block carries one slot per question: a channel row beyond
-   the family's devices (``drop``, ``device`` or ``{field: <name>}``), a
-   device no channel binds (``drop`` or ``keep``), and a channel shared
-   across devices (``keep_all`` or an owning device).
+3. **Review the mapping.** Replace every ``null``. Four top-level blocks are
+   required: ``models`` (what each exported system is called as a model),
+   ``section_order``, ``families`` and ``directions`` (whether each field is
+   ``read`` or ``write``). Each family states its ``aliases``,
+   ``description``, ``provenance``, ``channels`` and ``fields``, and may
+   state a ``class``, its ``devices``, a ``rename`` and the ``branch`` a new
+   class extends. Three top-level blocks are optional: ``facility`` (the
+   identity the first import seeds), ``branches`` (device classes the
+   mapping adds, each with its ``parent``) and ``judgments``. Where the
+   export leaves a family's shape open, ``judgments:`` carries one slot per
+   question: a channel row beyond the family's devices (``drop``, ``device``
+   or ``{field: <name>}``), a device no channel binds (``drop`` or ``keep``),
+   and a channel shared across devices (``keep_all`` or an owning device).
 
 4. **Wire the model.** Each model's ``wiring`` block in the mapping lists the
    families the model drives or reads. Per family it names the
@@ -254,10 +260,12 @@ steps; each is described in :doc:`/how-to/import-mml-export`.
 The record files under ``imported/mml/`` belong to the import and are
 rewritten by every run; ``mapping.yaml`` is yours and is only drafted when
 absent. The import also creates ``limits.yaml``, ``seeds.yaml``,
-``identity.yaml``, ``classes.yaml``, ``measurement/<model>.yaml`` and
-``scenarios/readout.yaml`` when they do not exist, and never rewrites them
-afterwards. It replaces a bundled facility, saying so in one line, and refuses
-only hand-written records of the kinds it writes, naming each file.
+``identity.yaml``, ``measurement/<model>.yaml`` and ``scenarios/readout.yaml``
+when they do not exist, and never rewrites them afterwards. It creates
+``classes.yaml`` when absent; when the file exists, the import appends only
+the classes it lacks and leaves its rows as written. It replaces a bundled
+facility, saying so in one line, and refuses only hand-written records of the
+kinds it writes, naming each file.
 
 A channel list
 --------------
@@ -268,24 +276,27 @@ A channel list
 ``tags``, ``s`` and ``model``; a file with no ``address`` column holds one
 address per line.
 
-.. code-block:: text
-
-   address,role,device,unit,description
-   SR:MAG:QF:01:CURRENT:SP,setpoint,QF01,A,Focusing quadrupole current
-   SR:MAG:QF:01:CURRENT:RB,,QF01,A,Focusing quadrupole current readback
+.. literalinclude:: examples/facility/channels.csv
+   :language: text
+   :caption: channels.csv
 
 The files under ``imported/list/`` belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
-into ``fixes.yaml``. A run whose list states no ``s`` leaves no
-``devices.yaml``. The list import runs the same step as every format: it
-replaces a bundled facility and refuses only hand-written channel and device
-lists, so it still positions a list against your own deck, models and places.
+into ``fixes.yaml``. Each device a row gives an ``s`` is written to
+``imported/list/devices.yaml``; a ``model`` column names the model whose deck
+``s`` is measured along. A run whose list states no ``s`` leaves no
+``devices.yaml``, and a device the list then names needs a record of its own,
+such as an ``add`` fix, or the build stops with ``reference-missing``. The
+list import runs the same step as every format: it replaces a bundled facility
+and refuses only hand-written channel and device lists, so it still positions
+a list against your own deck, models and places.
 
 Fixes
 =====
 
 ``fixes.yaml`` corrects a record another source states, without editing that
-source. Each fix names a record and gives the reason:
+source. Each fix names a record and gives the reason. These two correct the
+channel list above:
 
 .. code-block:: yaml
 
@@ -293,15 +304,15 @@ source. Each fix names a record and gives the reason:
    fixes:
      - op: set
        kind: channel
-       id: SR:QF:SP
-       fields: {role: setpoint}
-       was: {role: {mml: readback}}
-       why: The export lists the setpoint as a monitor.
+       id: SR:MAG:QF:01:CURRENT:SP
+       fields: {description: Focusing quadrupole current setpoint}
+       was: {description: {list: Focusing quadrupole current}}
+       why: The list's description leaves out that this is the setpoint.
      - op: add
        kind: device
-       id: SR/QF9
+       id: QF02
        record: {class: Quadrupole}
-       why: Missing from the export.
+       why: Missing from the list.
 
 ``set`` replaces the fields it names, each whole; ``add`` adds a record;
 ``drop`` removes one. ``kind`` is ``place``, ``device``, ``channel``,
@@ -316,23 +327,13 @@ does not depend on the order of the fixes.
 Limits
 ======
 
-``limits.yaml`` holds the write limits, one record per channel:
+``limits.yaml`` holds the write limits, one record per channel. The
+demo preset ships this one:
 
-.. code-block:: yaml
-
-   records:
-   # Symmetric range: the corrector current stays within [-12, 12].
-   - address: SR:MAG:HCM:01:CURRENT:SP
-     min_value: -12.0
-     max_value: 12.0
-   # Range plus largest single step: the cavity frequency in MHz.
-   - address: SR:RF:CAVITY:01:FREQUENCY:SP
-     min_value: 500.0
-     max_value: 500.8
-     max_step: 0.01
-   # Blocked outright: no write reaches this setpoint.
-   - address: SR:VAC:ION-PUMP:01:VOLTAGE:SP
-     writable: false
+.. literalinclude:: ../../../src/osprey/templates/facilities/example/limits.yaml
+   :language: yaml
+   :caption: limits.yaml
+   :start-after: Delete this line to make the file yours.
 
 A setpoint record with both ``min_value`` and ``max_value`` is writable within
 them; ``max_step`` bounds a single change; ``writable: false`` blocks every
@@ -352,14 +353,15 @@ Seeds
 =====
 
 ``seeds.yaml`` says how a channel behaves in the simulator when no model
-wires it. It is keyed by address:
+wires it. It is keyed by address. The preset's booster current starts at
+1.2 mA with Gaussian noise:
 
 .. code-block:: yaml
 
-   SR:BEAM:CURRENT:
-     nominal: 250.0
+   BR:DIAG:DCCT:01:CURRENT:RB:
+     nominal: 1.2
      noise:
-       absolute: 0.1
+       absolute: 0.01
 
 ``nominal`` is the value at start; ``noise`` is Gaussian, ``{absolute:
 <sigma>}`` in the channel's unit or ``{relative: <fraction>}``; ``drift`` is
@@ -372,29 +374,32 @@ wired channel's operating point, lies outside the ``min_value`` and
 ``pulse`` gives a waveform channel its trace. It names two other channels:
 ``driver``, whose reading scales the trace, and ``enable``, which switches it
 on. The trace's shape is fixed in code, not in the seed; with ``enable`` off
-the trace is flat zero.
+the trace is flat zero. The preset's septum current waveform:
 
 .. code-block:: yaml
 
-   INJ:SEPTUM:PULSE:
+   SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:
      pulse:
-       driver: INJ:SEPTUM:AMPL
-       enable: INJ:SEPTUM:ENABLE
+       driver: SR:MAG:SEPTUM:01:CURRENT:SP
+       enable: SR:MAG:SEPTUM:01:STATUS:ON
 
 ``gate`` says what a channel does while an interlock-like input blocks it.
 ``inputs`` maps each input's address to its **blocking label**; while any input
 reads its blocking label the channel takes ``gated``, and otherwise it behaves
 as its other seed keys say. ``gated`` is typed by the gated channel: a factor
 greater than zero on a float channel (the value is scaled by it), a label on a
-bool or enum channel, an integer on an int channel.
+bool or enum channel, an integer on an int channel. In the preset, the
+sum signal of the first beam position monitor in the gun-to-linac line drops
+to 1% of full beam while the gun's heater or its high voltage is off:
 
 .. code-block:: yaml
 
-   SR:BEAM:CURRENT:
-     nominal: 250.0
+   GTL:DIAG:BPM:01:SUM:RB:
+     nominal: 1.0
      gate:
        inputs:
-         SR:RF:PERMIT: blocked
+         GTL:GUN:EGUN:01:HEATER_ON:RB: 'FALSE'
+         GTL:GUN:EGUN:01:HV_ON:RB: 'FALSE'
        gated: 0.01
 
 The build checks both keys and stops with ``value-invalid`` when:
@@ -482,29 +487,13 @@ Measurement
 ===========
 
 ``measurement/<model>.yaml`` states which measurements a model allows and
-what they use:
+what they use. The demo preset ships this one for its storage
+ring:
 
-.. code-block:: yaml
-
-   kinds: [orm, dispersion, trm, crm, chromaticity_monitor]
-   groups:
-     bpm: SR/BPM
-     hcor: SR/HCM
-     vcor: SR/VCM
-     quad: [SR/QF, SR/QD]
-     sext: [SR/SF, SR/SD]
-   instruments:
-     tune: SR:DIAG:TUNE:X
-     rf: SR:RF:CAVITY:01:FREQUENCY:SP
-   n_step: 5
-   n_avg_meas: 1
-   fit_order: 2
-   sleep_between_step: 0.0
-   sleep_between_meas: 0.0
-   corrector_delta: 1.0e-05
-   quad_delta: 0.001
-   sextu_delta: 0.01
-   frequency_delta: 100.0
+.. literalinclude:: ../../../src/osprey/templates/facilities/example/measurement/SR.yaml
+   :language: yaml
+   :caption: measurement/SR.yaml
+   :start-after: Delete this line to make the file yours.
 
 ``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
 ``crm`` and ``chromaticity_monitor``. ``groups`` names the group, or the list

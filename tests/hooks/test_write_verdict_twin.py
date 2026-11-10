@@ -242,7 +242,7 @@ def test_the_routes_ceiling_is_the_verdicts_under_a_tree(
     monkeypatch, tmp_path, section_tier, map_tier
 ):
     """``write_ceiling`` is the one producer: the chip's ceiling never disagrees with the verdict."""
-    from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+    from osprey.interfaces.web_terminal.config_view import login_tier
 
     _stage_tree_switch(monkeypatch, tmp_path, {"live": "allowed"})
     section = {"type": "epics", "writes": section_tier, "login_tiers": {"alice": map_tier}}
@@ -250,14 +250,14 @@ def test_the_routes_ceiling_is_the_verdicts_under_a_tree(
     verdict = posture_store.write_verdict(section, "live", owner="alice")
 
     assert verdict.position == map_tier
-    assert websocket_routes._login_tier(section, "alice") == verdict.position
+    assert login_tier(section, "alice") == verdict.position
     assert posture_store.write_ceiling(section, "alice") == verdict.position
 
 
 @pytest.mark.usefixtures("case_environment")
 @pytest.mark.parametrize(("section_tier", "map_tier"), _CEILING_PAIRS)
 def test_the_routes_ceiling_is_the_verdicts_on_a_host(tmp_path, section_tier, map_tier):
-    from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+    from osprey.interfaces.web_terminal.config_view import login_tier
     from osprey_connectors.identity import acting_identity
 
     _stage_host_switch(tmp_path, {"live": "allowed"})
@@ -267,7 +267,7 @@ def test_the_routes_ceiling_is_the_verdicts_on_a_host(tmp_path, section_tier, ma
     verdict = posture_store.write_verdict(section, "live", owner=login)
 
     assert verdict.position == section_tier
-    assert websocket_routes._login_tier(section, login) == verdict.position
+    assert login_tier(section, login) == verdict.position
     assert posture_store.write_ceiling(section, login) == verdict.position
 
 

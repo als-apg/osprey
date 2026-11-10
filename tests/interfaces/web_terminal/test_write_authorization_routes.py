@@ -48,7 +48,7 @@ REAL_READ_CURRENT_VALUES = routes.read_current_values
 
 SESSION = "aaaaaaaa-1111-2222-3333-444444444444"
 TARGET = "standin"
-FAR_FUTURE_NS = time.time_ns() + 10 * 365 * 24 * 3600 * 10**9
+FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 LIMITS = {
     "SR:A": {"writable": True, "min_value": 0.0, "max_value": 10.0},

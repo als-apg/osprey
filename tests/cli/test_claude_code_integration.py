@@ -223,8 +223,9 @@ class TestClaudeCodeFileContents:
         # file-editing tools (a NotebookEdit(path) rule is ignored and warned on).
         assert "NotebookEdit" not in deny
         allow = data["permissions"]["allow"]
-        assert "Edit(var/agent_data/artifacts/**)" in allow
-        assert "Edit(var/agent_data/notebooks/**)" in allow
+        root = resolve_shared_data_root(yaml.safe_load((project_dir / "config.yml").read_text()))
+        assert f"Edit(/{root}/artifacts/**)" in allow
+        assert f"Edit(/{root}/notebooks/**)" in allow
         assert not any(a.startswith("NotebookEdit(") for a in allow)
 
         # Channel-finder tools not in deny (server is agent-exclusive via inline mcpServers)
@@ -268,7 +269,43 @@ class TestClaudeCodeFileContents:
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
-        assert f"Read({root}/**)" in allow
+        assert f"Edit(/{resolve_shared_data_root(config)}/artifacts/**)" in allow
+
+    def test_agent_output_is_reachable_by_absolute_path_and_nothing_wider(self, project_dir):
+        """The agent reads what it wrote, and edits its own trees, named absolutely.
+
+        The agent runs in the render (``build/``) and the agent-data root sits beside
+        it, so a rule relative to the working directory matches nothing. The rules
+        name only the output subdirectories: the root itself holds the
+        control-context store (approval stamps, the writes switch) and the dispatch
+        worker's Claude config, which a read must still raise a card for. The Edit
+        rules over the artifact and notebook trees spell the root the same way.
+        """
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        root = resolve_shared_data_root(config)
+        assert root.is_absolute()
+
+        reads = [e for e in allow if e.startswith("Read(")]
+        assert f"Read(/{root}/artifacts/**)" in reads
+        assert f"Read(/{root}/data/**)" in reads
+        assert f"Read(/{root}/sessions/*/data/**)" in reads
+        # No relative agent-data rule survives: it would match nothing.
+        relative = agent_data_base_dir(config)
+        assert not any(e.startswith(f"Read({relative}") for e in reads), reads
+        # Nothing covers the root as a whole, nor the control store or the worker's config.
+        for entry in reads:
+            assert entry != f"Read(/{root}/**)"
+            assert "control_target" not in entry, entry
+            assert "claude-config" not in entry, entry
+            assert "dispatch" not in entry, entry
+        assert not any(e.startswith(("Glob(", "Grep(")) for e in allow)
+
+        edits = [e for e in allow if e.startswith("Edit(")]
+        assert sorted(edits) == sorted(
+            [f"Edit(/{root}/artifacts/**)", f"Edit(/{root}/notebooks/**)"]
+        ), edits
 
     def test_the_chat_uploads_directory_is_readable_by_absolute_path(self, project_dir):
         """The agent reads an attached file by the absolute path the chat hands it.
@@ -285,9 +322,13 @@ class TestClaudeCodeFileContents:
         uploads = resolve_shared_data_root(config) / CHAT_UPLOADS_SUBDIR
         assert uploads.is_absolute()
         assert f"Read(/{uploads}/**)" in allow
-        assert not any(entry.startswith("Edit(") and "uploads" in entry for entry in allow), (
-            "the uploads directory must stay read-only to the agent"
-        )
+        root = resolve_shared_data_root(config)
+        # Matched on the directory, not the word: the absolute Edit rules carry the
+        # project's own path, which may contain "uploads" anywhere above the root.
+        assert not any(
+            entry.startswith("Edit(") and (str(uploads) in entry or entry == f"Edit(/{root}/**)")
+            for entry in allow
+        ), "the uploads directory must stay read-only to the agent"
 
     def test_settings_json_hooks_are_structurally_valid(self, project_dir):
         """Every hook entry in PreToolUse/PostToolUse has a 'hooks' array."""

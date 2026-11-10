@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
+<link rel="stylesheet" href="static/panel.css">
+<title>Orbit bump</title>
+</head>
+<body>
+<main id="orbit-bump" class="ob">
+  <div class="ob-bar">
+    <span class="osprey-seg" data-field="plane">
+      <button type="button" data-plane="x" aria-pressed="true">Horizontal</button>
+      <button type="button" data-plane="y" aria-pressed="false">Vertical</button>
+    </span>
+    <select class="ob-model" data-field="model" aria-label="model" hidden></select>
+    <span class="osprey-chip" data-field="orm"><span data-field="orm-text"></span><button type="button" class="ob-link" data-field="recompute">recompute</button></span>
+    <span class="ob-none" data-field="no-model" hidden>no closed-orbit model</span>
+    <span class="ob-spacer"></span>
+  </div>
+  <p class="ob-posture" data-field="posture" hidden></p>
+  <p class="ob-notice" data-field="notice" hidden></p>
+  <p class="ob-error" data-field="error" hidden></p>
+  <div data-field="body"></div>
+  <div class="ob-modal" data-field="confirm" hidden></div>
+</main>
+<script type="module" src="static/panel.js"></script>
+</body>
+</html>

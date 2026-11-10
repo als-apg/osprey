@@ -27,6 +27,16 @@ ever arrive from the environment are in :doc:`environment-variables`. A closing
 note records the **protected set** — the files and keys no agent-side writer
 may touch.
 
+Each example names its file on its first line. ``# build/config.yml`` marks the
+nested form that ``osprey build`` writes. Every build wipes and re-renders that
+file, so set a key through the profile and never edit the rendered file.
+``# profile.yml, under config:`` marks
+the dotted form you write in the profile's ``config:`` block. Both spell the
+same key: ``health.disk.min_free_gb: 2.0`` under ``config:`` renders as
+``min_free_gb: 2.0`` under ``disk:`` under ``health:``. In a profile, always use
+the dotted form; the reason is under "Configuration overrides" in
+:doc:`profile`.
+
 .. _config-simulation:
 
 ``simulation:`` — which models the simulator serves and how fast it ticks
@@ -52,7 +62,8 @@ may touch.
        the way ``osprey sim apply`` would, before it seeds the archive and the
        logbook, and only while no set has been chosen. Absent, the build
        derives it from the scenarios marked ``start: true``; with no mark,
-       absent, ``null`` or ``[]`` starts in ``nominal`` alone. The demo preset sets
+       absent, ``null`` or ``[]`` starts in
+       ``nominal`` alone, which is the default. The demo preset sets
        ``[rf-thermal, demo-history]`` (an existing deployment gets
        ``demo-history``'s sessions only from a fresh ``osprey init``); the other
        presets leave it out. A value that is not a list of non-empty
@@ -73,6 +84,7 @@ list, so a tier that sets the key there stops the build with
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      simulation.models: [SR]
 
@@ -97,6 +109,7 @@ default timing.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      suite_timeout_s: 30          # poll-class wall-clock budget (default 30)
      on_demand_timeout_s: 120     # on_demand wall-clock budget (default: sum of budgets)
@@ -281,6 +294,7 @@ you normally configure nothing.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      auto:
        mcp:
@@ -361,6 +375,7 @@ unresponsiveness should be treated as non-fatal:
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        beamline_services:
@@ -392,6 +407,7 @@ genuine dependency chain serializes.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        beamline_services:
@@ -418,6 +434,7 @@ plugin category — without redefining it:
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        providers:
@@ -478,11 +495,17 @@ The thresholds are not spelled as a ``file_system`` entry under
 
 The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
-section. The keys below aim the sidebar's two utility controls, bound the feedback
-store, name the deployment, decide who is offered the onboarding tour, choose
-whether the terminal is offered, size the operator-chat pool, bound how
-long a panel's own server gets to start, set how often the file watchers
-re-read the tree, and configure the CANOPY panel.
+section. The keys below:
+
+- aim the sidebar's two utility controls
+- bound the feedback store
+- name the deployment
+- decide who is offered the onboarding tour
+- choose whether the terminal is offered
+- size the operator-chat pool
+- bound how long a panel's own server gets to start
+- set how often the file watchers re-read the tree
+- configure the CANOPY panel
 
 .. _feedback-configuration:
 
@@ -541,6 +564,7 @@ Documentation and feedback keys
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      docs_url: https://docs.example-facility.org/osprey
      feedback:
@@ -655,14 +679,15 @@ The control-target picker
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      control_target_picker: true
 
 The control-target block in the sidebar names the machine this terminal stands on
 and opens the popover that switches it. The default is ``true``. Set it to
 ``false`` only for a terminal that reaches no machine: no control-system tool
-server and no JUPYTER panel. The bundled ``logbook``, ``knowledge`` and
-``channel-finder`` apps do.
+server and no JUPYTER panel. The bundled shared logins ``logbook``,
+``knowledge`` and ``channel-finder`` do.
 
 The setting changes what the page shows, not what the agent may do. With it
 off, the sidebar has no control-target block. A value that is not a boolean is
@@ -696,6 +721,7 @@ long a change can stay invisible.
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      file_watch_reconcile_interval_s: 2.0
 
@@ -790,10 +816,13 @@ trusted operator and no live machine behind it:
 
 .. code-block:: yaml
 
+   # build/config.yml
    dangerously_allow_bash: true
 
 It takes the boolean ``true`` and nothing else — any other value is a config
-error. Absent, the refusal stands exactly as before. When set, every
+error. Absent, the refusal stands exactly as before. It never waives the
+refusal of a tier that holds an application's launch token or a write agent
+route beside an open shell. When set, every
 ``osprey up`` prints a warning naming the tiers it waved through, and the
 closing card carries a ``dangerously_allow_bash`` row. The key belongs to
 :ref:`the protected set <config-protected-set>`, so the running agent cannot
@@ -814,34 +843,37 @@ Each entry has a ``type`` and an optional ``label``:
 - ``users`` — one card per person on the roster. ``names: hidden`` replaces the
   name cards with one sign-in button; it needs ``auth.method`` ``password`` or
   ``oidc``, and only a ``users`` entry takes it.
-- ``apps`` — one card per app in ``shared``, titled by the app's ``name:``,
-  opened by anyone on the roster (:ref:`multi-user-shared-card`).
+- ``shared`` — one card per login in ``shared``, titled by the login's
+  ``name:``, opened by anyone on the roster (:ref:`multi-user-shared-card`).
+  The retired ``apps`` reads as ``shared`` for one release, with a lint
+  warning.
 - ``links`` — your own cards, each a ``label`` and a ``url``.
 
 .. code-block:: yaml
 
+   # build/config.yml
    modules:
      web_terminals:
        landing:
          groups:
            - type: users
              label: Users
-           - type: apps
-             label: Apps
+           - type: shared
+             label: Shared logins
            - type: links
              label: Facility
              links:
                - {label: Elog, url: https://elog.example.org}
 
-Left out, the page shows ``[{type: users}, {type: apps}]``. A section with no
+Left out, the page shows ``[{type: users}, {type: shared}]``. A section with no
 cards shows no heading.
 
 ``modules.web_terminals.renders`` is the render catalog: one entry per file in
-``tiers/`` and ``apps/``, keyed by that file's name, with its ``kind``,
-``project`` and ``project_path``. ``osprey build`` writes it into
-``build/config.yml``; a profile that spells it is refused. Set a render's
-``extra_mounts``, ``seed_base`` or ``image`` at the top of its tier or app file
-instead.
+``tiers/``, keyed by that file's name, with its ``kind`` (``tier``, or
+``shared`` for a login only ``shared:`` names), ``project`` and
+``project_path``. ``osprey build`` writes it into ``build/config.yml``; a
+profile that spells it is refused. Set a render's ``extra_mounts``,
+``seed_base`` or ``image`` at the top of its login file instead.
 
 .. _config-artifact-server:
 
@@ -856,6 +888,7 @@ type:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      artifact_server.extension_types.beam_study: {label: Beam study, base_form: plots}
      artifact_server.extension_types.rf_scan:
@@ -904,6 +937,7 @@ submitted script:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      python_executor.execution_timeout_seconds: 1800
 
@@ -924,6 +958,7 @@ set, for an analysis library that reads its own variable:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      python_executor.child_env_passthrough: [HDF5_PLUGIN_PATH, OMP_NUM_THREADS]
 
@@ -942,6 +977,7 @@ ship an ``ariel:`` block carry it as a commented line.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
 
@@ -1000,6 +1036,7 @@ same for ``entries_by_ids``. ``entry_get`` is never cut.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      ariel.entry_text.listing_chars: 800
      ariel.entry_text.read_chars: 4000
@@ -1029,6 +1066,7 @@ display them. ``omitted`` leaves thinking out. Any other value stops
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      claude_code.thinking.display: omitted
 
@@ -1049,6 +1087,7 @@ agent CLI to 2.1.228 or later under ``config:`` in ``profile.yml`` and run
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      claude_code.cli_version: "2.1.228"
 
@@ -1120,6 +1159,7 @@ PNG file and records the file's path in the artifact gallery.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      screen_capture.output_dir: /srv/operator-captures
 
@@ -1281,7 +1321,7 @@ An OSPREY-built default is always spelled the same way::
 
 Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the sixteen rows above:
+the rows above:
 
 .. list-table::
    :header-rows: 1
@@ -1299,10 +1339,14 @@ the sixteen rows above:
      - ``OSPREY_IMAGE_TAG``
      - ``images.tag``
      - ``local``
+   * - Platform
+     - none: set in ``profile.yml`` only
+     - ``images.platform`` (``linux/amd64`` or ``linux/arm64``)
+     - built for this host
 
 .. code-block:: yaml
 
-   # config.yml — every OSPREY-built image comes from the mirror,
+   # build/config.yml — every OSPREY-built image comes from the mirror,
    # at the tag the pipeline pushed
    images:
      registry: registry.example.org/accelerator

@@ -34,7 +34,6 @@ class VLLMProviderAdapter(BaseProvider):
     description = "vLLM inference server (OpenAI-compatible API)"
     requires_api_key = False  # vLLM doesn't require authentication by default
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = True
     default_base_url = "http://localhost:8000/v1"
     models_probe = "bearer"

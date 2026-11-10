@@ -1,0 +1,27 @@
+{
+  "hierarchy": {
+    "levels": [
+      {"name": "system", "type": "tree"},
+      {"name": "family", "type": "tree"},
+      {"name": "device", "type": "instances"},
+      {"name": "field", "type": "tree"},
+      {"name": "subfield", "type": "tree"}
+    ],
+    "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}"
+  },
+  "tree": {
+    "SR": {
+      "_description": "Storage ring",
+      "BPM": {
+        "_description": "Beam position monitors",
+        "DEVICE": {
+          "_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 2]},
+          "X": {
+            "_description": "Horizontal position",
+            "RB": {"_description": "Readback"}
+          }
+        }
+      }
+    }
+  }
+}

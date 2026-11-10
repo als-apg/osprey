@@ -115,22 +115,29 @@ def claimed_addresses(view: SimulatorView) -> frozenset[str]:
 
 
 def bounded_corrector_of(view: SimulatorView) -> tuple[str, str, str] | None:
-    """The first corrector of ``view``, in address order, that a limits record
-    bounds at both ends and that names its own readback, as
-    ``(setpoint, readback, model)``; ``None`` when no corrector qualifies.
+    """The first corrector, in address order, of the model with the most
+    correctors a limits record bounds at both ends and that name their own
+    readback, as ``(setpoint, readback, model)``; ``None`` when no corrector
+    qualifies.
 
     ``model`` is the model whose binding wires the setpoint: a lane that
     drives correctors drives that model's, and reads their response on that
-    model's monitors.
+    model's monitors. The model with the most such correctors is the one a
+    lane can drive the most of; a tie goes to the model first by name.
     """
+    found: dict[str, list[tuple[str, str]]] = {}
     for address in sorted(corrector_addresses(view)):
         channel = view.channel(address)
         readback = channel.pair
         if channel.value_range is not None and readback is not None and readback != address:
             binding = view.binding(address)
             assert binding is not None, f"corrector {address} has no served binding"
-            return address, readback, binding.model
-    return None
+            found.setdefault(binding.model, []).append((address, readback))
+    if not found:
+        return None
+    model = min(found, key=lambda name: (-len(found[name]), name))
+    address, readback = found[model][0]
+    return address, readback, model
 
 
 def lane_model(view: SimulatorView) -> str:

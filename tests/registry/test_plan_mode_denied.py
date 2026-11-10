@@ -188,6 +188,21 @@ def test_the_coverage_check_sees_both_approval_entries():
 # ── The render-wide list ─────────────────────────────────────────────
 
 
+def test_an_application_write_tool_is_denied_and_its_read_tool_is_not():
+    spec = {
+        "command": "python",
+        "args": ["-m", "knob.tools"],
+        "app": "knob",
+        "permissions": {"allow": ["knob_read"]},
+        "writes": ["knob_write"],
+    }
+
+    denied = plan_mode_denied_tools(_resolve({"knob": spec}), [])
+
+    assert "mcp__knob__knob_write" in denied
+    assert "mcp__knob__knob_read" not in denied
+
+
 def test_an_all_on_render_denies_the_registry_side_effects_minus_exemptions():
     denied = plan_mode_denied_tools(_resolve(), [])
 

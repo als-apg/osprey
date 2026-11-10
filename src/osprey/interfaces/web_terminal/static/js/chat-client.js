@@ -29,6 +29,9 @@ const SESSION_CHAT_ENDPOINT = '/api/session-chat';
 /** The project's slash commands, backing the chat's suggestions. */
 const COMMANDS_ENDPOINT = '/api/chat/commands';
 
+/** The project's MCP servers with their tools, backing the chat's `/mcp`. */
+const MCP_SERVERS_ENDPOINT = '/api/mcp-servers';
+
 /**
  * A single decoded server event. Every event carries a `type`; the remaining
  * fields depend on it (e.g. `text` carries `content`, `result` carries cost and
@@ -441,8 +444,8 @@ export async function fetchHistory(key) {
 }
 
 /**
- * One slash command the chat agent accepts. `kind` is `skill`, `command` or
- * `builtin`; `agent_invocable` says whether the agent may also run it on its own.
+ * One slash command the chat agent accepts. `kind` is `skill`, `command`,
+ * `builtin` or `browser` (the chat runs it itself); `agent_invocable` says whether the agent may also run it on its own.
  * @typedef {{ name: string, description: string, argument_hint: string, kind: string, agent_invocable?: boolean }} SlashCommand
  */
 
@@ -456,6 +459,25 @@ export async function fetchHistory(key) {
 export async function fetchCommands() {
   const body = await fetchJSON(COMMANDS_ENDPOINT);
   return Array.isArray(body?.commands) ? body.commands : [];
+}
+
+/**
+ * One MCP server of the project as `GET /api/mcp-servers` describes it. `tools`
+ * and `tool_count` are null when it was not listed: `error` says why, and an
+ * http server is never spawned to be asked.
+ * @typedef {{ name: string, transport?: string, tool_count: number | null, tools: object[] | null, error: string | null }} McpServer
+ */
+
+/**
+ * Read the project's MCP servers and their tools.
+ *
+ * A body that is not an array yields an empty list; a transport failure or a
+ * non-2xx status rejects.
+ * @returns {Promise<McpServer[]>}
+ */
+export async function fetchMcpServers() {
+  const body = await fetchJSON(MCP_SERVERS_ENDPOINT);
+  return Array.isArray(body) ? body : [];
 }
 
 /**

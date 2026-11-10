@@ -870,9 +870,8 @@ def test_render_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_p
     assert _new(runner, target, "demo").exit_code == 0
 
     layers = layer_files(target)
-    assert {kind for kind, _path in layers} == {ProfileKind.TIER, ProfileKind.APP}, (
-        "demo should emit tier and app files"
-    )
+    assert {kind for kind, _path in layers} == {ProfileKind.TIER}, "demo should emit login files"
+    assert len(layers) == 6
     for _kind, layer_file in layers:
         assert "edit profile -> rebuild -> redeploy" not in layer_file.read_text(encoding="utf-8")
 
@@ -1408,6 +1407,7 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
 
     from osprey.cli.build_profile_emit import emits_layer_profiles
     from osprey.cli.build_profile_merge import compute_preset_hash
+    from osprey.cli.build_profile_presets import preset_apps
     from osprey.cli.build_profile_schema import DEFAULT_DEVIATION_MARKER
 
     target = tmp_path / "facility"
@@ -1429,6 +1429,10 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
         "providers_hash": compute_providers_hash(target / PROVIDERS_FILENAME),
         "deviation_marker": DEFAULT_DEVIATION_MARKER,
     }
+    # The applications are init material: the preset's resolution consumes them, and
+    # the profile lists what init copied beside it.
+    assert d_preset.pop("apps") == {}
+    assert set(d_new.pop("apps")) == set(preset_apps(preset))
     for stamped in ("name", "requires_osprey_version", "data"):
         d_preset.pop(stamped)
         d_new.pop(stamped)
@@ -1499,3 +1503,16 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert "facility_tools:" in text
     # The category guidance is independent — still appended.
     assert "# artifact_server:" in text
+
+
+def test_the_applications_directory_stays_a_materialized_source_entry() -> None:
+    """``apps/`` left the layer directories but is still source the repo owns.
+
+    A re-materialization replaces it like every other source entry, so it is
+    named explicitly rather than reaching the set through the layer table.
+    """
+    from osprey.cli.profile_cmd import MATERIALIZED_SOURCE_ENTRIES
+    from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
+
+    assert APPS_DIRNAME not in LAYER_DIR_KINDS
+    assert APPS_DIRNAME in MATERIALIZED_SOURCE_ENTRIES

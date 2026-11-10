@@ -88,3 +88,19 @@ def test_the_fallback_normalizer_agrees_without_packaging(monkeypatch, tag_versi
 
     monkeypatch.setattr(builtins, "__import__", no_packaging)
     assert cv.normalize(tag_version) == normal
+
+
+def test_a_describe_command_may_sit_under_the_flat_key(tmp_path: Path):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[tool.hatch.version]\nraw-options = { git_describe_command = "git describe --long" }\n',
+        encoding="utf-8",
+    )
+    assert cv.describe_command(pyproject) == ["git", "describe", "--long"]
+
+
+def test_another_stream_converts_under_its_own_prefix():
+    assert cv.version_from_describe(f"v2026.10.0b1-0-g{NODE}", prefix="v") == "2026.10.0b1"
+    assert cv.version_from_describe(f"v2026.10.0-3-g{NODE}", prefix="v") == (
+        "2026.10.0.post3+g012345678"
+    )

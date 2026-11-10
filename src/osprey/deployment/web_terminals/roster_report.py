@@ -133,7 +133,7 @@ def build_roster_report(
     repo_root: Path,
     *,
     project_name: str,
-    app_titles: Mapping[str, str] | None = None,
+    shared_titles: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """The whole answer for one deployment, as a JSON-ready document.
 
@@ -141,7 +141,7 @@ def build_roster_report(
         config: The rendered ``build/config.yml``.
         repo_root: The deployment repo root, which render paths are relative to.
         project_name: The deployment's project name.
-        app_titles: Each app's title, as :func:`app_titles_in` reads them.
+        shared_titles: Each shared login's title, as :func:`login_titles_in` reads them.
 
     Returns:
         ``deployment``, ``auth``, ``default_tier``, ``cards`` (every card, with
@@ -164,7 +164,7 @@ def build_roster_report(
         registry,
         strict=False,
         project_name=project_name,
-        app_titles=app_titles,
+        shared_titles=shared_titles,
     ):
         render = entry.get("render")
         try:
