@@ -373,3 +373,41 @@ def test_a_login_reports_unknown_keys_and_application_problems_at_once() -> None
 
     assert "'port_base'" in message
     assert "apps.knob.enabled" in message
+
+
+# ---------------------------------------------------------------------------
+# A login's default panel
+# ---------------------------------------------------------------------------
+
+_PANEL_MANIFEST = {
+    **_MANIFEST,
+    "panel": {"id": "knob-board", "label": "Knob", "container": "knob"},
+}
+
+
+def _panel_login(tmp_path: Path, apps: dict[str, Any]) -> Path:
+    """A login opening on the ``knob`` application's panel, with ``apps`` as its selection."""
+    repo = _repo(tmp_path, {"apps": {"knob": {}}})
+    _write_yaml(repo / "apps" / "knob" / "app.yml", _PANEL_MANIFEST)
+    return _write_yaml(
+        repo / "tiers" / "ro.yml",
+        {"name": "ro", "lists": "own", "apps": apps, "default_panel": "knob-board"},
+    )
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_a_login_may_open_on_the_panel_of_an_application_it_shows(tmp_path: Path) -> None:
+    """The manifest's panel id, not the application's name: the build adds it to the tabs."""
+    layer = _panel_login(tmp_path, {"knob": {"shown": True}})
+
+    profile = load_profile_document(layer).profile
+
+    assert profile.default_panel == "knob-board"
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_a_login_may_not_open_on_the_panel_of_an_application_it_hides(tmp_path: Path) -> None:
+    layer = _panel_login(tmp_path, {"knob": {"shown": False}})
+
+    with pytest.raises(BuildProfileError, match="Unknown default_panel 'knob-board'"):
+        load_profile_document(layer)

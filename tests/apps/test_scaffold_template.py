@@ -228,3 +228,95 @@ def test_a_build_with_no_route_to_an_index_makes_the_wheel(
         "scaffold_app/panel/panel.css",
     } <= set(names)
     assert not [name for name in names if "/tests/" in name or "__pycache__" in name]
+
+
+#: A stand-in baseline beside the live machine: the container's name server is the stand-in's.
+SWITCHABLE_SECTION = {
+    "type": "live_standin",
+    "connector": {
+        "live_standin": {"gateways": {"read_only": {"address": "localhost", "port": 19090}}},
+        "epics": {"gateways": {"read_only": {"address": "cagw", "port": 5064}}, "timeout_s": 3.0},
+    },
+}
+
+
+@pytest.fixture
+def built(scaffold: ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """What ``build_connector`` hands the factory, in a fresh process on ``SWITCHABLE_SECTION``."""
+    import copy
+    import importlib
+
+    backend = importlib.import_module(f"{scaffold.__name__}.server")
+
+    seen: list[dict[str, Any]] = []
+
+    async def create(config: dict[str, Any], control_target: str) -> SimpleNamespace:
+        if control_target == "unreachable":
+            raise OSError("no route")
+        seen.append({"config": config, "target": control_target})
+        return SimpleNamespace()
+
+    monkeypatch.setattr(backend, "_ca_target", None)
+    monkeypatch.setattr(backend, "_section", lambda: copy.deepcopy(SWITCHABLE_SECTION))
+    monkeypatch.setattr(backend, "register_builtin_connectors", lambda: None)
+    monkeypatch.setattr(
+        backend.ConnectorFactory, "create_control_system_connector", staticmethod(create)
+    )
+    return seen
+
+
+@pytest.mark.parametrize(
+    ("target", "kind", "gateways"),
+    [("standin", "live_standin", False), ("live", "epics", True)],
+)
+def test_in_a_container_only_the_baseline_target_drops_its_gateways(
+    monkeypatch: pytest.MonkeyPatch,
+    built: list[dict[str, Any]],
+    target: str,
+    kind: str,
+    gateways: bool,
+) -> None:
+    """The container's name server is the baseline's; any other target keeps its own route."""
+    import asyncio
+
+    from scaffold_app import server as backend
+
+    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "live-standin:19090")
+
+    asyncio.run(backend.build_connector(target))
+
+    [call] = built
+    assert call["target"] == target
+    assert call["config"]["type"] == kind
+    assert ("gateways" in call["config"]["connector"][kind]) is gateways
+
+
+def test_a_second_channel_access_target_in_one_process_is_refused(
+    built: list[dict[str, Any]],
+) -> None:
+    """One context per process: building it for a second machine would move the first."""
+    import asyncio
+
+    from scaffold_app import server as backend
+
+    asyncio.run(backend.build_connector("live"))
+    asyncio.run(backend.build_connector("live"))
+    with pytest.raises(ValueError, match="serves live.*to serve standin"):
+        asyncio.run(backend.build_connector("standin"))
+
+    assert [call["target"] for call in built] == ["live", "live"]
+
+
+def test_a_failed_connect_leaves_channel_access_unclaimed(
+    monkeypatch: pytest.MonkeyPatch, built: list[dict[str, Any]]
+) -> None:
+    import asyncio
+
+    from scaffold_app import server as backend
+
+    monkeypatch.setattr(backend, "resolve_target", lambda _section, _target: "epics")
+    with pytest.raises(OSError, match="no route"):
+        asyncio.run(backend.build_connector("unreachable"))
+    asyncio.run(backend.build_connector("standin"))
+
+    assert [call["target"] for call in built] == ["standin"]

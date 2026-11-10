@@ -153,7 +153,7 @@ def _requires_a_real_store(graphdb_plugin_dir: Path) -> None:
 @contextmanager
 def _session(uri: str) -> Iterator[Any]:
     """A driver session on *uri*, closed with the block."""
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     with graph_seeder.open_session(
         uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE
@@ -176,7 +176,7 @@ def ties_store(graphdb_session_store: WatchedStore) -> Iterator[WatchedStore]:
     for the store to answer again, failing naming this store and the state its
     container was in only when it does not.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     store = wiped_graphdb_store(graphdb_session_store, label=TIES_STORE_LABEL)
     with store.reading(), _session(store.uri) as session:

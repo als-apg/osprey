@@ -37,7 +37,8 @@ in place, with the round-trip writer so every comment the operator kept survives
    that never stated it stays ``never``.
 6. ``providers.yml`` is completed, never rewritten: every value it states is
    kept, an edited entry OSPREY ships included, and only the entries OSPREY
-   ships that it lacks, and the keys an existing one lacks, are added.
+   ships that it lacks, and the keys an existing one lacks, are added; one a
+   deviation marker claims absent is not.
    ``osprey validate`` reports each remaining difference as drift.
 7. ``provenance:`` is restamped with the preset, its hash and the catalog's
    hash, and ``requires_osprey_version`` at the schema floor, so a release
@@ -47,7 +48,8 @@ in place, with the round-trip writer so every comment the operator kept survives
    is named, and before every render carried all of them. A bare entry the
    repo ships a file for (``safety`` beside ``rules/safety.md``) becomes the
    path in place; every other unnamed one is appended. Tiers inherit
-   ``profile.yml``'s lists.
+   ``profile.yml``'s lists. A profile whose lists already name one by path is
+   under that rule already, and the step is skipped.
 
 Every file is read and rewritten in memory before the repo is touched, so a
 file that cannot be read leaves the repo as it was. The result is reported as
@@ -63,7 +65,7 @@ import json
 import re
 import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
@@ -2004,7 +2006,15 @@ def _stamp_provenance(document: Any, preset: str, preset_hash: str, providers_ha
     _refresh_provenance_comment(document)
     for key, value in stamps.items():
         block[key] = value
-    marker = block.get("deviation_marker")
+    return _deviation_marker(document)
+
+
+def _deviation_marker(document: Any) -> str:
+    """The marker that claims a drift finding: *document*'s ``deviation_marker:``, or the default."""
+    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
+
+    block = document.get("provenance")
+    marker = block.get("deviation_marker") if isinstance(block, dict) else None
     return marker if isinstance(marker, str) and marker else DEFAULT_DEVIATION_MARKER
 
 
@@ -2409,6 +2419,31 @@ def _name_convention_artifacts(document: Any, artifacts: list[str]) -> list[str]
             _place_after(pred, seq, len(seq) - 1, column, [])
         added.append(artifact)
     return added
+
+
+def _names_artifacts_by_path(documents: Iterable[Any]) -> bool:
+    """Whether a list in *documents* (``profile.yml``, its overlays) names an own artifact by path.
+
+    A path entry (``skills/beam-check``) means something only under the by-name
+    rule; before it a list spelled bare names alone. So a profile with one is
+    under the rule already, and an artifact it leaves unnamed is one it renders
+    nowhere. A login file is not asked: one scaffolded by a newer OSPREY into a
+    repo from before the rule names the facility description by path too.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, convention_selections
+
+    return any(
+        convention_selections(
+            {
+                field: value
+                for field in SELECTED_CONVENTION_SOURCES
+                for value in (document.get(field),)
+                if isinstance(value, list)
+            }
+        )
+        for document in documents
+        if isinstance(document, dict)
+    )
 
 
 def _listed_artifacts(artifacts: list[str]) -> list[str]:
@@ -2948,7 +2983,8 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     # before; a tier that adds inherits profile.yml's lists. A facility hook is
     # the exception: its declaration wires and copies it, so it is never
     # listed, and each `lists: own` login declares the host's non-guard hooks
-    # it used to inherit.
+    # it used to inherit. A profile whose lists already name an artifact by
+    # path is under the rule already: what it leaves unnamed stays unnamed.
     from .build_persistence import (
         FACILITY_RULE_NAME,
         FACILITY_RULE_PATH_ENTRY,
@@ -2956,6 +2992,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     )
     from .profile_conventions import BUILD_OUTPUT_DIR, unselected_convention_artifacts
 
+    by_name = _names_artifacts_by_path(documents.values())
     shipped = _listed_artifacts(unselected_convention_artifacts(root, frozenset()))
     # A repo from before the facility description moved into the profile keeps
     # its only, edited copy in build/; the bare `facility` it selects now means
@@ -2963,7 +3000,8 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     # other writes) and named by its path like every shipped shadow.
     rescued_facility_rule = (
         root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH
-        if not (root / FACILITY_RULE_RELPATH).exists()
+        if not by_name
+        and not (root / FACILITY_RULE_RELPATH).exists()
         and FACILITY_RULE_NAME in (document.get("rules") or [])
         and (root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH).is_file()
         else None
@@ -2972,7 +3010,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         shipped = sorted({*shipped, FACILITY_RULE_PATH_ENTRY})
         writes[FACILITY_RULE_RELPATH.as_posix()] = rescued_facility_rule.read_text(encoding="utf-8")
     session_hooks = _host_session_hooks(document.get("config"))
-    if shipped or session_hooks:
+    if not by_name and (shipped or session_hooks):
         if shipped:
             _name_convention_artifacts(document, shipped)
         own_rels = {
@@ -3002,7 +3040,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             _drop_key_and_pre_comment(document, PRESET_DATA_BUNDLE_KEY)
     else:
         steps.append(_NO_PRESET_STEP)
-    plan = _plan_providers(root)
+    plan = _plan_providers(root, _deviation_marker(document))
     if (root / PROVIDERS_FILENAME).is_file():
         writes[PROVIDERS_FILENAME] = plan.text
         result.providers_kept = plan.carried
@@ -3065,14 +3103,25 @@ def _app_drift(root: Path, marker: str) -> list[str]:
     return [finding.render() for finding in findings if not finding.marked] + notes
 
 
-def _plan_providers(root: Path) -> Any:
-    """The ``providers.yml`` this repo is brought to; refuses before anything is written."""
+def _plan_providers(root: Path, marker: str) -> Any:
+    """The ``providers.yml`` this repo is brought to; refuses before anything is written.
+
+    A packaged entry or key the file lacks is added unless a *marker* comment
+    claims it absent, read as ``osprey validate`` reads it.
+    """
     import click
 
+    from .build_profile_drift import _compare_catalog
     from .profile_cmd import _plan_provider_catalog
 
     try:
-        return _plan_provider_catalog(root, keep_values=True)
+        findings, _stale = _compare_catalog(root, marker)
+    except BuildProfileError:
+        # The file does not parse; the merge below refuses it in its own words.
+        findings = []
+    claimed = {f.subject for f in findings if f.kind == "missing" and f.marked}
+    try:
+        return _plan_provider_catalog(root, keep_values=True, claimed_absent=claimed)
     except click.UsageError as e:
         raise BuildProfileError(e.message) from e
 

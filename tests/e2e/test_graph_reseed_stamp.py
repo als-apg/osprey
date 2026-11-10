@@ -46,7 +46,7 @@ import pytest
 import yaml
 
 from osprey.deployment import container_lifecycle
-from osprey.services.facility_knowledge.seeder import graph_seeder
+from osprey.services.graph_store import seeder as graph_seeder
 from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, graphdb_store_published_port
 
 pytestmark = [

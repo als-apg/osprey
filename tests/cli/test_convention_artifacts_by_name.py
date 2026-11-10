@@ -336,6 +336,18 @@ _EVERYTHING = {
 }
 
 
+def spell_before_by_name(repo: Path) -> Path:
+    """*repo*'s lists as ``osprey init`` wrote them before the by-name rule.
+
+    The seeded facility description is selected by its bare name, in
+    ``profile.yml`` and every login, so no list names an artifact by its path.
+    """
+    for path in (repo / "profile.yml", *sorted((repo / "tiers").glob("*.yml"))):
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace("  - rules/facility ", "  - facility "), encoding="utf-8")
+    return repo
+
+
 def _revalidate(repo: Path) -> Result:
     from osprey.cli.init_cmd import init
 
@@ -352,7 +364,7 @@ def migrated(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, 
     rule every render carried the file, so every render ran it.
     """
     outside = tmp_path_factory.mktemp("migrated")
-    repo = build_exemplar_repo(outside / PROJECT)
+    repo = spell_before_by_name(build_exemplar_repo(outside / PROJECT))
     write_house_artifacts(repo)
     # A shadow of the library `safety` rule, which profile.yml and every app
     # select by its bare name: before, it replaced the library rule everywhere.
@@ -417,6 +429,41 @@ def test_a_second_revalidate_changes_nothing(migrated: tuple[Path, dict[str, str
     assert _revalidate(repo).exit_code == 0
     for rel, text in after_first.items():
         assert (repo / rel).read_text(encoding="utf-8") == text, rel
+
+
+def _selections(repo: Path) -> dict[str, dict]:
+    """Every list and hook declaration of profile.yml and each ``lists: own`` login."""
+    kept = {}
+    for rel in ("profile.yml", *(f"tiers/{p.name}" for p in _own_logins(repo))):
+        data = yaml.safe_load((repo / rel).read_text(encoding="utf-8"))
+        config = data.get("config") or {}
+        kept[rel] = {
+            **{key: data.get(key) for key in ("skills", "agents", "rules", "output_styles")},
+            "hooks": data.get("hooks"),
+            "declared": {k: v for k, v in config.items() if k.startswith("claude_code.hooks")},
+        }
+    return kept
+
+
+def test_revalidate_leaves_a_repo_already_under_the_by_name_rule_selecting_what_it_did(
+    tmp_path: Path,
+) -> None:
+    # A fresh repo names its facility description by path; this one also names
+    # one skill of its own for the deployment and another for one app, and
+    # leaves the rest unnamed, so they reach no render. Naming them now would
+    # widen every render, and every app would gain the host's session hook.
+    repo = build_exemplar_repo(tmp_path / PROJECT)
+    write_house_artifacts(repo)
+    _write(repo / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
+    _insert_after(repo / "profile.yml", "skills:", "  - skills/house-report")
+    _insert_after(repo / "tiers" / "logbook.yml", "skills:", "  - skills/house-diag")
+    _insert_before_config(
+        repo / "profile.yml", "", f"  claude_code.hooks.SessionStart:\n    - hooks/{_NOTE_HOOK}\n"
+    )
+    before = _selections(repo)
+
+    assert _revalidate(repo).exit_code == 0
+    assert _selections(repo) == before
 
 
 # ── a fresh repo ─────────────────────────────────────────────────────────────
@@ -560,7 +607,7 @@ def test_revalidate_keeps_a_host_session_hook_in_each_app_by_its_own_declaration
     tmp_path: Path,
 ) -> None:
     """Before by-name selection an app inherited every host declaration; revalidate keeps it."""
-    repo = build_exemplar_repo(tmp_path / PROJECT)
+    repo = spell_before_by_name(build_exemplar_repo(tmp_path / PROJECT))
     _write(repo / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
     _insert_before_config(
         repo / "profile.yml", "", f"  claude_code.hooks.SessionStart:\n    - hooks/{_NOTE_HOOK}\n"
@@ -606,6 +653,9 @@ def test_revalidate_appends_to_an_app_file_and_changes_no_other_byte(tmp_path: P
 
     repo = build_exemplar_repo(tmp_path / PROJECT)
     write_house_artifacts(repo)
+    # A profile from before the by-name rule; the app keeps the path entry a
+    # newer OSPREY scaffolds, which the rewrite leaves as it is.
+    _swap_entry(repo / "profile.yml", "rules/facility", "facility")
     app = repo / "tiers" / "logbook.yml"
     text = app.read_text(encoding="utf-8")
     # Spellings a re-dump does not keep: quoting, an explicit null, an empty
@@ -685,7 +735,7 @@ def _assert_shadow_wired(repo: Path, wiring: dict[str | None, str], renders) -> 
 def test_a_migrated_shadow_of_the_kill_switch_is_wired_where_the_library_one_was(
     tmp_path: Path, library_wiring: dict[str | None, str]
 ) -> None:
-    repo = build_exemplar_repo(tmp_path / PROJECT)
+    repo = spell_before_by_name(build_exemplar_repo(tmp_path / PROJECT))
     _ship_writes_check(repo)
 
     assert _revalidate(repo).exit_code == 0

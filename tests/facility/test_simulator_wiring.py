@@ -38,8 +38,6 @@ ENTRY_KEYS = {
     "engine_role",
     "plane",
     "refresh",
-    # Transitional copy for connectors <2026.11.8; removed by the floor bump.
-    simulator.TRANSITIONAL_ROLE_KEY,
 }
 ALWAYS = {
     "id",
@@ -48,7 +46,6 @@ ALWAYS = {
     "direction",
     "default",
     "engine_role",
-    simulator.TRANSITIONAL_ROLE_KEY,
     "plane",
     "refresh",
 }

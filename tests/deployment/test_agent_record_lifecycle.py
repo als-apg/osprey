@@ -669,34 +669,28 @@ def test_after_down_an_ensure_spawns_again(
 def test_a_clean_osprey_down_removes_the_marker(
     host_repo: dict[str, Any], stack: _Stack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from osprey.deployment import compose_generator
-
     config = host_repo
     root = _root(config)
     state_dir = _state_dir(config)
     with container_lifecycle._stack_takes_over_host_record(config, root):
         stack.up.set()
-    monkeypatch.setattr(container_lifecycle, "load_project_config", lambda *a, **k: config)
-    monkeypatch.setattr(container_lifecycle, "resolve_repo_root", lambda c, p: root)
-    monkeypatch.setattr(compose_generator, "find_existing_compose_files", lambda *a, **k: ["x.yml"])
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
-    )
+    monkeypatch.setattr(container_lifecycle, "as_built_compose_files", lambda c, r: ["x.yml"])
     returncodes = iter([1, 0])
     monkeypatch.setattr(
         container_lifecycle,
         "run_captured",
         lambda cmd, **k: subprocess.CompletedProcess(cmd, returncode=next(returncodes)),
     )
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, "")
+    )
+    write_deployment_record(root, DeploymentRecord("docker", resolve_project_name(config)))
 
-    with pytest.raises(SystemExit) as failed:
-        container_lifecycle.deploy_down("config.yml")
-    assert failed.value.code == 1
+    with pytest.raises(RuntimeError, match="may still be running"):
+        container_lifecycle.down_deployment(root)
     assert (state_dir / hr.MARKER_FILE_NAME).is_file(), "a failed down keeps the marker"
 
-    with pytest.raises(SystemExit) as done:
-        container_lifecycle.deploy_down("config.yml")
-    assert done.value.code == 0
+    container_lifecycle.down_deployment(root)
     assert not (state_dir / hr.MARKER_FILE_NAME).exists()
 
 

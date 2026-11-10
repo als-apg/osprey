@@ -1112,7 +1112,7 @@ def renders_declaring_panel(
 def _panel_roster_grants(
     config: Any, project_root: Any, panel_id: str, layer_root: Any = None
 ) -> list[tuple[str, str]]:
-    """The roster users a panel's service is handed a secret for.
+    """The roster cards a panel's service is handed a secret for.
 
     The one entitlement walk behind every rendered form of a roster grant: the
     variable list the service's compose declares and the owner map its gate
@@ -1122,8 +1122,11 @@ def _panel_roster_grants(
     Entitlement is decided the way the web-terminal render decides every
     per-user grant: a user with a render (their own, else ``default_tier``)
     by whether that render's rendered ``config.yml`` declares the panel
-    (:func:`renders_declaring_panel`). Roster order, so the rendered compose is
-    stable across runs.
+    (:func:`renders_declaring_panel`). A shared login's card is walked too, by
+    its own render: its terminal proxies the panel with the secret its container
+    holds and acts as the card's name, so the grant names it by that name.
+    Roster order (people, then shared cards), so the rendered compose is stable
+    across runs.
 
     Read off the renders' rendered ``config.yml`` files. The render that
     carries it is ``osprey build``'s — the start verbs are as-built and
@@ -1138,14 +1141,14 @@ def _panel_roster_grants(
     :param panel_id: The panel whose declaration is the entitlement.
     :param layer_root: Where a build in flight has rendered its renders;
         see :func:`_render_configs`.
-    :return: ``(username, OSPREY_TERMINAL_SECRET_<SUFFIX>)`` pairs, one per
-        entitled user, in roster order; empty when no user shows the panel.
+    :return: ``(card name, OSPREY_TERMINAL_SECRET_<SUFFIX>)`` pairs, one per
+        entitled card, in roster order; empty when no card shows the panel.
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
-    people = roster_people(web_terminals)
-    if not people:
+    cards = roster_entries(web_terminals)
+    if not cards:
         return []
     raw_users = authored_people(web_terminals)
     # A read, not a gate: an authorization block that does not parse binds no
@@ -1163,8 +1166,8 @@ def _panel_roster_grants(
     entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
 
     grants: list[tuple[str, str]] = []
-    for entry in people:
-        tier = refs.get(entry["name"]) or default_tier
+    for entry in cards:
+        tier = entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier
         if tier in entitled_renders:
             grants.append((entry["name"], terminal_secret_var(entry["name"])))
     return grants

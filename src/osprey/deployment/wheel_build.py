@@ -416,8 +416,8 @@ def _staged_dev_artifact_paths(context_dir: str) -> set[Path]:
 
 # Per-process memo for the dev-wheel build: one deploy stages the SAME wheel
 # into many build contexts (every service context, the project image root, each
-# render project), and `rebuild_deployment` even renders the compose files
-# twice — so without a memo `python -m build` (an isolated-env build taking tens
+# render project), and one process may render the compose files more than
+# once — so without a memo `python -m build` (an isolated-env build taking tens
 # of seconds) runs once per staging call. Key: resolved osprey source root.
 # Value: path to the cached built wheel (in a memo-owned temp dir), or None when
 # the build failed (failures are memoized too — retrying an identical build in
