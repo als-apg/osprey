@@ -38,6 +38,7 @@ from pathlib import Path
 
 import click
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.deploy_scaffold import scaffold_deploy_files
@@ -45,6 +46,7 @@ from osprey.cli.deploy_scaffold_templates import CI_MARKER, VERIFY_MARKER
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey_connectors.errors import ConfigurationError
 from tests.fixtures.lifecycle_repo import (
     CI_PIPELINE_FILES,
@@ -881,11 +883,10 @@ class TestEnvironmentUrl:
 # ── The base registry ────────────────────────────────────────────────────────
 
 
-#: The four upstream images the pipeline pins by name. A runner that cannot
-#: reach Docker Hub needs every one of them from somewhere else, so the base
-#: registry is checked against the whole set rather than the two the exemplar
-#: renders.
-UPSTREAM_PINS = ("python:3.12-slim", "docker:29", "docker:29-dind", "alpine:3.23")
+#: The upstream images the pipeline pins by name. A runner that cannot reach
+#: Docker Hub needs every one of them from somewhere else, so the base registry
+#: is checked against the whole set rather than the two the exemplar renders.
+UPSTREAM_PINS = tuple(ref for name, ref in UPSTREAM_IMAGES.items() if name.startswith("ci_"))
 
 _MIRROR = "mirror.example.org/dockerhub"
 
@@ -931,7 +932,8 @@ def _full_pipeline(base_registry: str = "") -> str:
 
 def _named_images(pipeline: str) -> set[str]:
     return {
-        line.strip().removeprefix("- ").removeprefix("image: ") for line in pipeline.splitlines()
+        line.strip().removeprefix("- ").removeprefix("image: ").removeprefix("name: ")
+        for line in pipeline.splitlines()
     }
 
 
@@ -948,6 +950,20 @@ def test_the_base_registry_reaches_every_upstream_pin() -> None:
     for pin in UPSTREAM_PINS:
         assert f"{_MIRROR}/library/{pin}" in named
         assert pin not in named, f"an upstream pin is still pulled from Docker Hub: {pin}"
+
+
+@pytest.mark.parametrize("base_registry", [_MIRROR, ""], ids=["mirror", "no-mirror"])
+def test_every_docker_service_answers_as_docker(base_registry: str) -> None:
+    """The docker jobs reach their daemon at ``docker``, the alias the service
+    carries, whatever path the mirror serves the image under."""
+    jobs = yaml.safe_load(_full_pipeline(base_registry))
+    services = [
+        job["services"] for job in jobs.values() if isinstance(job, dict) and "services" in job
+    ]
+    dind = f"{base_registry}/library/docker:29-dind" if base_registry else "docker:29-dind"
+
+    assert services
+    assert all(entry == [{"name": dind, "alias": "docker"}] for entry in services), services
 
 
 def test_the_base_registry_is_not_applied_to_this_deployments_own_images() -> None:

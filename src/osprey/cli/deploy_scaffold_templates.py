@@ -279,11 +279,11 @@ class CIContext:
     environment_url: str | None = None
     runs_verify_on_up: bool = False
 
-    def hub_image(self, reference: str) -> str:
-        """*reference*, a Docker Hub image, as the pipeline pulls it."""
-        from osprey.deployment.upstream_images import hub_image
+    def upstream_image(self, name: str) -> str:
+        """The upstream image catalogue's entry *name*, as the pipeline pulls it."""
+        from osprey.deployment.upstream_images import upstream_image
 
-        return hub_image(reference, self.base_registry)
+        return upstream_image(name, self.base_registry)
 
     @property
     def has_images_stage(self) -> bool:

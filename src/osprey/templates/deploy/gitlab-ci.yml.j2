@@ -82,7 +82,7 @@ variables:
 # -----------------------------------------------------------------------------
 render-build:
   stage: validate
-  image: {{ ctx.hub_image("python:3.12-slim") }}
+  image: {{ ctx.upstream_image("ci_python") }}
   before_script:
     # The floor the profile itself declares (requires_osprey_version), so the
     # pipeline can never run an OSPREY that does not understand it.
@@ -115,9 +115,10 @@ render-build:
 # -----------------------------------------------------------------------------
 .service-image:
   stage: images
-  image: {{ ctx.hub_image("docker:29") }}
+  image: {{ ctx.upstream_image("ci_docker") }}
   services:
-    - {{ ctx.hub_image("docker:29-dind") }}
+    - name: {{ ctx.upstream_image("ci_dind") }}
+      alias: docker
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "${{ ctx.registry_token_var }}" "$REGISTRY_HOST"
   script:
@@ -152,9 +153,10 @@ image:{{ service }}:
 
 external:{{ project.name }}:
   stage: images
-  image: {{ ctx.hub_image("docker:29") }}
+  image: {{ ctx.upstream_image("ci_docker") }}
   services:
-    - {{ ctx.hub_image("docker:29-dind") }}
+    - name: {{ ctx.upstream_image("ci_dind") }}
+      alias: docker
   script:
 {% if project.token_env_var %}
     - docker login -u "$CI_REGISTRY_USER" -p "${{ project.token_env_var }}" "{{ project.url.split('/')[0] }}"
@@ -200,7 +202,7 @@ external:{{ project.name }}:
 # -----------------------------------------------------------------------------
 deploy:
   stage: deploy
-  image: {{ ctx.hub_image("alpine:3.23") }}
+  image: {{ ctx.upstream_image("ci_alpine") }}
   needs:
     - render-build
   before_script:
