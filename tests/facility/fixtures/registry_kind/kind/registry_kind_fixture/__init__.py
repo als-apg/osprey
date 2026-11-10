@@ -101,9 +101,20 @@ def facts_writer(document: Mapping[str, Any], block: Mapping[str, Any]) -> dict[
 WINDOW = 64
 
 
-def settings_from_measurement(settings: Mapping[str, Any], block: Mapping[str, Any]) -> dict:
-    """The engine's settings with its tracked turns reaching past the trigger sample."""
-    return {**settings, "turns": int(block["trigger_sample"]) + WINDOW}
+def settings_from_measurement(
+    model_entry: Mapping[str, Any], measurement_record: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The turns the engine must reach past the trigger sample, as a pyAT settings patch.
+
+    The pyAT engine validates no turns setting, so the fixture writes the count
+    into ``rest_mass_gev``, a setting it does validate and nothing reads. A
+    model whose file states no block, or no trigger sample, is patched nothing.
+    """
+    del model_entry
+    block = (measurement_record.get("kind_blocks") or {}).get("registry_kind") or {}
+    if "trigger_sample" not in block:
+        return {}
+    return {"pyat": {"rest_mass_gev": float(int(block["trigger_sample"]) + WINDOW)}}
 
 
 def _section(context: ViewContext) -> ViewSection:

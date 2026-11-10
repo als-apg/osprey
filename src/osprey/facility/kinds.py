@@ -45,11 +45,14 @@ The fields a declaration states:
   sub-block ``kind_blocks.<kind>`` is validated by, or ``None`` when it has
   none;
 * ``view_section``: the writer of the kind's pyAML tool section;
-* optional ``facts_writer``, ``build_stops`` and ``settings_from_measurement``.
+* optional ``facts_writer``, ``build_stops`` and ``settings_from_measurement``
+  (``(model_entry, measurement_record) -> {<engine>: {<setting>: value}}``, the
+  engine settings the kind's measurement needs; :func:`settings_patch`).
 """
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Any
@@ -72,6 +75,7 @@ __all__ = [
     "KindDeclaration",
     "KindFactsError",
     "KindRegistryError",
+    "KindSettingsError",
     "KindStop",
     "KindTool",
     "MEMBER_SORTS",
@@ -86,6 +90,7 @@ __all__ = [
     "member_sorts",
     "plan_problems",
     "registered",
+    "settings_patch",
 ]
 
 #: The entry-point group every measurement kind registers under.
@@ -194,6 +199,25 @@ class KindFactsError(ValueError):
         super().__init__(f"kind {kind}'s facts writer fails on model {model}'s block: {cause}")
 
 
+class KindSettingsError(ValueError):
+    """A kind's ``settings_from_measurement`` that fails on a model's measurement record.
+
+    Attributes:
+        kind: The kind's name.
+        model: The model whose entry and measurement record the transform was handed.
+        cause: What the transform raised, or what is wrong with what it returned,
+            as ``<type>: <message>``.
+    """
+
+    def __init__(self, kind: str, model: str, cause: str) -> None:
+        self.kind = kind
+        self.model = model
+        self.cause = cause
+        super().__init__(
+            f"kind {kind}'s settings transform fails on model {model}'s block: {cause}"
+        )
+
+
 @dataclass(frozen=True)
 class KindTool:
     """A pyAML tool: its ``type:`` path and its name in the configuration."""
@@ -286,7 +310,9 @@ class KindDeclaration:
     member_sorts: Mapping[str, str] = field(default_factory=dict)
     facts_writer: Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]] | None = None
     build_stops: Callable[[Mapping[str, Any], Any], Iterable[KindStop]] | None = None
-    settings_from_measurement: Callable[..., Mapping[str, Any]] | None = None
+    settings_from_measurement: (
+        Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]] | None
+    ) = None
 
 
 #: The declaration's field names, the only hooks a mapping declaration may name.
@@ -602,6 +628,76 @@ def written_facts(
                 raise KindFactsError(str(kind), str(model["name"]), cause) from error
             written.setdefault(str(kind), {})[str(model["name"])] = facts
     return written
+
+
+def settings_patch(
+    declaration: KindDeclaration, model: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """What the kind's ``settings_from_measurement`` patches into one model's settings.
+
+    The transform is handed copies of the model's entry and of its measurement
+    record, and returns ``{<engine>: {<setting>: value}}`` for the model's own
+    engine. It runs only on a block the kind admits: an absent block for a kind
+    with no measurement schema, else one its schema accepts (an absent block is
+    an empty one); the measurement stage states what is wrong with any other.
+
+    Args:
+        declaration: The kind.
+        model: The model's entry in the combined document.
+
+    Returns:
+        The patch; empty when the kind declares no transform or does not admit
+        the model's block.
+
+    Raises:
+        KindSettingsError: The transform raised, returned no mapping, a patch of
+            an engine that is no mapping, or a patch of another engine.
+    """
+    transform = declaration.settings_from_measurement
+    measurement = model.get("measurement")
+    if transform is None or not isinstance(measurement, Mapping):
+        return {}
+    blocks = measurement.get("kind_blocks")
+    block = blocks.get(declaration.name) if isinstance(blocks, Mapping) else None
+    if not block_admitted(declaration, block):
+        return {}
+    name = str(model.get("name"))
+    try:
+        patch = transform(copy.deepcopy(dict(model)), copy.deepcopy(dict(measurement)))
+        if not isinstance(patch, Mapping):
+            raise TypeError(
+                f"the settings transform returned a {type(patch).__name__}, not a mapping"
+            )
+        for engine, settings in patch.items():
+            if not isinstance(settings, Mapping):
+                raise TypeError(
+                    f"the settings transform's patch of {engine} is a "
+                    f"{type(settings).__name__}, not a mapping"
+                )
+            if engine != model.get("engine"):
+                raise ValueError(
+                    f"the settings transform patches engine {engine}; model {name} runs "
+                    f"{model.get('engine')}"
+                )
+    except Exception as error:
+        cause = f"{type(error).__name__}: {error}"
+        raise KindSettingsError(declaration.name, name, cause) from error
+    return {str(engine): dict(settings) for engine, settings in patch.items()}
+
+
+def block_admitted(declaration: KindDeclaration, block: Any) -> bool:
+    """Whether the kind takes this measurement sub-block; an absent block is an empty one.
+
+    A kind with no ``measurement_schema`` takes only an absent block; a kind with
+    one takes any block its schema accepts.
+
+    Args:
+        declaration: The kind.
+        block: The sub-block, as the measurement file states it, or None.
+    """
+    if declaration.measurement_schema is None:
+        return block is None
+    return not block_problems(declaration, {} if block is None else block)
 
 
 def block_problems(declaration: KindDeclaration, block: Any) -> list[str]:
