@@ -368,6 +368,10 @@ class OwnershipRecord:
         return entry
 
 
+#: Read by the artifacts gallery and rehydrate, in the web terminal's container under its uid.
+_STORE_FILE_MODE = 0o600
+
+
 @dataclass(frozen=True)
 class OwnershipStore:
     """Ownership records and claimed bodies on a durable volume.
@@ -655,7 +659,7 @@ class OwnershipStore:
         target = self.content_dir / relative
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            atomic_replace(target, content.encode("utf-8"), mode=0o600, sync="required")
+            atomic_replace(target, content.encode("utf-8"), mode=_STORE_FILE_MODE, sync="required")
         except OSError as exc:
             logger.warning("Could not persist %s to the ownership store: %s", output_path, exc)
             return False
@@ -702,7 +706,7 @@ class OwnershipStore:
         atomic_replace(
             self.index_path,
             json.dumps(document, indent=2).encode("utf-8"),
-            mode=0o600,
+            mode=_STORE_FILE_MODE,
             sync="required",
         )
 

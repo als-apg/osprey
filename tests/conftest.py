@@ -53,6 +53,7 @@ from tests import _canopy_contract, _scoped_temp, _wallclock_files
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
     built_demo,
+    built_demo_orbit_bump,
     built_demo_watchdog_on,
     offline_build_env,
 )

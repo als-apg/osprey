@@ -1,0 +1,3 @@
+address,role,pair,device,s,unit,description
+SR:MAG:QF:01:CURRENT:SP,setpoint,SR:MAG:QF:01:CURRENT:RB,QF01,1.5,A,Focusing quadrupole current
+SR:MAG:QF:01:CURRENT:RB,,,QF01,1.5,A,Focusing quadrupole current readback

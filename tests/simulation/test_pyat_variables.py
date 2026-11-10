@@ -697,7 +697,7 @@ class TestMonitorVariable:
         assert served == pytest.approx(2.0e3 * metres)
 
     def test_a_unit_gain_serves_the_reading_unchanged(self, simulator) -> None:
-        """The demo's BPM shape: linear gain 1.0, no inverse."""
+        """The demo LINE BPM shape: linear gain 1.0, no inverse, metres served as metres."""
         build(corrector_record())._set(simulator, KICK_CURRENT)
         simulator.solve()
         record = monitor_record(calibration={"curve": _linear(1.0), "energy_scaling": "none"})
@@ -885,7 +885,9 @@ class TestDemoWiring:
         demo.solve()
 
         assert variable.element_name == "BPM01"
-        assert variable._get(demo) == float(demo.last_solution["BPM01"][0])
+        assert record["calibration"]["curve"]["linear"]["gain"] == 1.0e-3
+        metres = float(demo.last_solution["BPM01"][0])
+        assert variable._get(demo) == pytest.approx(1.0e3 * metres)
 
     def test_a_strength_writes_its_polynomial_coefficient(self, records, demo) -> None:
         record = records["SR:MAG:QF:01:CURRENT:SP"]

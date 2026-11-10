@@ -192,6 +192,16 @@ def test_the_cli_stops_on_a_drawing_error_before_writing(rows, tmp_path, dropped
     assert {rel: (copy / rel).read_bytes() for rel in GENERATED} == before
 
 
+def test_an_sr_bpm_position_in_another_unit_is_a_named_error(rows):
+    """The orbit constants are in the SR BPM positions' unit; a record in another stops the run."""
+    assert gen.ORBIT_UNIT == "mm"
+    moved = [
+        {**row, "unit": "m"} if row["id"] == "SR:DIAG:BPM:07:POSITION:Y" else row for row in rows
+    ]
+    with pytest.raises(gen.UnitMismatchError, match="SR:DIAG:BPM:07:POSITION:Y"):
+        gen.render(_records(moved), LIBRARY)
+
+
 def test_a_device_without_its_record_is_a_named_error(rows, devices):
     """A sector places a device by its record; a device the records lack stops the run."""
     without = {d: r for d, r in devices.items() if d != "SR/ION-PUMP40"}

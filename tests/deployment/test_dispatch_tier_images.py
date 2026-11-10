@@ -171,11 +171,11 @@ def test_reference_set_builds_a_role_tier_nobody_holds() -> None:
     assert operator["build_profile"] == "tiers/operator.yml"
 
 
-def test_reference_set_builds_an_app_under_its_own_file() -> None:
+def test_reference_set_builds_a_shared_login_under_its_own_file() -> None:
     config = _config(tier=None)
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["renders"]["logbook"] = {
-        "kind": "app",
+        "kind": "tier",
         "project": "demo-logbook",
         "project_path": "/repo/build/demo-logbook",
     }
@@ -183,7 +183,7 @@ def test_reference_set_builds_an_app_under_its_own_file() -> None:
     units = _referenced_renders(config, _roster(config))
     assert [u["render"] for u in units] == ["logbook", "readwrite"]
     (app,) = (u for u in units if u["render"] == "logbook")
-    assert app["build_profile"] == "apps/logbook.yml"
+    assert app["build_profile"] == "tiers/logbook.yml"
 
 
 def test_reference_set_without_a_tier_is_the_roster_alone() -> None:

@@ -54,7 +54,8 @@ class AuthorizationEndedError(WriteRefusedError):
     ``reason`` is the write-verdict reason that ended it (``auth_exhausted``,
     ``auth_revoked``, ``auth_range``, ``auth_lease_lapsed`` ...), the reason an
     authorization could not be had at all (``owner_unknown``, ``tier_never`` ...),
-    or one of the optimizer's own words (:data:`AUTHORIZATION_TIMEOUT`).
+    or one of the optimizer's own words (:data:`AUTHORIZATION_TIMEOUT`,
+    :data:`AUTHORIZATION_TOO_MANY_STEPS`).
     Nothing asks again: the run ends here, holding the machine where its last
     write left it.
     """
@@ -70,6 +71,8 @@ class AuthorizationEndedError(WriteRefusedError):
 
 #: The reason a run ends when nobody approved its request in time.
 AUTHORIZATION_TIMEOUT = "authorization_timeout"
+#: The reason a run ends when it needs more write calls than one authorization may allow.
+AUTHORIZATION_TOO_MANY_STEPS = "authorization_too_many_steps"
 
 
 def _ended_message(reason: str, detail: str | None) -> str:

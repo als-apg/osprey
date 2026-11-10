@@ -58,6 +58,13 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from osprey import write_authorization as approval
+from osprey.interfaces.web_terminal.config_view import (
+    TIER_UNKNOWN,
+    UNREADABLE,
+    login_tier,
+    rendered_config,
+    section_of,
+)
 from osprey.interfaces.web_terminal.routes import websocket as posture_routes
 from osprey_connectors import control_context, posture_store
 from osprey_connectors import write_authorization as wa
@@ -123,7 +130,7 @@ async def read_current_values(
     guessed. The caller waits :data:`VALUES_TIMEOUT_S` at most: a read still
     going then is cancelled, and its pool closes in the background.
     """
-    section = posture_routes._section_of(posture_routes._rendered_config(config_path))
+    section = section_of(rendered_config(config_path))
     if not isinstance(section, dict) or not addresses:
         return dict.fromkeys(addresses)
     values: dict[str, Any] = dict.fromkeys(addresses)
@@ -230,12 +237,12 @@ def _own_grant_exists(request_id: str) -> bool:
 def _facts(config_path: Path | None, request_id: str) -> _Facts:
     """Render, ceiling, locks, the request and the limits database. BLOCKING."""
     login = acting_identity()
-    config = posture_routes._rendered_config(config_path)
-    section = posture_routes._section_of(config)
+    config = rendered_config(config_path)
+    section = section_of(config)
     facts = _Facts(
         login=login,
         configured=posture_routes._configured_target_names(section),
-        ceiling=posture_routes._login_tier(section, login),
+        ceiling=login_tier(section, login),
     )
     facts.request, facts.request_problem = _read_request(request_id)
     if facts.request is None:
@@ -243,7 +250,7 @@ def _facts(config_path: Path | None, request_id: str) -> _Facts:
     target = facts.request.target
     if target in facts.configured:
         verdict = posture_store.write_verdict(
-            None if section is posture_routes._UNREADABLE_SECTION else section,
+            None if section is UNREADABLE else section,
             target,
             owner=login,
             ignore_launch_pin=True,
@@ -251,7 +258,7 @@ def _facts(config_path: Path | None, request_id: str) -> _Facts:
         if verdict.reason in posture_routes._TURN_ON_LOCKS:
             facts.lock = verdict
     facts.approved = _own_grant_exists(request_id)
-    if config is posture_routes._UNREADABLE_SECTION or not isinstance(config, dict):
+    if config is UNREADABLE or not isinstance(config, dict):
         facts.limits_refused = approval.ApprovalRefused(
             approval.LIMITS_UNAVAILABLE, "No approval without a readable render."
         )
@@ -265,7 +272,7 @@ def _facts(config_path: Path | None, request_id: str) -> _Facts:
 
 def _locks(facts: _Facts) -> dict[str, Any] | None:
     """The first lock that refuses an approval by this login, as the envelope's fields."""
-    if facts.ceiling in ("never", posture_routes.TIER_UNKNOWN):
+    if facts.ceiling in ("never", TIER_UNKNOWN):
         return {"status": 403, "reason": posture_routes.POSTURE_REASON_TIER_CAPS,
                 "ceiling": facts.ceiling}  # fmt: skip
     if facts.lock is not None:

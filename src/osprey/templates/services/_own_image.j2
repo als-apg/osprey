@@ -27,8 +27,18 @@
         ...
   {%- endcall %}
 
-  A template where several services share one image picks ONE builder instead
-  (bluesky, virtual_accelerator, qmd): two builds of one tag race each other.
+  A template where several services share one image elects ONE builder
+  instead (bluesky, virtual_accelerator, qmd): two builds of one tag race each
+  other. `elect` sets `ns.key` to the first of `keys` whose block runs the
+  image OSPREY builds, and leaves it none when none does:
+
+      {%- set builder = namespace(key=none) %}
+      {{- own.elect(builder, lane_keys, services, osprey_images.<key>) }}
+      ...
+      {%- if lane_key == builder.key %}
+
+  A one-key election asks the gate's question of a single service where a
+  call body will not do (qmd builds on its first sidecar only).
 
   ----------------------------------------------------------------------------
   WHAT AN EDIT HERE REDDENS
@@ -39,11 +49,31 @@
 
       PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
       PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+      PYTHONPATH=src ./.venv/bin/python tests/deployment/test_lane_compose.py
+      PYTHONPATH=src ./.venv/bin/python tests/deployment/test_va_compose_instances.py
 #}
+
+{#- THE predicate, the one place it is written: sets `ns.owns` to whether
+    `image` is unset or names `own_image`. -#}
+{%- macro _owns(ns, image, own_image) -%}
+{%- set ns.owns = not image or image == own_image -%}
+{%- endmacro %}
 
 {#- The call body, only while `image` is unset or names `own_image`. -#}
 {%- macro build(image, own_image) -%}
-{%- if not image or image == own_image -%}
+{%- set gate = namespace(owns=false) -%}
+{{- _owns(gate, image, own_image) -}}
+{%- if gate.owns -%}
 {{ caller() }}
 {%- endif -%}
+{%- endmacro %}
+
+{#- Sets `ns.key` to the first of `keys` whose `services[key].image` passes the
+    gate; a key after the builder is never read. Renders nothing. -#}
+{%- macro elect(ns, keys, services, own_image) -%}
+{%- for key in keys if ns.key is none -%}
+{%- set gate = namespace(owns=false) -%}
+{{- _owns(gate, services[key].image, own_image) -}}
+{%- if gate.owns -%}{%- set ns.key = key -%}{%- endif -%}
+{%- endfor -%}
 {%- endmacro %}

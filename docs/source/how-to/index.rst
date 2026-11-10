@@ -24,7 +24,7 @@ Build & deploy
       :link-type: doc
 
       The end-to-end walkthrough: one deployment repo from ``osprey init``
-      through the CI scaffolding to a running three-service stack.
+      through the CI scaffolding to a running four-service stack.
 
    .. grid-item-card:: Container Deployment
       :link: deploy-project/index
@@ -40,6 +40,13 @@ Build & deploy
       Pick the provider that drives the OSPREY agent and name the model it
       runs, including open-weight and self-hosted models behind the
       translation proxy.
+
+   .. grid-item-card:: Build Your Own OSPREY Apps
+      :link: apps/index
+      :link-type: doc
+
+      A panel for the operator and tools for the agent over one backend:
+      what an app is, how to make one, and the orbit bump example.
 
 Operate
 -------
@@ -131,7 +138,7 @@ Facility services
       :link: bluesky/index
       :link-type: doc
 
-      Run measurement plans through a durable queue — compose with the Osprey
+      Run measurement plans through a durable queue — compose with the OSPREY
       agent, review, start and stop in the BLUESKY panel, and add plans
       of your own.
 
@@ -142,6 +149,7 @@ Facility services
    deploy-a-facility
    deploy-project/index
    llm-providers/index
+   apps/index
    web-terminal/index
    agent-interfaces/index
    health-and-monitoring/index

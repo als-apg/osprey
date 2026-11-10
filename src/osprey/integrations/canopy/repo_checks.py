@@ -208,7 +208,7 @@ CHECKS: tuple[Check, ...] = (
         "invariant",
         BOTH,
         (*kit.UV_RUN, "pytest", *INVARIANT_TESTS),
-        needs=("uv",),
+        needs=("free-space", "uv"),
         report="junit-pytest",
     ),
     Check(
@@ -219,7 +219,7 @@ CHECKS: tuple[Check, ...] = (
             *(*kit.UV_RUN, "--no-sync", "pytest", *CONTRACT_TESTS),
             *("-p", "no:randomly", "--timeout=600"),
         ),
-        needs=("uv",),
+        needs=("free-space", "uv", "install-current"),
         bound_s=1800,
         exec_flags=True,
         derive_scope=contract_scope,

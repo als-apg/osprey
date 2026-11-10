@@ -28,9 +28,12 @@ preset admits), the keys of the frozen root render are partitioned into:
 ``W``
     Keys the build writes that no preset states: the MCP health address a
     render serving web terminals pins, the bundled record archive's compose
-    directory, and the render projection — each tier's and app's ``kind``,
-    project name and project directory, derived from the files in ``tiers/``
-    and ``apps/``.
+    directory, and the render projection — each login's ``kind``, project
+    name and project directory, derived from the files in ``tiers/``.
+``A``
+    Keys the projection of a listed application writes: its ``apps.<name>``
+    block, its tool server, its panel, its containers' service blocks, and the
+    tools a dispatch job is denied.
 ``B``
     Keys a profile SECTION other than ``config:`` stands for — the ``bluesky:``
     bridge and its panel, the ``va_archiver:`` store and recorder, the
@@ -58,12 +61,14 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator, Mapping
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
+from osprey.apps.loader import load
 from osprey.cli.build_injectors import graphdb_corpus_fill
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_document import _read_profile_document
@@ -73,12 +78,13 @@ from osprey.cli.build_profile_ports import layout_port_fill
 from osprey.cli.build_profile_presets import (
     _layer_presets_dir,
     _load_preset_raw,
+    _presets_dir,
     layer_preset_kind,
+    preset_apps,
 )
 from osprey.cli.derived_keys import is_derived_key
 from osprey.cli.profile_root import ProfileKind
 from osprey.deployment.web_terminals.render_naming import (
-    RENDER_KIND_APP,
     RENDER_KIND_TIER,
     RENDERS_KEY,
 )
@@ -109,9 +115,9 @@ _PROVIDERS_KEY = "api.providers"
 #: service a profile section deploys.
 _VALUE_REWRITTEN_BY_BUILD = ("container_runtime", "deployed_services")
 #: The render projection's leaves, ``modules.web_terminals.renders.<name>.*``:
-#: the build writes one entry per file in ``tiers/`` and ``apps/``
+#: the build writes one entry per file in ``tiers/``
 #: (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`),
-#: its ``kind`` from the file's directory and its ``project`` and
+#: its ``kind`` ``tier`` and its ``project`` and
 #: ``project_path`` from the deployment's ``project_name`` and the file's stem.
 #: No profile may spell any of it
 #: (:func:`~osprey.cli.build_profile_model.render_key_errors`).
@@ -181,17 +187,18 @@ def _preset_document(preset: str) -> dict[str, Any]:
 
 
 def _layer_document(preset: str, stem: str, kind: ProfileKind) -> dict[str, Any]:
-    """The document a bundled tier or app renders from over *preset*, as the build composes it.
+    """The document a bundled login renders from over *preset*, as the build composes it.
 
     The build's own composer (:func:`~osprey.cli.build_profile_merge.render_document`,
-    then the attachment facts): a tier is merged over the deployment, an app is
-    composed from the deployment's facts and its complete app file.
+    then the attachment facts): a login that adds is merged over the
+    deployment, a ``lists: own`` one composed from the deployment's facts and
+    its complete file, and a shared one sealed.
     """
     path = _layer_presets_dir(kind) / f"{stem}.yml"
     layer = _read_profile_document(path)
     assert isinstance(layer, dict), path
     return _attach(
-        render_document(kind, _preset_document(preset), layer, f"{path.parent.name}/{path.name}")
+        render_document(_preset_document(preset), layer, f"{path.parent.name}/{path.name}")
     )
 
 
@@ -255,6 +262,29 @@ def _under(key: str, prefixes: Mapping[str, str]) -> bool:
     return any(key == prefix or key.startswith(prefix + ".") for prefix in prefixes)
 
 
+@lru_cache
+def _application_roots(preset: str) -> frozenset[str]:
+    """The config keys the projection of the applications *preset* lists writes under."""
+    listed = preset_apps(preset)
+    if not listed:
+        return frozenset()
+    manifests = load(_presets_dir(), listed)
+    return frozenset(
+        {
+            "dispatch.denied_app_tools",
+            *(f"apps.{m.name}" for m in manifests),
+            *(f"claude_code.servers.{m.name}" for m in manifests),
+            *(f"web.panels.{m.name}" for m in manifests),
+            *(f"services.{container}" for m in manifests for container in m.containers),
+        }
+    )
+
+
+def _is_application_key(key: str, preset: str) -> bool:
+    """Whether the projection of an application *preset* lists writes *key*."""
+    return any(key == root or key.startswith(f"{root}.") for root in _application_roots(preset))
+
+
 def _panel_switches(document: Mapping[str, Any]) -> set[str]:
     """``web.panels.<id>.enabled`` for every panel the preset's ``web_panels:`` selects.
 
@@ -285,8 +315,10 @@ def _carried_block_switches(render: Mapping[str, Any], config: Mapping[str, Any]
     return switches
 
 
-def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[str, set[str]]:
-    """Split the render's keys into the eight named sets, in claim order.
+def _partition(
+    render: Mapping[str, Any], document: Mapping[str, Any], preset: str
+) -> dict[str, set[str]]:
+    """Split the render's keys into the nine named sets, in claim order.
 
     Claim order matters only where a key could be read two ways: a port leaf
     of a block-derived service (``services.bluesky.port``) is that block's,
@@ -308,9 +340,12 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
         "Fill": set(),
         "W": set(),
         "C": set(),
+        "A": set(),
     }
     for key in render:
-        if is_derived_key(key):
+        if _is_application_key(key, preset):
+            sets["A"].add(key)
+        elif is_derived_key(key):
             sets["D"].add(key)
         elif key == _PROVIDERS_KEY or key.startswith(_PROVIDERS_KEY + "."):
             sets["P"].add(key)
@@ -339,7 +374,7 @@ def test_root_render_is_partitioned_between_its_sources(
     render = _render(directory)
     document = _preset_document(preset)
     config = _config_leaves(document)
-    sets = _partition(render, document)
+    sets = _partition(render, document, preset)
 
     claimed = set().union(*sets.values())
     unclaimed = sorted(set(render) - claimed)
@@ -399,7 +434,7 @@ def test_ports_are_the_layout_fill_and_nothing_else(
     render = _render(directory)
     document = _preset_document(preset)
     config = _config_leaves(document)
-    ports = _partition(render, document)["Ports"]
+    ports = _partition(render, document, preset)["Ports"]
 
     assert not {key for key in config if _PORT_LEAF.match(key)}
     filled = layout_port_fill(dict(document.get("config") or {}), DEFAULT_PORT_BASE)
@@ -456,7 +491,7 @@ def _render_cells() -> list[tuple[str, str, str]]:
 
 
 #: The bundled layer kind each render-projection ``kind`` names.
-_LAYER_KINDS = {RENDER_KIND_TIER: ProfileKind.TIER, RENDER_KIND_APP: ProfileKind.APP}
+_LAYER_KINDS = {RENDER_KIND_TIER: ProfileKind.TIER}
 
 
 @pytest.mark.parametrize(("_preset", "_mode", "directory"), _cells())
@@ -477,16 +512,16 @@ def test_render_projection_names_every_frozen_render(
 def test_render_stays_inside_the_partition(stem: str, preset: str, directory: str) -> None:
     """An attached render carries no key outside its own sources.
 
-    A tier is the bundled ``tiers/<stem>.yml`` merged over the root preset; an
-    app is composed from the root preset's facts and the bundled
-    ``apps/<stem>.yml``. Either is built attached: it renders no services of
+    A login is the bundled ``tiers/<stem>.yml`` merged over the root preset, or
+    composed from the root preset's facts and that file when it says ``lists:
+    own``. Either is built attached: it renders no services of
     its own and has the host's ports projected in (the Reach Contract), so the
     check is containment, not equality — every rendered key is the render's
     ``config:``, derived, a provider, a projected port, or a section's.
     """
     projected_kind = _render(directory)[f"{RENDERS_KEY}.{stem}.kind"]
     kind = layer_preset_kind(stem)
-    assert kind is not None, f"{directory}/{stem}: no bundled tier or app {stem!r}"
+    assert kind is not None, f"{directory}/{stem}: no bundled login {stem!r}"
     assert _LAYER_KINDS[projected_kind] is kind, (
         f"{directory}/{stem}: projected as {projected_kind!r}, bundled as {kind.value!r}"
     )
@@ -512,7 +547,8 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
         key
         for key in render
         if not (
-            is_derived_key(key)
+            _is_application_key(key, preset)
+            or is_derived_key(key)
             or _WRITTEN_BY_BUILD_PATTERN.match(key)
             or key in corpus
             or (key in _FACT_KEYS and key not in config)
