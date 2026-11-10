@@ -201,11 +201,6 @@ every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
 run on every push. Those cost runner minutes, not tokens, and the deploy lanes
 are the per-PR proof that a render builds and starts.
 
-A failure in a cheap, deterministic lane (lint, the docs build, the package
-build, the frontend JS checks, the plugin smoke) cancels the rest of a pull
-request's run. The gate is cancelled with it, so the PR cannot merge until a
-new push runs green.
-
 Path filtering was measured and rejected as the mechanism for the
 model-spending lanes: over the 161 PRs
 merged in the two weeks before this landed, 86–91 % touched something under
@@ -218,6 +213,11 @@ run for the previous head. Before that grouping, superseded runs kept running
 and queued ahead of the live one on a saturated concurrent-job allowance:
 measured over 71 PR runs, 35 % were superseded runs still holding 31 % of all
 CI wall-clock.
+
+Once a cheap, deterministic lane fails (lint, the docs build, the package
+build, the frontend JS checks, the plugin smoke), the run cannot pass, so a
+pull request's run cancels its remaining lanes, ``All CI Checks Passed``
+included. Push a fix or re-run the workflow to merge.
 
 .. _contributing-ci-figures:
 
