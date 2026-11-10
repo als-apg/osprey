@@ -33,6 +33,7 @@ SHARED_PROBES: tuple[tuple[str, ...], ...] = (
     ("qmd_okf", "reach.qmd-okf"),
     ("qmd_ariel", "reach.qmd-ariel"),
     ("web_panels.bluesky", "reach.bluesky_web"),
+    ("web_panels.optimizer", "reach.optimizer_web"),
 )
 
 #: How a category names itself as a consumer when the row's message does not.

@@ -5,7 +5,7 @@ writes the matching ``services.<name>`` block into ``config.yml`` (and
 registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
-``BlueskyWebConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
+``BlueskyWebConfig``, ``OptimizerWebConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
 ``GChatBridgeProfileConfig``, ``TeamsBridgeProfileConfig``,
 ``SlackBridgeProfileConfig``) plus
 ``VAArchiverConfig``, whose block lives in
@@ -72,6 +72,7 @@ if TYPE_CHECKING:
         GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
         OptimizerConfig,
+        OptimizerWebConfig,
         SlackBridgeProfileConfig,
         TeamsBridgeProfileConfig,
         VAConfig,
@@ -1913,6 +1914,83 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
         "    Images:     `osprey up` builds the bluesky-web image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_BLUESKY_WEB_IMAGE to use a published image."
+    )
+
+
+def _inject_optimizer_web(optimizer_web: OptimizerWebConfig, project_path: Path) -> None:
+    """Wire the optimizer-web sidecar and its OPTIMIZER panel into a built project.
+
+    The same four steps as :func:`_inject_bluesky_web`: copy the bundled
+    ``templates/services/optimizer_web/`` compose template, write
+    ``services.optimizer_web`` and register it in ``deployed_services``, register
+    the ``web.panels.optimizer`` entry at the sidecar root with ``path``
+    selecting the panel's static mount (an explicit ``url``, ``path`` or
+    ``label`` from a config override wins), and print a post-build hint.
+
+    Args:
+        optimizer_web: Validated optimizer-web configuration from the build profile.
+        project_path: Root of the built project.
+    """
+    src_dir = bundled_services_dir() / "optimizer_web"
+    if not src_dir.is_dir():
+        logger.warning("No package template for the optimizer_web service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
+    _refresh_service_dir(
+        src_dir,
+        dest_services_root / "optimizer_web",
+        "optimizer_web",
+        _user_owned_services(project_path),
+    )
+
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found. Skipping the optimizer_web config registration.")
+        return
+
+    config = load_config_document(config_path)
+
+    # No ``image`` key: the service builds the local optimizer-web image on
+    # first ``osprey up``. OSPREY_OPTIMIZER_WEB_IMAGE, or
+    # ``services.optimizer_web.image`` here, runs a prebuilt image instead.
+    config.setdefault("services", {})
+    anchored_put(
+        config["services"],
+        "optimizer_web",
+        _carry_authored_keys(
+            config["services"],
+            "optimizer_web",
+            {"path": "./services/optimizer_web", "port": optimizer_web.port},
+        ),
+    )
+    deployed = config.get("deployed_services", []) or []
+    if "optimizer_web" not in [str(s) for s in deployed]:
+        anchored_append(deployed, "optimizer_web")
+    config["deployed_services"] = deployed
+
+    default_url = f"${{OPTIMIZER_WEB_URL:-http://localhost:{optimizer_web.port}}}"
+    panels = config.setdefault("web", {}).setdefault("panels", {})
+    panel_cfg = panels.get("optimizer")
+    if panel_cfg is None:
+        anchored_put(
+            panels, "optimizer", {"url": default_url, "path": "/optimizer/", "label": "OPTIMIZER"}
+        )
+    else:
+        _fill_panel_defaults(panel_cfg, default_url, "/optimizer/", "OPTIMIZER")
+
+    save_config_document(config_path, config)
+
+    logger.debug("  ✓ Injected optimizer-web sidecar (port %d)", optimizer_web.port)
+    logger.debug(
+        "    Panels:     OPTIMIZER. Reach it through the web-terminal proxy at /panel/optimizer."
+    )
+    logger.debug(
+        "    Images:     `osprey up` builds the optimizer-web image locally. Use `--dev` to "
+        "bake in your local osprey checkout; set OSPREY_OPTIMIZER_WEB_IMAGE to use a "
+        "published image."
     )
 
 

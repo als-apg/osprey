@@ -227,6 +227,7 @@ def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
             "mongodb",
             "history",
             "optimizer",
+            "optimizer-web",
         ):
             continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a page only nginx dials, a service with no client yet
         assert key in projected, (

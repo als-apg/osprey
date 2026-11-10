@@ -96,6 +96,7 @@ from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.web_terminals.roster import (
     BLUESKY_PANEL_ID,
     EVENTS_PANEL_ID,
+    OPTIMIZER_PANEL_ID,
     as_dict,
     bluesky_server_enabled,
     config_declares_panel,
@@ -573,6 +574,10 @@ def _events_panel_on(config: Mapping[str, Any]) -> bool:
 
 def _bluesky_panel_on(config: Mapping[str, Any]) -> bool:
     return config_declares_panel(config, BLUESKY_PANEL_ID)
+
+
+def _optimizer_panel_on(config: Mapping[str, Any]) -> bool:
+    return config_declares_panel(config, OPTIMIZER_PANEL_ID)
 
 
 def _panel_url_resolves(panel_id: str) -> Predicate:
@@ -1061,6 +1066,32 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # does not deploy has named it.
         names_external=_panel_url_resolves(BLUESKY_PANEL_ID),
         note="the panel proxy dials the sidecar at web.panels.bluesky.url with the user's own secret",
+    ),
+    # The OPTIMIZER tab's sidecar, contracted exactly like the BLUESKY tab's:
+    # the panel proxy dials it at the projected url with the user's own secret,
+    # and the sidecar's own compose (services/optimizer_web) carries the
+    # reverse roster grant. The sidecar dials services.optimizer.port itself,
+    # in-network, so nothing about the optimizer is projected for it here.
+    "optimizer_web": ReachContract(
+        service="optimizer_web",
+        consumers=(
+            Consumer(
+                name="OPTIMIZER panel",
+                switch_key=f"web.panels.{OPTIMIZER_PANEL_ID}",
+                is_on=_optimizer_panel_on,
+                resolves=_panel_url_resolves(OPTIMIZER_PANEL_ID),
+                dial=_panel_dial(OPTIMIZER_PANEL_ID),
+            ),
+        ),
+        projected=tuple(
+            ProjectedKey(f"web.panels.{OPTIMIZER_PANEL_ID}.{leaf}", panel=OPTIMIZER_PANEL_ID)
+            for leaf in ("url", "path", "label", "health_endpoint")
+        ),
+        names_external=_panel_url_resolves(OPTIMIZER_PANEL_ID),
+        note=(
+            "the panel proxy dials the sidecar at web.panels.optimizer.url with the "
+            "user's own secret"
+        ),
     ),
     "event_dispatcher": ReachContract(
         service="event_dispatcher",

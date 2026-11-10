@@ -261,10 +261,13 @@ async def test_a_connect_timeout_is_unreachable(optimizer):
 
 
 def test_the_client_outwaits_the_services_own_read_backstop():
-    from osprey.mcp_server.optimizer.server_context import TIMEOUT_S
+    from osprey.interfaces.optimizer_web.app import _CLIENT_TIMEOUT
+    from osprey.optimizer_connection import OPTIMIZER_TIMEOUT_S
     from osprey_optimizer.environments.interface import OP_TIMEOUT
 
-    assert TIMEOUT_S > OP_TIMEOUT
+    # Both clients of the service: the MCP server and the panel's sidecar.
+    assert OPTIMIZER_TIMEOUT_S > OP_TIMEOUT
+    assert _CLIENT_TIMEOUT.read == OPTIMIZER_TIMEOUT_S
 
 
 # Every route the tools may write to is ungated: none depends on require_launch_token.

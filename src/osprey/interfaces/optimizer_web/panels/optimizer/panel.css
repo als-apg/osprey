@@ -1,0 +1,282 @@
+/*
+ * OPTIMIZER panel — token-only styling. Every color, type size, weight and
+ * radius resolves through a design token from tokens.css.
+ *
+ * Layout: the toolbar (target, environment, status LED, job), then two
+ * columns — approval surface and live run on the left, the draft form on the
+ * right — that stack in a narrow tile.
+ */
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-display);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: var(--leading-normal);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.view-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.column {
+  min-width: 0;
+}
+
+.muted {
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.mono,
+.num,
+.readout {
+  font-family: var(--font-mono);
+}
+
+.picker,
+.field select,
+.field input,
+.field textarea,
+.form-vars input,
+.constraint-row select,
+.constraint-row input {
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 2px var(--space-2);
+  min-width: 0;
+}
+
+#panel-banner {
+  margin: var(--space-2) var(--space-4) 0;
+}
+
+/* ---- Cards ---- */
+
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  box-shadow: var(--shadow-panel);
+}
+
+.card h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.card-head-spacer {
+  flex: 1 1 auto;
+}
+
+/* ---- Banners ---- */
+
+.banner {
+  font-size: var(--text-md);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+  border: 1px solid transparent;
+}
+
+.banner-ok {
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border-color: var(--color-success);
+}
+
+.banner-warn {
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border-color: var(--color-accent-secondary);
+}
+
+.banner-err {
+  color: var(--color-error);
+  background: var(--error-tint-08);
+  border-color: var(--color-error);
+}
+
+.banner-info {
+  color: var(--color-accent-light);
+  background: var(--accent-tint-06);
+  border-color: var(--border-accent);
+}
+
+/* ---- Approval surface ---- */
+
+.appr-fields {
+  margin: 0 0 var(--space-3);
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: var(--space-4);
+  row-gap: var(--space-1);
+  font-size: var(--text-md);
+}
+
+.appr-row {
+  display: contents;
+}
+
+.appr-row dt {
+  color: var(--text-muted);
+}
+
+.appr-row dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.appr-row.flagged dt,
+.appr-row.flagged dd {
+  color: var(--color-warning);
+}
+
+.flag {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--color-warning);
+}
+
+/* ---- Tables ---- */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+  margin-bottom: var(--space-3);
+}
+
+.grid th {
+  text-align: left;
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+  padding: var(--space-1) var(--space-2);
+}
+
+.grid td {
+  border-bottom: 1px solid var(--border-default);
+  padding: var(--space-1) var(--space-2);
+}
+
+.grid .num {
+  text-align: right;
+}
+
+.grid tr.flagged td {
+  color: var(--color-warning);
+}
+
+.form-vars input[type='number'] {
+  width: 7em;
+}
+
+/* ---- Form ---- */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.field-label {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.table-tools,
+.constraint-row,
+.foot-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.foot-row > .muted {
+  flex: 1 1 auto;
+}
+
+/* ---- Run ---- */
+
+.progress {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  overflow: hidden;
+  margin: var(--space-2) 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.readout {
+  font-size: var(--text-md);
+  margin: 0 0 var(--space-2);
+}
+
+.live-plot {
+  width: 100%;
+  min-height: 420px;
+}
+
+.osprey-btn.confirm {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
