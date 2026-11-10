@@ -239,10 +239,10 @@ only where its path, ``rules/facility``, is named: there it counts as that
 artifact for wiring, checks and the brief, and supplies only the content.
 Listing both in one render is a build error. A path naming no file fails the build; a file no list names
 reaches no render, and the build warns. ``osprey init`` names the facility
-description it seeds by its path. ``osprey init --revalidate`` turns a bare
-entry into the path wherever the repo ships the file, and names every other
-unnamed one in ``profile.yml`` and each login, so an existing deployment's renders
-stay as they were.
+description it seeds by its path. On a profile whose lists name nothing by path
+yet, ``osprey init --revalidate`` turns a bare entry into the path wherever the
+repo ships the file, and names every other unnamed one in ``profile.yml`` and
+each login, so its renders stay as they were.
 
 A ``hooks:`` list names a ``hooks/<file>`` only to replace an OSPREY hook; any
 other entry is refused. Your own hooks are wired, and copied, by their

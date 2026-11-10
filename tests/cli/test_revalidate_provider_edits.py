@@ -2,8 +2,9 @@
 
 It never changes a value the repo's catalog states, an edited entry OSPREY
 ships included. It adds the packaged entries the file lacks and the packaged
-keys an existing entry lacks. ``osprey validate`` names each place a packaged
-entry differs from what this OSPREY ships, as preset drift.
+keys an existing entry lacks, except one a deviation marker claims absent.
+``osprey validate`` names each place a packaged entry differs from what this
+OSPREY ships, as preset drift.
 """
 
 from __future__ import annotations
@@ -16,7 +17,10 @@ from click.testing import CliRunner
 from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
+from tests.fixtures.lifecycle_repo import (
+    build_exemplar_repo,
+    preserved_environ,
+)
 
 PROJECT = "als-exemplar"
 PACKAGED_OLLAMA_URL = "    base_url: ${OLLAMA_HOST:-http://localhost:11434}\n"

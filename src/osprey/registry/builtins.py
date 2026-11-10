@@ -15,7 +15,6 @@ from .base import (
     ConnectorRegistration,
     RegistryConfig,
     RegistryConfigProvider,
-    ServiceRegistration,
 )
 
 
@@ -32,16 +31,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
         :rtype: RegistryConfig
         """
         return RegistryConfig(
-            services=[
-                ServiceRegistration(
-                    name="channel_finder",
-                    module_path="osprey.services.channel_finder",
-                    class_name="ChannelFinderService",
-                    description="Natural-language channel address resolution service",
-                    provides=["CHANNEL_ADDRESSES"],
-                    requires=[],
-                ),
-            ],
             # Framework AI model providers — the built-in table lives in
             # osprey.models.provider_registry (single source of truth).
             # RegistryManager._initialize_providers() delegates to it.

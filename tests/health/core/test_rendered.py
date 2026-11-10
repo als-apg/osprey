@@ -133,7 +133,7 @@ def test_unreadable_mcp_json_warns(tmp_path):
 
 
 def test_a_graph_agent_baked_by_the_seeder_is_not_drift(tmp_path):
-    from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
+    from osprey.services.graph_store.prompt_snapshot import (
         CHANNEL_FINDER_FILENAME,
         SNAPSHOT_BEGIN,
         SNAPSHOT_END,
@@ -152,7 +152,7 @@ def test_a_graph_agent_baked_by_the_seeder_is_not_drift(tmp_path):
 
 
 def test_a_graph_agent_with_its_markers_removed_is_drift(tmp_path):
-    from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
+    from osprey.services.graph_store.prompt_snapshot import (
         CHANNEL_FINDER_FILENAME,
         SNAPSHOT_BEGIN,
         SNAPSHOT_END,

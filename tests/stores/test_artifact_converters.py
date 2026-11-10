@@ -13,7 +13,7 @@ class TestWrapInHtml:
     """Tests for the HTML template wrapper."""
 
     def test_produces_valid_html(self):
-        from osprey.mcp_server.ariel.converters import _wrap_in_html
+        from osprey.stores.artifact_converters import _wrap_in_html
 
         html = _wrap_in_html("Test Title", "<p>Hello</p>")
         assert "<!DOCTYPE html>" in html
@@ -22,14 +22,14 @@ class TestWrapInHtml:
         assert "</html>" in html
 
     def test_includes_styling(self):
-        from osprey.mcp_server.ariel.converters import _wrap_in_html
+        from osprey.stores.artifact_converters import _wrap_in_html
 
         html = _wrap_in_html("Styled", "<p>Content</p>")
         assert "<style>" in html
         assert "font-family" in html
 
     def test_body_content_preserved(self):
-        from osprey.mcp_server.ariel.converters import _wrap_in_html
+        from osprey.stores.artifact_converters import _wrap_in_html
 
         body = "<h2>data.json</h2>\n<pre>{}</pre>"
         html = _wrap_in_html("data", body)
@@ -45,7 +45,7 @@ class TestPassthrough:
     """Tests for the passthrough converter."""
 
     async def test_returns_source_unchanged(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import passthrough
+        from osprey.stores.artifact_converters import passthrough
 
         source = tmp_path / "image.png"
         source.write_bytes(b"\x89PNG fake")
@@ -56,7 +56,7 @@ class TestPassthrough:
         assert result == source
 
     async def test_does_not_create_files(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import passthrough
+        from osprey.stores.artifact_converters import passthrough
 
         source = tmp_path / "doc.pdf"
         source.write_bytes(b"%PDF-1.4 fake")
@@ -76,7 +76,7 @@ class TestHtmlToPng:
     """Tests for the HTML-to-PNG converter."""
 
     async def test_calls_convert_html_to_image(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import html_to_png
+        from osprey.stores.artifact_converters import html_to_png
 
         source = tmp_path / "plot.html"
         source.write_text("<html><body>Plot</body></html>")
@@ -97,7 +97,7 @@ class TestHtmlToPng:
         assert result.read_bytes() == b"\x89PNG converted"
 
     async def test_output_in_output_dir(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import html_to_png
+        from osprey.stores.artifact_converters import html_to_png
 
         source = tmp_path / "page.html"
         source.write_text("<html></html>")
@@ -126,7 +126,7 @@ class TestMarkdownToPng:
     """Tests for the Markdown-to-PNG converter."""
 
     async def test_renders_markdown_to_png(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import markdown_to_png
+        from osprey.stores.artifact_converters import markdown_to_png
 
         source = tmp_path / "readme.md"
         source.write_text("# Hello\n\nSome **bold** text.", encoding="utf-8")
@@ -150,7 +150,7 @@ class TestMarkdownToPng:
         assert result == output_dir / "readme.png"
 
     async def test_intermediate_html_has_styling(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import markdown_to_png
+        from osprey.stores.artifact_converters import markdown_to_png
 
         source = tmp_path / "notes.md"
         source.write_text("Some notes", encoding="utf-8")
@@ -183,7 +183,7 @@ class TestNotebookToPng:
     """Tests for the Notebook-to-PNG converter."""
 
     async def test_renders_notebook(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import notebook_to_png
+        from osprey.stores.artifact_converters import notebook_to_png
 
         source = tmp_path / "analysis.ipynb"
         source.write_text('{"cells": [], "metadata": {}}', encoding="utf-8")
@@ -209,7 +209,7 @@ class TestNotebookToPng:
         assert result == output_dir / "analysis.png"
 
     async def test_writes_intermediate_html(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import notebook_to_png
+        from osprey.stores.artifact_converters import notebook_to_png
 
         source = tmp_path / "nb.ipynb"
         source.write_text("{}", encoding="utf-8")
@@ -246,7 +246,7 @@ class TestJsonToPng:
     """Tests for the JSON-to-PNG converter."""
 
     async def test_pretty_prints_json(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import json_to_png
+        from osprey.stores.artifact_converters import json_to_png
 
         data = {"key": "value", "list": [1, 2, 3]}
         source = tmp_path / "data.json"
@@ -273,7 +273,7 @@ class TestJsonToPng:
         assert "<pre>" in captured_html["content"]
 
     async def test_handles_invalid_json_gracefully(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import json_to_png
+        from osprey.stores.artifact_converters import json_to_png
 
         source = tmp_path / "broken.json"
         source.write_text("{not valid json", encoding="utf-8")
@@ -303,7 +303,7 @@ class TestTextToPng:
     """Tests for the text-to-PNG converter."""
 
     async def test_wraps_in_pre(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import text_to_png
+        from osprey.stores.artifact_converters import text_to_png
 
         source = tmp_path / "log.txt"
         source.write_text("Line 1\nLine 2\n", encoding="utf-8")
@@ -328,7 +328,7 @@ class TestTextToPng:
         assert "Line 1\nLine 2" in captured_html["content"]
 
     async def test_escapes_html_entities(self, tmp_path):
-        from osprey.mcp_server.ariel.converters import text_to_png
+        from osprey.stores.artifact_converters import text_to_png
 
         source = tmp_path / "code.py"
         source.write_text("if x < 10 & y > 5:\n    pass", encoding="utf-8")
@@ -362,7 +362,7 @@ class TestGetConverter:
     """Tests for the converter registry lookup."""
 
     def test_known_mime_types(self):
-        from osprey.mcp_server.ariel.converters import (
+        from osprey.stores.artifact_converters import (
             get_converter,
             html_to_png,
             json_to_png,
@@ -385,13 +385,13 @@ class TestGetConverter:
         assert get_converter("text/x-python") is text_to_png
 
     def test_unknown_image_type_passthrough(self):
-        from osprey.mcp_server.ariel.converters import get_converter, passthrough
+        from osprey.stores.artifact_converters import get_converter, passthrough
 
         assert get_converter("image/tiff") is passthrough
         assert get_converter("image/bmp") is passthrough
 
     def test_unknown_mime_type_falls_back_to_text(self):
-        from osprey.mcp_server.ariel.converters import get_converter, text_to_png
+        from osprey.stores.artifact_converters import get_converter, text_to_png
 
         assert get_converter("application/x-custom") is text_to_png
         assert get_converter("video/mp4") is text_to_png

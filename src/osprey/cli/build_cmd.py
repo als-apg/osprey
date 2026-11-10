@@ -1385,7 +1385,7 @@ class _SharedRenderInputs(NamedTuple):
     hashes the same copies the file it wrote.
 
     Keyed on the digest of the corpus TEXT
-    (:func:`~osprey.services.facility_knowledge.seeder.graph_seeder.ttl_sha256`),
+    (:func:`~osprey.services.graph_store.seeder.ttl_sha256`),
     which is the same number the index's ``meta`` row and the store's seed
     marker carry. A file key would not work: each render pass re-copies the
     profile's ``data/`` tree, so the staged corpus is a different file with a
@@ -1950,7 +1950,7 @@ def _build_graph_index(
     import duckdb
 
     from osprey.services.channel_finder.graph_index import GraphIndexBuildError, build_graph_index
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     def _no_index(error: Exception) -> None:
         from . import output

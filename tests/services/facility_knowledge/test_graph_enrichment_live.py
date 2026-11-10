@@ -215,7 +215,7 @@ def clean_store(enrichment_store_uri: str) -> Iterator[Any]:
     every test that receives this fixture starts from the state a fresh deploy
     starts from and has to bootstrap for itself.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     with graph_seeder.open_session(
         enrichment_store_uri,
@@ -266,7 +266,7 @@ def _ttl_census(ttl: str) -> dict[str, int]:
 
 def _seed(session: Any, ttl: str, label: str) -> None:
     """Bootstrap a wiped store and import *ttl* into it, as ``osprey up`` does."""
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     result = graph_seeder.bootstrap(session)
     assert result.status is graph_seeder.BootstrapStatus.INITIALIZED, result.message
@@ -414,7 +414,7 @@ def _legacy_bootstrap(session: Any) -> None:
     store whose config is *not* osprey's current one, which is the state every
     graph store deployed before this change is sitting in.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     session.run(graph_seeder._CONSTRAINT_CYPHER).consume()
     session.run("CALL n10s.graphconfig.init($params)", params=LEGACY_GRAPH_CONFIG).consume()
@@ -437,7 +437,7 @@ def test_a_legacy_store_is_reported_then_recovered_by_a_reseed(
     the first and last assertions read the same subject on either side of the
     migration.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     session = clean_store
 

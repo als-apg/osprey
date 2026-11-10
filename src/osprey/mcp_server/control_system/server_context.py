@@ -763,7 +763,7 @@ class ControlSystemContext:
         return True
 
     def channel_finder_config(self) -> dict[str, Any]:
-        """Config section for ChannelFinderService."""
+        """Return the project's ``channel_finder:`` config section."""
         return self.config.channel_finder
 
     @staticmethod

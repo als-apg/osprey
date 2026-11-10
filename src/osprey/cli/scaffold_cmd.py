@@ -802,8 +802,7 @@ def scaffold(ctx):
     \b
       osprey scaffold ci                          # Re-emit the CI files
       osprey scaffold systemd                     # Write the boot unit
-      osprey scaffold tiers                       # Write the tier files
-      osprey scaffold apps                        # Write the app files
+      osprey scaffold tiers                       # Write the login files
       osprey scaffold pull demo --list # Show what a preset offers
       osprey scaffold list                        # Show all artifacts
       osprey scaffold claim agents/channel-finder # Move it into the profile

@@ -8,7 +8,7 @@ Accepts every JSON form an MML export takes in the wild:
 * **system-keyed** --- top-level keys are systems, each a map of families.
 
 A family is recognised by the structural rule
-:func:`osprey.services.channel_finder.tools.preview_database.is_family_dict`.
+:func:`osprey.facility.layers.mml.family.is_family_dict`.
 The loader only decodes: bare ``NaN``/``Infinity``/``-Infinity`` tokens become
 the normaliser's ``"NaN"``/``"Inf"``/``"-Inf"`` strings, and every other value,
 including misspelled keys and nested cell arrays, is returned as parsed.
@@ -27,8 +27,8 @@ from pathlib import Path
 
 import click
 
+from osprey.facility.layers.mml.family import is_family_dict
 from osprey.facility.layers.mml.loaders import LoadedInput
-from osprey.services.channel_finder.tools.preview_database import is_family_dict
 
 __all__ = [
     "AD_SUFFIX",

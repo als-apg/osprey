@@ -109,30 +109,6 @@ def _get_drafts_dir() -> Path:
     return resolve_shared_data_root() / "drafts"
 
 
-async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
-    """Resolve artifact IDs to file paths, auto-converting artifacts to logbook-friendly formats.
-
-    Uses the converter registry to transform artifacts: rendered content (HTML,
-    markdown, notebooks, JSON, text) is converted to PNG; images and PDFs pass
-    through unchanged.
-
-    Returns:
-        List of absolute file paths ready for attachment.
-
-    Raises:
-        ValueError: If an artifact ID is not found.
-    """
-    import tempfile
-
-    from osprey.agent_runner.artifact_resolve import resolve_artifact_path
-    from osprey.stores.artifact_store import get_artifact_store
-
-    store = get_artifact_store()
-    output_dir = Path(tempfile.mkdtemp(prefix="ariel_convert_"))
-
-    return [await resolve_artifact_path(store, aid, output_dir) for aid in artifact_ids]
-
-
 @mcp.tool()
 async def entry_get(
     entry_id: str,
@@ -612,8 +588,10 @@ async def entry_create(
     # --- Resolve artifact_ids to file paths (both modes) ---
     artifact_paths: list[str] = []
     if artifact_ids:
+        from osprey.agent_runner.artifact_resolve import resolve_artifact_paths
+
         try:
-            artifact_paths = await _resolve_artifacts(artifact_ids)
+            artifact_paths = await resolve_artifact_paths(artifact_ids)
         except ValueError as exc:
             return make_error(
                 "validation_error",

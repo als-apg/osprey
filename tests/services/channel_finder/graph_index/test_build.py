@@ -30,7 +30,7 @@ from osprey.services.channel_finder.graph_index.builder import (
 )
 from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_VERSION
 from osprey.services.channel_finder.graph_index.taxonomy import prune_device_taxonomy
-from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+from osprey.services.graph_store.seeder import ttl_sha256
 
 #: The demo build's graph view, as the store counts its
 #: populations. ``bindings``, ``devices`` and ``classes`` are the numbers

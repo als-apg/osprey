@@ -146,7 +146,7 @@ def _requires_a_real_store(graph_mcp_plugin_dir: Path) -> None:
 def _seeded_store(shared: WatchedStore, ttl_text: str, label: str) -> Iterator[WatchedStore]:
     """Wipe the session's store, seed it through the real seeder, and yield it watched.
 
-    Seeding goes through :mod:`~osprey.services.facility_knowledge.seeder.graph_seeder`
+    Seeding goes through :mod:`~osprey.services.graph_store.seeder`
     rather than raw Cypher because that is the path ``osprey up`` takes —
     including ``write_marker``, which is what puts the
     ``_OspreySeed`` bookkeeping node in the store that ``get_schema`` then has
@@ -154,7 +154,7 @@ def _seeded_store(shared: WatchedStore, ttl_text: str, label: str) -> Iterator[W
     the store's watch: a seeding step that gets no answer fails naming this
     store and the state its container was in.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     store = wiped_graphdb_store(shared, label=f"graphdb for {label}")
     with (
@@ -366,7 +366,7 @@ def _store_state(store: WatchedStore) -> tuple[int, str | None]:
     The read runs inside the store's watch, so a store that stops answering
     fails it naming the store.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     with (
         store.reading(),

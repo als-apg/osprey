@@ -99,7 +99,6 @@ dependencies = [
     "idna>=3.18",
     "MarkupSafe>=3.0.2",
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
-    "aiofiles>=25.1.0",  # Async file I/O for non-blocking Python executor
     # MCP server development (for building MCP servers)
     "fastmcp>=3.4.4",
     # Scientific computing stack - for Python execution capability
@@ -241,7 +240,7 @@ dependencies = [
     # release satisfies the floor, pip *and* uv under its default policy
     # (`if-necessary`) silently take a pre-release — which is why the floor
     # names only a stable connectors release already on PyPI.
-    "osprey-connectors>=2026.11.7",
+    "osprey-connectors>=2026.11.8",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
@@ -296,7 +295,6 @@ dev = [
     # no module at all.
     "types-PyYAML",  # `yaml`
     "types-Markdown",  # `markdown`
-    "types-aiofiles",  # `aiofiles`
     "types-psutil",  # `psutil`
     "pre-commit",
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
@@ -967,16 +965,6 @@ ignore_imports = [
     # backend routes
     # Strings, not imports: `web_terminal/agent_content_routes.py` `SCANNED_PACKAGES`
     # names `osprey.interfaces.okf_panel`.
-    # removable now: the frontmatter reader belongs to the facility layer
-    "osprey.facility.knowledge_links -> osprey.services.facility_knowledge.okf.document",
-    # removable now: the graph seeder serves two features and belongs to neither
-    "osprey.cli.build_cmd -> osprey.services.facility_knowledge.seeder.graph_seeder",
-    "osprey.deployment.container_lifecycle -> osprey.services.facility_knowledge.seeder.graph_seeder",
-    "osprey.deployment.container_lifecycle -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
-    "osprey.health.core.rendered -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
-    "osprey.mcp_server.graph.tools.get_schema -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
-    "osprey.services.channel_finder.benchmarks.runner -> osprey.services.facility_knowledge.seeder.graph_seeder",
-    "osprey.services.channel_finder.graph_index.builder -> osprey.services.facility_knowledge.seeder.graph_seeder",
 ]
 
 [[tool.importlinter.contracts]]
@@ -1027,8 +1015,6 @@ ignore_imports = [
     # removable now: a registration nothing resolves
     # A string, not an import: `registry/builtins.py` registers the service
     # `module_path="osprey.services.channel_finder"`.
-    # removable now: the MML family rule belongs to the facility layer
-    "osprey.facility.layers.mml.loaders.json_any -> osprey.services.channel_finder.tools.preview_database",
 ]
 
 [[tool.importlinter.contracts]]
@@ -1076,9 +1062,6 @@ ignore_imports = [
     "osprey.simulation.apply -> osprey.services.ariel_search.entry_url",
     "osprey.simulation.apply -> osprey.services.ariel_search.exceptions",
     "osprey.simulation.apply -> osprey.services.ariel_search.models",
-    # removable now: the artifact converters belong to the artifact store
-    "osprey.agent_runner.artifact_resolve -> osprey.mcp_server.ariel.converters",
-    "osprey.interfaces.artifacts.logbook -> osprey.mcp_server.ariel.tools.entry",
 ]
 
 [[tool.importlinter.contracts]]
