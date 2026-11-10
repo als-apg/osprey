@@ -161,7 +161,7 @@ import { state } from './state.js';
  *   outcome: 'found'|'no_answer'|'unavailable',
  *   value: unknown,
  *   timestamp: string|null,
- *   severity: string|null,
+ *   severity: number|null,
  *   status: string|null,
  *   reason?: string,
  * }} ValueRow
@@ -209,7 +209,8 @@ export function searchDirectory(filters = {}) {
 }
 
 /**
- * The url of the CSV export, for a link: it does not answer JSON.
+ * The url of the CSV export, which the CSV action fetches: it does not answer
+ * JSON.
  * @param {DirectoryFilters} [filters]
  * @returns {string}
  */
@@ -248,11 +249,13 @@ export function fetchLogbookAvailability() {
 }
 
 /**
- * Current values of at most 50 names; the route answers 422 past that.
+ * Current values of at most 50 names; the route answers 422 past that. No
+ * names are read as none, without a request.
  * @param {string[]} names
  * @returns {Promise<ValueRow[]>}
  */
 export function readValues(names) {
+  if (names.length === 0) return Promise.resolve([]);
   const params = new URLSearchParams();
   for (const name of names) params.append('name', name);
   return fetchJSON(`/api/directory/values?${params}`);

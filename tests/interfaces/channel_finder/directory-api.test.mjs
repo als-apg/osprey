@@ -101,6 +101,13 @@ describe('directory-api routes', () => {
     expect(opts.method).toBeUndefined();
     expect(opts.body).toBeUndefined();
   });
+
+  test('values of no names are none, without a request', async () => {
+    const fetchMock = stubFetch([{ name: 'A' }]);
+    const { readValues } = await import(DIRECTORY_API_MODULE);
+    expect(await readValues([])).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(0);
+  });
 });
 
 describe('cross-panel urls', () => {

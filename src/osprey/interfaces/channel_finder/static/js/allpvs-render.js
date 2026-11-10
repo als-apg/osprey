@@ -125,7 +125,8 @@ function valueCell(row, read, reason) {
     return `<td class="allpvs-value dim" title="${esc(row.reason ?? '')}">—</td>`;
   }
   const value = typeof row.value === 'object' ? JSON.stringify(row.value) : String(row.value);
-  const alarm = row.severity && row.severity !== 'NO_ALARM' && row.status ? row.status : '';
+  // The EPICS severity code; 0 is NO_ALARM.
+  const alarm = row.severity && row.status ? row.status : '';
   const title = [row.timestamp, alarm].filter(Boolean).join(' · ');
   const attrs = alarm ? ` data-alarm="${esc(String(row.severity))}"` : '';
   return `<td class="allpvs-value"${attrs} title="${esc(title)}">${esc(value)}</td>`;
