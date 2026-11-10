@@ -257,6 +257,22 @@ async def test_a_name_with_every_section_unavailable_is_missing(tmp_path: Path) 
     assert "SR:BPM3" not in result["missing"]
 
 
+async def test_each_channel_carries_the_facts_outcome(tmp_path: Path) -> None:
+    FakeDirectory.records = _records(_record("SR:BPM1"), _record("SR:OLD", status="Inactive"))
+    FakeDirectory.failing = {"SR:DOWN"}
+    _install(tmp_path, LIVE_BUILD, FACILITY)
+
+    result = json.loads(await pv_record.pv_record(["SR:BPM1", "SR:OLD", "SR:GHOST", "SR:DOWN"]))
+
+    channels = _by_name(result)
+    assert channels["SR:BPM1"]["outcome"] == "found"
+    assert channels["SR:OLD"]["outcome"] == "found"
+    assert channels["SR:GHOST"]["outcome"] == "unknown"
+    assert channels["SR:DOWN"]["outcome"] == "unavailable"
+    assert channels["SR:DOWN"]["reason"] == "connection refused"
+    assert "reason" not in channels["SR:BPM1"]
+
+
 async def test_nothing_answered_refuses_with_the_missing_map(tmp_path: Path) -> None:
     FakeDirectory.failing = {"SR:BPM1", "SR:BPM2"}
     _install(tmp_path, LIVE_BUILD, FACILITY)

@@ -39,8 +39,12 @@ async def pv_record(pvs: list[str]) -> str:
     configuration, alarm history and put history. Each section has its own
     ``outcome``; a section with no answer is ``unavailable`` with its
     ``reason``. ``not_listed`` means the directory does not list that address,
-    which is not evidence the channel does not exist. Each entry carries
-    ``links.panel``, the panel page showing that channel. No value is read
+    which is not evidence the channel does not exist. The entry's own
+    ``outcome`` sums that up: ``found`` (the directory lists it),
+    ``not_listed`` (it does not, but another section found something),
+    ``unknown`` (nothing found it) or ``unavailable`` with the directory's
+    ``reason``. Each entry carries ``links.panel``, the panel page showing
+    that channel. No value is read
     here: read current values with channel_read.
 
     Args:
@@ -49,7 +53,8 @@ async def pv_record(pvs: list[str]) -> str:
 
     Returns:
         JSON object: ``channels`` (one entry per address asked: ``name`` as
-        asked, ``lookup`` as looked up, ``sections``, ``links``) and
+        asked, ``lookup`` as looked up, ``outcome``, ``reason`` when there is
+        one, ``sections``, ``links``) and
         ``missing`` (each address no section answered, with the reason).
     """
     names = list(dict.fromkeys(name.strip() for name in pvs if name.strip()))
@@ -67,6 +72,7 @@ async def pv_record(pvs: list[str]) -> str:
             {
                 "name": name,
                 "lookup": lookup,
+                **{key: answer[key] for key in ("outcome", "reason") if key in answer},
                 "sections": answer["sections"],
                 "links": panel_link("pv", lookup),
             }

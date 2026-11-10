@@ -298,6 +298,7 @@ async def test_every_configured_section_answers(tmp_path: Path) -> None:
     assert sections["alarm_history"]["rows"][0]["user"] == "operator one"
     assert sections["put_history"]["rows"][0]["user"] == "operator two"
     assert "reason" not in sections["put_history"]
+    assert answer["outcome"] == "found"
     assert all(section["caveats"] == [] for section in answer["sections"])
 
 
@@ -313,7 +314,12 @@ async def test_an_unconfigured_section_is_absent(tmp_path: Path) -> None:
 async def test_no_section_answers_no_sections(tmp_path: Path) -> None:
     page = _facts(_config(tmp_path, LIVE_BUILD, None), tmp_path)
 
-    assert await page.pv_facts("SR:BPM1") == {"name": "SR:BPM1", "sections": []}
+    assert await page.pv_facts("SR:BPM1") == {
+        "name": "SR:BPM1",
+        "outcome": "unavailable",
+        "reason": "not available for this target",
+        "sections": [],
+    }
 
 
 async def test_hidden_properties_stay_hidden_and_detail_properties_come_first(
@@ -613,6 +619,54 @@ async def test_a_history_that_did_not_answer_carries_its_source_caveats(tmp_path
 
     assert history["outcome"] == "unavailable"
     assert history["caveats"] == ["the logger keeps 30 days"]
+
+
+# -- the page outcome -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["Active", "Inactive"])
+async def test_a_listed_pv_is_found(tmp_path: Path, status: str) -> None:
+    FakeDirectory.records = _records(_record("SR:BPM1", status=status))
+    page = _facts(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    answer = await page.pv_facts("SR:BPM1")
+
+    assert answer["outcome"] == "found"
+    assert "reason" not in answer
+
+
+async def test_an_unlisted_pv_with_logged_puts_is_not_listed(tmp_path: Path) -> None:
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG}), tmp_path)
+
+    answer = await page.pv_facts("SR:GHOST")
+
+    assert _sections(answer)["directory"]["outcome"] == "not_listed"
+    assert answer["outcome"] == "not_listed"
+
+
+async def test_an_unlisted_pv_nothing_else_found_is_unknown(tmp_path: Path) -> None:
+    FakePutLog.page = contract.HistoryPage(
+        outcome=contract.Outcome.FOUND,
+        source=contract.Source(target="live", service="caputlog", label="x", rehearsal=False),
+    )
+    section = {**FACILITY, "alarm_state": KAFKA, "put_log": PUT_LOG}
+    page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    answer = await page.pv_facts("SR:GHOST")
+
+    assert answer["outcome"] == "unknown"
+    assert "reason" not in answer
+
+
+async def test_a_failing_directory_makes_the_page_unavailable(tmp_path: Path) -> None:
+    FakeDirectory.fail = "login page instead of JSON"
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG}), tmp_path)
+
+    answer = await page.pv_facts("SR:BPM1")
+
+    assert answer["outcome"] == "unavailable"
+    assert answer["reason"] == "login page instead of JSON"
+    assert _sections(answer)["put_history"]["outcome"] == "found"
 
 
 # -- the IOC page -------------------------------------------------------------
