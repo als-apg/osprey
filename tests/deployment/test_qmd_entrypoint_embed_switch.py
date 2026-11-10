@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.deployment._qmd_entrypoint import run_entrypoint
+from tests.deployment._qmd_entrypoint import run_entrypoint, run_entrypoint_for_leftovers
 
 pytestmark = pytest.mark.skipif(shutil.which("sh") is None, reason="needs sh, as the image has")
 
@@ -149,6 +149,30 @@ def test_stop_heartbeat_leaves_no_process_behind(tmp_path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "STOPPED" in result.stdout
+
+
+@pytest.mark.parametrize("shell", ["dash"])
+def test_a_stop_right_after_the_start_leaves_no_process_behind(tmp_path, shell):
+    # A stage that finishes at once stops the heartbeat a moment after its
+    # start, while its subshell may still be forking or between forking the
+    # sleep and saving its pid. Two hundred such stops in a row land the signal
+    # in those windows many times over. Every process the run starts stays in
+    # its process group, so whatever is still alive in it once the shell has
+    # exited is a process the stops left behind. dash is the image's sh, and
+    # the one shell the entrypoint's signal handling is written against.
+    if shutil.which(shell) is None:
+        pytest.skip(f"needs {shell}")
+    script = (
+        "i=0; while [ $i -lt 200 ]; do start_heartbeat demo; stop_heartbeat; "
+        "i=$((i + 1)); done; echo STOPPED"
+    )
+    returncode, output, leftovers = run_entrypoint_for_leftovers(
+        tmp_path, shell=shell, stub=_STUB, script=script, env={}
+    )
+
+    assert returncode == 0, f"the stops did not return: {output} {leftovers}"
+    assert "STOPPED" in output
+    assert leftovers == []
 
 
 #: A stub qmd whose vectors live in the index file, as qmd's do: ``update``

@@ -168,7 +168,7 @@ stop_child() {
 
 on_term() {
     log "signal received; shutting down"
-    stop_child "$HEARTBEAT_PID"
+    stop_heartbeat
     # Forwarder first: stop accepting new connections before the daemon behind
     # it goes away, so in-flight clients see a closed port rather than a hang.
     stop_child "$SOCAT_PID"
@@ -197,28 +197,51 @@ run_stage() {
 
 # Periodic "still working" line for the stages that can run for tens of
 # minutes. Without it a full rebuild looks indistinguishable from a hang.
-# The subshell does not inherit on_term, so it carries its own TERM trap; the
-# sleep runs as a waited-on job so that trap fires at once and takes the sleep
-# with it, leaving no process behind once stop_heartbeat returns.
+#
+# stop_heartbeat has to leave no process behind wherever its signal lands,
+# and a stage that finishes at once stops the heartbeat a moment after its
+# start. Two windows decide the shape:
+# - The stop signal is USR1, which nothing here traps. A forked child keeps
+#   the parent's handlers until the shell resets them, and dash drops a
+#   trapped signal that lands in that gap: a TERM there would be lost and
+#   stop_heartbeat would wait out the sleep. An untrapped USR1 kills the
+#   subshell outright before its own trap is set, when it has no sleep yet.
+# - A shell runs a trap between commands, so the signal can land after
+#   `sleep &` has forked and before `$!` is saved. The trap therefore kills
+#   only the sleep it knows of and raises a flag; the loop reads the flag once
+#   the pid is saved and after every wait, kills the sleep it just started,
+#   and reaps it before the subshell exits.
 start_heartbeat() {
     _label=$1
     (
         _hb_sleep=""
-        trap 'kill "$_hb_sleep" 2>/dev/null; exit 0' TERM
+        _hb_stop=""
+        trap '_hb_stop=1; [ -z "$_hb_sleep" ] || kill "$_hb_sleep" 2>/dev/null || :' USR1
         _t0=$(date +%s)
-        while :; do
+        while [ -z "$_hb_stop" ]; do
             sleep 120 &
             _hb_sleep=$!
-            wait "$_hb_sleep"
+            if [ -n "$_hb_stop" ]; then
+                kill "$_hb_sleep" 2>/dev/null || :
+                break
+            fi
+            wait "$_hb_sleep" || :
+            _hb_sleep=""
+            [ -z "$_hb_stop" ] || break
             _elapsed=$(( $(date +%s) - _t0 ))
             log "  ... $_label still running ($(fmt_duration "$_elapsed") elapsed)"
         done
+        wait
+        exit 0
     ) &
     HEARTBEAT_PID=$!
 }
 
 stop_heartbeat() {
-    stop_child "$HEARTBEAT_PID"
+    if [ -n "$HEARTBEAT_PID" ]; then
+        kill -USR1 "$HEARTBEAT_PID" 2>/dev/null || true
+        wait "$HEARTBEAT_PID" 2>/dev/null || true
+    fi
     HEARTBEAT_PID=""
 }
 
