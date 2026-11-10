@@ -3735,7 +3735,8 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [changes, test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, optimizer-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, slack-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-cache-warmup, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke, canopy-contract]
+    # qmd-cache-warmup stays out: it runs on main pushes only, whose own run it already turns red.
+    needs: [changes, test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-deploy-e2e, single-user-narrowing-e2e, host-record-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, optimizer-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, graph-reseed-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, slack-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, va-bluesky-deploy-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Not on cancel: a superseded run must not leave a red gate on the same sha.
@@ -3743,170 +3744,40 @@ jobs:
 
     steps:
     - name: Check all jobs status
-      # actor/head_ref go through `env:`, never `${{ }}` in `run:` (script injection).
+      # Every input goes through `env:`, never `${{ }}` in `run:` (script injection).
       env:
+        NEEDS: ${{ toJSON(needs) }}
         ACTOR: ${{ github.actor }}
         HEAD_BRANCH: ${{ github.head_ref }}
         EVENT_NAME: ${{ github.event_name }}
         REVALIDATE: ${{ inputs.revalidate_secret_lanes }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         HAS_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
-        DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
       run: |
-        require_success() {
-          # $1 = failure message, $2 = needs.<job>.result; anything but "success" fails.
-          if [[ "$2" != "success" ]]; then
-            echo "$1"
-            exit 1
-          fi
-        }
-        # changes first: a failed classifier skips every PR lane, which check_pr_lane passes.
-        require_success "❌ Changed-path classifier failed; the e2e lanes that need it did not run" "${{ needs.changes.result }}"
-        require_success "❌ Tests failed" "${{ needs.test.result }}"
-        require_success "❌ Serial suites failed (pty, wall-clock budgets or live Channel Access)" "${{ needs.serial-suites.result }}"
-        require_success "❌ Archiver suite failed at the declared dependency floor" "${{ needs.dependency-floor.result }}"
-        require_success "❌ Optimizer suite failed" "${{ needs.optimizer.result }}"
-        require_success "❌ Connectors suite failed without the framework installed" "${{ needs.connectors-standalone.result }}"
-        require_success "❌ Connectors compatibility plan failed (supported releases or connectors floor)" "${{ needs.connectors-compat-plan.result }}"
-        require_success "❌ Connectors HEAD broke a supported framework release" "${{ needs.connectors-compat.result }}"
-        require_success "❌ Framework HEAD failed at its declared connectors floor" "${{ needs.framework-at-connectors-floor.result }}"
-        require_success "❌ Lint checks or the config-key resurrection guard failed" "${{ needs.lint.result }}"
-        require_success "❌ Documentation build failed" "${{ needs.docs.result }}"
-        require_success "❌ Package build or the lean connectors wheel check failed" "${{ needs.package.result }}"
-        require_success "❌ Tier 0 static checks failed" "${{ needs.static-checks.result }}"
-        require_success "❌ Plugin marketplace smoke failed (the osprey plugin no longer installs)" "${{ needs.plugin-smoke.result }}"
-        require_success "❌ Behavioral theming suite failed" "${{ needs.visual-theming.result }}"
-        require_success "❌ Watchdog browser / visual regression suite failed" "${{ needs.visual-theming-agent.result }}"
-        require_success "❌ Frontend JS (typecheck + vitest) failed" "${{ needs.frontend-js.result }}"
-        require_success "❌ Tier 1 build + boot smoke failed" "${{ needs.build-boot-smoke.result }}"
-        # canopy-contract reports success itself when not needed, so a skip never passes.
-        require_success "❌ CANOPY contract failed" "${{ needs.canopy-contract.result }}"
-        check_pr_lane() {
-          # $1 = human-readable lane name, $2 = needs.<job>.result
-          if [[ "$2" == "skipped" && "$EVENT_NAME" == "workflow_dispatch" && "$REVALIDATE" == "true" ]]; then
-            echo "❌ $1 skipped on a revalidation run, which must run every lane"
-            exit 1
-          elif [[ "$2" == "skipped" ]]; then
-            echo "⏭️  $1 skipped (lane's if: condition not met on this event)"
-          elif [[ "$2" != "success" ]]; then
-            echo "❌ $1 failed (result: $2)"
-            exit 1
-          else
-            echo "✅ $1 passed"
-          fi
-        }
-        check_pr_lane "Agentic per-preset"           "${{ needs.agentic-per-preset.result }}"
-        check_pr_lane "E2E tests"                    "${{ needs.e2e-tests.result }}"
-        check_pr_lane "Model-free E2E"               "${{ needs.e2e-no-model.result }}"
-        check_pr_lane "Agent record E2E"             "${{ needs.agent-record-e2e.result }}"
-        check_pr_lane "Deploy E2E"                   "${{ needs.deploy-e2e.result }}"
-        check_pr_lane "Dispatch deploy E2E"          "${{ needs.dispatch-deploy-e2e.result }}"
-        check_pr_lane "Single-user narrowing E2E"    "${{ needs.single-user-narrowing-e2e.result }}"
-        check_pr_lane "Host record E2E"              "${{ needs.host-record-e2e.result }}"
-        check_pr_lane "Dispatch overlay E2E"         "${{ needs.dispatch-overlay-e2e.result }}"
-        check_pr_lane "Bluesky deploy E2E"           "${{ needs.bluesky-deploy-e2e.result }}"
-        check_pr_lane "Optimizer deploy E2E"         "${{ needs.optimizer-deploy-e2e.result }}"
-        check_pr_lane "Bluesky web deploy E2E"    "${{ needs.bluesky-web-deploy-e2e.result }}"
-        check_pr_lane "VA substrate equivalence E2E" "${{ needs.va-substrate-equivalence-e2e.result }}"
-        check_pr_lane "ORM + Grid roundtrip E2E"     "${{ needs.orm-roundtrip-e2e.result }}"
-        check_pr_lane "Bluesky queue E2E"            "${{ needs.bluesky-queue-e2e.result }}"
-        check_pr_lane "Scan stack agentic E2E"       "${{ needs.scan-agentic-e2e.result }}"
-        check_pr_lane "Archiver world E2E"           "${{ needs.archiver-world-e2e.result }}"
-        check_pr_lane "Graph reseed stamp E2E"       "${{ needs.graph-reseed-e2e.result }}"
-        check_pr_lane "Tiled roundtrip E2E"          "${{ needs.tiled-roundtrip-e2e.result }}"
-        check_pr_lane "Bluesky catalog E2E"          "${{ needs.bluesky-catalog-e2e.result }}"
-        check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"
-        check_pr_lane "Nextcloud Talk bridge E2E"    "${{ needs.nextcloud-talk-bridge-e2e.result }}"
-        check_pr_lane "Google Chat bridge E2E"       "${{ needs.gchat-bridge-e2e.result }}"
-        check_pr_lane "Microsoft Teams bridge E2E"   "${{ needs.teams-bridge-e2e.result }}"
-        check_pr_lane "Slack bridge E2E"             "${{ needs.slack-bridge-e2e.result }}"
-        check_pr_lane "Dockerfile E2E"               "${{ needs.dockerfile-e2e.result }}"
-        check_pr_lane "Privilege split E2E"          "${{ needs.privilege-split-e2e.result }}"
-        check_pr_lane "Execution env parity E2E"     "${{ needs.execution-environment-parity-e2e.result }}"
-        check_pr_lane "Deploy write-back E2E"         "${{ needs.deploy-writeback-e2e.result }}"
-        check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"
-        check_pr_lane "Multi-user lifecycle E2E (podman)" "${{ needs.multi-user-deploy-lifecycle-e2e-podman.result }}"
-        check_pr_lane "Auth perimeter E2E"           "${{ needs.auth-perimeter-e2e.result }}"
-        check_pr_lane "Terminal auth multi-user E2E" "${{ needs.terminal-auth-multiuser-e2e.result }}"
-        check_pr_lane "Full-chain auth E2E"        "${{ needs.full-chain-auth-e2e.result }}"
-        check_pr_lane "Two-shape boot E2E (podman-compose)" "${{ needs.two-shape-boot-e2e.result }}"
-        check_pr_lane "qmd layer cache warm-up"      "${{ needs.qmd-cache-warmup.result }}"
-        check_pr_lane "qmd sidecar E2E"              "${{ needs.qmd-sidecar-e2e.result }}"
-        check_pr_lane "Notebook panel E2E"           "${{ needs.jupyter-panel-e2e.result }}"
-        check_pr_lane "Control-target switch E2E"    "${{ needs.target-switch-e2e.result }}"
-        check_pr_lane "Control-target switch agentic E2E" "${{ needs.target-switch-agentic-e2e.result }}"
-        check_pr_lane "Live virtual accelerator E2E" "${{ needs.va-live-e2e.result }}"
-        check_pr_lane "VA plan deploy E2E"           "${{ needs.va-bluesky-deploy-e2e.result }}"
+        # A skip passes (the lane's `if:` did not match the event), but a revalidation must run every lane.
+        passing='["success", "skipped"]'
+        if [[ "$EVENT_NAME" == "workflow_dispatch" && "$REVALIDATE" == "true" ]]; then passing='["success"]'; fi
+        summary=${GITHUB_STEP_SUMMARY:-/dev/null}
+        {
+          echo "| Job | Result |"
+          echo "| --- | --- |"
+          jq -nr --argjson needs "$NEEDS" '$needs | to_entries[] | "| \(.key) | \(.value.result) |"'
+        } >> "$summary"
+
+        if [[ "$ACTOR" == "dependabot[bot]" ]]; then
+          hint="Dependabot runs get no secrets, so the API-key lanes skipped. After reviewing the diff, revalidate: \`gh workflow run ci.yml --ref $HEAD_BRANCH -f revalidate_secret_lanes=true\`"
+        elif [[ "$EVENT_NAME" == "pull_request" && "$HAS_FULL_CI" != "true" ]]; then
+          hint="The model-spending lanes, and on a docs-only change every e2e lane, run only under the full-ci label: \`gh pr edit $PR_NUMBER --add-label full-ci\`"
+        fi
+        if [[ -n "${hint:-}" ]]; then
+          echo "ℹ️  $hint"
+          printf '\n%s\n' "$hint" >> "$summary"
+        fi
+
+        bad=$(jq -nr --argjson needs "$NEEDS" --argjson ok "$passing" \
+          '$needs | to_entries[] | select(.value.result | IN($ok[]) | not) | "❌ \(.key): \(.value.result)"')
+        if [[ -n "$bad" ]]; then
+          echo "$bad"
+          exit 1
+        fi
         echo "✅ All CI checks passed!"
-
-        # Advisory, never reds the gate (hence `-n "$GITHUB_STEP_SUMMARY"`: `>> ""` fails under bash -e).
-        # Dependabot gets no secrets, so every API-key lane skipped: say so in the run summary.
-        if [ "$ACTOR" = "dependabot[bot]" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-          {
-            echo "### ⚠️ Secret-dependent lanes did not run"
-            echo
-            echo "Dependabot pull requests are treated as fork runs and receive only the"
-            echo "Dependabot secret store, so \`ALS_APG_API_KEY\` is unavailable and these"
-            echo "lanes skipped rather than executed:"
-            echo
-            echo "- Deploy E2E Test (build + deploy pipeline)"
-            echo "- Tier 3 — Agentic flow"
-            echo "- E2E Tests"
-            echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"
-            echo "- Single-User Narrowing E2E"
-            echo "- Host Record E2E"
-            echo "- Nextcloud Talk Bridge E2E / Google Chat Bridge E2E"
-            echo "- Scan Stack Agentic E2E"
-            echo "- Control-Target Switch Agentic E2E"
-            echo
-            echo "**This gate cannot vouch for them.** After reviewing the dependency diff,"
-            echo "revalidate the branch as a maintainer (that run does get the secrets):"
-            echo
-            echo '```'
-            echo "gh workflow run ci.yml --ref $HEAD_BRANCH -f revalidate_secret_lanes=true"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "⚠️  Secret-dependent lanes skipped (Dependabot run) — see run summary."
-        fi
-
-        if [ "$EVENT_NAME" = "pull_request" ] && [ "$ACTOR" != "dependabot[bot]" ] \
-           && [ "$HAS_FULL_CI" != "true" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-          {
-            echo "### ℹ️ Model-spending lanes did not run (no \`full-ci\` label)"
-            echo
-            echo "These lanes drive real agent sessions and run only when asked for, not on"
-            echo "every pull request push. They skipped here:"
-            echo
-            echo "- Tier 3 — Agentic flow"
-            echo "- E2E Tests"
-            echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"
-            echo "- Single-User Narrowing E2E"
-            echo "- Host Record E2E"
-            echo "- Nextcloud Talk Bridge E2E / Google Chat Bridge E2E"
-            echo "- Scan Stack Agentic E2E"
-            echo "- Control-Target Switch Agentic E2E"
-            echo
-            echo "If this change touches what they cover, run them on this PR:"
-            echo
-            echo '```'
-            echo "gh pr edit $PR_NUMBER --add-label full-ci"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "ℹ️  Model-spending lanes skipped (no full-ci label) — see run summary."
-        fi
-
-        if [ "$DOCS_ONLY" = "true" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-          {
-            echo "### ℹ️ Docs-only pull request: e2e and deploy lanes did not run"
-            echo
-            echo "Every changed path is under \`docs/\`, \`changelog.d/\` or \`tests/docs/\`"
-            echo "(scripts/ci/docs_only.py), so the pull-request-scoped lanes stood down."
-            echo "The always-on lanes, the docs build and the tests that read docs/ ran."
-            echo "To run every lane anyway:"
-            echo
-            echo '```'
-            echo "gh pr edit $PR_NUMBER --add-label full-ci"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "ℹ️  Docs-only pull request: e2e lanes skipped — see run summary."
-        fi

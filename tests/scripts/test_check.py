@@ -826,7 +826,8 @@ def test_every_required_ci_job_is_a_caller_or_a_lane() -> None:
     assert [job for job in (*lanes, *check.CALLER_JOBS) if job not in jobs] == []
     required = jobs["all-checks-passed"]["needs"]
     assert sorted(set(required) - set(lanes) - set(check.CALLER_JOBS)) == []
-    assert set(lanes) - set(required) == {"channel-finder-benchmarks"}
+    # The warm-up runs on main pushes only, so a revalidation dispatch would read it as a skipped lane.
+    assert set(lanes) - set(required) == {"channel-finder-benchmarks", "qmd-cache-warmup"}
 
 
 # ---------------------------------------------------------------------------

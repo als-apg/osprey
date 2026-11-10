@@ -54,6 +54,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import tomllib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
@@ -3081,26 +3082,176 @@ def _gate_run_text(wf: dict[str, Any]) -> str:
     return _find_named_step(wf, GATE_JOB, "Check all jobs status")["run"]
 
 
+def _gate_exit(
+    wf: dict[str, Any], results: dict[str, str] | None = None, **env: str
+) -> tuple[int, str, str]:
+    """Run the gate's own script on fake ``needs`` results (unnamed jobs ``success``)
+    under a pull-request event unless *env* says otherwise; return its exit code,
+    its output and the step summary it wrote."""
+    needs = {
+        job: {"result": (results or {}).get(job, "success"), "outputs": {}}
+        for job in _jobs(wf)[GATE_JOB]["needs"]
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        summary = Path(tmp) / "summary"
+        defaults = {"EVENT_NAME": "pull_request", "REVALIDATE": "", "ACTOR": "someone"}
+        done = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", _gate_run_text(wf)],
+            env={
+                **os.environ,
+                **defaults,
+                "HAS_FULL_CI": "true",
+                "HEAD_BRANCH": "some-branch",
+                "PR_NUMBER": "7",
+                "NEEDS": json.dumps(needs),
+                "GITHUB_STEP_SUMMARY": str(summary),
+                **env,
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return done.returncode, done.stdout + done.stderr, summary.read_text()
+
+
+def _gate_checks_lane(wf: dict[str, Any], job: str) -> bool:
+    """Does the gate fail, naming *job*, when *job* fails and every other lane passes?"""
+    code, out, _ = _gate_exit(wf, {job: "failure"})
+    return code != 0 and f"{job}: failure" in out
+
+
 def test_gate_checks_every_needed_job(workflow: dict[str, Any]) -> None:
-    """Completeness: every job listed in the gate's ``needs`` must have its
-    ``needs.<job>.result`` examined by the gate script. A needs entry the
-    script never reads is decorative — the job could go red forever inside a
-    green check (the exact shape the old advisory tier had)."""
-    run_text = _gate_run_text(workflow)
+    """Completeness: the gate reads every needed job's result, so a failure of any
+    one of them fails it. A needs entry the script never reads is decorative — the
+    job could go red forever inside a green check."""
+    env = _find_named_step(workflow, GATE_JOB, "Check all jobs status")["env"]
+    assert env["NEEDS"] == "${{ toJSON(needs) }}"
     unchecked = [
-        job for job in _jobs(workflow)[GATE_JOB]["needs"] if f"needs.{job}.result" not in run_text
+        job for job in _jobs(workflow)[GATE_JOB]["needs"] if not _gate_checks_lane(workflow, job)
     ]
     assert unchecked == [], f"gate never examines: {unchecked}"
 
 
-def test_gate_checks_every_needed_job__mutation_adds_unchecked_need() -> None:
+def test_gate_checks_every_needed_job__mutation_ignores_one_lane() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].append("phantom-lane")
-    run_text = _gate_run_text(mutated)
-    unchecked = [
-        job for job in _jobs(mutated)[GATE_JOB]["needs"] if f"needs.{job}.result" not in run_text
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = original.replace(
+        "'$needs | to_entries[] | select",
+        f'\'$needs | del(.["{SLACK_JOB}"]) | to_entries[] | select',
+    )
+    assert step["run"] != original, "no result filter in the gate — mutation is stale"
+    with pytest.raises(AssertionError, match=SLACK_JOB):
+        test_gate_checks_every_needed_job(mutated)
+
+
+def test_gate_checks_every_needed_job__mutation_reads_a_subset_of_needs() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, GATE_JOB, "Check all jobs status")["env"]["NEEDS"] = (
+        "${{ toJSON(needs.test) }}"
+    )
+    with pytest.raises(AssertionError):
+        test_gate_checks_every_needed_job(mutated)
+
+
+def test_the_gate_rule(workflow: dict[str, Any]) -> None:
+    """One rule over every needed job: a failure or a cancel fails the gate, a skip
+    passes it (the lane's `if:` did not match the event) except on a revalidation,
+    and every bad lane is named, not only the first."""
+    reval = {"EVENT_NAME": "workflow_dispatch", "REVALIDATE": "true"}
+    assert _gate_exit(workflow)[0] == 0
+    assert _gate_exit(workflow, **reval)[0] == 0
+    for event in ("pull_request", "push", "workflow_dispatch"):
+        code, _, summary = _gate_exit(workflow, {SLACK_JOB: "skipped"}, EVENT_NAME=event)
+        assert code == 0, f"a skipped lane fails the gate on {event}"
+        assert f"| {SLACK_JOB} | skipped |" in summary, "the results table hides a skipped lane"
+    code, out, _ = _gate_exit(workflow, {SLACK_JOB: "skipped"}, **reval)
+    assert code != 0, "a skipped lane passes the gate on a revalidation run"
+    assert f"{SLACK_JOB}: skipped" in out
+    for result in ("failure", "cancelled"):
+        code, out, _ = _gate_exit(workflow, {SLACK_JOB: result})
+        assert code != 0, f"a '{result}' lane passes the gate"
+        assert f"{SLACK_JOB}: {result}" in out
+    _, out, _ = _gate_exit(workflow, {SLACK_JOB: "failure", CANOPY_CONTRACT_JOB: "cancelled"})
+    assert f"{SLACK_JOB}: failure" in out, "the gate names only the first bad lane"
+    assert f"{CANOPY_CONTRACT_JOB}: cancelled" in out, "the gate names only the first bad lane"
+
+
+def test_the_gate_rule__mutation_passes_a_skip_on_a_revalidation_run() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if "REVALIDATE" not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    with pytest.raises(AssertionError, match="passes the gate on a revalidation run"):
+        test_the_gate_rule(mutated)
+
+
+def test_the_gate_rule__mutation_passes_a_cancel() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = original.replace(
+        'passing=\'["success", "skipped"]\'', 'passing=\'["success", "skipped", "cancelled"]\''
+    )
+    assert step["run"] != original, "no passing list in the gate — mutation is stale"
+    with pytest.raises(AssertionError, match="'cancelled' lane passes the gate"):
+        test_the_gate_rule(mutated)
+
+
+def test_the_gate_rule__mutation_names_only_the_first_bad_lane() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = original.replace('echo "$bad"', "echo \"${bad%%$'\\n'*}\"")
+    assert step["run"] != original, "no report of the bad lanes — mutation is stale"
+    with pytest.raises(AssertionError, match="only the first bad lane"):
+        test_the_gate_rule(mutated)
+
+
+def _always_on_lanes_that_can_skip_unseen(wf: dict[str, Any]) -> list[str]:
+    """Needed jobs with no `if:` whose upstream could skip them without failing the gate.
+
+    Such a job skips only when something it needs did not succeed; if every job
+    upstream of it is itself needed, always on and gated, that cause already fails
+    the gate, so passing its skip loses nothing."""
+    jobs, gated = _jobs(wf), set(_jobs(wf)[GATE_JOB]["needs"])
+    problems = []
+    for job in sorted(gated):
+        if "if" in jobs[job]:
+            continue
+        todo, seen = [job], set()
+        while todo:
+            upstream = jobs[todo.pop()].get("needs") or []
+            for up in [upstream] if isinstance(upstream, str) else upstream:
+                if up not in seen:
+                    seen.add(up)
+                    todo.append(up)
+        problems += [f"{job} <- {up}" for up in sorted(seen) if up not in gated or "if" in jobs[up]]
+    return problems
+
+
+def test_an_always_on_lane_never_skips_past_the_gate(workflow: dict[str, Any]) -> None:
+    """The rule passes a skip, so a job that must run (no job-level `if:`) may skip
+    only behind an upstream failure the gate already fails on."""
+    assert "connectors-compat" in _jobs(workflow)[GATE_JOB]["needs"]  # the case this guards
+    assert _always_on_lanes_that_can_skip_unseen(workflow) == []
+
+
+def test_an_always_on_lane_never_skips_past_the_gate__mutation_conditions_the_upstream() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["connectors-compat-plan"]["if"] = "github.event_name == 'push'"
+    assert _always_on_lanes_that_can_skip_unseen(mutated) == [
+        "connectors-compat <- connectors-compat-plan",
+        "framework-at-connectors-floor <- connectors-compat-plan",
     ]
-    assert unchecked == ["phantom-lane"]
+
+
+def test_an_always_on_lane_never_skips_past_the_gate__mutation_ungates_the_upstream() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove("connectors-compat-plan")
+    with pytest.raises(AssertionError):
+        test_an_always_on_lane_never_skips_past_the_gate(mutated)
 
 
 def test_gate_has_no_advisory_tier(workflow: dict[str, Any]) -> None:
@@ -3198,20 +3349,16 @@ def test_e2e_lane_ignores_nextcloud_talk_bridge__mutation_drops_ignore() -> None
 
 
 def test_gate_checks_nextcloud_talk_bridge_result(workflow: dict[str, Any]) -> None:
-    """A ``needs`` entry the gate script never reads is decorative — the
-    generic completeness guard above catches that, but this lane gets its own
-    named check so a partial removal names the right lane in the failure."""
-    assert f"needs.{NEXTCLOUD_JOB}.result" in _gate_run_text(workflow)
+    """The generic completeness guard above covers this lane too; its own named
+    check makes a removal name the right lane in the failure."""
+    assert _gate_checks_lane(workflow, NEXTCLOUD_JOB)
 
 
-def test_gate_checks_nextcloud_talk_bridge_result__mutation_drops_check_line() -> None:
+def test_gate_checks_nextcloud_talk_bridge_result__mutation_drops_the_need() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if NEXTCLOUD_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
+    _jobs(mutated)[GATE_JOB]["needs"].remove(NEXTCLOUD_JOB)
     with pytest.raises(AssertionError):
-        assert f"needs.{NEXTCLOUD_JOB}.result" in _gate_run_text(mutated)
+        test_gate_checks_nextcloud_talk_bridge_result(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -3929,25 +4076,7 @@ def test_slack_bridge_job_gates_the_merge(workflow: dict[str, Any]) -> None:
     assert SLACK_JOB in _jobs(workflow)[GATE_JOB]["needs"], (
         f"'{GATE_JOB}' does not need '{SLACK_JOB}'"
     )
-    assert _gate_checks_lane(workflow, SLACK_JOB), (
-        f"the gate script has no check_pr_lane line reading needs.{SLACK_JOB}.result"
-    )
-
-
-def test_slack_bridge_job_gates_the_merge__mutation_drops_the_check_line() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = next(
-        s
-        for s in _jobs(mutated)[GATE_JOB]["steps"]
-        if f"needs.{SLACK_JOB}.result" in s.get("run", "")
-    )
-    step["run"] = "".join(
-        line
-        for line in step["run"].splitlines(keepends=True)
-        if f"needs.{SLACK_JOB}.result" not in line
-    )
-    with pytest.raises(AssertionError, match="no check_pr_lane line"):
-        test_slack_bridge_job_gates_the_merge(mutated)
+    assert _gate_checks_lane(workflow, SLACK_JOB), f"the gate does not fail on a failed {SLACK_JOB}"
 
 
 # ---------------------------------------------------------------------------
@@ -7372,11 +7501,12 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 #: reason: ``channel-finder-benchmarks`` is a manually dispatched quality score
 #: (pinned by ``test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it``),
 #: ``tier2-model-benchmark`` is a manually dispatched model benchmark (pinned
-#: by ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), and the gate
-#: cannot depend on itself. Anything else that is not in
+#: by ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), ``qmd-cache-warmup``
+#: runs on main pushes only, whose own run its failure already turns red (needed,
+#: it failed every revalidation as a skipped lane), and the gate cannot depend on itself. Anything else that is not in
 #: ``needs`` can go red forever inside a green check — the 17 privilege-split
 #: Docker tests did exactly that for a phase.
-JOBS_OUTSIDE_THE_GATE = frozenset({BENCHMARKS_JOB, TIER2_JOB, GATE_JOB})
+JOBS_OUTSIDE_THE_GATE = frozenset({BENCHMARKS_JOB, TIER2_JOB, QMD_WARMUP_JOB, GATE_JOB})
 
 
 def _jobs_missing_from_the_gate(wf: dict[str, Any]) -> list[str]:
@@ -8931,27 +9061,6 @@ def test_deploy_e2e_skips_dependabot__mutation_reverts_to_fork_only_guard() -> N
         test_deploy_e2e_skips_dependabot(mutated)
 
 
-def test_gate_summary_names_the_deploy_lane(workflow: dict[str, Any]) -> None:
-    """The Dependabot run summary enumerates the lanes the gate cannot vouch
-    for; a skipped lane missing from that list is a silent coverage gap."""
-    step = _find_named_step(workflow, GATE_JOB, "Check all jobs status")
-    assert "Deploy E2E Test (build + deploy pipeline)" in step["run"]
-
-
-def test_gate_summary_names_the_deploy_lane__mutation_drops_the_line() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [
-        line
-        for line in step["run"].splitlines(keepends=True)
-        if "Deploy E2E Test (build + deploy pipeline)" not in line
-    ]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    with pytest.raises(AssertionError):
-        test_gate_summary_names_the_deploy_lane(mutated)
-
-
 def _step_names(wf: dict[str, Any], job_name: str) -> list[str]:
     return [step.get("name", "") for step in _jobs(wf)[job_name]["steps"]]
 
@@ -9556,7 +9665,7 @@ def test_documented_gate_steps_are_the_ci_line__mutation_drops_a_flag(
 # ---------------------------------------------------------------------------
 #
 # Section (e) proves a marked module LEFT the shared e2e lane. Nothing proved it
-# ARRIVED anywhere: the per-lane "job exists"/"needs"/"check_pr_lane" assertions
+# ARRIVED anywhere: the per-lane "job exists"/"needs"/"gate reads it" assertions
 # above are hand-written one lane at a time, so a lane nobody remembered to pin
 # could be deleted whole and this module stayed green. That is not hypothetical
 # — it was true of both halves of the auth/audit wiring (the full-chain lane and
@@ -9607,12 +9716,6 @@ def _jobs_running_e2e_file(wf: dict[str, Any], test_file: str) -> list[str]:
     return sorted(homes)
 
 
-def _gate_checks_lane(wf: dict[str, Any], job: str) -> bool:
-    """Does the gate script's ``check_pr_lane`` roll-up examine *job*'s result?"""
-    pattern = rf'check_pr_lane\s+"[^"]*"\s+"\$\{{\{{\s*needs\.{re.escape(job)}\.result\s*\}}\}}"'
-    return re.search(pattern, _gate_run_text(wf)) is not None
-
-
 def _unwired_dockerbuild_modules(wf: dict[str, Any]) -> dict[str, list[str]]:
     """Marked e2e files with no lane that both runs them and gates the merge."""
     needs = _jobs(wf)[GATE_JOB]["needs"]
@@ -9639,8 +9742,8 @@ def test_every_dockerbuild_marked_module_reaches_a_gating_lane(workflow: dict[st
     unwired = _unwired_dockerbuild_modules(workflow)
     assert unwired == {}, (
         "dockerbuild-marked e2e module(s) with no lane that runs them AND gates the "
-        f"merge (file -> jobs that run it): {unwired} — each needs a job, a "
-        f"`needs:` entry on '{GATE_JOB}', and a check_pr_lane line reading its result"
+        f"merge (file -> jobs that run it): {unwired} — each needs a job and a "
+        f"`needs:` entry on '{GATE_JOB}'"
     )
 
 
@@ -9674,14 +9777,14 @@ def test_every_dockerbuild_marked_module_reaches_a_gating_lane__mutation_gate_dr
 def test_every_dockerbuild_marked_module_reaches_a_gating_lane__mutation_gate_stops_checking() -> (
     None
 ):
-    """The one-line regression the finding named: the ``needs`` entry stays (so
-    the roll-up still waits) but the gate stops reading the result, and a red
-    lane sits inside a green merge gate."""
+    """The ``needs`` entry stays (so the roll-up still waits) but the gate stops
+    reading the result, and a red lane sits inside a green merge gate."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if FULL_CHAIN_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
+    step["run"] = step["run"].replace(
+        "'$needs | to_entries[] | select",
+        f'\'$needs | del(.["{FULL_CHAIN_JOB}"]) | to_entries[] | select',
+    )
     assert FULL_CHAIN_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the self-enforcing half survives
     with pytest.raises(AssertionError):
         test_every_dockerbuild_marked_module_reaches_a_gating_lane(mutated)
@@ -9704,28 +9807,25 @@ def test_full_chain_auth_job_runs_its_module__mutation_drops_the_module() -> Non
         test_full_chain_auth_job_runs_its_module(mutated)
 
 
-def test_check_pr_lane_covers_full_chain_auth(workflow: dict[str, Any]) -> None:
+def test_the_gate_covers_full_chain_auth(workflow: dict[str, Any]) -> None:
     """Only lane in the repo that exercises login -> nginx -> sidecar -> render
     container end to end. Its result must be read where the merge is decided."""
     assert _gate_checks_lane(workflow, FULL_CHAIN_JOB), (
-        f"the gate script has no check_pr_lane line reading needs.{FULL_CHAIN_JOB}.result"
+        f"the gate does not fail on a failed {FULL_CHAIN_JOB}"
     )
 
 
-def test_check_pr_lane_covers_full_chain_auth__mutation_drops_the_check_line() -> None:
+def test_the_gate_covers_full_chain_auth__mutation_drops_the_need() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if FULL_CHAIN_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
+    _jobs(mutated)[GATE_JOB]["needs"].remove(FULL_CHAIN_JOB)
     with pytest.raises(AssertionError):
-        test_check_pr_lane_covers_full_chain_auth(mutated)
+        test_the_gate_covers_full_chain_auth(mutated)
 
 
 def test_privilege_split_job_runs_the_audit_two_container_module(workflow: dict[str, Any]) -> None:
     """The audit two-container module rides as a SECOND step in an existing lane
     rather than a job of its own, so neither the ``needs`` half nor the
-    check_pr_lane half says anything about it: delete the step and the lane keeps
+    gate half says anything about it: delete the step and the lane keeps
     its green check. It must also run on a red first step — the default
     ``success()`` would skip it, and skipped reads like passed."""
     step = _find_named_step(workflow, PRIVSPLIT_JOB, AUDIT_2C_STEP)
@@ -10220,54 +10320,28 @@ def test_workflow_fires_when_the_full_ci_label_is_applied__mutation_drops_labele
         test_workflow_fires_when_the_full_ci_label_is_applied(mutated)
 
 
-#: The gate step's two skipped-lanes blocks, by the start of each heading it echoes.
-DEPENDABOT_SUMMARY_HEADING = "### ⚠️ Secret-dependent lanes did not run"
-UNLABELED_SUMMARY_HEADING = "### ℹ️ Model-spending lanes did not run"
-SUMMARY_HEADINGS = (DEPENDABOT_SUMMARY_HEADING, UNLABELED_SUMMARY_HEADING)
-SUMMARY_BULLET = re.compile(r'echo "- (.+)"')
-
-
-def _summary_block_lanes(run: str, heading: str) -> list[str]:
-    """The lanes one summary block prints, a line naming two split into its two."""
-    block = run.partition(f'echo "{heading}')[2].partition('} >> "$GITHUB_STEP_SUMMARY"')[0]
-    bullets = (SUMMARY_BULLET.fullmatch(line.strip()) for line in block.splitlines())
-    return [lane for bullet in bullets if bullet for lane in bullet[1].split(" / ")]
-
-
-def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(workflow: dict[str, Any]) -> None:
-    """Same rule as the Dependabot block: a green gate with skipped lanes says
-    so where a reviewer sees it, under each lane's real name, and prints the one
-    command that runs them."""
+def test_gate_summary_says_how_to_run_the_skipped_lanes(workflow: dict[str, Any]) -> None:
+    """A green gate with skipped lanes prints the one command that runs them: the
+    label on an unlabelled pull request, the revalidation dispatch for Dependabot."""
     step = _find_named_step(workflow, GATE_JOB, "Check all jobs status")
     assert step["env"]["HAS_FULL_CI"] == "${{ " + FULL_CI_LABEL_CLAUSE + " }}"
-    assert "--add-label full-ci" in step["run"]
-    prefixes = SPENDING_PREFIXES.values()
-    for heading in SUMMARY_HEADINGS:
-        lanes = _summary_block_lanes(step["run"], heading)
-        for prefix in prefixes:
-            assert lanes.count(prefix) == 1, f"{prefix!r} must be one bullet under {heading!r}"
-    # The label gates these lanes and no other, so its block names nothing else.
-    assert sorted(_summary_block_lanes(step["run"], UNLABELED_SUMMARY_HEADING)) == sorted(prefixes)
+    _, out, summary = _gate_exit(workflow, HAS_FULL_CI="false")
+    assert "gh pr edit 7 --add-label full-ci" in summary, out
+    _, out, summary = _gate_exit(workflow, HAS_FULL_CI="false", ACTOR="dependabot[bot]")
+    assert "gh workflow run ci.yml --ref some-branch -f revalidate_secret_lanes=true" in summary, (
+        out
+    )
+    assert "--add-label" not in summary, "Dependabot cannot run the lanes with the label"
+    _, out, summary = _gate_exit(workflow)
+    assert "gh " not in summary, "a labelled pull request ran every lane"
 
 
-def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the_command() -> None:
+def test_gate_summary_says_how_to_run_the_skipped_lanes__mutation_drops_the_command() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
     step["run"] = step["run"].replace("--add-label full-ci", "")
     with pytest.raises(AssertionError):
-        test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)
-
-
-@pytest.mark.parametrize("heading", SUMMARY_HEADINGS, ids=("dependabot", "unlabeled"))
-def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_a_lane(
-    heading: str,
-) -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    before, marker, after = step["run"].partition(heading)
-    step["run"] = before + marker + after.replace('echo "- Host Record E2E"', "", 1)
-    with pytest.raises(AssertionError, match="Host Record E2E"):
-        test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)
+        test_gate_summary_says_how_to_run_the_skipped_lanes(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -13359,87 +13433,16 @@ def test_dockerfile_e2e_installs_the_dispatched_sha__mutation_drops_the_fallback
         test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(mutated)
 
 
-def _check_pr_lane_exit(wf: dict[str, Any], event: str, revalidate: str, result: str) -> int:
-    """Run the gate's own `check_pr_lane` on one lane result; return its exit code."""
-    run = _gate_run_text(wf)
-    start = run.index("check_pr_lane() {")
-    function = run[start : run.index("\n}\n", start) + 3]
-    env = {**os.environ, "EVENT_NAME": event, "REVALIDATE": revalidate}
-    done = subprocess.run(
-        ["bash", "-ec", f'{function}check_pr_lane "Some lane" "{result}"'],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return done.returncode
-
-
-def _require_success_exit(wf: dict[str, Any], result: str) -> tuple[int, str]:
-    """Run the gate's own `require_success` on one job result; return its exit code and output."""
-    run = _gate_run_text(wf)
-    start = run.index("require_success() {")
-    function = run[start : run.index("\n}\n", start) + 3]
-    done = subprocess.run(
-        ["bash", "-ec", f'{function}require_success "❌ Some job failed" "{result}"'],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return done.returncode, done.stdout
-
-
-def test_the_gate_fails_an_always_on_job_on_anything_but_success(
-    workflow: dict[str, Any],
-) -> None:
-    """An always-on job's result passes the gate only as `success`: a skip, a
-    cancel or a failure each fail it, with the job's own message."""
-    assert _require_success_exit(workflow, "success") == (0, "")
-    for result in ("failure", "skipped", "cancelled", ""):
-        code, out = _require_success_exit(workflow, result)
-        assert code != 0, f"an always-on job's '{result}' result passes the gate"
-        assert out == "❌ Some job failed\n", out
-
-
-def test_the_gate_fails_an_always_on_job_on_anything_but_success__mutation_passes_a_skip() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    original = step["run"]
-    step["run"] = original.replace(
-        'if [[ "$2" != "success" ]]; then',
-        'if [[ "$2" != "success" && "$2" != "skipped" ]]; then',
-        1,
-    )
-    assert step["run"] != original, "no result test in require_success — mutation is stale"
-    with pytest.raises(AssertionError, match="'skipped' result passes the gate"):
-        test_the_gate_fails_an_always_on_job_on_anything_but_success(mutated)
-
-
 def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(workflow: dict[str, Any]) -> None:
     """A green revalidation run vouches for every lane on its sha, so a lane
     that skipped there fails the gate. Elsewhere a skip still passes."""
     env = _find_named_step(workflow, GATE_JOB, "Check all jobs status")["env"]
     assert env["REVALIDATE"] == "${{ inputs.revalidate_secret_lanes }}"
-    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "skipped") != 0, (
-        "a skipped lane passes the gate on a revalidation run"
-    )
-    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "success") == 0
-    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "false", "skipped") == 0
-    assert _check_pr_lane_exit(workflow, "pull_request", "", "skipped") == 0
-    assert _check_pr_lane_exit(workflow, "push", "", "skipped") == 0
-    assert _check_pr_lane_exit(workflow, "pull_request", "", "failure") != 0
-
-
-def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run__mutation_drops_the_branch() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    original = step["run"]
-    step["run"] = re.sub(
-        r'if \[\[ "\$2" == "skipped" && .*?\n  elif ', "if ", original, flags=re.DOTALL
-    )
-    assert step["run"] != original, "no revalidation branch in check_pr_lane — mutation is stale"
-    with pytest.raises(AssertionError, match="passes the gate on a revalidation run"):
-        test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(mutated)
+    assert env["EVENT_NAME"] == "${{ github.event_name }}"
+    skipped = {QUEUE_JOB: "skipped"}
+    assert _gate_exit(workflow, skipped, EVENT_NAME="workflow_dispatch", REVALIDATE="true")[0] != 0
+    assert _gate_exit(workflow, skipped, EVENT_NAME="workflow_dispatch", REVALIDATE="false")[0] == 0
+    assert _gate_exit(workflow, skipped, EVENT_NAME="push", REVALIDATE="true")[0] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -13856,13 +13859,6 @@ def test_every_nightly_checkout_drops_its_credentials(nightly: dict[str, Any]) -
 # on a job that did not run the contract.
 
 CANOPY_CONTRACT_JOB = "canopy-contract"
-CANOPY_CONTRACT_GATE_FAILURE = "❌ CANOPY contract failed"
-_CANOPY_ALWAYS_ON_CHECK_RE = re.compile(
-    r'^[ \t]*require_success "(?P<message>[^"\n]*)" "\$\{\{\s*needs\.'
-    + re.escape(CANOPY_CONTRACT_JOB)
-    + r'\.result\s*\}\}"\n',
-    re.MULTILINE,
-)
 _COMMIT_LITERAL_RE = re.compile(r"\b[0-9a-f]{40}\b")
 #: The install step's requirement for each distribution, the environment
 #: variable that carries its commit from the `pin` step's output, and the one
@@ -13951,37 +13947,20 @@ def test_all_checks_passed_needs_canopy_contract__mutation_drops_needs_entry() -
 
 def test_gate_reads_canopy_contract_as_always_on(workflow: dict[str, Any]) -> None:
     """The lane ends `success` when the change does not need it, so `skipped`
-    is never a legitimate result: the gate must fail on anything but
-    `success`, which `check_pr_lane` does not do."""
-    match = _CANOPY_ALWAYS_ON_CHECK_RE.search(_gate_run_text(workflow))
-    assert match is not None, (
-        f"the gate has no always-on check of needs.{CANOPY_CONTRACT_JOB}.result"
-    )
-    assert match["message"] == CANOPY_CONTRACT_GATE_FAILURE
-    assert not _gate_checks_lane(workflow, CANOPY_CONTRACT_JOB), (
-        f"'{CANOPY_CONTRACT_JOB}' must not be read through check_pr_lane, which passes a skip"
-    )
-    assert "if" not in _jobs(workflow)[CANOPY_CONTRACT_JOB], (
+    is never a legitimate result. The gate passes a skip, so the job must not
+    be able to skip: no job-level `if:` and nothing it needs."""
+    assert _gate_checks_lane(workflow, CANOPY_CONTRACT_JOB)
+    job = _jobs(workflow)[CANOPY_CONTRACT_JOB]
+    assert "if" not in job, (
         f"'{CANOPY_CONTRACT_JOB}' must carry no job-level `if:`: a skipped job says nothing"
     )
+    assert "needs" not in job, f"'{CANOPY_CONTRACT_JOB}' must need nothing that could skip it"
 
 
-def test_gate_reads_canopy_contract_as_always_on__mutation_drops_the_check() -> None:
+def test_gate_reads_canopy_contract_as_always_on__mutation_needs_a_job() -> None:
     mutated = _load_workflow()
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    step["run"], dropped = _CANOPY_ALWAYS_ON_CHECK_RE.subn("", step["run"])
-    assert dropped == 1
-    with pytest.raises(AssertionError, match="no always-on check"):
-        test_gate_reads_canopy_contract_as_always_on(mutated)
-
-
-def test_gate_reads_canopy_contract_as_always_on__mutation_moves_it_to_check_pr_lane() -> None:
-    mutated = _load_workflow()
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    step["run"] += (
-        f'check_pr_lane "CANOPY contract" "${{{{ needs.{CANOPY_CONTRACT_JOB}.result }}}}"\n'
-    )
-    with pytest.raises(AssertionError, match="check_pr_lane"):
+    _jobs(mutated)[CANOPY_CONTRACT_JOB]["needs"] = ["changes"]
+    with pytest.raises(AssertionError, match="need nothing"):
         test_gate_reads_canopy_contract_as_always_on(mutated)
 
 
@@ -15395,40 +15374,22 @@ _GATED_LANES = [
     TARGET_SWITCH_AGENTIC_JOB,
     GRAPH_RESEED_JOB,
     RECORD_E2E_JOB,
-    # A warm-up that fails leaves every PR downloading the qmd models again;
-    # the gate on main is where that shows.
-    QMD_WARMUP_JOB,
 ]
 
 
 @pytest.mark.parametrize("job", _GATED_LANES)
 def test_all_checks_passed_gates_on_lane(workflow: dict[str, Any], job: str) -> None:
-    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
-    needed job that failed still lets it start; the ``check_pr_lane`` line is
-    what turns the result into an exit code. Both halves are pinned."""
+    """``needs:`` alone is not a gate — the roll-up runs ``if: !cancelled()``, so a
+    needed job that failed still lets it start; the gate's script is what turns
+    the result into an exit code. Both halves are pinned."""
     assert job in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{job}.result" in _gate_run_text(workflow)
+    assert _gate_checks_lane(workflow, job)
 
 
 @pytest.mark.parametrize("job", _GATED_LANES)
 def test_all_checks_passed_gates_on_lane__mutation_drops_needs_entry(job: str) -> None:
     mutated = copy.deepcopy(_load_workflow())
     _jobs(mutated)[GATE_JOB]["needs"].remove(job)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_gates_on_lane(mutated, job)
-
-
-@pytest.mark.parametrize("job", [lane for lane in _GATED_LANES if lane != PRIVSPLIT_JOB])
-def test_all_checks_passed_gates_on_lane__mutation_drops_check_pr_lane_line(job: str) -> None:
-    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
-    job) while the line that reads its result is gone — the lane could go red
-    forever inside a green check."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if job not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert job in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_gates_on_lane(mutated, job)
 
@@ -15797,14 +15758,19 @@ def test_the_classifier_runs_on_every_event_and_forces_full_on_the_label(
     assert "previous_filename" in run, "a rename's old name must be classified too"
 
 
-def test_the_gate_requires_the_classifier_to_succeed(workflow: dict[str, Any]) -> None:
-    assert CHANGES_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    # Read through require_success, which fails the gate on anything but "success".
-    assert re.search(
-        r'^\s*require_success "[^"\n]*" "\$\{\{ needs\.changes\.result \}\}"$',
-        _gate_run_text(workflow),
-        re.MULTILINE,
-    ), "the gate must require the classifier's success"
+def test_the_gate_fails_when_the_classifier_fails(workflow: dict[str, Any]) -> None:
+    """A failed classifier skips every lane that needs it, each of which passes
+    the gate on a pull request; the classifier's own failure is what fails it."""
+    results = {
+        job: "skipped"
+        for job, spec in _jobs(workflow).items()
+        if CHANGES_JOB in (spec.get("needs") or []) and job != GATE_JOB
+    }
+    assert results, f"no lane needs {CHANGES_JOB}"
+    assert _gate_exit(workflow, results)[0] == 0
+    code, out, _ = _gate_exit(workflow, {**results, CHANGES_JOB: "failure"})
+    assert code != 0, "the gate passes a failed classifier"
+    assert f"{CHANGES_JOB}: failure" in out
 
 
 def _pr_lanes_naming_docs_tests(wf: dict[str, Any]) -> list[str]:
