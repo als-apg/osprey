@@ -897,10 +897,12 @@ refuses that switch on a render with no optimizer to dial: a deployment that
 does not run one, or an attached render whose host publishes no
 <code class="docutils literal notranslate"><span class="pre">services.optimizer.port</span></code>. The server dials <code class="docutils literal notranslate"><span class="pre">services.optimizer.port</span></code> on
 loopback, or <code class="docutils literal notranslate"><span class="pre">OPTIMIZER_URL</span></code> when that is set.</p>
-<p>The server holds no launch token and cannot start a run: a person starts
-every run. A tool that reads a machine (<code class="docutils literal notranslate"><span class="pre">environment_status</span></code>,
-<code class="docutils literal notranslate"><span class="pre">read_observables</span></code>, <code class="docutils literal notranslate"><span class="pre">initial_bounds</span></code>) asks about the session’s control
-target, as every app does.</p>
+<p>The server holds no launch token, so it cannot start, resume or restore a run:
+the agent drafts a run and a person starts it. A tool that reads a machine
+(<code class="docutils literal notranslate"><span class="pre">environment_status</span></code>, <code class="docutils literal notranslate"><span class="pre">read_observables</span></code>, <code class="docutils literal notranslate"><span class="pre">initial_bounds</span></code>) asks about
+the session’s control target, as every app does, and a draft is always for
+that target: <code class="docutils literal notranslate"><span class="pre">create_draft</span></code> and <code class="docutils literal notranslate"><span class="pre">update_draft</span></code> refuse a config naming
+another.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_environments</span></code> – List the optimization environments the service offers.</p></li>
@@ -913,8 +915,15 @@ target, as every app does.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_job</span></code> – Read one job’s status, optionally with its result summary or full data.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">current_job</span></code> – Read the current-job pointer, the job a start launches.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_job_config</span></code> – Read an optimization job’s stored config and its revision.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">create_draft</span></code> – Create a draft optimization job from a config; the current-job
+pointer moves to it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">update_draft</span></code> – Replace a draft’s whole config; refused once it has started.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pause_job</span></code> – Pause a running optimization job (requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cancel_job</span></code> – Cancel a draft or a run; the machine stays where the run left it
+(requires human approval).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">list_results</span></code> – List the stored runs.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">get_result</span></code> – Read one stored run: config, best point and evaluated records.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">preview_restore</span></code> – Show the values restoring a run would write, without writing them.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">list_models</span></code> – List the saved surrogate model files.</p></li>
 </ul>
 </section>
