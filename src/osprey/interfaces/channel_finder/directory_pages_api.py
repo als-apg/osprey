@@ -32,7 +32,7 @@ def _facts(request: Request) -> Facts:
 
 @router.get("/pv/{name:path}")
 async def pv_page(name: str, request: Request) -> dict[str, Any]:
-    """Every configured section about the PV called *name*: ``{name, sections}``."""
+    """Every configured section about the PV called *name*: ``{name, outcome, sections}``."""
     return await _facts(request).pv_facts(name)
 
 

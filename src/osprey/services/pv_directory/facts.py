@@ -7,7 +7,8 @@
   and the put history. Each runs under its own deadline, and a section that has
   no answer says why (``unavailable`` with its reason); a section the
   deployment did not configure is absent, never empty. Every section carries
-  the ``caveats`` the deployment wrote on its configured source. :meth:`Facts.alarm_state`,
+  the ``caveats`` the deployment wrote on its configured source. The answer's
+  own ``outcome`` says once whether the PV is known at all, for every reader. :meth:`Facts.alarm_state`,
   :meth:`Facts.alarm_config` and :meth:`Facts.history` answer one of those
   sections alone, as the PV page shows it.
 * :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer and
@@ -105,10 +106,16 @@ class Facts:
     # -- the PV page -----------------------------------------------------
 
     async def pv_facts(self, name: str) -> dict[str, Any]:
-        """Every configured section about the PV called *name*: ``{name, sections}``."""
+        """Every configured section about the PV called *name*: ``{name, outcome, sections}``.
+
+        ``outcome`` is ``found`` when the directory lists the PV, ``not_listed``
+        when it does not but another section found a record or rows,
+        ``unknown`` when nothing found it, and ``unavailable`` with the
+        directory's ``reason`` when the directory gave no answer.
+        """
         configured = self._configured()
         if configured is None:
-            return {"name": name, "sections": []}
+            return {"name": name, **_unavailable(NO_SOURCE_REASON), "sections": []}
         deadline = self._timeout()
         readers: dict[str, Callable[[str, float], Awaitable[Any]]] = {
             "directory": self._directory,
@@ -124,7 +131,7 @@ class Facts:
             {"section": key, **await self._finished(answer, target)}
             for key, answer in zip(keys, answers, strict=True)
         ]
-        return {"name": name, "sections": sections}
+        return {"name": name, **_page_outcome(sections), "sections": sections}
 
     async def alarm_state(self, name: str) -> dict[str, Any]:
         """The alarm state section of the PV called *name*: ``{outcome, source, record, reason?}``."""
@@ -424,6 +431,25 @@ def _section(backend: Any, outcome: str, **fields: Any) -> dict[str, Any]:
         "caveats": _caveats(backend),
         **fields,
     }
+
+
+def _page_outcome(sections: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Whether the PV is known at all, from the directory section and what the others found."""
+    directory, *others = sections
+    outcome = directory["outcome"]
+    if outcome in ("found", "inactive"):
+        return {"outcome": "found"}
+    if outcome == "not_listed":
+        found = any(
+            section["outcome"] == "found" and (section.get("record") or section.get("rows"))
+            for section in others
+        )
+        return {"outcome": "not_listed" if found else "unknown"}
+    return _unavailable(directory.get("reason") or NO_SOURCE_REASON)
+
+
+def _unavailable(reason: str) -> dict[str, Any]:
+    return {"outcome": "unavailable", "reason": reason}
 
 
 def _caveats(backend: Any) -> list[str]:
