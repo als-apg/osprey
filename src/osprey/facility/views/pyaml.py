@@ -40,6 +40,7 @@ between its files are relative, and equal sources and configs give equal bytes.
 
 from __future__ import annotations
 
+import copy
 import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -993,8 +994,10 @@ def kind_records(
         ``{kinds, names, instruments, rf}``. Each kind is ``{members: {role:
         {requirement, addresses}}, stepped_roles, tool_keys, tool, single_pass,
         matrix, takes_by, corrector_roles, view_files, measure_plan,
-        description}``: a group role's addresses are those its array's members
-        stand for, a magnet's setpoint and both planes of a BPM, or, for a role
+        description}``, with ``block``, the sub-block as the file states it
+        (absent: empty), for a kind that declares a measurement schema. A group
+        role's addresses are those its array's members stand for, a magnet's
+        setpoint and both planes of a BPM, or, for a role
         the view writes no array for, those :func:`measurement_groups` resolves;
         an instrument's its one channel.
     """
@@ -1035,6 +1038,7 @@ def kind_records(
     monitors = [d for d in devices.values() if d.get("type") == TUNE_MONITOR_TYPE]
     if monitors and "tune" in instruments:
         role_names["tune"] = str(monitors[-1]["name"])
+    blocks = measurement.get("kind_blocks") or {}
     kinds: dict[str, Any] = {}
     for kind in measurement.get("kinds") or []:
         declaration = declared[str(kind)]
@@ -1064,6 +1068,8 @@ def kind_records(
             "measure_plan": dict(declaration.measure_plan),
             "description": declaration.description,
         }
+        if declaration.measurement_schema is not None:
+            kinds[str(kind)]["block"] = copy.deepcopy(blocks.get(str(kind)) or {})
     return {"kinds": kinds, "names": role_names, "instruments": instruments, "rf": rf}
 
 

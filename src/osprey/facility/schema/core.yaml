@@ -728,6 +728,13 @@ classes:
           `{<role>: <channel address>}`, each instrument role a listed kind
           uses: the pyAML view's (tune, rf) or one a listed kind declares; the
           build refuses any other.
+      kind_blocks:
+        range: Any
+        description: >-
+          `{<kind>: {...}}`, what is a listed kind's own (its trigger, settings
+          or chain, say), validated by the measurement schema the kind
+          declares, an absent block as an empty one; the build refuses a block
+          for a kind the file does not list or that declares no schema.
       n_step:
         range: integer
       n_avg_meas:

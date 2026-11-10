@@ -513,7 +513,9 @@ of groups taken together, that plays each part (``bpm``, ``hcor``, ``vcor``,
 ``instruments`` the channel each instrument is read or stepped on (``tune``,
 ``rf``). A registered kind may declare roles of its own, each named in
 ``groups`` or ``instruments`` as the kind sorts it; the build stops on a role
-no listed kind declares. Each kind needs its own members and step keys, and the build stops
+no listed kind declares. What is a kind's own (a trigger, settings, a chain of
+steps) goes in ``kind_blocks.<kind>``, which the build checks against the
+schema the kind declares. Each kind needs its own members and step keys, and the build stops
 when the file allows a kind without them, names a member its model does
 not wire, or names a ``tune`` reading of one plane that no single reading of
 the other plane pairs with:

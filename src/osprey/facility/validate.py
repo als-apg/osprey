@@ -493,16 +493,18 @@ def check_schema(document: Mapping[str, Any], sources: Sources) -> list[Facility
     return errors
 
 
-#: Each open map of a measurement file, what each of its values is, and the test.
-_MEASUREMENT_MAPS: tuple[tuple[str, str, Any], ...] = (
+#: Each open map of a measurement file, what it is keyed by, what each value is, and the test.
+_MEASUREMENT_MAPS: tuple[tuple[str, str, str, Any], ...] = (
     (
         "groups",
+        "role",
         "a group id or a list of group ids",
         lambda v: (
             isinstance(v, str) or (isinstance(v, list) and all(isinstance(i, str) for i in v))
         ),
     ),
-    ("instruments", "a channel address", lambda v: isinstance(v, str)),
+    ("instruments", "role", "a channel address", lambda v: isinstance(v, str)),
+    ("kind_blocks", "kind", "a mapping", lambda v: isinstance(v, dict)),
 )
 
 
@@ -511,7 +513,7 @@ def _measurement_shape(
 ) -> Iterator[FacilityBuildError]:
     """A measurement file's open maps: each a mapping of role to what the role names."""
     rel = f"measurement/{model}.yaml"
-    for slot, shape, fits in _MEASUREMENT_MAPS:
+    for slot, key, shape, fits in _MEASUREMENT_MAPS:
         value = measurement.get(slot)
         if value is None:
             continue
@@ -521,7 +523,7 @@ def _measurement_shape(
             bad = [str(role) for role, named in value.items() if not fits(named)]
         for role in bad:
             where = slot if role is None else f"{slot}.{role}"
-            wanted = "a mapping of role to " + shape if role is None else shape
+            wanted = f"a mapping of {key} to {shape}" if role is None else shape
             yield FacilityBuildError(
                 "source-invalid",
                 f"models.{index}.measurement.{where}",
@@ -2192,8 +2194,10 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     named by the file and wired by the model, ``exists`` named and present in
     the facility, ``optional`` either absent or present. A ``single_pass``
     model allows only the kinds that run single pass, every step or settle key
-    the kind's tool takes must be stated, and the kind's ``build_stops`` hook,
-    when it has one, is handed the document and the kind's sub-block.
+    the kind's tool takes must be stated. A listed kind's own sub-block
+    ``kind_blocks.<kind>`` (absent: empty) is validated by the kind's
+    ``measurement_schema``, and only a block it admits is handed, with the
+    document, to the kind's ``build_stops`` hook.
 
     Args:
         validated: What the earlier stages produced.
@@ -2203,8 +2207,8 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
         role no listed kind declares, ``reference-missing`` naming a kind no
         installed package registers or
         the kind and the member it lacks, ``value-invalid`` naming the kind and
-        the key it lacks or what its hook refuses, or the two group roles that
-        name one group.
+        the key it lacks, what its schema or its hook refuses or a sub-block
+        it takes none of, or the two group roles that name one group.
     """
     document: dict[str, Any] = need(validated.document)
     return list(_measurement_stops(document))
@@ -2279,6 +2283,17 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         )
         yield from _unsorted_roles(name, files, groups_named, instruments, sorts)
         grouped = measurement_groups(records, name, sorts)
+        blocks = measurement.get("kind_blocks") or {}
+        listed = {str(kind) for kind in measurement.get("kinds") or []}
+        for kind in sorted(set(blocks) - listed, key=str):
+            yield FacilityBuildError(
+                "value-invalid",
+                name,
+                files,
+                f"remove `kind_blocks.{kind}`, or list {kind} in `kinds`",
+                record_kind="measurement",
+                detail=f"`kind_blocks.{kind}` is the block of a kind the file does not list",
+            )
         for kind in measurement.get("kinds") or []:
             declaration = declared.get(str(kind))
             if declaration is None:
@@ -2356,9 +2371,12 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         record_kind="measurement",
                         detail=f"kind {kind} needs `{key}`, which the file does not state",
                     )
-            if declaration.build_stops is not None:
-                block = (measurement.get("kind_blocks") or {}).get(str(kind))
-                for stop in declaration.build_stops(document, block):
+            block = blocks.get(str(kind))
+            block_refusals = _block_stops(name, files, declaration, block)
+            if block_refusals:
+                yield from block_refusals
+            elif declaration.build_stops is not None:
+                for stop in declaration.build_stops(document, block or {}):
                     yield FacilityBuildError(
                         "value-invalid",
                         name,
@@ -2367,6 +2385,39 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         record_kind="measurement",
                         detail=f"kind {kind}: {stop.detail}",
                     )
+
+
+def _block_stops(
+    model: str, files: list[str], declaration: Any, block: Any
+) -> list[FacilityBuildError]:
+    """What a listed kind refuses in its own sub-block; an absent block is an empty one."""
+    from osprey.facility.kinds import block_problems
+
+    kind = declaration.name
+    if declaration.measurement_schema is None:
+        if block is None:
+            return []
+        return [
+            FacilityBuildError(
+                "value-invalid",
+                model,
+                files,
+                f"remove `kind_blocks.{kind}`",
+                record_kind="measurement",
+                detail=f"kind {kind} declares no measurement schema, so it takes no block",
+            )
+        ]
+    return [
+        FacilityBuildError(
+            "value-invalid",
+            model,
+            files,
+            f"correct `kind_blocks.{kind}` as kind {kind}'s measurement schema states",
+            record_kind="measurement",
+            detail=f"`kind_blocks.{problem}`",
+        )
+        for problem in block_problems(declaration, {} if block is None else block)
+    ]
 
 
 def _unsorted_roles(
