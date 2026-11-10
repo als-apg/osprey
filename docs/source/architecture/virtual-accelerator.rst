@@ -201,11 +201,11 @@ still settling:
        multi-variable writes, one solve per batch, rollback on a lost closed
        orbit.
    * - ``lume-pva-apg[ca,pva]``
-     - ``0.1.5``
+     - ``0.1.6``
      - The serving stack ``runner.py`` subclasses --- ``pcaspy`` for Channel
        Access, ``p4p`` for PVAccess.
 
-       Releases 0.1.3 to 0.1.5 add the features OSPREY relies on, listed
+       Releases 0.1.3 to 0.1.6 add the features OSPREY relies on, listed
        below the table.
 
 OSPREY relies on these ``lume-pva-apg`` features, by the release that added
@@ -222,13 +222,11 @@ them:
   runner configuration, raises an alarm on an output the model names as
   failed, serves integer variables as integers on PVAccess, and exposes a
   public tick period whose ticks coalesce.
-
-A repeated value on a ``fast`` or ``event`` channel reaches a Channel Access
-monitor only through the forced-event hook of ``lume-pva-apg`` 0.1.6. Under
-0.1.5 a timed pass that posts an unchanged value raises no monitor event.
-0.1.6 also lets the runner narrow a pass's rollback snapshot, and raises the
-Channel Access events of a post at the cost of the channels posted, not of
-every channel served.
+- **0.1.6** adds the forced-event hook, through which a repeated value on a
+  ``fast`` or ``event`` channel reaches a Channel Access monitor; lets the
+  runner narrow a pass's rollback snapshot; and raises the Channel Access
+  events of a post at the cost of the channels posted, not of every channel
+  served.
 
 ``pcaspy`` publishes wheels for linux-x86_64 only, so the ``lume-pva-apg``
 entry that brings it is marked accordingly, and ``serving/runner.py`` alone is

@@ -398,7 +398,7 @@ screen-capture-linux = [
 # only through `pva`: the base package does not depend on it. Exact-pinned for
 # the same reason as lume-base and lume-pyat above -- a young package whose
 # surface is still settling, and the runner subclass is written against the
-# 0.1.5 contract specifically (the extension seams it overrides are not yet a
+# 0.1.6 contract specifically (the extension seams it overrides are not yet a
 # stable API).
 #
 # Both VA images install through the `virtual-accelerator` extra rather than
@@ -431,7 +431,7 @@ screen-capture-linux = [
 # requires pcaspy with no marker of its own: unmarked, this entry would send a
 # developer's Mac into a pcaspy source build that needs EPICS Base plus the
 # PCAS module, and fail. Verified, not assumed -- resolving
-# `lume-pva-apg[ca,pva]==0.1.5` for macOS at 3.13 selects pcaspy 0.8.1, whose
+# `lume-pva-apg[ca,pva]==0.1.6` for macOS at 3.13 selects pcaspy 0.8.1, whose
 # only artifact at that interpreter and platform is the sdist. Marked, those
 # hosts get the honest skip and run the live suites in the container venue
 # under scripts/va/live_ca/ instead. A linux aarch64 host installing this extra
@@ -443,7 +443,7 @@ screen-capture-linux = [
 # else is installed, and the suites that reach it already treat all three server
 # roots the same way.
 virtual-accelerator = [
-    "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "lume-pva-apg[ca,pva]==0.1.6; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     # Recorder-side (see the note above); deliberately UNMARKED, unlike the
     # serving entry. That marker is not a house style to copy — it exists
     # because pcaspy loads only on linux x86_64 and aarch64. These two load
@@ -532,7 +532,7 @@ injection = "osprey.simulation.engines.injection"
 # package's upload date; none is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-30T00:00:00Z", accelerator-middle-layer-apg = "2026-10-11T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-11-11T00:00:00Z", accelerator-middle-layer-apg = "2026-10-11T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.
