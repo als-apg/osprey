@@ -520,12 +520,17 @@
 <span class="sd">**7. Overlap.** Two programs steering one channel of one machine is never what</span>
 <span class="sd">an approver meant: :func:`auth_overlap` finds the live grant of another holder</span>
 <span class="sd">sharing a channel, and :func:`issue_grant` refuses ``auth_overlap`` under the</span>
-<span class="sd">directory&#39;s lock, so two approvals cannot both pass the check. The check reads</span>
-<span class="sd">the owner&#39;s own directory and the holders&#39; self-issued grants in the ledger</span>
-<span class="sd">directories this process sees (:func:`self_issued_directories`); another</span>
-<span class="sd">owner&#39;s directory is not read. A grant file that cannot be read is logged and</span>
-<span class="sd">left out of the check: it refuses every write under it already, and a file</span>
-<span class="sd">nobody can clear from the chip must not veto every approval.</span>
+<span class="sd">directory&#39;s lock, so two approvals cannot both pass the check. A grant whose</span>
+<span class="sd">every ledger in sight shows its lease time passed, by a grace for clock skew,</span>
+<span class="sd">does not count: no write may use it. This assumes a holder keeps one ledger</span>
+<span class="sd">directory per authorization; :func:`start_lease` refuses only a ledger already</span>
+<span class="sd">in its own directory, so a second lease under the same id elsewhere is not</span>
+<span class="sd">covered. The check reads the owner&#39;s own directory and the holders&#39;</span>
+<span class="sd">self-issued grants in the ledger directories this process sees</span>
+<span class="sd">(:func:`self_issued_directories`); another owner&#39;s directory is not read. A</span>
+<span class="sd">grant file that cannot be read is logged and left out of the check: it</span>
+<span class="sd">refuses every write under it already, and a file nobody can clear from the</span>
+<span class="sd">chip must not veto every approval.</span>
 
 <span class="sd">**8. Requests, approval and the stop.** A holder asks with a **request**,</span>
 <span class="sd">``&lt;ledger dir&gt;/requests/&lt;id&gt;.json`` (:func:`write_request`), read the way a</span>
@@ -582,6 +587,8 @@
     <span class="s2">&quot;COMPLETIONS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LEDGER_DIR_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LEDGER_VIEW_DIR_ENV_VAR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;MAX_EXPIRES_S&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;MAX_STEPS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PRUNE_AFTER_S&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REQUESTS_DIR_ENV_VAR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REQUESTS_DIR_NAME&quot;</span><span class="p">,</span>
@@ -645,6 +652,22 @@
 
 <span class="c1">#: The format of both files. Any other value is unreadable, and refuses.</span>
 <span class="n">SCHEMA_VERSION</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1</span>
+
+<span class="c1">#: The most write calls one grant or request may allow: far above any run&#39;s</span>
+<span class="c1">#: evaluations, so no plan, typo or forged file asks for an unbounded budget.</span>
+<span class="n">MAX_STEPS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">100_000</span>
+<span class="c1">#: The longest a grant may stand from its issue, or a request from its asking:</span>
+<span class="c1">#: a day, three times the optimizer&#39;s eight-hour default.</span>
+<span class="n">MAX_EXPIRES_S</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">24</span> <span class="o">*</span> <span class="mf">3600.0</span>
+<span class="c1">#: The longest one renewal of a lease may last: ten times the optimizer&#39;s</span>
+<span class="c1">#: minute, so a holder gone unseen (from another PID namespace) is found</span>
+<span class="c1">#: lapsed within ten minutes by the verdict, and by the overlap check a</span>
+<span class="c1">#: :data:`_LEASE_SKEW_GRACE_NS` later.</span>
+<span class="n">_MAX_LEASE_S</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mf">600.0</span>
+<span class="c1">#: How long past a ledger&#39;s lease end the overlap check still counts its grant:</span>
+<span class="c1">#: the holder writes the lease end from its own clock, and the approver compares</span>
+<span class="c1">#: it against its own.</span>
+<span class="n">_LEASE_SKEW_GRACE_NS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">60</span> <span class="o">*</span> <span class="mi">1_000_000_000</span>
 
 <span class="c1">#: Who recorded an approval: the web terminal&#39;s chip, the CLI, or the switch</span>
 <span class="c1">#: itself standing at ``allowed`` (a self-issued grant).</span>
@@ -941,6 +964,24 @@
     <span class="k">return</span> <span class="n">number</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_within_ceilings</span><span class="p">(</span><span class="n">steps</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">start_ns</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">expires_ns</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">lease_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Refuse a budget, an expiry or a lease past its ceiling.</span>
+
+<span class="sd">    The ceilings are :data:`MAX_STEPS`, :data:`MAX_EXPIRES_S` from *start_ns*,</span>
+<span class="sd">    and :data:`_MAX_LEASE_S`. Every new grant and request is written through</span>
+<span class="sd">    this (:func:`issue_grant`, :func:`write_request`), so an approval and a</span>
+<span class="sd">    self-issue meet the same ceilings. Reading does not apply them: a file</span>
+<span class="sd">    already on disk past a ceiling is honoured as it was before the ceilings,</span>
+<span class="sd">    so readers of every version agree on it.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">steps</span> <span class="o">&gt;</span> <span class="n">MAX_STEPS</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;steps </span><span class="si">{</span><span class="n">steps</span><span class="si">}</span><span class="s2"> is above the ceiling of </span><span class="si">{</span><span class="n">MAX_STEPS</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">expires_ns</span> <span class="o">-</span> <span class="n">start_ns</span> <span class="o">&gt;</span> <span class="nb">int</span><span class="p">(</span><span class="n">MAX_EXPIRES_S</span> <span class="o">*</span> <span class="mf">1e9</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the expiry is more than </span><span class="si">{</span><span class="n">MAX_EXPIRES_S</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2"> s away&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">lease_s</span> <span class="o">&gt;</span> <span class="n">_MAX_LEASE_S</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;lease_s </span><span class="si">{</span><span class="n">lease_s</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2"> is above the ceiling of </span><span class="si">{</span><span class="n">_MAX_LEASE_S</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
 <span class="k">def</span><span class="w"> </span><span class="nf">_authorization_id</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="n">_ID</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;the id is not a 32-digit lowercase hex string&quot;</span><span class="p">)</span>
@@ -999,7 +1040,8 @@
 <span class="sd">    unknown schema, a missing or extra field, a repeated key, a bound that is</span>
 <span class="sd">    not a finite number, a range with ``min`` above ``max``, a ``steps`` below</span>
 <span class="sd">    one, an expiry not after the issue, an unknown surface — each is a grant</span>
-<span class="sd">    this version cannot honour.</span>
+<span class="sd">    this version cannot honour. The ceilings are a writer&#39;s check</span>
+<span class="sd">    (:func:`_within_ceilings`), not a reader&#39;s.</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: The payload is not a grant this version can read.</span>
@@ -1026,6 +1068,7 @@
     <span class="n">lease_s</span> <span class="o">=</span> <span class="n">_finite</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;lease_s&quot;</span><span class="p">],</span> <span class="s2">&quot;lease_s&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">lease_s</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;lease_s is not positive&quot;</span><span class="p">)</span>
+    <span class="n">steps</span> <span class="o">=</span> <span class="n">_integer</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;steps&quot;</span><span class="p">],</span> <span class="s2">&quot;steps&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
     <span class="n">label</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">]</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;label is not a string&quot;</span><span class="p">)</span>
@@ -1036,7 +1079,7 @@
         <span class="n">target</span><span class="o">=</span><span class="n">_name</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;target&quot;</span><span class="p">],</span> <span class="s2">&quot;target&quot;</span><span class="p">),</span>
         <span class="n">switch_epoch</span><span class="o">=</span><span class="n">_integer</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;switch_epoch&quot;</span><span class="p">],</span> <span class="s2">&quot;switch_epoch&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
         <span class="n">channels</span><span class="o">=</span><span class="n">_parse_channels</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;channels&quot;</span><span class="p">]),</span>
-        <span class="n">steps</span><span class="o">=</span><span class="n">_integer</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;steps&quot;</span><span class="p">],</span> <span class="s2">&quot;steps&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">steps</span><span class="o">=</span><span class="n">steps</span><span class="p">,</span>
         <span class="n">issued_at_ns</span><span class="o">=</span><span class="n">issued</span><span class="p">,</span>
         <span class="n">expires_at_ns</span><span class="o">=</span><span class="n">expires</span><span class="p">,</span>
         <span class="n">lease_s</span><span class="o">=</span><span class="n">lease_s</span><span class="p">,</span>
@@ -2072,25 +2115,60 @@
 
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_lease_ended</span><span class="p">(</span><span class="n">grant</span><span class="p">:</span> <span class="n">Grant</span><span class="p">,</span> <span class="n">ledger_dirs</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span> <span class="n">now_ns</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether every ledger of *grant* in *ledger_dirs* shows its lease time passed.</span>
+
+<span class="sd">    The clock alone decides, as :func:`grant_standing` does: the holder&#39;s PID,</span>
+<span class="sd">    judged from the approver&#39;s process, may name another host&#39;s process. A</span>
+<span class="sd">    lease counts as passed only :data:`_LEASE_SKEW_GRACE_NS` after its end, so</span>
+<span class="sd">    an approver&#39;s clock ahead of the holder&#39;s does not free a live grant. At</span>
+<span class="sd">    least one ledger must be found, and each must agree, so a stale or planted</span>
+<span class="sd">    one in a directory searched first cannot free another&#39;s live grant. A</span>
+<span class="sd">    ledger found nowhere is a lease not started yet, or one out of this</span>
+<span class="sd">    process&#39;s sight, and an unreadable one may be live: neither has ended.</span>
+
+<span class="sd">    This assumes a holder keeps one ledger directory per authorization:</span>
+<span class="sd">    :func:`start_lease` refuses only a ledger already in its own directory, so</span>
+<span class="sd">    a holder that starts a second lease under the same id in another directory</span>
+<span class="sd">    out of this process&#39;s sight is not covered.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">found</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">_ledgers_of</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">ledger_dirs</span><span class="p">))</span>
+    <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">found</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">all</span><span class="p">(</span>
+        <span class="n">ledger</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">now_ns</span> <span class="o">&gt;=</span> <span class="n">ledger</span><span class="o">.</span><span class="n">lease_until_ns</span> <span class="o">+</span> <span class="n">_LEASE_SKEW_GRACE_NS</span>
+        <span class="k">for</span> <span class="n">ledger</span> <span class="ow">in</span> <span class="n">found</span>
+    <span class="p">)</span>
+
+
 <div class="viewcode-block" id="auth_overlap">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.auth_overlap">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">auth_overlap</span><span class="p">(</span>
-    <span class="n">candidate</span><span class="p">:</span> <span class="n">Grant</span><span class="p">,</span> <span class="n">existing</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Grant</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">now_ns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">candidate</span><span class="p">:</span> <span class="n">Grant</span><span class="p">,</span>
+    <span class="n">existing</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Grant</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">now_ns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">ledger_dirs</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Grant</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The first grant in *existing* that *candidate* must not be issued beside, or ``None``.</span>
 
 <span class="sd">    One that is live (not revoked, not expired), held by another holder, on</span>
-<span class="sd">    the same machine, and listing a channel *candidate* lists. The same holder</span>
-<span class="sd">    may hold two: a program runs one job at a time and is judged by its own</span>
-<span class="sd">    budget. A person&#39;s own writes are never blocked by a grant.</span>
+<span class="sd">    the same machine, listing a channel *candidate* lists, and whose lease</span>
+<span class="sd">    time has not passed in its ledgers in *ledger_dirs* (:func:`_lease_ended`):</span>
+<span class="sd">    a run that finished, failed or crashed stops renewing, so its grant stops</span>
+<span class="sd">    blocking once its lease runs out rather than at its expiry. A run that is</span>
+<span class="sd">    paused still renews, and still blocks. The same holder may hold two: a</span>
+<span class="sd">    program runs one job at a time and is judged by its own budget. A</span>
+<span class="sd">    person&#39;s own writes are never blocked by a grant.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">now</span> <span class="o">=</span> <span class="n">_now_ns</span><span class="p">()</span> <span class="k">if</span> <span class="n">now_ns</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">now_ns</span>
+    <span class="n">directories</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">ledger_dirs</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">grant</span> <span class="ow">in</span> <span class="n">existing</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">grant</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="n">candidate</span><span class="o">.</span><span class="n">id</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">grant</span><span class="o">.</span><span class="n">live_at</span><span class="p">(</span><span class="n">now</span><span class="p">):</span>
             <span class="k">continue</span>
         <span class="k">if</span> <span class="n">grant</span><span class="o">.</span><span class="n">holder</span> <span class="o">==</span> <span class="n">candidate</span><span class="o">.</span><span class="n">holder</span> <span class="ow">or</span> <span class="n">grant</span><span class="o">.</span><span class="n">target</span> <span class="o">!=</span> <span class="n">candidate</span><span class="o">.</span><span class="n">target</span><span class="p">:</span>
             <span class="k">continue</span>
-        <span class="k">if</span> <span class="nb">set</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">channels</span><span class="p">)</span> <span class="o">&amp;</span> <span class="nb">set</span><span class="p">(</span><span class="n">candidate</span><span class="o">.</span><span class="n">channels</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">set</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">channels</span><span class="p">)</span> <span class="o">&amp;</span> <span class="nb">set</span><span class="p">(</span><span class="n">candidate</span><span class="o">.</span><span class="n">channels</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">_lease_ended</span><span class="p">(</span>
+            <span class="n">grant</span><span class="p">,</span> <span class="n">directories</span><span class="p">,</span> <span class="n">now</span>
+        <span class="p">):</span>
             <span class="k">return</span> <span class="n">grant</span>
     <span class="k">return</span> <span class="kc">None</span></div>
 
@@ -2144,7 +2222,9 @@
 <span class="sd">        The path written.</span>
 
 <span class="sd">    Raises:</span>
-<span class="sd">        ValueError: *grant* is not a grant this version can read back.</span>
+<span class="sd">        ValueError: *grant* is not a grant this version can read back, or</span>
+<span class="sd">            its budget, expiry or lease is past a ceiling</span>
+<span class="sd">            (:func:`_within_ceilings`); nothing is written.</span>
 <span class="sd">        FileExistsError: A grant with this id exists.</span>
 <span class="sd">        AuthorizationRefused: ``auth_overlap``.</span>
 <span class="sd">        RuntimeError: No directory is reachable, or the lock was not acquired.</span>
@@ -2152,6 +2232,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">grant</span><span class="o">.</span><span class="n">to_payload</span><span class="p">()</span>
     <span class="n">parse_grant</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">))</span>  <span class="c1"># what is written must read back</span>
+    <span class="n">_within_ceilings</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">steps</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">issued_at_ns</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">expires_at_ns</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">lease_s</span><span class="p">)</span>
     <span class="n">target_dir</span> <span class="o">=</span> <span class="n">_grant_directory</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">owner</span><span class="p">)</span>
     <span class="n">_prepare_directory</span><span class="p">(</span><span class="n">target_dir</span><span class="p">)</span>
     <span class="n">path</span> <span class="o">=</span> <span class="n">target_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="si">}{</span><span class="n">_GRANT_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -2163,7 +2244,12 @@
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
                 <span class="s2">&quot;Unreadable grants beside </span><span class="si">%s</span><span class="s2">, left out of the overlap check: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">unreadable</span>
             <span class="p">)</span>
-        <span class="n">held</span> <span class="o">=</span> <span class="n">auth_overlap</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="p">[</span><span class="o">*</span><span class="n">existing</span><span class="p">,</span> <span class="o">*</span><span class="n">_peer_grants</span><span class="p">(</span><span class="n">peers</span><span class="p">,</span> <span class="n">target_dir</span><span class="p">)])</span>
+        <span class="n">peers</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">peers</span><span class="p">)</span>
+        <span class="n">held</span> <span class="o">=</span> <span class="n">auth_overlap</span><span class="p">(</span>
+            <span class="n">grant</span><span class="p">,</span>
+            <span class="p">[</span><span class="o">*</span><span class="n">existing</span><span class="p">,</span> <span class="o">*</span><span class="n">_peer_grants</span><span class="p">(</span><span class="n">peers</span><span class="p">,</span> <span class="n">target_dir</span><span class="p">)],</span>
+            <span class="n">ledger_dirs</span><span class="o">=</span><span class="p">(</span><span class="n">target_dir</span><span class="p">,</span> <span class="o">*</span><span class="n">peers</span><span class="p">),</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="n">AuthorizationRefused</span><span class="p">(</span>
                 <span class="s2">&quot;auth_overlap&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Held by </span><span class="si">{</span><span class="n">held</span><span class="o">.</span><span class="n">holder</span><span class="si">}</span><span class="s2"> under </span><span class="si">{</span><span class="n">held</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">held</span><span class="o">.</span><span class="n">label</span><span class="si">}</span><span class="s2">).&quot;</span>
@@ -2254,7 +2340,8 @@
 <span class="sd">    write after it leaves ``allowed`` ends it for good (:func:`spend_step`).</span>
 
 <span class="sd">    Raises:</span>
-<span class="sd">        ValueError: The channels, steps, expiry or lease are malformed.</span>
+<span class="sd">        ValueError: The channels, steps, expiry or lease are malformed, or</span>
+<span class="sd">            past a ceiling (:func:`_within_ceilings`).</span>
 <span class="sd">        AuthorizationRefused: The switch verdict&#39;s reason; ``auth_revoked``</span>
 <span class="sd">            when it allows below ``allowed`` or moved during the issue;</span>
 <span class="sd">            ``record_unavailable`` for a record with no epoch;</span>
@@ -2432,6 +2519,19 @@
 
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_ledgers_of</span><span class="p">(</span><span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">ledger_dirs</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Path</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Ledger</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Each ledger of *authorization* in *ledger_dirs*, in order; ``None`` for an unreadable one.</span>
+
+<span class="sd">    A directory that is not there, and one without the ledger, are skipped.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">directory</span> <span class="ow">in</span> <span class="n">ledger_dirs</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
+            <span class="k">continue</span>
+        <span class="n">status</span><span class="p">,</span> <span class="n">ledger</span> <span class="o">=</span> <span class="n">_read_ledger_at</span><span class="p">(</span><span class="n">_Place</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">directory</span><span class="p">)),</span> <span class="n">authorization</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">status</span> <span class="o">!=</span> <span class="s2">&quot;absent&quot;</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">ledger</span>
+
+
 <div class="viewcode-block" id="read_ledger">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.read_ledger">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">read_ledger</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Ledger</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
@@ -2491,15 +2591,9 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">now</span> <span class="o">=</span> <span class="n">_now_ns</span><span class="p">()</span> <span class="k">if</span> <span class="n">now_ns</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">now_ns</span>
     <span class="n">in_force</span> <span class="o">=</span> <span class="n">grant_in_force</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">record</span><span class="p">,</span> <span class="n">now_ns</span><span class="o">=</span><span class="n">now</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">directory</span> <span class="ow">in</span> <span class="n">ledger_dirs</span><span class="p">:</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
-            <span class="k">continue</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">ledger</span> <span class="o">=</span> <span class="n">read_ledger</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
-        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">GrantStanding</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">in_force</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">ledger</span> <span class="ow">in</span> <span class="n">_ledgers_of</span><span class="p">(</span><span class="n">grant</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">ledger_dirs</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">ledger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">continue</span>
+            <span class="k">return</span> <span class="n">GrantStanding</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">in_force</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
         <span class="n">used</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ledger</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
         <span class="n">ended</span> <span class="o">=</span> <span class="n">now</span> <span class="o">&gt;=</span> <span class="n">ledger</span><span class="o">.</span><span class="n">lease_until_ns</span> <span class="ow">or</span> <span class="n">used</span> <span class="o">&gt;=</span> <span class="n">grant</span><span class="o">.</span><span class="n">steps</span>
         <span class="k">return</span> <span class="n">GrantStanding</span><span class="p">(</span><span class="n">grant</span><span class="p">,</span> <span class="n">in_force</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">ended</span><span class="p">,</span> <span class="n">used</span><span class="p">,</span> <span class="n">ledger</span><span class="p">)</span>
@@ -2692,7 +2786,8 @@
 <span class="sd">    The grant&#39;s strictness (:func:`parse_grant`): every field present with its</span>
 <span class="sd">    type and nothing else, no repeated key, every bound a finite number with</span>
 <span class="sd">    ``min &lt;= max``, ``steps`` at least one, an expiry after the request, a</span>
-<span class="sd">    positive lease and a known completion.</span>
+<span class="sd">    positive lease and a known completion. As for a grant, the ceilings are</span>
+<span class="sd">    checked when a request is written (:func:`write_request`), not read.</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: The payload is not a request this version can read.</span>
@@ -2708,6 +2803,7 @@
     <span class="n">lease_s</span> <span class="o">=</span> <span class="n">_finite</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;lease_s&quot;</span><span class="p">],</span> <span class="s2">&quot;lease_s&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">lease_s</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;lease_s is not positive&quot;</span><span class="p">)</span>
+    <span class="n">steps</span> <span class="o">=</span> <span class="n">_integer</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;steps&quot;</span><span class="p">],</span> <span class="s2">&quot;steps&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
     <span class="n">label</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">]</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;label is not a string&quot;</span><span class="p">)</span>
@@ -2720,7 +2816,7 @@
         <span class="n">holder</span><span class="o">=</span><span class="n">_name</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;holder&quot;</span><span class="p">],</span> <span class="s2">&quot;holder&quot;</span><span class="p">),</span>
         <span class="n">target</span><span class="o">=</span><span class="n">_name</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;target&quot;</span><span class="p">],</span> <span class="s2">&quot;target&quot;</span><span class="p">),</span>
         <span class="n">channels</span><span class="o">=</span><span class="n">_parse_channels</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;channels&quot;</span><span class="p">]),</span>
-        <span class="n">steps</span><span class="o">=</span><span class="n">_integer</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;steps&quot;</span><span class="p">],</span> <span class="s2">&quot;steps&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">steps</span><span class="o">=</span><span class="n">steps</span><span class="p">,</span>
         <span class="n">requested_at_ns</span><span class="o">=</span><span class="n">requested</span><span class="p">,</span>
         <span class="n">expires_at_ns</span><span class="o">=</span><span class="n">expires</span><span class="p">,</span>
         <span class="n">lease_s</span><span class="o">=</span><span class="n">lease_s</span><span class="p">,</span>
@@ -2827,7 +2923,8 @@
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: The channels, steps, expiry, lease or completion are</span>
-<span class="sd">            malformed.</span>
+<span class="sd">            malformed, or the steps, expiry or lease are past a ceiling</span>
+<span class="sd">            (:func:`_within_ceilings`); nothing is written.</span>
 <span class="sd">        AuthorizationRefused: ``owner_unknown``; ``auth_unreadable`` for no</span>
 <span class="sd">            usable ledger directory.</span>
 <span class="sd">        OSError: The write failed.</span>
@@ -2850,6 +2947,7 @@
     <span class="p">)</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">to_payload</span><span class="p">()</span>
     <span class="n">parse_request</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">))</span>  <span class="c1"># what is written must read back</span>
+    <span class="n">_within_ceilings</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">steps</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">requested_at_ns</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">expires_at_ns</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">lease_s</span><span class="p">)</span>
     <span class="n">place</span> <span class="o">=</span> <span class="n">_checked_ledger_place</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">create</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="n">directory</span> <span class="o">=</span> <span class="n">place</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">REQUESTS_DIR_NAME</span>
     <span class="n">_prepare_directory</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
@@ -2929,7 +3027,8 @@
 <span class="sd">        The grant written.</span>
 
 <span class="sd">    Raises:</span>
-<span class="sd">        ValueError: *surface* is not an approval surface.</span>
+<span class="sd">        ValueError: *surface* is not an approval surface, or the grant is</span>
+<span class="sd">            past a ceiling (:func:`_within_ceilings`); nothing is written.</span>
 <span class="sd">        AuthorizationRefused: ``record_unavailable`` for an unreadable record;</span>
 <span class="sd">            ``auth_expired`` for a request whose expiry has passed;</span>
 <span class="sd">            ``auth_overlap`` from the issue; ``owner_foreign``</span>

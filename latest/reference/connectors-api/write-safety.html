@@ -1456,12 +1456,17 @@ other surface is not honoured at all, because the holder can write there.</p>
 <p><strong>7. Overlap.</strong> Two programs steering one channel of one machine is never what
 an approver meant: <a class="reference internal" href="#osprey_connectors.write_authorization.auth_overlap" title="osprey_connectors.write_authorization.auth_overlap"><code class="xref py py-func docutils literal notranslate"><span class="pre">auth_overlap()</span></code></a> finds the live grant of another holder
 sharing a channel, and <a class="reference internal" href="#osprey_connectors.write_authorization.issue_grant" title="osprey_connectors.write_authorization.issue_grant"><code class="xref py py-func docutils literal notranslate"><span class="pre">issue_grant()</span></code></a> refuses <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code> under the
-directory’s lock, so two approvals cannot both pass the check. The check reads
-the owner’s own directory and the holders’ self-issued grants in the ledger
-directories this process sees (<a class="reference internal" href="#osprey_connectors.write_authorization.self_issued_directories" title="osprey_connectors.write_authorization.self_issued_directories"><code class="xref py py-func docutils literal notranslate"><span class="pre">self_issued_directories()</span></code></a>); another
-owner’s directory is not read. A grant file that cannot be read is logged and
-left out of the check: it refuses every write under it already, and a file
-nobody can clear from the chip must not veto every approval.</p>
+directory’s lock, so two approvals cannot both pass the check. A grant whose
+every ledger in sight shows its lease time passed, by a grace for clock skew,
+does not count: no write may use it. This assumes a holder keeps one ledger
+directory per authorization; <a class="reference internal" href="#osprey_connectors.write_authorization.start_lease" title="osprey_connectors.write_authorization.start_lease"><code class="xref py py-func docutils literal notranslate"><span class="pre">start_lease()</span></code></a> refuses only a ledger already
+in its own directory, so a second lease under the same id elsewhere is not
+covered. The check reads the owner’s own directory and the holders’
+self-issued grants in the ledger directories this process sees
+(<a class="reference internal" href="#osprey_connectors.write_authorization.self_issued_directories" title="osprey_connectors.write_authorization.self_issued_directories"><code class="xref py py-func docutils literal notranslate"><span class="pre">self_issued_directories()</span></code></a>); another owner’s directory is not read. A
+grant file that cannot be read is logged and left out of the check: it
+refuses every write under it already, and a file nobody can clear from the
+chip must not veto every approval.</p>
 <p><strong>8. Requests, approval and the stop.</strong> A holder asks with a <strong>request</strong>,
 <code class="docutils literal notranslate"><span class="pre">&lt;ledger</span> <span class="pre">dir&gt;/requests/&lt;id&gt;.json</span></code> (<a class="reference internal" href="#osprey_connectors.write_authorization.write_request" title="osprey_connectors.write_authorization.write_request"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_request()</span></code></a>), read the way a
 grant is read (<a class="reference internal" href="#osprey_connectors.write_authorization.parse_request" title="osprey_connectors.write_authorization.parse_request"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_request()</span></code></a>, <a class="reference internal" href="#osprey_connectors.write_authorization.list_requests" title="osprey_connectors.write_authorization.list_requests"><code class="xref py py-func docutils literal notranslate"><span class="pre">list_requests()</span></code></a>); a web terminal
@@ -1529,6 +1534,25 @@ there.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>The environment variable a web terminal carries</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.write_authorization.MAX_EXPIRES_S">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">MAX_EXPIRES_S</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">86400.0</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.MAX_EXPIRES_S" title="Link to this definition">#</a></dt>
+<dd><p>The longest a grant may stand from its issue, or a request from its asking:
+a day, three times the optimizer’s eight-hour default.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.write_authorization.MAX_STEPS">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">MAX_STEPS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Final</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">100000</span></span><a class="headerlink" href="#osprey_connectors.write_authorization.MAX_STEPS" title="Link to this definition">#</a></dt>
+<dd><p>far above any run’s
+evaluations, so no plan, typo or forged file asks for an unbounded budget.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The most write calls one grant or request may allow</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2112,7 +2136,8 @@ for overlap.</p></li>
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>ValueError</strong> – <em>surface</em> is not an approval surface.</p></li>
+<li><p><strong>ValueError</strong> – <em>surface</em> is not an approval surface, or the grant is
+    past a ceiling (<code class="xref py py-func docutils literal notranslate"><span class="pre">_within_ceilings()</span></code>); nothing is written.</p></li>
 <li><p><a class="reference internal" href="#osprey_connectors.write_authorization.AuthorizationRefused" title="osprey_connectors.write_authorization.AuthorizationRefused"><strong>AuthorizationRefused</strong></a> – <code class="docutils literal notranslate"><span class="pre">record_unavailable</span></code> for an unreadable record;
     <code class="docutils literal notranslate"><span class="pre">auth_expired</span></code> for a request whose expiry has passed;
     <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code> from the issue; <code class="docutils literal notranslate"><span class="pre">owner_foreign</span></code>
@@ -2153,12 +2178,16 @@ under, then opens its lease (<a class="reference internal" href="#osprey_connect
 
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.write_authorization.auth_overlap">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">auth_overlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">candidate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">existing</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">now_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#auth_overlap"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.auth_overlap" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.write_authorization.</span></span><span class="sig-name descname"><span class="pre">auth_overlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">candidate</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">existing</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">now_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ledger_dirs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/write_authorization.html#auth_overlap"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.write_authorization.auth_overlap" title="Link to this definition">#</a></dt>
 <dd><p>The first grant in <em>existing</em> that <em>candidate</em> must not be issued beside, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
 <p>One that is live (not revoked, not expired), held by another holder, on
-the same machine, and listing a channel <em>candidate</em> lists. The same holder
-may hold two: a program runs one job at a time and is judged by its own
-budget. A person’s own writes are never blocked by a grant.</p>
+the same machine, listing a channel <em>candidate</em> lists, and whose lease
+time has not passed in its ledgers in <em>ledger_dirs</em> (<code class="xref py py-func docutils literal notranslate"><span class="pre">_lease_ended()</span></code>):
+a run that finished, failed or crashed stops renewing, so its grant stops
+blocking once its lease runs out rather than at its expiry. A run that is
+paused still renews, and still blocks. The same holder may hold two: a
+program runs one job at a time and is judged by its own budget. A
+person’s own writes are never blocked by a grant.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.write_authorization.Grant" title="osprey_connectors.write_authorization.Grant"><em>Grant</em></a> | None</p>
@@ -2349,7 +2378,9 @@ grants (<a class="reference internal" href="#osprey_connectors.write_authorizati
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>ValueError</strong> – <em>grant</em> is not a grant this version can read back.</p></li>
+<li><p><strong>ValueError</strong> – <em>grant</em> is not a grant this version can read back, or
+    its budget, expiry or lease is past a ceiling
+    (<code class="xref py py-func docutils literal notranslate"><span class="pre">_within_ceilings()</span></code>); nothing is written.</p></li>
 <li><p><strong>FileExistsError</strong> – A grant with this id exists.</p></li>
 <li><p><a class="reference internal" href="#osprey_connectors.write_authorization.AuthorizationRefused" title="osprey_connectors.write_authorization.AuthorizationRefused"><strong>AuthorizationRefused</strong></a> – <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code>.</p></li>
 <li><p><strong>RuntimeError</strong> – No directory is reachable, or the lock was not acquired.</p></li>
@@ -2439,7 +2470,8 @@ so the verdict refuses it rather than treating the process as naming none.</p>
 unknown schema, a missing or extra field, a repeated key, a bound that is
 not a finite number, a range with <code class="docutils literal notranslate"><span class="pre">min</span></code> above <code class="docutils literal notranslate"><span class="pre">max</span></code>, a <code class="docutils literal notranslate"><span class="pre">steps</span></code> below
 one, an expiry not after the issue, an unknown surface — each is a grant
-this version cannot honour.</p>
+this version cannot honour. The ceilings are a writer’s check
+(<code class="xref py py-func docutils literal notranslate"><span class="pre">_within_ceilings()</span></code>), not a reader’s.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>ValueError</strong> – The payload is not a grant this version can read.</p>
@@ -2473,7 +2505,8 @@ this version cannot honour.</p>
 <p>The grant’s strictness (<a class="reference internal" href="#osprey_connectors.write_authorization.parse_grant" title="osprey_connectors.write_authorization.parse_grant"><code class="xref py py-func docutils literal notranslate"><span class="pre">parse_grant()</span></code></a>): every field present with its
 type and nothing else, no repeated key, every bound a finite number with
 <code class="docutils literal notranslate"><span class="pre">min</span> <span class="pre">&lt;=</span> <span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">steps</span></code> at least one, an expiry after the request, a
-positive lease and a known completion.</p>
+positive lease and a known completion. As for a grant, the ceilings are
+checked when a request is written (<a class="reference internal" href="#osprey_connectors.write_authorization.write_request" title="osprey_connectors.write_authorization.write_request"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_request()</span></code></a>), not read.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>ValueError</strong> – The payload is not a request this version can read.</p>
@@ -2635,7 +2668,8 @@ write after it leaves <code class="docutils literal notranslate"><span class="pr
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>ValueError</strong> – The channels, steps, expiry or lease are malformed.</p></li>
+<li><p><strong>ValueError</strong> – The channels, steps, expiry or lease are malformed, or
+    past a ceiling (<code class="xref py py-func docutils literal notranslate"><span class="pre">_within_ceilings()</span></code>).</p></li>
 <li><p><a class="reference internal" href="#osprey_connectors.write_authorization.AuthorizationRefused" title="osprey_connectors.write_authorization.AuthorizationRefused"><strong>AuthorizationRefused</strong></a> – The switch verdict’s reason; <code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code>
     when it allows below <code class="docutils literal notranslate"><span class="pre">allowed</span></code> or moved during the issue;
     <code class="docutils literal notranslate"><span class="pre">record_unavailable</span></code> for a record with no epoch;
@@ -2765,7 +2799,8 @@ from the chip or the CLI, which issues the grant under the same id
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>ValueError</strong> – The channels, steps, expiry, lease or completion are
-    malformed.</p></li>
+    malformed, or the steps, expiry or lease are past a ceiling
+    (<code class="xref py py-func docutils literal notranslate"><span class="pre">_within_ceilings()</span></code>); nothing is written.</p></li>
 <li><p><a class="reference internal" href="#osprey_connectors.write_authorization.AuthorizationRefused" title="osprey_connectors.write_authorization.AuthorizationRefused"><strong>AuthorizationRefused</strong></a> – <code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code>; <code class="docutils literal notranslate"><span class="pre">auth_unreadable</span></code> for no
     usable ledger directory.</p></li>
 <li><p><strong>OSError</strong> – The write failed.</p></li>
@@ -4805,6 +4840,8 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.COMPLETIONS"><code class="docutils literal notranslate"><span class="pre">COMPLETIONS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.LEDGER_DIR_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">LEDGER_DIR_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.LEDGER_VIEW_DIR_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">LEDGER_VIEW_DIR_ENV_VAR</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.MAX_EXPIRES_S"><code class="docutils literal notranslate"><span class="pre">MAX_EXPIRES_S</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.MAX_STEPS"><code class="docutils literal notranslate"><span class="pre">MAX_STEPS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.PRUNE_AFTER_S"><code class="docutils literal notranslate"><span class="pre">PRUNE_AFTER_S</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.REQUESTS_DIR_ENV_VAR"><code class="docutils literal notranslate"><span class="pre">REQUESTS_DIR_ENV_VAR</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.write_authorization.REQUESTS_DIR_NAME"><code class="docutils literal notranslate"><span class="pre">REQUESTS_DIR_NAME</span></code></a></li>

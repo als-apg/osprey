@@ -2322,22 +2322,30 @@ run’s resolved window narrowed to the environment’s range and the channel
 limits database; a step per evaluation (<code class="docutils literal notranslate"><span class="pre">n_initial</span> <span class="pre">+</span> <span class="pre">n_iterations</span></code>,
 each evaluation one write call) plus one for the completion write when
 <code class="docutils literal notranslate"><span class="pre">on_complete</span></code> is <code class="docutils literal notranslate"><span class="pre">apply_best</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">restore</span></code>, none for
-<code class="docutils literal notranslate"><span class="pre">hold</span></code>; an eight-hour expiry (<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_AUTHORIZATION_EXPIRES_S</span></code>) and a
-lease the run renews every 20 seconds. An evaluation whose objective is
-re-measured only reads it again: it writes once and spends one step.</p></li>
+<code class="docutils literal notranslate"><span class="pre">hold</span></code>; an eight-hour expiry (<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_AUTHORIZATION_EXPIRES_S</span></code>, held
+just under 24 hours) and a lease the run renews every 20 seconds. An
+evaluation whose objective is re-measured only reads it again: it writes
+once and spends one step.</p></li>
 <li><p><strong>How it gets it.</strong> While the owner’s switch for the machine stands at
 <em>allowed</em>, the run writes its own. Otherwise it writes a request, its job’s
 <code class="docutils literal notranslate"><span class="pre">write_authorization.state</span></code> reads <code class="docutils literal notranslate"><span class="pre">awaiting</span></code>, and the owner approves it
 from the chip or with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">write-authorization</span> <span class="pre">approve</span></code>. A request that
 waits longer than 15 minutes (<code class="docutils literal notranslate"><span class="pre">OPTIMIZER_AUTHORIZATION_WAIT_S</span></code>) ends the
-run <code class="docutils literal notranslate"><span class="pre">authorization_timeout</span></code>; a cancel while it waits withdraws it.</p></li>
+run <code class="docutils literal notranslate"><span class="pre">authorization_timeout</span></code>; a cancel while it waits withdraws it. A run
+that needs more than 100000 steps ends <code class="docutils literal notranslate"><span class="pre">authorization_too_many_steps</span></code>
+before it writes or asks for anything.</p></li>
 <li><p><strong>How it ends.</strong> A run whose authorization is spent (<code class="docutils literal notranslate"><span class="pre">auth_exhausted</span></code>),
 stopped (<code class="docutils literal notranslate"><span class="pre">auth_revoked</span></code>), expired, lapsed (<code class="docutils literal notranslate"><span class="pre">auth_lease_lapsed</span></code>) or
 written outside (<code class="docutils literal notranslate"><span class="pre">auth_range</span></code>, <code class="docutils literal notranslate"><span class="pre">auth_channel</span></code>) ends with that reason in
 its job’s error and <code class="docutils literal notranslate"><span class="pre">write_authorization.reason</span></code>, its results so far
 saved, and writes nothing more. Nothing asks again. A cancelled or failed run
 writes nothing either: restoring its starting setpoints is the operator’s
-call. A run that issued its own grant marks it revoked when it is done.</p></li>
+call. A run that issued its own grant marks it revoked when it is done.
+One a person approved stands until its expiry, but once the run stops
+renewing its lease — it finished, failed or crashed — it no longer blocks
+an approval of another program on its channels, about two minutes later,
+when the approver can see the run’s ledger; with none in sight it blocks
+until it expires. A paused run still renews, so it still blocks.</p></li>
 </ul>
 <p>The results restore (<code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/results/{env}/{timestamp}/restore</span></code>, after its
 preview), <code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/environments/{name}/variables</span></code> and <code class="docutils literal notranslate"><span class="pre">POST</span>

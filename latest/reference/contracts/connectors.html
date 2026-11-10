@@ -804,8 +804,14 @@ and a switch moved to <em>asked</em> or <em>allowed</em> does not widen it. The 
 <code class="docutils literal notranslate"><span class="pre">osprey_connectors.write_authorization</span></code>.</p>
 <p><strong>Three files, three writers.</strong> Each is read the fail-closed way: no symbolic
 link followed, a bounded read, a regular file, exactly the fields below, no
-repeated key, every number finite. A file that is there and cannot be read
-refuses; an absent grant is no authorization (<code class="docutils literal notranslate"><span class="pre">switch_off</span></code>).</p>
+repeated key, every number finite. A request or grant is written only inside
+three ceilings: at most 100000 <code class="docutils literal notranslate"><span class="pre">steps</span></code> (<code class="docutils literal notranslate"><span class="pre">MAX_STEPS</span></code>), an <code class="docutils literal notranslate"><span class="pre">expires_at_ns</span></code>
+at most 24 hours after its <code class="docutils literal notranslate"><span class="pre">requested_at_ns</span></code> or <code class="docutils literal notranslate"><span class="pre">issued_at_ns</span></code>
+(<code class="docutils literal notranslate"><span class="pre">MAX_EXPIRES_S</span></code>), and a <code class="docutils literal notranslate"><span class="pre">lease_s</span></code> of at most 600 seconds; a write past
+one raises <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> and writes nothing. Reading does not apply them, so
+a file already on disk past a ceiling is honoured as before. A file that is
+there and cannot be read refuses; an absent grant is no authorization
+(<code class="docutils literal notranslate"><span class="pre">switch_off</span></code>).</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
@@ -863,15 +869,19 @@ grants directory’s — the one lock order every writer of both keeps — stamp
 the record’s <code class="docutils literal notranslate"><span class="pre">switch_epoch</span></code> on the grant, and refuses <code class="docutils literal notranslate"><span class="pre">auth_overlap</span></code> when
 a live grant of another holder lists one of the channels on the same machine:
 one in the owner’s own directory, or a self-issued one in the ledger directory
-the approver sees. Another owner’s directory is not read. A grant file that
-cannot be read is logged and left out of that check; it refuses every write
-under it already. Both surfaces also refuse a target the deployment does not
-configure, a ceiling of <code class="docutils literal notranslate"><span class="pre">never</span></code> or <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, a range outside the limits
-database, and a channel without a numeric range there; the chip also refuses
-in a read-only run. The ceiling is the one the program’s own writes will meet:
-for a request in <code class="docutils literal notranslate"><span class="pre">var/write_ledger/requests</span></code> (a program in a shared
-container), the login map the build staged for those containers; for one filed
-on the host, the rendered config, as the web terminal on the host reads it.
+the approver sees. A grant whose every ledger the approver sees shows its
+lease time passed by more than a minute (its holder stopped renewing; the
+minute is a grace for the two clocks) does not count; one with no ledger in
+sight, or a ledger that cannot be read, does, until it expires. Another
+owner’s directory is not read. A grant file that cannot be read is logged and
+left out of that check; it refuses every write under it already. Both
+surfaces also refuse a target the deployment does not configure, a ceiling of
+<code class="docutils literal notranslate"><span class="pre">never</span></code> or <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, a range outside the limits database, and a channel
+without a numeric range there; the chip also refuses in a read-only run. The
+ceiling is the one the program’s own writes will meet: for a request in
+<code class="docutils literal notranslate"><span class="pre">var/write_ledger/requests</span></code> (a program in a shared container), the login map
+the build staged for those containers; for one filed on the host, the rendered
+config, as the web terminal on the host reads it.
 A refusal names every channel that cannot be approved.</p>
 <p>An approval is the confirmation for every write the run makes inside it, a
 batch included, for a login whose ceiling is <code class="docutils literal notranslate"><span class="pre">asked</span></code> as much as <code class="docutils literal notranslate"><span class="pre">allowed</span></code>:
