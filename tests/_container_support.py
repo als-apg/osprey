@@ -449,6 +449,23 @@ class ContainerExitedError(AssertionError):
     """
 
 
+class ForeignListenerError(AssertionError):
+    """Something other than the subject answered on the subject's published port.
+
+    A probe raises it when the reply is not the subject's protocol at all. On a
+    host where the container runtime forwards a port it chose inside its VM, a
+    process on the host can already hold that port on the loopback address, and
+    the host routes the probe to it rather than to the forwarder. The subject
+    may be up and healthy, but nothing reaches it on that port, so waiting
+    cannot help; like an exited container, only a fresh one, published on
+    another port, can come up differently.
+    """
+
+
+#: How a readiness wait that a foreign listener ended opens its ``ending``.
+_FOREIGN_ENDING = "a foreign listener answered on the published port"
+
+
 class RuntimeContainer:
     """A container known only by name, read through its runtime's CLI.
 
@@ -582,6 +599,8 @@ def wait_until_ready(
     Raises:
         ContainerExitedError: If the wait ended because *container* reached a
             terminal state. A subclass of ``AssertionError``.
+        ForeignListenerError: At once, re-raised with the wait's account, when
+            *probe* raises it: another process answers on the port.
         AssertionError: If no call succeeded before the wait ended for any
             other reason.
     """
@@ -601,7 +620,11 @@ def wait_until_ready(
             attempts += 1
             try:
                 probe()
-            except Exception as exc:  # any failure means "not ready yet"
+            except ForeignListenerError as exc:
+                last = exc
+                ending = _FOREIGN_ENDING
+                break
+            except Exception as exc:  # any other failure means "not ready yet"
                 last = exc
                 only_refusals = only_refusals and _is_refused_connection(exc)
             else:
@@ -626,8 +649,13 @@ def wait_until_ready(
                 break
             time.sleep(interval)
 
-        exited = ending.startswith(_EXITED_ENDING_PREFIX)
-        raise (ContainerExitedError if exited else AssertionError)(
+        if ending.startswith(_EXITED_ENDING_PREFIX):
+            failure: type[AssertionError] = ContainerExitedError
+        elif ending == _FOREIGN_ENDING:
+            failure = ForeignListenerError
+        else:
+            failure = AssertionError
+        raise failure(
             _readiness_failure(
                 label=label,
                 elapsed=time.monotonic() - started,
@@ -735,15 +763,22 @@ def _readiness_failure(
     while a subject that answered and kept refusing is the request the probe
     makes — most often its credentials.
     """
-    if only_refusals:
-        shape = "nothing ever listened on the port"
+    if ending == _FOREIGN_ENDING:
+        message = (
+            f"{label}: started, but never reached — {ending} after {elapsed:.1f}s "
+            f"and {attempts} attempt(s): its reply is not the subject's protocol, so "
+            f"another process on this host holds the port the runtime published."
+        )
     else:
-        shape = "something answered but would not serve the probe"
-    message = (
-        f"{label}: started, but never answered — {ending} after {elapsed:.1f}s "
-        f"and {attempts} attempt(s), and {shape}. The daemon is reachable, so this "
-        f"is a real failure, not a missing dependency."
-    )
+        if only_refusals:
+            shape = "nothing ever listened on the port"
+        else:
+            shape = "something answered but would not serve the probe"
+        message = (
+            f"{label}: started, but never answered — {ending} after {elapsed:.1f}s "
+            f"and {attempts} attempt(s), and {shape}. The daemon is reachable, so this "
+            f"is a real failure, not a missing dependency."
+        )
     if container is not None and ending.startswith(_EXITED_ENDING_PREFIX):
         message += _container_exit_detail(container)
     elif container is not None:
