@@ -42,6 +42,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.cli.build_profile_load import _KNOWN_DISPATCH_KEYS
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: The reference pages this sweep reads, relative to the repo root. Absent
@@ -113,6 +115,19 @@ _EXEMPTIONS: dict[str, str] = {
 }
 
 
+#: Build-profile blocks that share their name with a config section. The
+#: profile page documents their keys (``dispatch.worker_port_stride``) as the
+#: profile loader reads them, so a literal naming one of the loader's keys is
+#: not a config.yml key at all; any other spelling is still checked.
+_PROFILE_BLOCK_KEYS: dict[str, frozenset[str]] = {"dispatch": _KNOWN_DISPATCH_KEYS}
+
+
+def _is_profile_block_key(key: str) -> bool:
+    """Whether *key* is ``<block>.<key>`` of a profile block the loader closes."""
+    block, _, rest = key.partition(".")
+    return rest in _PROFILE_BLOCK_KEYS.get(block, frozenset())
+
+
 def _reference_pages(root_dir: Path | None = None) -> list[Path]:
     """Every ``.rst`` page in the configuration reference, and the extra pages."""
     root = root_dir if root_dir is not None else _REPO_ROOT
@@ -180,7 +195,11 @@ def _undeclared_hits(
 def test_every_documented_config_key_is_declared_in_the_manifest() -> None:
     """The rule: the reference section may only name keys the code really reads."""
     deleted = _deleted_keys()
-    offenders = [hit for hit in _undeclared_hits() if hit[2] not in _EXEMPTIONS]
+    offenders = [
+        hit
+        for hit in _undeclared_hits()
+        if hit[2] not in _EXEMPTIONS and not _is_profile_block_key(hit[2])
+    ]
     detail = []
     for path, number, key in offenders:
         why = "recorded as DELETED in the manifest" if key in deleted else "not in the manifest"
@@ -337,3 +356,17 @@ def test_an_absent_reference_directory_is_not_an_error(tmp_path: Path) -> None:
     this behaviour must not be what makes the sweep look green.
     """
     assert _documented_keys(tmp_path / "empty-repo") == []
+
+
+@pytest.mark.parametrize(
+    ("key", "allowed"),
+    [
+        ("dispatch.worker_port_stride", True),
+        ("dispatch.triggers", True),
+        ("dispatch.worker_port_strde", False),
+        ("web.worker_port_stride", False),
+    ],
+)
+def test_only_the_profile_loaders_own_keys_pass_as_profile_keys(key: str, allowed: bool) -> None:
+    """A profile block's real key passes; a misspelling of it is still checked."""
+    assert _is_profile_block_key(key) is allowed

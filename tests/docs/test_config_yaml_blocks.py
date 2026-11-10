@@ -185,6 +185,8 @@ _UNDECLARED: dict[tuple[str, str], str] = {
     ("how-to/web-terminal/panels.rst", "web.panels.pvinfo.url"): _EXAMPLE_NAME,
     ("how-to/web-terminal/panels.rst", "web.panels.pvinfo.path"): _EXAMPLE_NAME,
     ("how-to/web-terminal/panels.rst", "web.panels.pvinfo.rewrite_prefixes"): _EXAMPLE_NAME,
+    ("how-to/web-terminal/panels.rst", "web.panels.optics.url"): _EXAMPLE_NAME,
+    ("how-to/web-terminal/panels.rst", "web.panels.optics.read_timeout_s"): _EXAMPLE_NAME,
     (
         "reference/configuration/profile.rst",
         "control_system.connector.mypkg.SiteConnector.limits_checking.enabled",
@@ -548,10 +550,17 @@ def test_every_undeclared_entry_is_still_spelled() -> None:
         ),
         ("config:\n  web.theme: dark\n", []),
         ("config:\n  web.thme: dark\n", ["config: web.thme is not a key the code reads"]),
+        # ``dispatch`` is both a profile block and a config section
+        # (``dispatch.denied_app_tools``): a typo fails both readings.
         (
             "dispatch:\n  netwrok: host\n",
-            ["dispatch.netwrok is not a key the dispatch block accepts"],
+            [
+                "as config: dispatch.netwrok is not a key the code reads",
+                "as profile: dispatch.netwrok is not a key the dispatch block accepts",
+            ],
         ),
+        ("dispatch:\n  network: host\n", []),
+        ("dispatch:\n  denied_app_tools: []\n", []),
         ("services:\n  qmd:\n    models_dir: /srv\n", []),
         ("services:\n  ariel_sync:\n    template: osprey.ariel_sync\n", []),
         ("health:\n  categories:\n    host:\n      checks: []\n", []),
