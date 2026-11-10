@@ -1,4 +1,4 @@
-"""Tests for the per-user web terminal section of ``osprey.deployment.status_display.show_status``.
+"""Tests for the per-user web terminal section of ``osprey.deployment.status_display.show_repo_status``.
 
 Mocks the container runtime entirely: ``subprocess.run`` is patched to return canned
 ``docker ps -a --format json`` output for the first call and canned ``docker volume ls``
@@ -28,12 +28,14 @@ def _fake_load_project_config(config_path, **kwargs):
     return _CONFIGS[config_path]
 
 
-def _register_config(config_path, config):
-    """Serve *config* at *config_path*, with the record a start of it on docker wrote."""
-    _CONFIGS[config_path] = config
+def _register_config(repo_root, config):
+    """Serve *config* as *repo_root*'s build, with the record a start of it on docker wrote."""
+    config_path = Path(repo_root) / "build" / "config.yml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.touch()
+    _CONFIGS[str(config_path)] = config
     write_deployment_record(
-        Path(config_path).resolve().parent,
-        DeploymentRecord("docker", resolve_project_name(config)),
+        Path(repo_root), DeploymentRecord("docker", resolve_project_name(config))
     )
 
 
@@ -73,10 +75,7 @@ def _ps_stdout(*containers):
 
 
 @pytest.fixture(autouse=True)
-def _patch_config_loader(monkeypatch, tmp_path):
-    # The legacy verb's repo root is the directory holding its config, which
-    # the bare "cfg.yml" these tests pass puts in the working directory.
-    monkeypatch.chdir(tmp_path)
+def _patch_config_loader(monkeypatch):
     monkeypatch.setattr(status_display, "load_project_config", _fake_load_project_config)
     yield
     _CONFIGS.clear()
@@ -86,7 +85,7 @@ def _patch_config_loader(monkeypatch, tmp_path):
 def rendered(monkeypatch):
     """Capture BOTH renderer streams into one wide recording console.
 
-    ``show_status`` prints through :mod:`osprey.cli.output`, which resolves its
+    ``show_repo_status`` prints through :mod:`osprey.cli.output`, which resolves its
     console per call -- report/note/section through the installed reporter,
     warnings and failures through ``styles.err_console``. Both are pointed here
     so an assertion reads what an operator sees on either stream. Wide, because
@@ -112,7 +111,7 @@ def runtime_calls(monkeypatch):
 
     First subprocess.run call (ps) returns `ps_stdout`; the second (volume ls)
     returns `volume_stdout`. Both are set on the returned mutable dict before
-    show_status() is invoked.
+    show_repo_status() is invoked.
     """
     calls = {"argvs": [], "ps_stdout": "", "volume_stdout": ""}
 
@@ -151,9 +150,9 @@ def runtime_calls(monkeypatch):
     return calls
 
 
-def test_per_user_section_reports_running_and_present(runtime_calls, rendered):
+def test_per_user_section_reports_running_and_present(tmp_path, runtime_calls, rendered):
     config = _base_config(users=["alice", "bob"])
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     claude_vol_alice, agent_vol_alice = status_display.resolve_user_volume_names(config, "alice")
     claude_vol_bob, agent_vol_bob = status_display.resolve_user_volume_names(config, "bob")
@@ -166,7 +165,7 @@ def test_per_user_section_reports_running_and_present(runtime_calls, rendered):
         [claude_vol_alice, agent_vol_alice]  # bob's volumes absent
     )
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
     assert "Web Terminal Users" in output
@@ -184,14 +183,14 @@ def test_per_user_section_reports_running_and_present(runtime_calls, rendered):
     assert len(volume_calls) == 1
 
 
-def test_per_user_section_reports_not_created(runtime_calls, rendered):
+def test_per_user_section_reports_not_created(tmp_path, runtime_calls, rendered):
     config = _base_config(users=["carol"])
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     runtime_calls["ps_stdout"] = ""  # no containers at all
     runtime_calls["volume_stdout"] = ""  # no volumes at all
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
     assert "Web Terminal Users" in output
@@ -199,14 +198,14 @@ def test_per_user_section_reports_not_created(runtime_calls, rendered):
     assert "missing" in output
 
 
-def test_per_user_section_absent_when_disabled(runtime_calls, rendered):
+def test_per_user_section_absent_when_disabled(tmp_path, runtime_calls, rendered):
     config = _base_config(enabled=False, users=["alice"])
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     runtime_calls["ps_stdout"] = ""
     runtime_calls["volume_stdout"] = ""
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
     assert "Web Terminal Users" not in output
@@ -215,29 +214,29 @@ def test_per_user_section_absent_when_disabled(runtime_calls, rendered):
     assert len(volume_calls) == 0
 
 
-def test_per_user_section_absent_when_no_users(runtime_calls, rendered):
+def test_per_user_section_absent_when_no_users(tmp_path, runtime_calls, rendered):
     config = _base_config(enabled=True, users=[])
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     runtime_calls["ps_stdout"] = ""
     runtime_calls["volume_stdout"] = ""
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
     assert "Web Terminal Users" not in output
 
 
-def test_per_user_section_handles_object_form_users(runtime_calls, rendered):
+def test_per_user_section_handles_object_form_users(tmp_path, runtime_calls, rendered):
     """modules.web_terminals.users entries may be {"name": ..., "index": ...} objects."""
     config = _base_config(users=[{"name": "dana", "index": 0}])
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     runtime_calls["ps_stdout"] = _ps_stdout(_ps_container("demo-project-web-dana", "running"))
     claude_vol, agent_vol = status_display.resolve_user_volume_names(config, "dana")
     runtime_calls["volume_stdout"] = "\n".join([claude_vol, agent_vol])
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
     assert "dana" in output
@@ -245,10 +244,10 @@ def test_per_user_section_handles_object_form_users(runtime_calls, rendered):
     assert claude_vol in output
 
 
-def test_existing_services_table_still_renders(runtime_calls, rendered):
+def test_existing_services_table_still_renders(tmp_path, runtime_calls, rendered):
     """The per-user section must not interfere with the existing services table."""
     config = _base_config(users=["alice"])
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     runtime_calls["ps_stdout"] = _ps_stdout(
         _ps_container(
@@ -257,15 +256,15 @@ def test_existing_services_table_still_renders(runtime_calls, rendered):
     )
     runtime_calls["volume_stdout"] = ""
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
-    assert "Service Status" in output
+    assert "Containers" in output
     assert "demo-project-service" in output
     assert "Web Terminal Users" in output
 
 
-def test_table_cells_carry_no_markup_tags(runtime_calls, rendered):
+def test_table_cells_carry_no_markup_tags(tmp_path, runtime_calls, rendered):
     """Cells are pre-styled ``Text``, never markup strings.
 
     ``output.table`` prints with ``markup=False`` and Rich propagates that into
@@ -274,7 +273,7 @@ def test_table_cells_carry_no_markup_tags(runtime_calls, rendered):
     guard that nobody reintroduces one.
     """
     config = _base_config(users=["alice"])
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     runtime_calls["ps_stdout"] = _ps_stdout(
         _ps_container(
@@ -283,7 +282,7 @@ def test_table_cells_carry_no_markup_tags(runtime_calls, rendered):
     )
     runtime_calls["volume_stdout"] = ""
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
     assert "● Running" in output
@@ -292,17 +291,17 @@ def test_table_cells_carry_no_markup_tags(runtime_calls, rendered):
         assert tag not in output
 
 
-def test_project_containers_match_the_normalized_project_name(runtime_calls, rendered):
+def test_project_containers_match_the_normalized_project_name(tmp_path, runtime_calls, rendered):
     """A project whose name compose normalized still owns its own containers.
 
     Labels are stamped with ``resolve_project_name(config)`` — the normalized
     form — so status must resolve the same way. Comparing the raw
     ``project_name`` instead files the project's own containers under "Other
-    Osprey Containers".
+    OSPREY containers on this host".
     """
     config = _base_config(enabled=False)
     config["project_name"] = "Demo_Project!"
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     runtime_calls["ps_stdout"] = _ps_stdout(
         _ps_container(
@@ -310,18 +309,20 @@ def test_project_containers_match_the_normalized_project_name(runtime_calls, ren
         )
     )
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
     assert "demo_project-service" in output
-    assert "Other Osprey Containers" not in output
+    assert "Other OSPREY containers on this host" not in output
 
 
-def test_a_container_labelled_for_another_project_is_never_this_ones(runtime_calls, rendered):
+def test_a_container_labelled_for_another_project_is_never_this_ones(
+    tmp_path, runtime_calls, rendered
+):
     """A deployed service's name inside another project's container claims nothing."""
     config = _base_config(enabled=False)
     config["deployed_services"] = ["service"]
-    _register_config("cfg.yml", config)
+    _register_config(tmp_path, config)
 
     runtime_calls["ps_stdout"] = _ps_stdout(
         _ps_container("other-service", "running", labels={"osprey.project.name": "other"}),
@@ -330,10 +331,10 @@ def test_a_container_labelled_for_another_project_is_never_this_ones(runtime_cal
         ),
     )
 
-    status_display.show_status("cfg.yml")
+    status_display.show_repo_status(tmp_path)
     output = rendered.export_text()
 
-    other_section = output.index("Other Osprey Containers")
+    other_section = output.index("Other OSPREY containers on this host")
     assert "demo-project-service" in output[:other_section]
     assert "other-service" not in output[:other_section]
     assert "other-service" in output[other_section:]

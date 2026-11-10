@@ -155,8 +155,9 @@ _ARCHIVE_DIR_NAME = f"{STATE_DIR_NAME}/web_terminal_archives"
 def _require_running_runtime(config: dict[str, Any]) -> None:
     """Refuse to proceed when the container runtime daemon is unreachable.
 
-    The same preflight ``deploy_up``/``deploy_restart``/``rebuild_deployment``
-    perform before touching the runtime. It matters most for
+    The same preflight ``up_as_built``/``restart_deployment`` (through
+    ``_start_stack``) and ``down_deployment`` perform before touching the
+    runtime. It matters most for
     :func:`prune_users`: discovery-by-listing (``ps -a``/``volume ls``) against
     a downed daemon yields empty output, which would misreport as "no
     off-roster resources found; nothing to do" instead of the real cause.

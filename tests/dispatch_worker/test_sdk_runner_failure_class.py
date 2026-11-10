@@ -15,18 +15,16 @@ import asyncio
 import pytest
 
 from osprey.agent_runner import AgentRunError, TextEvent, ToolUseEvent
-from osprey.mcp_server.dispatch_worker import failure_class, run_stats, sdk_runner
+from osprey.mcp_server.dispatch_worker import counters, failure_class, run_stats, sdk_runner
 from tests.dispatch_worker._runner import drain, result_event, stub_osprey_helpers
 
 
 @pytest.fixture(autouse=True)
 def _isolation():
-    """Reset the stats map and detach any counter hook between tests."""
+    """Reset the stats map between tests."""
     run_stats._run_stats.clear()
-    failure_class.register_counter_hook(None)
     yield
     run_stats._run_stats.clear()
-    failure_class.register_counter_hook(None)
 
 
 @pytest.fixture(autouse=True)
@@ -244,14 +242,14 @@ async def test_sdk_missing_is_infrastructure(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Counter hook integration
+# Counter integration
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_counter_hook_bumped_on_error(monkeypatch):
+async def test_counter_bumped_on_error(monkeypatch):
     seen: list[str] = []
-    failure_class.register_counter_hook(seen.append)
+    monkeypatch.setattr(counters, "increment", seen.append)
 
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         yield result_event(is_error=True, subtype="error_during_execution", result="crash")

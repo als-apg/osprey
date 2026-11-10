@@ -151,7 +151,7 @@ def test_the_rendered_agent_ships_the_snapshot_placeholder(built_store_project):
     placeholder-forever path — tools still work, but the seed-time capture
     silently never lands.
     """
-    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+    from osprey.services.graph_store import prompt_snapshot
 
     text = (built_store_project / ".claude" / "agents" / "facility-knowledge-graph.md").read_text(
         encoding="utf-8"

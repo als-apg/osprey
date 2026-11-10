@@ -29,7 +29,7 @@ from osprey.deployment.web_terminals.artifacts import (
     resolve_render_inputs,
     write_web_terminal_artifacts,
 )
-from osprey.deployment.web_terminals.provision import web_terminal_preflight_problems
+from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.interfaces.web_terminal.app import _load_panel_config
 from osprey.interfaces.web_terminal.panel_cap import PANEL_CAP_SEGMENT, mint_cap
@@ -475,7 +475,7 @@ def test_the_collected_preflight_report_names_the_same_refusal(tmp_path, refused
     config = _roster(tmp_path, {"rw": (_hand_set(app, token_env), False)})
 
     problems = [
-        problem for problem, _ in web_terminal_preflight_problems(config, repo_root=tmp_path)
+        problem for problem, _ in web_terminal_preflight_report(config, repo_root=tmp_path)[0]
     ]
 
     assert any(PANEL_ID in problem and token_env in problem for problem in problems)

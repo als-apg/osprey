@@ -109,9 +109,9 @@ Profile YAML reference
    * - ``default_panel``
      - string
      - ``None``
-     - Panel id the web terminal opens on. Must be a built-in, an entry in
-       ``web_panels``, or a custom panel backed by a ``web.panels.<id>.url``
-       setting. Renders ``web.default_panel``.
+     - Panel id the web terminal opens on. Must be an entry in
+       ``web_panels``, a panel every render serves, or the panel of an
+       application the login shows. Renders ``web.default_panel``.
    * - ``panel_presets``
      - mapping
      - ``{}``
@@ -498,7 +498,8 @@ Three rules follow from the catalog being the one home for these facts:
   claims it. Entries you added are not compared. The comparison is with the
   catalog this OSPREY release ships, not with the hash under ``provenance:``.
   ``osprey init --revalidate`` keeps every value in the file and adds the
-  entries and keys OSPREY ships that it lacks.
+  entries and keys OSPREY ships that it lacks, except one such a comment
+  names as absent (``# DEVIATION: providers.openrouter: …``).
 
 .. _profile-posture-floor:
 

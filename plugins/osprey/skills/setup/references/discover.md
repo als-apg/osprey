@@ -74,7 +74,7 @@ sections 4 and 5 run no verb at all.
 
 | Command | What it yields |
 | --- | --- |
-| `osprey profile card --json` | Users, tiers, apps, provider, control system, panels, services |
+| `osprey profile card --json` | Users and their tiers, provider, control system, panels, services |
 | `osprey validate --drift=warn` | Validity, advisory warnings, plus one `⚠ preset drift:` line per unmarked difference |
 | `osprey scaffold list` | Framework-managed and claimed artifacts. Run **only** when `build/.osprey-manifest.json` exists |
 | `osprey profile artifacts` | The menu the six profile lists can name. Installation-wide: it takes no `--repo` and reads no repo |
@@ -85,8 +85,8 @@ and `services`. A group with nothing to say is omitted, so a missing group is a 
 about the profile, not an error. A hello-world deployment emits only `agent` and
 `machine`: no web tier means no `web terminal` group, no service blocks mean no
 `services` group. Every value is a display string, so read it for the card and re-read
-`profile.yml` for structure. Warnings go to stderr, one per tier or app file that could
-not be read, for example a roster name with no file under `tiers/` or `apps/`.
+`profile.yml` for structure. Warnings go to stderr, one per login file that could
+not be read, for example a roster name with no file under `tiers/`.
 Each such warning is a card line, not a silent omission.
 
 **`osprey validate --drift=warn`** passes and reports. Drift is a difference from the
@@ -123,7 +123,8 @@ validation, so there is no custom panel class.
 **MCP servers are not one of the six lists.** The card's `mcp` row is the framework
 registry's enabled servers plus every key of `profile.yml`'s `mcp_servers:`. Compare keys,
 not directory names: a key under `mcp_servers:` is the deployment's own, and a card entry
-that is no such key is `osprey-native`. Read every file under `tiers/` and `apps/` too — either can
+that is no such key is `osprey-native`. Read every file under `tiers/` too, and each `apps/<name>/` application the
+profile's `apps:` block lists — either can
 declare servers the host profile does not, and the card row shows the host profile only. The
 deployment's own servers split by how they start: `command:` is command-launched, and a
 Python one keeps its package at `mcp_servers/<key>/` while a third-party one launched by
@@ -132,7 +133,7 @@ directory.
 
 **Agent model pins** are not on the card JSON. Read every
 `claude_code.agent_models.<agent>` key, dotted or nested, from `profile.yml`'s `config:`
-block and from each file under `tiers/` and `apps/`, plus the `model:` line of each
+block and from each file under `tiers/`, plus the `model:` line of each
 `agents/<name>.md`. An agent with no pin runs the main model. The AGENT box's `models`
 line lists the main model and each pin, or `none pinned`.
 
@@ -144,8 +145,8 @@ report it as `custom (shadows <name>)` — one artifact, not two.
 **Convention directories** are declared by their own existence, so list them and count
 entries: `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
 `web-terminal-context/`, `mcp_servers/`, `services/`, `project/`. A root directory that is
-none of those and none of `profile.yml`, `triggers.yml`, `data/`, `tiers/`, `apps/`, `profiles/`,
-`scripts/`, `ci-extra.yml`, `osprey.service`, `build/`, `var/`, `docs/`, `README*`,
+none of those and none of `profile.yml`, `providers.yml`, `triggers.yml`, `data/`, `tiers/`,
+`apps/`, `watchdogs/`, `profiles/`, `scripts/`, `ci-extra.yml`, `osprey.service`, `build/`, `var/`, `docs/`, `README*`,
 `LICENSE*` or a dot-entry
 is not a zone: nothing reads it, and `osprey build` names it in its unrecognized-root-entry
 warning. `overlays/` in a current-generation repo is exactly that. Give it an `unknown` row
@@ -155,7 +156,7 @@ and one question: what reads this?
 imported layers under `data/facility/imported/` (`osprey facility show` prints the
 counts), `data/facility/limits.yaml` records, documents under the facility-knowledge
 bundle, decks, ARIEL vocabulary, simulation scenarios, benchmark sets. Also count
-`tiers/`, `apps/` and `triggers.yml`. The card JSON's machine group gives `<mode> finder`,
+`tiers/` (tiers and shared logins apart), `apps/`, `watchdogs/` and `triggers.yml`. The card JSON's machine group gives `<mode> finder`,
 and that is the whole channel-store fact in every mode: the finder reads what the
 build writes from the facility file, so there is no channel store of its own to
 count.
@@ -170,7 +171,7 @@ that no framework artifact matches. Read each README or module docstring. When t
 purpose is still unclear after reading, it is a `?` row on the card with the path and
 what is unclear, and it becomes an `unknown` element in MAP.
 
-Everything inventoried here has one line in section 7's boxes: tiers, apps and logins in WEB,
+Everything inventoried here has one line in section 7's boxes: tiers, shared logins, applications and users in WEB,
 triggers and the `data/` counts in DATA, variable names in ENV, convention directories in
 CUSTOM, validate's advisories on the box they concern or in OPEN. Nothing is left to prose.
 
@@ -257,7 +258,7 @@ directories, OPEN from every `?` row and every advisory that belongs to no box.
 
 Two rules for what goes where:
 
-- **Nothing is left to prose.** Tiers, apps and logins are WEB lines, triggers and the
+- **Nothing is left to prose.** Tiers, shared logins, applications and users are WEB lines, triggers and the
   `data/` counts are DATA lines, variable names are the ENV line, validate's advisories
   sit on the box they concern or in OPEN. The two sentences allowed around the card say
   what was inventoried and what needs an answer, not facts.

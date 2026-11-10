@@ -664,12 +664,12 @@ def wiped_graphdb_store(shared: WatchedStore, *, label: str) -> WatchedStore:
 
     For a module that seeds a corpus of its own into the session's store
     (fixture ``graphdb_session_store``) rather than into a container of its own.
-    The wipe is :func:`~osprey.services.facility_knowledge.seeder.graph_seeder.wipe`,
+    The wipe is :func:`~osprey.services.graph_store.seeder.wipe`,
     the first step of every re-seed ``osprey up`` does: it takes the data, the
     n10s graph config, the namespace prefixes and the seed marker, so the
     module bootstraps and seeds from the state a fresh deploy starts from. The
     one thing it leaves is the ``Resource(uri)`` constraint, which
-    :func:`~osprey.services.facility_knowledge.seeder.graph_seeder.bootstrap`
+    :func:`~osprey.services.graph_store.seeder.bootstrap`
     creates ``IF NOT EXISTS``. It runs when a module starts rather than when
     one ends, so a module that died halfway through its seed leaves nothing
     behind for the next.
@@ -688,7 +688,7 @@ def wiped_graphdb_store(shared: WatchedStore, *, label: str) -> WatchedStore:
     Raises:
         GraphStoreUnavailable: When the store does not answer the wipe.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     store = WatchedStore(
         shared.uri,

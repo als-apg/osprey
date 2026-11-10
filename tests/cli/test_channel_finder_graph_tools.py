@@ -404,7 +404,7 @@ def test_graph_paradigm_prompt_carries_the_snapshot_placeholder(tmp_path):
     paid a three-call schema prelude on every delegation that the other agent
     was designed to skip.
     """
-    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+    from osprey.services.graph_store import prompt_snapshot
 
     _manager, project_dir = _demo(tmp_path, "cf-graph-snapshot", "graph")
     body = _agent_path(project_dir).read_text(encoding="utf-8")
@@ -445,7 +445,7 @@ def test_the_rendered_agent_carries_no_hardcoded_vocabulary(tmp_path):
 @pytest.mark.parametrize("mode", [m for m in VALID_CHANNEL_FINDER_MODES if m != "graph"])
 def test_other_paradigms_carry_no_snapshot_region(tmp_path, mode):
     """A file-backed paradigm has no store to snapshot, so it ships no markers."""
-    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+    from osprey.services.graph_store import prompt_snapshot
 
     _manager, project_dir = _demo(tmp_path, f"cf-nosnap-{mode}", mode)
     body = _agent_path(project_dir).read_text(encoding="utf-8")

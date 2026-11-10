@@ -3,8 +3,7 @@
 Contracts:
   - counters seed one key per known failure class so readers never KeyError;
   - ``increment`` is monotonic and tolerates an unrecognised class;
-  - ``install`` wires ``increment`` into the failure_class stamp seam so a real
-    stamp bumps the matching lifetime counter;
+  - a real ``failure_class._stamp`` bumps the matching lifetime counter;
   - ``get_counts`` returns a snapshot copy (mutating it can't corrupt state).
 """
 
@@ -18,10 +17,9 @@ from osprey.mcp_server.dispatch_worker import failure_class as fc
 
 @pytest.fixture(autouse=True)
 def _isolate_counters():
-    """Zero counters and detach the stamp hook around every test."""
+    """Zero counters around every test."""
     counters.reset()
     yield
-    fc.register_counter_hook(None)
     counters.reset()
 
 
@@ -55,9 +53,8 @@ def test_get_counts_returns_a_copy():
     assert counters.get_counts()[fc.FAILURE_PROVIDER] == 0
 
 
-def test_install_wires_stamp_to_counters():
-    """After install(), a real _stamp bumps the lifetime counter for its class."""
-    counters.install()
+def test_stamp_bumps_counters():
+    """A real _stamp bumps the lifetime counter for its class."""
     fc._stamp({}, fc.FAILURE_PROVIDER, num_tool_calls=1)
     fc._stamp({}, fc.FAILURE_INFRASTRUCTURE, num_tool_calls=0)
     counts = counters.get_counts()

@@ -881,35 +881,6 @@ class TestDeployWiring:
             body = inspect.getsource(verb)
             assert "_start_stack(" in body or "_start_as_built(" in body
 
-    def test_deploy_restart_mints_the_control_plane_pair(self):
-        """The template's `:?` guard aborts a restart on an unset private key.
-
-        A project whose ``.env`` predates this feature would otherwise be
-        broken by the very act of restarting it — the same reason
-        ``_ensure_service_tokens`` already runs on this path.
-        """
-        import inspect
-
-        from osprey.deployment import container_lifecycle
-
-        source = inspect.getsource(container_lifecycle.deploy_restart)
-        # Matched on the call NAME, not on a full argument list: the call is
-        # anchored on the repo root's `.env` (it mints a keypair, and a
-        # cwd-relative default would strand it), and pinning the exact argument
-        # text would make this test fail on the anchoring rather than on the
-        # property it is here to protect — that the mint happens before restart.
-        assert "_ensure_bluesky_control_plane_keys(" in source
-        assert source.index("_ensure_bluesky_control_plane_keys(") < source.index('"restart"')
-
-    def test_deploy_restart_does_not_generate_certificates(self):
-        """`compose restart` reuses existing container config; mounts are not re-resolved."""
-        import inspect
-
-        from osprey.deployment import container_lifecycle
-
-        source = inspect.getsource(container_lifecycle.deploy_restart)
-        assert "_ensure_bluesky_document_plane_certs(" not in source
-
 
 def test_default_env_path_is_cwd_relative(tmp_path, monkeypatch):
     """Both new functions follow ``_ensure_service_tokens``' CWD convention.

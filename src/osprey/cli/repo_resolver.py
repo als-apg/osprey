@@ -52,7 +52,6 @@ HELD_SOURCE_ZONE_DIRNAME = ".osprey-replaced-source-zone"
 REPO_FREE_COMMANDS: frozenset[str] = frozenset(
     {
         "init",
-        "eject",
         "vendor",
         "theme-lab",
     }

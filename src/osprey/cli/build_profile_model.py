@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import warnings
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -371,7 +371,8 @@ def panel_preset_errors(name: str, layout: Any, is_known: Callable[[str], bool])
         return [f"{where} {refusal}"]
     return [
         f"Unknown {where} member {key!r}: not in web_panels (the selection is what "
-        f"shows a tab) and not universal ({sorted(UNIVERSAL_PANELS)})"
+        f"shows a tab), not universal ({sorted(UNIVERSAL_PANELS)}) and not the panel "
+        f"of an application this login shows"
         for key in layout_keys(layout)
         if not is_known(key)
     ]
@@ -756,18 +757,39 @@ class BuildProfile:
             )
         return FacilityRoots(machine=machine, content=content)
 
-    def _is_known_panel_id(self, pid: str) -> bool:
+    def _is_known_panel_id(self, pid: str, app_panels: Collection[str] = ()) -> bool:
         """Return True if ``pid`` names a tab this profile's render shows.
 
-        A panel is shown when the profile selects it (``web_panels``) or it is
-        universal (always served). Not "built-in": a built-in the profile does
-        not select renders no tab, and a ``default_panel`` naming one would fall
-        back to the workspace silently. Shared by the ``default_panel`` and
+        A panel is shown when the profile selects it (``web_panels``), it is
+        universal (always served), or it is in ``app_panels``, the panels of the
+        applications this render's card shows (:meth:`_shown_app_panels`), which
+        the build adds to the selection. Not "built-in": a built-in the profile
+        does not select renders no tab, and a ``default_panel`` naming one would
+        fall back to the workspace silently. Shared by the ``default_panel`` and
         ``panel_presets`` member validation so both reject the same ids with the
         same predicate (a single source of truth, not two drifting membership
         checks).
         """
-        return pid in UNIVERSAL_PANELS or pid in self.web_panels
+        return pid in UNIVERSAL_PANELS or pid in self.web_panels or pid in app_panels
+
+    def _shown_app_panels(self, profile_dir: Path) -> frozenset[str]:
+        """The panel ids of the applications this render's card shows.
+
+        Read from each manifest's ``panel.id``, the id the build's projection adds
+        to the selection. A manifest that does not load contributes none; its
+        refusal is :meth:`_validate_apps`'.
+        """
+        shown = [name for name in self.apps if self.app_shown(name)]
+        if not shown:
+            return frozenset()
+        from osprey.apps.errors import AppManifestError
+        from osprey.apps.loader import load as load_apps
+
+        try:
+            manifests = load_apps(profile_dir, shown)
+        except AppManifestError:
+            return frozenset()
+        return frozenset(m.panel.id for m in manifests if m.panel is not None)
 
     def _validate_environment(self) -> list[str]:
         """Return validation errors for the ``environment:`` block (empty when clean).
@@ -2152,22 +2174,29 @@ class BuildProfile:
         errors.extend(panel_spelling_errors(self.config))
 
         # Validate default_panel: must be a tab this render shows — selected in
-        # web_panels, or universal. Catches typos like `default_panel: areil`,
-        # and a built-in the profile never selected, both of which would
-        # silently fall back to the frontend DEFAULT_PANEL_FALLBACK at runtime.
-        if self.default_panel is not None and not self._is_known_panel_id(self.default_panel):
+        # web_panels, universal, or a shown application's panel. Catches typos
+        # like `default_panel: areil`, and a built-in the profile never selected,
+        # both of which would silently fall back to the frontend
+        # DEFAULT_PANEL_FALLBACK at runtime.
+        app_panels = self._shown_app_panels(profile_dir)
+
+        def known_panel(pid: str) -> bool:
+            return self._is_known_panel_id(pid, app_panels)
+
+        if self.default_panel is not None and not known_panel(self.default_panel):
             errors.append(
                 f"Unknown default_panel {self.default_panel!r}: not in web_panels "
-                f"(the selection is what shows a tab) and not universal "
-                f"({sorted(UNIVERSAL_PANELS)})"
+                f"(the selection is what shows a tab), not universal "
+                f"({sorted(UNIVERSAL_PANELS)}) and not the panel of an application "
+                f"this login shows"
             )
 
         # Validate panel_presets: each is a dock layout of one panel per tile,
-        # whose panels resolve the same way a default_panel does (selected, or
-        # universal). Catches typos and the retired list form at build time,
-        # with the layout to write.
+        # whose panels resolve the same way a default_panel does (selected,
+        # universal, or a shown application's). Catches typos and the retired
+        # list form at build time, with the layout to write.
         for preset_name, layout in self.panel_presets.items():
-            errors.extend(panel_preset_errors(preset_name, layout, self._is_known_panel_id))
+            errors.extend(panel_preset_errors(preset_name, layout, known_panel))
 
         errors.extend(self._artifact_server_errors(profile_dir))
 

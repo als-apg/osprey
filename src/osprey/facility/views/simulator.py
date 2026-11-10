@@ -65,7 +65,7 @@ from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation import STILL_SCENARIO
-from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
+from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
@@ -190,21 +190,11 @@ def simulator_wiring(records: FacilityRecords, model: str) -> list[dict[str, Any
     return copy.deepcopy(wiring)
 
 
-#: The key a wiring entry also carries its ``engine_role`` under: transitional
-#: copy for connectors <2026.11.8; removed by the floor bump to >=2026.11.8.
-#: Those releases read a wiring record's engine role as ``role`` and refuse an
-#: entry without it. Nothing reads it back.
-TRANSITIONAL_ROLE_KEY = "role"
-
-
 def _wire(records: FacilityRecords, entry: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Compute :func:`simulator_wiring` of ``entry`` without the per-build memo."""
     return [
         {
             **{key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record},
-            # Transitional copy for connectors <2026.11.8; removed by the floor
-            # bump to >=2026.11.8.
-            **({TRANSITIONAL_ROLE_KEY: record["engine_role"]} if "engine_role" in record else {}),
             **_waveform(records.record("channel", str(record["address"])) or {}),
         }
         for record in entry.get("wiring", [])
@@ -229,7 +219,7 @@ def served_deck_path(model: Mapping[str, Any]) -> str | None:
 
 def _waveform(channel: Mapping[str, Any]) -> dict[str, Any]:
     """A waveform channel's ``value_type`` and ``shape``; nothing for any other channel."""
-    if channel.get("value_type") != "waveform":
+    if not is_waveform(channel.get("value_type")):
         return {}
     return {"value_type": "waveform", "shape": list(channel.get("shape") or [])}
 

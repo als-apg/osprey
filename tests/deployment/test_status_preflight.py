@@ -145,19 +145,21 @@ def runtime_calls(monkeypatch):
 
 
 def _run_status(tmp_path, runtime_calls, containers, users=("alice",)):
-    """Render ``show_status`` against a repo rooted at *tmp_path*.
+    """Render ``show_repo_status`` against a repo rooted at *tmp_path*.
 
-    The legacy verb derives its repo root from the directory holding the config
-    it was handed, which is what puts the state zone at ``tmp_path/var/state``.
-    Output is read off the ``rendered`` console fixture.
+    The repo root is what puts the state zone at ``tmp_path/var/state``. Output
+    is read off the ``rendered`` console fixture.
     """
-    config_path = str(tmp_path / "config.yml")
+    build_config = tmp_path / "build" / "config.yml"
+    build_config.parent.mkdir(parents=True, exist_ok=True)
+    build_config.touch()
+    config_path = str(build_config)
     _CONFIGS[config_path] = _base_config(list(users))
     write_deployment_record(
         tmp_path, DeploymentRecord("docker", resolve_project_name(_CONFIGS[config_path]))
     )
     runtime_calls["ps_stdout"] = json.dumps(list(containers))
-    status_display.show_status(config_path)
+    status_display.show_repo_status(tmp_path)
 
 
 # ---------------------------------------------------------------------------
