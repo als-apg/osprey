@@ -313,6 +313,7 @@ def test_external_projects_must_be_a_list() -> None:
         ("timezone", "America/Los_Angeles", "system.timezone"),
         ("control_system", {"type": "epics"}, "control_system.type"),
         ("users", ["operator"], "modules.web_terminals.users"),
+        ("ci_image_prefix", "mirror.example.org/dockerhub", "images.base_registry"),
     ],
 )
 def test_a_profile_owned_key_is_rejected_naming_its_real_home(

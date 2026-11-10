@@ -104,6 +104,7 @@ from osprey.deployment.web_terminals.render_images import (
 from osprey.deployment.web_terminals.roster import (
     effective_image_source,
     entry_is_shared,
+    image_tag_problem,
     resolve_cards,
     roster_entries,
 )
@@ -121,7 +122,10 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     build so the deploy aborts that need no image at all — a roster
     :func:`resolve_cards` refuses (no render catalog or no
     ``default_tier``, in either image source; an unknown reference; a
-    render with no ``project``), checked first, a render that would hold
+    render with no ``project``), checked first, a registry-mode ``image_tag``
+    that expands to an empty tag or tag part
+    (:func:`~osprey.deployment.web_terminals.roster.image_tag_problem`), a
+    render that would hold
     ``BLUESKY_LAUNCH_TOKEN`` while its agent may also run a shell
     (:func:`~osprey.deployment.web_terminals.artifacts.check_bash_launch_token_conflict`),
     a missing provider auth secret
@@ -171,6 +175,8 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     # default_tier, an unknown reference or a render with no project is
     # refused before anything below mints a credential.
     resolved_users = resolve_cards(web_terminals, config.get("registry") or {}, strict=True)
+    if (problem := image_tag_problem(web_terminals)) is not None:
+        raise ValueError(problem)
     if effective_image_source(web_terminals) == "local":
         verify_renders(config, resolved_users, repo_root=root)
     # BEFORE ensure_env_production, for the same reason auth provisioning runs
@@ -428,6 +434,9 @@ def web_terminal_preflight_report(
     root = _resolved_repo_root(config, repo_root)
     findings: list[tuple[str, str]] = []
 
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    if (problem := image_tag_problem(web_terminals)) is not None:
+        findings.append((problem, ""))
     if (problem := render_problem(config, root)) is not None:
         findings.append((problem, ""))
     if name_problems := launch_token_name_problems(config, root):

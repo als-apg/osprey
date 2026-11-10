@@ -942,7 +942,7 @@ def test_the_registry_covers_every_control_target() -> None:
 
 #: The control-identity charset: a Linux account name a lane service runs as.
 #: Restated here, not imported, so the registry module stays a leaf.
-_IDENTITY_CHARSET = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+_IDENTITY_CHARSET = re.compile(r"^[a-z_][a-z0-9._-]{0,31}$")
 
 #: An RFC 1123 label: lowercase alphanumerics and hyphens, alphanumeric at
 #: both ends, at most 63 characters.

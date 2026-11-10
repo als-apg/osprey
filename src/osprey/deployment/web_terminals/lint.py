@@ -97,6 +97,7 @@ from osprey.deployment.web_terminals.roster import (
     effective_tier,
     entry_is_shared,
     expand_tier_principals,
+    image_tag_problem,
     is_app_entry,
     privilege_phrase,
     privileged_default_tier_problem,
@@ -105,7 +106,6 @@ from osprey.deployment.web_terminals.roster import (
     rendered_configs,
     resolve_access_principals,
     resolve_cards,
-    resolve_image_tag,
     roster_entries,
     roster_people,
     served_render_names,
@@ -2772,29 +2772,12 @@ def _check_unknown_image_source(web_terminals: dict[str, Any]) -> list[Finding]:
 
 
 def _check_image_tag_empty(web_terminals: dict[str, Any]) -> list[Finding]:
-    """Registry mode bakes ``modules.web_terminals.image_tag`` literally into
-    every pulled image ref (``web-terminal:<tag>``). When the field references a
-    ``${VAR}`` that is unset at lint/render time (or is otherwise empty), it
-    resolves to an empty string and the ref degrades to a tagless
-    ``web-terminal:`` no registry can pull. Warn so the misconfiguration
-    surfaces here rather than at ``osprey up``. Scoped to registry mode — local
-    mode builds ``:local`` images and never reads ``image_tag``."""
-    if effective_image_source(web_terminals) != "registry":
+    """Registry mode bakes the resolved ``image_tag`` into every pulled image
+    ref, so a reference that expands to empty is an error at both altitudes."""
+    problem = image_tag_problem(web_terminals)
+    if problem is None:
         return []
-    if resolve_image_tag(web_terminals):
-        return []
-    return [
-        Finding(
-            severity="warn",
-            code="web_terminals.empty_image_tag",
-            message=(
-                "modules.web_terminals.image_tag resolves to an empty string "
-                "(likely a ${VAR} whose variable is unset at render time); the "
-                "rendered image ref would be a tagless 'web-terminal:' that no "
-                "registry can pull"
-            ),
-        )
-    ]
+    return [Finding(severity="error", code="web_terminals.empty_image_tag", message=problem)]
 
 
 def _check_registry_url_coherence(

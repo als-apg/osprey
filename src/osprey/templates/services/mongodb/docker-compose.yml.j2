@@ -4,6 +4,7 @@
     THIS template:
 
       PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
 -#}
 {#- The env passthrough axis — the host variables a service's `env:` key
     names — is rendered by the shared macro rather than hand-written per
@@ -32,7 +33,7 @@ services:
     # (env → config → default): set OSPREY_MONGODB_IMAGE, or
     # services.mongodb.image in config.yml, to point at a mirror or a pinned
     # digest (e.g. for air-gapped registries).
-    image: ${OSPREY_MONGODB_IMAGE:-{{ (services.mongodb | default({})).image | default('mongo:7', true) }}}
+    image: ${OSPREY_MONGODB_IMAGE:-{{ (services.mongodb | default({})).image | default(upstream_images.mongodb, true) }}}
     # container_name is a HOST-GLOBAL docker identifier: a bare
     # `archiver-mongodb` collides when two OSPREY projects deploy the archiver
     # store on one host, forcing them to serialize. Namespace it per-project so

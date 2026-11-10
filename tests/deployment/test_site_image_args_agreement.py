@@ -1,8 +1,9 @@
 """The two renderers of the site's build args hand a build the same thing.
 
 The site's build settings — a CA for a TLS-intercepting proxy, pip's proxy
-bypass list, an internal package index — reach an image two ways. The three
-images OSPREY builds from an argv of its own get them as ``--build-arg`` flags
+bypass list, an internal package index, whether the deployment is offline —
+reach an image two ways. The three images OSPREY builds from an argv of its own
+get them as ``--build-arg`` flags
 (:func:`osprey.deployment.container_lifecycle.site_image_build_args`); a managed
 service image, which ``docker compose build`` builds from its own rendered
 context, gets them as the ``args:`` block of its compose fragment
@@ -40,7 +41,7 @@ def no_site_env(monkeypatch):
     kin), so a developer machine that happens to export one for its own tooling
     would otherwise leak into every assertion here.
     """
-    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+    for name in compose_generator.SITE_IMAGE_AXES:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
 
@@ -56,6 +57,7 @@ def _site_config(tmp_path, **extra):
             "pip_no_proxy": ".internal.example.org",
             "pip_index_url": "https://mirror.example.org/simple",
             "pip_extra_index_url": "https://wheels.example.org/simple",
+            "base_registry": "mirror.example.org/dockerhub",
         },
     }
     config.update(extra)
@@ -117,6 +119,7 @@ def test_both_renderers_carry_the_same_arg_names_and_values(tmp_path):
         "PIP_NO_PROXY": ".internal.example.org",
         "PIP_INDEX_URL": "https://mirror.example.org/simple",
         "PIP_EXTRA_INDEX_URL": "https://wheels.example.org/simple",
+        "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub",
     }
     assert argv == expected
     assert staged == expected
@@ -159,13 +162,12 @@ def test_the_two_renderers_order_their_args_deliberately_and_differently(tmp_pat
 
 
 @pytest.mark.usefixtures("no_site_env")
-def test_only_the_project_image_is_told_the_deployment_is_offline(tmp_path):
-    """The one flag the two forms do not share is the one no service would read.
+def test_both_renderers_tell_every_image_the_deployment_is_offline(tmp_path):
+    """Offline is a fact about the deployment, so it reaches every built image.
 
-    Offline is a property of the image that SERVES the vendored web assets:
-    only the project recipe declares that ARG and runs the vendoring step, so a
-    service fragment carrying it would be handing a build a setting its
-    Dockerfile has no line for.
+    It travels with the site axes: both renderers hand it to every image they
+    build. The image that serves vendored assets is the one whose recipe
+    declares the ARG; an image that declares none ignores it.
     """
     config = _site_config(tmp_path, offline=True)
     argv = _build_args(
@@ -176,8 +178,8 @@ def test_only_the_project_image_is_told_the_deployment_is_offline(tmp_path):
     )
 
     assert argv["OSPREY_OFFLINE"] == "1"
-    assert "OSPREY_OFFLINE" not in staged
-    assert "OSPREY_OFFLINE" not in _rendered_args(staged)
+    assert staged["OSPREY_OFFLINE"] == "1"
+    assert _rendered_args(staged)["OSPREY_OFFLINE"] == "1"
 
 
 @pytest.mark.usefixtures("no_site_env")

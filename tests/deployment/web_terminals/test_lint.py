@@ -2359,9 +2359,9 @@ def test_lint_omitted_mcp_topology_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
 
 
-def test_lint_empty_expanded_image_tag_is_a_warning(monkeypatch) -> None:
+def test_lint_empty_expanded_image_tag_is_an_error(monkeypatch) -> None:
     """A registry-mode `image_tag` referencing an unset env var expands to empty
-    and must produce a (non-fatal) warning, never an error."""
+    and is an error naming the template and the variable."""
     # Arrange
     monkeypatch.delenv("IMAGE_TAG", raising=False)
     config = copy.deepcopy(_CLEAN_CONFIG)
@@ -2371,8 +2371,26 @@ def test_lint_empty_expanded_image_tag_is_a_warning(monkeypatch) -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert _errors(findings) == []
-    assert any(f.code == "web_terminals.empty_image_tag" for f in _warnings(findings))
+    [finding] = [f for f in _errors(findings) if f.code == "web_terminals.empty_image_tag"]
+    assert "'${IMAGE_TAG}'" in finding.message
+    assert "IMAGE_TAG is not set" in finding.message
+
+
+def test_lint_a_partly_empty_image_tag_is_an_error(monkeypatch) -> None:
+    """A reference that empties only part of the tag (`v${IMAGE_TAG}` gives `v`)
+    would pull the wrong image, so it is an error too."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["image_tag"] = "v${IMAGE_TAG}"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    [finding] = [f for f in _errors(findings) if f.code == "web_terminals.empty_image_tag"]
+    assert "resolved to 'v'" in finding.message
+    assert "IMAGE_TAG is not set" in finding.message
 
 
 def test_lint_empty_image_tag_in_local_mode_reports_no_warning(monkeypatch) -> None:

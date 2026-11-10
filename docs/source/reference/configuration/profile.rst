@@ -167,8 +167,8 @@ Profile YAML reference
      - mapping
      - absent
      - Where the project is built, pushed and run: ``ci``, ``host``,
-       ``registry``, ``image_source``, ``ci_image_prefix`` and
-       ``external_projects``. ``osprey scaffold ci`` renders the CI files from
+       ``registry``, ``image_source`` and ``external_projects``.
+       ``osprey scaffold ci`` renders the CI files from
        it. When the profile configures web terminals, the build also writes
        its image source, and its registry URL when ``config:`` names none, into
        the rendered config the web-terminal stack reads (see

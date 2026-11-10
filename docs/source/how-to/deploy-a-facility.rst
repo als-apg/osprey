@@ -398,7 +398,9 @@ job in the pipeline:
 
 .. code-block:: dockerfile
 
-   FROM python:3.11-slim
+   # Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
+   ARG OSPREY_BASE_REGISTRY="docker.io"
+   FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim
 
    WORKDIR /app
 
@@ -419,6 +421,7 @@ compose template per service directory, rendered by the build.
 
 .. code-block:: jinja
 
+   {%- import "services/_site_image_args.j2" as site -%}
    services:
      facility-mcp:
        image: ${OSPREY_FACILITY_MCP_IMAGE:-{{ (services['facility-mcp'] | default({})).image | default(osprey_labels.project_name ~ '-facility-mcp:local') }}}
@@ -428,6 +431,9 @@ compose template per service directory, rendered by the build.
          # own subdir — so the context is the service directory by name.
          context: ./facility-mcp
          dockerfile: Dockerfile
+   {%- if site_image_build_args %}
+         args:{{ site.build_args(site_image_build_args) }}
+   {%- endif %}
        # container_name is a HOST-GLOBAL identifier: namespace it per-project so
        # two OSPREY projects can run this service on one host.
        container_name: {{ osprey_labels.project_name }}-facility-mcp
@@ -500,18 +506,12 @@ file:
        user: osprey
        project_path: /opt/demo-facility
      image_source: local
-     ci_image_prefix: mirror.example.org/dockerhub
 
 Substitute your own registry and host. ``registry.url`` carries no scheme — it
 appears verbatim inside an image name. ``host.name`` must be ssh-resolvable for
 whoever presses the deploy button, and ``host.project_path`` is where this
 repository is checked out on that server. Credentials are *named* here, never
 written here.
-
-``ci_image_prefix`` is where the pipeline pulls the images its own *jobs* run
-in — Python, Docker and Alpine — so a runner with no route to Docker Hub takes
-them from a mirror instead; leave the key out and the pipeline names the public
-images, which is what a runner with internet access wants.
 
 ``image_source: local`` says the deploy host builds the web-terminal images
 itself from the rendered login projects, rather than pulling them from a
@@ -531,6 +531,17 @@ push those images. The names and what has to push them:
    config for you. Saying it in both places is refused by name — the two are
    free to disagree, and the disagreement decides whether the host builds images
    or pulls them.
+
+A runner or deploy host with no route to Docker Hub names a site mirror of it
+under ``config:``; leave the key out where Docker Hub is reachable:
+
+.. code-block:: yaml
+
+   config:
+     images.base_registry: mirror.example.org/dockerhub
+
+The pipeline's job images, the base image of every image this repository
+builds, and the Docker Hub images ``osprey up`` pulls then come from it.
 
 
 Step 6 — Add the secrets

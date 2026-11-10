@@ -43,6 +43,7 @@ from osprey.services.ariel_search.search.qmd import (
     get_parameter_descriptors,
     get_tool_descriptor,
     hybrid_search,
+    qmd_lanes,
 )
 from osprey.services.qmd import QMDSearchResult, QMDUnavailableError
 
@@ -391,6 +392,29 @@ class TestSettings:
     def test_candidate_limit_none_defers_to_qmd(self):
         settings = HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": None}))
         assert settings.candidate_limit is None
+
+    @pytest.mark.parametrize(
+        ("settings", "lanes"),
+        [
+            pytest.param({}, ("lex", "vec"), id="strategy-unset"),
+            pytest.param({"strategy": "qmd"}, ("lex", "vec"), id="qmd"),
+            pytest.param({"strategy": "rrf"}, ("lex",), id="rrf"),
+        ],
+    )
+    def test_qmd_lanes_follow_the_strategy(self, settings, lanes):
+        module = SearchModuleConfig(enabled=True, settings=settings)
+        assert HybridSearchSettings.from_module(module).qmd_lanes == lanes
+        assert qmd_lanes(module) == lanes
+
+    def test_qmd_lanes_are_empty_without_hybrid_search(self):
+        assert qmd_lanes(None) == ()
+        disabled = SearchModuleConfig(enabled=False, settings={"strategy": "RRF"})
+        assert qmd_lanes(disabled) == ()
+
+    def test_qmd_lanes_refuse_a_malformed_strategy(self):
+        module = SearchModuleConfig(enabled=True, settings={"strategy": "other"})
+        with pytest.raises(ValueError, match="search_modules.hybrid.settings.strategy"):
+            qmd_lanes(module)
 
 
 # --------------------------------------------------------------------------
