@@ -1066,9 +1066,6 @@ ignore_imports = [
     "osprey.simulation.apply -> osprey.services.ariel_search.entry_url",
     "osprey.simulation.apply -> osprey.services.ariel_search.exceptions",
     "osprey.simulation.apply -> osprey.services.ariel_search.models",
-    # removable now: the artifact converters belong to the artifact store
-    "osprey.agent_runner.artifact_resolve -> osprey.mcp_server.ariel.converters",
-    "osprey.interfaces.artifacts.logbook -> osprey.mcp_server.ariel.tools.entry",
 ]
 
 [[tool.importlinter.contracts]]
