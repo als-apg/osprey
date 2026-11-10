@@ -6,8 +6,8 @@
  * xterm.js and its addons are page globals loaded by <script> tags. When any
  * of them is missing, initTerminal() must say so in the pane and return, not
  * throw and leave the pane empty. The sentence names where the assets were
- * meant to come from: the CDN when the page carries data-vendor="cdn", the
- * image otherwise.
+ * meant to come from: the CDN when the page carries data-vendor="cdn", this
+ * server otherwise.
  *
  * Same isolation scheme as terminal-copy.test.mjs: fresh module per test,
  * xterm stubbed from _terminal-fake.mjs.
@@ -65,11 +65,14 @@ test('a CDN page names the CDN and offline: true', async () => {
   expect(document.querySelector('#terminal-container .stale')).toBeNull();
 });
 
-test('an offline page names the image', async () => {
+test('an offline page names this server', async () => {
   stubNoXterm();
   const terminal = await loadTerminal();
   terminal.initTerminal('terminal-container');
-  expect(noticeText()).toContain('missing from this image');
+  const text = noticeText();
+  expect(text).toContain('did not load from this server');
+  expect(text).not.toContain('offline: true');
+  expect(text).not.toContain('image');
 });
 
 test('a missing addon global renders the notice and constructs no terminal', async () => {

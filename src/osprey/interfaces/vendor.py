@@ -6,9 +6,9 @@ vendor_manifest.json, which pairs each asset with its CDN URL, a SHA256
 checksum, and one or more local target directories.
 
 By default, interfaces serve CDN URLs directly — no setup required.
-Firewalled deployments (e.g. the LBL control room) opt into local bundles
-by setting ``OSPREY_OFFLINE=1`` or ``offline: true`` in ``config.yml``,
-then run ``osprey vendor fetch`` to populate the target dirs.
+Firewalled deployments opt into local bundles by setting ``OSPREY_OFFLINE=1``
+or ``offline: true`` in ``config.yml``, then run ``osprey vendor fetch`` to
+populate the target dirs.
 """
 
 from __future__ import annotations

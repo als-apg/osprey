@@ -188,7 +188,9 @@ const XTERM_GLOBALS = ['Terminal', 'FitAddon', 'WebLinksAddon', 'ClipboardAddon'
  * is indistinguishable from a terminal that has nothing to show — the operator
  * waits at a prompt that is never going to appear. A console log line is not a
  * user-facing surface; this is. The page's data-vendor attribute says where the
- * assets were meant to come from, so the sentence names the real cause.
+ * assets were meant to come from. An offline server refuses to boot without its
+ * vendor assets, so a failed load on an offline page is a serving fault: the
+ * notice names this server, not the image.
  *
  * @param {string} containerId
  */
@@ -200,7 +202,7 @@ export function renderTerminalBootFailure(containerId) {
   notice.textContent =
     document.documentElement.dataset.vendor === 'cdn'
       ? 'Terminal assets did not load from the CDN. For a host without internet, build the images with offline: true in config.yml.'
-      : 'Terminal assets are missing from this image. Rebuild it with offline: true in config.yml.';
+      : 'Terminal assets did not load from this server. Reload the page.';
   container.replaceChildren(notice);
 }
 
