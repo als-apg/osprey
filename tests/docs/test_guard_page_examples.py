@@ -60,16 +60,9 @@ EXECUTOR_PAGE = "architecture/python-executor.rst"
 CONNECTORS_PAGE = "reference/contracts/connectors.rst"
 
 #: Page text that differs from the code it quotes: (page, quoted text) -> what
-#: the code says and the fix. The page may hold the text or not: the fix is in
-#: flight (#2416), and the test must pass on either side of it.
-_STALE: dict[tuple[str, str], str] = {
-    (EXECUTOR_PAGE, "ctxt.put("): (
-        "The 'Before the run' paragraph lists ``ctxt.put(`` among the spellings the "
-        "approval hook denies, but osprey_approval.py _RAW_CLIENT_WRITE_SPELLINGS leaves "
-        "the p4p put out on purpose (the runtime limits-checks it; the hook keeps the ask). "
-        "Fix (in #2416): drop '``ctxt.put(``,' from that list."
-    ),
-}
+#: the code says and the fix. The page may hold the text or not, so the test
+#: passes before and after the fix lands; once it has, the entry goes.
+_STALE: dict[tuple[str, str], str] = {}
 
 
 @lru_cache(maxsize=1)
