@@ -173,7 +173,9 @@ To add a scenario to your facility:
      - What the scenario shows. ``osprey sim list`` prints it.
    * - ``overrides``
      - ``{<address>: <value>}``, the value each channel reads live while the
-       scenario is active.
+       scenario is active. On an injection chain's setpoint it is the value
+       the chain starts at; a scenario write is no client write, so an
+       override of the request starts no shot.
    * - ``faults``
      - ``{<model>: {<address or engine variable>: <value>}}``, faults written
        into a physics model. A value is a scalar or a map
@@ -286,3 +288,10 @@ that is its own readback reads its demand and reports ``udf`` itself.
 
 A channel fault holds in both venues of the simulator. ``offline``, a read
 that never answers, is not one of these faults.
+
+On an injection chain (:ref:`va-injection-chain`) a write a ``stuck`` or
+``disconnected`` request holds reaches no model, so it starts no shot. A
+``frozen`` reading the chain steps, or one it reads at the fast period,
+raises no monitor event while the fault is active. Applying a scenario
+mid-shot abandons the shot: the chain restarts at the new scenario's start
+state with no step pending.

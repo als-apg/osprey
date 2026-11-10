@@ -313,7 +313,7 @@ environment setup is needed.
 What the IOC serves, and how often
 ==================================
 
-Two settings reach the container through its compose environment rather
+Three settings reach the container through its compose environment rather
 than being fixed in the image. Each is a property of the machine you are
 standing in for, or of who may alter it, rather than of OSPREY:
 
@@ -329,13 +329,20 @@ standing in for, or of who may alter it, rather than of OSPREY:
        ``simulation.tick_s`` (default ``1.0``), which ``osprey build`` renders
        into the compose file; a project ``.env`` value is not read. Lower it
        for a demo that should look live; raise it on a very large namespace.
+   * - ``VA_FAST_INTERVAL_S``
+     - Seconds between the timed passes that publish ``fast`` channels and
+       advance a time-driven model between the served model's passes. Set
+       by ``simulation.fast_tick_s`` (default ``0.1``), which ``osprey
+       build`` renders into the compose file; a project ``.env`` value is
+       not read. A facility with no ``fast`` or ``event`` channel runs no
+       timed pass.
    * - ``VA_MODEL_WRITE_TOKEN``
      - The credential a write to the model's own variables must present over
        the model RPC (see :doc:`/architecture/virtual-accelerator`). Unset, the
        container refuses every such write; reads need no token. There is no
        default to fall back on --- set it in the deployment's ``.env``.
 
-The poll interval is refused at boot if it is not a number, or not greater
+Either interval is refused at boot if it is not a number, or not greater
 than zero, rather than being clamped. A typo therefore shows up in
 ``docker logs`` instead of quietly changing what the machine looks like.
 
@@ -405,6 +412,72 @@ without a build, so no deploy rebuilds it from OSPREY's recipe.
 image has to be on the host or pullable where it is named;
 :ref:`deployment-image-builds` says when each start builds.
 
+.. _va-injection-chain:
+
+An injection chain
+------------------
+
+The shipped ``injection`` engine serves a shot-based injection chain with no
+deck: the model record's ``settings`` and ``wiring`` are the whole chain. Each
+wiring record's ``engine`` block names a ``signal``, and each address is a
+channel the facility declares. With invented addresses:
+
+.. code-block:: yaml
+
+   - name: INJECTOR
+     engine: injection
+     settings:
+       injection:
+         cycle:
+           period_s: 2.0   # one cycle every 2 s
+           width_s: 0.4    # the cycle signal stays high for 0.4 s
+         stages: [transport, storage]
+         current_per_charge: 1.5
+     wiring:
+       - address: INJ:REQ
+         engine: {signal: request}
+       - address: INJ:SRC:Q:SP
+         engine: {signal: parameter, quantity: charge, start: 1.0}
+       - address: INJ:TL:EFF:SP
+         engine: {signal: parameter, quantity: efficiency, stage: 0, start: 0.9}
+       - address: INJ:STORE:EFF:SP
+         engine: {signal: parameter, quantity: efficiency, stage: 1, start: 0.7}
+       - address: INJ:STORE:I:SP
+         engine: {signal: parameter, quantity: current, start: 10.0}
+       - address: INJ:SHOTS
+         engine: {signal: counter, offset_s: 0.02}
+       - address: INJ:TL:Q
+         engine: {signal: charge, offset_s: 0.05, stage: 0}
+       - address: INJ:STORE:EFF
+         engine: {signal: efficiency, offset_s: 0.08, stage: 1}
+       - address: INJ:STORE:I
+         engine: {signal: current, offset_s: 0.1}
+       - address: INJ:STORE:I:FAST
+         engine: {signal: current_fast}
+       - address: INJ:CYCLE
+         engine: {signal: busy}
+
+The signals:
+
+- ``request``: the setpoint whose client write starts one shot.
+- ``parameter``: a setpoint of the chain. Its ``quantity`` is ``charge``,
+  the source charge per shot; ``efficiency``, the efficiency of the stage at
+  index ``stage`` of ``stages``; or ``current``, the stored current. Its
+  ``start`` is the value it starts at.
+- ``counter``, ``charge`` and ``efficiency``: readings a shot changes
+  ``offset_s`` seconds after its request, the last two for the stage at
+  index ``stage``.
+- ``current``: the stored current, raised by the shot at ``offset_s`` by the
+  final charge times ``current_per_charge``. Nothing saturates or decays it.
+- ``current_fast``: the stored current again, read at the fast period.
+- ``busy``: the free-running cycle signal, ``width_s`` high every
+  ``period_s``.
+
+A write of ``INJ:REQ`` while a shot is in flight is ignored. In process the
+chain serves its start values and a request starts no shot; shots run only
+in the container. How the engine fits the composite is in
+:doc:`/architecture/virtual-accelerator`.
+
 Scenarios
 =========
 
@@ -414,7 +487,9 @@ file; the in-container engine polls it and, within about a second, composed
 channel values reflect the new scenario. There is one behavioral difference
 between the venues. Served, a scenario switch only refreshes the engine-composed
 channels: setpoints you wrote during the session live in the IOC's own records
-and **survive** the switch. (In process, written values are reset.) ``osprey sim
+and **survive** the switch. (In process, written values are reset.) A
+scenario change or reset abandons a shot in flight: an injection chain
+restarts at the scenario's start state with no step pending. ``osprey sim
 apply still`` serves every reading without drift, couplings or noise.
 
 The served simulator's container mounts two directories:

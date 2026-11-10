@@ -12,7 +12,9 @@ a deck sits a physics model built through the `LUME
 pyAT lattice as a ``LUMEModel`` via ``lume-pyat``, so that writing a corrector
 moves the orbit that the BPMs report. The texture model serves every channel no
 model wires, so a client sees one machine rather than a physics island
-surrounded by dead addresses. Served in process
+surrounded by dead addresses. The shipped injection engine serves a
+shot-based injection chain with no deck at all (`The injection engine`_).
+Served in process
 (``control_system.connector.virtual_accelerator.serving: in_process``), the
 same simulator reads the same view through the same composite, with no
 container and no network.
@@ -57,12 +59,16 @@ into the facility file:
 
 - its ``engine_role``: ``setpoint``, ``readback``, ``monitor`` or ``output``;
 - the transverse ``plane`` it steers or reads: ``x``, ``y`` or none;
-- its ``refresh``.
+- its ``refresh``: ``pass``, a value each write's solve updates;
+  ``periodic``, one only the periodic solve publishes; ``fast``, one read at
+  the fast period, faster than the periodic solve; or ``event``, one that
+  changes with each event the engine raises, such as a shot.
 
 Each channel also names the node it is ``on``.
 
 The server publishes channel values in *passes*: one after each write, one at
-start-up, and the periodic passes:
+start-up, the periodic passes, and the timed passes of a view holding a
+``fast`` or ``event`` channel:
 
 - **What a write's pass reads.** It reads what the write can change, and
   never a channel whose binding refreshes ``periodic``; the next periodic pass
@@ -73,7 +79,24 @@ start-up, and the periodic passes:
   channels and those whose value or undefined condition changed. An unchanged
   channel keeps the timestamp of its last post.
 - **What the periodic pass does.** The start-up pass and every periodic pass
-  post every channel.
+  post every channel but the ``fast`` and ``event`` ones, which they post
+  only when changed.
+- **What a timed pass does.** A view with a ``fast`` or ``event`` channel
+  gets one scheduler thread beside the periodic ticker. It queues a timed
+  pass at the earlier of the next fast period, ``simulation.fast_tick_s``
+  (default ``0.1`` seconds), and the composite's next deadline, such as a
+  shot's next step or a cycle edge, never more than one at a time. The pass
+  advances the composite and posts the ``event`` channels that fired and,
+  when the fast period fell due, the ``fast`` channels, each with a forced
+  Channel Access event, so a repeated value still reaches a monitor. A
+  ``frozen`` or ``disconnected`` channel gets no forced event. A step is
+  published once, by whichever pass advanced over it. A view with neither
+  class runs no scheduler thread.
+
+The timed passes share the run loop with the lattice passes. A periodic or
+write pass that solves a lattice delays the timed passes queued behind it by
+its own duration, so the fast period and a shot's step offsets hold between
+lattice passes, not through one.
 
 A view an older OSPREY wrote is refused before the ready line, with a message
 asking for ``osprey build``.
@@ -107,6 +130,48 @@ physics model built. It serves the same channels, without the status address a
 physics model adds: a setpoint latches its written value and a readback
 follows its seed. That is what makes the service usable for a facility that has
 a channel list but no model behind it yet.
+
+Time-driven models
+------------------
+
+A model whose engine states the time contract (see
+:ref:`extending-lume-model`) is *time-driven*: a state machine with no thread
+or clock of its own, which the composite advances. Served, the entrypoint
+builds the composite with ``evolve=True``: it advances each time-driven model
+at its build, rebuild and reset and before every read and write, and hands
+it the client writes that reach it. Only a client write starts what a write
+triggers; a restore, a scenario's start state and a write a ``stuck`` or
+``disconnected`` setpoint holds start nothing. A rebuild, which a scenario
+change makes, discards what a model had pending.
+
+In process the composite is built without ``evolve``, so a time-driven model
+serves its start values and a write starts nothing.
+
+The injection engine
+--------------------
+
+The shipped ``injection`` engine (``osprey.simulation.engines.injection``)
+serves an injection chain from facility data alone: a model naming it names
+no deck, and its wiring records and settings are the whole chain.
+
+- **A shot.** A client write of the ``request`` channel starts one shot
+  while none is in flight; a request during a shot is ignored. The shot
+  latches the source charge and every stage efficiency at its start and
+  changes each counter, charge and efficiency reading at its own offset after
+  the request, in time order and, at equal offsets, in declared order. The
+  charge after a stage is the source charge times the product of the stage
+  efficiencies up to it.
+- **The stored current.** The shot's ``current`` step raises the stored
+  current by the final charge times ``current_per_charge``, with no
+  saturation and no decay. A ``current_fast`` channel reads the same current
+  at the fast period.
+- **The cycle.** The ``busy`` signal runs free of shots: it rises at the
+  first advance after a build or reset and every ``period_s`` after that, and
+  falls ``width_s`` after each rise.
+
+The readings a shot steps refresh ``event``, ``current_fast`` refreshes
+``fast``, and the request, parameters and ``current`` refresh ``pass``. How a
+facility declares a chain is in :ref:`va-injection-chain`.
 
 The LUME stack and its pins
 ===========================
@@ -151,6 +216,10 @@ them:
   runner configuration, raises an alarm on an output the model names as
   failed, serves integer variables as integers on PVAccess, and exposes a
   public tick period whose ticks coalesce.
+
+A repeated value on a ``fast`` or ``event`` channel reaches a Channel Access
+monitor only through the forced-event hook of ``lume-pva-apg`` 0.1.6. Under
+0.1.5 a timed pass that posts an unchanged value raises no monitor event.
 
 ``pcaspy`` publishes wheels for linux-x86_64 only, so the ``lume-pva-apg``
 entry that brings it is marked accordingly, and ``serving/runner.py`` alone is
