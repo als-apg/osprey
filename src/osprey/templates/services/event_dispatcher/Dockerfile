@@ -24,6 +24,8 @@
 
 # Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
 ARG OSPREY_BASE_REGISTRY="docker.io"
+# Node for the Claude Code CLI comes out of this stage; see the node layer.
+FROM ${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim AS node
 FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim
 
 WORKDIR /app
@@ -203,23 +205,26 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # the one every service image shares, and a CLI pin bump rebuilds only this
 # layer and the wheel layer instead of the whole framework install.
 #
-# Node comes from the base image's own Debian release rather than a third-party
-# apt repo, so the image has a single package provenance and needs no network
-# beyond the Debian mirror to build. The CLI's engines floor is node >= 18,
-# which every Debian release the slim bases resolve to satisfies.
+# The CLI declares node >= 22 (since 2.1.198), and the Debian release the slim
+# bases resolve to ships Node 20, so Node and npm are copied out of the official
+# Node 22 image instead. That image is pulled through OSPREY_BASE_REGISTRY like
+# the base, so a site mirror of Docker Hub is still the only registry the build
+# reaches, and no third-party apt repo or setup script is involved. The binary
+# needs nothing the Python base lacks. npm's launcher is a symlink into its
+# package, recreated here because a COPY of a symlink copies the file it points
+# at.
 #
-# nodejs and npm stay in the final image: npm installs the Claude Code CLI
-# below, and nothing in this layer purges either. A headless run executes that
+# node and npm stay in the final image: npm installs the Claude Code CLI
+# below, and nothing in this layer removes either. A headless run executes that
 # install directly (agent_runner/launcher.py) and never reaches for npx.
 #
 # NODE_EXTRA_CA_CERTS points Node at the merged bundle the site-CA layer wrote,
 # since Node reads neither the system store nor the Python trust variables.
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
-    apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     # This install is the only Claude Code in the image, and it is the one a
     # headless run executes: OSPREY points the Agent SDK at it (cli_path), so
     # the copy bundled inside the SDK never runs. A run is refused unless this

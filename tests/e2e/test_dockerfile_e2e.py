@@ -31,8 +31,8 @@ entrypoint actually serves an agent — ``claude --version`` proves the binary
 launches, not that the assembled image answers a prompt.
 
 ``test_node_runtime_satisfies_the_cli_engine_floor`` — the Node runtime the
-image installs from its own Debian release clears the CLI's engines floor
-(node >= 18, never an exact major), npm is present for the ``npx`` launch path,
+image copies from the official Node image clears the CLI's engines floor
+(node >= 22, never an exact major), npm is present for the ``npx`` launch path,
 and the image's size is reported so a provenance change's size delta is on the
 record.
 
@@ -425,11 +425,10 @@ def _report_image_size(tag: str) -> int:
 def test_node_runtime_satisfies_the_cli_engine_floor(built_image):
     """Node and npm work in the image, and Node clears the CLI's engines floor.
 
-    The floor is the contract — ``@anthropic-ai/claude-code`` requires node >=
-    18 — and the version above it is whatever the base image's Debian release
-    ships. Asserting an exact major would be asserting a pin this image
-    deliberately does not have: it would fail the day the base image moves,
-    for a change that is not a regression.
+    The floor is the contract — the pinned ``@anthropic-ai/claude-code``
+    declares node >= 22 — and the version above it is whatever the Node image
+    the recipe copies from ships. Asserting an exact major would fail the day
+    that image moves, for a change that is not a regression.
 
     npm is checked separately because it is a *runtime* dependency here: the
     agent is launched via ``npx``, so an image with node but no npm boots and
@@ -442,8 +441,8 @@ def test_node_runtime_satisfies_the_cli_engine_floor(built_image):
     raw = node.stdout.strip()
     match = re.match(r"v?(\d+)\.", raw)
     assert match, f"unparseable `node -v` output: {raw!r}"
-    assert int(match.group(1)) >= 18, (
-        f"node {raw} is below the Claude Code CLI's engines floor (node >= 18)"
+    assert int(match.group(1)) >= 22, (
+        f"node {raw} is below the Claude Code CLI's engines floor (node >= 22)"
     )
 
     npm = _docker_run(tag, "npm", "--version")
