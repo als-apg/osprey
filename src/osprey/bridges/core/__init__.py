@@ -80,7 +80,15 @@ from .retry_queue import (
     supersede_at_enqueue,
     supersede_note,
 )
-from .runtime import BridgeRuntime, build_deps, build_drain_deps, run_forever, start
+from .runtime import (
+    BridgeRuntime,
+    build_deps,
+    build_drain_deps,
+    configure_bridge_logging,
+    install_signal_handlers,
+    run_forever,
+    start,
+)
 from .store import JsonFileStore
 
 __all__ = [
@@ -154,4 +162,7 @@ __all__ = [
     "start",
     "supersede_at_enqueue",
     "supersede_note",
+    # process setup for an adapter's main
+    "configure_bridge_logging",
+    "install_signal_handlers",
 ]

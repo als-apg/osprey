@@ -12,6 +12,9 @@ EXCEPT ingestion:
 * :class:`BridgeRuntime` — the handle the adapter drives: ``handle_event`` per inbound
   message, ``supervise`` on its periodic wake, ``shutdown`` on exit.
 * :func:`run_forever` — the whole of the above around the adapter's own blocking loop.
+* :func:`configure_bridge_logging` and :func:`install_signal_handlers` — the process setup
+  every adapter's ``main`` does before it, identical across channels except for which
+  chatty libraries each one quiets.
 
 **The adapter owns ingestion.** How messages arrive is the one thing that does not
 generalize (a Pub/Sub streaming pull, an IMAP poll, a thread per Talk room), so the
@@ -37,10 +40,12 @@ whole point of the wiring living here.
 from __future__ import annotations
 
 import logging
+import signal
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from types import FrameType
 from typing import Any
 
 from . import retry_queue
@@ -66,14 +71,25 @@ from .reconcile import ReconcileReport, reconcile_inflight
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "LOG_FORMAT",
     "BridgeRuntime",
     "build_deps",
     "build_drain_callbacks",
     "build_drain_deps",
+    "configure_bridge_logging",
+    "install_signal_handlers",
     "rebuild_extra",
     "run_forever",
     "start",
 ]
+
+LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
+"""Timestamp, level, logger, message — the same fields the framework's MCP-server
+entrypoints show, through plain stdlib handlers: a container log is read with
+``docker logs`` and wants no ANSI, and the bridge process deliberately stays clear of
+the framework's rich logging stack. Records go to stderr (``basicConfig``'s default),
+which Python line-buffers even when it is a pipe, so a log line is visible as it
+happens rather than whenever an 8 KiB block fills."""
 
 
 # --- collaborator construction ------------------------------------------------------
@@ -354,3 +370,40 @@ def run_forever(
         serve(runtime)
     finally:
         runtime.shutdown()
+
+
+# --- process setup ------------------------------------------------------------------
+
+
+def configure_bridge_logging(quiet_libraries: Iterable[str]) -> None:
+    """Send INFO and above to stderr in :data:`LOG_FORMAT`, and demote each of
+    ``quiet_libraries`` (the adapter's own ``QUIET_LIBRARIES``) to WARNING.
+
+    A no-op when the root logger already has handlers (``basicConfig``'s own
+    behaviour), so a host that configured logging before importing this module keeps
+    its configuration.
+    """
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+    for name in quiet_libraries:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def install_signal_handlers(stop: threading.Event) -> None:
+    """Make SIGTERM and SIGINT set ``stop``.
+
+    Compose stops the container with SIGTERM, and setting that one event is the entire
+    shutdown: the adapter's ingestion loop returns once it sees it (and any backoff
+    wait on it returns at once instead of being waited out), and :func:`run_forever`'s
+    ``finally`` calls :meth:`BridgeRuntime.shutdown` — the same event, so the drain
+    thread wakes too.
+
+    Main thread only — :func:`signal.signal` refuses to run anywhere else — which is
+    why an adapter's ``main`` installs these and its ``run`` does not.
+    """
+
+    def _handler(signum: int, _frame: FrameType | None) -> None:
+        logger.info("received %s; shutting down", signal.Signals(signum).name)
+        stop.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, _handler)

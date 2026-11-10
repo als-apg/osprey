@@ -84,18 +84,13 @@ class DedupStore(JsonFileStore):
             self._flush_locked()
 
     # --- API ---------------------------------------------------------------
-    def seen(self, message_id: str) -> bool:
-        """True if we have already accepted this message id."""
-        with self._lock:
-            return message_id in self._data
-
     def claim(self, message_id: str, **meta: Any) -> bool:
         """Atomically claim a message id for processing.
 
         Records a ``pending`` entry (``run_id=None``) and returns ``True`` iff
         this call is the first to see ``message_id``. Concurrent redeliveries of
         the same message therefore get exactly one ``True`` — the check and the
-        write happen under one lock, closing the seen()-then-record() race.
+        write happen under one lock, closing the check-then-record race.
 
         Prunes aged-out terminal entries first (see :meth:`_prune_locked`) under
         this same lock: a redelivery of a long-since-pruned message finds its old
