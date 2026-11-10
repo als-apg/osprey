@@ -22,6 +22,7 @@ Tell the operator which machine (`control_target`) every answer and draft is abo
 1. `mcp__optimizer__list_environments`, then `mcp__optimizer__get_environment`.
 2. `mcp__optimizer__list_presets`, then `mcp__optimizer__initial_bounds`.
 3. `mcp__optimizer__create_draft`, then read it back with `mcp__optimizer__get_job_config`.
+   Always set `objective_name`, even with a preset.
 4. Tell the operator the job id and everything they would approve: environment
    and target; preset; each variable with its bounds and step size; algorithm
    and `algorithm_params`; `model_file` / `surrogate_model`; `n_iterations` and
@@ -31,6 +32,8 @@ Tell the operator which machine (`control_target`) every answer and draft is abo
    before starting: your summary is not the review. Any edit after that makes
    the start refuse (409).
 6. To change it, `mcp__optimizer__update_draft` with the whole config, then read it back.
+   The stored draft holds each window as a fixed `min`/`max`: edit those, or drop
+   them and give a `window_abs` to re-centre on the current setpoint. Both at once is refused.
 7. The operator starts it.
 8. `mcp__optimizer__get_job` to monitor; `mcp__optimizer__pause_job` or
    `mcp__optimizer__cancel_job` when asked. Each asks the operator first.

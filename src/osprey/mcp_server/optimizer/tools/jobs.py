@@ -72,7 +72,7 @@ async def get_job_config(job_id: str) -> str:
 async def create_draft(config: dict[str, Any]) -> str:
     """Create a draft optimization job from a config. Nothing moves: a person starts it.
 
-    Start from a preset where one fits (``list_presets``): name it in ``preset`` and set only what should differ. The fields that matter: ``environment_name``; ``control_target`` (default: the session's current control target); ``preset``; ``variables`` (names to tune); ``variable_overrides`` (per variable: ``min``/``max``, or ``window_abs``/``window_fraction`` centred on the current setpoint, and ``step_size``); ``objective_name`` and ``objective_direction``; ``algorithm``; ``n_iterations``; ``n_initial_samples``; ``constraints`` (observable -> ``{"type", "value"}``); ``on_complete`` (``apply_best``, ``restore`` or ``hold``). The service resolves the bounds against the target's current setpoints and points its current job at the new draft.
+    Start from a preset where one fits (``list_presets``): name it in ``preset`` and set only what should differ. ``objective_name`` is always required, even with a preset and even when the environment declares a default objective. The fields that matter: ``environment_name``; ``control_target`` (default: the session's current control target); ``preset``; ``variables`` (names to tune); ``variable_overrides`` (per variable: ``min``/``max``, or ``window_abs``/``window_fraction`` centred on the current setpoint, and ``step_size``); ``objective_name`` and ``objective_direction``; ``algorithm``; ``n_iterations``; ``n_initial_samples``; ``constraints`` (observable -> ``{"type", "value"}``); ``on_complete`` (``apply_best``, ``restore`` or ``hold``). The service resolves the bounds against the target's current setpoints and points its current job at the new draft.
 
     Returns the new job (its ``job_id``, status ``created``) and the ``control_target`` the draft names. Read the stored draft back with get_job_config before telling the operator what they would be starting.
 
@@ -88,7 +88,7 @@ async def create_draft(config: dict[str, Any]) -> str:
 async def update_draft(job_id: str, config: dict[str, Any]) -> str:
     """Replace a draft job's whole config. Refused once the job has started, and when the draft has expired.
 
-    Read the current config with get_job_config, edit it, and send the whole of it back: a field left out returns to its default, and a config without ``control_target`` is refused.
+    Read the current config with get_job_config, edit it, and send the whole of it back: a field left out returns to its default, and a config without ``control_target`` is refused. The stored draft holds every window already resolved to a fixed ``min``/``max`` around the setpoint it was written against: to change a variable's range, edit that ``min``/``max``; to re-centre on the current setpoint, drop them and give ``window_abs`` or ``window_fraction`` instead. Both at once is refused.
 
     Args:
         job_id: Job id of a draft (status ``created``).
