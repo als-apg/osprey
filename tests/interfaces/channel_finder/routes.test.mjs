@@ -117,6 +117,16 @@ describe('parseRoute', () => {
     ['#/allpvs?q=beam%20current', { view: 'allpvs', params: { q: 'beam current' } }],
     ['#/allpvs?q=', { view: 'allpvs', params: { q: '' } }],
     ['#/allpvs?other=1&q=a', { view: 'allpvs', params: { q: 'a' } }],
+    ['#/allpvs?ioc=IOC1', { view: 'allpvs', params: { ioc: ['IOC1'] } }],
+    ['#/allpvs?ioc=demo-ioc-bpm', { view: 'allpvs', params: { ioc: ['demo-ioc-bpm'] } }],
+    [
+      '#/allpvs?q=a&ioc=I1&ioc=I2&origin=curated&record_type=ai',
+      {
+        view: 'allpvs',
+        params: { q: 'a', ioc: ['I1', 'I2'], origin: ['curated'], record_type: ['ai'] },
+      },
+    ],
+    ['#/allpvs?other=1&name=x', { view: 'allpvs', params: {} }],
     ['#/pv/SR01%3AX', { view: 'pv', params: { name: 'SR01:X' } }],
     ['#/ioc/ioc-sr01', { view: 'ioc', params: { name: 'ioc-sr01' } }],
     ['#nonsense', { view: 'nonsense', params: {} }],
@@ -134,6 +144,7 @@ describe('parseRoute', () => {
     '#/explore/x',
     '#/pv/%zz',
     '#/allpvs?q=%zz',
+    '#/allpvs?ioc=%zz',
   ])('%s has no route', async (hash) => {
     const { app } = await boot('');
     expect(app.parseRoute(hash)).toBeNull();
@@ -162,6 +173,18 @@ describe('parseRoute', () => {
       expect(app.parseRoute(`#/allpvs?q=${encodeURIComponent(q)}`)).toEqual({
         view: 'allpvs',
         params: { q },
+      });
+    }
+  );
+
+  test.each(['a+b', 'x&ioc=y', 'ÄÖ'])(
+    'the filter value %s round-trips, encoded the same way',
+    async (value) => {
+      const { app } = await boot('');
+      const encoded = encodeURIComponent(value);
+      expect(app.parseRoute(`#/allpvs?ioc=${encoded}&origin=${encoded}`)).toEqual({
+        view: 'allpvs',
+        params: { ioc: [value], origin: [value] },
       });
     }
   );
