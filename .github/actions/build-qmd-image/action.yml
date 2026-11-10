@@ -67,7 +67,11 @@ runs:
         pins="$(grep -oE 'com\.osprey\.qmd\.[a-z]+_sha256="[0-9a-f]{64}"' "$dockerfile" | sort)"
         printf '%s\n' "$pins"
         test "$(printf '%s\n' "$pins" | wc -l)" -eq 3
-        bases="$(grep -E '^FROM ' "$dockerfile" | awk '{print $2}')"
+        # The FROM line names its registry through OSPREY_BASE_REGISTRY; CI builds
+        # with the ARG's own default, so the key resolves the line the same way.
+        registry="$(sed -nE 's/^ARG OSPREY_BASE_REGISTRY="([^"]+)"$/\1/p' "$dockerfile")"
+        test -n "$registry"
+        bases="$(grep -E '^FROM ' "$dockerfile" | awk '{print $2}' | sed "s|\${OSPREY_BASE_REGISTRY}|$registry|")"
         test "$(printf '%s\n' "$bases" | wc -l)" -eq 1
         base_digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$bases")"
         echo "$bases -> $base_digest"
