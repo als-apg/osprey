@@ -84,14 +84,14 @@ describe('allpvs-render', () => {
             outcome: 'found',
             value: 2,
             timestamp: 't',
-            severity: 'MINOR',
+            severity: 1,
             status: 'HIGH',
           },
         ],
       ])
     );
     expect(found?.textContent).toBe('2');
-    expect(found?.getAttribute('data-alarm')).toBe('MINOR');
+    expect(found?.getAttribute('data-alarm')).toBe('1');
     const silent = cell(
       new Map([
         [
