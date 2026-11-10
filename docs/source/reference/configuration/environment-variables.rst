@@ -202,6 +202,10 @@ points it reads.
      - The period of the served model's passes, in seconds, greater than
        zero. Set by ``simulation.tick_s``; a project ``.env`` value is not
        read.
+   * - ``VA_FAST_INTERVAL_S``
+     - The fast period of the served model's timed passes between ticks, in
+       seconds, greater than zero. Set by ``simulation.fast_tick_s``; a
+       project ``.env`` value is not read.
    * - ``VA_STATE_DIR``
      - The directory holding the active scenarios ``osprey sim apply``
        writes; the container re-reads them when they change. Unset serves

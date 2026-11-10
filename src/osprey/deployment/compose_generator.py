@@ -3122,10 +3122,12 @@ def _inject_project_metadata(config):
     # in-process simulator and the build's profile check call, so every surface
     # serving the composite ticks at the period the config states. Rendered as
     # a value rather than a ``${...}`` passthrough: the config is the only
-    # source of the tick.
-    from osprey_connectors.simulation import resolve_tick_s
+    # source of the tick. The fast period of the composite's timed passes
+    # travels the same way.
+    from osprey_connectors.simulation import resolve_fast_tick_s, resolve_tick_s
 
     config_with_labels["va_tick_s"] = resolve_tick_s(config)
+    config_with_labels["va_fast_tick_s"] = resolve_fast_tick_s(config)
 
     # Where each Virtual Accelerator instance appends its model logs on the
     # host, keyed by instance. Instance 1 writes the deployment's simulator log
