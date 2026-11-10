@@ -38,8 +38,20 @@ ENTRY_KEYS = {
     "engine_role",
     "plane",
     "refresh",
+    # Transitional copy for connectors <2026.11.8; removed by the floor bump.
+    simulator.TRANSITIONAL_ROLE_KEY,
 }
-ALWAYS = {"id", "address", "engine", "direction", "default", "engine_role", "plane", "refresh"}
+ALWAYS = {
+    "id",
+    "address",
+    "engine",
+    "direction",
+    "default",
+    "engine_role",
+    simulator.TRANSITIONAL_ROLE_KEY,
+    "plane",
+    "refresh",
+}
 UNWIRED_ELEMENT = {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
 
 

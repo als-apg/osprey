@@ -17,6 +17,16 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey.facility import TEXTURE
+from osprey_connectors.simulation import view as view_module
+
+# The reader under test names a wiring record's engine role ``engine_role``;
+# connectors <2026.11.8 (the floor lane's) read it as ``role``. Removed by the
+# floor bump to >=2026.11.8, with the framework's transitional role copy.
+if not hasattr(view_module, "ENGINE_ROLES"):
+    pytest.skip(
+        "the installed connectors predate engine_role (<2026.11.8)", allow_module_level=True
+    )
+
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ENGINE_ROLES,

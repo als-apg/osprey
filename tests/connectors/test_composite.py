@@ -18,6 +18,7 @@ from lume.exceptions import ReadOnlyError
 from lume.model import LUMEModel
 from lume.variables import ConfigEnum, NDVariable, ScalarVariable, StrVariable, Variable
 
+from osprey.facility.views.simulator import TRANSITIONAL_ROLE_KEY
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
 from osprey_connectors.simulation.composite import (
@@ -145,8 +146,8 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _described(role: str, plane: str | None = None) -> dict[str, Any]:
-    """The description a build stamps on a wiring record."""
-    return {"engine_role": role, "plane": plane, "refresh": "pass"}
+    """The description a build stamps on a wiring record, with its transitional copy."""
+    return {"engine_role": role, TRANSITIONAL_ROLE_KEY: role, "plane": plane, "refresh": "pass"}
 
 
 def _wiring(*, waveform: bool = False) -> list[dict[str, Any]]:

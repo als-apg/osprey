@@ -424,7 +424,8 @@ def test_the_transitional_role_copy_is_gone_once_the_connectors_floor_reads_engi
 
     assert tuple(int(part) for part in floor.split(".")) < (2026, 11, 8), (
         f"the connectors floor is {floor}: delete TRANSITIONAL_ROLE_KEY from "
-        "osprey.facility.views.simulator, its tests and this one"
+        "osprey.facility.views.simulator, its uses in tests/connectors, the "
+        "pre-engine_role skip of tests/connectors/test_simulator_view_reader.py and this test"
     )
 
 

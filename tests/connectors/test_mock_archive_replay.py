@@ -17,6 +17,7 @@ import pytest
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
+from osprey.facility.views.simulator import TRANSITIONAL_ROLE_KEY
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
@@ -128,9 +129,19 @@ def _view(
                     "deck": None,
                     "wiring": [
                         {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0}
-                        | {"engine_role": "setpoint", "plane": None, "refresh": "pass"},
+                        | {
+                            "engine_role": "setpoint",
+                            TRANSITIONAL_ROLE_KEY: "setpoint",
+                            "plane": None,
+                            "refresh": "pass",
+                        },
                         {"id": "2", "address": "M:RB", "direction": "read", "default": 4.0}
-                        | {"engine_role": "readback", "plane": None, "refresh": "pass"},
+                        | {
+                            "engine_role": "readback",
+                            TRANSITIONAL_ROLE_KEY: "readback",
+                            "plane": None,
+                            "refresh": "pass",
+                        },
                     ],
                 },
             ],
