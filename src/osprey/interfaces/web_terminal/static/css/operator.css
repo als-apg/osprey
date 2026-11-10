@@ -1971,6 +1971,54 @@ html[data-agent-surface="terminal"] #operator-container {
   overflow: visible;
 }
 
+/* Compacting: three lines fold into one and open again, the conversation being
+   summarised. Shown only in the loader's compacting mode. */
+.op-loader-compact {
+  display: none;
+  flex-shrink: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 12px;
+  height: 12px;
+}
+
+.op-loader[data-mode="compacting"] .op-loader-compact {
+  display: flex;
+}
+
+.op-loader-compact i {
+  display: block;
+  height: 2px;
+  background: currentColor;
+  animation: op-compact-fold 1.6s ease-in-out infinite; /* hygiene-allow-scale: decorative fold cadence */
+}
+
+.op-loader-compact i:first-child {
+  --op-fold: 4px;
+}
+
+.op-loader-compact i:last-child {
+  --op-fold: -4px;
+}
+
+@keyframes op-compact-fold {
+  0%,
+  15% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  50%,
+  65% {
+    transform: translateY(var(--op-fold, 0));
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 /* ---- Composer: one rounded surface holding the box and its toolbar ---- */
 
 /* `.op-input-area` is also the element the slash list mounts into, and the one
@@ -2208,6 +2256,7 @@ html[data-agent-surface="terminal"] #operator-container {
   .op-spin,
   .op-loader-bird path,
   .op-loader-bird.flying,
+  .op-loader-compact i,
   .op-taskbar-item[data-status="in_progress"] .op-taskbar-glyph .op-icon {
     animation: none;
   }

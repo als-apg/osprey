@@ -1861,6 +1861,8 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
     else:
         raw_text = entry.title or entry.text
 
+    from osprey.services.ariel_search.entry_url import SIMULATION_SOURCE_SYSTEM
+
     metadata: dict = {}
     if entry.title:
         metadata["title"] = entry.title
@@ -1874,7 +1876,7 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
 
     return {
         "entry_id": entry.entry_id,
-        "source_system": "Simulation",
+        "source_system": SIMULATION_SOURCE_SYSTEM,
         "timestamp": timestamp,
         "author": entry.author,
         "raw_text": raw_text,

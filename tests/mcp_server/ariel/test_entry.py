@@ -149,6 +149,8 @@ async def test_entry_create_all_fields(ariel_registry):
     assert call_args["metadata"]["shift"] == "Day"
     assert call_args["metadata"]["tags"] == ["test", "debug"]
     assert call_args["metadata"]["created_via"] == "ariel-mcp"
+    # An ARIEL-native entry has no facility page, and says so itself.
+    assert call_args["metadata"]["sync_status"] == "local_only"
 
 
 async def test_entry_create_minimal_fields(ariel_registry):
