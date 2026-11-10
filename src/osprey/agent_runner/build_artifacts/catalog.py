@@ -244,6 +244,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             requires=(
                 "hooks/hook-log",
                 "hooks/plan-mode",
+                "hooks/prompt-render",
                 "hooks/safety-file",
                 "hooks/target-state",
             ),
@@ -309,6 +310,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_safety_file.py",
             output_path=".claude/hooks/osprey_safety_file.py",
             description="Shared atomic file-replace helper",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/prompt-render",
+            template_path="claude/hooks/osprey_prompt_render.py",
+            output_path=".claude/hooks/osprey_prompt_render.py",
+            description="Restricted approval-prompt renderer and input digest",
         ),
         BuildArtifact(
             canonical_name="hooks/hook-config",
@@ -586,6 +593,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="history",
             output_path="services/history",
             description="History page (across-users agent record) compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/app_runtime",
+            template_path="app_runtime",
+            output_path="services/app_runtime",
+            description="Application runtime compose template (runtime: osprey containers)",
             template_root="services",
             is_directory=True,
         ),

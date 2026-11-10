@@ -3,8 +3,10 @@
 Every layer is checked at parse, after the retired write keys are rewritten to
 the tier key, so a normalized document is checked too. Anything else — a
 boolean, a differently-cased string, ``yes``, ``null``, a list — is refused
-with an error naming the document and the three values. An app may only spell
-``never``. The ``--set`` layer is checked the same way.
+with an error naming the document and the three values. Whether a login may
+spell an arming word is its audience's question (a login ``shared:`` names may
+not), judged where its render is composed. The ``--set`` layer is checked the
+same way.
 """
 
 from __future__ import annotations
@@ -16,9 +18,9 @@ import pytest
 
 from osprey.cli import build_profile_document as doc
 from osprey.cli.build_profile_document import _parse_profile_document, _read_profile_document
-from osprey.cli.build_profile_merge import _judge_app_posture
+from osprey.cli.build_profile_merge import _judge_shared_posture, render_document
 from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
 
@@ -45,7 +47,6 @@ _INVALID = {
 _KINDS = {
     "root": None,
     "tier": TIERS_DIRNAME,
-    "app": APPS_DIRNAME,
 }
 
 
@@ -137,12 +138,6 @@ def test_the_three_values_are_accepted(tmp_path, kind, value):
     assert raw["config"]["control_system"]["writes"] == value
 
 
-def test_an_app_may_spell_never(tmp_path):
-    path = _write(tmp_path, APPS_DIRNAME, "config:\n  control_system.writes: never\n")
-    raw = _read_profile_document(path, source="app.yml")
-    assert raw["config"]["control_system.writes"] == "never"
-
-
 @pytest.mark.parametrize("word", ["allowed", "asked"])
 @pytest.mark.parametrize(
     "text",
@@ -151,60 +146,41 @@ def test_an_app_may_spell_never(tmp_path):
         "config:\n  control_system.writes: {word}\n",
     ],
 )
-def test_an_app_spelling_an_arming_word_is_refused(tmp_path, text, word):
-    path = _write(tmp_path, APPS_DIRNAME, text.format(word=word))
-    with pytest.raises(BuildProfileError) as excinfo:
-        _read_profile_document(path, source="apps/viewer.yml")
-    message = str(excinfo.value)
-    assert "apps/viewer.yml" in message
-    assert f"cannot spell `control_system.writes: {word}`" in message
-    assert "`control_system.writes: never`" in message
-    assert "app" in message
-
-
-def test_an_app_arming_word_in_any_spelling_is_refused(tmp_path):
-    """A shadowed spelling counts: the dotted ``asked`` is refused beside a nested ``never``."""
-    path = _write(
-        tmp_path,
-        APPS_DIRNAME,
-        """
-        config:
-          control_system.writes: asked
-          control_system:
-            writes: never
-        """,
-    )
-    with pytest.raises(BuildProfileError, match="`control_system.writes: asked`"):
-        _read_profile_document(path, source="apps/viewer.yml")
+def test_a_login_may_spell_an_arming_word_at_parse(tmp_path, text, word):
+    """The parse point reads the tier; a shared login's seal refuses it later."""
+    path = _write(tmp_path, TIERS_DIRNAME, text.format(word=word))
+    raw = _read_profile_document(path, source="tiers/viewer.yml")
+    assert doc.validate_tier_key_value(raw, "tiers/viewer.yml") is None
 
 
 @pytest.mark.parametrize("word", ["allowed", "asked"])
 @pytest.mark.parametrize("key", ["control_system.writes", "control_system"])
-def test_the_app_composer_refuses_an_arming_word_itself(word, key):
-    """An unparsed document reaches the composer's own door, with the same refusal."""
+def test_the_shared_composer_refuses_an_arming_word_itself(word, key):
+    """A shared login's document reaches the composer's own door, with its refusal."""
     config = {key: word if key == "control_system.writes" else {"writes": word}}
     with pytest.raises(BuildProfileError) as excinfo:
-        _judge_app_posture(config, "apps/viewer.yml")
+        _judge_shared_posture(config, "tiers/viewer.yml", None)
     message = str(excinfo.value)
-    assert "apps/viewer.yml" in message
+    assert "tiers/viewer.yml" in message
     assert f"cannot spell `control_system.writes: {word}`" in message
     assert "`control_system.writes: never`" in message
+    assert "modules.web_terminals.shared" in message
 
 
 @pytest.mark.parametrize("value", ["never", "on", None])
-def test_the_app_composer_passes_what_arms_nothing(value):
-    _judge_app_posture({"control_system.writes": value}, "apps/viewer.yml")
+def test_the_shared_composer_passes_what_arms_nothing(value):
+    _judge_shared_posture({"control_system.writes": value}, "tiers/viewer.yml", None)
 
 
-def test_a_normalized_app_reads_never_and_passes(tmp_path):
-    """The retired keys in an app normalize to ``never``, which the check then accepts."""
+def test_a_normalized_login_reads_its_retired_answer(tmp_path):
+    """The retired keys in a login normalize to the answer they give, which the check accepts."""
     path = _write(
         tmp_path,
-        APPS_DIRNAME,
+        TIERS_DIRNAME,
         "config:\n  control_system:\n    writes_enabled: true\n",
     )
-    raw = _read_profile_document(path, source="app.yml")
-    assert raw["config"]["control_system"]["writes"] == "never"
+    raw = _read_profile_document(path, source="tiers/viewer.yml")
+    assert raw["config"]["control_system"]["writes"] == "allowed"
 
 
 def test_a_normalized_tier_reads_allowed_and_passes(tmp_path):
@@ -246,3 +222,31 @@ def test_an_invalid_value_on_the_set_layer_is_refused(value):
 @pytest.mark.parametrize("value", ["allowed", "asked", "never"])
 def test_a_valid_value_on_the_set_layer_is_accepted(value):
     resolve_build_profile(None, "hello-world", set_pairs=(f"config.control_system.writes={value}",))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "config:\n  images:\n    platform: linux/amd64\n",
+        "config:\n  images.platform: linux/amd64\n",
+        "lists: own\nconfig:\n  images.platform: linux/arm64\n",
+    ],
+)
+def test_a_login_naming_the_image_platform_is_refused_naming_the_profile(tmp_path, text):
+    """The images are the deployment's: one platform, stated in its profile."""
+    path = _write(tmp_path, TIERS_DIRNAME, text)
+    layer = _read_profile_document(path, source=f"{TIERS_DIRNAME}/x.yml")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        render_document({"name": "host"}, layer, f"{TIERS_DIRNAME}/x.yml")
+
+    message = str(excinfo.value)
+    assert f"{TIERS_DIRNAME}/x.yml" in message
+    assert "images.platform" in message and "profile.yml" in message
+
+
+def test_a_login_naming_another_image_key_is_not_refused_for_it(tmp_path):
+    path = _write(tmp_path, TIERS_DIRNAME, "config:\n  images.tag: dev\n")
+    layer = _read_profile_document(path, source=f"{TIERS_DIRNAME}/x.yml")
+
+    render_document({"name": "host"}, layer, f"{TIERS_DIRNAME}/x.yml")

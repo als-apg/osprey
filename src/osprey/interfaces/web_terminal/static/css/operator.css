@@ -1901,6 +1901,30 @@ html[data-agent-surface="terminal"] #operator-container {
   color: var(--text-muted);
 }
 
+/* `/mcp`, which the chat answers itself: one row per MCP server. */
+.op-mcp-card {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.op-mcp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-md);
+}
+
+.op-mcp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
 /* ---- Live loader: the turn's status line ---- */
 
 .op-loader {

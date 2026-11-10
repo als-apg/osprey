@@ -1,21 +1,20 @@
 Web Terminal
 ============
 
-The OSPREY Web Terminal is a browser-based cockpit for the OSPREY agent: a
-sidebar on the left with your sessions and their artifacts, themed panels for your
-control-system tools in the middle, and the agent on the right. Launch it
-from any project directory:
+The OSPREY Web Terminal is a browser page for working with the OSPREY agent.
+It has three panes: a sidebar on the left with your sessions and their
+artifacts, themed panels for your control-system tools in the middle, and the
+agent on the right. Launch it from any project directory:
 
 .. code-block:: bash
 
    osprey web
 
 It opens in your browser at ``http://127.0.0.1:10100``. The command prints a
-login URL (``…/?token=…``) at startup that signs you in for 12 hours by
-default, browser restarts included, and then redirects to that clean address;
-the token is the server's own secret, so treat the URL like a password. From
-there you chat with the agent, watch files and plots appear the moment they are
-created, and switch between companion tools without ever leaving the page.
+login URL that signs you in; treat it like a password, and see :doc:`operate`
+for how signing in works. From there you chat with the agent, watch files and
+plots appear the moment they are created, and switch between companion tools
+without ever leaving the page.
 
 .. figure:: /_static/screenshots/web_terminal_hero_light.png
    :alt: The OSPREY Web Terminal — the sidebar on the left, a beam-current plot in the middle, the agent chat on the right
@@ -75,6 +74,22 @@ created, and switch between companion tools without ever leaving the page.
 
       Serve a whole team from one host — a landing page plus a private
       containerized terminal per user, in capability tiers.
+
+   .. grid-item-card:: Send feedback
+      :link: send-feedback
+      :link-type: doc
+      :shadow: md
+
+      Report a problem from the terminal itself, and read back the reports a
+      deployment collected.
+
+   .. grid-item-card:: Share CANOPY screens
+      :link: canopy-library
+      :link-type: doc
+      :shadow: md
+
+      Review a screen a user asks to share, and add it to the library every
+      terminal ships.
 
 .. toctree::
    :hidden:

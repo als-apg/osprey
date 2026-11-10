@@ -50,28 +50,36 @@ moved away touches the scope it left. The test runners get only the tests the
 changed paths map to. A path the mapping cannot place widens that runner to its
 whole selection, and ``list --changed`` names that path; scoping never narrows. A script a check runs through, and a
 checks module, selects ``tests/scripts/``; a file under ``tests/<dir>/`` selects
-that directory when it holds a test module and widens otherwise. A base also arms the
-checks that judge a range. Paths after ``--`` are test files, pytest node ids
+that directory when it holds a test module and widens otherwise; a conftest
+below ``tests/<dir>/`` selects its own directory unless a module outside imports
+it or it defines a hook. Each widening prints ``check: <id>: widened by
+<path>: <rule>`` before any check runs. A base also arms the checks that judge
+a range. Paths after ``--`` are test files, pytest node ids
 or test directories added to what the range selects.
 
 ``list --changed BASE`` adds which checks and CI lanes the range ``BASE...HEAD``
-touches, read as a tier reads it; it runs nothing.
+touches, read as a tier reads it, and the ``widened`` path and rule per check; it
+runs nothing.
 
 ``--base BASE`` arms every check that judges a range against ``BASE`` and leaves
 the runners on their whole selection, so ``full --base BASE`` judges the whole
 tree and the range in one verdict. ``--changed`` and ``--base`` may not name
 different bases.
 
-Exit status: 0 clean, 1 a check failed, 2 refused. A refusal means the command
-could not judge: a missing toolchain, a base that does not resolve, an unknown
-check, a flag that is not an execution flag. Every check of the run is attempted
-even after an earlier one failed, and the last line is the verdict. A failed
-test check names its failing tests, read from the report its runner writes for
-the command. A refusal names every check it cannot judge and what to install.
+Exit status: 0 clean, 1 a check failed, 2 refused, 3 this machine cannot judge.
+A refusal means the command could not judge: a missing toolchain, a base that
+does not resolve, an unknown check, a flag that is not an execution flag. Every
+check of the run is attempted even after an earlier one failed, and the last
+line is the verdict. A failed test check names its failing tests, read from the
+report its runner writes for the command. A refusal names every check it cannot
+judge and what to install.
+An environment fault stops the run before any check starts and prints one last
+line, ``check: environment: <probe>: <fact>``: too little free space, an install
+a re-sync could not make current, Docker storage that does not work.
 
 Before any check runs, the needs put the tree's pins in place: the pinned
-Claude Code first on PATH, and node_modules reinstalled when it differs from
-package-lock.json.
+Claude Code first on PATH, node_modules reinstalled when it differs from
+package-lock.json, and a stale editable install re-synced.
 
 What cannot run here is named, never counted as passed: a check bound to a venue
 this machine is not, a check whose install is absent, a check that needs a base
@@ -125,6 +133,7 @@ kit = sys.modules.get("check_kit") or _load(
 ROOT = kit.ROOT
 TIERS, KINDS = kit.TIERS, kit.KINDS
 CLEAN, FAILED_EXIT, REFUSED_EXIT = kit.CLEAN, kit.FAILED_EXIT, kit.REFUSED_EXIT
+ENVIRONMENT_EXIT, EnvironmentFault = kit.ENVIRONMENT_EXIT, kit.EnvironmentFault
 BOTH, FULL = kit.BOTH, kit.FULL
 WHOLE, PATHS, NOT_TOUCHED = kit.WHOLE, kit.PATHS, kit.NOT_TOUCHED
 ABSENT_EXIT = kit.ABSENT_EXIT
@@ -612,12 +621,16 @@ class Outcome:
             raise ValueError(f"{self.id}: {'; '.join(problems)}")
 
 
-def unmet_needs(checks: Iterable[Check]) -> list[tuple[str, str]]:
-    """Each check of *checks* with an unmet need and its refusal, probing each need once."""
+def unmet_needs(
+    running: Iterable[tuple[Check, Selection]], context: Context
+) -> list[tuple[str, str]]:
+    """Each check of *running* with an unmet need and its refusal, probing each need
+    once. A probe that raises ``EnvironmentFault`` ends the run there."""
     answers: dict[str, str | None] = {}
     unmet: list[tuple[str, str]] = []
-    for check in checks:
-        for need in check.needs:
+    for check, selection in running:
+        selected = check.selected_needs(selection, context) if check.selected_needs else ()
+        for need in (*check.needs, *selected):
             if need == "base":
                 continue
             if need not in answers:
@@ -734,7 +747,11 @@ def execute(
     the rest are probed. When one is unmet, nothing runs and every check with an
     unmet need is refused.
     """
-    with tempfile.TemporaryDirectory(prefix="check-reports-") as reports:
+    try:
+        directory = tempfile.TemporaryDirectory(prefix="check-reports-")
+    except OSError as error:
+        raise EnvironmentFault("free space", str(error)) from error
+    with directory as reports:
         return _execute(planned, dataclasses.replace(context, reports=reports), fix)
 
 
@@ -749,7 +766,7 @@ def _execute(
             outcomes[check.id] = skipped
         else:
             running.append((check, selection))
-    refused = dict(unmet_needs(check for check, _selection in running))
+    refused = dict(unmet_needs(running, context))
     installed: dict[str, Install] = {}
     for check, _selection in running:
         install = check.install
@@ -1024,33 +1041,31 @@ def declaration(tier: str | None = None) -> dict[str, object]:
     }
 
 
-def _touched_plan(base: str, tier: str) -> Plan:
+def range_plan(base: str, tier: str = "full") -> Plan:
+    """*tier* resolved against the range ``BASE...HEAD``."""
     return select(tier, touched(base), (), repository_files(), touched(base, scope=True))
 
 
-def _touched_ids(plan: Plan) -> list[str]:
+def touched_by(plan: Plan) -> list[str]:
+    """The ids of the checks and of the CI lanes *plan* touches."""
     checks = [name for name, chosen in plan.selections.items() if chosen.state != NOT_TOUCHED]
     return [*checks, *plan.lanes]
 
 
-def touched_by(base: str, tier: str = "full") -> list[str]:
-    """The ids of the checks of *tier* and of the CI lanes the range ``BASE...HEAD`` touches."""
-    return _touched_ids(_touched_plan(base, tier))
-
-
-def _widened(plan: Plan) -> dict[str, str]:
-    """Per runner the range widened to its whole selection, the changed path that did it."""
-    return {name: chosen.cause for name, chosen in plan.selections.items() if chosen.cause}
+def widened_by(plan: Plan) -> dict[str, str]:
+    """Per check *plan* widened, the path and rule that widened it."""
+    return {name: chosen.reason for name, chosen in plan.selections.items() if chosen.reason}
 
 
 def _list(tier: str | None, as_json: bool, changed: str | None = None) -> int:
-    plan = _touched_plan(changed, tier or "full") if changed else None
-    hit = _touched_ids(plan) if plan is not None else None
+    plan = range_plan(changed, tier or "full") if changed else None
+    hit = touched_by(plan) if plan else None
+    widened = widened_by(plan) if plan else {}
     if as_json:
         data = declaration(tier)
         if plan is not None:
             data["touched"] = hit
-            data["widened"] = _widened(plan)
+            data["widened"] = widened
         print(json.dumps(data, indent=2))
         return CLEAN
     width = max(len(check.id) for check in CHECKS) + 2
@@ -1060,9 +1075,9 @@ def _list(tier: str | None, as_json: bool, changed: str | None = None) -> int:
             spelling = shlex.join(check.argv) if check.argv else f"(in {owner})"
             tiers = ",".join(t for t in TIERS if t in check.tiers)
             print(f"{check.id:<{width}}{check.kind:<11}{tiers:<12}{spelling}")
-    if plan is not None:
-        for name, cause in _widened(plan).items():
-            print(f"widened: {name} runs whole because of {cause}")
+    if hit is not None:
+        for name, reason in widened.items():
+            print(f"widened: {name}: {reason}")
         print(f"touched: {', '.join(hit)}")
     return CLEAN
 
@@ -1081,10 +1096,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if base:
             require_base(base)
         request = _request(argv)
+        for check, selection in request.planned:
+            if selection.reason:
+                print(f"check: {check.id}: widened by {selection.reason}", flush=True)
         outcomes = execute(request.planned, request.context, request.fix)
     except Refused as refusal:
         print(f"check: refused: {refusal}", file=sys.stderr, flush=True)
         return REFUSED_EXIT
+    except EnvironmentFault as fault:
+        print(f"check: environment: {fault}", file=sys.stderr, flush=True)
+        return ENVIRONMENT_EXIT
     return report(outcomes, request.lanes, request.scoped)
 
 

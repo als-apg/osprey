@@ -7,11 +7,12 @@ which refuses a file whose ``schema`` is not the one this OSPREY reads, so a
 render from an older OSPREY is rebuilt rather than misread.
 
 A wiring record of a physics model carries what its engine's ``describe()``
-stated at build time: its ``engine_role`` (``setpoint``, ``readback``, ``monitor``
-or ``output``), the transverse ``plane`` it steers or reads (``x``, ``y`` or
-``None``) and its ``refresh`` (``pass`` or ``periodic``). A ``readback`` is
-any read of an element's setting, paired with a setpoint or not; a reader
-wanting the readback of a setpoint reads that setpoint channel's ``pair``.
+stated at build time: its ``engine_role`` (one of :data:`ENGINE_ROLES`), the transverse
+``plane`` it steers or reads (``x``, ``y`` or ``None``), its ``refresh``
+(``pass`` or ``periodic``) and, when it carries any, its ``marks`` (of
+:data:`MARKS`). The words are the facility schema's. A ``readback`` is any read of an element's setting, paired
+with a setpoint or not; a reader wanting the readback of a setpoint reads that
+setpoint channel's ``pair``.
 
 The module imports only the standard library and ``osprey_connectors``, so a
 reader that must not load a model can open a view.
@@ -30,8 +31,10 @@ from typing import Any
 __all__ = [
     "ADDRESSES_FILE",
     "ADDRESSES_SCHEMA",
+    "COMMAND_MARK",
     "DECKS_DIR",
     "ENGINE_ROLES",
+    "MARKS",
     "MONITOR",
     "NO_VIEW_MESSAGE",
     "OUTPUT",
@@ -96,7 +99,8 @@ SETPOINT = "setpoint"
 READBACK = "readback"
 MONITOR = "monitor"
 OUTPUT = "output"
-#: The engine roles a wiring record's description names.
+#: The engine roles a wiring record's description names. A channel's facility role
+#: is ``setpoint`` or ``readback``.
 ENGINE_ROLES = (SETPOINT, READBACK, MONITOR, OUTPUT)
 #: The planes a wiring record's description names; ``None`` is no plane.
 PLANES = ("x", "y")
@@ -104,12 +108,19 @@ PERIODIC = "periodic"
 #: The refresh a wiring record's description names: ``pass`` with each
 #: write's solve, ``periodic`` with the periodic solve alone.
 REFRESH = ("pass", PERIODIC)
+#: The mark of a record whose write is a command; only a ``write`` record
+#: carries it.
+COMMAND_MARK = "command"
+#: The marks a wiring record's description may set.
+MARKS = (COMMAND_MARK,)
 
 #: The text a missing view reports.
 NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
 
 #: The keys a wiring record's description adds.
 _DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
+#: The key listing the marks a wiring record carries; absent when it carries none.
+_MARKS_KEY = "marks"
 
 
 class NoSimulatorView(LookupError):
@@ -210,8 +221,8 @@ class Binding:
         model: The model the record belongs to.
         address: The channel address the record serves.
         direction: ``write`` or ``read``.
-        engine_role: ``setpoint``, ``readback``, ``monitor`` or ``output``. A
-            ``readback`` reads an element's setting, paired with a setpoint
+        engine_role: One of :data:`ENGINE_ROLES`.
+            A ``readback`` reads an element's setting, paired with a setpoint
             or not; the setpoint channel's ``pair`` names its readback.
         plane: ``x`` or ``y`` for a record steering or reading one transverse
             plane, else ``None``.
@@ -220,6 +231,8 @@ class Binding:
             slices, or none).
         record: The wiring record as the view states it, read-only; the
             engine's ``build`` takes it verbatim.
+        marks: The :data:`MARKS` the record carries; empty when it carries
+            none.
     """
 
     id: str
@@ -231,6 +244,7 @@ class Binding:
     refresh: str
     element: str | None
     record: Mapping[str, Any]
+    marks: frozenset[str] = frozenset()
 
     @classmethod
     def from_record(cls, model: str, record: Mapping[str, Any]) -> Binding:
@@ -256,6 +270,7 @@ class Binding:
             refresh=record["refresh"],
             element=record.get("element"),
             record=MappingProxyType(copy.deepcopy(dict(record))),
+            marks=frozenset(str(mark) for mark in record.get(_MARKS_KEY) or ()),
         )
 
 

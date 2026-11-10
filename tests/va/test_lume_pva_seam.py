@@ -207,11 +207,11 @@ SR_STATUS = "ca:SIM:SR:STATUS"
 
 #: BPM03's horizontal offset fault, as the model RPC names it.
 BPM_OFFSET = f"SR/{BPM_X}/offset"
-#: The offset written, in the reading's own unit (metres). A reading is the
-#: position less its offset, so the reading falls by exactly this much.
-OFFSET_M = 1e-3
+#: The offset written, in the reading's own unit (millimetres). A reading is
+#: the position less its offset, so the reading falls by exactly this much.
+OFFSET_MM = 1.0
 #: Far wider than the reading's own motion between two passes.
-READING_TOLERANCE_M = 2e-5
+READING_TOLERANCE_MM = 0.02
 
 #: A scenario the demo view gains for these tests: twice the demo's QF01
 #: current, where the one-turn map has no stable orbit, so the pyAT child
@@ -1209,13 +1209,13 @@ class TestDemoComposite:
     ) -> None:
         before = _ca(BPM_X)["value"]
         try:
-            written = demo_server.rpc("set", values={BPM_OFFSET: OFFSET_M}, token=TOKEN)
+            written = demo_server.rpc("set", values={BPM_OFFSET: OFFSET_MM}, token=TOKEN)
             after = _ca(BPM_X)["value"]
         finally:
             demo_server.rpc("set", values={BPM_OFFSET: 0.0}, token=TOKEN)
 
         assert written == [BPM_OFFSET]
-        assert after - before == pytest.approx(-OFFSET_M, abs=READING_TOLERANCE_M)
+        assert after - before == pytest.approx(-OFFSET_MM, abs=READING_TOLERANCE_MM)
 
     def test_a_pass_raising_after_a_fault_set_gives_an_error_reply(
         self, demo_server: _Server
@@ -1223,7 +1223,7 @@ class TestDemoComposite:
         demo_server.ask("fail_next_pass", "the pass failed on purpose", False)
         try:
             with pytest.raises(ModelRpcError, match="the pass failed on purpose"):
-                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_M}, token=TOKEN)
+                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_MM}, token=TOKEN)
             status = demo_server.rpc("status")
         finally:
             demo_server.rpc("set", values={BPM_OFFSET: 0.0}, token=TOKEN)
@@ -1284,7 +1284,7 @@ class TestDemoComposite:
         with _sr_failed(demo_server):
             before = demo_server.ask("counts")
             with pytest.raises(ModelRpcError, match="has failed"):
-                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_M}, token=TOKEN)
+                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_MM}, token=TOKEN)
             after = demo_server.ask("counts")
 
         assert after["passes"] > before["passes"]
