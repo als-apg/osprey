@@ -4791,8 +4791,8 @@ def test_workflow_on_key_parses_to_bool_true_not_string(workflow: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
-# (h) multi-user login-flow browser test: named in the lane's file list, which
-# is the only way it is ever collected
+# (h) multi-user login-flow browser test: collected by a browser-lane step,
+# which is the only way it is ever collected
 # ---------------------------------------------------------------------------
 
 BROWSER_JOB = "visual-theming"
@@ -4807,15 +4807,6 @@ BROWSER_CONTAINER_STEP = "Run the container-backed browser suites"
 AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
 
 
-def _browser_step_naming(wf: dict[str, Any], test_file: str) -> dict[str, Any]:
-    """The browser-lane step whose pytest invocation names *test_file* on a line of its own."""
-    for job in BROWSER_JOBS:
-        for step in _jobs(wf)[job]["steps"]:
-            if f"{test_file} \\\n" in step.get("run", ""):
-                return step
-    raise AssertionError(f"no browser-lane step names {test_file}")
-
-
 #: What makes a step of the browser jobs one that runs suites. The lane runs
 #: its suites in more than one step and more than one job — the
 #: visual-regression step stands apart so its baseline upload and commit steps
@@ -4825,12 +4816,95 @@ def _browser_step_naming(wf: dict[str, Any], test_file: str) -> dict[str, Any]:
 _BROWSER_PYTEST_INVOCATION = "uv run pytest "
 
 
-def _browser_lane_files(wf: dict[str, Any]) -> str:
-    return "\n".join(
-        step["run"]
+def _browser_pytest_steps(wf: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (job, step)
         for job in BROWSER_JOBS
         for step in _jobs(wf)[job]["steps"]
         if _BROWSER_PYTEST_INVOCATION in step.get("run", "")
+    ]
+
+
+#: The pytest options of the browser steps that take their value as the next argument.
+_PYTEST_VALUE_OPTIONS = frozenset({"-n", "--dist", "-m", "-k", "-p", "--ignore", "--tb"})
+
+
+def _pytest_selection(run: str) -> tuple[list[str], list[str], str | None]:
+    """The paths, ``--ignore`` paths and ``-m`` expression of *run*'s pytest call."""
+    joined = re.sub(r"\\\n[ \t]*", " ", run)
+    argv = shlex.split(joined.split(_BROWSER_PYTEST_INVOCATION, 1)[1].splitlines()[0])
+    paths: list[str] = []
+    ignores: list[str] = []
+    expr: str | None = None
+    args = iter(argv)
+    for arg in args:
+        if not arg.startswith("-"):
+            paths.append(arg.rstrip("/"))
+            continue
+        option, eq, value = arg.partition("=")
+        if option in _PYTEST_VALUE_OPTIONS and not eq:
+            value = next(args)
+        if option == "--ignore":
+            ignores.append(value.rstrip("/"))
+        elif option == "-m":
+            expr = value
+    return paths, ignores, expr
+
+
+def _is_under(module: str, path: str) -> bool:
+    return module == path or module.startswith(f"{path}/")
+
+
+@functools.cache
+def _module_marks_at(path: Path) -> frozenset[str]:
+    return frozenset(_module_marks(_test_tree_sources()[path]))
+
+
+def _modules_collected_by(run: str) -> set[str]:
+    """The test modules *run*'s pytest call collects, read the way pytest reads its
+    arguments: under a path argument, under no ``--ignore``, and holding a test the
+    ``-m`` expression selects (the module's own marks; no browser suite marks per test)."""
+    from _pytest.mark.expression import Expression
+
+    paths, ignores, expr = _pytest_selection(run)
+    selects = Expression.compile(expr) if expr else None
+    collected = set()
+    for path in _test_tree_paths():
+        module = path.relative_to(REPO_ROOT).as_posix()
+        if not any(_is_under(module, p) for p in paths):
+            continue
+        if any(_is_under(module, i) for i in ignores):
+            continue
+        marks = _module_marks_at(path)
+        if selects is not None and not selects.evaluate(marks.__contains__):
+            continue
+        collected.add(module)
+    return collected
+
+
+def _browser_collectors(wf: dict[str, Any]) -> dict[str, list[str]]:
+    """Every module a browser-lane step collects, with the ``job / step`` of each
+    step that collects it."""
+    found: dict[str, list[str]] = {}
+    for job, step in _browser_pytest_steps(wf):
+        for module in _modules_collected_by(step["run"]):
+            found.setdefault(module, []).append(f"{job} / {step.get('name')}")
+    return found
+
+
+def _browser_step_collecting(wf: dict[str, Any], test_file: str) -> dict[str, Any]:
+    """The browser-lane step that collects *test_file*."""
+    for _, step in _browser_pytest_steps(wf):
+        if test_file in _modules_collected_by(step["run"]):
+            return step
+    raise AssertionError(f"no browser-lane step collects {test_file}")
+
+
+def _ignore_in_its_step(wf: dict[str, Any], test_file: str) -> None:
+    """Add ``--ignore=<test_file>`` to the browser step that collects it."""
+    step = _browser_step_collecting(wf, test_file)
+    step["run"] = step["run"].replace(
+        _BROWSER_PYTEST_INVOCATION, f"{_BROWSER_PYTEST_INVOCATION}--ignore={test_file} ", 1
     )
 
 
@@ -4941,31 +5015,25 @@ _NAMED_BROWSER_TEST_FILES = [
 
 @pytest.mark.parametrize("test_file", _NAMED_BROWSER_TEST_FILES)
 def test_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any], test_file: str) -> None:
-    """The suite has to be NAMED in the lane's pytest invocation.
-
-    The lane runs an explicit file list, not a directory glob, so a new
-    browser-marked file that nobody adds here is never collected anywhere: the
-    unit lane skips it (no chromium), and this lane never hears of it. It
-    reports green by running nothing at all."""
-    assert test_file in _browser_lane_files(workflow)
+    """A browser-lane step has to collect the suite: the unit lane skips it (no
+    chromium), so a suite no browser step collects reports green by running
+    nothing at all."""
+    assert test_file in _browser_collectors(workflow)
 
 
 @pytest.mark.parametrize("test_file", _NAMED_BROWSER_TEST_FILES)
-def test_browser_test_runs_in_the_browser_lane__mutation_drops_the_file(test_file: str) -> None:
-    """Removing the file from the invocation must fail the guard — the exact
-    vacuous-green shape above."""
+def test_browser_test_runs_in_the_browser_lane__mutation_ignores_the_file(test_file: str) -> None:
+    """An ``--ignore`` for the file must fail the guard: the vacuous-green shape above."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _browser_step_naming(mutated, test_file)
-    step["run"] = step["run"].replace(f"{test_file} \\\n", "")
-    assert test_file not in _browser_lane_files(mutated)
+    _ignore_in_its_step(mutated, test_file)
+    assert test_file not in _browser_collectors(mutated)
 
 
 # ---------------------------------------------------------------------------
-# (h3) every browser suite on disk: (h) and (h2) each pin one file by name,
-# which is exactly how the next one gets forgotten. The lane's explicit file
-# list is checked against the tree instead — a module that marks itself
-# ``browser`` is skipped by the unit lane for want of a chromium binary, so
-# one this lane does not name is collected nowhere at all.
+# (h3) every browser suite on disk is collected by exactly one browser-lane
+# step: a module that marks itself ``browser`` is skipped by the unit lane for
+# want of a chromium binary, so one no step collects runs nowhere, and one two
+# steps collect runs twice.
 # ---------------------------------------------------------------------------
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
@@ -5038,13 +5106,6 @@ def _browser_suites_on_disk_once() -> tuple[str, ...]:
     )
 
 
-def _browser_lane_named_files(wf: dict[str, Any]) -> set[str]:
-    """The pytest file arguments of the lane's run step, one token at a time —
-    not a substring search, so ``test_panel_browser.py`` is never satisfied by
-    ``test_panels_browser.py``."""
-    return {tok for tok in _browser_lane_files(wf).split() if tok.endswith(".py")}
-
-
 #: The number of browser-marked modules in the tree. A discovery that reads
 #: the marker wrongly still returns a plausible-looking list, and every guard
 #: below it would then pass over the difference, so the floor is worth what
@@ -5090,23 +5151,66 @@ def test_the_marker_discovery_reads_the_marker_not_the_name() -> None:
     assert _module_marks("x = 1\n") == set()
 
 
-def test_every_browser_suite_on_disk_is_named_in_the_browser_lane(
+def test_every_browser_suite_is_collected_by_exactly_one_browser_step(
     workflow: dict[str, Any],
 ) -> None:
-    named = _browser_lane_named_files(workflow)
-    missing = [suite for suite in _browser_suites_on_disk() if suite not in named]
-    assert missing == [], (
-        f"browser suites on disk that the '{BROWSER_JOB}' lane never runs (the unit lane "
-        f"skips them without chromium, so nothing collects them anywhere): {missing}"
+    collectors = _browser_collectors(workflow)
+    wrong = {
+        suite: collectors.get(suite, [])
+        for suite in _browser_suites_on_disk()
+        if len(collectors.get(suite, [])) != 1
+    }
+    assert wrong == {}, (
+        f"browser suites not collected by exactly one browser-lane step (the unit lane "
+        f"skips them without chromium, so none runs them nowhere): {wrong}"
     )
 
 
-def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> None:
+def test_browser_steps_collect_only_browser_suites(workflow: dict[str, Any]) -> None:
+    """The unit lanes run every other module; a browser step that collects one
+    runs it twice, and a step that drops its ``-m browser`` collects them all."""
+    suites = set(_browser_suites_on_disk())
+    strays = sorted(set(_browser_collectors(workflow)) - suites)
+    assert strays == [], f"browser-lane steps collect modules not marked browser: {strays}"
+
+
+def test_every_browser_suite_is_collected_once__mutation_ignores_one_suite() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _browser_step_naming(mutated, AUTH_BROWSER_TEST_FILE)
-    step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
-    named = _browser_lane_named_files(mutated)
-    assert [s for s in _browser_suites_on_disk() if s not in named] == [AUTH_BROWSER_TEST_FILE]
+    _ignore_in_its_step(mutated, POSTURE_BROWSER_TEST_FILE)
+    with pytest.raises(AssertionError, match=re.escape(POSTURE_BROWSER_TEST_FILE)):
+        test_every_browser_suite_is_collected_by_exactly_one_browser_step(mutated)
+
+
+def test_every_browser_suite_is_collected_once__mutation_collects_an_agent_suite_twice() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    before = step["run"]
+    step["run"] = before.replace(f"--ignore={AUTH_BROWSER_TEST_FILE}", "")
+    assert step["run"] != before, "no ignore for the login suite — mutation is stale"
+    with pytest.raises(AssertionError, match=re.escape(AUTH_BROWSER_TEST_FILE)):
+        test_every_browser_suite_is_collected_by_exactly_one_browser_step(mutated)
+
+
+def test_browser_steps_collect_only_browser_suites__mutation_drops_the_marker() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    before = step["run"]
+    step["run"] = before.replace(" -m browser ", " ")
+    assert step["run"] != before, "no `-m browser` in the run step — mutation is stale"
+    with pytest.raises(AssertionError, match="not marked browser"):
+        test_browser_steps_collect_only_browser_suites(mutated)
+
+
+def test_pytest_selection_reads_paths_ignores_and_the_marker() -> None:
+    run = (
+        "uv run pytest -n 4 --dist loadfile -m 'browser and not slow' tests/a \\\n"
+        "  --ignore=tests/a/x.py --ignore tests/a/y.py tests/b.py -v --tb=short\n"
+    )
+    assert _pytest_selection(run) == (
+        ["tests/a", "tests/b.py"],
+        ["tests/a/x.py", "tests/a/y.py"],
+        "browser and not slow",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -5126,9 +5230,9 @@ _CONTAINER_IMPORT = re.compile(
 def _parallel_step_container_suites(wf: dict[str, Any]) -> list[str]:
     run = _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
     return sorted(
-        tok
-        for tok in set(run.split())
-        if tok.endswith(".py") and _CONTAINER_IMPORT.search((REPO_ROOT / tok).read_text())
+        module
+        for module in _modules_collected_by(run)
+        if _CONTAINER_IMPORT.search((REPO_ROOT / module).read_text())
     )
 
 
@@ -5142,9 +5246,7 @@ def test_no_container_backed_suite_runs_in_the_parallel_step(workflow: dict[str,
 def test_no_container_backed_suite_runs_in_the_parallel_step__mutation_moves_one_back() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(
-        "--dist loadfile \\\n", f"--dist loadfile \\\n  {AUTH_BROWSER_TEST_FILE} \\\n", 1
-    )
+    step["run"] = step["run"].replace(f"--ignore={AUTH_BROWSER_TEST_FILE}", "")
     assert _parallel_step_container_suites(mutated) == [AUTH_BROWSER_TEST_FILE]
 
 
@@ -5834,23 +5936,22 @@ def _writeback_project_cases() -> set[str]:
 def test_writeback_cleanup_sweeps_every_project_the_test_creates(
     workflow: dict[str, Any],
 ) -> None:
-    """The cleanup loop's cases are exactly the projects the e2e module names, so
+    """The cleanup tears down exactly the projects the e2e module names, so
     renaming a project cannot leave its containers and volumes behind."""
     run = _find_named_step(workflow, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)["run"]
-    loop = re.search(r"for case in ([^;\n]+); do", run)
-    assert loop is not None, f"no `for case in …; do` loop in step {WRITEBACK_CLEANUP_STEP!r}"
-    assert f'project="{WRITEBACK_PROJECT_PREFIX}${{case}}"' in run
     cases = _writeback_project_cases()
     assert cases, f"no PROJECT_* constants found in {WRITEBACK_E2E_MODULE}"
-    assert set(loop.group(1).split()) == cases
+    assert _compose_downs(_cleanup_trace(run)) == {
+        f"{WRITEBACK_PROJECT_PREFIX}{case}" for case in cases
+    }
 
 
 def test_writeback_cleanup_sweeps_every_project_the_test_creates__mutation_stale_case() -> None:
     mutated = _load_workflow()
     step = _find_named_step(mutated, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)
-    step["run"] = re.sub(
-        r"for case in [^;\n]+; do", "for case in rebuild divergent orphan; do", step["run"]
-    )
+    before = step["run"]
+    step["run"] = before.replace(f"{WRITEBACK_PROJECT_PREFIX}render", "osprey-e2e-wb-orphan")
+    assert step["run"] != before, "no render project in the cleanup call — mutation is stale"
     with pytest.raises(AssertionError):
         test_writeback_cleanup_sweeps_every_project_the_test_creates(mutated)
 
@@ -7351,7 +7452,7 @@ def test_every_job_is_gated_or_deliberately_excluded__mutation_adds_orphan_job()
 
 
 # ---------------------------------------------------------------------------
-# (q) posture-toggle browser test: named in the browser lane (same vacuous-
+# (q) posture-toggle browser test: collected by the browser lane (same vacuous-
 # green shape as (h)/(h2) — the unit lane skips it without chromium)
 # ---------------------------------------------------------------------------
 
@@ -7359,17 +7460,15 @@ POSTURE_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_posture_toggle_b
 
 
 def test_posture_toggle_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
-    """The toggle's only end-to-end proof (badge agrees with the store)
-    must be NAMED in the lane's explicit file list; nowhere else in CI has
-    Chromium installed."""
-    assert POSTURE_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+    """The toggle's only end-to-end proof (badge agrees with the store) must be
+    collected by a browser-lane step; nowhere else in CI has Chromium installed."""
+    assert POSTURE_BROWSER_TEST_FILE in _browser_collectors(workflow)
 
 
-def test_posture_toggle_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+def test_posture_toggle_browser_test_runs_in_the_browser_lane__mutation_ignores_the_file() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{POSTURE_BROWSER_TEST_FILE} \\\n", "")
-    assert POSTURE_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+    _ignore_in_its_step(mutated, POSTURE_BROWSER_TEST_FILE)
+    assert POSTURE_BROWSER_TEST_FILE not in _browser_collectors(mutated)
 
 
 # The control-target switch lane: registered in both halves of the gate
@@ -7421,10 +7520,9 @@ def _va_live_suites_on_disk() -> list[str]:
 def _va_live_lane_named_files(wf: dict[str, Any], job_name: str) -> list[str]:
     """The pytest file arguments of *job_name*'s run step, one token at a time.
 
-    Split on whitespace rather than searched for as substrings, for
-    ``_browser_lane_named_files``' reason: a substring search lets
-    ``test_full_sweep.py`` be satisfied by a file whose name merely ends with
-    it.
+    Split on whitespace rather than searched for as substrings: a substring
+    search lets ``test_full_sweep.py`` be satisfied by a file whose name merely
+    ends with it.
 
     A list rather than a set: a file named twice in one lane is a duplicate
     the partition check below must still see.
@@ -9928,22 +10026,24 @@ def test_full_chain_auth_lane_caps_are_the_measured_ones__mutation_step_cap() ->
         test_full_chain_auth_lane_caps_are_the_measured_ones(mutated)
 
 
-#: The full-chain lane's exact-name cleanup and what its history page leaves:
-#: the page's container and the project image ``osprey up`` builds, which the
-#: page runs (``tests/e2e/test_full_chain_auth.py`` pins the render's tag).
+#: The full-chain lane's cleanup and what its history page leaves: the page's
+#: container, a compose service of the project (``<project>-history``), and the
+#: project image ``osprey up`` builds, which the page runs
+#: (``tests/e2e/test_full_chain_auth.py`` pins the render's tag).
 FULL_CHAIN_CLEANUP_STEP = "Clean up any stranded full-chain-auth resources"
-FULL_CHAIN_HISTORY_CONTAINER = "osprey-e2e-full-chain-auth-history"
+FULL_CHAIN_PROJECT = "osprey-e2e-full-chain-auth"
 FULL_CHAIN_PROJECT_IMAGE = "osprey-e2e-full-chain-auth:local"
 
 
 def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image(
     workflow: dict[str, Any],
 ) -> None:
-    run = _cleanup_step_run(workflow, FULL_CHAIN_JOB, FULL_CHAIN_CLEANUP_STEP)
-    assert FULL_CHAIN_HISTORY_CONTAINER in _CONTAINER_REMOVAL.findall(run), (
-        f"'{FULL_CHAIN_CLEANUP_STEP}' never removes {FULL_CHAIN_HISTORY_CONTAINER}"
+    trace = _cleanup_trace(_cleanup_step_run(workflow, FULL_CHAIN_JOB, FULL_CHAIN_CLEANUP_STEP))
+    assert FULL_CHAIN_PROJECT in _compose_downs(trace), (
+        f"'{FULL_CHAIN_CLEANUP_STEP}' never tears down {FULL_CHAIN_PROJECT}, whose "
+        f"history service is the page"
     )
-    assert re.search(rf"(?m)^\s*docker rmi -f {re.escape(FULL_CHAIN_PROJECT_IMAGE)}\b", run), (
+    assert FULL_CHAIN_PROJECT_IMAGE in _IMAGE_REMOVAL.findall(trace), (
         f"'{FULL_CHAIN_CLEANUP_STEP}' never removes the history page's image "
         f"{FULL_CHAIN_PROJECT_IMAGE}"
     )
@@ -9955,7 +10055,7 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_CLEANUP_STEP)
     original = step["run"]
-    step["run"] = original.replace(f"docker rmi -f {FULL_CHAIN_PROJECT_IMAGE} || true\n", "")
+    step["run"] = original.replace(f"--image {FULL_CHAIN_PROJECT_IMAGE} ", "")
     assert step["run"] != original, "no project-image removal — mutation is stale"
     with pytest.raises(AssertionError, match="history page's image"):
         test_full_chain_auth_cleanup_removes_the_history_page_and_its_image(mutated)
@@ -11799,13 +11899,13 @@ def test_transcript_resume_probe_runs_on_every_push__mutation_gates_the_step() -
 
 
 # ---------------------------------------------------------------------------
-# Web-terminal cleanup steps address containers by the compose project name
+# Web-terminal cleanup steps tear down the compose project that names the containers
 # ---------------------------------------------------------------------------
 
 #: Every belt-and-suspenders cleanup step that removes web-terminal containers,
 #: with the compose project names its lane deploys. A web-terminal container is
-#: ``<project>-web-<user>`` / ``<project>-nginx`` / ``<project>-auth``, so an
-#: exact-named removal spelled any other way removes nothing the lane created.
+#: ``<project>-web-<user>`` / ``<project>-nginx`` / ``<project>-auth``, a
+#: service of that compose project, so the project's ``compose down`` removes it.
 WEB_TERMINAL_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
     (
         "multi-user-deploy-lifecycle-e2e",
@@ -11844,41 +11944,79 @@ AUTH_SIDECAR_CLEANUP_STEPS = (
     ("full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"),
 )
 
+WEB_TERMINAL_COMPOSE_TEMPLATE = (
+    REPO_ROOT / "src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2"
+)
+#: The web-terminal services' container names, each spelled off the compose project.
+_WEB_TERMINAL_CONTAINER_NAMES = (
+    "{{ project_name }}-web-{{ svc.user }}",
+    "{{ project_name }}-nginx",
+    "{{ project_name }}-auth",
+)
+
+#: A removal in a cleanup trace. A prefix sweep reads as its filter, ``^<prefix>``.
 _CONTAINER_REMOVAL = re.compile(r'\b(?:docker|podman) rm -f "?([^"\s]+)"?')
+_VOLUME_REMOVAL = re.compile(r"\b(?:docker|podman) volume rm (?:-f )?\"?([^\"\s]+)\"?")
+_IMAGE_REMOVAL = re.compile(r"\b(?:docker|podman) rmi -f (\S+)")
+_COMPOSE_DOWN_PROJECT = re.compile(r"\b(?:docker|podman) compose -p (\S+) down\b")
 
 
 def _cleanup_step_run(wf: dict[str, Any], job: str, step_name: str) -> str:
     return _find_named_step(wf, job, step_name).get("run", "")
 
 
+def _removes(removed: list[str], name: str) -> bool:
+    """Whether *removed* (from a trace) names *name* exactly or sweeps a prefix of it."""
+    return any(r == name or (r.startswith("^") and name.startswith(r[1:])) for r in removed)
+
+
+def _compose_downs(trace: str) -> set[str]:
+    return set(_COMPOSE_DOWN_PROJECT.findall(trace))
+
+
+def _web_terminal_containers_off_the_project(template: str) -> list[str]:
+    return [
+        name
+        for name in _WEB_TERMINAL_CONTAINER_NAMES
+        if f"container_name: {name}\n" not in template
+    ]
+
+
+def test_web_terminal_containers_are_services_named_by_the_project() -> None:
+    """What lets a cleanup's ``compose -p <project> down`` stand for removing
+    them by name."""
+    template = WEB_TERMINAL_COMPOSE_TEMPLATE.read_text(encoding="utf-8")
+    assert _web_terminal_containers_off_the_project(template) == []
+
+
+def test_web_terminal_containers_are_services_named_by_the_project__mutation_bare_name() -> None:
+    template = WEB_TERMINAL_COMPOSE_TEMPLATE.read_text(encoding="utf-8")
+    mutated = template.replace("container_name: {{ project_name }}-nginx", "container_name: nginx")
+    assert mutated != template, "no project-named nginx service — mutation is stale"
+    assert _web_terminal_containers_off_the_project(mutated) == ["{{ project_name }}-nginx"]
+
+
 def test_web_terminal_cleanup_removes_project_named_containers(
     workflow: dict[str, Any],
 ) -> None:
-    """Each cleanup step removes its lane's per-user and nginx containers by the
-    compose project name the same step tears down."""
+    """Each cleanup step tears down every compose project its lane deploys,
+    which removes the project's per-user, nginx and auth containers."""
     for (job, step_name), projects in WEB_TERMINAL_CLEANUP_STEPS.items():
-        run = _cleanup_step_run(workflow, job, step_name)
-        removed = _CONTAINER_REMOVAL.findall(run)
+        downs = _compose_downs(_cleanup_trace(_cleanup_step_run(workflow, job, step_name)))
         for project in projects:
-            assert f"compose -p {project} down" in run, (
+            assert project in downs, (
                 f"'{job}' / '{step_name}' does not tear down compose project {project}"
-            )
-            assert any(name.startswith(f"{project}-web-") for name in removed), (
-                f"'{job}' / '{step_name}' removes no {project}-web-<user> container"
-            )
-            assert f"{project}-nginx" in removed, (
-                f"'{job}' / '{step_name}' does not remove {project}-nginx"
             )
 
 
 def test_web_terminal_cleanup_removes_only_project_named_containers(
     workflow: dict[str, Any],
 ) -> None:
-    """No exact-named removal in these steps is spelled off anything but one of
-    the step's own compose project names."""
+    """No removal in these steps, exact or by prefix, is spelled off anything
+    but one of the step's own compose project names."""
     for (job, step_name), projects in WEB_TERMINAL_CLEANUP_STEPS.items():
-        run = _cleanup_step_run(workflow, job, step_name)
-        removed = _CONTAINER_REMOVAL.findall(run)
+        trace = _cleanup_trace(_cleanup_step_run(workflow, job, step_name))
+        removed = [name.removeprefix("^") for name in _CONTAINER_REMOVAL.findall(trace)]
         assert removed, f"'{job}' / '{step_name}' removes no container"
         strays = [
             name
@@ -11891,15 +12029,13 @@ def test_web_terminal_cleanup_removes_only_project_named_containers(
 
 
 def test_auth_sidecar_cleanup_removes_project_named_sidecar(workflow: dict[str, Any]) -> None:
-    """The auth lanes remove ``<project>-auth`` and its ``<project>-auth:local``
-    image."""
+    """The auth lanes tear down ``<project>-auth``'s project and remove its
+    ``<project>-auth:local`` image."""
     for job, step_name in AUTH_SIDECAR_CLEANUP_STEPS:
         (project,) = WEB_TERMINAL_CLEANUP_STEPS[(job, step_name)]
-        run = _cleanup_step_run(workflow, job, step_name)
-        assert f"{project}-auth" in _CONTAINER_REMOVAL.findall(run), (
-            f"'{job}' does not remove the {project}-auth container"
-        )
-        assert f"rmi -f {project}-auth:local" in run, (
+        trace = _cleanup_trace(_cleanup_step_run(workflow, job, step_name))
+        assert project in _compose_downs(trace), f"'{job}' does not tear down {project}"
+        assert f"{project}-auth:local" in _IMAGE_REMOVAL.findall(trace), (
             f"'{job}' does not remove the {project}-auth:local image"
         )
 
@@ -11910,8 +12046,8 @@ def test_web_terminal_cleanup_removes_project_named_containers__mutation_prefix_
         mutated, "auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"
     )
     original = step["run"]
-    step["run"] = original.replace("osprey-e2e-auth-perimeter-nginx", "authe2e-nginx")
-    assert step["run"] != original, "no project-named nginx removal — mutation is stale"
+    step["run"] = re.sub(r"(?m)^(\s*)osprey-e2e-auth-perimeter$", r"\1authe2e", original)
+    assert step["run"] != original, "no project in the cleanup call — mutation is stale"
     with pytest.raises(AssertionError):
         test_web_terminal_cleanup_removes_project_named_containers(mutated)
 
@@ -11938,6 +12074,94 @@ def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_ima
     assert step["run"] != original, "no project-named sidecar image — mutation is stale"
     with pytest.raises(AssertionError):
         test_auth_sidecar_cleanup_removes_project_named_sidecar(mutated)
+
+
+#: The lifecycle module's stub registry: a plain ``run`` of the test's, in no
+#: compose project, so only a prefix sweep removes it.
+_REGISTRY_CLEANUP_STEPS = [
+    key
+    for key, projects in WEB_TERMINAL_CLEANUP_STEPS.items()
+    if projects == ("osprey-e2e-mus-p3",)
+]
+PODMAN_LIFECYCLE_JOB = "multi-user-deploy-lifecycle-e2e-podman"
+
+
+def test_lifecycle_cleanup_removes_the_stub_registry(workflow: dict[str, Any]) -> None:
+    registry = _module_constant(REPO_ROOT / LIFECYCLE_TEST_FILE, "REGISTRY_CONTAINER")
+    missing = [
+        job
+        for job, step_name in _REGISTRY_CLEANUP_STEPS
+        if not _removes(
+            _CONTAINER_REMOVAL.findall(_cleanup_trace(_cleanup_step_run(workflow, job, step_name))),
+            registry,
+        )
+    ]
+    assert missing == [], f"cleanup steps that leave {registry} behind: {missing}"
+
+
+def test_lifecycle_cleanup_removes_the_stub_registry__mutation_drops_the_sweep() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job, step_name = next(key for key in _REGISTRY_CLEANUP_STEPS if key[0] == PODMAN_LIFECYCLE_JOB)
+    step = _find_named_step(mutated, job, step_name)
+    before = step["run"]
+    step["run"] = before.replace("--sweep ", "")
+    assert step["run"] != before, "no --sweep in the podman cleanup — mutation is stale"
+    with pytest.raises(AssertionError, match=PODMAN_LIFECYCLE_JOB):
+        test_lifecycle_cleanup_removes_the_stub_registry(mutated)
+
+
+def test_podman_lane_cleanup_runs_podman(workflow: dict[str, Any]) -> None:
+    """Docker holds nothing of the podman lane's; a cleanup run against it removes nothing."""
+    (key,) = [k for k in _REGISTRY_CLEANUP_STEPS if k[0] == PODMAN_LIFECYCLE_JOB]
+    trace = _cleanup_trace(_cleanup_step_run(workflow, *key))
+    engines = {line.split()[0] for line in trace.splitlines()}
+    assert engines == {"podman"}, f"'{PODMAN_LIFECYCLE_JOB}' cleans up with {sorted(engines)}"
+
+
+def test_podman_lane_cleanup_runs_podman__mutation_drops_the_engine() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    (key,) = [k for k in _REGISTRY_CLEANUP_STEPS if k[0] == PODMAN_LIFECYCLE_JOB]
+    step = _find_named_step(mutated, *key)
+    before = step["run"]
+    step["run"] = before.replace("ENGINE=podman ", "")
+    assert step["run"] != before, "no ENGINE=podman in the cleanup — mutation is stale"
+    with pytest.raises(AssertionError, match="docker"):
+        test_podman_lane_cleanup_runs_podman(mutated)
+
+
+#: The privilege-split lane's two modules start hand-named containers, volumes
+#: and image tags under their ``TAG_PREFIX``; none belongs to a compose project.
+PRIVSPLIT_CLEANUP_STEP = "Clean up any stranded resources from either module"
+_PRIVSPLIT_MODULES = ("tests/e2e/test_privilege_split.py", "tests/e2e/test_audit_two_container.py")
+
+
+def test_privilege_split_cleanup_sweeps_each_module_prefix(workflow: dict[str, Any]) -> None:
+    trace = _cleanup_trace(
+        _cleanup_step_run(workflow, "privilege-split-e2e", PRIVSPLIT_CLEANUP_STEP)
+    )
+    containers = _CONTAINER_REMOVAL.findall(trace)
+    volumes = _VOLUME_REMOVAL.findall(trace)
+    images = _IMAGE_REMOVAL.findall(trace)
+    gaps = []
+    for module in _PRIVSPLIT_MODULES:
+        prefix = _module_constant(REPO_ROOT / module, "TAG_PREFIX")
+        if not _removes(containers, f"{prefix}-x"):
+            gaps.append(f"{prefix}-* containers")
+        if not _removes(volumes, f"{prefix}-x"):
+            gaps.append(f"{prefix}-* volumes")
+        if not any(fnmatch.fnmatch(f"{prefix}-x", ref) for ref in images):
+            gaps.append(f"{prefix}* images")
+    assert gaps == [], f"'{PRIVSPLIT_CLEANUP_STEP}' leaves {gaps}"
+
+
+def test_privilege_split_cleanup_sweeps_each_module_prefix__mutation_drops_the_sweep() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, "privilege-split-e2e", PRIVSPLIT_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = before.replace("--sweep", "")
+    assert step["run"] != before, "no --sweep in the cleanup — mutation is stale"
+    with pytest.raises(AssertionError, match="containers"):
+        test_privilege_split_cleanup_sweeps_each_module_prefix(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -12093,62 +12317,61 @@ _OSPREY_UP = re.compile(r"\bosprey (?:deploy )?up\b")
 _COMPOSE_DOWN = re.compile(r"\b(?:docker|podman)[ -]compose\b[^\n]*\bdown\b")
 
 
-def _expand_shell_loops(run: str) -> str:
-    """*run* with each ``for <var> in <cases>; do … done`` loop unrolled, and
-    each plain ``name="…"`` assignment in the unrolled body substituted, so a
-    removal spelled ``"${project}-agent-record"`` reads as the names it removes.
-    """
-    loop = re.compile(r"for (\w+) in ([^;\n]+); do\n(.*?)\ndone", re.DOTALL)
-
-    def _unroll(match: re.Match[str]) -> str:
-        var, cases, body = match.group(1), match.group(2).split(), match.group(3)
-        out = []
-        for case in cases:
-            text = body.replace(f"${{{var}}}", case).replace(f"${var}", case)
-            for name, value in re.findall(r'^\s*(\w+)="([^"$]*)"\s*$', text, re.MULTILINE):
-                text = text.replace(f"${{{name}}}", value).replace(f"${name}", value)
-            out.append(text)
-        return "\n".join(out)
-
-    return loop.sub(_unroll, run)
-
-
 #: The script the stack lanes' cleanup steps run, one compose project per argument.
 STACK_CLEANUP_SCRIPT = "scripts/ci/cleanup_stacks.sh"
-_STACK_CLEANUP_CALL = re.compile(
-    rf"^[ \t]*{re.escape(STACK_CLEANUP_SCRIPT)}((?:[ \t]+[\w.-]+)*)[ \t]*$", re.MULTILINE
-)
+
+#: A ``docker`` / ``podman`` that logs each call it gets. A listing answers with
+#: its own name filter and ``images`` with its reference, so a prefix sweep
+#: reads as ``rm -f ^<prefix>`` and an image removal as ``rmi -f <ref>``.
+_FAKE_ENGINE = """#!/usr/bin/env bash
+echo "${0##*/} $*" >> "$CLEANUP_TRACE_LOG"
+case "$1 $2" in
+  "ps -aq" | "volume ls")
+    for arg in "$@"; do if [[ $arg == name=* ]]; then echo "${arg#name=}"; fi; done ;;
+  "images --format") echo "${!#}" ;;
+esac
+exit 0
+"""
 
 
-def _expand_cleanup_script_calls(run: str, script: str | None = None) -> str:
-    """*run* with each ``STACK_CLEANUP_SCRIPT`` call replaced by the script's own
-    loop over the projects the call names, so its removals read as names.
+@functools.cache
+def _cleanup_trace(run: str, script: str | None = None) -> str:
+    """The engine calls *run* makes, one per line, ``cleanup_stacks.sh`` calls
+    included: *run* runs under bash against a fake ``docker`` and ``podman``.
 
-    *script* stands in for the script's text (a mutation of it); the loop header
-    must stay ``for project in "$@"; do``, or nothing unrolls and every removal
-    reads as a gap.
+    *script* stands in for the script's text (a mutation of it).
     """
-    body = script if script is not None else (REPO_ROOT / STACK_CLEANUP_SCRIPT).read_text()
-    joined = re.sub(r"\\\n[ \t]*", " ", run)
-
-    def _inline(match: re.Match[str]) -> str:
-        projects = " ".join(match.group(1).split())
-        return body.replace('for project in "$@"; do', f"for project in {projects}; do")
-
-    return _STACK_CLEANUP_CALL.sub(_inline, joined)
+    with tempfile.TemporaryDirectory() as tmp:
+        bin_dir = Path(tmp)
+        for engine in ("docker", "podman"):
+            (bin_dir / engine).write_text(_FAKE_ENGINE)
+            (bin_dir / engine).chmod(0o755)
+        log = bin_dir / "trace.log"
+        log.touch()
+        if script is not None:
+            (bin_dir / "cleanup.sh").write_text(script)
+            run = run.replace(STACK_CLEANUP_SCRIPT, f"bash {bin_dir / 'cleanup.sh'}")
+        env = {
+            **os.environ,
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "CLEANUP_TRACE_LOG": str(log),
+        }
+        env.pop("ENGINE", None)
+        subprocess.run(["bash", "-c", run], cwd=REPO_ROOT, env=env, check=True, timeout=60)
+        return log.read_text()
 
 
 def _record_cleanup_gaps(run: str, project: str, script: str | None = None) -> list[str]:
     """What *run* fails to remove of *project*'s agent record, its ClickHouse
     store and the store's data volume.
 
-    The volume counts as removed when the step names it exactly or sweeps the
-    project's own volume prefix (``--filter "name=^<project>_"``).
+    The volume counts as removed when the step names it exactly or sweeps a
+    prefix of it (the project's own ``^<project>_``).
     """
     from osprey.deployment.compose_generator import resolve_project_name
 
-    expanded = _expand_shell_loops(_expand_cleanup_script_calls(run, script))
-    removed = set(_CONTAINER_REMOVAL.findall(expanded))
+    trace = _cleanup_trace(run, script)
+    removed = _CONTAINER_REMOVAL.findall(trace)
     name = resolve_project_name({"project_name": project})
     gaps = [
         container
@@ -12156,10 +12379,7 @@ def _record_cleanup_gaps(run: str, project: str, script: str | None = None) -> l
         if container not in removed
     ]
     volume = f"{name}_agent_record_clickhouse_data"
-    swept = f'name=^{name}_"' in expanded
-    if not swept and not re.search(
-        rf"volume rm (?:-f )?\"?{re.escape(volume)}\"?(?:\s|$)", expanded
-    ):
+    if not _removes(_VOLUME_REMOVAL.findall(trace), volume):
         gaps.append(volume)
     return gaps
 
@@ -12171,11 +12391,12 @@ def _stack_capable_jobs(wf: dict[str, Any]) -> set[str]:
     jobs = {job for f in _dockerbuild_marked_e2e_files() for job in _jobs_running_e2e_file(wf, f)}
     for job, spec in _jobs(wf).items():
         for step in spec.get("steps") or []:
-            run = _expand_cleanup_script_calls(str(step.get("run", "")))
+            run = str(step.get("run", ""))
             if _OSPREY_UP.search(run):
                 jobs.add(job)
             if step.get("if") == "always()" and (
-                _CONTAINER_REMOVAL.search(run)
+                STACK_CLEANUP_SCRIPT in run
+                or _CONTAINER_REMOVAL.search(run)
                 or _COMPOSE_DOWN.search(run)
                 or re.search(r"\b(?:docker|podman) ps -aq\b", run)
             ):
@@ -12269,14 +12490,8 @@ def test_every_stack_lane_owes_the_record_cleanup__mutation_stale_exemption() ->
 @pytest.mark.parametrize(
     ("job", "step_name", "dropped"),
     [
-        (
-            "auth-perimeter-e2e",
-            "Clean up any stranded auth-perimeter resources",
-            "osprey-e2e-auth-perimeter-agent-record",
-        ),
         (TWO_SHAPE_JOB, TWO_SHAPE_CLEANUP_STEP, "osprey-e2e-two-shape-agent-record-clickhouse"),
-        (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP, "hello-world-test-agent-record"),
-        (ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP, "archiver-world-agent-record"),
+        (TWO_SHAPE_JOB, TWO_SHAPE_CLEANUP_STEP, "osprey-e2e-two-shape-agent-record"),
     ],
 )
 def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_removal(
@@ -12297,18 +12512,37 @@ def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_removal(
 
 
 @pytest.mark.parametrize(
-    ("job", "project", "dropped"),
+    ("job", "step_name", "project", "dropped"),
     [
-        ("bluesky-queue-e2e", "queue-e2e", "queue-e2e-agent-record"),
-        ("e2e-tests", "suproj", "suproj-agent-record-clickhouse"),
+        ("bluesky-queue-e2e", STACK_CLEANUP_STEP, "queue-e2e", "queue-e2e-agent-record"),
+        ("e2e-tests", STACK_CLEANUP_STEP, "suproj", "suproj-agent-record-clickhouse"),
+        (
+            "auth-perimeter-e2e",
+            "Clean up any stranded auth-perimeter resources",
+            "osprey-e2e-auth-perimeter",
+            "osprey-e2e-auth-perimeter-agent-record",
+        ),
+        (
+            WRITEBACK_JOB,
+            WRITEBACK_CLEANUP_STEP,
+            "osprey-e2e-wb-render",
+            "osprey-e2e-wb-render-agent-record",
+        ),
+        (
+            DEPLOY_JOB,
+            DEPLOY_STACK_CLEANUP_STEP,
+            "hello-world-test",
+            "hello-world-test-agent-record",
+        ),
+        (ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP, "archiver-world", "archiver-world-agent-record"),
     ],
 )
 def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_project_from_the_call(
-    job: str, project: str, dropped: str
+    job: str, step_name: str, project: str, dropped: str
 ) -> None:
     """A project left off a lane's cleanup-script call is a gap naming that lane."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, job, STACK_CLEANUP_STEP)
+    step = _find_named_step(mutated, job, step_name)
     before = step["run"]
     step["run"] = re.sub(
         rf"(?<=[ \t]){re.escape(project)}(?=[ \t]*(?:\\)?$)", "", before, flags=re.MULTILINE
@@ -12333,42 +12567,18 @@ def test_stack_lanes_remove_the_agent_record_by_name__mutation_script_drops_a_re
     assert _record_cleanup_gaps(run, "queue-e2e", mutated) == ["queue-e2e-agent-record-clickhouse"]
 
 
-def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_loop_removal() -> None:
-    """The write-back lane removes its records inside its per-project loop."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)
-    before = step["run"]
-    step["run"] = "\n".join(
-        line for line in before.splitlines() if '"${project}-agent-record" ' not in line
-    )
-    assert step["run"] != before, "no looped record removal — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-wb-render-agent-record'"):
-        test_stack_lanes_remove_the_agent_record_by_name(mutated)
-
-
-def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_record_volume() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP)
-    before = step["run"]
-    step["run"] = "\n".join(
-        line for line in before.splitlines() if "agent_record_clickhouse_data" not in line
-    )
-    assert step["run"] != before, "no record volume removal — mutation is stale"
-    with pytest.raises(AssertionError, match="archiver-world_agent_record_clickhouse_data"):
-        test_stack_lanes_remove_the_agent_record_by_name(mutated)
-
-
-def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_volume_sweep() -> None:
-    """The notebook-panel lane removes its volumes by project prefix only."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(
-        mutated, "jupyter-panel-e2e", "Clean up any stranded notebook-panel resources"
-    )
-    before = step["run"]
-    step["run"] = before.replace('"name=^osprey-e2e-jnb_"', '"name=^osprey-e2e-jnb-web_"')
-    assert step["run"] != before, "no project volume sweep — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-jnb_agent_record_clickhouse_data"):
-        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_script_drops_the_volume_sweep() -> (
+    None
+):
+    """The record's volume goes by the script's project-prefix sweep."""
+    script = (REPO_ROOT / STACK_CLEANUP_SCRIPT).read_text()
+    mutated = script.replace('prefixes=("${project}_")', "prefixes=()")
+    assert mutated != script, "no project volume sweep in the script — mutation is stale"
+    run = _cleanup_step_run(_load_workflow(), ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP)
+    assert _record_cleanup_gaps(run, "archiver-world") == []
+    assert _record_cleanup_gaps(run, "archiver-world", mutated) == [
+        "archiver-world_agent_record_clickhouse_data"
+    ]
 
 
 def test_record_cleanup_steps_run_always_after_the_failure_capture__mutation_drops_always() -> None:
@@ -12378,17 +12588,26 @@ def test_record_cleanup_steps_run_always_after_the_failure_capture__mutation_dro
         test_record_cleanup_steps_run_always_after_the_failure_capture(mutated)
 
 
-def test_expand_shell_loops_unrolls_cases_and_assignments() -> None:
+def test_cleanup_trace_reads_loops_options_and_prefix_sweeps() -> None:
     run = (
-        "for case in a b; do\n"
-        '  project="p-${case}"\n'
-        '  docker rm -f "${project}-agent-record" || true\n'
+        "for user in a b; do\n"
+        '  docker rm -f "p-web-${user}" || true\n'
         "done\n"
+        f"ENGINE=podman {STACK_CLEANUP_SCRIPT} --sweep --image 'p-*' p\n"
     )
-    assert _CONTAINER_REMOVAL.findall(_expand_shell_loops(run)) == [
-        "p-a-agent-record",
-        "p-b-agent-record",
+    trace = _cleanup_trace(run)
+    assert _CONTAINER_REMOVAL.findall(trace) == [
+        "p-web-a",
+        "p-web-b",
+        "p-agent-record",
+        "p-agent-record-clickhouse",
+        "^p-",
     ]
+    assert _VOLUME_REMOVAL.findall(trace) == ["^p_", "^p-"]
+    assert _IMAGE_REMOVAL.findall(trace) == ["p-*"]
+    assert _compose_downs(trace) == {"p"}
+    assert _removes(_CONTAINER_REMOVAL.findall(trace), "p-registry")
+    assert not _removes(_CONTAINER_REMOVAL.findall(trace), "q-registry")
 
 
 _YAML_KEY_LINE = re.compile(r"^\s*[A-Za-z_][\w-]*:(?:\s|$)")

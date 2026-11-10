@@ -780,71 +780,16 @@ jobs:
           ~/apt-archives
         key: ${{ steps.playwright-key.outputs.key }}
 
-    # `loadfile`: a file's tests share module fixtures.
+    # `loadfile`: a file's tests share module fixtures. Every browser-marked module but those
+    # visual-theming-agent runs.
     - name: Run behavioral theming suite
       run: |
-        uv run pytest -n 4 --dist loadfile \
-          tests/interfaces/design_system/test_behavioral.py \
-          tests/interfaces/design_system/test_theme_lab.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_toolbar.py \
-          tests/interfaces/design_system/test_panel_browser.py \
-          tests/interfaces/design_system/test_dispatch_run_crosslinks.py \
-          tests/interfaces/design_system/test_dispatch_run_thinking_browser.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_clock_trigger.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_facility_time.py \
-          tests/interfaces/design_system/test_dispatch_dashboard_trigger_tools.py \
-          tests/interfaces/design_system/test_dispatch_run_owner.py \
-          tests/interfaces/design_system/test_osprey_drawer.py \
-          tests/interfaces/artifacts/test_gallery_interactions.py \
-          tests/interfaces/artifacts/test_plot_theme_browser.py \
-          tests/interfaces/artifacts/test_plot_export_browser.py \
-          tests/interfaces/artifacts/test_opaque_origin_browser.py \
-          tests/docs/screenshots/test_video_probes_browser.py \
-          tests/interfaces/web_terminal/test_panels_browser.py \
-          tests/interfaces/web_terminal/test_opaque_panel_browser.py \
-          tests/interfaces/web_terminal/test_facility_time_browser.py \
-          tests/interfaces/web_terminal/test_panels_collab_browser.py \
-          tests/interfaces/web_terminal/test_dock_tiles_browser.py \
-          tests/interfaces/web_terminal/test_dock_perf_browser.py \
-          tests/interfaces/web_terminal/test_dock_agent_parity_browser.py \
-          tests/interfaces/web_terminal/test_jupyter_panel_browser.py \
-          tests/interfaces/web_terminal/test_agent_activity_browser.py \
-          tests/interfaces/web_terminal/test_contract_params.py \
-          tests/interfaces/web_terminal/test_logout_resume_browser.py \
-          tests/interfaces/web_terminal/test_feedback_rail_browser.py \
-          tests/interfaces/web_terminal/test_feedback_modal_browser.py \
-          tests/interfaces/web_terminal/test_watchdog_dialog_browser.py \
-          tests/interfaces/web_terminal/test_posture_toggle_browser.py \
-          tests/interfaces/web_terminal/test_control_context_browser.py \
-          tests/interfaces/web_terminal/test_agent_surface_browser.py \
-          tests/interfaces/web_terminal/test_first_contact_browser.py \
-          tests/interfaces/web_terminal/test_chat_browser.py \
-          tests/interfaces/web_terminal/test_session_persistence_browser.py \
-          tests/interfaces/web_terminal/test_artifact_sessions_browser.py \
-          tests/interfaces/web_terminal/test_context_menus_browser.py \
-          tests/interfaces/web_terminal/test_canopy_host_themes.py \
-          tests/interfaces/web_terminal/test_osprey_drawer.py \
-          tests/interfaces/web_terminal/test_scaffold_detail.py \
-          tests/interfaces/web_terminal/test_session_page.py \
-          tests/interfaces/web_terminal/test_sidebar_resize_browser.py \
-          tests/interfaces/web_terminal/test_sidebar_divider_browser.py \
-          tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
-          tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
-          tests/interfaces/web_terminal/test_sidebar_group_headings_browser.py \
-          tests/interfaces/web_terminal/test_sidebar_sessions_browser.py \
-          tests/interfaces/web_terminal/test_pane_window_browser.py \
-          tests/interfaces/web_terminal/test_panel_direct_visit_browser.py \
-          tests/interfaces/channel_finder/test_graph_finder_browser.py \
-          tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
-          tests/interfaces/bluesky_web/test_lane_picker_browser.py \
-          tests/interfaces/ariel/test_embedded_nav.py \
-          tests/interfaces/ariel/test_vocabulary_banner.py \
-          tests/interfaces/ariel/test_shell.py \
-          tests/interfaces/history/test_history_page_browser.py \
-          tests/interfaces/test_events_notice_browser.py \
-          tests/interfaces/test_browser_helper.py \
-          tests/interfaces/test_load_smokes.py -v --tb=short
+        uv run pytest -n 4 --dist loadfile -m browser tests/interfaces tests/docs/screenshots \
+          --ignore=tests/interfaces/test_watchdog_e2e.py \
+          --ignore=tests/interfaces/web_terminal/test_auth_login_browser.py \
+          --ignore=tests/interfaces/web_terminal/test_ariel_embedded_agent_browser.py \
+          --ignore=tests/interfaces/design_system/test_visual.py \
+          -v --tb=short
 
   visual-theming-agent:
     name: Watchdog Browser + Visual Regression (Playwright)
@@ -1421,10 +1366,7 @@ jobs:
     - name: Clean up any stranded hello-world resources
       if: always()
       run: |
-        docker compose -p hello-world-test down || true
-        docker rm -f hello-world-test-agent-record || true
-        docker rm -f hello-world-test-agent-record-clickhouse || true
-        docker volume rm hello-world-test_agent_record_clickhouse_data || true
+        scripts/ci/cleanup_stacks.sh hello-world-test
 
   dispatch-deploy-e2e:
     name: Dispatch Deploy E2E (full Docker stack + real agent runs + multi-user web tier)
@@ -1855,10 +1797,7 @@ jobs:
     - name: Clean up any stranded archiver-world resources
       if: always()
       run: |
-        docker compose -p archiver-world down || true
-        docker rm -f archiver-world-agent-record || true
-        docker rm -f archiver-world-agent-record-clickhouse || true
-        docker volume rm archiver-world_agent_record_clickhouse_data || true
+        scripts/ci/cleanup_stacks.sh archiver-world
 
   graph-reseed-e2e:
     name: Graph Reseed Stamp E2E (render + real Neo4j store, no model)
@@ -2195,12 +2134,12 @@ jobs:
     - name: Clean up any stranded resources from either module
       if: always()
       run: |
-        docker ps -aq --filter "name=^osprey-e2e-privsplit-" | xargs -r docker rm -f
-        docker images -q "osprey-e2e-privsplit-*" | xargs -r docker rmi -f
-        docker volume ls -q --filter "name=^osprey-e2e-privsplit-" | xargs -r docker volume rm -f
-        docker ps -aq --filter "name=^osprey-e2e-audit2c-" | xargs -r docker rm -f
-        docker images -q "osprey-e2e-audit2c*" | xargs -r docker rmi -f
-        docker volume ls -q --filter "name=^osprey-e2e-audit2c" | xargs -r docker volume rm -f
+        scripts/ci/cleanup_stacks.sh \
+          --sweep \
+          --image 'osprey-e2e-privsplit-*' \
+          --image 'osprey-e2e-audit2c*' \
+          osprey-e2e-privsplit \
+          osprey-e2e-audit2c
 
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
@@ -2424,15 +2363,10 @@ jobs:
     - name: Clean up any stranded write-back-e2e resources
       if: always()
       run: |
-        for case in rebuild divergent render; do
-          project="osprey-e2e-wb-${case}"
-          docker rm -f "${project}-ariel-postgres" || true
-          docker rm -f "${project}-agent-record" || true
-          docker rm -f "${project}-agent-record-clickhouse" || true
-          docker compose -p "$project" down || true
-          docker volume rm "${project}_ariel_postgres_data" || true
-          docker volume rm "${project}_agent_record_clickhouse_data" || true
-        done
+        scripts/ci/cleanup_stacks.sh \
+          osprey-e2e-wb-rebuild \
+          osprey-e2e-wb-divergent \
+          osprey-e2e-wb-render
 
   multi-user-deploy-lifecycle-e2e:
     name: Multi-User Deploy Lifecycle E2E (real container runtime)
@@ -2465,20 +2399,11 @@ jobs:
         name: multi-user-deploy-lifecycle-e2e
         engine: docker
 
+    # --sweep: the test's own stub registry belongs to no compose project.
     - name: Clean up any stranded lifecycle-e2e resources
       if: always()
       run: |
-        for user in alice bob carol dave erin; do
-          docker rm -f "osprey-e2e-mus-p3-web-${user}" || true
-          docker volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
-          docker volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
-        done
-        docker rm -f osprey-e2e-mus-p3-nginx || true
-        docker rm -f osprey-e2e-mus-p3-registry || true
-        docker rm -f osprey-e2e-mus-p3-agent-record || true
-        docker rm -f osprey-e2e-mus-p3-agent-record-clickhouse || true
-        docker compose -p osprey-e2e-mus-p3 down || true
-        docker volume rm osprey-e2e-mus-p3_agent_record_clickhouse_data || true
+        scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
   auth-perimeter-e2e:
     name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
@@ -2514,19 +2439,10 @@ jobs:
     - name: Clean up any stranded auth-perimeter resources
       if: always()
       run: |
-        for user in alice bob; do
-          docker rm -f "osprey-e2e-auth-perimeter-web-${user}" || true
-          docker volume rm "osprey-e2e-auth-perimeter_${user}-claude-config" || true
-          docker volume rm "osprey-e2e-auth-perimeter_${user}-agent-data" || true
-        done
-        docker rm -f osprey-e2e-auth-perimeter-auth || true
-        docker rm -f osprey-e2e-auth-perimeter-nginx || true
-        docker compose -p osprey-e2e-auth-perimeter down || true
-        docker rm -f osprey-e2e-auth-perimeter-agent-record || true
-        docker rm -f osprey-e2e-auth-perimeter-agent-record-clickhouse || true
-        docker volume rm osprey-e2e-auth-perimeter_agent_record_clickhouse_data || true
-        docker rmi -f osprey-e2e-auth-perimeter-auth:local || true
-        docker rmi -f osprey-e2e-auth-perimeter-readonly:local || true
+        scripts/ci/cleanup_stacks.sh \
+          --image osprey-e2e-auth-perimeter-auth:local \
+          --image osprey-e2e-auth-perimeter-readonly:local \
+          osprey-e2e-auth-perimeter
 
   terminal-auth-multiuser-e2e:
     name: Terminal Auth Multi-User E2E (auth.method token + none, real render image)
@@ -2558,28 +2474,11 @@ jobs:
     - name: Clean up any stranded terminal-auth-multiuser resources
       if: always()
       run: |
-        for user in alice; do
-          docker rm -f "osprey-e2e-token-multiuser-web-${user}" || true
-          docker volume rm "osprey-e2e-token-multiuser_${user}-claude-config" || true
-          docker volume rm "osprey-e2e-token-multiuser_${user}-agent-data" || true
-        done
-        docker rm -f osprey-e2e-token-multiuser-nginx || true
-        docker compose -p osprey-e2e-token-multiuser down || true
-        docker rm -f osprey-e2e-token-multiuser-agent-record || true
-        docker rm -f osprey-e2e-token-multiuser-agent-record-clickhouse || true
-        docker volume rm osprey-e2e-token-multiuser_agent_record_clickhouse_data || true
-        for user in alice kiosk; do
-          docker rm -f "osprey-e2e-open-multiuser-web-${user}" || true
-          docker volume rm "osprey-e2e-open-multiuser_${user}-claude-config" || true
-          docker volume rm "osprey-e2e-open-multiuser_${user}-agent-data" || true
-        done
-        docker rm -f osprey-e2e-open-multiuser-nginx || true
-        docker compose -p osprey-e2e-open-multiuser down || true
-        docker rm -f osprey-e2e-open-multiuser-agent-record || true
-        docker rm -f osprey-e2e-open-multiuser-agent-record-clickhouse || true
-        docker volume rm osprey-e2e-open-multiuser_agent_record_clickhouse_data || true
-        docker rmi -f osprey-e2e-token-multiuser-readonly:local || true
-        docker rmi -f osprey-e2e-open-multiuser-readonly:local || true
+        scripts/ci/cleanup_stacks.sh \
+          --image osprey-e2e-token-multiuser-readonly:local \
+          --image osprey-e2e-open-multiuser-readonly:local \
+          osprey-e2e-token-multiuser \
+          osprey-e2e-open-multiuser
 
   full-chain-auth-e2e:
     name: Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)
@@ -2622,25 +2521,15 @@ jobs:
         name: full-chain-auth-e2e
         engine: docker
 
-    # Volumes go by the project prefix, so a roster edit cannot strand them.
     - name: Clean up any stranded full-chain-auth resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-full-chain-auth down || true
-        for user in alice bob carol dave kiosk erin; do
-          docker rm -f "osprey-e2e-full-chain-auth-web-${user}" || true
-        done
-        docker rm -f osprey-e2e-full-chain-auth-auth || true
-        docker rm -f osprey-e2e-full-chain-auth-nginx || true
-        docker rm -f osprey-e2e-full-chain-auth-agent-record || true
-        docker rm -f osprey-e2e-full-chain-auth-agent-record-clickhouse || true
-        docker rm -f osprey-e2e-full-chain-auth-history || true
-        docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
-          | xargs -r docker volume rm -f || true
-        docker rmi -f osprey-e2e-full-chain-auth-auth:local || true
-        docker rmi -f osprey-e2e-full-chain-auth-operator:local || true
-        docker rmi -f osprey-e2e-full-chain-auth-probe:local || true
-        docker rmi -f osprey-e2e-full-chain-auth:local || true
+        scripts/ci/cleanup_stacks.sh \
+          --image osprey-e2e-full-chain-auth-auth:local \
+          --image osprey-e2e-full-chain-auth-operator:local \
+          --image osprey-e2e-full-chain-auth-probe:local \
+          --image osprey-e2e-full-chain-auth:local \
+          osprey-e2e-full-chain-auth
 
   jupyter-panel-e2e:
     name: Notebook Panel E2E (deployed render + a kernel that follows the terminal)
@@ -2667,19 +2556,13 @@ jobs:
         name: jupyter-panel-e2e
         engine: docker
 
-    # Before the image cleanup: a surviving container pins its image.
     - name: Clean up any stranded notebook-panel resources
       if: always()
       run: |
-        docker rm -f osprey-e2e-jnb-web-alice || true
-        docker rm -f osprey-e2e-jnb-nginx || true
-        docker rm -f osprey-e2e-jnb-agent-record || true
-        docker rm -f osprey-e2e-jnb-agent-record-clickhouse || true
-        docker compose -p osprey-e2e-jnb down || true
-        docker volume ls -q --filter "name=^osprey-e2e-jnb_" \
-          | xargs -r docker volume rm -f || true
-        docker rmi -f osprey-e2e-jnb-operator:local || true
-        docker rmi -f osprey-e2e-jnb-va:local || true
+        scripts/ci/cleanup_stacks.sh \
+          --image osprey-e2e-jnb-operator:local \
+          --image osprey-e2e-jnb-va:local \
+          osprey-e2e-jnb
 
   multi-user-deploy-lifecycle-e2e-podman:
     name: Multi-User Deploy Lifecycle E2E (podman runtime)
@@ -2732,20 +2615,11 @@ jobs:
         name: multi-user-deploy-lifecycle-e2e-podman
         engine: podman
 
+    # --sweep: the test's own stub registry belongs to no compose project.
     - name: Clean up any stranded lifecycle-e2e resources
       if: always()
       run: |
-        for user in alice bob carol dave erin; do
-          podman rm -f "osprey-e2e-mus-p3-web-${user}" || true
-          podman volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
-          podman volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
-        done
-        podman rm -f osprey-e2e-mus-p3-nginx || true
-        podman rm -f osprey-e2e-mus-p3-registry || true
-        podman rm -f osprey-e2e-mus-p3-agent-record || true
-        podman rm -f osprey-e2e-mus-p3-agent-record-clickhouse || true
-        podman compose -p osprey-e2e-mus-p3 down || true
-        podman volume rm osprey-e2e-mus-p3_agent_record_clickhouse_data || true
+        ENGINE=podman scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
   two-shape-boot-e2e:
     name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
@@ -2903,18 +2777,7 @@ jobs:
     - name: Clean up any stranded shared-bundle e2e resources
       if: always()
       run: |
-        docker rm -f osprey-e2e-mus-p3-qmd || true
-        for user in alice bob; do
-          docker rm -f "osprey-e2e-mus-p3-web-${user}" || true
-          docker volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
-          docker volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
-        done
-        docker rm -f osprey-e2e-mus-p3-nginx || true
-        docker rm -f osprey-e2e-mus-p3-registry || true
-        docker compose -p osprey-e2e-mus-p3 down || true
-        docker rm -f osprey-e2e-mus-p3-agent-record || true
-        docker rm -f osprey-e2e-mus-p3-agent-record-clickhouse || true
-        docker volume rm osprey-e2e-mus-p3_agent_record_clickhouse_data || true
+        scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
     - name: Clean up the sidecar images
       if: always()

@@ -16,3 +16,5 @@ docs-only pull requests too; the classifier and `scripts/ci/docs_only.py` are go
 ci.yml sets Python through setup-uv, runs lint's and frontend-js's base-free checks in one call
 each, and drops steps that did nothing: Docker Compose setup, a never-saving uv cache, checks the
 unit sweep already runs, and duplicated two-shape pre-boot and podman-compose install steps.
+ci.yml's stranded-resource cleanups, all but the two-shape lane's, run `scripts/ci/cleanup_stacks.sh` (now with
+`ENGINE`, `--sweep` and `--image`), and the browser lane selects its suites with `-m browser` instead of a file list.
