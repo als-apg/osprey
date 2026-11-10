@@ -219,7 +219,7 @@ def test_hold_record_has_the_keys_the_writer_writes(tmp_path: Path) -> None:
     written = json.loads((tmp_path / _SESSION_KEY / session_hold.RECORD_NAME).read_text())
     example = _example("watchdog-hold-record.json")
     assert sorted(example) == sorted(written)
-    assert example["schema"] == session_hold.SCHEMA_VERSION
+    assert example["schema"] == session_hold._SCHEMA_VERSION
     assert sorted(example["flags"][0]) == sorted(written["flags"][0])
 
 

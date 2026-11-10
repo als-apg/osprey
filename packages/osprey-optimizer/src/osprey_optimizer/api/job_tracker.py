@@ -11,11 +11,10 @@ from types import TracebackType
 from pydantic import BaseModel, ValidationError
 from redis.commands.core import Script
 
-from osprey_optimizer.core.state import TERMINAL_STATE_TTL_SECONDS
-from osprey_optimizer.models.enums import JobStatus, JobType
+from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.exceptions import CancellationError
 from osprey_optimizer.models.protocols import JobStateWriter
-from osprey_optimizer.optimization.state import OptimizationStateWriter, get_optimization_writer
+from osprey_optimizer.optimization.state import get_optimization_writer
 from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.interval_thread import IntervalThread
 from osprey_optimizer.utils.job_keys import (
@@ -29,6 +28,7 @@ from osprey_optimizer.utils.redis_client import StrRedis, as_str
 from osprey_optimizer.utils.redis_state_store import (
     CREATED_STATE_TTL_SECONDS,
     RUNNING_STATE_TTL_SECONDS,
+    TERMINAL_STATE_TTL_SECONDS,
 )
 from osprey_optimizer.utils.serialization import serialize_obj
 
@@ -115,25 +115,24 @@ class JobMeta(BaseModel):
     Internal Redis state, not a wire contract (nothing outside this process
     reads it), so it lives here rather than in ``osprey_optimizer.models``. The
     JSON field names and values match what the tracker has always written:
-    ``status``/``job_type`` serialize as their enum value strings.
+    ``status`` serializes as its enum value string. Records written before the
+    ``job_type`` field was dropped still parse: pydantic ignores the extra key.
     """
 
     job_id: str
     pid: int
     status: JobStatus
     created_at: float
-    job_type: JobType
     completed_at: float | None = None
 
 
-def _meta_json(job_id: str, pid: int, status: JobStatus, job_type: JobType) -> str:
+def _meta_json(job_id: str, pid: int, status: JobStatus) -> str:
     """Serialize a job's metadata record — the payload every registration writes."""
     return JobMeta(
         job_id=job_id,
         pid=pid,
         status=status,
         created_at=time.time(),
-        job_type=job_type,
     ).model_dump_json()
 
 
@@ -163,7 +162,7 @@ class JobTracker:
             self._scripts[source] = self._get_redis().register_script(source)
         return self._scripts[source]
 
-    def register_job(self, job_id: str, pid: int, job_type: JobType = JobType.OPTIMIZATION) -> bool:
+    def register_job(self, job_id: str, pid: int) -> bool:
         """Record the real PID of a job that holds the active slot.
 
         Used for in-place updates of an already-claimed job (writing the PID
@@ -174,7 +173,6 @@ class JobTracker:
         Args:
             job_id: Unique job identifier
             pid: Process ID of the job
-            job_type: the kind of job being tracked
 
         Returns:
             True if the job still holds the slot and was updated; False if it
@@ -186,7 +184,7 @@ class JobTracker:
             keys=[ACTIVE_JOB_KEY, meta_key(job_id)],
             args=[
                 job_id,
-                _meta_json(job_id, pid, JobStatus.RUNNING, job_type),
+                _meta_json(job_id, pid, JobStatus.RUNNING),
                 RUNNING_STATE_TTL_SECONDS,
             ],
         )
@@ -198,7 +196,7 @@ class JobTracker:
         logger.info("Registered job %s with PID %s", job_id, pid)
         return True
 
-    def register_created_job(self, job_id: str, job_type: JobType = JobType.OPTIMIZATION) -> None:
+    def register_created_job(self, job_id: str) -> None:
         """Register a CREATED-but-not-started job WITHOUT claiming the active slot.
 
         Non-reserving counterpart to :meth:`claim_active_job`: it records the job
@@ -209,14 +207,12 @@ class JobTracker:
         redis = self._get_redis()
         redis.set(
             meta_key(job_id),
-            _meta_json(job_id, 0, JobStatus.CREATED, job_type),
+            _meta_json(job_id, 0, JobStatus.CREATED),
             ex=CREATED_STATE_TTL_SECONDS,
         )
         logger.info("Registered CREATED job %s (slot not claimed)", job_id)
 
-    def claim_active_job(
-        self, job_id: str, pid: int, job_type: JobType = JobType.OPTIMIZATION
-    ) -> bool:
+    def claim_active_job(self, job_id: str, pid: int) -> bool:
         """Atomically claim the single active-job slot for a brand-new job.
 
         Runs one Lua script: ``SET ACTIVE_JOB_KEY job_id NX`` and, only if that
@@ -235,7 +231,7 @@ class JobTracker:
             keys=[ACTIVE_JOB_KEY, meta_key(job_id)],
             args=[
                 job_id,
-                _meta_json(job_id, pid, JobStatus.RUNNING, job_type),
+                _meta_json(job_id, pid, JobStatus.RUNNING),
                 RUNNING_STATE_TTL_SECONDS,
             ],
         )
@@ -245,7 +241,7 @@ class JobTracker:
         logger.info("Job %s could not claim active slot; another job is already active", job_id)
         return False
 
-    def start_claimed_job(self, job_id: str, config_json: str, job_type: JobType) -> bool:
+    def start_claimed_job(self, job_id: str, config_json: str) -> bool:
         """Move a job that holds the slot from CREATED to RUNNING, in one step.
 
         Only while its status is still CREATED and its stored config is still
@@ -267,7 +263,7 @@ class JobTracker:
                 config_json,
                 RUNNING_STATE_TTL_SECONDS,
                 job_id,
-                _meta_json(job_id, 0, JobStatus.CREATED, job_type),
+                _meta_json(job_id, 0, JobStatus.CREATED),
                 CREATED_STATE_TTL_SECONDS,
             ],
         )
@@ -420,36 +416,18 @@ class JobTracker:
         self.expire_job(job_id, RUNNING_STATE_TTL_SECONDS)
 
 
-def create_job_state(job_type: JobType, job_id: str) -> OptimizationStateWriter:
-    """Return a job-type-dispatched state writer fully wired to Redis.
-
-    Thin dispatcher over the per-domain factories — tests that mock Redis
-    can patch ``osprey_optimizer.utils.redis_client.get_redis_client``.
-    """
-    del job_type  # one job type today; kept so callers stay type-dispatched
-    return get_optimization_writer(job_id)
-
-
 class JobLifecycle:
     """Context manager for background job lifecycle management.
 
     Handles registration in JobTracker, setting initial state,
     capturing crashes with full stack traces, and de-registering
     the job upon completion or failure.
-
-    Works with any job type via ``job_type``.
     """
 
     writer: JobStateWriter  # set in __enter__
 
-    def __init__(
-        self,
-        job_id: str,
-        *,
-        job_type: JobType = JobType.OPTIMIZATION,
-    ) -> None:
+    def __init__(self, job_id: str) -> None:
         self.job_id = job_id
-        self._job_type = job_type
         self.tracker = JobTracker()
         # Runs on its own thread so a long blocking call on the main thread (e.g.
         # a multi-second EPICS batch read) can't stall the heartbeat and make a
@@ -474,8 +452,8 @@ class JobLifecycle:
             JobSlotLostError: The job no longer holds the active slot, so another
                 job may be driving the machine; this one must not start.
         """
-        self.writer = create_job_state(self._job_type, self.job_id)
-        if not self.tracker.register_job(self.job_id, os.getpid(), job_type=self._job_type):
+        self.writer = get_optimization_writer(self.job_id)
+        if not self.tracker.register_job(self.job_id, os.getpid()):
             message = (
                 f"Job {self.job_id} lost the active-job slot before it started; "
                 "it wrote nothing to the machine."
@@ -487,9 +465,8 @@ class JobLifecycle:
         self._heartbeat.start()
 
         logger.info(
-            "Lifecycle started for job %s (type=%s, PID: %s)",
+            "Lifecycle started for job %s (PID: %s)",
             self.job_id,
-            self._job_type,
             os.getpid(),
         )
         return self
@@ -506,7 +483,7 @@ class JobLifecycle:
     ) -> None:
         """End the job lifecycle, classifying the outcome into terminal status.
 
-        Single owner of the writer's terminal status for every job type. Runners
+        Single owner of the writer's terminal status. Runners
         run their body and let the outcome propagate: no exception → COMPLETED,
         a CancellationError → CANCELLED, anything else → ERROR. Backend-specific
         exceptions are translated to domain errors at their own adapter (e.g.

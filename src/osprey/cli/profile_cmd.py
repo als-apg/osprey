@@ -342,7 +342,9 @@ def _previous_provider_catalog(target: Path) -> Path | None:
     return None
 
 
-def _plan_provider_catalog(target: Path, *, keep_values: bool = False) -> _ProviderCatalogPlan:
+def _plan_provider_catalog(
+    target: Path, *, keep_values: bool = False, claimed_absent: Collection[str] = ()
+) -> _ProviderCatalogPlan:
     """Resolve the catalog to write into ``target`` from the one OSPREY ships.
 
     A first init copies the packaged catalog byte for byte. Over a repo that
@@ -356,7 +358,8 @@ def _plan_provider_catalog(target: Path, *, keep_values: bool = False) -> _Provi
     * ``osprey init --revalidate`` (``keep_values``) treats the file the way it
       treats ``profile.yml``: every value it states is kept, an edited packaged
       entry included, and only what it lacks is added — a packaged entry it
-      does not have, and a packaged key an existing entry does not state.
+      does not have, and a packaged key an existing entry does not state,
+      unless a deviation marker claims it absent (*claimed_absent*).
       ``osprey validate`` reports each difference that remains as drift.
 
     Build-time resolution is the opposite rule on purpose
@@ -371,6 +374,10 @@ def _plan_provider_catalog(target: Path, *, keep_values: bool = False) -> _Provi
             returned, and the caller writes it once the directory exists.
         keep_values: Keep every value the existing file states and add only
             what it lacks, rather than refreshing the packaged entries.
+        claimed_absent: With *keep_values*, the entries and keys a deviation
+            marker in the existing file claims absent, dotted as ``osprey
+            validate`` names them (``providers.openrouter``,
+            ``providers.cborg.health_model``); none of them is added.
 
     Returns:
         The file content, its parsed entries, its hash, and the names carried
@@ -439,13 +446,26 @@ def _plan_provider_catalog(target: Path, *, keep_values: bool = False) -> _Provi
         present = existing_raw.get(name)
         if not isinstance(present, dict) or not isinstance(entry, dict):
             continue
-        lacking = [key for key in entry if key not in present]
+        lacking = [
+            key
+            for key in entry
+            if key not in present and f"providers.{name}.{key}" not in claimed_absent
+        ]
         if lacking:
             text = _add_entry_keys(text, name, _entry_key_lines(packaged_blocks[name], lacking))
-    missing = [name for name in packaged_raw if name not in existing_raw]
+    missing = [
+        name
+        for name in packaged_raw
+        if name not in existing_raw and f"providers.{name}" not in claimed_absent
+    ]
     if missing:
         text = _add_entries(text, "".join(packaged_blocks[name] for name in missing))
-    return _staged_provider_plan(text, previous, packaged_entries, existing_entries, carried)
+    kept = {
+        name: entry
+        for name, entry in packaged_entries.items()
+        if f"providers.{name}" not in claimed_absent
+    }
+    return _staged_provider_plan(text, previous, kept, existing_entries, carried)
 
 
 def _staged_provider_plan(

@@ -27,7 +27,7 @@ ladder, used by every writer and every reader:
   per-identity directory, so nothing is appended to it: a container sees its
   own dir at a path that has nothing to do with the host's tree, and deriving
   the identity hop inside it would name a directory nobody binds;
-* otherwise :data:`AGENT_DATA_ROOT_ENV_VAR` when it names a non-blank path —
+* otherwise :data:`_AGENT_DATA_ROOT_ENV_VAR` when it names a non-blank path —
   the stamp a session child carries — else
   :func:`~osprey_connectors.workspace.resolve_shared_data_root`, the config
   derivation the state file has always used; and then the two fixed hops,
@@ -44,10 +44,9 @@ its one reader: a machine is armed only at ``"asked"`` or ``"allowed"``, and a
 stored ``"on"`` from an older release reads as ``"asked"``. Everything else — no
 record, a record that does not name the machine, any other value — is that
 machine's writes off. The record's ``posture`` field is a mirror of the switch
-(:func:`~osprey_connectors.control_context.posture_mirror`) kept for readers
-that predate it, and no verdict reads it. :func:`parse_posture_value` is the
-grammar of that mirror, applied by
-:func:`~osprey_connectors.control_context.parse_posture` rather than restated
+kept for readers that predate it, and no verdict reads it.
+:func:`parse_posture_value` is the grammar of that mirror, applied by
+:func:`~osprey_connectors.control_context.parse_record` rather than restated
 there.
 
 **3. How a write is decided.** :func:`write_verdict` is the whole rule: one
@@ -81,8 +80,9 @@ it when the run began.
 
 **4. When a change is seen.** Every read re-stats the record and re-parses on
 ``(st_mtime_ns, st_size, st_ino)`` — the cache lives in
-:mod:`~osprey_connectors.control_context`, and :func:`invalidate_cache` is the
-hook a process that moved roots (or a test) drops it through. A missing record
+:mod:`~osprey_connectors.control_context`, and its
+:func:`~osprey_connectors.control_context.invalidate_cache` is the hook a
+process that moved roots (or a test) drops it through. A missing record
 is every switch off, not an error.
 
 This module reads no config for the switch, holds no cache of its own, and
@@ -156,30 +156,24 @@ logger = logging.getLogger("osprey_connectors.posture_store")
 
 __all__ = [
     "NoOwner",
-    "AGENT_DATA_ROOT_ENV_VAR",
     "CONTROL_CONTEXT_DIR_ENV_VAR",
     "CONTROL_CONTEXT_TREE_ENV_VAR",
     "CONTROL_OWNER_ENV_VAR",
     "CONTROL_TREE_MARKER_NAME",
     "DISPATCH_RUN_ENV_VAR",
-    "LAUNCH_POSTURE_ALL_TARGETS",
     "LAUNCH_POSTURE_ENV_VAR",
-    "LOGIN_TIERS_KEY",
     "NO_OWNER",
     "POSTURE_SANDBOX",
     "POSTURE_WRITES",
     "RESERVED_OWNER_KWARG",
     "STATE_DIR_NAME",
-    "VALID_POSTURES",
     "WriteVerdict",
-    "agent_data_root",
     "backstop_verdict",
     "bind_owner",
     "bound_owner",
     "bound_state_dir",
     "current_owner",
     "execution_verdict",
-    "invalidate_cache",
     "launch_posture_stamp",
     "owner_tier_term",
     "parse_posture_value",
@@ -194,7 +188,7 @@ __all__ = [
 #: ``osprey.audit.posture``, which declares it for the stamping side: this
 #: package is the lean connector chain and must not grow an ``osprey`` import
 #: to learn one string.
-AGENT_DATA_ROOT_ENV_VAR = "OSPREY_AGENT_DATA_ROOT"
+_AGENT_DATA_ROOT_ENV_VAR = "OSPREY_AGENT_DATA_ROOT"
 
 #: Subdirectory of the agent-data root holding one directory per identity, each
 #: with that identity's control-context record, per-server reports and request
@@ -225,7 +219,7 @@ POSTURE_SANDBOX = "sandbox"
 POSTURE_WRITES = "writes"
 
 #: The two values a posture entry may spell. Everything else is dropped.
-VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
+_VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 
 #: The launch-time pin, stamped into an executor sandbox's environment by
 #: ``osprey.mcp_server.python_executor.executor._apply_target_stamp`` and read
@@ -235,7 +229,7 @@ VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 #:
 #: * ``<target>`` is the control target the run was stamped against — a member
 #:   of :data:`~osprey_connectors.types.CONTROL_TARGETS` — or
-#:   :data:`LAUNCH_POSTURE_ALL_TARGETS` when the executor could not identify
+#:   :data:`_LAUNCH_POSTURE_ALL_TARGETS` when the executor could not identify
 #:   one, in which case the pin covers every target;
 #: * ``<posture>`` is :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES`.
 #:
@@ -256,7 +250,7 @@ LAUNCH_POSTURE_ENV_VAR = "OSPREY_LAUNCH_POSTURE"
 #: The launch stamp's target when the executor could not name one. Covers every
 #: target: a run that could not say which machine it is about must not be the
 #: one run a switched-off machine fails to reach.
-LAUNCH_POSTURE_ALL_TARGETS = "*"
+_LAUNCH_POSTURE_ALL_TARGETS = "*"
 
 #: The stamped owner of the work a process is doing, exported into a dispatch
 #: job's environment by the dispatch worker's ``sdk_runner`` — the one export
@@ -534,7 +528,7 @@ def _absolute_bind(variable: str) -> Path | None:
 
 
 def stamped_agent_data_root() -> Path | None:
-    """The :data:`AGENT_DATA_ROOT_ENV_VAR` stamp as a path, or ``None`` unstamped.
+    """The :data:`_AGENT_DATA_ROOT_ENV_VAR` stamp as a path, or ``None`` unstamped.
 
     The stamp half of rule 1 on its own, so that the files under this root
     cannot read one environment variable two different ways. A blank or
@@ -554,14 +548,14 @@ def stamped_agent_data_root() -> Path | None:
     that module raises where this one answers ``None``, and a route turns its
     raise into a ``store_unavailable`` 503.
     """
-    stamped = (os.environ.get(AGENT_DATA_ROOT_ENV_VAR) or "").strip()
+    stamped = (os.environ.get(_AGENT_DATA_ROOT_ENV_VAR) or "").strip()
     return Path(os.path.expanduser(stamped)) if stamped else None
 
 
-def agent_data_root() -> Path | None:
+def _agent_data_root() -> Path | None:
     """The agent-data root the control state lives under.
 
-    Rule 1 of the module contract: the :data:`AGENT_DATA_ROOT_ENV_VAR` stamp
+    Rule 1 of the module contract: the :data:`_AGENT_DATA_ROOT_ENV_VAR` stamp
     when it names a non-blank path, else the config derivation. ``None`` when
     neither answers — a deployment whose project root cannot be resolved has
     no record, which is a different thing from having one with every switch off.
@@ -597,7 +591,7 @@ def state_dir() -> Path | None:
 
     Rule 1 of the module contract: the :func:`bound_state_dir` bind when a
     container carries one, else the acting identity under
-    :data:`STATE_DIR_NAME` under :func:`agent_data_root`.
+    :data:`STATE_DIR_NAME` under :func:`_agent_data_root`.
 
     The identity is resolved on every call rather than once at import, because
     :func:`~osprey_connectors.identity.acting_identity` reads an environment
@@ -613,7 +607,7 @@ def state_dir() -> Path | None:
     bound = bound_state_dir()
     if bound is not None:
         return bound
-    root = agent_data_root()
+    root = _agent_data_root()
     return None if root is None else root / STATE_DIR_NAME / acting_identity()
 
 
@@ -659,7 +653,7 @@ def parse_posture_value(value: Any) -> dict[str, str]:
     """The record's ``posture`` mirror as ``{target: "sandbox"}`` — the switched-off targets.
 
     The grammar of the mirror field (rule 2), in one place:
-    :func:`~osprey_connectors.control_context.parse_posture` reaches this
+    :func:`~osprey_connectors.control_context.parse_record` reaches this
     filter rather than restating it. No verdict reads the result — the switch
     decides every write — so this is the shape a reader that predates the
     switch sees, and nothing more.
@@ -681,23 +675,6 @@ def parse_posture_value(value: Any) -> dict[str, str]:
             if isinstance(target, str) and posture == POSTURE_SANDBOX
         }
     return {}
-
-
-def invalidate_cache() -> None:
-    """Forget the parsed record. For tests and for a process that moved roots.
-
-    The cache is the record reader's — this module holds none — so this is the
-    hook, not a second cache. Kept here because the callers that drop it (a
-    notebook kernel restamping its root, every fixture that writes a posture)
-    are readers of this module and should not have to know where the parse is
-    memoised.
-    """
-    try:
-        from osprey_connectors import control_context
-
-        control_context.invalidate_cache()
-    except Exception:  # dropping a cache must not raise into a caller
-        logger.debug("Could not drop the control-context cache", exc_info=True)
 
 
 # -- the read-only tree -----------------------------------------------------
@@ -997,11 +974,11 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     Args:
         target: The control target the run is stamped against, or ``None`` when
             the executor could not identify one — spelled
-            :data:`LAUNCH_POSTURE_ALL_TARGETS`, which covers every target.
+            :data:`_LAUNCH_POSTURE_ALL_TARGETS`, which covers every target.
         launch_posture: :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES` — the
             recorded answer for that target at the moment of launch.
     """
-    return f"{target or LAUNCH_POSTURE_ALL_TARGETS}={launch_posture}"
+    return f"{target or _LAUNCH_POSTURE_ALL_TARGETS}={launch_posture}"
 
 
 def _launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadable"]:
@@ -1011,10 +988,10 @@ def _launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadabl
 
     * ``"none"`` — no stamp (absent or blank), or a ``<t>=writes`` stamp whose
       ``<t>`` is a member of :data:`~osprey_connectors.types.CONTROL_TARGETS` or
-      :data:`LAUNCH_POSTURE_ALL_TARGETS`, or a ``<t>=sandbox`` stamp naming a
+      :data:`_LAUNCH_POSTURE_ALL_TARGETS`, or a ``<t>=sandbox`` stamp naming a
       different target than *target*;
     * ``"pinned"`` — a ``<t>=sandbox`` stamp with ``<t>`` equal to *target*, or
-      ``<t>`` :data:`LAUNCH_POSTURE_ALL_TARGETS`. A caller that names no target
+      ``<t>`` :data:`_LAUNCH_POSTURE_ALL_TARGETS`. A caller that names no target
       (``None``) is pinned by any sandbox stamp: the most restrictive answer
       wins;
     * ``"unreadable"`` — anything else, for every target: no separator, an empty
@@ -1034,26 +1011,25 @@ def _launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadabl
     launch_posture = launch_posture.strip()
     if (
         not separator
-        or launch_posture not in VALID_POSTURES
-        or (stamped != LAUNCH_POSTURE_ALL_TARGETS and stamped not in CONTROL_TARGETS)
+        or launch_posture not in _VALID_POSTURES
+        or (stamped != _LAUNCH_POSTURE_ALL_TARGETS and stamped not in CONTROL_TARGETS)
     ):
         return "unreadable"
     if launch_posture != POSTURE_SANDBOX:
         return "none"
-    if stamped in (LAUNCH_POSTURE_ALL_TARGETS, target) or not target:
+    if stamped in (_LAUNCH_POSTURE_ALL_TARGETS, target) or not target:
         return "pinned"
     return "none"
 
 
 # -- the owner rung ---------------------------------------------------------
 
-#: The build-rendered login→tier map: ``{<login>: "never" | "asked" | "allowed"}``,
-#: each value the resolved render's ``tier_writes`` for that login. A process
-#: that reads other logins' records (a shared container) cannot use its own
-#: section's tier for the record's owner, so it reads the owner's entry here.
-LOGIN_TIERS_KEY = "control_system.login_tiers"
-
-#: The leaf under the ``control_system`` section that :data:`LOGIN_TIERS_KEY` names.
+#: The leaf under the ``control_system`` section holding the build-rendered
+#: login→tier map, ``control_system.login_tiers``:
+#: ``{<login>: "never" | "asked" | "allowed"}``, each value the resolved
+#: render's ``tier_writes`` for that login. A process that reads other logins'
+#: records (a shared container) cannot use its own section's tier for the
+#: record's owner, so it reads the owner's entry here.
 _LOGIN_TIERS_LEAF: Final = "login_tiers"
 
 #: The three values a map entry may carry — the same three :func:`tier_writes` answers.
@@ -1063,7 +1039,7 @@ _LOGIN_TIERS: Final = TIER_WORDS
 def owner_tier_term(
     section: Any, owner: str | NoOwner | None
 ) -> Literal["skip", "never", "asked", "allowed", "unknown"]:
-    """The owner's tier out of :data:`LOGIN_TIERS_KEY` — the verdict's owner rung.
+    """The owner's tier out of ``control_system.login_tiers`` — the verdict's owner rung.
 
     *section* is the ``control_system`` section; *owner* the login whose record
     governs the write. The rung applies when the section carries the map (any

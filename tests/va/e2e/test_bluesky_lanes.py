@@ -78,6 +78,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
 from osprey.deployment.compose_generator import (
@@ -609,7 +610,7 @@ def session_state(tmp_path, monkeypatch):
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     control_context.invalidate_cache()
 
     def switch_session_to(target: str, *, generation: int = 0) -> None:

@@ -23,7 +23,7 @@ Resolution rules per artifact MIME type:
     than failing the whole call.
 
 Depends only on ``osprey.stores`` (artifact index/files) and the artifact
-converter registry (``osprey.mcp_server.ariel.converters``). It deliberately
+converter registry (``osprey.stores.artifact_converters``). It deliberately
 does NOT import the ARIEL FastMCP server, so it is safe to import and call from
 the dispatch worker without coupling the worker to that server.
 """
@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Any
 from osprey_connectors.workspace import agent_data_base_dir, anchored_path, rendered_config_path
 
 if TYPE_CHECKING:
-    from osprey.mcp_server.ariel.converters import ConverterFn
+    from osprey.stores.artifact_converters import ConverterFn
     from osprey.stores.artifact_store import ArtifactStore
 
 logger = logging.getLogger("osprey.agent_runner.artifact_resolve")
@@ -302,7 +302,7 @@ _DELIVERED_AS_FILE = frozenset({"text/csv", "text/tab-separated-values"})
 
 def _delivery_converter(source_mime: str) -> ConverterFn:
     """The converter dispatch delivery applies to ``source_mime``."""
-    from osprey.mcp_server.ariel.converters import get_converter, passthrough
+    from osprey.stores.artifact_converters import get_converter, passthrough
 
     if source_mime in _DELIVERED_AS_FILE:
         return passthrough
@@ -325,7 +325,7 @@ def predict_delivery(source_mime: str) -> tuple[str, bool]:
     always authoritative. Kept render-free so listing a run's artifacts never
     triggers O(N) conversions.
     """
-    from osprey.mcp_server.ariel.converters import passthrough
+    from osprey.stores.artifact_converters import passthrough
 
     if _delivery_converter(source_mime) is passthrough:
         return source_mime, True
@@ -441,7 +441,7 @@ async def resolve_artifact_path(store: ArtifactStore, artifact_id: str, output_d
     It applies the converter registry alone and does not consult
     :data:`_DELIVERED_AS_FILE`, so a logbook attachment of a table is still rendered.
     """
-    from osprey.mcp_server.ariel.converters import get_converter
+    from osprey.stores.artifact_converters import get_converter
 
     entry = store.get_entry(artifact_id)
     if entry is None:
@@ -454,6 +454,26 @@ async def resolve_artifact_path(store: ArtifactStore, artifact_id: str, output_d
     converter = get_converter(entry.mime_type)
     result_path = await converter(file_path, output_dir)
     return str(result_path)
+
+
+async def resolve_artifact_paths(artifact_ids: list[str]) -> list[str]:
+    """Resolve artifact IDs to attachment-ready file paths, in order.
+
+    Uses the session's artifact store and one fresh temp directory for every
+    converted file. Rendered content (HTML, Markdown, notebooks, JSON, text) is
+    converted to PNG; images and PDFs pass through unchanged.
+
+    Raises:
+        ValueError: If an artifact ID or its on-disk file is missing.
+    """
+    import tempfile
+
+    from osprey.stores.artifact_store import get_artifact_store
+
+    store = get_artifact_store()
+    output_dir = Path(tempfile.mkdtemp(prefix="ariel_convert_"))
+
+    return [await resolve_artifact_path(store, aid, output_dir) for aid in artifact_ids]
 
 
 async def _resolve_one(

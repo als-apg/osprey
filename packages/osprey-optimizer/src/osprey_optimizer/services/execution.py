@@ -31,7 +31,6 @@ from ..optimization.evaluation import Evaluator
 from ..optimization.state import OptimizationStateWriter, get_optimization_writer
 from ..optimization.types import OptimizationResult
 from ..results import (
-    ResultMetadata,
     results_root,
     save_early_results,
     save_optimization_results,
@@ -352,7 +351,7 @@ class ExecutionService:
             best_point,
             config,
             output_dir=output_dir,
-            metadata=ResultMetadata(job_id=self._control_state_key),
+            job_id=self._control_state_key,
         )
         logger.info("Saved partial results (%d rows) to %s", len(data), run_dir)
         self._writer.set_last_results_path(run_dir)

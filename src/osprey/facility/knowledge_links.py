@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
+from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
 from osprey.facility.records import FacilityRecords
 from osprey.facility.references import LINK_SCHEME, FacilityReference, find_facility_links
 from osprey.facility.validate import Validated, need
@@ -54,15 +55,13 @@ def _page_links(path: Path, records: FacilityRecords) -> tuple[str | None, list[
         body's facility links, looked up in ``records``, in page order;
         ``(None, [])`` for a page that does not parse.
     """
-    from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
-
     try:
-        document = OKFDocument.parse(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, OKFDocumentError):
+        frontmatter, body = split_frontmatter(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, FrontmatterError):
         return None, []
-    value = document.frontmatter.get(LINK_KEY)
+    value = frontmatter.get(LINK_KEY)
     device_id = value.strip() if isinstance(value, str) and value.strip() else None
-    return device_id, find_facility_links(document.body, records)
+    return device_id, find_facility_links(body, records)
 
 
 def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingLink]:

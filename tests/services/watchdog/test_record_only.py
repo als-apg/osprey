@@ -20,8 +20,8 @@ import pytest
 import yaml
 
 from osprey.agent_record.contract import KIND_AUDIT
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.services.watchdog.verdict import SURFACE_SAFETY_WATCHDOG, make_prompt_ref
-from osprey_connectors.posture_store import AGENT_DATA_ROOT_ENV_VAR
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR, open_flag, open_flags
 
 RECORD_SESSION = "0f6d7c2e-1a2b-4c3d-8e9f-0123456789ab"
@@ -93,7 +93,7 @@ def hold_root(tmp_path: Path) -> Path:
 @pytest.fixture
 def child_env(tmp_path: Path, run_dir: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in (HOLD_DIR_ENV_VAR, "OSPREY_CONFIG")}
-    env[AGENT_DATA_ROOT_ENV_VAR] = str(tmp_path / "agent_data")
+    env[OSPREY_AGENT_DATA_ROOT] = str(tmp_path / "agent_data")
     env["RUN_DIR"] = str(run_dir)
     return env
 
@@ -174,7 +174,7 @@ class TestInFlightBound:
         wait_for((run_dir / "started-s-running").exists, what="the first run to start")
 
         replaced = start(child_env, argv(project, write_submission(tmp_path, "s-replaced")))
-        runs = Path(child_env[AGENT_DATA_ROOT_ENV_VAR])
+        runs = Path(child_env[OSPREY_AGENT_DATA_ROOT])
         wait_for(lambda: bool(list(runs.rglob("*.pending"))), what="the pending marker")
 
         newest = start(child_env, argv(project, write_submission(tmp_path, "s-newest")))

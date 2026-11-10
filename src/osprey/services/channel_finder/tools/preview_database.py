@@ -18,22 +18,18 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
+from osprey.facility.layers.mml.family import CHANNEL_KEYS
 from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
     MiddleLayerDatabase,
 )
 from osprey.services.channel_finder.databases.flat import ChannelDatabase
-from osprey.services.channel_finder.databases.middle_layer import CHANNEL_KEYS
 from osprey.services.channel_finder.tools.validate_database import (
     print_graph_paradigm_guidance,
 )
 from osprey.services.channel_finder.utils.detection import detect_pipeline_config
 
 _default_console = Console()
-
-
-#: Sub-dicts of a family that hold its per-device arrays rather than a field.
-_SETUP_KEYS = frozenset({"setup", "_setup"})
 
 
 def _reaches_channel_names(node: object) -> bool:
@@ -54,41 +50,6 @@ def _reaches_channel_names(node: object) -> bool:
         for key, value in node.items()
         if isinstance(key, str) and not key.startswith("_")
     )
-
-
-def is_family_dict(name: str, value: object) -> bool:
-    """True when *value*, found under *name*, has the shape of a middle-layer family.
-
-    A family is a dict holding at least one field --- a sub-dict carrying a key
-    of ``CHANNEL_KEYS`` --- or a ``DeviceList``, at the family level or in its
-    ``setup``/``_setup`` block. The rule is structural so that any facility's
-    family names qualify. A name starting with ``_`` is metadata and never a
-    family, and neither ``setup`` nor a ``_``-prefixed sub-dict is a field, so
-    a channel key inside one does not make its parent a family.
-
-    Args:
-        name: The key the value sits under in its parent dict.
-        value: The candidate family body.
-
-    Returns:
-        Whether the value is a family.
-    """
-    if name.startswith("_") or not isinstance(value, dict):
-        return False
-    if "DeviceList" in value:
-        return True
-    for key, child in value.items():
-        if not isinstance(child, dict):
-            continue
-        if key in _SETUP_KEYS:
-            if "DeviceList" in child:
-                return True
-            continue
-        if key.startswith("_"):
-            continue
-        if any(channel_key in child for channel_key in CHANNEL_KEYS):
-            return True
-    return False
 
 
 def _looks_like_middle_layer(data: object) -> bool:

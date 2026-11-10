@@ -151,10 +151,11 @@ no container runtime answers. To keep the old data instead, pass
 this OSPREY in place: the current profile vocabulary, every config key the
 profile leaves to its preset (from ``--preset NAME``, or the preset the profile
 records), the provider entries and keys OSPREY ships that ``providers.yml``
-lacks (every value already in it is kept, an edited entry OSPREY ships
-included), and the repo's own skills, agents, rules, output styles and hooks named by path in
-``profile.yml`` and each app (a bare entry the repo ships a file for becomes
-its path), so every render keeps what it carried.
+lacks and no deviation marker claims absent (every value already in it is
+kept, an edited entry OSPREY ships included), and, while the profile's lists name nothing by path, the repo's own
+skills, agents, rules, output styles and hooks named by path in ``profile.yml``
+and each app (a bare entry the repo ships a file for becomes its path), so
+every render keeps what it carried.
 Your deployment's own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key

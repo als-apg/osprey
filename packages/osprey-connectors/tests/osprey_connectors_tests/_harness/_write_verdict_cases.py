@@ -52,6 +52,7 @@ import pytest
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.posture_store import NO_OWNER
 from osprey_connectors.refusals import REASONS
+from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._harness import (
     VERDICT_ENV_VARS,
     isolate_verdict_environment,
@@ -382,7 +383,12 @@ def _stage_host_record(root: Path, record: Mapping[str, Any]) -> None:
     # none of them.
     switch = dict(record.get("switch") or {})
     payload["switch"] = switch
-    payload["posture"] = control_context.posture_mirror(switch)
+    # The mirror the writer derives: ``sandbox`` for every machine the switch
+    # leaves off (a legacy ``on`` arms as ``asked``).
+    armed = ("on", "asked", "allowed")
+    payload["posture"] = {
+        target: "sandbox" for target in CONTROL_TARGETS if switch.get(target) not in armed
+    }
     if record["status"] == "foreign_schema":
         payload["schema"] = 2
     if "posture" in record:

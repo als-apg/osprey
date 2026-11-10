@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 
 from osprey.agent_record.client import ClientAnswer
 from osprey.agent_runner import primitives
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import session_meta
 from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.models import completion
@@ -38,7 +39,7 @@ from osprey.services.session_naming import (
     trim_title,
 )
 from osprey.stores.session_ledger import aware_time
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 from tests.agent_record.fakes import FakeRecordClient
 
 ME = "alice"
@@ -63,10 +64,10 @@ def state_root(tmp_path, monkeypatch):
     root = tmp_path / "shared_agent_data"
     root.mkdir()
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
+    control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def _hub(since: str = SINCE) -> FastAPI:

@@ -62,6 +62,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, NamedTuple
 from unittest import mock
 
+from osprey_connectors import control_context
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
@@ -952,7 +954,6 @@ def hermetic_hub(
     from osprey.interfaces._serving import run_app_server
     from osprey.registry.web import panel_url_state_attr
     from osprey.stores import type_registry
-    from osprey_connectors import posture_store
     from osprey_connectors.identity import acting_identity
 
     project_dir = Path(tempfile.mkdtemp(prefix="osprey-contact-sheet-")).resolve()
@@ -976,8 +977,8 @@ def hermetic_hub(
                 )
             )
             # The stores' location is cached per process; read it under the stamp.
-            posture_store.invalidate_cache()
-            stack.callback(posture_store.invalidate_cache)
+            control_context.invalidate_cache()
+            stack.callback(control_context.invalidate_cache)
             if e2e:
                 # The hub sites its server-side stores (the uploads' artifact
                 # store among them) under the shared data root; a deployment's

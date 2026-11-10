@@ -26,9 +26,6 @@ class TestTypeConstants:
     def test_archiver_constant(self):
         assert types.MYA_ARCHIVER == "mya_archiver"
 
-    def test_constant_appears_in_cli_choice_list(self):
-        assert types.MYA_ARCHIVER in types.CLI_ARCHIVER_TYPES
-
 
 class TestBuiltinRegistration:
     """``register_builtin_connectors()`` mints the name."""

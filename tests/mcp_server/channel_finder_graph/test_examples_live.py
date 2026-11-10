@@ -133,7 +133,7 @@ def _seed(uri: str, ttl: str, label: str) -> None:
     data, so the corpus is bootstrapped into a store in the state a fresh
     deploy starts from.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     with graph_seeder.open_session(
         uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE

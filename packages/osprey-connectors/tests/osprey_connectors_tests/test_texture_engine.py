@@ -586,7 +586,7 @@ def _pulse_view() -> tuple[dict[str, Any], dict[str, Any]]:
     variables["channels"] += [
         _channel(_SEK_SP, role="setpoint", writable=True, value_range=[0, 100]),
         _channel(_SEK_ON, role="setpoint", value_type="bool", writable=True),
-        _channel(_SEK_WAVE, value_type="waveform", shape=[pulse.TRACE_POINTS]),
+        _channel(_SEK_WAVE, value_type="waveform", shape=[pulse._TRACE_POINTS]),
     ]
     seeds["seeds"].update(
         {
@@ -611,7 +611,7 @@ def test_a_pulse_channel_reads_the_trace_at_the_read_time():
     clock[0] = T0 + 1.0
     second = model.get(_SEK_WAVE)
 
-    assert first.shape == (pulse.TRACE_POINTS,)
+    assert first.shape == (pulse._TRACE_POINTS,)
     np.testing.assert_array_equal(first, pulse.trace(_SEK_WAVE, T0, 40.0, True))
     np.testing.assert_array_equal(second, pulse.trace(_SEK_WAVE, T0 + 1.0, 40.0, True))
     assert not np.array_equal(first, second)
@@ -636,7 +636,7 @@ def test_a_disabled_supply_reads_a_flat_zero_trace():
     model.set({_SEK_ON: "TRUE"})
     on = model.get(_SEK_WAVE)
 
-    assert off.shape == (pulse.TRACE_POINTS,)
+    assert off.shape == (pulse._TRACE_POINTS,)
     assert not np.any(off)
     assert on.max() > 0.0
 

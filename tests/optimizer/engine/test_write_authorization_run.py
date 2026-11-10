@@ -86,7 +86,6 @@ def _record(tree: Path, state: str) -> None:
     ).to_payload()
     payload["switch"] = {TARGET: state}
     write_payload(tree / OWNER / control_context.RECORD_FILENAME, payload)
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
 
 
@@ -234,12 +233,12 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Depl
     )
     monkeypatch.setattr(run_auth, "POLL_S", 0.05)
     stamp_owner(OWNER)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     random.seed(7)
     yield built
     install_process_authority(None)
     iface_module.reset_bridge()
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def _approve_when_asked(deployment: Deployment) -> threading.Thread:

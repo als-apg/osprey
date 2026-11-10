@@ -8,8 +8,8 @@ The three contracts the module guarantees to its stamp sites:
   - ``is_budget_subtype`` reflects the verdict module's budget subtypes rather
     than a second copy of them;
   - ``_stamp`` writes the class and tool-call count in place, rejects an
-    unknown class without mutating, and bumps the registered counter hook
-    without letting a broken hook escape.
+    unknown class without mutating, and bumps the per-class lifetime counter
+    without letting a broken counter escape.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.agent_runner.verdict import _BUDGET_SUBTYPES
+from osprey.mcp_server.dispatch_worker import counters
 from osprey.mcp_server.dispatch_worker import failure_class as fc
 
 # ---------------------------------------------------------------------------
@@ -172,14 +173,6 @@ def test_is_budget_subtype_reuses_verdict_constant():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _clear_counter_hook():
-    """Ensure counter-hook state never leaks between tests."""
-    fc.register_counter_hook(None)
-    yield
-    fc.register_counter_hook(None)
-
-
 @pytest.mark.parametrize(
     "failure_class",
     [fc.FAILURE_PROVIDER, fc.FAILURE_INFRASTRUCTURE, fc.FAILURE_RUN],
@@ -212,40 +205,33 @@ def test_stamp_does_not_mutate_on_bad_class():
 
 
 # ---------------------------------------------------------------------------
-# Counter hook seam
+# Per-class counter
 # ---------------------------------------------------------------------------
 
 
-def test_stamp_invokes_registered_counter_hook():
+def test_stamp_bumps_the_counter_per_class(monkeypatch):
     seen: list[str] = []
-    fc.register_counter_hook(seen.append)
+    monkeypatch.setattr(counters, "increment", seen.append)
     fc._stamp({"status": "error"}, fc.FAILURE_PROVIDER, 1)
     fc._stamp({"status": "error"}, fc.FAILURE_PROVIDER, 2)
     fc._stamp({"status": "error"}, fc.FAILURE_RUN, 0)
     assert seen == [fc.FAILURE_PROVIDER, fc.FAILURE_PROVIDER, fc.FAILURE_RUN]
 
 
-def test_stamp_without_hook_is_a_noop_for_counting():
-    # No hook registered (autouse fixture cleared it) -> stamping still works.
+def test_stamp_counts_into_the_lifetime_counters():
+    counters.reset()
     result = fc._stamp({"status": "error"}, fc.FAILURE_RUN, None)
     assert result["failure_class"] == fc.FAILURE_RUN
+    assert counters.get_counts()[fc.FAILURE_RUN] == 1
+    counters.reset()
 
 
-def test_counter_hook_exception_does_not_break_stamping():
+def test_counter_exception_does_not_break_stamping(monkeypatch):
     def _boom(_cls: str) -> None:
         raise RuntimeError("counter backend down")
 
-    fc.register_counter_hook(_boom)
-    # The stamp must still succeed even though the hook raised.
+    monkeypatch.setattr(counters, "increment", _boom)
+    # The stamp must still succeed even though the counter raised.
     result = fc._stamp({"status": "error"}, fc.FAILURE_INFRASTRUCTURE, 5)
     assert result["failure_class"] == fc.FAILURE_INFRASTRUCTURE
     assert result["num_tool_calls"] == 5
-
-
-def test_register_counter_hook_none_detaches():
-    seen: list[str] = []
-    fc.register_counter_hook(seen.append)
-    fc._stamp({"status": "error"}, fc.FAILURE_RUN, 0)
-    fc.register_counter_hook(None)
-    fc._stamp({"status": "error"}, fc.FAILURE_RUN, 0)
-    assert seen == [fc.FAILURE_RUN]  # only the first call was counted
