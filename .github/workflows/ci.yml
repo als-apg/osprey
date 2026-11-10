@@ -1635,6 +1635,7 @@ jobs:
           tests/interfaces/web_terminal/test_pane_window_browser.py \
           tests/interfaces/web_terminal/test_panel_direct_visit_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
+          tests/interfaces/channel_finder/test_all_pvs_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
