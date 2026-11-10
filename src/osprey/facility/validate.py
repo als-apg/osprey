@@ -2249,6 +2249,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         )
         return
     single_pass_kinds = [name for name, declaration in declared.items() if declaration.single_pass]
+    blocked: set[str] = set()
     records = FacilityRecords(document)
     channels = {str(channel["id"]) for channel in document.get("channels") or []}
     for model in sorted(document.get("models", []), key=lambda record: str(record["name"])):
@@ -2374,6 +2375,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
             block = blocks.get(str(kind))
             block_refusals = _block_stops(name, files, declaration, block)
             if block_refusals:
+                blocked.add(str(kind))
                 yield from block_refusals
             elif declaration.build_stops is not None:
                 for stop in declaration.build_stops(document, block or {}):
@@ -2385,6 +2387,46 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         record_kind="measurement",
                         detail=f"kind {kind}: {stop.detail}",
                     )
+    yield from _kind_facts_stops(document, {k: v for k, v in declared.items() if k not in blocked})
+
+
+def _kind_facts_stops(
+    document: dict[str, Any], declared: Mapping[str, Any]
+) -> Iterator[FacilityBuildError]:
+    """A kind's facts writer failing on a block, or two models making it write two things."""
+    import json
+
+    from osprey.facility.kinds import KindFactsError, kind_source, written_facts
+
+    try:
+        written = written_facts(document, declared)
+    except KindFactsError as failed:
+        yield FacilityBuildError(
+            "value-invalid",
+            failed.model,
+            [f"measurement/{failed.model}.yaml"],
+            f"make the facts writer of kind {failed.kind} ({kind_source(failed.kind)}) "
+            "accept every block its measurement schema admits",
+            record_kind="measurement",
+            detail=f"kind {failed.kind}'s facts writer fails on this file's block: {failed.cause}",
+        )
+        return
+    for kind, by_model in written.items():
+        (first, facts), *others = by_model.items()
+        for model, theirs in others:
+            if json.dumps(theirs, sort_keys=True) != json.dumps(facts, sort_keys=True):
+                yield FacilityBuildError(
+                    "value-invalid",
+                    model,
+                    [f"measurement/{first}.yaml", f"measurement/{model}.yaml"],
+                    f"give `kind_blocks.{kind}` of {model} what {first} gives it",
+                    record_kind="measurement",
+                    detail=(
+                        f"kind {kind}'s facts are one per deployment; models {first} and "
+                        f"{model} give it blocks it writes two ways"
+                    ),
+                )
+                break
 
 
 def _block_stops(
