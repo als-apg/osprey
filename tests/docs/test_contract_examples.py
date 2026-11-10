@@ -44,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = REPO_ROOT / "docs/source/reference/contracts"
 EXAMPLES = CONTRACTS / "examples"
 
-_LITERALINCLUDE = re.compile(r"^\.\. literalinclude:: (?P<path>\S+)", re.MULTILINE)
+_LITERALINCLUDE = re.compile(r"^[ \t]*\.\. literalinclude:: (?P<path>\S+)", re.MULTILINE)
 
 
 def _example(name: str) -> Any:
