@@ -164,9 +164,11 @@ shell, the same way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
      - ``""``
      - A second index, consulted after the first. Same handling.
    * - ``OSPREY_BASE_REGISTRY``
-     - ``docker.io/library``
-     - Registry path the base image is pulled from. Point it at a site mirror
-       of Docker Hub's official images.
+     - ``docker.io``
+     - Registry standing in for ``docker.io``: the base image is
+       ``${OSPREY_BASE_REGISTRY}/library/<image>``. The mirror must keep Docker
+       Hub's paths; pull-through caches such as a Harbor proxy project, an
+       Artifactory remote and a Nexus docker proxy do.
    * - ``OSPREY_OFFLINE``
      - ``"0"``
      - ``"1"`` vendors web assets (JS/CSS/fonts) into the image via

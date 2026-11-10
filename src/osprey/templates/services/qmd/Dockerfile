@@ -17,9 +17,9 @@
 # This image is built locally by `osprey up`; override with OSPREY_QMD_IMAGE to
 # use a prebuilt/published image.
 
-# Registry path the base image is pulled from; images.base_registry points it at a site mirror of Docker Hub.
-ARG OSPREY_BASE_REGISTRY="docker.io/library"
-FROM ${OSPREY_BASE_REGISTRY}/node:22-bookworm-slim
+# Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
+ARG OSPREY_BASE_REGISTRY="docker.io"
+FROM ${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim
 
 # Bounded apt retries with backoff so a transient network blip mid-build does
 # not fail the whole image (with pipelining off — see any sibling service

@@ -656,7 +656,7 @@ SHARED_DEPS_IDS = [
     label
     for label, path in zip(SHIPPED_DOCKERFILE_IDS, SHIPPED_DOCKERFILES, strict=True)
     if re.search(
-        r"^FROM \$\{OSPREY_BASE_REGISTRY\}/python:", path.read_text(encoding="utf-8"), re.M
+        r"^FROM \$\{OSPREY_BASE_REGISTRY\}/library/python:", path.read_text(encoding="utf-8"), re.M
     )
     and label not in _OWN_DEPS_LAYER
 ]
@@ -826,7 +826,7 @@ def test_python_services_share_one_deps_layer__mutation_va_final_stage_from_va_b
     """A VA final stage built FROM va-base no longer counts as sharing the deps layer."""
     path = TEMPLATES_DIR / "services" / "virtual_accelerator" / "Dockerfile"
     text = path.read_text(encoding="utf-8")
-    final = text.rindex("\nFROM ${OSPREY_BASE_REGISTRY}/python:3.11-slim\n")
+    final = text.rindex("\nFROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim\n")
     deps = text.index('ARG OSPREY_VERSION=""', final)
     mutated = text[:final] + "\nFROM va-base\n" + text[deps:]
     reference = TEMPLATES_DIR / "services" / "bluesky_web" / "Dockerfile"
@@ -835,7 +835,7 @@ def test_python_services_share_one_deps_layer__mutation_va_final_stage_from_va_b
     assert chain[: end + 1] != _shared_prefix(reference)
 
 
-BASE_REGISTRY_ARG = 'ARG OSPREY_BASE_REGISTRY="docker.io/library"'
+BASE_REGISTRY_ARG = 'ARG OSPREY_BASE_REGISTRY="docker.io"'
 
 
 def _base_registry_violations(text: str) -> list[str]:
@@ -843,8 +843,12 @@ def _base_registry_violations(text: str) -> list[str]:
 
     The recipe declares the ARG exactly once, ahead of its first ``FROM`` (the
     one scope every ``FROM`` line reads), and every ``FROM`` that names an image
-    rather than an earlier stage begins with the ARG. ``native-wheels-*`` is a
-    stage selected by architecture, not an image.
+    rather than an earlier stage begins with the ARG and names a Docker Hub
+    namespace after it (``${OSPREY_BASE_REGISTRY}/library/python:3.11-slim``):
+    the ARG names the registry standing in for docker.io, which keeps Docker
+    Hub's paths, so a base without its namespace names an image no mirror
+    serves. ``native-wheels-*`` is a stage selected by architecture, not an
+    image.
     """
     lines = text.splitlines()
     problems = []
@@ -865,8 +869,11 @@ def _base_registry_violations(text: str) -> list[str]:
             stages.add(base_words[2])
         if base in stages or base.startswith("native-wheels-"):
             continue
-        if not base.startswith("${OSPREY_BASE_REGISTRY}/"):
+        prefix = "${OSPREY_BASE_REGISTRY}/"
+        if not base.startswith(prefix):
             problems.append(f"{line!r} names its base without the base registry")
+        elif "/" not in base[len(prefix) :]:
+            problems.append(f"{line!r} names its base without its Docker Hub namespace")
     return problems
 
 
@@ -879,6 +886,13 @@ def test_every_shipped_recipe_pulls_its_base_through_the_base_registry(dockerfil
 def test_base_registry_guard_catches_a_bare_base():
     """A base named without the registry ARG fails the check."""
     assert _base_registry_violations(f"{BASE_REGISTRY_ARG}\nFROM python:3.11-slim\n")
+
+
+def test_base_registry_guard_catches_a_base_without_its_namespace():
+    """A base named under the registry ARG without ``library/`` fails the check."""
+    assert _base_registry_violations(
+        f"{BASE_REGISTRY_ARG}\nFROM ${{OSPREY_BASE_REGISTRY}}/python:3.11-slim\n"
+    )
 
 
 #: Shipped recipes that install with pip, and so fetch through the build caches.
@@ -979,7 +993,7 @@ def _stage_trees(text: str) -> list[str]:
     ``${...}``-selected name) inherits that stage's trust store, so it belongs
     to the same tree; a stage that starts from a registry image begins a new
     tree, which has to install the site CA itself. A stage name holds no ``/``,
-    so a base that does (``${OSPREY_BASE_REGISTRY}/python:…``) is an image. A
+    so a base that does (``${OSPREY_BASE_REGISTRY}/library/python:…``) is an image. A
     single-stage recipe is one tree.
     """
     named: set[str] = set()

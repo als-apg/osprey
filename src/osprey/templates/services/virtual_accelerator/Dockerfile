@@ -57,11 +57,11 @@
 # The build's target architecture, set by BuildKit and by buildah; it selects
 # the native-wheels stage.
 ARG TARGETARCH
-# Registry path the base image is pulled from; images.base_registry points it at a site mirror of Docker Hub.
-ARG OSPREY_BASE_REGISTRY="docker.io/library"
+# Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
+ARG OSPREY_BASE_REGISTRY="docker.io"
 
 # ── base: site trust and apt settings, shared by every stage ────────────────
-FROM ${OSPREY_BASE_REGISTRY}/python:3.11-slim AS va-base
+FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim AS va-base
 
 WORKDIR /app
 
@@ -195,7 +195,7 @@ FROM native-wheels-${TARGETARCH} AS native-wheels
 # second time however identical its instructions are. The steps below are the
 # bluesky recipe's, and the shared-deps test holds them to it; va-base keeps them
 # for the native-wheels builder stages, where nothing is shared.
-FROM ${OSPREY_BASE_REGISTRY}/python:3.11-slim
+FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim
 WORKDIR /app
 ARG OSPREY_SITE_CA=""
 COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/

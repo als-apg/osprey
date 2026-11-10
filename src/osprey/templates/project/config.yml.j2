@@ -94,7 +94,7 @@ execution:
 #   pip_no_proxy         hosts pip reaches without the proxy.
 #   pip_index_url        an internal PyPI mirror.
 #   pip_extra_index_url  a second index, consulted after the first.
-#   base_registry        a mirror of Docker Hub's official images the recipes pull their base from.
+#   base_registry        the registry standing in for docker.io (a Docker Hub mirror) every image is pulled from.
 # Each is overridden for one shell by the environment variable of the same
 # name as its build arg: OSPREY_SITE_CA, PIP_NO_PROXY, PIP_INDEX_URL,
 # PIP_EXTRA_INDEX_URL, OSPREY_BASE_REGISTRY.
@@ -104,7 +104,7 @@ execution:
 #   pip_no_proxy: .internal.example.org
 #   pip_index_url: https://mirror.internal.example.org/pypi/simple
 #   pip_extra_index_url: https://wheels.internal.example.org/simple
-#   base_registry: mirror.example.org/dockerhub/library
+#   base_registry: mirror.example.org/dockerhub
 
 # ── Port layout ─────────────────────────────────────────────
 # The artifact gallery's host port, from this deployment's `deployment.port_base`.

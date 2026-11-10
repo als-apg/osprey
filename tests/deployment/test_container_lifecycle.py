@@ -2086,7 +2086,7 @@ def _site_config(tmp_path, **extra):
             "pip_no_proxy": ".internal.example.org",
             "pip_index_url": "https://mirror.example.org/simple",
             "pip_extra_index_url": "https://wheels.example.org/simple",
-            "base_registry": "mirror.example.org/dockerhub/library",
+            "base_registry": "mirror.example.org/dockerhub",
         },
     }
     config.update(extra)
@@ -2118,7 +2118,7 @@ def test_site_image_build_args_carry_every_axis(tmp_path):
         "PIP_NO_PROXY": ".internal.example.org",
         "PIP_INDEX_URL": "https://mirror.example.org/simple",
         "PIP_EXTRA_INDEX_URL": "https://wheels.example.org/simple",
-        "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub/library",
+        "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub",
     }
     staged = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
     assert staged.read_text() == "-----BEGIN CERTIFICATE-----\n"
