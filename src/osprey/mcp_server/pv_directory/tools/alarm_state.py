@@ -46,9 +46,10 @@ async def alarm_state(pvs: list[str]) -> str:
 
     Returns:
         JSON object: ``channels`` (one entry per address asked: ``name`` as
-        asked, ``lookup`` as looked up, ``outcome``, ``source``, ``record``,
-        ``reason`` when there is one, ``links``) and ``missing`` (each address
-        with no answer, with the reason).
+        asked, ``lookup`` as looked up, ``outcome``, ``source``, ``caveats``
+        (the deployment's notes on that source), ``record``, ``reason`` when
+        there is one, ``links``) and ``missing`` (each address with no answer,
+        with the reason).
     """
     names = list(dict.fromkeys(name.strip() for name in pvs if name.strip()))
     if not names or len(names) > MAX_NAMES:

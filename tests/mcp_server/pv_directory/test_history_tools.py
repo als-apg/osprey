@@ -424,6 +424,21 @@ async def test_alarm_config_with_only_the_logger(tmp_path: Path) -> None:
     assert result["links"] == panel_link("pv", "SR:BPM1")
 
 
+async def test_alarm_state_and_alarm_config_carry_the_configured_caveats(tmp_path: Path) -> None:
+    FakeAlarmState.states = {"SR:BPM1": contract.AlarmStateRecord(severity="MINOR")}
+    FakeAlarmState.config = contract.AlarmConfigRecord(in_tree="yes", label="live configuration")
+    caveats = ["covers the SR tree only"]
+    _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": {**KAFKA, "caveats": caveats}})
+
+    state = json.loads(await alarm_state.alarm_state(["SR:BPM1"]))
+    config = json.loads(await alarm_config.alarm_config("SR:BPM1"))
+
+    assert state["channels"][0]["caveats"] == caveats
+    assert config["caveats"] == caveats
+    assert "caveats" in (alarm_state.alarm_state.__doc__ or "")
+    assert "caveats" in (alarm_config.alarm_config.__doc__ or "")
+
+
 # -- alarm_history and put_history --------------------------------------------
 
 

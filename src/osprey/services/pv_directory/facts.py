@@ -6,7 +6,8 @@
   directory record, the alarm state, the alarm configuration, the alarm history
   and the put history. Each runs under its own deadline, and a section that has
   no answer says why (``unavailable`` with its reason); a section the
-  deployment did not configure is absent, never empty. :meth:`Facts.alarm_state`,
+  deployment did not configure is absent, never empty. Every section carries
+  the ``caveats`` the deployment wrote on its configured source. :meth:`Facts.alarm_state`,
   :meth:`Facts.alarm_config` and :meth:`Facts.history` answer one of those
   sections alone, as the PV page shows it.
 * :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer and
@@ -160,26 +161,31 @@ class Facts:
     async def _directory(self, name: str, deadline: float) -> dict[str, Any]:  # noqa: ARG002
         """The directory record; ``describe`` runs under the service's own deadline."""
         described = await self._service.describe(name)
+        backend, _source, _reason = await self._service.backend("pv_directory")
         record = described.get("record")
-        return {**described, "detail_properties": self._detail_properties(record)}
+        return {
+            **described,
+            "caveats": _caveats(backend),
+            "detail_properties": self._detail_properties(record),
+        }
 
     async def _alarm_state(self, name: str, deadline: float) -> Any:
-        backend, source, reason = await self._service.backend("alarm_state")
+        backend, _source, reason = await self._service.backend("alarm_state")
         if backend is None:
             return _NoSource(reason or NO_SOURCE_REASON, record=None)
         snapshot = await self._service.snapshot()
         if snapshot is None:
-            return _section(source, "unavailable", record=None, reason="the target moved")
+            return _section(backend, "unavailable", record=None, reason="the target moved")
         answer = await _ask(snapshot.state_for(name, deadline), deadline)
         if answer is None:
-            return _section(source, "not_listed", record=None)
+            return _section(backend, "not_listed", record=None)
         if _is_unavailable(answer):
-            return _section(source, "unavailable", record=None, reason=answer.reason)
-        return _section(source, "found", record=as_payload(answer))
+            return _section(backend, "unavailable", record=None, reason=answer.reason)
+        return _section(backend, "found", record=as_payload(answer))
 
     async def _alarm_config(self, name: str, deadline: float) -> Any:
         """The live configuration from the feed, else the logger's (D4); one source per page."""
-        backend, source, reason = await self._service.backend("alarm_state")
+        backend, _source, reason = await self._service.backend("alarm_state")
         if backend is not None:
             snapshot = await self._service.snapshot()
             answer = (
@@ -188,13 +194,13 @@ class Facts:
                 else _Reason("the target moved")
             )
             if not _is_unavailable(answer):
-                return _config_section(source, answer)
+                return _config_section(backend, answer)
             if answer.reason == _FEED_LOADING:
-                return _failed_config(source, _LIVE_CONFIGURATION, answer.reason)
-            feed = (source, answer.reason)
+                return _failed_config(backend, _LIVE_CONFIGURATION, answer.reason)
+            feed = (backend, answer.reason)
         else:
             feed = None
-        log, log_source, log_reason = await self._service.backend("alarm_log")
+        log, _log_source, log_reason = await self._service.backend("alarm_log")
         if log is None:
             if feed is not None:
                 return _failed_config(feed[0], _LIVE_CONFIGURATION, feed[1])
@@ -205,8 +211,8 @@ class Facts:
             )
         answer = await _ask(log.config_for(name, deadline), deadline)
         if _is_unavailable(answer):
-            return _failed_config(log_source, _LOGGED_CONFIGURATION, answer.reason)
-        return _config_section(log_source, answer)
+            return _failed_config(log, _LOGGED_CONFIGURATION, answer.reason)
+        return _config_section(log, answer)
 
     async def _history(
         self,
@@ -217,12 +223,12 @@ class Facts:
         since: datetime | None = None,
         limit: int = _HISTORY_LIMIT,
     ) -> Any:
-        backend, source, reason = await self._service.backend(kind)
+        backend, _source, reason = await self._service.backend(kind)
         if backend is None:
             return _NoSource(reason or NO_SOURCE_REASON, rows=[])
         answer = await _ask(backend.history(name, since, limit, deadline), deadline)
         if _is_unavailable(answer):
-            return _section(source, "unavailable", rows=[], reason=answer.reason)
+            return _section(backend, "unavailable", rows=[], reason=answer.reason)
         page = as_payload(answer)
         return {key: value for key, value in page.items() if key != "reason" or value}
 
@@ -233,7 +239,7 @@ class Facts:
         if not isinstance(answer, _NoSource):
             return answer
         payload = unavailable_payload(answer.reason, target=target or await self._target())
-        return {**payload, **answer.fields}
+        return {**payload, "caveats": [], **answer.fields}
 
     def _detail_properties(self, record: Mapping[str, Any] | None) -> list[str]:
         """The properties the PV page shows first; every one when none are configured."""
@@ -410,13 +416,26 @@ def _is_unavailable(answer: Any) -> bool:
     )
 
 
-def _section(source: Any, outcome: str, **fields: Any) -> dict[str, Any]:
-    return {"outcome": outcome, "source": as_payload(source), **fields}
+def _section(backend: Any, outcome: str, **fields: Any) -> dict[str, Any]:
+    """A section answered by *backend*, with its source and the caveats configured on it."""
+    return {
+        "outcome": outcome,
+        "source": as_payload(backend.source),
+        "caveats": _caveats(backend),
+        **fields,
+    }
 
 
-def _config_section(source: Any, record: Any) -> dict[str, Any]:
+def _caveats(backend: Any) -> list[str]:
+    """The deployment's notes on *backend*'s source; none without a backend."""
+    if backend is None:
+        return []
+    return list(backend.spec.settings.get("caveats") or ())
+
+
+def _config_section(backend: Any, record: Any) -> dict[str, Any]:
     payload = as_payload(record)
-    return _section(source, "found", record=payload, label=payload.get("label"))
+    return _section(backend, "found", record=payload, label=payload.get("label"))
 
 
 def _unknown_config(label: str) -> dict[str, Any]:
@@ -432,9 +451,9 @@ def _unknown_config(label: str) -> dict[str, Any]:
     }
 
 
-def _failed_config(source: Any, label: str, reason: str) -> dict[str, Any]:
+def _failed_config(backend: Any, label: str, reason: str) -> dict[str, Any]:
     return _section(
-        source, "unavailable", record=_unknown_config(label), label=label, reason=reason
+        backend, "unavailable", record=_unknown_config(label), label=label, reason=reason
     )
 
 
