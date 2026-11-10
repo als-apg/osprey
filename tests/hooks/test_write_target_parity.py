@@ -20,9 +20,10 @@ import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as twin
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey_connectors import posture_store, write_target
 from osprey_connectors.write_target import (
-    FALLBACK_WRITE_TOOLS,
+    _FALLBACK_WRITE_TOOLS,
     UNRESOLVED,
     write_target_for_tool,
 )
@@ -227,7 +228,7 @@ def test_an_unstamped_process_with_no_record_cannot_place_a_session_write(
     bind = tmp_path / "bind"
     bind.mkdir()
     isolate_verdict_environment(monkeypatch, _root(tmp_path))
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR)
+    monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT)
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(bind))
     if record != "missing":
         (bind / "control_context.json").write_text(
@@ -339,7 +340,7 @@ def test_without_the_key_a_whole_server_matcher_is_still_facility(tmp_path, monk
 
 
 def test_the_fallback_write_lists_match():
-    assert list(FALLBACK_WRITE_TOOLS) == hook_log.FALLBACK_WRITE_TOOLS
+    assert list(_FALLBACK_WRITE_TOOLS) == hook_log.FALLBACK_WRITE_TOOLS
 
 
 def test_the_lane_keys_match():

@@ -1,63 +1,27 @@
 """The simulated machine behind OSPREY's simulator connectors.
 
 The package root holds only what every reader needs without loading a model:
-the tick period, value coercion, char-waveform decoding, the active-scenario
-state helpers and the model status lookups. It imports neither numpy nor lume;
-the composite, the texture engine, the archive and the series primitives are
-imported from their own modules.
+the tick period, char-waveform decoding, the gated and labelled value types
+and the model status lookups. It imports neither numpy nor lume; the
+active-scenario state, value coercion, the composite, the texture engine, the
+archive and the series primitives are imported from their own modules.
 """
 
 from collections.abc import Mapping
 from typing import Any
 
-from osprey_connectors.simulation.state import (
-    ACTIVE_SCENARIOS_FILENAME,
-    DEFAULT_SCENARIO,
-    OVERLAP_EVENT,
-    STILL_SCENARIO,
-    Overlap,
-    composed_set,
-    format_overlap_record,
-    overlap_record,
-    parse_active_state,
-    read_active_state,
-    resolve_active_scenarios,
-    scenario_targets,
-    validate_composition,
-    write_active_state,
-)
-from osprey_connectors.simulation.status import (
-    STATUS_NO_DECK,
-    model_status,
-    read_model_status,
-)
-from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES, coerce
+from osprey_connectors.simulation.status import model_status, read_model_status
+from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES
 
 __all__ = [
-    "ACTIVE_SCENARIOS_FILENAME",
-    "DEFAULT_SCENARIO",
     "DEFAULT_TICK_S",
     "GATED_TYPES",
     "LABELLED_TYPES",
-    "OVERLAP_EVENT",
-    "STATUS_NO_DECK",
-    "STILL_SCENARIO",
-    "Overlap",
     "TICK_KEY",
-    "coerce",
-    "composed_set",
     "decode_char_waveform",
-    "format_overlap_record",
     "model_status",
-    "overlap_record",
-    "parse_active_state",
-    "read_active_state",
     "read_model_status",
-    "resolve_active_scenarios",
     "resolve_tick_s",
-    "scenario_targets",
-    "validate_composition",
-    "write_active_state",
 ]
 
 #: The config key holding the simulated machine's tick period, in seconds.

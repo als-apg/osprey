@@ -24,6 +24,7 @@ from osprey.mcp_server.control_system.server_context import (
 )
 from osprey.mcp_server.workspace.tools.screen_capture_backends import reset_backend
 from osprey.stores.artifact_store import reset_artifact_store
+from osprey_connectors import control_context
 from osprey_connectors.workspace import reset_config_cache
 from tests._config_lookup import reset_config_caches  # noqa: F401 - fixture, used by name
 
@@ -358,10 +359,9 @@ class WebSession:
     def clear(self, transcript: str) -> None:
         """Move the key to *transcript*, as the turn-state hook does on a ``/clear``."""
         from osprey.stores import session_ledger
-        from osprey_connectors import posture_store
 
         assert session_ledger.append(self.state_dir, self.key, transcript)
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         self.transcript = transcript
 
 
@@ -405,9 +405,9 @@ def web_session(tmp_path, monkeypatch) -> WebSession:
     session = WebSession(state_dir)
     assert session_ledger.append(state_dir, session.key, session.transcript, session_ledger.EPOCH)
     monkeypatch.setenv("OSPREY_SESSION_ID", session.key)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield session
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -431,6 +431,6 @@ def cli_session(tmp_path, monkeypatch) -> CliSession:
     monkeypatch.setenv("OSPREY_TERMINAL_SESSION", session.terminal_session)
     monkeypatch.setenv("OSPREY_CLI_LAUNCH", session.launch)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session.transcript)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield session
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()

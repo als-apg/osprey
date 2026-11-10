@@ -33,7 +33,7 @@ from osprey.facility.settings import (
 )
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
-from osprey_connectors.simulation import STILL_SCENARIO
+from osprey_connectors.simulation.state import STILL_SCENARIO
 
 #: The architecture page that lists the table.
 FACILITY_FILE_PAGE = (

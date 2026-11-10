@@ -23,6 +23,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import transcript_map
 from osprey_connectors import control_context, posture_store
 
@@ -49,20 +50,20 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
+    control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
 def unresolvable_root(monkeypatch):
     """No stamp and no config derivation: a map with nowhere to write."""
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", _raise_no_root)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def _raise_no_root() -> Path:
@@ -203,7 +204,7 @@ class TestAMapWithNoLocationStillAnswers:
 
         root = tmp_path / "recovered"
         root.mkdir()
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-        posture_store.invalidate_cache()
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
+        control_context.invalidate_cache()
 
         assert transcript_map.get(app, KEY) == TRANSCRIPT

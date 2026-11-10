@@ -8,7 +8,7 @@ from typing import Protocol
 
 from osprey_optimizer.models.types import BestPoint
 
-from ..results import ResultMetadata, save_optimization_results
+from ..results import save_optimization_results
 from .orchestration import OptimizationResult
 
 
@@ -26,14 +26,12 @@ class ParquetResultWriter:
         return save_optimization_results(
             result.data,
             result.best_point,
-            result.metadata.config,
+            result.config,
             output_dir=output_dir,
-            metadata=ResultMetadata(
-                initial_point=result.initial_point,
-                job_id=result.metadata.job_id,
-                model=result.model,
-                model_variables=result.model_variables,
-            ),
+            initial_point=result.initial_point,
+            job_id=result.job_id,
+            model=result.model,
+            model_variables=result.model_variables,
         )
 
 

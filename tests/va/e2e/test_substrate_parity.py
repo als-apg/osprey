@@ -195,7 +195,7 @@ import yaml  # noqa: E402
 
 from osprey.facility import TEXTURE  # noqa: E402
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
-from osprey_connectors.simulation import decode_char_waveform, pulse, topoff  # noqa: E402
+from osprey_connectors.simulation import decode_char_waveform, topoff  # noqa: E402
 from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
 from osprey_connectors.simulation.values import is_waveform  # noqa: E402
 from osprey_connectors.simulation.view import (  # noqa: E402
@@ -377,9 +377,9 @@ def _is_trace(value: Any) -> bool:
 #: adds at most its bound, and the sample noise on the flat top adds a few of its
 #: standard deviations.
 TRACE_PEAK_TOL = (
-    2 * pulse.AMPLITUDE_DRIFT_FRACTION
-    + pulse.RINGING_COMPONENTS * pulse.RINGING_AMPLITUDE_FRACTION
-    + 6 * pulse.NOISE_FRACTION
+    2 * 0.012  # the amplitude drift bound
+    + 3 * 0.02  # three ringing components, each bounded
+    + 6 * 0.002  # the sample noise's standard deviation
 )
 
 

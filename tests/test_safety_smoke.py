@@ -31,12 +31,12 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system.server_context import (
     initialize_server_context,
     reset_server_context,
 )
 from osprey.stores.artifact_store import reset_artifact_store
-from osprey_connectors import posture_store
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
 from tests._approval_stamp_fixture import ApprovalStamps
@@ -164,7 +164,7 @@ def smoke_env(tmp_path, monkeypatch):
     # exactly this file to decide whether writes are on the table at all, and
     # `_run_hook` copies the parent environment, so stamping the root here is
     # what puts the subprocesses in the same deployment.
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(ws))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(ws))
     write_control_context(ws, target="va", generation=1, switch={"va": "on"})
 
     return {

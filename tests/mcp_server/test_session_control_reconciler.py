@@ -55,7 +55,7 @@ from osprey.mcp_server.control_system import session_control, target_eligibility
 from osprey.mcp_server.control_system.connector_host_manager import SwitchError
 from osprey.mcp_server.control_system.server_context import ControlSystemContext
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 from osprey_connectors_tests._harness import _control_context_fixtures as fixtures
 from osprey_connectors_tests._harness import isolate_verdict_environment
 
@@ -214,7 +214,7 @@ def deployment(control_context_root, monkeypatch):
     """
     isolate_verdict_environment(monkeypatch, control_context_root)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     target_state.write_server_record({"live": {"label": "Live"}, "va": {"label": "VA"}})
     target_state.publish_reachability(
         {
@@ -230,7 +230,7 @@ def deployment(control_context_root, monkeypatch):
     )
     write_record()
     yield control_context_root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -1482,7 +1482,7 @@ class TestTheSwitchReachesARunningChild:
                 owned_by=fixtures.owner(control_context.OWNER_CONTROLS_SERVER),
                 switch=switch,
             )
-            posture_store.invalidate_cache()
+            control_context.invalidate_cache()
 
         write_va_record(None)
         install_context(manager, monkeypatch, raw=raw)

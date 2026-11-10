@@ -38,6 +38,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import ControlSystemContext
@@ -87,7 +88,7 @@ def record_root(state_root, monkeypatch):
     """
     from osprey_connectors import posture_store
 
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(state_root))
     (state_root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
     control_context.invalidate_cache()
     yield state_root

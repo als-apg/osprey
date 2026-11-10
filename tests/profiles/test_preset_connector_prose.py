@@ -37,11 +37,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.types import (
-    CLI_ARCHIVER_TYPES,
-    CLI_CONTROL_SYSTEM_TYPES,
-    SET_CONTROL_SYSTEM_TYPES,
-)
+from osprey_connectors.factory import BUILTIN_CONNECTORS
+from osprey_connectors.types import CLI_CONTROL_SYSTEM_TYPES, SET_CONTROL_SYSTEM_TYPES
 
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 
@@ -55,18 +52,21 @@ REFERENCE_PRESET = "demo"
 #: Where a block sends a reader whose type it does not name.
 FULL_LIST_POINTER = "osprey config --defaults"
 
+#: The built-in archivers: the names ``archiver.type`` takes without a dotted path.
+BUILTIN_ARCHIVERS = frozenset(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
+
 #: ``live_standin`` is settable but not initable, so prose may name it while the
 #: CLI choice list does not carry it.
 SHIPPED = {
     "control_system.type": frozenset(SET_CONTROL_SYSTEM_TYPES),
-    "archiver.type": frozenset(CLI_ARCHIVER_TYPES),
+    "archiver.type": BUILTIN_ARCHIVERS,
 }
 
 #: The complete list each block is measured against — what ``osprey init`` will
 #: actually materialize, which is the narrower of the two control-system lists.
 ADVERTISED = {
     "control_system.type": frozenset(CLI_CONTROL_SYSTEM_TYPES),
-    "archiver.type": frozenset(CLI_ARCHIVER_TYPES),
+    "archiver.type": BUILTIN_ARCHIVERS,
 }
 
 #: Where a type's own stanza is written, per key. A stanza is recognised by its

@@ -26,6 +26,7 @@ from osprey.mcp_server.python_executor.tools import _execution_gates
 from osprey.services.code_review import review as review_module
 from osprey.services.code_review.review import AUDIT_REASON
 from osprey.services.code_review.settings import DEFAULT_PROMPT
+from osprey_connectors import control_context
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.hooks.conftest import _reset_hook_log_caches, hook_audit_records, import_hook
@@ -124,7 +125,6 @@ def _assert_free_of_revision(record) -> None:
 @pytest.fixture
 def execute_root(tmp_path, control_context_root, monkeypatch):
     """A scratch render on the simulator with the switch on, read through ``OSPREY_CONFIG``."""
-    from osprey_connectors import posture_store
 
     root = tmp_path / "repo"
     root.mkdir()
@@ -137,7 +137,7 @@ def execute_root(tmp_path, control_context_root, monkeypatch):
     monkeypatch.setattr(_execution_gates, "notify_agent_activity_async", AsyncMock())
     arm_switch(monkeypatch, control_context_root, ARMED_TARGET, stamp=False)
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
