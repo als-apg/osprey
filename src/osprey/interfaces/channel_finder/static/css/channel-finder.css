@@ -2254,6 +2254,13 @@ textarea.form-input {
   text-align: center;
 }
 
+/* The curated views' line to All PVs (curated-bridge.js), under their results. */
+.curated-bridge {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
 /* Read/write direction. Same tint-plus-colour family as .filter-chip,
    shrunk to a glyph-width pill that sits inside a table row. */
 .dir {
