@@ -39,7 +39,7 @@ import logging
 import signal
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -767,7 +767,7 @@ class TestRunIngestSharedPath:
 
         assert seen == [("E0", adapter)]
         stored = mock_repository.upsert_entry.await_args.args[0]
-        assert stored["metadata"] == {"from": "sidecar"}
+        assert stored["metadata"] == {"from": "sidecar", "sync_status": "synced"}
 
 
 class TestRunQuickstartSharedPath:
@@ -1937,3 +1937,74 @@ class TestCommandsPrintTheVocabularyLine:
 
         assert messages[0].startswith(_VOCABULARY_LINE_PREFIX)
         assert messages[1:] == ["No enhancement modules enabled or selected"]
+
+
+# ---------------------------------------------------------------------------
+# sync_status -- every write path records it
+# ---------------------------------------------------------------------------
+
+
+class TestWritePathsRecordSyncStatus:
+    async def test_seeded_entries_are_recorded_local_only(self, monkeypatch, mock_repository):
+        """A seeded entry lives only in ARIEL; the caller's entries are not mutated."""
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        entries = [{**entry, "metadata": {"tags": ["sim"]}} for entry in _entries(2)]
+
+        await ops.seed_logbook_entries(dict(_DB), entries)
+
+        stored = [call.args[0] for call in mock_repository.upsert_entry.call_args_list]
+        assert [entry["metadata"] for entry in stored] == [
+            {"tags": ["sim"], "sync_status": "local_only"}
+        ] * 2
+        assert entries[0]["metadata"] == {"tags": ["sim"]}
+
+    async def test_an_ingested_entry_is_recorded_synced(self, mock_repository):
+        """An entry read from the facility logbook is stored with ``synced``."""
+        from osprey.services.ariel_search.ingestion.ingest import ingest_one
+
+        entry = {**_entries(1)[0], "metadata": {"logbook": "Ops"}}
+        adapter = MagicMock(writes_local_only=False)
+        await ingest_one(entry, adapter, mock_repository, [], mock_repository.config, None)
+
+        stored = mock_repository.upsert_entry.call_args.args[0]
+        assert stored["metadata"] == {"logbook": "Ops", "sync_status": "synced"}
+
+    async def test_a_generic_json_entry_stays_local_only_through_ingest(
+        self, tmp_path, mock_repository
+    ):
+        """An entry written to the JSON file and read back from it keeps no facility link."""
+        from unittest.mock import patch
+
+        from osprey.services.ariel_search.config import ARIELConfig
+        from osprey.services.ariel_search.entry_url import build_entry_url
+        from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
+        from osprey.services.ariel_search.ingestion.ingest import ingest_one
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+        source = tmp_path / "logbook.json"
+        source.write_text('{"entries": []}')
+        adapter = GenericJSONAdapter(
+            ARIELConfig.from_dict(
+                {
+                    "database": {"uri": "postgresql://test"},
+                    "ingestion": {"adapter": "generic_json", "source_url": str(source)},
+                }
+            )
+        )
+        entry_id = await adapter.create_entry(FacilityEntryCreateRequest(subject="S", details="D"))
+
+        (entry,) = [e async for e in adapter.fetch_entries()]
+        assert entry["entry_id"] == entry_id
+        await ingest_one(entry, adapter, mock_repository, [], mock_repository.config, None)
+
+        stored = mock_repository.upsert_entry.call_args.args[0]
+        assert stored["metadata"]["sync_status"] == "local_only"
+        with patch(
+            "osprey_connectors.config.get_config_value",
+            lambda path, default=None, _config_path=None: (
+                "https://logbook.example/{entry_id}"
+                if path == "ariel.entry_url_template"
+                else default
+            ),
+        ):
+            assert build_entry_url(entry_id, metadata=stored["metadata"]) is None

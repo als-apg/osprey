@@ -1947,7 +1947,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:01:POSITION:Y
@@ -1957,7 +1957,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:02:POSITION:X
@@ -1967,7 +1967,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:02:POSITION:Y
@@ -1977,7 +1977,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:03:POSITION:X
@@ -1987,7 +1987,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:03:POSITION:Y
@@ -1997,7 +1997,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:04:POSITION:X
@@ -2007,7 +2007,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:04:POSITION:Y
@@ -2017,7 +2017,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:05:POSITION:X
@@ -2027,7 +2027,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:05:POSITION:Y
@@ -2037,7 +2037,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:06:POSITION:X
@@ -2047,7 +2047,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:06:POSITION:Y
@@ -2057,7 +2057,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:07:POSITION:X
@@ -2067,7 +2067,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:07:POSITION:Y
@@ -2077,7 +2077,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:08:POSITION:X
@@ -2087,7 +2087,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:08:POSITION:Y
@@ -2097,7 +2097,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:09:POSITION:X
@@ -2107,7 +2107,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:09:POSITION:Y
@@ -2117,7 +2117,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:10:POSITION:X
@@ -2127,7 +2127,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:10:POSITION:Y
@@ -2137,7 +2137,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:11:POSITION:X
@@ -2147,7 +2147,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:11:POSITION:Y
@@ -2157,7 +2157,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:12:POSITION:X
@@ -2167,7 +2167,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:12:POSITION:Y
@@ -2177,7 +2177,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:13:POSITION:X
@@ -2187,7 +2187,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:13:POSITION:Y
@@ -2197,7 +2197,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:14:POSITION:X
@@ -2207,7 +2207,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:14:POSITION:Y
@@ -2217,7 +2217,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:15:POSITION:X
@@ -2227,7 +2227,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:15:POSITION:Y
@@ -2237,7 +2237,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:16:POSITION:X
@@ -2247,7 +2247,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:16:POSITION:Y
@@ -2257,7 +2257,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:17:POSITION:X
@@ -2267,7 +2267,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:17:POSITION:Y
@@ -2277,7 +2277,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:18:POSITION:X
@@ -2287,7 +2287,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:18:POSITION:Y
@@ -2297,7 +2297,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:19:POSITION:X
@@ -2307,7 +2307,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:19:POSITION:Y
@@ -2317,7 +2317,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:20:POSITION:X
@@ -2327,7 +2327,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:20:POSITION:Y
@@ -2337,7 +2337,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:21:POSITION:X
@@ -2347,7 +2347,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:21:POSITION:Y
@@ -2357,7 +2357,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:22:POSITION:X
@@ -2367,7 +2367,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:22:POSITION:Y
@@ -2377,7 +2377,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:23:POSITION:X
@@ -2387,7 +2387,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:23:POSITION:Y
@@ -2397,7 +2397,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:24:POSITION:X
@@ -2407,7 +2407,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:24:POSITION:Y
@@ -2417,7 +2417,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:25:POSITION:X
@@ -2427,7 +2427,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:25:POSITION:Y
@@ -2437,7 +2437,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:26:POSITION:X
@@ -2447,7 +2447,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:26:POSITION:Y
@@ -2457,7 +2457,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:27:POSITION:X
@@ -2467,7 +2467,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:27:POSITION:Y
@@ -2477,7 +2477,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:28:POSITION:X
@@ -2487,7 +2487,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:28:POSITION:Y
@@ -2497,7 +2497,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:29:POSITION:X
@@ -2507,7 +2507,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:29:POSITION:Y
@@ -2517,7 +2517,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:30:POSITION:X
@@ -2527,7 +2527,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:30:POSITION:Y
@@ -2537,7 +2537,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:31:POSITION:X
@@ -2547,7 +2547,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:31:POSITION:Y
@@ -2557,7 +2557,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:32:POSITION:X
@@ -2567,7 +2567,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:32:POSITION:Y
@@ -2577,7 +2577,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:33:POSITION:X
@@ -2587,7 +2587,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:33:POSITION:Y
@@ -2597,7 +2597,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:34:POSITION:X
@@ -2607,7 +2607,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:34:POSITION:Y
@@ -2617,7 +2617,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:35:POSITION:X
@@ -2627,7 +2627,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:35:POSITION:Y
@@ -2637,7 +2637,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:36:POSITION:X
@@ -2647,7 +2647,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:36:POSITION:Y
@@ -2657,7 +2657,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:37:POSITION:X
@@ -2667,7 +2667,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:37:POSITION:Y
@@ -2677,7 +2677,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:38:POSITION:X
@@ -2687,7 +2687,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:38:POSITION:Y
@@ -2697,7 +2697,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:39:POSITION:X
@@ -2707,7 +2707,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:39:POSITION:Y
@@ -2717,7 +2717,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:40:POSITION:X
@@ -2727,7 +2727,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:40:POSITION:Y
@@ -2737,7 +2737,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:41:POSITION:X
@@ -2747,7 +2747,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:41:POSITION:Y
@@ -2757,7 +2757,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:42:POSITION:X
@@ -2767,7 +2767,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:42:POSITION:Y
@@ -2777,7 +2777,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:43:POSITION:X
@@ -2787,7 +2787,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:43:POSITION:Y
@@ -2797,7 +2797,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:44:POSITION:X
@@ -2807,7 +2807,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:44:POSITION:Y
@@ -2817,7 +2817,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:45:POSITION:X
@@ -2827,7 +2827,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:45:POSITION:Y
@@ -2837,7 +2837,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:46:POSITION:X
@@ -2847,7 +2847,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:46:POSITION:Y
@@ -2857,7 +2857,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:47:POSITION:X
@@ -2867,7 +2867,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:47:POSITION:Y
@@ -2877,7 +2877,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:48:POSITION:X
@@ -2887,7 +2887,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:48:POSITION:Y
@@ -2897,7 +2897,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:49:POSITION:X
@@ -2907,7 +2907,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:49:POSITION:Y
@@ -2917,7 +2917,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:50:POSITION:X
@@ -2927,7 +2927,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:50:POSITION:Y
@@ -2937,7 +2937,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:51:POSITION:X
@@ -2947,7 +2947,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:51:POSITION:Y
@@ -2957,7 +2957,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:52:POSITION:X
@@ -2967,7 +2967,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:52:POSITION:Y
@@ -2977,7 +2977,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:53:POSITION:X
@@ -2987,7 +2987,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:53:POSITION:Y
@@ -2997,7 +2997,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:54:POSITION:X
@@ -3007,7 +3007,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:54:POSITION:Y
@@ -3017,7 +3017,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:55:POSITION:X
@@ -3027,7 +3027,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:55:POSITION:Y
@@ -3037,7 +3037,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:56:POSITION:X
@@ -3047,7 +3047,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:56:POSITION:Y
@@ -3057,7 +3057,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:57:POSITION:X
@@ -3067,7 +3067,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:57:POSITION:Y
@@ -3077,7 +3077,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:58:POSITION:X
@@ -3087,7 +3087,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:58:POSITION:Y
@@ -3097,7 +3097,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:59:POSITION:X
@@ -3107,7 +3107,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:59:POSITION:Y
@@ -3117,7 +3117,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:60:POSITION:X
@@ -3127,7 +3127,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:60:POSITION:Y
@@ -3137,7 +3137,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:61:POSITION:X
@@ -3147,7 +3147,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:61:POSITION:Y
@@ -3157,7 +3157,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:62:POSITION:X
@@ -3167,7 +3167,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:62:POSITION:Y
@@ -3177,7 +3177,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:63:POSITION:X
@@ -3187,7 +3187,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:63:POSITION:Y
@@ -3197,7 +3197,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:64:POSITION:X
@@ -3207,7 +3207,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:64:POSITION:Y
@@ -3217,7 +3217,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:65:POSITION:X
@@ -3227,7 +3227,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:65:POSITION:Y
@@ -3237,7 +3237,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:66:POSITION:X
@@ -3247,7 +3247,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:66:POSITION:Y
@@ -3257,7 +3257,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:67:POSITION:X
@@ -3267,7 +3267,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:67:POSITION:Y
@@ -3277,7 +3277,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:68:POSITION:X
@@ -3287,7 +3287,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:68:POSITION:Y
@@ -3297,7 +3297,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:69:POSITION:X
@@ -3307,7 +3307,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:69:POSITION:Y
@@ -3317,7 +3317,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:70:POSITION:X
@@ -3327,7 +3327,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:70:POSITION:Y
@@ -3337,7 +3337,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:71:POSITION:X
@@ -3347,7 +3347,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:71:POSITION:Y
@@ -3357,7 +3357,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:72:POSITION:X
@@ -3367,7 +3367,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:BPM:72:POSITION:Y
@@ -3377,7 +3377,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0
+          gain: 0.001
           offset: 0.0
       energy_scaling: none
   - address: SR:DIAG:CHROM:X

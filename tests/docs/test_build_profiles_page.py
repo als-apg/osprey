@@ -34,6 +34,7 @@ PRESETS = ("demo", "hello-world")
 #: Tree entries a fresh ``osprey init`` need not write, each with the reason.
 PAGE_ONLY_ENTRIES = {
     "build/": "absent until the first `osprey build`",
+    "apps/": "written only for an application the profile lists; no bundled preset lists one",
 }
 
 #: Entries whose own tree line states when init writes them, so the

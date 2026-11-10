@@ -41,6 +41,13 @@ Build & deploy
       runs, including open-weight and self-hosted models behind the
       translation proxy.
 
+   .. grid-item-card:: Build Your Own OSPREY Apps
+      :link: apps/index
+      :link-type: doc
+
+      A panel for the operator and tools for the agent over one backend:
+      what an app is, how to make one, and the orbit bump example.
+
 Operate
 -------
 
@@ -142,6 +149,7 @@ Facility services
    deploy-a-facility
    deploy-project/index
    llm-providers/index
+   apps/index
    web-terminal/index
    agent-interfaces/index
    health-and-monitoring/index

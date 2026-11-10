@@ -44,7 +44,7 @@ SECTION = {"type": "epics", "writes": "allowed"}
 TARGET = "va"
 ME = FIXTURE_IDENTITY
 CHANNELS = {"A:SP": ChannelRange(0.0, 10.0), "B:SP": ChannelRange(-1.0, 1.0)}
-FAR_FUTURE_NS = time.time_ns() + 10 * 365 * 24 * 3600 * 10**9
+FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 
 class BaseBatchConnector(ControlSystemConnector):

@@ -122,7 +122,7 @@ render-build:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "${{ ctx.registry_token_var }}" "$REGISTRY_HOST"
   script:
-    - docker build {% if ctx.base_registry %}--build-arg OSPREY_BASE_REGISTRY={{ ctx.base_registry }} {% endif %}-t "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA" "services/$SERVICE"
+    - docker build {% if ctx.image_platform %}--platform {{ ctx.image_platform }} {% endif %}{% if ctx.base_registry %}--build-arg OSPREY_BASE_REGISTRY={{ ctx.base_registry }} {% endif %}-t "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA" "services/$SERVICE"
     - docker push "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA"
     # :latest is what the deploy host pulls, so it moves only on the default
     # branch — a feature branch can build and push an image without any

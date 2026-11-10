@@ -46,6 +46,7 @@ from osprey.cli.deploy_scaffold_templates import CI_MARKER, VERIFY_MARKER
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
+from osprey.deployment.image_facts import IMAGE_PYTHON
 from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey_connectors.errors import ConfigurationError
 from tests.fixtures.lifecycle_repo import (
@@ -888,13 +889,17 @@ class TestEnvironmentUrl:
 #: is checked against the whole set rather than the two the exemplar renders.
 UPSTREAM_PINS = tuple(ref for name, ref in UPSTREAM_IMAGES.items() if name.startswith("ci_"))
 
+#: The Python the pipeline's render job runs ``osprey build`` on, which builds the
+#: deployment wheels the fit check judges: the images' own.
+PYTHON_PIN = f"python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim"
+
 _MIRROR = "mirror.example.org/dockerhub"
 
 #: Where the exemplar profile's ``config:`` block starts, for inserting a key.
 _CONFIG_BLOCK = "config:\n  # ── Facility"
 
 
-def _full_pipeline(base_registry: str = "") -> str:
+def _full_pipeline(base_registry: str = "", image_platform: str | None = None) -> str:
     """The pipeline with every stage rendered, the base registry applied.
 
     The exemplar declares no registry and no facility-owned image, so its
@@ -926,8 +931,57 @@ def _full_pipeline(base_registry: str = "") -> str:
                 }
             ],
             base_registry=base_registry,
+            image_platform=image_platform,
         ),
     )
+
+
+def test_a_stated_image_platform_reaches_the_service_image_build() -> None:
+    pipeline = _full_pipeline(image_platform="linux/amd64")
+
+    assert 'docker build --platform linux/amd64 -t "$REGISTRY/$SERVICE' in pipeline
+
+
+def test_unstated_the_service_image_build_names_no_platform() -> None:
+    pipeline = _full_pipeline()
+
+    assert '    - docker build -t "$REGISTRY/$SERVICE' in pipeline
+    assert "--platform" not in pipeline
+
+
+def test_a_stated_platform_and_the_base_registry_both_reach_the_service_image_build() -> None:
+    pipeline = _full_pipeline(_MIRROR, image_platform="linux/arm64")
+
+    assert (
+        "docker build --platform linux/arm64 "
+        f'--build-arg OSPREY_BASE_REGISTRY={_MIRROR} -t "$REGISTRY/$SERVICE'
+    ) in pipeline
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ({"images.platform": "linux/arm64"}, "linux/arm64"),
+        ({"images": {"platform": "linux/amd64"}}, "linux/amd64"),
+        ({}, None),
+    ],
+)
+def test_the_pipeline_reads_the_platform_from_the_profile(config: dict, expected) -> None:
+    from osprey.cli.build_profile_deploy import DeployConfig, DeployHost
+    from osprey.cli.deploy_scaffold_templates import build_ci_context
+
+    deploy = DeployConfig(
+        ci="gitlab", host=DeployHost(name="h", project_path="/srv/d", user="svc", fqdn="h")
+    )
+    ctx = build_ci_context({"name": "d", "config": config}, deploy, Path("."), "d")
+
+    assert ctx.image_platform == expected
+
+
+def test_the_render_job_runs_on_the_images_python() -> None:
+    """The catalogue's pipeline Python is the one every image is built from."""
+    assert UPSTREAM_IMAGES["ci_python"] == PYTHON_PIN
+    assert f"image: {PYTHON_PIN}" in _full_pipeline()
 
 
 def _named_images(pipeline: str) -> set[str]:
@@ -1002,7 +1056,7 @@ def test_the_profiles_base_registry_reaches_the_pipeline(runner: CliRunner, repo
     assert emit(runner, repo).exit_code == 0
 
     assert (repo / CI_PATH).read_text(encoding="utf-8") == slashed
-    assert f"image: {_MIRROR}/library/python:3.12-slim" in slashed
+    assert f"image: {_MIRROR}/library/{PYTHON_PIN}" in slashed
 
 
 def test_a_mapping_for_the_base_registry_is_refused_by_name(runner: CliRunner, repo: Path) -> None:

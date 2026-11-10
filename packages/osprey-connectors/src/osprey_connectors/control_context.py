@@ -145,7 +145,12 @@ from typing import Any, Literal
 from osprey_connectors import posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import (
+    SHARED_FILE_MODE,
+    SHARED_LOCK_MODE,
+    atomic_replace,
+    ensure_shared_dir,
+)
 from osprey_connectors.types import CONTROL_TARGETS
 
 logger = logging.getLogger("osprey_connectors.control_context")
@@ -747,36 +752,18 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     sees it. Every directory this writer creates — the
     levels above the leaf as much as the leaf — is set to exactly 0o2770 rather
     than merely widened, because a directory left at the umask 0755 would let
-    ``other`` list the identity names.
+    ``other`` list the identity names (``safety_file.ensure_shared_dir``).
 
     Raises:
         OSError: The write itself failed.
     """
-    _ensure_directory(path.parent)
+    ensure_shared_dir(path.parent)
     atomic_replace(
-        path, json.dumps(payload, indent=2).encode("utf-8"), mode=0o640, sync="best_effort"
+        path,
+        json.dumps(payload, indent=2).encode("utf-8"),
+        mode=SHARED_FILE_MODE,
+        sync="best_effort",
     )
-
-
-def _ensure_directory(directory: Path) -> None:
-    """Create *directory* and the levels above it at 0o2770. See :func:`write_json_atomic`."""
-    # ``mkdir(parents=True)`` reports the leaf and says nothing about the levels
-    # it creates on the way, so they are named before the call: the tree root is
-    # one of them whenever this writer is the first to reach a deployment's tree,
-    # and a root left at the umask defeats the mode set below it.
-    created = []
-    probe = directory
-    while probe != probe.parent and not probe.exists():
-        created.append(probe)
-        probe = probe.parent
-    try:
-        directory.mkdir(parents=True)
-    except FileExistsError:
-        # Another writer got there first, so none of these levels are this
-        # writer's to set a mode on.
-        created = []
-    for level in created:
-        os.chmod(level, 0o2770)
 
 
 def _lock_path(path: Path) -> Path:
@@ -797,13 +784,13 @@ def _open_lock_file(lock: Path) -> int:
     """
     for _ in range(2):
         try:
-            fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o660)
+            fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, SHARED_LOCK_MODE)
         except FileExistsError:
             pass
         else:
             try:
                 # The create honoured the umask; this file is this writer's own.
-                os.fchmod(fd, 0o660)
+                os.fchmod(fd, SHARED_LOCK_MODE)
             except BaseException:
                 os.close(fd)
                 raise
@@ -838,7 +825,7 @@ def _record_lock(path: Path) -> Iterator[None]:
         OSError: A symbolic link sits where the lock file belongs
             (``errno.ELOOP``), or the lock file could not be created or opened.
     """
-    _ensure_directory(path.parent)
+    ensure_shared_dir(path.parent)
     fd = _open_lock_file(_lock_path(path))
     try:
         deadline = time.monotonic() + _LOCK_TIMEOUT_S

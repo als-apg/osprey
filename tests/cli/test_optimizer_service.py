@@ -26,15 +26,16 @@ from osprey.cli.build_cmd import _inject_optimizer
 from osprey.cli.build_injectors import _compose_bind_source
 from osprey.cli.build_profile import OptimizerConfig
 from osprey.deployment.compose_generator import (
-    LOGIN_TIERS_SERVICES,
     OPTIMIZER_CONTROL_IDENTITY,
+    SERVICE_ROLE_CONTROL_IDENTITY,
+    SERVICE_ROLE_DRIVES_TARGET,
     WRITE_LEDGER_CONTAINER_DIR,
     _inject_project_metadata,
-    _optimizer_write_posture,
     _stage_login_tiers,
+    drives_target_write_posture,
+    service_role,
     write_ledger_relpath,
 )
-from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.port_layout import default_port
 from osprey_connectors.write_authorization import LEDGER_DIR_ENV_VAR
 
@@ -78,7 +79,7 @@ def _read_config(project: Path) -> dict:
 def test_the_injector_copies_the_template_and_registers_the_service(tmp_path: Path) -> None:
     _write_config(tmp_path)
 
-    _inject_optimizer(OptimizerConfig(targets=["va", "standin"]), project_path=tmp_path)
+    _inject_optimizer(OptimizerConfig(), project_path=tmp_path)
 
     dest = tmp_path / "services" / "optimizer"
     assert (dest / "docker-compose.yml.j2").is_file()
@@ -87,7 +88,7 @@ def test_the_injector_copies_the_template_and_registers_the_service(tmp_path: Pa
     block = config["services"]["optimizer"]
     assert block["path"] == "./services/optimizer"
     assert block["port"] == _PORT
-    assert list(block["targets"]) == ["va", "standin"]
+    assert "targets" not in block
     assert "environments_dir" not in block  # omit-when-unset: no mount
     assert "image" not in block
     assert [str(s) for s in config["deployed_services"]] == ["postgresql", "optimizer"]
@@ -141,14 +142,12 @@ def test_the_injector_is_a_noop_without_a_config(tmp_path: Path) -> None:
         pytest.param(None, False, id="no_tier"),
     ],
 )
-@pytest.mark.parametrize("targets", [["va"], ["standin"], ["standin", "va"]])
-def test_the_write_posture_is_the_deployment_tier(
-    tier: str | None, armed: bool, targets: list[str]
-) -> None:
+def test_the_write_posture_is_the_deployment_tier(tier: str | None, armed: bool) -> None:
     section = {key: value for key, value in _CONTROL_SYSTEM.items() if key != "writes"}
     if tier is not None:
         section["writes"] = tier
-    assert _optimizer_write_posture({"targets": targets}, section) is armed
+    posture = drives_target_write_posture({"optimizer": {}}, section)
+    assert posture == {"optimizer": armed}
 
 
 # ── rendered compose ────────────────────────────────────────────────────────
@@ -156,7 +155,6 @@ def test_the_write_posture_is_the_deployment_tier(
 
 def _render(
     *,
-    targets: list[str],
     deployed: tuple[str, ...] = (),
     limits: bool = True,
     control_system: dict[str, Any] = _CONTROL_SYSTEM,
@@ -165,7 +163,7 @@ def _render(
     config: dict[str, Any] = {
         "project_name": "demo",
         "project_root": "/tmp/demo",
-        "services": {"optimizer": {"port": _PORT, "targets": targets, **block}},
+        "services": {"optimizer": {"port": _PORT, **block}},
         "deployment": {},
         "system": {"timezone": "UTC"},
         "deployed_services": ["optimizer", *deployed],
@@ -179,7 +177,7 @@ def _render(
 
 
 def test_the_job_store_is_internal_and_unpublished() -> None:
-    doc = _render(targets=["va"])
+    doc = _render()
     redis = doc["services"]["optimizer-redis"]
     assert redis["networks"] == ["optimizer-internal"]
     assert "ports" not in redis
@@ -193,23 +191,24 @@ def test_the_job_store_is_internal_and_unpublished() -> None:
 
 
 def test_the_service_publishes_its_port_on_loopback() -> None:
-    optimizer = _render(targets=["va"])["services"]["optimizer"]
+    optimizer = _render()["services"]["optimizer"]
     assert optimizer["ports"] == [f"127.0.0.1:{_PORT}:{_PORT}"]
     assert f"--port {_PORT}" in optimizer["command"][-1]
 
 
 def test_the_launch_token_has_no_default() -> None:
-    env = _render(targets=["va"])["services"]["optimizer"]["environment"]
+    env = _render()["services"]["optimizer"]["environment"]
     assert env["OPTIMIZER_LAUNCH_TOKEN"] == "${OPTIMIZER_LAUNCH_TOKEN}"
 
 
-def test_the_targets_reach_the_service() -> None:
-    env = _render(targets=["va", "standin"])["services"]["optimizer"]["environment"]
-    assert env["OPTIMIZER_TARGETS"] == "va,standin"
+def test_no_target_list_reaches_the_service() -> None:
+    """The session's switch and the machine a grant names are the guard, not a list."""
+    env = _render()["services"]["optimizer"]["environment"]
+    assert "OPTIMIZER_TARGETS" not in env
 
 
 def test_writes_are_made_under_the_optimizer_identity() -> None:
-    optimizer = _render(targets=["va"])["services"]["optimizer"]
+    optimizer = _render()["services"]["optimizer"]
     command = optimizer["command"][-1]
     assert f"--name {OPTIMIZER_CONTROL_IDENTITY}" in command
     assert "exec uvicorn osprey_optimizer.api.main:app" in command
@@ -217,7 +216,7 @@ def test_writes_are_made_under_the_optimizer_identity() -> None:
 
 
 def test_a_writing_tier_brings_the_limits_database_and_the_control_tree() -> None:
-    optimizer = _render(targets=["va"])["services"]["optimizer"]
+    optimizer = _render()["services"]["optimizer"]
     mounts = optimizer["volumes"]
     assert f"{_LIMITS_MOUNT['source']}:{_LIMITS_MOUNT['target']}:ro" in mounts
     assert "OSPREY_CONTROL_CONTEXT_TREE" in optimizer["environment"]
@@ -226,9 +225,7 @@ def test_a_writing_tier_brings_the_limits_database_and_the_control_tree() -> Non
 
 
 def test_a_read_only_tier_mounts_neither() -> None:
-    optimizer = _render(targets=["va"], control_system=_READ_ONLY_CONTROL_SYSTEM)["services"][
-        "optimizer"
-    ]
+    optimizer = _render(control_system=_READ_ONLY_CONTROL_SYSTEM)["services"]["optimizer"]
     assert not any("channel_limits" in m for m in optimizer["volumes"])
     assert "OSPREY_CONTROL_CONTEXT_TREE" not in optimizer["environment"]
     assert "OSPREY_WRITE_LEDGER_DIR" not in optimizer["environment"]
@@ -242,7 +239,7 @@ def test_a_writing_tier_binds_the_write_ledger_read_write_outside_var() -> None:
     """Under the tree bind a writer with no ledger directory has every write refused
     ``auth_unreadable``: the ledger comes with the tree, read-write, at a path
     outside the container's ``var/``."""
-    optimizer = _render(targets=["va"])["services"]["optimizer"]
+    optimizer = _render()["services"]["optimizer"]
     environment = optimizer["environment"]
     assert environment[LEDGER_DIR_ENV_VAR] == WRITE_LEDGER_CONTAINER_DIR
     assert "/var/" not in WRITE_LEDGER_CONTAINER_DIR
@@ -257,7 +254,7 @@ def test_a_writing_tier_binds_the_write_ledger_read_write_outside_var() -> None:
 
 
 def test_the_optimizer_is_the_holder_its_authorizations_name() -> None:
-    environment = _render(targets=["va"])["services"]["optimizer"]["environment"]
+    environment = _render()["services"]["optimizer"]["environment"]
     assert environment["OSPREY_AUDIT_IDENTITY"] == "optimizer"
 
 
@@ -278,7 +275,7 @@ def _probe(command: str, ledger: Path) -> subprocess.CompletedProcess[str]:
 def test_the_command_probes_the_ledger_and_warns_when_it_cannot_be_written(
     tmp_path: Path,
 ) -> None:
-    command = _render(targets=["va"])["services"]["optimizer"]["command"][-1]
+    command = _render()["services"]["optimizer"]["command"][-1]
     assert command.index("probe=") < command.index("exec uvicorn")
     writable = tmp_path / "ledger"
     writable.mkdir()
@@ -295,60 +292,56 @@ def test_the_command_probes_the_ledger_and_warns_when_it_cannot_be_written(
 
 
 def test_a_read_only_tier_runs_no_probe() -> None:
-    command = _render(targets=["va"], control_system=_READ_ONLY_CONTROL_SYSTEM)["services"][
-        "optimizer"
-    ]["command"][-1]
+    command = _render(control_system=_READ_ONLY_CONTROL_SYSTEM)["services"]["optimizer"]["command"][
+        -1
+    ]
     assert "probe=" not in command
 
 
 def test_the_environments_dir_is_mounted_read_only_when_set() -> None:
     # Rendered verbatim: the injector stores it compose-ready.
-    mounts = _render(targets=["va"], environments_dir="./optimizer/envs")["services"]["optimizer"][
-        "volumes"
-    ]
+    mounts = _render(environments_dir="./optimizer/envs")["services"]["optimizer"]["volumes"]
     assert "./optimizer/envs:/app/environments:ro" in mounts
 
 
 def test_the_service_runs_under_an_init_process() -> None:
     """Its connector-host children exit at once under a parent of PID 1, so uvicorn is not PID 1."""
-    assert _render(targets=["va"])["services"]["optimizer"]["init"] is True
+    assert _render()["services"]["optimizer"]["init"] is True
 
 
 def test_no_environments_dir_means_no_mount() -> None:
-    mounts = _render(targets=["va"])["services"]["optimizer"]["volumes"]
+    mounts = _render()["services"]["optimizer"]["volumes"]
     assert not any(m.endswith(":/app/environments:ro") for m in mounts)
 
 
 @pytest.mark.parametrize(
-    ("targets", "deployed", "waits_on"),
+    ("deployed", "waits_on"),
     [
-        pytest.param(["va"], ("virtual_accelerator",), {"virtual-accelerator"}, id="va"),
-        pytest.param(["standin"], ("live_standin",), {"live-standin"}, id="standin"),
-        pytest.param(["va"], ("live_standin",), set(), id="standin_deployed_not_driven"),
-        pytest.param(["va"], (), set(), id="nothing_co_deployed"),
+        pytest.param(("virtual_accelerator",), {"virtual-accelerator"}, id="va"),
+        pytest.param(("live_standin",), {"live-standin"}, id="standin"),
+        pytest.param(
+            ("virtual_accelerator", "live_standin"),
+            {"virtual-accelerator", "live-standin"},
+            id="both",
+        ),
+        pytest.param((), set(), id="nothing_co_deployed"),
     ],
 )
-def test_it_waits_only_on_the_machines_it_drives_and_that_are_deployed(
-    targets: list[str], deployed: tuple[str, ...], waits_on: set[str]
+def test_it_waits_on_every_co_deployed_machine(
+    deployed: tuple[str, ...], waits_on: set[str]
 ) -> None:
-    depends = _render(targets=targets, deployed=deployed)["services"]["optimizer"]["depends_on"]
+    depends = _render(deployed=deployed)["services"]["optimizer"]["depends_on"]
     assert set(depends) - {"optimizer-redis"} == waits_on
-
-
-@pytest.mark.parametrize("targets", [["live"], ["va", "live"], ["sim"]])
-def test_a_target_the_optimizer_may_not_drive_is_refused_at_render(targets: list[str]) -> None:
-    """The profile refuses them first; an edited config.yml must not slip past."""
-    with pytest.raises(DeploymentPreconditionError, match="services.optimizer.targets"):
-        _render(targets=targets)
 
 
 # ── owner under the tree bind ───────────────────────────────────────────────
 
 
-def test_the_optimizer_is_a_login_tiers_service() -> None:
+def test_the_optimizer_declares_the_drives_target_and_control_identity_roles() -> None:
     """Its container holds the control-context tree, so a write is judged by its
     owner's rung: with no ``login_tiers`` map every owner is ``owner_unknown``."""
-    assert "optimizer" in LOGIN_TIERS_SERVICES
+    for role in (SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY):
+        assert service_role({}, "optimizer", role)
 
 
 def test_the_staged_optimizer_config_carries_the_login_tiers_map(tmp_path: Path) -> None:
@@ -368,5 +361,5 @@ def test_the_staged_optimizer_config_carries_the_login_tiers_map(tmp_path: Path)
 def test_a_writing_tier_binds_the_tree_the_owner_rung_reads() -> None:
     """The map is read only under a bound tree; the tree is bound whenever the
     tier allows writes, which is when an owner is consulted at all."""
-    env = _render(targets=["va"])["services"]["optimizer"]["environment"]
+    env = _render()["services"]["optimizer"]["environment"]
     assert "OSPREY_CONTROL_CONTEXT_TREE" in env

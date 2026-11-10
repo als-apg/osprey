@@ -1901,6 +1901,30 @@ html[data-agent-surface="terminal"] #operator-container {
   color: var(--text-muted);
 }
 
+/* `/mcp`, which the chat answers itself: one row per MCP server. */
+.op-mcp-card {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.op-mcp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-md);
+}
+
+.op-mcp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
 /* ---- Live loader: the turn's status line ---- */
 
 .op-loader {
@@ -1945,6 +1969,54 @@ html[data-agent-surface="terminal"] #operator-container {
   width: 24px;
   height: 12px;
   overflow: visible;
+}
+
+/* Compacting: three lines fold into one and open again, the conversation being
+   summarised. Shown only in the loader's compacting mode. */
+.op-loader-compact {
+  display: none;
+  flex-shrink: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 12px;
+  height: 12px;
+}
+
+.op-loader[data-mode="compacting"] .op-loader-compact {
+  display: flex;
+}
+
+.op-loader-compact i {
+  display: block;
+  height: 2px;
+  background: currentColor;
+  animation: op-compact-fold 1.6s ease-in-out infinite; /* hygiene-allow-scale: decorative fold cadence */
+}
+
+.op-loader-compact i:first-child {
+  --op-fold: 4px;
+}
+
+.op-loader-compact i:last-child {
+  --op-fold: -4px;
+}
+
+@keyframes op-compact-fold {
+  0%,
+  15% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  50%,
+  65% {
+    transform: translateY(var(--op-fold, 0));
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 /* ---- Composer: one rounded surface holding the box and its toolbar ---- */
@@ -2184,6 +2256,7 @@ html[data-agent-surface="terminal"] #operator-container {
   .op-spin,
   .op-loader-bird path,
   .op-loader-bird.flying,
+  .op-loader-compact i,
   .op-taskbar-item[data-status="in_progress"] .op-taskbar-glyph .op-icon {
     animation: none;
   }

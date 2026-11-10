@@ -44,6 +44,7 @@ from osprey.services.ariel_search.models import (
     FacilityEntryCreateResult,
     SearchDiagnostic,
     SyncStatus,
+    with_sync_status,
 )
 from osprey.services.ariel_search.search._offload import SearchCallPool
 from osprey_connectors.logger import get_logger
@@ -1146,8 +1147,7 @@ class ARIELSearchService:
         now = datetime.now(UTC)
         source_system = adapter.source_system_name
 
-        # Determine sync status based on adapter type
-        is_local = source_system == "Generic JSON"
+        is_local = adapter.writes_local_only
         sync_status = SyncStatus.LOCAL_ONLY if is_local else SyncStatus.PENDING_SYNC
 
         # Optimistic local upsert; the service's sync_status is set last so no
@@ -1182,6 +1182,9 @@ class ARIELSearchService:
                 since = now - timedelta(minutes=5)
                 async for fetched_entry in adapter.fetch_entries(since=since):
                     if fetched_entry["entry_id"] == facility_entry_id:
+                        fetched_entry["metadata"] = with_sync_status(
+                            fetched_entry.get("metadata"), SyncStatus.SYNCED
+                        )
                         await self.repository.upsert_entry(fetched_entry)
                         sync_status = SyncStatus.SYNCED
                         entry = fetched_entry

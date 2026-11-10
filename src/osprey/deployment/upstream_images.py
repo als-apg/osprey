@@ -6,9 +6,12 @@ moves the reference onto the registry standing in for docker.io
 (``images.base_registry``), so a declared mirror reaches every image OSPREY
 pulls from Docker Hub.
 
-This module imports nothing from ``osprey``, so every module that names an
-upstream image can read it at import time.
+This module imports nothing from ``osprey`` but the stdlib-only
+:mod:`osprey.deployment.image_facts`, so every module that names an upstream
+image can read it at import time.
 """
+
+from osprey.deployment.image_facts import IMAGE_PYTHON
 
 #: The registry Docker Hub references name, spelled out or implied.
 DOCKER_HUB = "docker.io"
@@ -39,7 +42,9 @@ UPSTREAM_IMAGES = {
     # run``, and podman resolves an unqualified name through short-name
     # aliases or a prompt.
     "transcripts_copy": "docker.io/library/alpine:3.20",
-    "ci_python": "python:3.12-slim",
+    # The pipeline's render job runs `osprey build` on the images' own Python,
+    # which builds the deployment wheels the fit check judges against it.
+    "ci_python": f"python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim",
     "ci_docker": "docker:29",
     "ci_dind": "docker:29-dind",
     "ci_alpine": "alpine:3.23",

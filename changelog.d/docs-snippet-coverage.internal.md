@@ -1,0 +1,1 @@
+`scripts/docs/snippet_coverage.py` reports, per docs page, how many code blocks a test reads and where the untested ones are, and a docs test fails when a page's untested count grows past its baseline.

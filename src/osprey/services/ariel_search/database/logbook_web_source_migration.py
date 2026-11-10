@@ -23,7 +23,10 @@ renames nothing.
 from typing import TYPE_CHECKING
 
 from osprey.services.ariel_search.database.migrations import BaseMigration
-from osprey.services.ariel_search.entry_url import LOGBOOK_WEB_SOURCE_SYSTEM
+from osprey.services.ariel_search.entry_url import (
+    LEGACY_LOGBOOK_WEB_SOURCE_SYSTEM,
+    LOGBOOK_WEB_SOURCE_SYSTEM,
+)
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -32,7 +35,7 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 #: The value the compose sheet stored before it wrote ``NEW_SOURCE_SYSTEM``.
-OLD_SOURCE_SYSTEM = "ARIEL Web"
+OLD_SOURCE_SYSTEM = LEGACY_LOGBOOK_WEB_SOURCE_SYSTEM
 
 #: The value it writes now.
 NEW_SOURCE_SYSTEM = LOGBOOK_WEB_SOURCE_SYSTEM

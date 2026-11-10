@@ -256,6 +256,9 @@ class CIContext:
             the environment's link, so it is derived from the one origin
             authority rather than assembled here (see
             :func:`_environment_url`).
+        image_platform: The platform ``images.platform`` states, which the
+            facility-owned service images are built for; ``None`` builds them
+            for the runner's own.
         runs_verify_on_up: Whether ``osprey up`` runs the health check itself.
             True only with the web tier enabled — the post-up hook that runs
             ``scripts/verify.sh`` sits on the deploy's web-terminal branch, so
@@ -278,6 +281,7 @@ class CIContext:
     external_projects: list[dict[str, str]] = field(default_factory=list)
     environment_url: str | None = None
     runs_verify_on_up: bool = False
+    image_platform: str | None = None
 
     def upstream_image(self, name: str) -> str:
         """The upstream image catalogue's entry *name*, as the pipeline pulls it."""
@@ -540,6 +544,8 @@ def build_ci_context(
     Returns:
         The context :data:`CI_TEMPLATES` renders against.
     """
+    from .build_profile_load import config_image_platform
+
     registry_url = deploy.registry.url if deploy.registry else None
     return CIContext(
         facility_name=str(profile.get("name", repo_name)),
@@ -564,6 +570,7 @@ def build_ci_context(
         ],
         environment_url=_environment_url(profile),
         runs_verify_on_up=_web_terminals(profile) is not None,
+        image_platform=config_image_platform(profile.get("config")),
     )
 
 

@@ -53,6 +53,9 @@ __all__ = [
     "subsection",
     "DEFAULT_CA_PORT",
     "DEFAULT_PVA_PORT",
+    "GATEWAYS_MISSING",
+    "GATEWAYS_NONE_DECLARED",
+    "GATEWAYS_ROWS",
     "MODE_ADDR_LIST",
     "MODE_NAME_SERVER",
     "NEVER_LIVE_TYPES",
@@ -64,6 +67,7 @@ __all__ = [
     "TargetDerivation",
     "Verification",
     "connector_block",
+    "declared_gateways",
     "derive_endpoints",
     "live_collision",
     "readonly_gateway_refusal",
@@ -88,6 +92,13 @@ MODE_ADDR_LIST = "addr_list"
 #: is passed to p4p without one, so its row carries ``None``.
 DEFAULT_CA_PORT = 5064
 DEFAULT_PVA_PORT = 5075
+
+#: How a connector block spells its ``gateways`` table, as
+#: :func:`declared_gateways` reads it: an explicit ``gateways: []`` (nothing to
+#: probe), no table anybody filled in, or rows.
+GATEWAYS_NONE_DECLARED = "none_declared"
+GATEWAYS_MISSING = "missing"
+GATEWAYS_ROWS = "rows"
 
 
 @dataclass(frozen=True)
@@ -118,10 +129,12 @@ class TargetDerivation:
     (:func:`~osprey_connectors.types.connector_transport`), so a child that
     built the other venue of the simulator is refused by what it echoes.
 
-    ``declares_no_endpoints`` is true only for a block that spells an explicit
-    empty ``gateways: []``: the facility saying this target has nothing to
-    probe. A missing table is not that statement — a forgotten table must never
-    read as a direct connection — so it leaves this false.
+    ``gateways_declared`` is :func:`declared_gateways` of the block: only an
+    explicit empty ``gateways: []`` is :data:`GATEWAYS_NONE_DECLARED`, the
+    facility saying this target has nothing to probe. A missing table is not that
+    statement — a forgotten table must never read as a direct connection — so it
+    is :data:`GATEWAYS_MISSING`. The simulator served in process reads no block,
+    and keeps the default.
     """
 
     target: str
@@ -129,7 +142,12 @@ class TargetDerivation:
     endpoints: dict[str, Endpoint]
     selected_role: str
     transport: str | None
-    declares_no_endpoints: bool = False
+    gateways_declared: str = GATEWAYS_MISSING
+
+    @property
+    def declares_no_endpoints(self) -> bool:
+        """Whether the block spells ``gateways: []``, and so has nothing to probe."""
+        return self.gateways_declared == GATEWAYS_NONE_DECLARED
 
     def selected_endpoint(self) -> Endpoint | None:
         """The row the child will configure, or ``None`` when config has none."""
@@ -317,17 +335,23 @@ def derive_endpoints(
             gateways, writes_enabled=bool(writes_enabled), readonly_run=bool(readonly_run)
         ),
         transport=transport,
-        declares_no_endpoints=_declares_no_endpoints(block),
+        gateways_declared=declared_gateways(block),
     )
 
 
-def _declares_no_endpoints(block: Any) -> bool:
-    """Whether a connector *block* spells ``gateways: []``, and so has nothing to probe.
+def declared_gateways(block: Any) -> str:
+    """How a connector *block* spells its ``gateways`` table: the one reader of that fact.
 
-    Only the explicit empty list counts. A missing table, ``null`` or ``{}``
-    reads as a table nobody filled in, never as "nothing to probe".
+    Only the explicit empty list is :data:`GATEWAYS_NONE_DECLARED`. A block that
+    is not a mapping, or whose table is missing, ``null``, ``{}`` or anything but
+    a non-empty mapping, is :data:`GATEWAYS_MISSING` — a table nobody filled in,
+    never "nothing to probe". A non-empty mapping is :data:`GATEWAYS_ROWS`.
     """
-    return isinstance(block, dict) and block.get("gateways") == []
+    if not isinstance(block, dict):
+        return GATEWAYS_MISSING
+    if block.get("gateways") == []:
+        return GATEWAYS_NONE_DECLARED
+    return GATEWAYS_ROWS if subsection(block, "gateways") else GATEWAYS_MISSING
 
 
 # ---------------------------------------------------------------------------
