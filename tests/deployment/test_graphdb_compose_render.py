@@ -23,6 +23,7 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.deployment.compose_generator import resolve_upstream_images
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 GRAPHDB_TEMPLATE = "services/graphdb/docker-compose.yml.j2"
@@ -46,6 +47,7 @@ def _render(**graphdb_block: object) -> dict:
         # reads its host publishes as ``<key> | default(osprey_ports.<slot>,
         # true)``, so a context without the table renders nothing.
         osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+        upstream_images=resolve_upstream_images({}),
     )
     return yaml.safe_load(rendered)
 

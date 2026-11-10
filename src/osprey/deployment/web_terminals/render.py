@@ -48,8 +48,10 @@ from osprey.deployment.compose_generator import (
     WRITE_REQUESTS_CONTAINER_DIR,
     configured_ariel_mirror_path,
     guarded_run_relpath,
+    hub_image,
     repo_identity,
     repo_relative_mount_source,
+    resolve_base_registry,
     resolve_project_name,
     resolve_repo_root,
     simulated_target_configured,
@@ -1582,11 +1584,12 @@ def render_web_terminals(
         # separator the parser splits on is spelled in one place.
         "perimeter_deny_ports": ",".join(str(port) for port in perimeter_deny_ports),
         "bind_host": _LOOPBACK_BIND_HOST,
-        # Read defensively (as everywhere else in this module); the template
-        # carries the same default, so an absent/blank value still renders the
-        # public tag. Facilities whose images all come from a private registry
-        # override this so the nginx image is pullable too.
-        "nginx_image": web_terminals.get("nginx_image") or _DEFAULT_NGINX_IMAGE,
+        # Read defensively (as everywhere else in this module). An absent/blank
+        # value renders the public tag, moved onto the site's Docker Hub mirror
+        # when ``images.base_registry`` declares one; a named image is rendered
+        # as named.
+        "nginx_image": web_terminals.get("nginx_image")
+        or hub_image(_DEFAULT_NGINX_IMAGE, resolve_base_registry(root)),
         # The auth sidecar's service (image, listen port, session lifetime, the
         # env-var names its OIDC credentials arrive under) is rendered from the
         # same parsed stanza the nginx seam reads, so the two ends of the

@@ -64,6 +64,7 @@ from osprey.deployment.compose_generator import (
     PROJECT_LABEL,
     PROJECT_ROOT_LABEL,
     REPO_ID_LABEL,
+    SITE_IMAGE_AXES,
 )
 
 _GOLDEN_DIR = Path(__file__).parent / "render_defaults"
@@ -229,6 +230,29 @@ def _render_defaults() -> dict[str, str]:
         return _render_templates(_default_context(repo_root), TEMPLATES)
 
 
+@contextmanager
+def _image_axes_unset() -> Iterator[None]:
+    """Render from the config alone, never from the ambient shell.
+
+    Every image axis, the two OSPREY-image ones and every
+    :data:`~osprey.deployment.compose_generator.SITE_IMAGE_AXES` member,
+    resolves its environment variable ahead of the config key. A developer who
+    exported one would render different bytes than CI does: an exported
+    ``OSPREY_BASE_REGISTRY`` moves every pulled image's default.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        for name in ("OSPREY_IMAGE_REGISTRY", "OSPREY_IMAGE_TAG", *SITE_IMAGE_AXES):
+            patch.delenv(name, raising=False)
+        yield
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _neutral_image_axis_environment() -> Iterator[None]:
+    """Hold :func:`_image_axes_unset` open for the whole module."""
+    with _image_axes_unset():
+        yield
+
+
 @pytest.fixture(scope="module")
 def rendered() -> dict[str, str]:
     """Every default render, once for the module."""
@@ -340,7 +364,9 @@ def test_goldens_leave_the_generated_labels_to_the_override() -> None:
 def _regenerate() -> None:
     """Overwrite every golden from today's templates. See the update discipline."""
     _GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
-    for name, text in sorted(_render_defaults().items()):
+    with _image_axes_unset():
+        renders = _render_defaults()
+    for name, text in sorted(renders.items()):
         (_GOLDEN_DIR / name).write_text(text, encoding="utf-8")
         print(f"wrote {_GOLDEN_DIR / name}")
 

@@ -504,6 +504,44 @@ def config_port_base(config: Any) -> int:
     )
 
 
+def config_base_registry(config: Any) -> str:
+    """The registry standing in for docker.io a profile's flat ``config:`` block resolves to.
+
+    The block's ``images`` keys, folded as :func:`config_port_base` folds the
+    ``deployment`` ones and resolved by
+    :func:`osprey.deployment.compose_generator.resolve_base_registry`, so the
+    environment override and the trailing-``/`` drop are the axis's own.
+
+    Args:
+        config: A profile's ``config:`` block, or anything else; a
+            non-mapping declares no registry.
+
+    Returns:
+        The registry, or ``""`` when the profile declares none.
+
+    Raises:
+        BuildProfileError: If the ``images`` keys carry a value no image
+            reference can.
+    """
+    from osprey.deployment.compose_generator import resolve_base_registry
+
+    from .build_profile_emit import effective_config_subtree
+
+    if not isinstance(config, Mapping):
+        config = {}
+    images_keys = {
+        key: value
+        for key, value in config.items()
+        if key == "images" or (isinstance(key, str) and key.startswith("images."))
+    }
+    try:
+        return str(
+            resolve_base_registry({"images": effective_config_subtree(images_keys, ("images",))})
+        )
+    except ValueError as exc:
+        raise BuildProfileError(f"The profile's config: block: {exc}") from exc
+
+
 def _parse_optimizer(raw: Any, base: int) -> OptimizerConfig | None:
     """Parse the ``optimizer:`` block, or ``None`` when the profile has none.
 
@@ -1961,7 +1999,9 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         teams_bridge=teams_bridge,
         slack_bridge=slack_bridge,
         va_archiver=parse_va_archiver_block(raw, base=port_base),
-        agent_record=parse_agent_record_block(raw, base=port_base),
+        agent_record=parse_agent_record_block(
+            raw, base=port_base, base_registry=config_base_registry(raw.get("config"))
+        ),
         watchdogs=_block(raw, "watchdogs"),
         provenance=provenance,
     )

@@ -301,11 +301,15 @@ keys:
     evidence: '"OSPREY_BASE_REGISTRY": "base_registry"'
     note: >-
       Hidden key, commented in the framework template and unset in the
-      presets. The registry path every shipped recipe pulls its base image
-      from, passed as the OSPREY_BASE_REGISTRY build arg to the project,
-      render and sidecar builds and to every compose-built service. Unset, the
-      recipes' own default docker.io/library stands. A trailing slash is
-      dropped. OSPREY_BASE_REGISTRY overrides it in the environment.
+      presets. The registry that stands in for docker.io. Every shipped recipe
+      builds FROM `<it>/library/<image>`, and the pulled upstream defaults
+      (postgres, mongodb, graphdb, the Redis pair, ClickHouse, nginx, the
+      transcripts copy) and the scaffolded pipeline's job images are rendered
+      `<it>/<Docker Hub path>`; a per-image override wins unchanged. Unset, the
+      recipes' default docker.io stands and rendered references are spelled
+      as Docker Hub names them. The mirror must keep Docker Hub's paths. A
+      trailing slash is dropped. OSPREY_BASE_REGISTRY overrides it in the
+      environment (not in the scaffolded pipeline, which reads the profile).
     default: ''
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'

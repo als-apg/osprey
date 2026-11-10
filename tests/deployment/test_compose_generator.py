@@ -51,6 +51,7 @@ from osprey.deployment.compose_generator import (
     guarded_run_relpath,
     prepare_compose_files,
     resolve_project_name,
+    resolve_upstream_images,
     resolve_user_volume_names,
     simulator_log_mount_sources,
 )
@@ -412,6 +413,7 @@ def _dispatcher_context(**service_overrides: object) -> dict:
         "system": {"timezone": "UTC"},
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_images": _image_defaults(),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
     }
@@ -1741,6 +1743,7 @@ def _render_bluesky_template(
         "deployed_services": deployed,
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_images": _image_defaults(),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
         **_control_identity_context(),
@@ -2758,6 +2761,7 @@ def _render_postgres_template(project_name: str) -> str:
             "project_root": f"/r/{project_name}",
         },
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
 
@@ -2813,6 +2817,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
         system={"timezone": "UTC"},
         osprey_labels={"project_name": "p", "project_root": "/r/p"},
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
     svc = yaml.safe_load(rendered)["services"]["postgresql"]
@@ -2849,6 +2854,7 @@ def _render_mongodb_template(project_name: str = "proj-a", **mongodb_config: obj
             "project_root": f"/r/{project_name}",
         },
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
 
@@ -3259,6 +3265,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "project_root": f"/r/{project_name}",
         },
         "osprey_images": _image_defaults(project_name),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "",
         "osprey_env_present": False,
         "deployed_services": [],
@@ -4525,6 +4532,7 @@ def _render_bridge_template(
             "project_root": f"/r/{project_name}",
         },
         osprey_images=_image_defaults(project_name),
+        upstream_images=resolve_upstream_images({}),
         osprey_ports=_layout_ports_for(),
         osprey_version="",
         osprey_env_present=env_present,
@@ -8339,6 +8347,64 @@ class TestStageSiteImageArgsForContext:
         )
 
         assert args == {"OSPREY_SITE_CA": SITE_CA_CONTEXT_FILENAME}
+
+
+class TestHubImage:
+    """A Docker Hub reference, moved onto the registry that stands in for docker.io.
+
+    The mirror keeps Docker Hub's paths, so an official image gains the
+    ``library/`` namespace Docker Hub files it under and a namespaced image keeps
+    its own; a reference naming another registry is not Docker Hub's to move.
+    """
+
+    MIRROR = "mirror.example.org/dockerhub"
+
+    @staticmethod
+    def _hub_image(reference: str, base_registry: str) -> str:
+        from osprey.deployment.compose_generator import hub_image
+
+        return hub_image(reference, base_registry)
+
+    def test_an_official_image_gains_library(self) -> None:
+        assert (
+            self._hub_image("redis:7.4-alpine", self.MIRROR)
+            == f"{self.MIRROR}/library/redis:7.4-alpine"
+        )
+
+    def test_a_namespaced_image_keeps_its_path(self) -> None:
+        assert (
+            self._hub_image("pgvector/pgvector:pg16", self.MIRROR)
+            == f"{self.MIRROR}/pgvector/pgvector:pg16"
+        )
+
+    def test_a_docker_io_reference_is_rebased(self) -> None:
+        assert (
+            self._hub_image("docker.io/library/alpine:3.20", self.MIRROR)
+            == f"{self.MIRROR}/library/alpine:3.20"
+        )
+        assert (
+            self._hub_image("docker.io/clickhouse/clickhouse-server:26.8", self.MIRROR)
+            == f"{self.MIRROR}/clickhouse/clickhouse-server:26.8"
+        )
+
+    @pytest.mark.parametrize(
+        "reference",
+        [
+            "ghcr.io/bluesky/tiled:0.2.18",
+            "registry.example.org:5000/team/image:1",
+            "localhost/image:1",
+            "localhost:5000/image:1",
+        ],
+    )
+    def test_another_registry_is_left_alone(self, reference: str) -> None:
+        assert self._hub_image(reference, self.MIRROR) == reference
+
+    @pytest.mark.parametrize(
+        "reference",
+        ["redis:7.4-alpine", "pgvector/pgvector:pg16", "docker.io/library/alpine:3.20"],
+    )
+    def test_no_base_registry_leaves_every_reference_unchanged(self, reference: str) -> None:
+        assert self._hub_image(reference, "") == reference
 
 
 class TestEnsureGroupSharedDirExact:

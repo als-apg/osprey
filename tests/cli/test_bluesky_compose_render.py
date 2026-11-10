@@ -25,6 +25,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
+from osprey.deployment.compose_generator import resolve_upstream_images
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
@@ -160,6 +161,7 @@ def _render(
             "project_root": "/tmp/proj",
         },
         "osprey_images": _image_defaults("proj"),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
         "deployment": {},
@@ -864,6 +866,7 @@ def test_redis_image_honours_a_config_override() -> None:
                     "project_root": "/tmp/proj",
                 },
                 "osprey_images": _image_defaults("proj"),
+                "upstream_images": resolve_upstream_images({}),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],
@@ -1012,6 +1015,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                     "project_root": "/tmp/proj",
                 },
                 "osprey_images": _image_defaults("proj"),
+                "upstream_images": resolve_upstream_images({}),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],
@@ -1038,6 +1042,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                     "project_root": "/tmp/proj",
                 },
                 "osprey_images": _image_defaults("proj"),
+                "upstream_images": resolve_upstream_images({}),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],

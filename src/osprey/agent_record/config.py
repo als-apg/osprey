@@ -214,7 +214,7 @@ def parse_memory(value: Any, key: str) -> int:
 
 
 def parse_agent_record_block(
-    raw: Mapping[str, Any], *, base: int | None = None
+    raw: Mapping[str, Any], *, base: int | None = None, base_registry: str | None = None
 ) -> AgentRecordConfig:
     """Parse a profile's ``agent_record:`` block into its typed shape.
 
@@ -224,6 +224,10 @@ def parse_agent_record_block(
             An unspelled ``port`` is filled from it, so the service lands in
             this deployment's own port block. ``None`` keeps the dataclass
             default, the slot at the layout's default base.
+        base_registry: The registry standing in for docker.io the deployment
+            resolved from ``images.base_registry``. An unspelled
+            ``clickhouse.image`` is pulled from it. ``None`` resolves it from
+            ``raw`` itself, the shape a rendered config carries.
 
     Returns:
         The parsed config. A profile with no block gets the defaults: every
@@ -235,12 +239,19 @@ def parse_agent_record_block(
             not define, or gives one the wrong type — every such problem in one
             message. Range and value rules are :func:`agent_record_errors`'.
     """
+    # Imported here: compose_generator imports this module at import time.
+    from osprey.deployment.compose_generator import hub_image, resolve_base_registry
+
+    if base_registry is None:
+        base_registry = resolve_base_registry(raw)
+    clickhouse_image = hub_image(DEFAULT_CLICKHOUSE_IMAGE, base_registry)
     block = raw.get(AGENT_RECORD_BLOCK)
-    port_default: dict[str, Any] = (
+    defaults: dict[str, Any] = (
         {} if base is None else {"port": default_port("agent_record", base=base)}
     )
+    defaults["clickhouse"] = ClickHouseConfig(image=clickhouse_image)
     if block is None:
-        return AgentRecordConfig(**port_default)
+        return AgentRecordConfig(**defaults)
     if not isinstance(block, Mapping):
         raise BuildProfileError(
             f"Profile 'agent_record' must be a mapping (got {type(block).__name__})"
@@ -249,7 +260,7 @@ def parse_agent_record_block(
     problems: list[str] = []
     _reject_unknown_keys(block, _KNOWN_AGENT_RECORD_KEYS, AGENT_RECORD_BLOCK, problems)
 
-    values: dict[str, Any] = dict(port_default)
+    values: dict[str, Any] = dict(defaults)
     if "backend" in block:
         values["backend"] = _parse_str(block["backend"], "backend", problems)
     for key in ("retention_days", "port"):
@@ -268,7 +279,7 @@ def parse_agent_record_block(
                 f"'readers' must be a list of reader entries (`- name: <who>`), got {stated!r}."
             )
     if block.get("clickhouse") is not None:
-        values["clickhouse"] = _parse_clickhouse(block["clickhouse"], problems)
+        values["clickhouse"] = _parse_clickhouse(block["clickhouse"], clickhouse_image, problems)
 
     if problems:
         raise BuildProfileError(
@@ -639,12 +650,12 @@ def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
-def _parse_clickhouse(value: Any, problems: list[str]) -> ClickHouseConfig:
+def _parse_clickhouse(value: Any, default_image: str, problems: list[str]) -> ClickHouseConfig:
     if not isinstance(value, Mapping):
         problems.append(f"'clickhouse' must be a mapping (got {type(value).__name__}).")
-        return ClickHouseConfig()
+        return ClickHouseConfig(image=default_image)
     _reject_unknown_keys(value, _KNOWN_CLICKHOUSE_KEYS, "agent_record.clickhouse", problems)
-    values: dict[str, Any] = {}
+    values: dict[str, Any] = {"image": default_image}
     if "image" in value:
         values["image"] = _parse_str(value["image"], "clickhouse.image", problems)
     if "memory" in value:

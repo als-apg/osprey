@@ -54,13 +54,14 @@ deployment, which is why none of them is a config key.
        ``PIP_EXTRA_INDEX_URL``, ``OSPREY_BASE_REGISTRY``
      - The site's build settings — a CA bundle for a TLS-intercepting proxy, a
        proxy bypass list, the package indexes pip resolves from, and the
-       registry path the base images are pulled from — for one build,
+       registry standing in for docker.io — for one build,
        outranking ``images.site_ca`` / ``images.pip_no_proxy`` /
        ``images.pip_index_url`` / ``images.pip_extra_index_url`` /
        ``images.base_registry`` exactly as the two image axes outrank
        ``images.registry`` / ``images.tag``. Whichever layer wins is handed to
        every image ``osprey up`` builds: the project image, each web-terminal
-       image, the login sidecar and the managed service images — see
+       image, the login sidecar and the managed service images, and every
+       Docker Hub image it pulls — see
        :doc:`/how-to/deploy-project/project-image`.
    * - ``OSPREY_OFFLINE``
      - ``1`` switches the web interfaces from CDN-hosted libraries to the local
