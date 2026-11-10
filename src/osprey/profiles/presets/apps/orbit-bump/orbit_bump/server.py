@@ -58,6 +58,7 @@ from osprey.apps.sdk import (
     bind_owner,
     canonical_json,
     configure_app,
+    launch_token_env,
     owner_from_header,
     owner_target,
     prewrite_verdict,
@@ -73,9 +74,6 @@ from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from osprey_connectors.types import resolve_target
 
 _log = logging.getLogger(__name__)
-
-#: Where the deployment hands this application its launch token.
-LAUNCH_TOKEN_ENV = APP_NAME.upper().replace("-", "_") + "_LAUNCH_TOKEN"
 
 #: The panel's state.
 STATE_ROUTE = "/api/state"
@@ -1116,7 +1114,7 @@ def create_app(
 
     @app.post(APPLY_ROUTE)
     async def apply(body: ApplyRequest, request: Request) -> dict[str, Any]:
-        verify_launch_token(request.headers.get(LAUNCH_TOKEN_HEADER), LAUNCH_TOKEN_ENV)
+        verify_launch_token(request.headers.get(LAUNCH_TOKEN_HEADER), launch_token_env())
         owner = owner_of(request)
         target = target_of(owner)
         stance = posture(target, owner)

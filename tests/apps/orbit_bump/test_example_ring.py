@@ -22,12 +22,11 @@ import yaml
 pytest.importorskip("at")
 
 from fastapi.testclient import TestClient
-from orbit_bump import ring
+from orbit_bump import APP_NAME, ring
 from orbit_bump.plans import APPLIED, PARTIALLY_APPLIED, READY
 from orbit_bump.server import (
     APPLY_ROUTE,
     COMPUTE_ROUTE,
-    LAUNCH_TOKEN_ENV,
     STATE_ROUTE,
     create_app,
 )
@@ -35,6 +34,7 @@ from orbit_bump.solver import AUTO, select_correctors
 from starlette.middleware import Middleware
 
 from osprey.apps import sdk as real_sdk
+from osprey.apps.manifest import launch_token_env
 from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
 from osprey.interfaces.common_middleware import WebAuthMiddleware
@@ -205,7 +205,8 @@ def deployment(va_render: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     state_dir_under(root).mkdir(parents=True, exist_ok=True)
     monkeypatch.delenv(POSTURE_SESSION_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
-    monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
+    monkeypatch.setenv("OSPREY_APP_NAME", APP_NAME)
+    monkeypatch.setenv(launch_token_env(APP_NAME), TOKEN)
     monkeypatch.chdir(tmp_path)
     reset_config_cache()
     write_control_context(posture_store.agent_data_root(), "va", 1, switch={"va": "allowed"})
