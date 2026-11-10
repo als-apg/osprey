@@ -18,9 +18,14 @@ import pytest
 import yaml
 from starlette.websockets import WebSocketDisconnect
 
-from osprey.interfaces.web_terminal.app import TERMINAL_REFUSAL, resolve_terminal_offered
+from osprey.interfaces.web_terminal.config_view import TERMINAL_REFUSAL, TerminalConfigView
 from osprey.interfaces.web_terminal.routes.websocket import WS_CLOSE_TERMINAL_OFF
 from tests.interfaces.web_terminal._started_app import terminal_client
+
+
+def resolve_terminal_offered(config_file):
+    """``web.terminal`` as the lifespan reads it."""
+    return TerminalConfigView(config_file).flag("web.terminal", True)
 
 
 class TestResolveTerminalOffered:

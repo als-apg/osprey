@@ -5,7 +5,7 @@ render — derives from the profile's ``project_name``, never from the folder th
 checkout happens to sit in. These tests pin the four places that holds:
 
 * the profile model accepts only compose's own spelling of the name;
-* every render's source is its file in ``tiers/`` or ``apps/``, and the build
+* every render's source is its file in ``tiers/``, and the build
   derives each ``project``/``project_path`` of the render projection through
   one helper;
 * ``osprey build`` refuses a profile with no name, or one spelling the
@@ -40,11 +40,10 @@ _CATALOG = {"modules.web_terminals": {"enabled": True}}
 
 @pytest.fixture
 def layer_repo(tmp_path: Path) -> Path:
-    """A repo holding one tier and one app file, the sources of two renders."""
+    """A repo holding two login files, the sources of two renders."""
     (tmp_path / "tiers").mkdir()
     (tmp_path / "tiers" / "readonly.yml").write_text("name: Read-Only\n", encoding="utf-8")
-    (tmp_path / "apps").mkdir()
-    (tmp_path / "apps" / "logbook.yml").write_text("name: Logbook\n", encoding="utf-8")
+    (tmp_path / "tiers" / "logbook.yml").write_text("name: Logbook\nlists: own\n", encoding="utf-8")
     return tmp_path
 
 
@@ -100,10 +99,10 @@ class TestTheRenderCatalog:
         )
 
     def test_derived_keys_cover_build_profile_entries_only(self, layer_repo):
-        """One projection entry per tier and app file, and nothing else."""
+        """One projection entry per login file, and nothing else."""
         assert derived_renders(_CATALOG, "demo", layer_repo) == {
             "modules.web_terminals.renders.logbook": {
-                "kind": "app",
+                "kind": "tier",
                 "project": "demo-logbook",
                 "project_path": "build/demo-logbook",
             },
@@ -127,9 +126,7 @@ class TestTheRenderCatalog:
         config = {**_CATALOG, f"modules.web_terminals.renders.readonly.{key}": "x"}
         (error,) = render_key_errors(config)
         assert "modules.web_terminals.renders is written by the build" in error
-        assert "derives every entry from the files in tiers/ and apps/ and from project_name" in (
-            error
-        )
+        assert "derives every entry from the login files in tiers/ and from project_name" in (error)
         assert "Delete modules.web_terminals.renders from profile.yml" in error
 
     def test_a_profile_spelling_no_render_passes(self):

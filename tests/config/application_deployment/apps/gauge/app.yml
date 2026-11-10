@@ -1,0 +1,38 @@
+name: gauge
+containers:
+  gauge:
+    runtime: osprey
+    command: [python, -m, gauge_app.server]
+    health: /health
+    drives_target: true
+    control_identity: true
+    state: /var/gauge
+    env: [GAUGE_TOKEN]
+panel:
+  label: Gauge
+  container: gauge
+  launch_token: true
+  read_timeout_s: 30
+  agent_routes:
+    - [GET, /api/state]
+    - [POST, /api/set]
+  roster_grant:
+    single_user_alias: true
+tools:
+  module: gauge_app.tools
+  shown_when: panel
+  read: [gauge_read]
+  approval:
+    - tool: gauge_set
+      prompt: Set the gauge
+      state_path: /api/state
+      display_lines_key: lines
+      bind:
+        state_fields:
+          - {field: approved_setpoint, key: setpoint}
+        input_digests:
+          - {field: approved_inputs, over: [value]}
+      require:
+        all_of: [approved_target, approved_inputs]
+        one_of:
+          - [approved_setpoint]

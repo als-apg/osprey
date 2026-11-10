@@ -62,6 +62,10 @@ safety-limits enforcement on all write operations.
   The target belongs to the deployment, so every session on it moves too (requires human
   approval).
 
+An application's write tools take the same path: they enter the gate as their server's
+``writes:`` list, the switch's position decides each call, and no per-tool approval policy exists
+for them. See :doc:`/how-to/apps/index`.
+
 
 Channel Finding
 ---------------
@@ -420,9 +424,8 @@ loopback, or ``OPTIMIZER_URL`` when that is set.
 
 The server holds no launch token and cannot start a run: a person starts
 every run. A tool that reads a machine (``environment_status``,
-``read_observables``, ``initial_bounds``) asks about the session's current
-control target unless it is given a ``target``; the optimizer serves only the
-targets its profile lists (``va`` and ``standin`` today), and refuses any other.
+``read_observables``, ``initial_bounds``) asks about the session's control
+target, as every app does.
 
 **Tools:**
 

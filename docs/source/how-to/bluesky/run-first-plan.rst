@@ -119,7 +119,8 @@ Other shipped plans bring their own views too:
 - ``orbit_bump_sweep`` draws the bump itself: the orbit shift across the BPMs
   at each step of the profile. The shift is displaced where you asked for it
   and back on the reference where the bump closes. The residual against its
-  tolerance band is drawn under it.
+  tolerance band is drawn under it. The sweep measures; to set one bump and
+  leave it, use the :doc:`orbit bump app </how-to/apps/orbit-bump>`.
 
 A short note above the plots says where the data came from and whether it is
 still arriving. While the plan runs, it reads *live data · still filling in*.

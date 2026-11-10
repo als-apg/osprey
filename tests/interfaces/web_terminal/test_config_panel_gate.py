@@ -46,7 +46,7 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import (
+from osprey.interfaces.web_terminal.config_view import (
     PrivilegeGates,
     coerce_config_flag,
     resolve_privilege_gates,
@@ -456,7 +456,7 @@ class TestResolvePrivilegeGates:
             record
             for record in caplog.records
             if record.levelno == logging.ERROR
-            and record.name == "osprey.interfaces.web_terminal.app"
+            and record.name == "osprey.interfaces.web_terminal.config_view"
         ]
         assert len(errors) == 1
         message = errors[0].getMessage()
@@ -487,30 +487,25 @@ class TestResolvePrivilegeGates:
 # ---- Startup: the lifespan resolves the key once, onto app.state ----
 
 
+#: A render every raw reader in the lifespan parses but the deploy's loader
+#: refuses (a connector call bound still spelled ``timeout``): the gates' reader
+#: answers it as unreadable while the rest of start-up carries on.
+UNREADABLE_RENDER = "control_system:\n  connector:\n    epics:\n      timeout: 5\n"
+
+
 def _started_app(
     workspace_dir, configured, *, raises=False, no_config_file=False, monkeypatch=None
 ):
     """Run ``create_app``'s lifespan with *configured* as the key's value.
 
     ``configured`` of ``None`` omits the key, exercising the absent-key path;
-    ``raises=True`` makes the privilege read blow up, which is the
+    ``raises=True`` writes :data:`UNREADABLE_RENDER`, which is the
     unreadable-config path. The app is handed a real ``config.yml`` under the
-    test's tmp dir, because the gates answer out of the file the lifespan
-    resolved. ``no_config_file=True`` hands it none and leaves neither
-    ``CONFIG_FILE`` nor a ``config.yml`` in the working directory to find
-    (it needs *monkeypatch*). ``get_config_value`` is patched at its definition
-    site because the reader imports it inside the function; every other key it
-    reads falls through to the default the caller passed.
+    test's tmp dir carrying the key, because the gates answer out of the file
+    the lifespan resolved. ``no_config_file=True`` hands it none and leaves
+    neither ``CONFIG_FILE`` nor a ``config.yml`` in the working directory to
+    find (it needs *monkeypatch*).
     """
-
-    def fake_get_config_value(key, default=None, *args, **kwargs):
-        if key == CONFIG_PANEL_KEY:
-            if raises:
-                raise OSError("config.yml is unreadable")
-            if configured is not None:
-                return configured
-        return default
-
     root = workspace_dir.parent
     if no_config_file:
         empty = root / "empty"
@@ -520,13 +515,15 @@ def _started_app(
         config_path = None
     else:
         config_path = root / "config.yml"
-        config_path.write_text(yaml.safe_dump({"project_name": "config-panel-gate"}))
+        if raises:
+            config_path.write_text(UNREADABLE_RENDER)
+        else:
+            document: dict = {"project_name": "config-panel-gate"}
+            if configured is not None:
+                document["web"] = {"config_panel": {"enabled": configured}}
+            config_path.write_text(yaml.safe_dump(document))
 
-    with terminal_client(
-        workspace_dir,
-        patch("osprey_connectors.config.get_config_value", fake_get_config_value),
-        config_path=config_path,
-    ) as client:
+    with terminal_client(workspace_dir, config_path=config_path) as client:
         yield client
 
 
@@ -589,11 +586,15 @@ def test_lifespan_keeps_the_defaults_when_no_config_file_exists(workspace_dir, m
         next(generator, None)
 
 
-def test_lifespan_reads_the_terminal_gate_apart_from_the_config_panel(workspace_dir):
+def test_lifespan_cosmetic_flags_stay_open_on_an_unreadable_config(workspace_dir):
+    """Display settings keep their defaults; the terminal is a gate and closes."""
+    from osprey.interfaces.web_terminal.app import DEFAULT_TOUR_POLICY
+
     generator = _started_app(workspace_dir, None, raises=True)
     client = next(generator)
     try:
         assert client.app.state.config_panel_enabled is False
-        assert client.app.state.web_terminal_offered is True
+        assert client.app.state.web_tour_policy == DEFAULT_TOUR_POLICY
+        assert client.app.state.web_terminal_offered is False
     finally:
         next(generator, None)
