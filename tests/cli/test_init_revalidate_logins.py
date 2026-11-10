@@ -126,6 +126,7 @@ def test_a_login_in_apps_whose_tiers_name_is_taken_is_left_for_the_operator(
     tmp_path: Path,
 ) -> None:
     root = build_exemplar_repo(tmp_path / "als-exemplar")
+    (root / "apps").mkdir()
     (root / "apps" / "logbook.yml").write_text("name: Mine\n", encoding="utf-8")
 
     result = _revalidate(root)
