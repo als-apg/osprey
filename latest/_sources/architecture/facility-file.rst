@@ -34,7 +34,7 @@ computes:
 - for each device, its place and position along its model's deck, its ordinal
   among its class in its place and in its model, and the groups that name it;
 - for each wiring record, its unit, direction, value range and operating
-  point, and what its model's engine says it is: role, plane and refresh.
+  point, and what its model's engine says it is: engine_role, plane and refresh.
 
 The second is ``provenance``: per record, which layer and file stated each field,
 which fixes were applied and which fields the build filled.
@@ -126,9 +126,9 @@ filters the file's own channel records and names a model or a place.
      - ``resolve`` order.
      - Empty when dangling.
    * - ``select_channels(selection)``
-     - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group``, ``signal``, ``role`` and ``plane`` facets AND; a place takes every place under it; ``role`` and ``plane`` match the wiring record naming the address.
+     - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group``, ``signal``, ``engine_role`` and ``plane`` facets AND; a place takes every place under it; ``engine_role`` and ``plane`` match the wiring record naming the address.
      - Document order.
-     - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold, or a role or plane outside the schema's vocabulary.
+     - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold, or an engine_role or plane outside the schema's vocabulary.
 
 ``osprey.facility.references.resolved_references`` is the one describer of
 references: every surface that returns ``facility_references`` calls it, and each

@@ -711,9 +711,9 @@ module, none of which builds a model:</p>
 deck.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">describe(record)</span></code> says what one wiring record is.</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">describe</span></code> returns <code class="docutils literal notranslate"><span class="pre">{role,</span> <span class="pre">plane,</span> <span class="pre">refresh}</span></code>:</p>
+<p><code class="docutils literal notranslate"><span class="pre">describe</span></code> returns <code class="docutils literal notranslate"><span class="pre">{engine_role,</span> <span class="pre">plane,</span> <span class="pre">refresh}</span></code>:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">role</span></code> is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">engine_role</span></code> is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">plane</span></code> is <code class="docutils literal notranslate"><span class="pre">x</span></code> or <code class="docutils literal notranslate"><span class="pre">y</span></code> for a record that steers or reads one
 transverse plane, else <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">refresh</span></code> is <code class="docutils literal notranslate"><span class="pre">pass</span></code> for a value each write’s solve updates, or

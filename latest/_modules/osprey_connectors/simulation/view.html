@@ -440,7 +440,7 @@
 <span class="sd">render from an older OSPREY is rebuilt rather than misread.</span>
 
 <span class="sd">A wiring record of a physics model carries what its engine&#39;s ``describe()``</span>
-<span class="sd">stated at build time: its ``role`` (one of :data:`ROLES`), the transverse</span>
+<span class="sd">stated at build time: its ``engine_role`` (one of :data:`ENGINE_ROLES`), the transverse</span>
 <span class="sd">``plane`` it steers or reads (``x``, ``y`` or ``None``), its ``refresh``</span>
 <span class="sd">(``pass`` or ``periodic``) and, when it carries any, its ``marks`` (of</span>
 <span class="sd">:data:`MARKS`). The words are the facility schema&#39;s. A ``readback`` is any read of an element&#39;s setting, paired</span>
@@ -466,6 +466,7 @@
     <span class="s2">&quot;ADDRESSES_SCHEMA&quot;</span><span class="p">,</span>
     <span class="s2">&quot;COMMAND_MARK&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DECKS_DIR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ENGINE_ROLES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;MARKS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;MONITOR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;NO_VIEW_MESSAGE&quot;</span><span class="p">,</span>
@@ -474,7 +475,6 @@
     <span class="s2">&quot;PLANES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;READBACK&quot;</span><span class="p">,</span>
     <span class="s2">&quot;REFRESH&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;ROLES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SCENARIOS_DIR&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SCENARIOS_FILE&quot;</span><span class="p">,</span>
     <span class="s2">&quot;SCENARIOS_SCHEMA&quot;</span><span class="p">,</span>
@@ -503,7 +503,7 @@
 <span class="n">ADDRESSES_FILE</span> <span class="o">=</span> <span class="s2">&quot;addresses.json&quot;</span>
 <span class="n">ADDRESSES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.addresses/1&quot;</span>
 <span class="n">VARIABLES_FILE</span> <span class="o">=</span> <span class="s2">&quot;variables.json&quot;</span>
-<span class="n">VARIABLES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.simulator/2&quot;</span>
+<span class="n">VARIABLES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.simulator/3&quot;</span>
 <span class="n">SEEDS_FILE</span> <span class="o">=</span> <span class="s2">&quot;seeds.json&quot;</span>
 <span class="n">SEEDS_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.seeds/2&quot;</span>
 <span class="n">SCENARIOS_FILE</span> <span class="o">=</span> <span class="s2">&quot;scenarios.json&quot;</span>
@@ -532,9 +532,9 @@
 <span class="n">READBACK</span> <span class="o">=</span> <span class="s2">&quot;readback&quot;</span>
 <span class="n">MONITOR</span> <span class="o">=</span> <span class="s2">&quot;monitor&quot;</span>
 <span class="n">OUTPUT</span> <span class="o">=</span> <span class="s2">&quot;output&quot;</span>
-<span class="c1">#: The roles a wiring record&#39;s description names. A channel&#39;s facility role</span>
+<span class="c1">#: The engine roles a wiring record&#39;s description names. A channel&#39;s facility role</span>
 <span class="c1">#: is ``setpoint`` or ``readback``.</span>
-<span class="n">ROLES</span> <span class="o">=</span> <span class="p">(</span><span class="n">SETPOINT</span><span class="p">,</span> <span class="n">READBACK</span><span class="p">,</span> <span class="n">MONITOR</span><span class="p">,</span> <span class="n">OUTPUT</span><span class="p">)</span>
+<span class="n">ENGINE_ROLES</span> <span class="o">=</span> <span class="p">(</span><span class="n">SETPOINT</span><span class="p">,</span> <span class="n">READBACK</span><span class="p">,</span> <span class="n">MONITOR</span><span class="p">,</span> <span class="n">OUTPUT</span><span class="p">)</span>
 <span class="c1">#: The planes a wiring record&#39;s description names; ``None`` is no plane.</span>
 <span class="n">PLANES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">)</span>
 <span class="n">PERIODIC</span> <span class="o">=</span> <span class="s2">&quot;periodic&quot;</span>
@@ -551,7 +551,7 @@
 <span class="n">NO_VIEW_MESSAGE</span> <span class="o">=</span> <span class="s2">&quot;no simulator view at </span><span class="si">{path}</span><span class="s2">: run osprey build&quot;</span>
 
 <span class="c1">#: The keys a wiring record&#39;s description adds.</span>
-<span class="n">_DESCRIPTION_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;role&quot;</span><span class="p">,</span> <span class="s2">&quot;plane&quot;</span><span class="p">,</span> <span class="s2">&quot;refresh&quot;</span><span class="p">)</span>
+<span class="n">_DESCRIPTION_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;engine_role&quot;</span><span class="p">,</span> <span class="s2">&quot;plane&quot;</span><span class="p">,</span> <span class="s2">&quot;refresh&quot;</span><span class="p">)</span>
 <span class="c1">#: The key listing the marks a wiring record carries; absent when it carries none.</span>
 <span class="n">_MARKS_KEY</span> <span class="o">=</span> <span class="s2">&quot;marks&quot;</span>
 
@@ -668,7 +668,7 @@
 <span class="sd">        model: The model the record belongs to.</span>
 <span class="sd">        address: The channel address the record serves.</span>
 <span class="sd">        direction: ``write`` or ``read``.</span>
-<span class="sd">        role: One of :data:`ROLES`.</span>
+<span class="sd">        engine_role: One of :data:`ENGINE_ROLES`.</span>
 <span class="sd">            A ``readback`` reads an element&#39;s setting, paired with a setpoint</span>
 <span class="sd">            or not; the setpoint channel&#39;s ``pair`` names its readback.</span>
 <span class="sd">        plane: ``x`` or ``y`` for a record steering or reading one transverse</span>
@@ -686,7 +686,7 @@
     <span class="n">model</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">address</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">direction</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">role</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">engine_role</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">plane</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
     <span class="n">refresh</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">element</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
@@ -700,7 +700,7 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Read one wiring record of ``variables.json``.</span>
 
 <span class="sd">        Raises:</span>
-<span class="sd">            ViewSchemaError: the record lacks ``role``, ``plane`` or</span>
+<span class="sd">            ViewSchemaError: the record lacks ``engine_role``, ``plane`` or</span>
 <span class="sd">                ``refresh``.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">missing</span> <span class="o">=</span> <span class="p">[</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">_DESCRIPTION_KEYS</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">record</span><span class="p">]</span>
@@ -714,7 +714,7 @@
             <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
             <span class="n">address</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]),</span>
             <span class="n">direction</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;direction&quot;</span><span class="p">)),</span>
-            <span class="n">role</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;role&quot;</span><span class="p">],</span>
+            <span class="n">engine_role</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;engine_role&quot;</span><span class="p">],</span>
             <span class="n">plane</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;plane&quot;</span><span class="p">],</span>
             <span class="n">refresh</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;refresh&quot;</span><span class="p">],</span>
             <span class="n">element</span><span class="o">=</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;element&quot;</span><span class="p">),</span>
@@ -983,7 +983,7 @@
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">role</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">engine_role</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">plane</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">node</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">served_only</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
@@ -992,7 +992,7 @@
 
 <span class="sd">        Args:</span>
 <span class="sd">            model: Only this model&#39;s records.</span>
-<span class="sd">            role: Only records of this role.</span>
+<span class="sd">            engine_role: Only records of this engine role.</span>
 <span class="sd">            plane: Only records of this plane.</span>
 <span class="sd">            node: Only records whose channel is on this node (a value of the</span>
 <span class="sd">                channel&#39;s ``on``).</span>
@@ -1003,7 +1003,7 @@
             <span class="n">binding</span>
             <span class="k">for</span> <span class="n">binding</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_all_bindings</span><span class="p">(</span><span class="n">served_only</span><span class="p">)</span>
             <span class="k">if</span> <span class="p">(</span><span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">binding</span><span class="o">.</span><span class="n">model</span> <span class="o">==</span> <span class="n">model</span><span class="p">)</span>
-            <span class="ow">and</span> <span class="p">(</span><span class="n">role</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">binding</span><span class="o">.</span><span class="n">role</span> <span class="o">==</span> <span class="n">role</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">engine_role</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">binding</span><span class="o">.</span><span class="n">engine_role</span> <span class="o">==</span> <span class="n">engine_role</span><span class="p">)</span>
             <span class="ow">and</span> <span class="p">(</span><span class="n">plane</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">binding</span><span class="o">.</span><span class="n">plane</span> <span class="o">==</span> <span class="n">plane</span><span class="p">)</span>
             <span class="ow">and</span> <span class="p">(</span><span class="n">node</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">_on_nodes</span><span class="p">(</span><span class="n">channels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">binding</span><span class="o">.</span><span class="n">address</span><span class="p">)))</span>
         <span class="p">)</span></div>
