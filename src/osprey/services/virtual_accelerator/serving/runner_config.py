@@ -20,6 +20,10 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 :func:`periodic_addresses` names the channels the view says refresh
 ``periodic``, which a write pass leaves for the next periodic pass.
 
+:func:`fast_addresses` and :func:`event_addresses` name the channels the view
+says refresh ``fast`` and ``event``, which timed passes publish beside the
+global tick; a view with neither runs no timed pass at all.
+
 :func:`setting_records` and :func:`pass_readback` name what a write pass of
 physics settings reads back. A physics setting reaches its own model alone, and
 there moves itself, its readback and what the model computes from its settings.
@@ -40,7 +44,7 @@ import copy
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from osprey_connectors.simulation.view import PERIODIC, SETPOINT
+from osprey_connectors.simulation.view import PERIODIC, REFRESH, SETPOINT
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
@@ -50,6 +54,8 @@ __all__ = [
     "HEALTH_KEYS",
     "SAFETY_KEYS",
     "apply_safety",
+    "event_addresses",
+    "fast_addresses",
     "pass_readback",
     "periodic_addresses",
     "setting_records",
@@ -75,6 +81,8 @@ HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 FLOAT_PRECISION = 4
 
 _FLOAT = "float"
+# The refresh words of the view's vocabulary, taken from it, never restated.
+_, _, _FAST, _EVENT = REFRESH
 
 
 def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, Any]:
@@ -124,11 +132,40 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
     Returns:
         The bound addresses the periodic solve alone publishes.
     """
+    return _refreshing(view, PERIODIC)
+
+
+def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
+    """The addresses whose binding refreshes ``refresh``, across every model of the view."""
     return frozenset(
         binding.address
         for binding in view.bindings(served_only=False)
-        if binding.refresh == PERIODIC
+        if binding.refresh == refresh
     )
+
+
+def fast_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses whose binding refreshes ``fast``, across every model of the view.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        The bound addresses every timed pass reads and posts.
+    """
+    return _refreshing(view, _FAST)
+
+
+def event_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses whose binding refreshes ``event``, across every model of the view.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        The bound addresses posted when their engine emits them.
+    """
+    return _refreshing(view, _EVENT)
 
 
 def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
