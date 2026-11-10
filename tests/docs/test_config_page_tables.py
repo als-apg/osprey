@@ -113,7 +113,6 @@ _NOT_MANIFEST_DEFAULTS = {
     "max_age_s": "an archiver_freshness probe parameter; held by the probe-table test",
     "timeout_status": "a key of one health check, not of config.yml",
     "Timeouts": "the per-probe timeout table's column header",
-    "suite_timeout_s": "health.suite_timeout_s has no manifest entry",
 }
 
 _LITERAL = re.compile(r"``([^`]+)``")

@@ -451,13 +451,13 @@ Suite timing
 
 Three scalar settings tune the suite as a whole:
 
-- ``suite_timeout_s`` (default 30) — the wall-clock budget bounding all
+- ``health.suite_timeout_s`` (default 30) — the wall-clock budget bounding all
   poll-class categories collectively. It is also the default budget for a
   poll-class callable category.
-- ``on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
+- ``health.on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
   categories collectively (only relevant under ``--full``). When omitted it
   defaults to the sum of the selected on_demand categories' budgets.
-- ``interval_s`` — the minimum interval between server-side re-runs. When
+- ``health.interval_s`` — the minimum interval between server-side re-runs. When
   omitted it derives as ``max(60, 2 × suite_timeout_s)``; an explicit value must
   be greater than ``suite_timeout_s`` or the config is rejected. This value is
   validated but not yet enforced by ``osprey health`` itself.
