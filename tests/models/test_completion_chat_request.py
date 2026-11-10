@@ -12,7 +12,6 @@ def _mock_provider_cls():
     cls = MagicMock()
     cls.requires_api_key = False
     cls.requires_base_url = False
-    cls.requires_model_id = False
     instance = MagicMock()
     instance.execute_completion.return_value = "response"
     cls.return_value = instance
