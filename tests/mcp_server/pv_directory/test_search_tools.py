@@ -8,7 +8,9 @@ is the deployment's baseline: the control-context record is stubbed to none.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import importlib
+import inspect
 import json
 import sys
 from collections.abc import Iterator
@@ -26,6 +28,7 @@ from fastmcp import FastMCP  # noqa: E402
 import osprey.channel_roster as channel_roster  # noqa: E402
 from osprey.mcp_server.pv_directory import server  # noqa: E402
 from osprey.mcp_server.pv_directory.tools import properties, search  # noqa: E402
+from osprey.registry.mcp import FRAMEWORK_SERVERS  # noqa: E402
 from osprey.services.pv_directory import _connectors, facts, service  # noqa: E402
 from osprey_connectors import control_context  # noqa: E402
 from osprey_connectors.factory import ConnectorFactory  # noqa: E402
@@ -310,51 +313,74 @@ def test_a_malformed_section_holds_no_predicate(tmp_path: Path) -> None:
     assert not any(context.predicates.values())
 
 
-_GATED = '''
-PREDICATE = "{predicate}"
+_OPTIONAL_TOOLS = FRAMEWORK_SERVERS["pv-directory"].optional_tools
 
-
-def register(server, ctx):
+_UNOFFERED = '''
+def register(server):
     @server.tool()
-    def {tool}() -> str:
-        """A gated probe."""
-        return "{tool}"
+    def unoffered_probe() -> str:
+        """A module no optional_tools entry offers."""
+        return "unoffered_probe"
 '''
 
 
-def test_a_gated_module_registers_only_when_its_predicate_holds(
+def _tool_names(mcp: FastMCP) -> set[str]:
+    return {tool.name for tool in asyncio.run(mcp.list_tools())}
+
+
+@pytest.mark.parametrize("tool", sorted(_OPTIONAL_TOOLS))
+def test_a_gated_module_registers_only_when_its_optional_tools_key_holds(
+    tmp_path: Path, tool: str
+) -> None:
+    context = server.build_tool_context(_config(tmp_path, FACILITY), project_dir=tmp_path)
+    key = _OPTIONAL_TOOLS[tool].key
+    held = dataclasses.replace(
+        context, predicates={**dict.fromkeys(context.predicates, False), key: True}
+    )
+    withheld = dataclasses.replace(held, predicates={**held.predicates, key: False})
+
+    on, off = FastMCP("probe-on"), FastMCP("probe-off")
+    assert server.register_tools(on, held) == [tool]
+    assert server.register_tools(off, withheld) == []
+    assert tool in _tool_names(on)
+    assert not set(_OPTIONAL_TOOLS) & _tool_names(off)
+
+
+def test_a_module_no_optional_tools_entry_offers_stays_unregistered(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from osprey.mcp_server.pv_directory import tools
 
     probes = tmp_path / "probes"
     probes.mkdir()
-    for module, predicate, tool in (
-        ("zz_gate_on", "pv_directory_alarm_log", "gated_on"),
-        ("zz_gate_off", "pv_directory_put_log", "gated_off"),
-    ):
-        text = _GATED.format(predicate=predicate, tool=tool)
-        (probes / f"{module}.py").write_text(text, encoding="utf-8")
+    (probes / "zz_unoffered.py").write_text(_UNOFFERED, encoding="utf-8")
     monkeypatch.setattr(tools, "__path__", [*tools.__path__, str(probes)])
-    for module in ("zz_gate_on", "zz_gate_off"):
-        monkeypatch.delitem(sys.modules, f"{tools.__name__}.{module}", raising=False)
-    context = server.build_tool_context(
-        _config(tmp_path, {**FACILITY, "alarm_log": {"type": "x", "settings": {"url": "u"}}}),
-        project_dir=tmp_path,
-    )
+    monkeypatch.delitem(sys.modules, f"{tools.__name__}.zz_unoffered", raising=False)
+    context = server.build_tool_context(_config(tmp_path, FACILITY), project_dir=tmp_path)
+    every = dataclasses.replace(context, predicates=dict.fromkeys(context.predicates, True))
     throwaway = FastMCP("probe")
 
     try:
-        registered = server.register_tools(throwaway, context)
+        registered = server.register_tools(throwaway, every)
     finally:
-        for module in ("zz_gate_on", "zz_gate_off"):
-            sys.modules.pop(f"{tools.__name__}.{module}", None)
+        sys.modules.pop(f"{tools.__name__}.zz_unoffered", None)
 
-    assert "zz_gate_on" in registered
-    assert "zz_gate_off" not in registered
-    names = {tool.name for tool in asyncio.run(throwaway.list_tools())}
-    assert "gated_on" in names
-    assert "gated_off" not in names
+    assert sorted(registered) == sorted(_OPTIONAL_TOOLS)
+    assert "unoffered_probe" not in _tool_names(throwaway)
+
+
+@pytest.mark.parametrize("tool", sorted(_OPTIONAL_TOOLS))
+def test_a_gated_module_registers_its_tool_from_the_server_alone(tool: str) -> None:
+    from osprey.mcp_server.pv_directory import tools
+
+    module = importlib.import_module(f"{tools.__name__}.{tool}")
+    assert not hasattr(module, "PREDICATE")
+    assert list(inspect.signature(module.register).parameters) == ["server"]
+    probe = FastMCP(f"{tool}-probe")
+
+    module.register(probe)
+
+    assert _tool_names(probe) == {tool}
 
 
 # -- connectors without the directory modules ---------------------------------

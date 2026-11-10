@@ -12,8 +12,8 @@ addresses. Its registration follows the graph server's read-only posture:
 
 The walk in ``test_tool_classification_drift.py`` imports the package and so
 sees the unconditional tools only; the gated ones register through
-``register(server, ctx)``, so this file registers them on a throwaway FastMCP
-and checks that each is classified.
+``register(server)``, so this file registers them on a throwaway FastMCP and
+checks that each is classified.
 """
 
 from __future__ import annotations
@@ -160,7 +160,7 @@ class TestResolved:
 
 
 def _gated_tool_names() -> dict[str, str]:
-    """Each gated module's tools, registered on a throwaway FastMCP, by predicate."""
+    """Each module ``register(probe)`` adds tools from, by tool name to module name."""
     from fastmcp import FastMCP
 
     from osprey.mcp_server.pv_directory import tools
@@ -168,23 +168,24 @@ def _gated_tool_names() -> dict[str, str]:
     found_tools: dict[str, str] = {}
     for found in pkgutil.iter_modules(tools.__path__):
         module = importlib.import_module(f"{tools.__name__}.{found.name}")
-        predicate = getattr(module, "PREDICATE", None)
-        if predicate is None:
+        register = getattr(module, "register", None)
+        if not callable(register) or getattr(register, "__module__", None) != module.__name__:
             continue
         probe = FastMCP(f"{found.name}-classification-probe")
-        module.register(probe, None)
+        register(probe)
         for tool in asyncio.run(probe.list_tools()):
-            found_tools[getattr(tool, "name", tool)] = predicate
+            found_tools[getattr(tool, "name", tool)] = found.name
     return found_tools
 
 
 class TestGatedToolClassification:
-    def test_every_gated_tool_is_allowed_and_optional_on_its_predicate(self, sdef):
+    def test_every_gated_tool_is_allowed_and_optional_on_its_module(self, sdef):
         gated = _gated_tool_names()
         assert gated, "no gated tool registered"
-        for tool, predicate in gated.items():
+        for tool, module in gated.items():
             assert tool in sdef.permissions_allow, tool
-            assert sdef.optional_tools[tool] == OptionalTool(predicate), tool
+            assert tool == module, tool
+            assert module in sdef.optional_tools, tool
 
     def test_the_optional_tools_are_exactly_the_gated_ones(self, sdef):
         assert set(_gated_tool_names()) == set(sdef.optional_tools)
