@@ -73,8 +73,10 @@ start-up, the periodic passes, and the timed passes of a view holding a
 - **What a write's pass reads.** It reads what the write can change, and
   never a channel whose binding refreshes ``periodic``; the next periodic pass
   publishes those. A physics setting reads itself, its readback and what its
-  model computes from its settings. Any other write reads every served
-  channel.
+  model computes from its settings. A setting no model binds reads itself,
+  the readback it pairs with and the channels derived from it. A write to any
+  other channel reads every served channel. The pass keeps only the written
+  settings' previous values to roll back to, not the whole settable state.
 - **What a write's pass posts.** Of what it reads, it posts the written
   channels and those whose value or undefined condition changed. An unchanged
   channel keeps the timestamp of its last post.
@@ -96,7 +98,11 @@ start-up, the periodic passes, and the timed passes of a view holding a
 The timed passes share the run loop with the lattice passes. A periodic or
 write pass that solves a lattice delays the timed passes queued behind it by
 its own duration, so the fast period and a shot's step offsets hold between
-lattice passes, not through one.
+lattice passes, not through one. Posting is different: a pass that posts more
+than a few thousand channels posts them in slices and runs a due timed pass
+between two slices, so a periodic pass over a large view does not hold the
+``fast`` channels back for the length of its post. A client write still waits
+for the pass in progress to finish.
 
 A view an older OSPREY wrote is refused before the ready line, with a message
 asking for ``osprey build``.
@@ -220,6 +226,9 @@ them:
 A repeated value on a ``fast`` or ``event`` channel reaches a Channel Access
 monitor only through the forced-event hook of ``lume-pva-apg`` 0.1.6. Under
 0.1.5 a timed pass that posts an unchanged value raises no monitor event.
+0.1.6 also lets the runner narrow a pass's rollback snapshot, and raises the
+Channel Access events of a post at the cost of the channels posted, not of
+every channel served.
 
 ``pcaspy`` publishes wheels for linux-x86_64 only, so the ``lume-pva-apg``
 entry that brings it is marked accordingly, and ``serving/runner.py`` alone is

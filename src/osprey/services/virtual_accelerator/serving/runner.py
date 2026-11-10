@@ -23,6 +23,14 @@ Every other pass posts the two classes changed-only, except the names it
 drained as emitted, so a step is published once, by whichever pass advanced
 over it.
 
+**Sliced posts.** A pass over a large view takes longer to post than the fast
+period lasts, and the run loop runs one item at a time. So in a view with a
+timed channel a pass posts :data:`POST_SLICE` values at a time, the timed and
+forced names first, and between slices runs a timed pass if one fell due. A
+name that timed pass posted is dropped from the slices still to come, whose
+value for it is the older one. The read that precedes the post is not sliced:
+a timed pass waits for it.
+
 Every model access happens on the run loop's thread. The composite is not
 thread-safe, so a model RPC call taken on a p4p worker thread is answered by
 a job the run loop runs, never on the thread that received it; that rule is
@@ -65,7 +73,7 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     fast_addresses,
     pass_readback,
     periodic_addresses,
-    setting_records,
+    write_records,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -77,6 +85,10 @@ LOG = logging.getLogger(__name__)
 
 #: The name of the thread that queues timed passes.
 SCHEDULER_THREAD = "osprey-va-timed-passes"
+
+#: How many values one slice of a pass's post carries in a view with a timed
+#: channel: few enough that a slice posts well inside the default fast period.
+POST_SLICE = 2000
 
 
 class ModelRunner(Runner):
@@ -106,6 +118,14 @@ class ModelRunner(Runner):
     """
 
     _cycle_requested_names: tuple[str, ...]
+
+    #: When the ``fast`` names were last posted by a timed pass.
+    _fast_posted_at: float = 0.0
+    #: When a timed pass run between the slices of a post last posted them.
+    _fast_sliced_at: float = 0.0
+    #: Whether a sliced post is under way, so a timed pass run between its
+    #: slices posts whole.
+    _slicing: bool = False
 
     def __init__(
         self,
@@ -158,7 +178,10 @@ class ModelRunner(Runner):
         self._health_file = health_file
         self._model_write_token = model_write_token
         self._periodic = periodic_addresses(view)
-        self._setting_records = setting_records(view)
+        texture_reach = getattr(composite, "texture_reach", None)
+        self._setting_records = write_records(
+            view, texture_reach() if callable(texture_reach) else {}
+        )
         self._written: frozenset[str] = frozenset()
         self._write_pass = False
         self._served: dict[str, Any] = {}
@@ -229,11 +252,24 @@ class ModelRunner(Runner):
         if self._health_file is not None:
             write_document(self._health_file, document)
 
+    def _cycle_snapshot_names(self, written: Collection[str], reset: bool) -> list[str]:
+        """Snapshot only what a pass writes; the whole settable state for one that resets.
+
+        The composite is put back by restoring the written setpoints, so a
+        failed pass needs no more than their previous values, and a pass that
+        writes nothing needs none.
+        """
+        if reset:
+            names: list[str] = super()._cycle_snapshot_names(written, reset)
+            return names
+        variables = self.model.supported_variables
+        return [name for name in written if name in variables and not variables[name].read_only]
+
     def _cycle_output_names(self) -> list[str]:
         """The roster read after ``model.set``, narrowed for a write pass.
 
-        A write pass leaves the periodic addresses out; one of physics settings
-        alone reads only the records those settings can change. The input
+        A write pass leaves the periodic addresses out, and reads only the
+        records its setpoints can change when every one of them is known. The input
         values are read again here, after the base class merged the batch, so
         a write merged behind a jobs-only item still makes a write pass.
         """
@@ -286,6 +322,38 @@ class ModelRunner(Runner):
         self._note_deadline()
 
     def _post_forced(self, values: dict[str, Any], ts: float, forced: frozenset[str]) -> None:
+        """Post ``values``, forcing ``forced``; in slices when a timed pass could fall due.
+
+        A view with no timed channel, and a post of one slice or less, posts
+        whole. Otherwise the timed and forced names go in the first slice, and
+        before each later slice a due timed pass runs; what it posted is left
+        out of the rest, which holds the value read before it.
+        """
+        if not self._needs_timed or self._slicing or len(values) <= POST_SLICE:
+            self._post_slice(values, ts, forced)
+            return
+        first = [name for name in values if name in self._timed_names or name in forced]
+        ahead = set(first)
+        order = first + [name for name in values if name not in ahead]
+        requested = self._cycle_requested_names
+        superseded: set[str] = set()
+        self._slicing = True
+        try:
+            for start in range(0, len(order), POST_SLICE):
+                if start:
+                    superseded |= self._timed_between_slices()
+                part = {
+                    name: values[name]
+                    for name in order[start : start + POST_SLICE]
+                    if name not in superseded
+                }
+                self._cycle_requested_names = tuple(part)
+                self._post_slice(part, ts, forced & part.keys())
+        finally:
+            self._slicing = False
+            self._cycle_requested_names = requested
+
+    def _post_slice(self, values: dict[str, Any], ts: float, forced: frozenset[str]) -> None:
         """Post ``values`` through the base class, forcing ``forced``; record them as served."""
         self._forced = forced
         try:
@@ -293,6 +361,21 @@ class ModelRunner(Runner):
         finally:
             self._forced = frozenset()
         self._served.update(values)
+
+    def _timed_between_slices(self) -> frozenset[str]:
+        """Run a timed pass if one is due; the names it posted, else none."""
+        now = time.time()
+        fast_due = now - self._fast_posted_at >= self._fast_interval_s
+        if not fast_due and (self._deadline is None or self._deadline > now):
+            return frozenset()
+        requested = self._cycle_requested_names
+        try:
+            posted = self._run_timed(fast_due)
+        finally:
+            self._cycle_requested_names = requested
+        if fast_due:
+            self._fast_sliced_at = self._fast_posted_at
+        return posted
 
     def _ca_forced_names(self) -> Collection[str]:
         """The names this post forces a Channel Access event for: set per post, else none."""
@@ -325,10 +408,26 @@ class ModelRunner(Runner):
             self._rearm.set()
 
     def _timed_pass(self, fast_due: bool = True) -> None:
-        """One timed pass, run on the run loop as a job: advance, read, post, record.
+        """One timed pass, run on the run loop as a job; frees the scheduler to queue the next.
+
+        A pass queued for the fast period while a sliced post was serving it
+        finds the ``fast`` names posted between slices less than half a period
+        ago, and leaves them to the next period.
+        """
+        if fast_due and time.time() - self._fast_sliced_at < self._fast_interval_s / 2:
+            fast_due = False
+        try:
+            self._run_timed(fast_due)
+        finally:
+            with self._timed_lock:
+                self._timed_pending = False
+            self._rearm.set()
+
+    def _run_timed(self, fast_due: bool) -> frozenset[str]:
+        """Advance, read, post, record; the names posted.
 
         Reads the names the composite emitted and, when ``fast_due``, the
-        ``fast`` names; a pass queued for a deadline alone leaves the ``fast``
+        ``fast`` names; a pass run for a deadline alone leaves the ``fast``
         names to the fast period, so their rate is the fast period's. It posts
         them
         through the base class, and forces a Channel Access event for each
@@ -338,6 +437,7 @@ class ModelRunner(Runner):
         recorded only when it differs from the last one recorded.
         """
         error: str | None = None
+        posted: frozenset[str] = frozenset()
         try:
             self.model.advance()
             emitted = self._drain_emitted()
@@ -356,16 +456,16 @@ class ModelRunner(Runner):
                 }
             self._cycle_requested_names = tuple(values)
             self._post_forced(values, time.time(), forced_names(fast, emitted, faulted))
+            posted = frozenset(values)
+            if fast_due:
+                self._fast_posted_at = time.time()
             self._note_deadline()
         except Exception as exc:
             error = str(exc) or type(exc).__name__
             LOG.exception("Timed pass failed: (%s)", error)
-        finally:
-            with self._timed_lock:
-                self._timed_pending = False
-            self._rearm.set()
         if (error is None) != self._last_ok:
             self._write_health(error)
+        return posted
 
     def _queue_timed_pass(self, fast_due: bool) -> None:
         """Queue one timed pass, unless one is already waiting."""

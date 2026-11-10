@@ -209,6 +209,91 @@ def test_a_timed_pass_queued_for_a_deadline_alone_reads_only_the_emitted_names(
     assert posts == [({EVENT: 4.0}, frozenset({EVENT}))]
 
 
+OTHERS = {f"ZZ:OTHER{index}": float(index) for index in range(3)}
+
+
+def test_a_post_longer_than_a_slice_goes_out_in_slices_with_the_timed_names_first(
+    posts: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, module = _serving()
+    monkeypatch.setattr(module, "POST_SLICE", 2)
+    runner = _runner(module, _Model())
+    runner._fast_posted_at = time.time()
+    runner._cycle_requested_names = ("kept",)
+
+    runner._post_forced({**OTHERS, EVENT: 2.0}, 0.0, frozenset({EVENT}))
+
+    first, second = posts
+    assert first == ({EVENT: 2.0, "ZZ:OTHER0": 0.0}, frozenset({EVENT}))
+    assert second == ({"ZZ:OTHER1": 1.0, "ZZ:OTHER2": 2.0}, frozenset())
+    assert runner._cycle_requested_names == ("kept",)
+    assert runner._slicing is False
+
+
+def test_a_timed_pass_due_between_slices_runs_there_and_its_names_are_not_posted_again(
+    posts: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, module = _serving()
+    monkeypatch.setattr(module, "POST_SLICE", 2)
+    model = _Model(emitted=(PASSED,))
+    model.values[PASSED] = 9.0
+    runner = _runner(module, model)
+
+    runner._post_forced(
+        {"ZZ:OTHER0": 0.0, "ZZ:OTHER1": 1.0, PASSED: 3.0, "ZZ:OTHER2": 2.0}, 0.0, frozenset()
+    )
+
+    assert posts == [
+        ({"ZZ:OTHER0": 0.0, "ZZ:OTHER1": 1.0}, frozenset()),
+        ({FAST: 1.0, PASSED: 9.0}, frozenset({FAST, PASSED})),
+        ({"ZZ:OTHER2": 2.0}, frozenset()),
+    ]
+    assert model.advanced == 1
+    assert runner._served[PASSED] == 9.0
+
+
+def test_no_timed_pass_runs_between_slices_before_one_is_due(
+    posts: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, module = _serving()
+    monkeypatch.setattr(module, "POST_SLICE", 2)
+    model = _Model()
+    runner = _runner(module, model)
+    runner._fast_posted_at = time.time()
+
+    runner._post_forced(dict(OTHERS), 0.0, frozenset())
+
+    assert [set(values) for values, _ in posts] == [{"ZZ:OTHER0", "ZZ:OTHER1"}, {"ZZ:OTHER2"}]
+    assert model.advanced == 0
+
+
+def test_a_view_with_no_timed_channel_posts_whole(
+    posts: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, module = _serving()
+    monkeypatch.setattr(module, "POST_SLICE", 2)
+    runner = _runner(module, _Model(), fast=(), event=())
+
+    runner._post_forced(dict(OTHERS), 0.0, frozenset())
+
+    assert posts == [(OTHERS, frozenset())]
+
+
+def test_a_queued_timed_pass_leaves_fast_names_a_sliced_post_just_served(posts: list[Any]) -> None:
+    _, module = _serving()
+    model = _Model()
+    runner = _runner(module, model)
+    runner._timed_pending = True
+    runner._fast_sliced_at = time.time()
+
+    runner._timed_pass()
+
+    assert model.advanced == 1
+    assert model.reads == []
+    assert all(FAST not in values for values, _ in posts)
+    assert runner._timed_pending is False
+
+
 def test_a_timed_pass_leaves_a_read_faulted_name_unforced_and_unposted_while_unchanged(
     posts: list[Any],
 ) -> None:

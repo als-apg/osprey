@@ -24,12 +24,13 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 says refresh ``fast`` and ``event``, which timed passes publish beside the
 global tick; a view with neither runs no timed pass at all.
 
-:func:`setting_records` and :func:`pass_readback` name what a write pass of
-physics settings reads back. A physics setting reaches its own model alone, and
-there moves itself, its readback and what the model computes from its settings.
-Every other value stands as the last pass left it -- what moves with time alone,
-the next periodic pass publishes -- and reading it back again would make each
-write, one per corrector for an apply, cost the whole roster.
+:func:`setting_records`, :func:`write_records` and :func:`pass_readback` name
+what a write pass reads back. A physics setting reaches its own model alone, and
+there moves itself, its readback and what the model computes from its settings;
+a texture setpoint moves itself, its echo and the texture channels derived from
+either. Every other value stands as the last pass left it -- what moves with
+time alone, the next periodic pass publishes -- and reading it back again would
+make each write, one per corrector for an apply, cost the whole roster.
 
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
@@ -59,6 +60,7 @@ __all__ = [
     "pass_readback",
     "periodic_addresses",
     "setting_records",
+    "write_records",
 ]
 
 #: The write-path keys every model runner configuration carries.
@@ -203,6 +205,23 @@ def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
     return records
 
 
+def write_records(
+    view: SimulatorView, texture_reach: Mapping[str, frozenset[str]]
+) -> dict[str, frozenset[str]]:
+    """The records any setpoint's write can change, by setpoint address.
+
+    Args:
+        view: The simulator view.
+        texture_reach: What a write to each settable texture channel can
+            change, as the composite's ``texture_reach`` names it.
+
+    Returns:
+        ``texture_reach``, and over it the :func:`setting_records` of the
+        setpoints a physics model binds.
+    """
+    return {**texture_reach, **setting_records(view)}
+
+
 def pass_readback(
     records: Mapping[str, frozenset[str]], written: Iterable[str]
 ) -> frozenset[str] | None:
@@ -210,7 +229,7 @@ def pass_readback(
 
     Args:
         records: The records each address's write can change, as
-            :func:`setting_records` names them.
+            :func:`write_records` names them.
         written: The addresses the pass writes.
 
     Returns:
