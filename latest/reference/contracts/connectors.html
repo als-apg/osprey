@@ -553,7 +553,11 @@ on the difference:</p>
 answer in time. It names the channel under <code class="docutils literal notranslate"><span class="pre">channel_address</span></code> and is no
 <code class="docutils literal notranslate"><span class="pre">ConnectionError</span></code>: the connector keeps serving every other channel, and
 nothing is restarted. The controls tools report it as error type
-<code class="docutils literal notranslate"><span class="pre">channel_unreachable</span></code>, naming the channel under <code class="docutils literal notranslate"><span class="pre">details.channel</span></code>.</p></li>
+<code class="docutils literal notranslate"><span class="pre">channel_unreachable</span></code>, naming the channel under <code class="docutils literal notranslate"><span class="pre">details.channel</span></code>. The
+error also states whether the active target’s gateway answered when the
+channel failed, under <code class="docutils literal notranslate"><span class="pre">details.target_reachability</span></code>: <code class="docutils literal notranslate"><span class="pre">state</span></code> is
+<code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">reached</span></code>, or <code class="docutils literal notranslate"><span class="pre">unmeasured</span></code> where there is no name-server
+gateway to connect to.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ConnectorUnavailableError</span></code> – the connector’s own transport is gone: its
 context, its service or its connector-host child. It is a
 <code class="docutils literal notranslate"><span class="pre">ConnectionError</span></code>. Its supervisor replaces the connector once per

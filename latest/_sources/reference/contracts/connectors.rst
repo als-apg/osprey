@@ -82,7 +82,11 @@ on the difference:
   answer in time. It names the channel under ``channel_address`` and is no
   ``ConnectionError``: the connector keeps serving every other channel, and
   nothing is restarted. The controls tools report it as error type
-  ``channel_unreachable``, naming the channel under ``details.channel``.
+  ``channel_unreachable``, naming the channel under ``details.channel``. The
+  error also states whether the active target's gateway answered when the
+  channel failed, under ``details.target_reachability``: ``state`` is
+  ``down``, ``reached``, or ``unmeasured`` where there is no name-server
+  gateway to connect to.
 - ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
   context, its service or its connector-host child. It is a
   ``ConnectionError``. Its supervisor replaces the connector once per
