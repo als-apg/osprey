@@ -4,7 +4,10 @@
 resolved measurement request. The script runs in the executor sandbox
 (``_execution_dir`` names the run's execution folder) and:
 
-1. reads the render's facts record of the model's pyAML view
+1. refuses a measure plan that names, for the script to resolve by attribute,
+   a name that is not a public identifier, or a ``StepMeasurement``
+   constructor ``pyaml_cs_osprey`` does not offer; then reads the render's
+   facts record of the model's pyAML view
    (``<render>/data/facility_facts.json``), copies the configuration and every
    file the record lists into the execution folder, and refuses, before any
    setpoint moves, unless the configuration's digest equals the record's and,
@@ -485,6 +488,49 @@ def step_values(step, values):
     return {**values, "step": step, "half_step": 0.5 * step, "negative_step": -step}
 
 
+def plan_names():
+    """Every name ``PLAN`` resolves on a pyAML object by attribute."""
+    names = []
+    if "attribute" in PLAN["tool"]:
+        names.append(PLAN["tool"]["attribute"])
+    for key in ("bpm_array", "rf_plant", "delta", "monitor", "scalar"):
+        if PLAN.get(key):
+            names.append(PLAN[key])
+    magnets = PLAN.get("magnets") or {}
+    names.extend(magnets.get("members") or [])
+    if "array" in magnets:
+        names.append(magnets["array"])
+    for part in (PLAN, *(PLAN.get(name) or {} for name in ("bipolar", "unipolar", "group"))):
+        for token in (part.get("kwargs") or {}).values():
+            if isinstance(token, str) and token.startswith("@"):
+                names.append(token[1:])
+    return names
+
+
+def public_name(name):
+    return isinstance(name, str) and name.isidentifier() and not name.startswith("_")
+
+
+def check_plan():
+    """Refuse a plan naming an attribute that is not public, or a factory pyaml_cs_osprey lacks.
+
+    The plan is data the build rendered; it is checked here, before any tool is
+    touched, because the script resolves its names with ``getattr``.
+    """
+    for name in plan_names():
+        if not public_name(name):
+            refuse(f"the measure plan of {KIND} names attribute {name}, which is not a public name")
+    for part in ("bipolar", "unipolar", "group"):
+        factory = (PLAN.get(part) or {}).get("factory")
+        if factory is not None and not (
+            public_name(factory) and callable(getattr(StepMeasurement, factory, None))
+        ):
+            refuse(
+                f"the measure plan of {KIND} names StepMeasurement.{factory}, which "
+                "pyaml_cs_osprey does not offer"
+            )
+
+
 def plan(holder, copy_dir):
     """The method to run, its arguments, the variables, the result's step fields, the BPM array.
 
@@ -628,6 +674,7 @@ def missing(variables, recorder, text):
 def main():
     root = execution_root()
     try:
+        check_plan()
         copy, digest = copy_view(root)
         holder = Accelerator.load(str(copy)).live
         tool, (method, arguments), variables, fields, bpm_array = plan(holder, copy.parent)
