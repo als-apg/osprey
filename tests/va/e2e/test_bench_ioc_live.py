@@ -336,9 +336,9 @@ def limits_database(tmp_path_factory: pytest.TempPathFactory) -> Path:
     on real terms if the limits it is judged against are the real ones. Limits
     run ``exclusive`` here, so a channel this module writes needs a record:
 
-    - the protected setpoint carries none in the facility's limits.yaml, and
-      the refusal under test is the bench IOC's, so OSPREY has to pass the
-      write -- this file grants it :data:`PROTECTED_BAND`;
+    - the refusal under test at the protected setpoint is the bench IOC's, so
+      OSPREY has to pass the write -- this file grants it
+      :data:`PROTECTED_BAND`, whatever band the facility's limits.yaml gives;
     - the alarm-limit carrier is a readback, never writable in a deployment.
       Driving a bench record into its HIHI band is not a deployment operation,
       and the bench IOC has no other record carrying alarm limits, so this file

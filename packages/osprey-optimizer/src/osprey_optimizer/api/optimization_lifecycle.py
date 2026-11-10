@@ -29,7 +29,6 @@ from osprey_optimizer.api.job_control import (
 from osprey_optimizer.api.job_status import read_job_status
 from osprey_optimizer.api.job_tracker import JobTracker
 from osprey_optimizer.api.runner import run_optimization_process
-from osprey_optimizer.api.security import check_target_allowed
 from osprey_optimizer.models.api import JobResponse
 from osprey_optimizer.models.config import OptimizationConfig, machine_config
 from osprey_optimizer.models.enums import JobType
@@ -107,7 +106,6 @@ def _resolve_draft_or_422(config: OptimizationConfig, registry: EnvironmentRegis
                 "read from the machine the run will drive (va, standin or live)."
             ),
         )
-    check_target_allowed(config.control_target)
     env_config = {
         **(config.environment_config or {}),
         **machine_config(config.control_target, config.execution_mode),

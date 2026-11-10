@@ -713,7 +713,8 @@ def list_chat_commands(request: Request) -> dict[str, Any]:
 
     Read from the directory the chat agent is started in, so every name listed
     is one the agent expands. The CLI's own built-ins (``/clear``, ``/compact``)
-    are listed beside the project's commands.
+    and the commands the browser runs itself (``/mcp``) are listed beside the
+    project's commands.
     """
     cwd: str = request.app.state.project_cwd
     return {"commands": [asdict(c) for c in list_chat_slash_commands(Path(cwd))]}

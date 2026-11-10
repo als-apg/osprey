@@ -267,7 +267,7 @@ CHANNEL_KEYS = {
 CHANNEL_OPTIONAL = {"options", "shape", "precision"}
 SCENARIO_SLOTS = ("description", "drivers", "couple", "noise", "still", "channel_faults")
 BUILT_IN_DESCRIPTION = "Every reading serves without drift, couplings or noise."
-UNLISTED_SETPOINT = "SR:MAG:HCM:02:CURRENT:SP"
+UNLISTED_SETPOINT = "SR:MAG:QF:01:CURRENT:SP"
 
 
 def _float_channels(root: Path) -> list[str]:
