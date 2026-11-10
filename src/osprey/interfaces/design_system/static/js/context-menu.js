@@ -51,6 +51,13 @@
  * runs so an action that moves focus itself still wins. Pointer, blur, scroll
  * and resize dismissals never move focus: blur in particular fires AFTER focus
  * entered a clicked iframe, and restoring would yank it straight back out.
+ * A surface may redraw while its menu is open, replacing the element focus came
+ * from: the hand-back then finds the element drawn in its place by the same
+ * identity (its `id` and the {@link IDENTITY} data attributes, or, lacking
+ * any, its classes under the nearest ancestor that has one), searching from
+ * the nearest of its former ancestors still on the page outward. With no
+ * replacement, focus goes to the nearest of those ancestors that takes focus,
+ * and stays put when none does. No surface opts in.
  *
  * DOM contract, for the default class prefix `osprey-context` (base.css skins
  * it; a caller passing `classPrefix` gets the same structure under its own
@@ -200,6 +207,26 @@ let triggerEl = null;
 
 /** @type {HTMLElement | null} what had focus when the menu opened */
 let previousFocus = null;
+
+/**
+ * How to find `previousFocus` again once a redraw has replaced it: its
+ * ancestors when the menu opened, nearest first, and a selector for the
+ * element drawn in its place.
+ * @typedef {{ancestors: Element[], selector: string | null}} FocusTrail
+ * @type {FocusTrail | null}
+ */
+let focusTrail = null;
+
+/** The attributes that name what an element stands for, not how it looks. */
+const IDENTITY = [
+  'id',
+  'data-id',
+  'data-session-id',
+  'data-panel-id',
+  'data-tree-pin',
+  'data-group-head',
+  'data-group',
+];
 
 /** @type {Document | null} the document the open menu lives in */
 let ownerDoc = null;
@@ -439,6 +466,57 @@ function onDocScroll(e) {
 }
 
 /**
+ * @param {Element} el
+ * @returns {string} `el`'s identity attributes as a selector, '' when it has none
+ */
+function identityOf(el) {
+  return IDENTITY.filter((a) => el.hasAttribute(a))
+    .map((a) => `[${a}="${CSS.escape(el.getAttribute(a) ?? '')}"]`)
+    .join('');
+}
+
+/**
+ * @param {Element | null} el - what had focus when the menu opened
+ * @returns {FocusTrail | null}
+ */
+function trailOf(el) {
+  if (!el || !el.parentElement) return null;
+  /** @type {Element[]} */
+  const ancestors = [];
+  for (let a = /** @type {Element | null} */ (el.parentElement); a;) {
+    ancestors.push(a);
+    a = a.parentElement;
+  }
+  const tag = el.tagName.toLowerCase();
+  const own = identityOf(el);
+  if (own) return { ancestors, selector: tag + own };
+  const classes = [...el.classList].map((c) => `.${CSS.escape(c)}`).join('');
+  if (!classes) return { ancestors, selector: null };
+  const named = ancestors.find((a) => identityOf(a));
+  const scope = named ? `${named.tagName.toLowerCase()}${identityOf(named)} ` : '';
+  return { ancestors, selector: scope + tag + classes };
+}
+
+/**
+ * Where focus goes back to when `el` left the page during the menu: the
+ * element drawn in its place, else the nearest former ancestor that takes focus.
+ * @param {FocusTrail} trail
+ * @returns {HTMLElement | null}
+ */
+function standIn(trail) {
+  const alive = trail.ancestors.filter((a) => a.isConnected);
+  if (trail.selector) {
+    for (const a of alive) {
+      const found = a.querySelector(trail.selector);
+      if (found) return /** @type {HTMLElement} */ (found);
+    }
+  }
+  const takesFocus = (/** @type {any} */ a) =>
+    (a.tabIndex >= 0 || a.hasAttribute('tabindex')) && !a.hasAttribute('disabled');
+  return /** @type {HTMLElement | null} */ (alive.find(takesFocus) ?? null);
+}
+
+/**
  * Tear down the open menu, optionally handing focus back to whatever held it
  * when the menu opened.
  * @param {boolean} restoreFocus
@@ -454,7 +532,9 @@ function dismiss(restoreFocus) {
   triggerEl?.setAttribute('aria-expanded', 'false');
   triggerEl = null;
   const restoreTo = previousFocus;
+  const trail = focusTrail;
   previousFocus = null;
+  focusTrail = null;
   ownerDoc?.removeEventListener('pointerdown', onDocPointerDown, true);
   ownerDoc?.removeEventListener('keydown', onDocKeydown, true);
   ownerDoc?.removeEventListener('scroll', onDocScroll, true);
@@ -462,7 +542,9 @@ function dismiss(restoreFocus) {
   ownerView?.removeEventListener('resize', onWindowResize);
   ownerDoc = null;
   ownerView = null;
-  if (restoreFocus && restoreTo && restoreTo.isConnected) restoreTo.focus();
+  if (!restoreFocus || !restoreTo) return;
+  if (restoreTo.isConnected) restoreTo.focus();
+  else if (trail) standIn(trail)?.focus();
 }
 
 /**
@@ -472,26 +554,6 @@ function dismiss(restoreFocus) {
  */
 export function closeContextMenu() {
   dismiss(false);
-}
-
-/**
- * The element the open menu hands focus back to on a keyboard dismissal, or
- * null when no menu is open.
- * @returns {HTMLElement | null}
- */
-export function menuFocusReturn() {
-  return menuEl ? previousFocus : null;
-}
-
-/**
- * Hand the open menu's focus back to `el` instead. A surface that redraws
- * the element the focus came from calls it with that element's replacement:
- * the old one is gone, and focus would otherwise fall to the body.
- * @param {HTMLElement} el
- * @returns {void}
- */
-export function retargetMenuFocusReturn(el) {
-  if (menuEl) previousFocus = el;
 }
 
 /**
@@ -619,10 +681,13 @@ export function openContextMenu(opts) {
   const doc = (opts.anchorEl ?? opts.triggerEl)?.ownerDocument ?? document;
   const view = /** @type {Window & typeof globalThis} */ (doc.defaultView ?? window);
   const active = (ownerDoc ?? doc).activeElement;
-  const held = depthOf(active) >= 0 ? previousFocus : active;
+  const replacing = depthOf(active) >= 0;
+  const held = replacing ? previousFocus : active;
+  const trail = replacing ? focusTrail : trailOf(active);
   dismiss(false);
   // Not `instanceof HTMLElement`: the active element may be of a window's realm.
   previousFocus = /** @type {HTMLElement | null} */ (held);
+  focusTrail = trail;
   anchorEl = opts.anchorEl ?? null;
   triggerEl = opts.triggerEl ?? null;
   ownerDoc = doc;

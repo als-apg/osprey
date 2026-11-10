@@ -16,7 +16,6 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { openContextMenu } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-context-menu.js';
-import { menuFocusReturn, retargetMenuFocusReturn } from '/design-system/js/context-menu.js';
 
 /** Whether a menu is on screen — the DOM contract, not module state. */
 function isContextMenuOpen() {
@@ -354,26 +353,63 @@ describe('focus hand-back', () => {
     expect(document.activeElement).toBe(entry);
   });
 
-  test('a redraw that replaces the element focus came from retargets the hand-back', () => {
-    const { entry } = mountSurfaces();
+  test('a redraw that replaces the element focus came from hands focus to its replacement', () => {
+    document.body.innerHTML = `
+      <div id="rail">
+        <button type="button" data-panel-id="ariel">ARIEL</button>
+        <button type="button" data-panel-id="olog">OLOG</button>
+      </div>`;
+    const rail = /** @type {HTMLElement} */ (document.getElementById('rail'));
+    const entry = /** @type {HTMLElement} */ (rail.querySelector('[data-panel-id="olog"]'));
     entry.focus();
     openServiceMenu({ anchorEl: entry });
-    expect(menuFocusReturn()).toBe(entry);
 
-    // The surface redraws: the entry is replaced by an equal one.
-    const redrawn = /** @type {HTMLElement} */ (entry.cloneNode(true));
-    entry.replaceWith(redrawn);
-    retargetMenuFocusReturn(redrawn);
+    // The rail redraws while the menu is open: every entry is a new element.
+    rail.replaceChildren(...[...rail.children].map((c) => c.cloneNode(true)));
+    expect(entry.isConnected).toBe(false);
     pressKey('Escape');
 
-    expect(document.activeElement).toBe(redrawn);
-    expect(menuFocusReturn()).toBeNull();
+    expect(document.activeElement).toBe(rail.querySelector('[data-panel-id="olog"]'));
   });
 
-  test('with no menu open there is no hand-back, and retargeting is a no-op', () => {
-    const { entry } = mountSurfaces();
-    retargetMenuFocusReturn(entry);
-    expect(menuFocusReturn()).toBeNull();
+  test('a heading with no key of its own is found again under its keyed container', () => {
+    document.body.innerHTML = `
+      <div id="rail">
+        <div data-group="a"><div class="group-head" tabindex="0">A</div></div>
+        <div data-group="b"><div class="group-head" tabindex="0">B</div></div>
+      </div>`;
+    const rail = /** @type {HTMLElement} */ (document.getElementById('rail'));
+    /** @type {HTMLElement} */ (rail.querySelector('[data-group="b"] .group-head')).focus();
+    openServiceMenu();
+
+    rail.replaceChildren(...[...rail.children].map((c) => c.cloneNode(true)));
+    pressKey('Escape');
+
+    expect(document.activeElement?.textContent).toBe('B');
+  });
+
+  test('an element gone with no replacement hands focus to the nearest container that takes it', () => {
+    document.body.innerHTML = `
+      <div id="tree" tabindex="-1"><div class="list"><button type="button" data-id="x">x</button></div></div>`;
+    const tree = /** @type {HTMLElement} */ (document.getElementById('tree'));
+    /** @type {HTMLElement} */ (tree.querySelector('[data-id="x"]')).focus();
+    openServiceMenu();
+
+    tree.innerHTML = '<div class="list"></div>';
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(tree);
+  });
+
+  test('with no replacement and no container that takes focus, focus is left where it falls', () => {
+    const { entry, rail } = mountSurfaces();
+    entry.focus();
+    openServiceMenu({ anchorEl: entry });
+
+    rail.replaceChildren();
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(document.body);
   });
 
   test('pointer, blur, scroll and resize dismissals leave focus alone', () => {
