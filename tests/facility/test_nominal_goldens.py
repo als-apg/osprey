@@ -242,4 +242,4 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
         expected = sigma * series.keyed_normals(key, counters_ms)
         np.testing.assert_allclose(reading, expected, rtol=1e-9, atol=TOLERANCE, err_msg=address)
         checked += 1
-    assert checked == 713
+    assert checked == 725

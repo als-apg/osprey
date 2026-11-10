@@ -868,9 +868,6 @@ BTS:MAG:HCM:01:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:HCM:01:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:HCM:01:STATUS:READY:
@@ -881,9 +878,6 @@ BTS:MAG:HCM:02:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:HCM:02:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:HCM:02:STATUS:READY:
@@ -894,9 +888,6 @@ BTS:MAG:HCM:03:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:HCM:03:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:HCM:03:STATUS:READY:
@@ -907,9 +898,6 @@ BTS:MAG:HCM:04:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:HCM:04:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:HCM:04:STATUS:READY:
@@ -920,9 +908,6 @@ BTS:MAG:HCM:05:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:HCM:05:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:HCM:05:STATUS:READY:
@@ -933,9 +918,6 @@ BTS:MAG:HCM:06:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:HCM:06:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:HCM:06:STATUS:READY:
@@ -1055,9 +1037,6 @@ BTS:MAG:VCM:01:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:VCM:01:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:VCM:01:STATUS:READY:
@@ -1068,9 +1047,6 @@ BTS:MAG:VCM:02:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:VCM:02:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:VCM:02:STATUS:READY:
@@ -1081,9 +1057,6 @@ BTS:MAG:VCM:03:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:VCM:03:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:VCM:03:STATUS:READY:
@@ -1094,9 +1067,6 @@ BTS:MAG:VCM:04:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:VCM:04:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:VCM:04:STATUS:READY:
@@ -1107,9 +1077,6 @@ BTS:MAG:VCM:05:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:VCM:05:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:VCM:05:STATUS:READY:
@@ -1120,9 +1087,6 @@ BTS:MAG:VCM:06:CURRENT:RB:
   drift:
     amplitude: 0.005
     period_s: 21600.0
-  clamp:
-  - 0.0
-  - null
 BTS:MAG:VCM:06:STATUS:ON:
   nominal: 'TRUE'
 BTS:MAG:VCM:06:STATUS:READY:

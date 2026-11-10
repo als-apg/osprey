@@ -174,6 +174,19 @@ def test_a_corrector_band_is_its_readback_clamp_where_the_seeds_declare_one() ->
             assert [record["min_value"], record["max_value"]] == clamp, record["address"]
 
 
+def test_every_value_a_corrector_band_permits_its_readback_can_reach() -> None:
+    channels = records_by_id("channel")
+    seeds = committed("seeds.yaml")
+    for record in committed("limits.yaml")["records"]:
+        if "min_value" not in record:
+            continue
+        low, high = (seeds.get(channels[record["address"]].get("pair")) or {}).get(
+            "clamp", [None, None]
+        )
+        assert low is None or low <= record["min_value"], record["address"]
+        assert high is None or high >= record["max_value"], record["address"]
+
+
 def test_each_teaching_record_and_the_corrector_block_sit_under_a_comment() -> None:
     lines = committed_files()["limits.yaml"].splitlines()
     starts = [index for index, line in enumerate(lines) if line.startswith("- address: ")]
