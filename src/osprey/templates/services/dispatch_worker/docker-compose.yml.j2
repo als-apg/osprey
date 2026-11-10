@@ -21,6 +21,9 @@
     same image on the same network axis. The agent's ARIEL and facility-
     knowledge tools dial both. -#}
 {%- import "services/_store_dial.j2" as dial -%}
+{#- A CA file's read-only bind, by the shared macro so every container
+    that reads one mounts it alike. -#}
+{%- import "services/_ca_bundles.j2" as ca -%}
 # The dispatch-worker runs the full PROJECT image (<project>:local) that
 # `osprey up` builds from the project root — the same image the web
 # terminal runs, baking the facility overlays and data/ into /app/<project>.
@@ -423,12 +426,7 @@ services:
       - ./build/services/dispatch_worker/control_identity:{{ control_identity_container_dir }}:ro
       {#- The CA file the selected archiver block names under `tls.ca_bundle`,
          read-only at the same path, so the key names one file here and on the host. #}
-{%- for ca_bundle in connection_ca_bundles | default([]) %}
-      - type: bind
-        source: {{ ca_bundle | replace("$", "$$") | tojson }}
-        target: {{ ca_bundle | replace("$", "$$") | tojson }}
-        read_only: true
-{%- endfor %}
+{{- ca.mounts(connection_ca_bundles) }}
 {{- net.network(services.dispatch_worker) }}
 {#- The probe runs INSIDE this container, so `localhost` is right in both modes
     -- its own loopback on the compose bridge, the host's under `host` -- and

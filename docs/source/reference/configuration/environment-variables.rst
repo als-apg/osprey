@@ -113,6 +113,42 @@ one setting, whether the build is managed or a hand-run ``docker build``.
 What they configure is the build — a container that is already running reads
 nothing from them.
 
+The host's profile variant
+==========================
+
+``OSPREY_PROFILE_VARIANT`` names the overlay profile, ``profiles/<name>.yml``,
+that a build of this checkout merges over ``profile.yml``. Unlike the host-level
+knobs, it is not read from the shell environment or the ``.env`` chain. The
+build reads it only from the gitignored ``.env.variant`` file at the repository
+root (see :ref:`profile-host-variants`).
+
+.. code-block:: text
+
+   .env.variant:   OSPREY_PROFILE_VARIANT=teststand
+
+The archive pass
+================
+
+``osprey archive`` (:doc:`/reference/cli`) reads three of its options from a
+variable when the flag is not given. The archive service's compose file sets
+all three for its container.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``OSPREY_ARCHIVE_SOURCES``
+     - The sources tree, ``<sources>/<kind>/<name>/...``. Stands in for
+       ``--sources``.
+   * - ``OSPREY_ARCHIVE_DEST``
+     - The existing archive root the day directories are written into. Stands
+       in for ``--dest``.
+   * - ``OSPREY_ARCHIVE_INTERVAL_SECONDS``
+     - Seconds between passes under ``--watch``, at least ``60``, default
+       ``86400``. Stands in for ``--interval``.
+
 CANOPY payload
 ==============
 

@@ -69,7 +69,8 @@ refusal never share one.
        :ref:`python-executor-protected-paths`
    * - ``<server>``
      - Tool calls on an OSPREY MCP server, allowed and refused alike, on a
-       surface named for the server: ``osprey_workspace``, ``python``, ``bluesky``
+       surface named for the server: ``osprey_workspace``, ``python``,
+       ``bluesky``. A server that was never told its name records on ``mcp``
    * - ``hook_writes_check``, ``hook_approval``,
        ``hook_limits``, ``hook_memory_guard``,
        ``hook_plan_mode``
@@ -88,6 +89,10 @@ refusal never share one.
    * - ``notebook_kernel``
      - Control-system writes a notebook cell was refused --- a write posture, a
        limit, a target that moved while the cell ran
+   * - ``canopy``
+     - Each CANOPY panel write and each panel write refused, under the person
+       who clicked --- see :ref:`architecture-safety-chain-panel-write`. Its
+       ``detail`` holds the value sent: see :ref:`audit-trail-payloads`
    * - ``preflight`` (written as ``queueserver`` and as each lane's
        ``<lane>-queueserver``)
      - Whether a queued plan's declared channels answered before it moved, per
@@ -153,6 +158,10 @@ JSON object:
        ``kernel:<id>`` for a notebook kernel, or ``null`` where the emitter
        names none. An identifier the trail joins on, and nothing more: the
        write posture it describes belongs to the deployment
+   * - ``on_behalf_of``
+     - The person a service decided for, where the identity the record is
+       filed under is not that person: the user a login was for, the owner of
+       a queued plan. Absent when there is no such person
    * - ``tool_use_id``
      - The agent harness's id for the tool call the record is about. Present
        on records a tool call produced --- the hooks, the MCP servers, the
@@ -186,6 +195,14 @@ JSON object:
        adds the account and host the control system sees it from, and the
        person behind a dispatched run or a queued plan; see
        :ref:`audit-trail-attribution`
+   * - ``role``
+     - The role the actor held, where the decision was bound to one: on
+       ``auth_sidecar`` the role the session was minted with, or the role a
+       refused login was for, where one is known; on the web
+       surfaces the role the login service forwarded. Absent otherwise
+   * - ``source``, ``source_truncated``
+     - On ``executor`` only: the code a refused run tried to execute, and
+       ``true`` where it was cut --- see :ref:`audit-trail-payloads`
 
 A ``PUT`` that would have changed many protected keys at once names the first
 ten and counts the rest in the message, but **every changed key gets its own
@@ -415,7 +432,8 @@ under the asserted identity.
 The tool-call record
 ====================
 
-The default records hold identifiers and never values. Beside them, every
+The default records hold identifiers and, except on the two surfaces in
+:ref:`audit-trail-payloads`, never values. Beside them, every
 osprey MCP server files one ``audit`` entry on the ``tool_call`` surface for
 each call that ran against something worth naming: a control target, an
 approval, or facts the tool noted while it ran. There is no switch; it is
@@ -529,6 +547,8 @@ is answered by a reader, a person the profile names under
 window, it is answered from the archive on the deploy host, where whoever owns
 ``var/archive/`` reads every day's export.
 
+.. _audit-trail-payloads:
+
 What the trail is not
 =====================
 
@@ -549,14 +569,25 @@ it has a lasting copy. Nothing in OSPREY deletes the archive's exports except
 ``osprey reset --purge-audit``, which marks each day it purged in that day's
 manifest.
 
-**One surface carries a payload:** ``executor``. Every other record holds
-identifiers and config keys only --- a surface name, a username, a tool name, a
-dotted key, a short reason --- never a config value, a prompt, or an agent
-message. The Python executor is the deliberate exception: a refused run records
-the code it refused, whole, in a ``source`` field (8000 characters, with
-``source_truncated: true`` where a longer script was cut). A record of a refused
-write that does not say what the write *was* is an alert, not an audit trail.
-What that means for anyone reading or forwarding the trail: this one surface
+**Two surfaces carry a payload:** ``executor`` and ``canopy``. Every other
+default record holds identifiers and config keys only --- a surface name, a
+username, a tool name, a dotted key, a short reason --- never a config value, a
+prompt, or an agent message. A record of a write that does not say what the
+write *was* is an alert, not an audit trail, so there are two exceptions:
+
+- **The Python executor.** A refused run records the code it refused, whole, in
+  a ``source`` field (8000 characters, with ``source_truncated: true`` where a
+  longer script was cut).
+- **A CANOPY panel write.** Every record of a panel write --- the attempt,
+  its outcome, a refusal --- carries the value, as the last two ``detail``
+  tokens, ``value_len=<n> value=<text>``. ``value_len`` is the length of the
+  whole value. The text keeps at most 256 characters, fewer where the rest of
+  ``detail`` leaves less room, and is written as a JSON string with no
+  whitespace, so a value cannot forge a token. A panel write is one click with
+  no tool call behind it, so no tool-call record holds the value.
+
+What that means for anyone reading or forwarding the trail: ``executor``
 contains whatever the agent tried to run, including anything the conversation
-put into the script. Give it the same care as the code itself, and expect it to
-be the surface that grows.
+put into the script, and ``canopy`` contains every value a person sent to the
+machine from a panel. Give both the same care as the code and the setpoints
+themselves, and expect ``executor`` to be the surface that grows.

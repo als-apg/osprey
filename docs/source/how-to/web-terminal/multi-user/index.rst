@@ -134,8 +134,10 @@ The config block
 
       .. tab-item:: Switching it on
 
-         The whole feature is one config block. This is what a project built from
-         the ``demo`` preset carries in its ``config.yml``:
+         The whole feature is one config block. This is an excerpt of what a
+         project built from the ``demo`` preset carries in its ``config.yml``;
+         the preset also sets ``landing.notices`` and ``landing.footer`` (see
+         :ref:`multi-user-landing-notices`):
 
          .. code-block:: yaml
 
@@ -144,6 +146,10 @@ The config block
                 enabled: true
                 image_source: local       # osprey up builds the images itself
                 default_tier: readonly
+                auth:
+                  method: password
+                  session_lifetime: 43200
+                  allow_insecure_http: true
                 landing:
                   groups:
                   - type: users
@@ -167,6 +173,10 @@ The config block
                 - logbook
                 - knowledge
                 - channel-finder
+
+         The ``auth:`` lines put every terminal behind a password login.
+         ``allow_insecure_http: true`` suits ``127.0.0.1`` only; see
+         :doc:`login` before you serve the stack on a reachable host.
 
          Each ``tier`` names a file in the repository's ``tiers/`` and each
          ``shared:`` entry a file in ``apps/``, both written by ``osprey init``.
@@ -337,10 +347,12 @@ app onto a seeded facility graph, not an empty shell.
 .. note::
 
    Running from a **source checkout** of the OSPREY repository rather than a
-   released install? Add ``--dev`` to ``osprey up``. The images install
-   the framework from PyPI by default, and a source tree's version isn't
-   published there; ``--dev`` bakes your local checkout into the images
-   instead.
+   released install? The images install the framework from PyPI by default,
+   and a source tree's version isn't published there; ``--dev`` bakes your
+   local checkout into the images instead. Give it to both commands,
+   ``osprey build --dev`` then ``osprey up --dev``, or run
+   ``osprey up --build --dev``: ``osprey up --dev`` refuses a render built
+   without it.
 
 What ``osprey build`` and ``osprey up`` do for the web tier
 -----------------------------------------------------------
@@ -546,6 +558,8 @@ a credential for the card itself. Clicking any card opens that session at
 A deployment that would rather not publish its roster can replace the name
 cards with one sign-in button; see :ref:`multi-user-hide-names`.
 
+.. _multi-user-landing-notices:
+
 What your operators read first
 ------------------------------
 
@@ -595,10 +609,8 @@ showing a gap.
 Logging out and switching users
 -------------------------------
 
-The **☰ More** menu at the bottom of the sidebar names the signed-in user —
-the display name where the roster sets one, the username otherwise — and
-their role, and has **Sign out**. That POSTs to the terminal's logout
-route, clears the local session pointer, and returns you to the landing page.
+To log out, use the **Sign out** row in the sidebar footer, as described in
+:ref:`web-terminal-sign-out`. It returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login
 starts **fresh**. Simply navigating away (without logout) keeps the session
@@ -639,12 +651,17 @@ agent wrote on the terminals' origin cannot read it. A visit without a valid
 sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.
 
-Who sees what is decided per person, from the roster, every time a page loads:
+Who sees what is decided per person, from the roster, every time a page loads.
+In ``profile.yml``, the roster goes under ``config:`` and ``agent_record:`` is a
+top-level key. Merge these keys into the ``modules.web_terminals:`` and
+``agent_record:`` entries already there; a second copy of either key silently
+replaces the first. A list in the snippet, such as ``users:``, stands as the
+whole list, so write every entry you keep into it.
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        authorization:
          roles:
            operator: {tier: readwrite, history: all}
@@ -652,6 +669,9 @@ Who sees what is decided per person, from the roster, every time a page loads:
          - name: alice
            index: 0
            tier: readwrite             # history: own, the default
+         - name: bob
+           index: 1
+           role: operator              # history: all, from the role
          - name: carol
            index: 2
            tier: admin

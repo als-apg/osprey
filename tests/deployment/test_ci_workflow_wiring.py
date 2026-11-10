@@ -4279,7 +4279,7 @@ def test_record_lane_runs_on_every_pull_request_without_a_key(workflow: dict[str
     """Model-free: no label, no actor guard, no gateway key; the revalidation
     dispatch runs it too, as it runs every lane a push skips."""
     job = _jobs(workflow)[RECORD_E2E_JOB]
-    expected = f"(github.event_name == 'pull_request') || {REVALIDATION_ARM}"
+    expected = f"(github.event_name == 'pull_request' && {DOCS_ONLY_CLAUSE}) || {REVALIDATION_ARM}"
     assert " ".join(str(job.get("if")).split()) == expected, job.get("if")
     assert not _job_declares_secret(workflow, RECORD_E2E_JOB, SECRET_TOKEN), (
         f"'{RECORD_E2E_JOB}' declares the gateway key; it reaches no model"
@@ -15491,3 +15491,110 @@ def test_every_qmd_deploying_step_starts_the_shared_image__mutation_unlisted_cal
     assert _qmd_deploy_problems(mutated) == [
         "lint: builds the qmd image but no step here is listed as using it"
     ]
+
+
+# ---------------------------------------------------------------------------
+# Docs-only pull requests stand the pull-request-scoped lanes down
+# ---------------------------------------------------------------------------
+#
+# The `changes` job publishes `docs_only` (scripts/ci/docs_only.py). Every lane
+# with a pull-request arm reads it in that arm and nowhere else: a dispatch
+# arm that read it would let a revalidation run skip a lane. A lane that needs
+# `changes` skips when `changes` fails, and the gate reads a skip as a pass on
+# a pull request, so the gate requires `changes` to succeed.
+
+CHANGES_JOB = "changes"
+DOCS_ONLY_CLAUSE = "needs.changes.outputs.docs_only != 'true'"
+_PR_ARM = "github.event_name == 'pull_request'"
+
+
+def _docs_only_problems(wf: dict[str, Any]) -> list[str]:
+    problems = []
+    for name, job in _jobs(wf).items():
+        condition = " ".join(str(job.get("if", "")).split())
+        if name == GATE_JOB or _PR_ARM not in condition:
+            continue
+        pr_arm = condition.split("||")[0]
+        if _PR_ARM not in pr_arm or DOCS_ONLY_CLAUSE not in pr_arm:
+            problems.append(f"{name}: its pull-request arm does not read docs_only")
+        if DOCS_ONLY_CLAUSE in condition.replace(pr_arm, "", 1):
+            problems.append(f"{name}: docs_only is read outside the pull-request arm")
+        if CHANGES_JOB not in (
+            [job["needs"]] if isinstance(job.get("needs"), str) else job.get("needs", [])
+        ):
+            problems.append(f"{name}: reads docs_only without needing {CHANGES_JOB}")
+    return problems
+
+
+def test_every_pull_request_lane_stands_down_on_docs_only(workflow: dict[str, Any]) -> None:
+    assert _docs_only_problems(workflow) == []
+
+
+def test_every_pull_request_lane_stands_down__mutation_drops_the_clause() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[RECORD_E2E_JOB]
+    job["if"] = str(job["if"]).replace(f"&& {DOCS_ONLY_CLAUSE}", "")
+    assert _docs_only_problems(mutated) == [
+        f"{RECORD_E2E_JOB}: its pull-request arm does not read docs_only"
+    ]
+
+
+def test_every_pull_request_lane_stands_down__mutation_reads_it_on_dispatch() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[RECORD_E2E_JOB]
+    job["if"] = f"{job['if']} && {DOCS_ONLY_CLAUSE}"
+    assert f"{RECORD_E2E_JOB}: docs_only is read outside the pull-request arm" in (
+        _docs_only_problems(mutated)
+    )
+
+
+def test_every_pull_request_lane_stands_down__mutation_drops_the_need() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)[RECORD_E2E_JOB]["needs"]
+    assert _docs_only_problems(mutated) == [
+        f"{RECORD_E2E_JOB}: reads docs_only without needing {CHANGES_JOB}"
+    ]
+
+
+def test_the_classifier_runs_on_every_event_and_forces_full_on_the_label(
+    workflow: dict[str, Any],
+) -> None:
+    """No `if:`, so pushes and dispatches get `docs_only=false` from it rather
+    than a skip that would take every dependent lane with it; the `full-ci`
+    label always runs everything."""
+    job = _jobs(workflow)[CHANGES_JOB]
+    assert "if" not in job
+    run = _find_named_step(workflow, CHANGES_JOB, "Classify changed paths")["run"]
+    assert '"$HAS_FULL_CI" == "true"' in run
+    assert "scripts/ci/docs_only.py" in run
+    assert "previous_filename" in run, "a rename's old name must be classified too"
+
+
+def test_the_gate_requires_the_classifier_to_succeed(workflow: dict[str, Any]) -> None:
+    assert CHANGES_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert '"${{ needs.changes.result }}" != "success"' in _gate_run_text(workflow)
+
+
+def _pr_lanes_naming_docs_tests(wf: dict[str, Any]) -> list[str]:
+    """Lanes `docs_only` stands down that run something under tests/docs/."""
+    return sorted(
+        name
+        for name, job in _jobs(wf).items()
+        if DOCS_ONLY_CLAUSE in str(job.get("if", ""))
+        and "tests/docs" in json.dumps(job.get("steps", []))
+    )
+
+
+def test_no_lane_docs_only_stands_down_runs_the_docs_tests(workflow: dict[str, Any]) -> None:
+    """tests/docs/ counts as docs (scripts/ci/docs_only.py) only because the
+    always-on lanes are its sole runners: a docs-only PR's own guard test must
+    still run. A pull-request-scoped lane that ran it would skip it there."""
+    assert _pr_lanes_naming_docs_tests(workflow) == []
+
+
+def test_no_lane_docs_only_stands_down_runs_the_docs_tests__mutation() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[RECORD_E2E_JOB]["steps"].append(
+        {"name": "x", "run": "uv run pytest tests/docs/test_redirects.py"}
+    )
+    assert _pr_lanes_naming_docs_tests(mutated) == [RECORD_E2E_JOB]

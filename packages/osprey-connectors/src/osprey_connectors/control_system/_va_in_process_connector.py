@@ -208,6 +208,10 @@ def active_set_sha256(active: Sequence[str]) -> str:
     return hashlib.sha256("\n".join(active).encode("utf-8")).hexdigest()
 
 
+#: Read back only by the in-process connector that wrote it, in the same process.
+_JOURNAL_FILE_MODE = 0o600
+
+
 class _Journal:
     """The session-writes journal: read whole, replaced atomically under its lock."""
 
@@ -248,7 +252,7 @@ class _Journal:
         atomic_replace(
             self.path,
             json.dumps(document, sort_keys=True).encode("utf-8"),
-            mode=0o600,
+            mode=_JOURNAL_FILE_MODE,
             sync="best_effort",
         )
 

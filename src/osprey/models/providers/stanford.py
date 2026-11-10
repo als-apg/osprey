@@ -21,7 +21,6 @@ class StanfordProviderAdapter(LiteLLMDelegatingProvider):
     description = "Stanford AI Playground (multi-provider proxy)"
     requires_api_key = True
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = True
     default_base_url = "https://aiapi-prod.stanford.edu/v1"
     default_model_id = "gpt-4o"
