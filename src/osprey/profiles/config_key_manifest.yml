@@ -3908,7 +3908,7 @@ keys:
     default: latest
   modules.web_terminals.nginx_image:
     rendered: false
-    evidence: 'web_terminals\.get\("nginx_image"\) or _DEFAULT_NGINX_IMAGE'
+    evidence: 'upstream_image\("nginx", resolve_base_registry\(root\)\)'
     default: nginx:1.31-alpine
   modules.web_terminals.tls:
     rendered: false
