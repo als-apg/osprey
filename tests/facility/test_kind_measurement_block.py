@@ -306,6 +306,35 @@ def test_a_facts_writer_that_fails_on_an_admitted_block_stops_the_build(tmp_path
     )
 
 
+def _raising_stops(document: Mapping[str, Any], block: Any) -> Iterator[kinds.KindStop]:
+    del document
+    yield kinds.KindStop("first", "first")
+    raise KeyError(block["absent"])
+
+
+@pytest.mark.parametrize(
+    ("hook", "cause"),
+    [
+        pytest.param(_raising_stops, "KeyError: 'absent'", id="raises"),
+        pytest.param(
+            lambda document, block: ["not a stop"],
+            "AttributeError: 'str' object has no attribute 'remedy'",
+            id="yields-no-stop",
+        ),
+    ],
+)
+def test_a_build_stops_hook_that_fails_stops_the_build_with_one_line(
+    tmp_path, monkeypatch, hook, cause
+):
+    _register(monkeypatch, dataclasses.replace(DECLARATION, build_stops=hook))
+
+    assert _stop(tmp_path, _tree()) == (
+        f"facility: value-invalid: measurement SR — kind {KIND}'s build_stops hook fails on "
+        f"this file's block: {cause}; fix: make the build_stops hook of kind {KIND} "
+        "(package turn-kind) accept every block its measurement schema admits"
+    )
+
+
 @_with_kind
 def test_an_absent_block_is_judged_as_an_empty_one(tmp_path):
     tree = _tree()

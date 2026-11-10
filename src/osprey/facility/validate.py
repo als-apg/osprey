@@ -2234,6 +2234,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
     from osprey.facility.kinds import (
         ENTRY_POINT_GROUP,
         KindRegistryError,
+        kind_source,
         member_sorts,
         registered,
     )
@@ -2386,14 +2387,33 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 blocked.add(str(kind))
                 yield from block_refusals
             elif declaration.build_stops is not None:
-                for stop in declaration.build_stops(document, block or {}):
+                try:
+                    stops = [
+                        (str(stop.remedy), str(stop.detail))
+                        for stop in declaration.build_stops(document, block or {})
+                    ]
+                except Exception as error:
                     yield FacilityBuildError(
                         "value-invalid",
                         name,
                         files,
-                        stop.remedy,
+                        f"make the build_stops hook of kind {kind} ({kind_source(str(kind))}) "
+                        "accept every block its measurement schema admits",
                         record_kind="measurement",
-                        detail=f"kind {kind}: {stop.detail}",
+                        detail=(
+                            f"kind {kind}'s build_stops hook fails on this file's block: "
+                            f"{type(error).__name__}: {error}"
+                        ),
+                    )
+                    continue
+                for remedy, detail in stops:
+                    yield FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        remedy,
+                        record_kind="measurement",
+                        detail=f"kind {kind}: {detail}",
                     )
     yield from _kind_facts_stops(document, {k: v for k, v in declared.items() if k not in blocked})
 
