@@ -2190,7 +2190,7 @@ keys:
     evidence: 'claude_code_config\.get\("servers", \{\}\)'
     note: >-
       Server enable/disable overrides, consumed by registry.mcp.resolve_servers.
-      Anchored because FOURTEEN covered-by children terminate here — a weak regex
+      Anchored because TWENTY-FIVE covered-by children terminate here — a weak regex
       at this node would silently hollow out all of them.
     default: {}
   claude_code.servers.controls: {covered-by: claude_code.servers, default: n/a}
@@ -2418,6 +2418,11 @@ keys:
       the runner refuses a benchmark with no query set, naming this key and --queries-path
 
   # ── PV directory ────────────────────────────────────────────────────
+  # Read by services/pv_directory/resolve.py (the build's check and the
+  # predicates) and by pv_directory_targets in the connectors, which builds one
+  # backend spec per sub-block from its type and settings. A child profile
+  # turns the section off with `pv_directory: null`, which builds only over a
+  # parent that spells the section as one nested mapping.
   pv_directory:
     evidence: 'section = config\.get\(SECTION_KEY\)'
     default: no-fallback
@@ -2425,18 +2430,118 @@ keys:
       absent or null, resolve_section answers None, every pv_directory_* predicate
       is false and nothing of the section is rendered; a section without `type`
       lists the build's simulator channels and IOC health PVs
+  pv_directory.type:
+    rendered: false
+    covered-by: pv_directory
+    default: no-fallback
+    default_note: >-
+      absent, the section is VA-only: the simulator's channels on `va` and
+      nothing on `live` or `standin`; with no simulator either, the build warns
+      and every section answers 'not available for this target'
+  pv_directory.settings: {rendered: false, covered-by: pv_directory, default: {}}
+  pv_directory.settings.url:
+    rendered: false
+    covered-by: pv_directory.settings
+    default: no-fallback
+    default_note: >-
+      the build refuses a `type` without it, naming this key; a VA-only section
+      reads no url
+  pv_directory.settings.timeout_s: {rendered: false, evidence: 'settings\.get\("timeout_s"\)', default: 6.0}
+  pv_directory.settings.auth:
+    rendered: false
+    covered-by: pv_directory.settings
+    note: >-
+      the login a proxy in front of the service asks for — a bearer token or a
+      user and password, each secret named by environment variable; unset
+      sends no login
+    default: null
+  pv_directory.settings.auth.token_env: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
+  pv_directory.settings.auth.username: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
+  pv_directory.settings.auth.password_env: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
+  pv_directory.settings.tls: {rendered: false, covered-by: pv_directory.settings, default: null}
+  pv_directory.settings.tls.ca_bundle: {rendered: false, covered-by: pv_directory.settings.tls, default: null}
+  pv_directory.description_property: {rendered: false, evidence: 'get\("description_property"\)', default: recordDesc}
+  pv_directory.caveats: {rendered: false, evidence: '_present\(caveats=block\.get\("caveats"\)\)', default: []}
+  pv_directory.display: {rendered: false, evidence: 'self\._section\.get\("display"\)', default: {}}
+  pv_directory.display.detail_properties:
+    rendered: false
+    evidence: 'self\._display\.get\("detail_properties"\)'
+    default: derived
+    default_note: every property the record carries, sorted by name
+  pv_directory.display.hidden_properties: {rendered: false, evidence: 'self\._display\.get\("hidden_properties"\)', default: []}
+  pv_directory.display.exact_properties: {rendered: false, evidence: 'display\.get\("exact_properties"\)', default: [pvStatus, recordType]}
+  pv_directory.display.filter_cap: {rendered: false, evidence: 'self\._display\.get\("filter_cap"\)', default: 5000}
+  pv_directory.display.ioc_health_suffixes: {rendered: false, evidence: 'self\._display\.get\("ioc_health_suffixes"\)', default: [HEARTBEAT, UPTIME]}
+  pv_directory.display.engineer_property: {rendered: false, evidence: 'self\._display\.get\("engineer_property"\)', default: Engineer}
+  pv_directory.alarm_log:
+    rendered: false
+    evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
+    default: no-fallback
+    default_note: >-
+      absent, no alarm history and pv_directory_alarm_log is false; the block
+      serves `live` and `standin` only
+  pv_directory.alarm_log.type:
+    rendered: false
+    covered-by: pv_directory.alarm_log
+    default: no-fallback
+    default_note: absent, the block serves no target; the built-in type is phoebus_alarm_logger
+  pv_directory.alarm_log.settings: {rendered: false, covered-by: pv_directory.alarm_log, default: {}}
+  pv_directory.alarm_log.settings.url:
+    rendered: false
+    covered-by: pv_directory.alarm_log.settings
+    default: no-fallback
+    default_note: the build refuses a `type` without it, naming this key
+  pv_directory.alarm_log.caveats: {rendered: false, covered-by: pv_directory.alarm_log, default: []}
   pv_directory.alarm_state:
     evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
     default: no-fallback
     default_note: >-
       absent, no alarm feed and pv_directory_alarm_state is false; `type:
       phoebus_alarm_server` needs settings.bootstrap_servers and settings.topic
+  pv_directory.alarm_state.type:
+    rendered: false
+    covered-by: pv_directory.alarm_state
+    default: no-fallback
+    default_note: >-
+      absent, `live` and `standin` have no alarm feed; the built-in type is
+      phoebus_alarm_server, which needs the alarm-state extra
+  pv_directory.alarm_state.settings: {rendered: false, covered-by: pv_directory.alarm_state, default: {}}
+  pv_directory.alarm_state.settings.bootstrap_servers:
+    rendered: false
+    evidence: 'settings\.get\("bootstrap_servers"\)'
+    default: no-fallback
+    default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
+  pv_directory.alarm_state.settings.topic:
+    rendered: false
+    evidence: 'settings\.get\("topic"\)'
+    default: no-fallback
+    default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
   pv_directory.alarm_state.replay_file:
     evidence: 'block\.get\("replay_file"\)'
     default: no-fallback
     default_note: >-
       absent, nothing is replayed; `demo:<name>` names a packaged feed, any other
       value a project-relative .ndjson path, checked at build
+  pv_directory.alarm_state.caveats: {rendered: false, covered-by: pv_directory.alarm_state, default: []}
+  pv_directory.put_log:
+    rendered: false
+    evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
+    default: no-fallback
+    default_note: >-
+      absent, no put history and pv_directory_put_log is false; the block
+      serves `live` and `standin` only
+  pv_directory.put_log.type:
+    rendered: false
+    covered-by: pv_directory.put_log
+    default: no-fallback
+    default_note: absent, the block serves no target; the built-in type is caputlog
+  pv_directory.put_log.settings: {rendered: false, covered-by: pv_directory.put_log, default: {}}
+  pv_directory.put_log.settings.url:
+    rendered: false
+    covered-by: pv_directory.put_log.settings
+    default: no-fallback
+    default_note: the build refuses a `type` without it, naming this key
+  pv_directory.put_log.caveats: {rendered: false, covered-by: pv_directory.put_log, default: []}
 
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
