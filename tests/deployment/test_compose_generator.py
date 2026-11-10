@@ -61,6 +61,7 @@ from osprey.deployment.control_identity import (
 )
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.members import WORKSPACE_MEMBERS
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
@@ -2653,21 +2654,8 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_BLUESKY_TEMPLATE = (
-    _REPO_ROOT / "src" / "osprey" / "templates" / "services" / "bluesky" / "docker-compose.yml.j2"
-)
 _CONFIG_KEY_MANIFEST = _REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
-
-
-def _compose_default_image(template: Path, image_ref: str) -> str:
-    """The ``<ref>:<tag>`` a compose template spells in its Jinja ``default('…')``."""
-    match = re.search(
-        r"default\('(" + re.escape(image_ref) + r":[^')\s]+)'\)",
-        template.read_text(encoding="utf-8"),
-    )
-    assert match, f"{template.relative_to(_REPO_ROOT)} no longer pins {image_ref} as default('…')"
-    return match.group(1)
 
 
 def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
@@ -2680,7 +2668,7 @@ def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
     """
     from packaging.version import Version
 
-    image = _compose_default_image(_BLUESKY_TEMPLATE, "ghcr.io/bluesky/tiled")
+    image = UPSTREAM_IMAGES["tiled"]
     server = image.rsplit(":", 1)[1]
     floor_match = re.search(
         r'"tiled\[client\]>=([^",\s]+)"', _PYPROJECT.read_text(encoding="utf-8")
@@ -2688,37 +2676,29 @@ def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
     assert floor_match, "pyproject.toml no longer declares a tiled[client]>= floor"
     floor = floor_match.group(1)
     assert Version(server) >= Version(floor), (
-        f"{_BLUESKY_TEMPLATE.relative_to(_REPO_ROOT)} pins ghcr.io/bluesky/tiled:{server}, "
+        f"the upstream image catalogue pins {image}, "
         f"older than the tiled[client]>={floor} floor in pyproject.toml."
     )
 
 
 @pytest.mark.parametrize(
-    ("key", "template", "image_ref"),
-    [
-        (
-            "services.bluesky.tiled_image",
-            _BLUESKY_TEMPLATE,
-            "ghcr.io/bluesky/tiled",
-        ),
-    ],
+    ("key", "entry"),
+    [("services.bluesky.tiled_image", "tiled")],
     ids=["tiled"],
 )
-def test_the_manifest_default_matches_the_compose_default(
-    key: str, template: Path, image_ref: str
-) -> None:
+def test_the_manifest_default_matches_the_catalogue_default(key: str, entry: str) -> None:
     """A pin spelled in two files is the same pin in both.
 
     The config-key manifest documents the default of the key that overrides the
-    image, and the compose template renders it; a bump that reaches one and not
-    the other documents an image the stack does not run.
+    image, and the compose template renders the upstream image catalogue's
+    entry; a bump that reaches one and not the other documents an image the
+    stack does not run.
     """
     manifest = yaml.safe_load(_CONFIG_KEY_MANIFEST.read_text(encoding="utf-8"))
     documented = manifest["keys"][key]["default"]
-    rendered = _compose_default_image(template, image_ref)
-    assert documented == rendered, (
-        f"config_key_manifest.yml documents {key} = {documented!r}, but "
-        f"{template.relative_to(_REPO_ROOT)} defaults it to {rendered!r}."
+    assert documented == UPSTREAM_IMAGES[entry], (
+        f"config_key_manifest.yml documents {key} = {documented!r}, but the "
+        f"upstream image catalogue's {entry!r} entry is {UPSTREAM_IMAGES[entry]!r}."
     )
 
 

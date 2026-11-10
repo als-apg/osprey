@@ -596,8 +596,8 @@ services:
   # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
   # only, same as the bridge itself.
   tiled:
-    # Public upstream image, overridable like every other service image
-    # (env → config → default): set OSPREY_TILED_IMAGE, or
+    # The upstream image catalogue's `tiled` entry, overridable like every
+    # other service image (env → config → default): set OSPREY_TILED_IMAGE, or
     # services.bluesky.tiled_image in config.yml, to point at a mirror or a
     # pinned digest. The tag is a published bluesky/tiled release no older than
     # the `tiled[client]` floor in the framework's own dependencies.
