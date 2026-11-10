@@ -45,6 +45,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.control_identity import validate_identity
+
 #: The shipped template, which is what a build copies into the render.
 TEMPLATE = (
     Path(__file__).resolve().parents[2]
@@ -2183,3 +2185,59 @@ class TestTheIdentityOnANonRootStart:
         run = sandbox.run(uid=1000, identity="osprey-dispatch-1")
 
         assert run.apply_calls == []
+
+
+def _admits(name: str, *, allow_service: bool) -> bool:
+    try:
+        validate_identity(name, allow_service=allow_service)
+    except ValueError:
+        return False
+    return True
+
+
+#: One name per class the two predicates could split on.
+_IDENTITY_NAMES = [
+    "alice",
+    "j.doe",
+    "_svc",
+    "osprey-sidecar",
+    "osprey-dispatch-worker-1",
+    "osprey-",
+    "osprey.x",
+    "osprey",
+    "root",
+    "daemon",
+    "osprey-Upper",
+    "osprey-a$b",
+    "osprey-" + "a" * 26,
+]
+
+_ADMITTED = [n for n in _IDENTITY_NAMES if _admits(n, allow_service=True)]
+_REFUSED_SERVICE_SHAPED = [
+    n for n in _IDENTITY_NAMES if n.startswith("osprey-") and not _admits(n, allow_service=True)
+]
+
+
+class TestTheServiceRuleIsOneRule:
+    """The shell restates the module's service predicate because it decides exactly
+    when the module cannot run; this pins the two as one rule."""
+
+    @pytest.mark.parametrize("name", _ADMITTED)
+    def test_the_shell_warns_exactly_on_the_modules_service_names(
+        self, sandbox: Sandbox, name: str
+    ):
+        service = not _admits(name, allow_service=False)
+        run = sandbox.run(identity=name, with_python=False)
+
+        assert (run.returncode == 0 and run.skipped == "apply-failed") == service, run.stderr
+
+    @pytest.mark.parametrize("name", _REFUSED_SERVICE_SHAPED)
+    def test_a_service_shaped_name_the_module_refuses_runs_as_osprey(
+        self, sandbox: Sandbox, name: str
+    ):
+        run = sandbox.run(identity=name, apply_rc=1)
+
+        assert run.returncode == 0, run.stderr
+        assert run.skipped == "apply-failed"
+        assert run.order[-3:] == ["gosu", "osprey", "cmd"], run.order
+        assert "control identity: uid 1000 is" not in run.stderr, run.stderr
