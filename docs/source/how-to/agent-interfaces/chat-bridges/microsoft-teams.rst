@@ -79,23 +79,9 @@ dispatcher trigger the bridge fires — that trigger decides what the agent is
 allowed to do with a chat question — and whether the agent may @mention people.
 The block is only meaningful next to a ``dispatch:`` block:
 
-.. code-block:: yaml
-
-   teams_bridge:
-     trigger: teams-question        # default; must exist in your triggers file
-     mentions: true            # default; false posts @mentions as plain text
-
-   dispatch:
-     triggers: my_triggers.yml      # the file that trigger must be declared in
-     worker_count: 1
-
-   env:
-     required:
-       - TEAMS_APP_ID
-       - TEAMS_APP_SECRET
-       - TEAMS_TENANT_ID
-       - TEAMS_SERVICEBUS_CONNECTION_STRING
-       - TEAMS_SERVICEBUS_QUEUE
+.. literalinclude:: ../examples/profile-teams-bridge.yml
+   :language: yaml
+   :caption: profile.yml
 
 .. note::
 
@@ -149,10 +135,10 @@ These are the ones you create and set yourself.
      - The name of that queue. Read the warning below before pointing a second
        deployment at it.
    * - ``TEAMS_CLOUD``
-     - Optional. Leave it unset for an ordinary commercial tenant. Set it to
-       ``gcchigh`` for a GCC High tenant; those are the only two values, and any
-       other one stops the bridge at startup rather than failing later as an
-       unexplained authentication error.
+     - Optional. Leave it unset, or set it to ``commercial``, for an ordinary
+       commercial tenant. Set it to ``gcchigh`` for a GCC High tenant. Those are
+       the only two values; any other one stops the bridge at startup rather
+       than failing later as an unexplained authentication error.
    * - ``TEAMS_FILES_DRIVE_ID``
      - Optional. The drive id of the one document library the bot shares files
        from (see step 9). Unset, files the bridge cannot post inline are named
@@ -229,9 +215,10 @@ the missing variables at once.
           agent reads the rest only if it needs it. ``0`` always sends every
           answer in full.
       * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
-        - Where to file an issue when a question is finally given up on. Leave
-          unset if you have no such host: nothing is filed and nothing is
-          checked.
+        - Optional alert host. With ``GITLAB_URL`` and ``GITLAB_ISSUES_TOKEN``
+          set, the bridge holds queued questions while ``GITLAB_PROJECT`` has an
+          open ``osprey-alert`` issue, or while GitLab cannot be reached. Leave
+          them unset to skip the check.
       * - ``APP_VERSION_DISPLAY``
         - A release label shown with each acknowledgement, so a conversation
           shows which version answered: the acknowledgement reads ``On it —
@@ -454,13 +441,19 @@ one library — owner is what lets it share a file; ``write`` is not enough:
      "grantedTo": {"application": {"id": "<TEAMS_APP_ID>"}}
    }
 
-Read the library's drive id and add the two variables to the ``.env``:
+Read the library's drive id:
 
 .. code-block:: bash
 
    az rest --method get \
      --url "https://graph.microsoft.com/v1.0/sites/$SITE_ID/lists/$LIST_ID/drive" \
      --query id -o tsv
+
+Then add the two variables to the **profile's** ``.env``, with the drive id the
+command printed:
+
+.. code-block:: bash
+   :caption: .env
 
    TEAMS_FILES_DRIVE_ID=b!the-drive-id
    TEAMS_FILES_FOLDER=osprey/answers
