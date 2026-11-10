@@ -458,9 +458,13 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
     _wait_for(lambda: any(t.prompt == "Check the beam current." for t in hub.chat.turns))
     (first,) = [t for t in hub.chat.turns if t.prompt == "Check the beam current."]
     before = first.transcript_id
+    # The new session's first summary is read before the upload and answered only
+    # after the upload's frames reached the tree: an answer older than the frames.
+    held = _hold_first_summary(page, known={before, *(s.transcript_id for s in SEEDED_SESSIONS)})
     _send(page, "/clear")
     _wait_for(lambda: any(t.prompt.startswith("/clear") for t in hub.chat.turns))
     (cleared,) = [t for t in hub.chat.turns if t.prompt.startswith("/clear")]
+    _until_held(page, held)
 
     png = tmp_path / "screen.png"
     png.write_bytes(_PNG)
@@ -477,6 +481,17 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
 
     sid = cleared.transcript_id
     expect(_session(page, sid)).to_have_count(1, timeout=_TIMEOUT_MS)
+    # The turn's reply and the upload, counted from their frames alone.
+    expect(_session(page, sid).locator(".osprey-tree-n")).to_have_text("2", timeout=_TIMEOUT_MS)
+    (route, answer) = held
+    assert answer.json()["counts"][sid]["total"] == 0, "the held answer was read before the upload"
+    # The stale answer does not undo the frames: the session is asked again.
+    with page.expect_request(
+        lambda r: r.url.endswith("/api/artifacts/session-summary") and sid in (r.post_data or ""),
+        timeout=_TIMEOUT_MS,
+    ):
+        route.fulfill(response=answer)
+    expect(_session(page, sid).locator(".osprey-tree-n")).to_have_text("2", timeout=_TIMEOUT_MS)
     _open_session(page, sid)
     _open_group(page, sid, "images")
     image = page.locator(f'{_TREE} [data-session-box="{sid}"] .osprey-list-row', has_text="screen")
@@ -492,6 +507,34 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
     _open_all(page)
     old = page.locator(f'{_TREE} [data-session-box="{before}"] .osprey-list-row', has_text="screen")
     expect(old).to_have_count(0)
+
+
+def _hold_first_summary(page: Page, known: set[str]) -> list:
+    """Hold the first session summary that names a session outside *known*.
+
+    The summary is read from the server when it is asked, and the page gets that
+    answer only when the test fulfils it; every other summary goes straight
+    through. The list fills with ``(route, answer)`` once one is held.
+    """
+    held: list = []
+
+    def handle(route) -> None:  # runs while the test is inside a page call
+        sessions = set(json.loads(route.request.post_data or "{}").get("sessions", []))
+        if held or not sessions - known:
+            route.continue_()
+            return
+        held.extend((route, route.fetch()))
+
+    page.route("**/api/artifacts/session-summary", handle)
+    return held
+
+
+def _until_held(page: Page, held: list) -> None:
+    """Stay in page calls, so the route handler runs, until a summary is held."""
+    deadline = time.monotonic() + _TIMEOUT_MS / 1000
+    while not held:
+        assert time.monotonic() < deadline, "the new session's summary was never asked"
+        page.wait_for_timeout(100)
 
 
 def _wait_for(predicate, timeout_s: float = 20.0) -> None:
