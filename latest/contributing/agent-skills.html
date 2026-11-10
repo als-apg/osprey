@@ -449,12 +449,12 @@
                   
   <section id="agent-skills">
 <span id="contributing-agent-skills"></span><h1>Agent Skills<a class="headerlink" href="#agent-skills" title="Link to this heading">#</a></h1>
-<p>Osprey ships ten <strong>agent skills</strong> — packaged, step-by-step instructions that a
+<p>Osprey ships eleven <strong>agent skills</strong> — packaged, step-by-step instructions that a
 coding agent picks up automatically when a task matches their description.
 Instead of re-explaining the contribution workflow or the release process in
 every session, you install them once and the agent follows the project’s own
 playbooks.</p>
-<p>All ten travel together in one plugin, <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, published from the root of
+<p>All eleven travel together in one plugin, <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, published from the root of
 the <code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code> repository. Claude Code and Codex install it from there
 with two commands each.</p>
 <section id="install-in-claude-code">
@@ -519,8 +519,8 @@ codex<span class="w"> </span>plugin<span class="w"> </span>add<span class="w"> <
 skills themselves are the same files the Claude Code plugin serves.</p>
 <p>Command syntax: <a class="reference external" href="https://learn.chatgpt.com/docs/developer-commands">learn.chatgpt.com/docs/developer-commands</a>.</p>
 </section>
-<section id="the-ten-skills">
-<h2>The ten skills<a class="headerlink" href="#the-ten-skills" title="Link to this heading">#</a></h2>
+<section id="the-eleven-skills">
+<h2>The eleven skills<a class="headerlink" href="#the-eleven-skills" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 32.0%" />
@@ -564,17 +564,23 @@ from. <code class="docutils literal notranslate"><span class="pre">/osprey:setup
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:panel</span></code></p></td>
 <td><p>Authors a themed web-terminal panel that passes the panel validator.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:build-app</span></code></p></td>
+<td><p>Builds an app — panel, backend and agent tools under one <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>
+— from <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> to a passing <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code>. Opens by
+comparing itself with the installed app contract and printing that
+contract from source.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code></p></td>
 <td><p>Finds where the generated project, the shipped prompts, the runtime
 messages, or a pinned version say something the code no longer does,
 proves it, and writes a report the maintainer rules on. Report only.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code></p></td>
 <td><p>Proves the pages under <code class="docutils literal notranslate"><span class="pre">docs/source</span></code> against the code, from reading
 source and from running what a page documents, reports the drift,
 and applies the doc-side fixes the maintainer accepts.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:test-audit</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:test-audit</span></code></p></td>
 <td><p>Gates every new or changed test on what regression it catches and
 why existing coverage misses it, and audits existing tests for ones
 that re-assert source, duplicate stronger proof, or keep test-only
@@ -584,9 +590,9 @@ test surface.</p></td>
 </tbody>
 </table>
 </div>
-<p>In Codex the same ten are <code class="docutils literal notranslate"><span class="pre">$design-philosophy</span></code>, <code class="docutils literal notranslate"><span class="pre">$contribute</span></code>,
+<p>In Codex the same eleven are <code class="docutils literal notranslate"><span class="pre">$design-philosophy</span></code>, <code class="docutils literal notranslate"><span class="pre">$contribute</span></code>,
 <code class="docutils literal notranslate"><span class="pre">$pre-commit</span></code>, <code class="docutils literal notranslate"><span class="pre">$release</span></code>, <code class="docutils literal notranslate"><span class="pre">$setup</span></code>, <code class="docutils literal notranslate"><span class="pre">$upstream-scout</span></code>, <code class="docutils literal notranslate"><span class="pre">$panel</span></code>,
-<code class="docutils literal notranslate"><span class="pre">$housekeeping</span></code>, <code class="docutils literal notranslate"><span class="pre">$doc-sync</span></code>, and <code class="docutils literal notranslate"><span class="pre">$test-audit</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">$build-app</span></code>, <code class="docutils literal notranslate"><span class="pre">$housekeeping</span></code>, <code class="docutils literal notranslate"><span class="pre">$doc-sync</span></code>, and <code class="docutils literal notranslate"><span class="pre">$test-audit</span></code>.</p>
 <p>The skills route to each other: <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code> hands a standalone
 validation run to <code class="docutils literal notranslate"><span class="pre">/osprey:pre-commit</span></code> and a release to <code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code>;
 <code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code> runs <code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code> and <code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code> as
@@ -603,6 +609,8 @@ with a finished audit.</p>
 written for someone standing up a deployment.</p></li>
 <li><p><a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a> — the panel contract, with the
 extension seam on <a class="reference internal" href="extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p></li>
+<li><p><a class="reference internal" href="../how-to/apps/build-your-own-app.html"><span class="doc">Build Your Own App</span></a> — the app contract
+<code class="docutils literal notranslate"><span class="pre">/osprey:build-app</span></code> builds to.</p></li>
 </ul>
 </section>
 </section>
@@ -652,7 +660,7 @@ extension seam on <a class="reference internal" href="extending-osprey.html"><sp
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install-in-codex">Install in Codex</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-ten-skills">The ten skills</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-eleven-skills">The eleven skills</a></li>
 </ul>
   </nav></div>
 
