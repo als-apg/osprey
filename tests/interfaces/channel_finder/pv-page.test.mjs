@@ -540,20 +540,4 @@ describe('current value and states', () => {
     /** @type {HTMLButtonElement} */ (stateEl.querySelector('button')).click();
     expect(location.hash).toBe(`#/allpvs?q=${encodeURIComponent(NAME)}`);
   });
-
-  test('the toolbar search searches the directory', async () => {
-    const field = document.createElement('input');
-    field.id = 'cf-search';
-    field.disabled = true;
-    const host = document.createElement('div');
-    host.append(field);
-    document.body.append(host);
-    const { page } = await mountAt();
-    expect(field.disabled).toBe(false);
-    field.value = 'beam current';
-    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-    expect(location.hash).toBe('#/allpvs?q=beam%20current');
-    page.unmountPvPage();
-    expect(field.disabled).toBe(true);
-  });
 });

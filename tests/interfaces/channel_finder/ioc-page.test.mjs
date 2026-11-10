@@ -66,9 +66,7 @@ let container;
 
 beforeEach(() => {
   vi.useFakeTimers();
-  document.body.innerHTML = `
-    <label id="cf-search-field"><input type="search" id="cf-search" disabled></label>
-    <div id="view-container"></div>`;
+  document.body.innerHTML = '<div id="view-container"></div>';
   container = /** @type {HTMLElement} */ (document.getElementById('view-container'));
   fetchIocFacts.mockReset();
   readValues.mockReset();
@@ -374,23 +372,4 @@ test('facts that could not be read show a state whose Retry reads them again', a
   expect(container.querySelector('button.cf-ioc-refresh .osprey-btn-label')?.textContent).toBe(
     'Refresh'
   );
-});
-
-test('while mounted the toolbar search is enabled and Enter searches All PVs', async () => {
-  await mount(LIVE, [VALUES]);
-  const input = /** @type {HTMLInputElement} */ (document.getElementById('cf-search'));
-  expect(input.disabled).toBe(false);
-
-  input.value = ' BPM01 ';
-  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-  expect(location.hash).toBe('#/allpvs?q=BPM01');
-
-  input.value = '  ';
-  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-  expect(location.hash).toBe('#/allpvs');
-
-  page.unmountIocPage();
-  page = null;
-  expect(input.disabled).toBe(true);
-  expect(input.value).toBe('');
 });

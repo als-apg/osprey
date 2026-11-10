@@ -12,13 +12,13 @@
  *
  * The view switch belongs to the shell: a press sets the hash and app.js
  * routes on it; the pressed button follows `state.activeView`. The rest
- * belongs to the graph finder, the one view with a search and filters. While
- * it is mounted it claims the search field ({@link claimToolbar}) and writes
- * the result count ({@link setResultCount});
- * while its filters are drawn they drive the sidebar toggle
- * ({@link attachSidebar}). In every other view those controls keep their
- * slots, disabled, with a tooltip that says why, so a change of view moves
- * nothing.
+ * belongs to a view with a search and filters. While it is mounted it claims
+ * the search field ({@link claimToolbar}) and writes the result count
+ * ({@link setResultCount}); while its filters are drawn they drive the sidebar
+ * toggle ({@link attachSidebar}). On a page that is part of All PVs and claims
+ * nothing, the search is the toolbar's own: Enter opens All PVs with the words.
+ * In every other view those controls keep their slots, disabled, with a
+ * tooltip that says why, so a change of view moves nothing.
  *
  * The panel's options are not here: they are the tile ⋯'s "This panel" section
  * (graph-finder-verbs.js publishMenu), and a tile has one ⋯.
@@ -27,6 +27,7 @@
 import { icon } from '/design-system/js/icons.js';
 import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
 import { writeTitle } from '/design-system/js/tooltip.js';
+import { allPvsHash } from './curated-bridge.js';
 import { state } from './state.js';
 
 /** @typedef {import('/design-system/js/panel-sidebar.js').PanelSidebarApi} PanelSidebarApi */
@@ -56,6 +57,11 @@ const PRESSED_VIEW = Object.freeze(
 
 /** Whether a view holds the search field. */
 let searchClaimed = false;
+
+/** Whether the search field is the toolbar's own: unclaimed, on a page of All PVs. */
+function searchRedirects() {
+  return !searchClaimed && PRESSED_VIEW[state.activeView] === 'allpvs';
+}
 /** Whether a drawn sidebar drives the toggle. */
 let sidebarAttached = false;
 
@@ -91,10 +97,11 @@ function refresh() {
     btn.setAttribute('aria-pressed', String(btn.getAttribute('data-view') === pressed));
   }
 
+  const enabled = searchClaimed || searchRedirects();
   const input = searchInput();
-  if (input) input.disabled = !searchClaimed;
+  if (input) input.disabled = !enabled;
   const field = byId(TOOLBAR_IDS.field);
-  if (field) writeTitle(field, searchClaimed ? '' : reason('search'));
+  if (field) writeTitle(field, enabled ? '' : reason('search'));
 
   // A drawn sidebar keeps the toggle in step itself (panel-sidebar.js).
   const toggle = /** @type {HTMLButtonElement|null} */ (byId(TOOLBAR_IDS.toggle));
@@ -108,8 +115,8 @@ function refresh() {
 }
 
 /**
- * Wire the toolbar: the icons, the view switch, and the view and pipeline
- * changes every control follows. Call once, at boot.
+ * Wire the toolbar: the icons, the view switch, the search's own Enter, and
+ * the view and pipeline changes every control follows. Call once, at boot.
  * @returns {void}
  */
 export function initToolbar() {
@@ -122,6 +129,10 @@ export function initToolbar() {
     const target = event.target instanceof Element ? event.target : null;
     const view = target?.closest('button[data-view]')?.getAttribute('data-view');
     if (view) location.hash = view;
+  });
+  searchInput()?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || !searchRedirects()) return;
+    location.hash = allPvsHash(/** @type {HTMLInputElement} */ (event.target).value);
   });
   state.on('viewChanged', refresh);
   state.on('pipelineChanged', refresh);

@@ -13,8 +13,8 @@
  * A section that has no answer says why, on its own line; the page never
  * reads a missing answer as a clear state. The logbook is read by this page,
  * through ARIEL's own search at its mount, with the operator's session: the
- * panel's backend holds no logbook credential. The toolbar search searches
- * the directory.
+ * panel's backend holds no logbook credential. The toolbar search opens All
+ * PVs (panel-toolbar.js).
  */
 
 import { panelApiPrefix } from '/design-system/js/dom.js';
@@ -30,7 +30,6 @@ import {
   plotUrl,
   readValues,
 } from './directory-api.js';
-import { claimToolbar, searchInput } from './panel-toolbar.js';
 import { state } from './state.js';
 import { messageOf } from './utils.js';
 import {
@@ -64,7 +63,7 @@ const TITLE_WORDS = 8;
 /**
  * The mounted page; null while none is. A late answer for a page that is gone
  * finds a different (or no) mount and is dropped.
- * @type {{ container: HTMLElement, name: string, releaseToolbar: () => void, onSearchKey: (event: KeyboardEvent) => void } | null}
+ * @type {{ container: HTMLElement, name: string } | null}
  */
 let mounted = null;
 
@@ -471,22 +470,11 @@ async function load(container, name) {
 export function mountPvPage(container, params) {
   unmountPvPage();
   const name = params?.name ?? '';
-  const releaseToolbar = claimToolbar();
-  /** @param {KeyboardEvent} event */
-  const onSearchKey = (event) => {
-    if (event.key !== 'Enter') return;
-    const words = /** @type {HTMLInputElement} */ (event.target).value.trim();
-    location.hash = words ? `#/allpvs?q=${encodeURIComponent(words)}` : '#/allpvs';
-  };
-  searchInput()?.addEventListener('keydown', onSearchKey);
-  mounted = { container, name, releaseToolbar, onSearchKey };
+  mounted = { container, name };
   return load(container, name);
 }
 
 /** @returns {void} */
 export function unmountPvPage() {
-  if (!mounted) return;
-  searchInput()?.removeEventListener('keydown', mounted.onSearchKey);
-  mounted.releaseToolbar();
   mounted = null;
 }
