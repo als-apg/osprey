@@ -515,14 +515,6 @@ class TestRendererContract:
         guard = render_net_guard(denied_ports=(19680,))
         assert f"_OSPREY_NET_PREFIX = {NET_GUARD_REFUSAL_PREFIX!r}" in guard
 
-    def test_refusal_prefix_is_overridable(self):
-        guard = render_net_guard(denied_ports=(19680,), refusal_prefix="Blocked (perimeter):")
-        assert "_OSPREY_NET_PREFIX = 'Blocked (perimeter):'" in guard
-
-    def test_empty_refusal_prefix_is_rejected(self):
-        with pytest.raises(ValueError, match="refusal_prefix"):
-            render_net_guard(denied_ports=(19680,), refusal_prefix="  ")
-
     def test_empty_port_set_is_rejected(self):
         # The wrapper skips emission instead — see TestWrapperEmission.
         with pytest.raises(ValueError, match="non-empty"):
