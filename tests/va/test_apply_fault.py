@@ -210,11 +210,11 @@ def _write_view(data_dir: Path) -> Path:
     ]
     wiring = [
         {"id": str(index), "address": address, "direction": "write", "default": BOOT}
-        | {"role": "setpoint", "plane": None, "refresh": "pass"}
+        | {"engine_role": "setpoint", "plane": None, "refresh": "pass"}
         for index, address in enumerate(sorted(PAIRS.values()))
     ] + [
         {"id": str(index + len(PAIRS)), "address": address, "direction": "read"}
-        | {"role": "readback", "plane": None, "refresh": "pass"}
+        | {"engine_role": "readback", "plane": None, "refresh": "pass"}
         for index, address in enumerate(sorted(PAIRS))
     ]
     documents = {

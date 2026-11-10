@@ -144,20 +144,6 @@ def _linkify(text: str) -> Text:
     return rendered
 
 
-def _region_is_mounted() -> bool:
-    """Whether the installed reporter is drawing a live region right now.
-
-    The reporter's own predicate rather than a second copy of it:
-    :meth:`PhaseReporter.is_rendering
-    <osprey.cli.phase_reporter.PhaseReporter.is_rendering>` is the same answer
-    :meth:`~osprey.cli.phase_reporter.PhaseReporter.suspended` branches on, and
-    an answer maintained twice is an answer that will disagree with itself.
-    Named for what this module is asking, which is where the region is, not what
-    the reporter is doing about it.
-    """
-    return current_reporter().is_rendering()
-
-
 def _target_console(*, err: bool) -> Console:
     """The console this call must print through.
 
@@ -210,7 +196,8 @@ def _target_console(*, err: bool) -> Console:
     """
     if _machine_mode:
         return styles.err_console
-    if err and not _region_is_mounted():
+    # The reporter's own predicate, not a second copy that could disagree with it.
+    if err and not current_reporter().is_rendering():
         return styles.err_console
     return current_reporter().out()
 
@@ -418,8 +405,6 @@ def section(
     title: str,
     items: Mapping[str, object] | Sequence[tuple[str, object]],
     /,
-    *,
-    label_style: str = Styles.LABEL,
 ) -> None:
     """Print a key/value block: ``title``, then one indented row per item.
 
@@ -440,11 +425,6 @@ def section(
     :param items: The rows, as a mapping or as an ordered sequence of
         ``(label, value)`` pairs. A sequence when the order is meaningful and
         labels may repeat; either way the rows print in iteration order.
-    :param label_style: The style token for the label column. The default is
-        the bold label; :func:`flush_ledger` passes the path token because its
-        labels ARE paths by :func:`report_fact`'s ``wrote`` contract.
-        Keyword-only: it is not prose, and the copy guard reads prose out of
-        the positional arguments.
     """
     rows = list(items.items()) if isinstance(items, Mapping) else list(items)
     if title:
@@ -452,7 +432,7 @@ def section(
     width = max((len(label) for label, _ in rows), default=0)
     for label, value in rows:
         line = Text(_INDENT)
-        line.append(label.ljust(width), style=label_style)
+        line.append(label.ljust(width), style=Styles.LABEL)
         line.append(_GUTTER)
         if isinstance(value, PurePath):
             line.append(str(value), style=Styles.PATH)

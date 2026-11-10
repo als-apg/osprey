@@ -16,7 +16,7 @@ Usage in tools:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from osprey.mcp_server.channel_finder_common import (
     config_path,
@@ -46,31 +46,26 @@ class ChannelFinderMLContext:
     """Singleton registry for Middle Layer channel finder MCP server state.
 
     Responsibilities:
-      1. Load and cache config.yml once at startup
+      1. Load config.yml once at startup
       2. Parse channel_finder.pipelines.middle_layer config section
       3. Provide a cached MiddleLayerDatabase instance
       4. Expose facility name for tool descriptions
     """
 
     def __init__(self) -> None:
-        self._raw_config: dict[str, Any] = {}
         self._database: MiddleLayerDatabase | None = None
         self._facility_name: str = "control system"
         self._duckdb_path: str | None = None
         self._query_max_rows: int = DEFAULT_QUERY_MAX_ROWS
-        self._initialized = False
 
     def initialize(self) -> None:
         """Load config and initialize the database.
 
-        Called once during create_server(). Subsequent calls are no-ops.
+        Called once, on a fresh instance, by the module's ``initialize_*`` function.
         """
-        if self._initialized:
-            return
+        raw_config = load_cf_config(logger)
 
-        self._raw_config = load_cf_config(logger)
-
-        cf_config = self._raw_config.get("channel_finder", {})
+        cf_config = raw_config.get("channel_finder", {})
         ml_config = cf_config.get("pipelines", {}).get("middle_layer", {})
         db_config = ml_config.get("database", {})
         db_path = db_config.get("path")
@@ -103,11 +98,10 @@ class ChannelFinderMLContext:
             logger=logger,
         )
 
-        identity = facility_identity(config_path().parent, self._raw_config.get("project_name"))
+        identity = facility_identity(config_path().parent, raw_config.get("project_name"))
         if identity is not None:
             self._facility_name = identity["name"]
 
-        self._initialized = True
         logger.info("ChannelFinderMLContext: initialized")
 
     @property

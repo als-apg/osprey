@@ -16,7 +16,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import shutil
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +31,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
+from osprey.facility.views.simulator import TRANSITIONAL_ROLE_KEY
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA, SimulatorView
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -38,6 +41,7 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.slow]
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVED = "data/simulator/served_models.json"
 ADDRESSES = "data/simulator/addresses.json"
 DECK = "data/simulator/decks/SR.json"
@@ -300,7 +304,7 @@ def test_variables_carries_its_schema_and_key_sets(built_demo: BuiltProject) -> 
     facility = built_demo.facility
 
     assert set(variables) == {"schema", "code", "models", "channels"}
-    assert variables["schema"] == "osprey.facility.simulator/2"
+    assert variables["schema"] == "osprey.facility.simulator/3"
     assert variables["code"] == facility["identity"]["code"]
     assert [model["name"] for model in variables["models"]] == sorted(
         model["name"] for model in facility["models"]
@@ -367,7 +371,7 @@ def test_the_demo_wiring_is_simulator_wiring_serialised(
     }
 
 
-DESCRIPTION_KEYS = ("role", "plane", "refresh")
+DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
 
 
 def test_every_wiring_entry_carries_the_engines_description(
@@ -380,18 +384,49 @@ def test_every_wiring_entry_carries_the_engines_description(
 
     roles = set()
     for entry in sr["wiring"]:
-        record = {key: value for key, value in entry.items() if key not in DESCRIPTION_KEYS}
+        record = {
+            key: value
+            for key, value in entry.items()
+            if key not in (*DESCRIPTION_KEYS, TRANSITIONAL_ROLE_KEY)
+        }
         described = pyat.describe(record)
         assert {key: entry[key] for key in DESCRIPTION_KEYS} == {
             key: described[key] for key in DESCRIPTION_KEYS
         }
         assert "kind" not in entry
-        roles.add(entry["role"])
+        roles.add(entry["engine_role"])
     assert roles == {"setpoint", "readback", "monitor", "output"}
     facility_sr = next(m for m in built_demo.facility["models"] if m["name"] == "SR")
     assert {k: facility_sr["wiring"][0][k] for k in DESCRIPTION_KEYS} == {
         k: sr["wiring"][0][k] for k in DESCRIPTION_KEYS
     }
+
+
+def test_every_wiring_entry_carries_its_engine_role_also_as_the_transitional_role(
+    built_demo: BuiltProject,
+) -> None:
+    variables = _view(built_demo.build_dir, VARIABLES)
+    entries = [entry for model in variables["models"] for entry in model["wiring"]]
+
+    assert entries
+    for entry in entries:
+        assert entry[TRANSITIONAL_ROLE_KEY] == entry["engine_role"], entry
+
+
+def test_the_transitional_role_copy_is_gone_once_the_connectors_floor_reads_engine_role() -> None:
+    """The copy serves connectors <2026.11.8 only; the floor bump deletes it with this test."""
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    (floor,) = [
+        match["floor"]
+        for dependency in pyproject["project"]["dependencies"]
+        if (match := re.fullmatch(r"osprey-connectors>=(?P<floor>[0-9.]+)", dependency))
+    ]
+
+    assert tuple(int(part) for part in floor.split(".")) < (2026, 11, 8), (
+        f"the connectors floor is {floor}: delete TRANSITIONAL_ROLE_KEY from "
+        "osprey.facility.views.simulator, its uses in tests/connectors, the "
+        "pre-engine_role skip of tests/connectors/test_simulator_view_reader.py and this test"
+    )
 
 
 def test_a_model_without_wiring_records_has_empty_wiring(
@@ -820,7 +855,7 @@ def _physics_monitors(root: Path) -> dict[str, list[str]]:
     """Each physics model's float monitor addresses, sorted, in the view at ``root``."""
     view = SimulatorView.open(root / "data" / "simulator")
     monitors: dict[str, list[str]] = {}
-    for binding in view.bindings(role="monitor", served_only=False):
+    for binding in view.bindings(engine_role="monitor", served_only=False):
         if view.channel(binding.address).value_type == "float":
             monitors.setdefault(binding.model, []).append(binding.address)
     return {model: sorted(addresses) for model, addresses in monitors.items()}
@@ -834,7 +869,7 @@ def test_an_authored_all_renders_every_float_channel(
     assert _still_of(scenarios, "hush") == _float_channels(tmp_path / "render")
 
 
-def test_a_still_selection_renders_the_float_addresses_of_its_model_and_role(
+def test_a_still_selection_renders_the_float_addresses_of_its_model_and_engine_role(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     model, monitors = next(iter(_physics_monitors(built_demo.build_dir).items()))
@@ -842,7 +877,7 @@ def test_a_still_selection_renders_the_float_addresses_of_its_model_and_role(
     scenarios = _rendered_scenarios(
         tmp_path,
         built_demo,
-        [{"name": "quiet", "still": [{"model": model, "role": "monitor"}]}],
+        [{"name": "quiet", "still": [{"model": model, "engine_role": "monitor"}]}],
     )
 
     assert _still_of(scenarios, "quiet") == monitors
@@ -885,7 +920,7 @@ def test_a_still_selection_scoped_to_an_unserved_model_still_resolves(
     scenarios = _rendered_scenarios(
         tmp_path,
         built_demo,
-        [{"name": "quiet", "still": [{"model": unserved, "role": "monitor"}]}],
+        [{"name": "quiet", "still": [{"model": unserved, "engine_role": "monitor"}]}],
         {"simulation": {"models": [served]}},
     )
 
@@ -903,7 +938,7 @@ def test_a_still_mixes_addresses_and_selections_sorted_without_repeats(
     scenarios = _rendered_scenarios(
         tmp_path,
         built_demo,
-        [{"name": "quiet", "still": [monitors[-1], {"model": model, "role": "monitor"}]}],
+        [{"name": "quiet", "still": [monitors[-1], {"model": model, "engine_role": "monitor"}]}],
     )
 
     assert _still_of(scenarios, "quiet") == monitors
@@ -935,7 +970,7 @@ def test_a_still_selection_meeting_the_scenarios_own_motion_stops_the_build(
     model, monitors = next(iter(_physics_monitors(built_demo.build_dir).items()))
     scenario = {
         "name": "quiet",
-        "still": [{"model": model, "role": "monitor"}],
+        "still": [{"model": model, "engine_role": "monitor"}],
         slot: {monitors[0]: block},
     }
 

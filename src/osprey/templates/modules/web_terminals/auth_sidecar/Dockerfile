@@ -35,7 +35,9 @@
 # The sidecar is a member of the web-terminals stack, not a service a project
 # declares, so an entry there would never be acted on. Do not "tidy" this back.
 
-FROM python:3.11-slim
+# Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
+ARG OSPREY_BASE_REGISTRY="docker.io"
+FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim
 
 WORKDIR /app
 

@@ -9,6 +9,8 @@ Each row asks the sidecar's own ``status`` tool how large its index is and how
 many of its documents have no vectors yet:
 
 * ``ok`` — every indexed document is embedded (``value`` is the document count);
+* ``ok`` — the corpus has embedding off, so its keyword index is the whole
+  index and no document is expected to have vectors;
 * ``warning`` — some documents have no vectors, so they are found by keyword
   search only; the message says how many. A sidecar still embedding after a
   large change reads this way for a while, and a count that never falls names
@@ -70,7 +72,11 @@ def qmd(
             # Through the clients' own resolver, so a probe run inside a
             # container dials the address that container's clients dial.
             sidecars = [
-                (corpus["collection"], resolve_qmd_corpus_config(cfg, corpus["collection"]))
+                (
+                    corpus["collection"],
+                    resolve_qmd_corpus_config(cfg, corpus["collection"]),
+                    corpus["embed"],
+                )
                 for corpus in _resolve_qmd_corpora(dict(cfg), None)
             ]
         except ValueError as exc:
@@ -84,15 +90,22 @@ def qmd(
                 )
             ]
         rows = await asyncio.gather(
-            *(asyncio.to_thread(_probe, name, settings) for name, settings in sidecars)
+            *(
+                asyncio.to_thread(_probe, name, settings, embed)
+                for name, settings, embed in sidecars
+            )
         )
         return list(rows)
 
     return _run
 
 
-def _probe(corpus: str, settings: Any) -> CheckResult:
-    """Ask one corpus's sidecar for its index counts and turn them into a row."""
+def _probe(corpus: str, settings: Any, embed: bool) -> CheckResult:
+    """Ask one corpus's sidecar for its index counts and turn them into a row.
+
+    A corpus with *embed* off has no vectors by design, so its pending count
+    says nothing about its health.
+    """
     from osprey.services.qmd import QMDClient, QMDClientError
 
     name = f"{CATEGORY}_{corpus}"
@@ -115,6 +128,16 @@ def _probe(corpus: str, settings: Any) -> CheckResult:
             ),
         )
     latency_ms = (perf_counter() - start) * 1000.0
+    if not embed:
+        return CheckResult(
+            name,
+            CATEGORY,
+            Status.OK,
+            f"{corpus}: {status.documents} documents, keyword index only (embedding off)",
+            value=str(status.documents),
+            latency_ms=latency_ms,
+            probed=True,
+        )
     if status.pending:
         return CheckResult(
             name,

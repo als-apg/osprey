@@ -182,7 +182,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
          The knobs **must** stay under ``settings:``. ARIEL's search-config loader keeps only ``enabled``, ``provider``, ``model`` and ``settings``, and drops every other key without a word. A knob written as a sibling of ``enabled`` is inert forever --- no error, no warning, just the defaults.
 
-      **Choose the strategy first.** ``strategy: qmd`` is the compatible default and uses qmd's lexical/vector retrieval; it may optionally use qmd's LLM reranker. ``strategy: rrf`` is the lightweight option: it combines qmd BM25 with ARIEL's configured semantic provider, has no second embedding model in the logbook retrieval path, and never calls the qmd reranker. It therefore requires semantic search and its embeddings to be available.
+      **Choose the strategy first.** ``strategy: qmd`` is the compatible default and uses qmd's lexical/vector retrieval; it may optionally use qmd's LLM reranker. ``strategy: rrf`` is the lightweight option: it combines qmd BM25 with ARIEL's configured semantic provider, has no second embedding model in the logbook retrieval path, and never calls the qmd reranker. It therefore requires semantic search and its embeddings to be available, and lets the ``ariel`` sidecar skip qmd's own embedding pass (:doc:`search-sidecar`).
 
       **The rerank decision.** For ``strategy: qmd``, ``rerank`` turns on qmd's LLM reranker, which reorders candidates for quality. It is the single most important latency knob. For ``strategy: rrf`` it is ignored because RRF returns directly. Measured against a 134,996-entry logbook:
 

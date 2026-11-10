@@ -20,6 +20,40 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.8] - 2026-11-10
+
+### Added
+
+- `ChannelError` carries `commands_fired`: the commands, in order, that may have gone out when a batch of commands raised it; `None` otherwise. It is not a wire field.
+- `osprey_connectors.ipc.declared_gateways(block)` classifies how a connector
+  block spells its gateways table (`GATEWAYS_NONE_DECLARED` for an explicit
+  `gateways: []`, `GATEWAYS_MISSING`, `GATEWAYS_ROWS`), and the derivation carries
+  it as `gateways_declared`; `declares_no_endpoints` now reads that verdict.
+- A connector block can say its target has nothing to probe with an explicit
+  `gateways: []`. The derivation carries that as `declares_no_endpoints`, and
+  child verification names it in plain words; a missing table is not read as
+  that statement.
+- The simulator view names its record roles (`SETPOINT`, `READBACK`, `MONITOR`, `OUTPUT`), refresh `PERIODIC`, the `COMMAND_MARK` and `MARKS`, and a `Binding` carries the `marks` its wiring record states; a view without marks reads as before.
+
+### Changed
+
+- `write_target_for_tool` places an application tool (keyed in the render's
+  `app_approvals`) on the session's control target, as the hooks do.
+- `Binding.engine_role`, `SimulatorView.bindings(engine_role=...)` and `ENGINE_ROLES` name what a model's engine says a wiring record is, apart from a channel's own `role`; the view file is schema `osprey.facility.simulator/3`.
+
+### Fixed
+
+- `osprey_connectors.ipc.encode_error` now tags a subclass of a vocabulary error
+  with its registered ancestor, so the far side rebuilds that error instead of a
+  `ConnectorInternalError`.
+- A write authorization whose holder stopped renewing its lease no longer blocks
+  another program's approval on the same channels until it expires: the
+  `auth_overlap` check reads the holder's ledgers and skips a grant only when
+  every one it finds shows its lease time passed more than a minute ago. A
+  request or grant is also refused past three ceilings -- 100000 steps, an
+  expiry 24 hours out and a 600-second lease -- whether a person approves it or
+  the program issues it itself.
+
 ## [2026.11.7] - 2026-11-08
 
 ### Fixed

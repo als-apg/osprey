@@ -5,6 +5,7 @@ Tool                        Optimizer route
 ==========================  ===================================================
 list_results                GET  /results
 get_result                  GET  /results/{env}/{timestamp}
+preview_restore             GET  /results/{env}/{timestamp}/restore-preview
 list_models                 GET  /models
 ==========================  ===================================================
 """
@@ -45,6 +46,18 @@ async def get_result(run_id: str) -> str:
         run_id: ``<environment>/<timestamp>``, as list_results gives it.
     """
     return json.dumps(await request("GET", _result_path(run_id)))
+
+
+@mcp.tool()
+async def preview_restore(run_id: str) -> str:
+    """Show what restoring a run would write: its tuned variables' values at the run's start, and the machine they belong to. Writes nothing.
+
+    Nothing is restored after a cancel or a failure. A person confirms a restore elsewhere; this server cannot perform one.
+
+    Args:
+        run_id: ``<environment>/<timestamp>``, as list_results gives it.
+    """
+    return json.dumps(await request("GET", f"{_result_path(run_id)}/restore-preview"))
 
 
 @mcp.tool()

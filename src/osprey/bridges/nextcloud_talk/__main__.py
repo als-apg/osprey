@@ -51,15 +51,19 @@ polled.
 from __future__ import annotations
 
 import logging
-import signal
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from types import FrameType
 
 import httpx
 
-from osprey.bridges.core import BridgeRuntime, PipelineDeps, run_forever
+from osprey.bridges.core import (
+    BridgeRuntime,
+    PipelineDeps,
+    configure_bridge_logging,
+    install_signal_handlers,
+    run_forever,
+)
 
 from .client import TalkClient
 from .config import NextcloudBridgeConfig
@@ -69,14 +73,6 @@ from .poller import RoomPoller
 from .rooms import RoomDirectory
 
 logger = logging.getLogger(__name__)
-
-LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
-"""Timestamp, level, logger, message — the same fields the framework's MCP-server
-entrypoints show, through plain stdlib handlers: a container log is read with
-``docker logs`` and wants no ANSI, and the bridge process deliberately stays clear of
-the framework's rich logging stack. Records go to stderr (``basicConfig``'s default),
-which Python line-buffers even when it is a pipe, so a log line is visible as it
-happens rather than whenever an 8 KiB block fills."""
 
 QUIET_LIBRARIES = ("httpx", "httpcore")
 """Loggers demoted to WARNING. ``httpx`` logs one INFO line per request, and a bridge
@@ -92,18 +88,6 @@ CORE_URL_ENV = {"dispatcher_url": "DISPATCHER_URL", "worker_url": "WORKER_URL"}
 """The two ``CoreConfig`` URL fields :meth:`require_startup` does not cover, mapped to
 the environment variables an operator actually sets. One mapping, so the check below
 and its error message cannot name different things."""
-
-
-def configure_logging() -> None:
-    """Send INFO and above to stderr in :data:`LOG_FORMAT`.
-
-    A no-op when the root logger already has handlers (``basicConfig``'s own
-    behaviour), so a host that configured logging before importing this module keeps
-    its configuration.
-    """
-    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-    for name in QUIET_LIBRARIES:
-        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def require_boot(cfg: NextcloudBridgeConfig) -> None:
@@ -135,7 +119,7 @@ def config_from_env() -> NextcloudBridgeConfig:
 
     Building the config is what emits the non-HTTPS warning (a plain-http Nextcloud is
     a legitimate internal deployment, so it is a warning and never an abort), hence
-    :func:`configure_logging` runs before this.
+    :func:`~osprey.bridges.core.runtime.configure_bridge_logging` runs before this.
 
     Returns:
         The config, already checked by :func:`require_boot`.
@@ -312,27 +296,6 @@ def run(
     )
 
 
-def install_signal_handlers(stop: threading.Event) -> None:
-    """Make SIGTERM and SIGINT set ``stop``.
-
-    Compose stops the container with SIGTERM, and setting that one event is the entire
-    shutdown: :func:`serve_rooms` returns, ``run_forever``'s ``finally`` calls
-    :meth:`BridgeRuntime.shutdown` (the same event, so the drain thread wakes too), and
-    any room or directory backoff wait in progress returns immediately instead of being
-    waited out.
-
-    Main thread only — :func:`signal.signal` refuses to run anywhere else — which is
-    why :func:`main` installs these and :func:`run` does not.
-    """
-
-    def _handler(signum: int, _frame: FrameType | None) -> None:
-        logger.info("received %s; shutting down", signal.Signals(signum).name)
-        stop.set()
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, _handler)
-
-
 def main() -> None:
     """Run the bridge from the environment. The container's command.
 
@@ -341,7 +304,7 @@ def main() -> None:
             variables; the config error is not allowed to escape as a traceback,
             because the one thing an operator needs from a failed boot is that list.
     """
-    configure_logging()
+    configure_bridge_logging(QUIET_LIBRARIES)
     try:
         cfg = config_from_env()
     except ValueError as exc:

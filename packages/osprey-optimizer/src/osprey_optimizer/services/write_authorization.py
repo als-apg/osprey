@@ -40,7 +40,7 @@ own directory; one a person approved is left to its lease and expiry), and
 stops the connector child that names the authorization. With the heartbeat
 stopped the lease lapses within :data:`LEASE_S`, and from then on a person's
 grant no longer blocks another program's approval on its channels
-(:func:`~osprey_connectors.write_authorization.auth_overlap`). It writes
+(:func:`~osprey_connectors.write_authorization._auth_overlap`). It writes
 nothing to the machine: a cancelled or failed run holds the machine where it
 is.
 """

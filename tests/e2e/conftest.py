@@ -16,9 +16,13 @@ from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
 from osprey.registry import reset_registry
 from tests.conftest import E2E_REFUSAL_KEY as _REFUSAL_KEY
 from tests.conftest import E2E_REFUSAL_RELAY_KEY as _RELAY_KEY
+from tests.e2e import agentic_tiers
 from tests.e2e.provider import MODEL_FREE_MARKER, e2e_provider, provider_refusal
 
 _E2E_ROOT = Path(__file__).resolve().parent
+
+#: (nodeid, problem) for every collected test whose agentic marker is incomplete.
+_AGENTIC_PROBLEMS = pytest.StashKey[list[tuple[str, str]]]()
 
 
 def _print_failure_now(report) -> None:
@@ -44,6 +48,22 @@ def _print_failure_now(report) -> None:
     sys.stdout.flush()
 
 
+def _live_outcome(report) -> str:
+    """A report's outcome on the live stream, as the JUnit summary would name it.
+
+    A setup failure is an ``error`` whatever its text says: no agent ran, so it
+    says nothing about the model, even when a fixture reports its own wait timing
+    out. A call that failed is a ``timeout`` only on pytest-timeout's signature; a
+    test's source echoed into the traceback can hold the bare word.
+    """
+    if report.outcome != "failed":
+        return report.outcome
+    if report.when == "setup":
+        return "error"
+    text = str(getattr(report, "longrepr", "")).lower()
+    return "timeout" if "from pytest-timeout" in text else "failed"
+
+
 def pytest_runtest_logreport(report):
     """Stream each test outcome to OSPREY_E2E_LIVE (one JSON line per test) so the
     model-matrix dashboard fills in test-by-test AS the run progresses, instead of
@@ -58,59 +78,61 @@ def pytest_runtest_logreport(report):
     if report.when == "call" or (
         report.when == "setup" and report.outcome in ("skipped", "failed")
     ):
-        outcome = report.outcome
-        if outcome == "failed":
-            text = str(getattr(report, "longrepr", "")).lower()
-            outcome = (
-                "timeout"
-                if "timeout" in text
-                else ("error" if report.when == "setup" else "failed")
-            )
+        outcome = _live_outcome(report)
+        record = {
+            "name": report.nodeid,
+            "outcome": outcome,
+            "duration_s": round(getattr(report, "duration", 0.0), 2),
+        }
+        longrepr = getattr(report, "longrepr", None)
+        if outcome == "skipped" and isinstance(longrepr, tuple) and len(longrepr) == 3:
+            # The skip's reason, as the JUnit summary carries it: the board
+            # shows an "n/a: ..." reason in the model's cell.
+            record["reason"] = str(longrepr[2]).removeprefix("Skipped: ")
         try:
             with open(live, "a") as f:
-                f.write(
-                    json.dumps(
-                        {
-                            "name": report.nodeid,
-                            "outcome": outcome,
-                            "duration_s": round(getattr(report, "duration", 0.0), 2),
-                        }
-                    )
-                    + "\n"
-                )
+                f.write(json.dumps(record) + "\n")
         except Exception:
             pass
 
 
 def pytest_collection_finish(session):
-    """Write the benchmark-lane manifest (nodeid -> lane) when OSPREY_E2E_LANES is set.
+    """Write the benchmark-lane manifest when OSPREY_E2E_LANES is set.
 
     The model-matrix runner points OSPREY_E2E_LANES at
     ``results/<model>__seed<seed>.lanes.json``; the dashboard joins each test
-    outcome against this manifest to score the ``agentic_benchmark``
-    (model-capability) and ``harness_benchmark`` (harness-integrity) lanes
-    separately. Markers on the tests are the single source of truth — the
-    manifest is re-derived from live collection every cell, so it can never
-    drift. No-op unless the env var is set, so normal e2e runs are unaffected.
+    outcome against it. Each nodeid maps to its lane (``agentic`` | ``harness``
+    | ``unmarked`` | ``both``) and, for an ``agentic`` test, the tier, title, ask
+    and pass condition its marker carries (``tests/e2e/agentic_tiers.py``).
+    Markers on the tests are the single source of truth: the manifest is
+    re-derived from live collection every cell, so it can never drift. No-op
+    unless the env var is set, so normal e2e runs are unaffected.
     """
     lanes_path = os.environ.get("OSPREY_E2E_LANES")
     if not lanes_path:
         return
-    lanes = {}
-    for item in session.items:
-        agentic = item.get_closest_marker("agentic_benchmark") is not None
-        harness = item.get_closest_marker("harness_benchmark") is not None
-        if agentic and harness:
-            lane = "both"  # invalid — check_e2e_coverage --check-lanes rejects it
-        elif agentic:
-            lane = "agentic"
-        elif harness:
-            lane = "harness"
-        else:
-            lane = "unmarked"
-        lanes[item.nodeid] = lane
+    lanes = {item.nodeid: agentic_tiers.manifest_entry(item) for item in session.items}
     with contextlib.suppress(Exception):
         Path(lanes_path).write_text(json.dumps(lanes, indent=1))
+
+
+def pytest_itemcollected(item):
+    """Note an agentic test whose tier marker is incomplete; record a complete
+    one's tier in the board's JUnit report.
+
+    The note is read once collection ends (``pytest_collection_modifyitems``),
+    over every collected test rather than the selection, so ``-m`` or ``-k``
+    cannot hide a bad marker. The tier goes into the JUnit report only when the
+    board asks for a lane manifest, so ordinary runs write the report they always
+    wrote.
+    """
+    problem = agentic_tiers.item_problem(item, _E2E_ROOT)
+    if problem:
+        item.config.stash.setdefault(_AGENTIC_PROBLEMS, []).append((item.nodeid, problem))
+        return
+    marker = item.get_closest_marker(agentic_tiers.AGENTIC_MARKER)
+    if marker is not None and os.environ.get("OSPREY_E2E_LANES"):
+        item.user_properties.append(("agentic_tier", marker.kwargs["tier"]))
 
 
 def _run_names_a_provider() -> bool:
@@ -149,7 +171,14 @@ def pytest_collection_modifyitems(config, items):
     the controller's half and lives in ``tests/conftest.py``, the one conftest
     every run under ``tests/`` loads on the controller. A worker with no relay
     raises, so the run still stops. The rest of ``tests/`` is untouched.
+
+    An incomplete ``agentic`` tier marker ends the session the same way, first
+    and under ``--collect-only`` too, so the lane gate's collection refuses it.
     """
+    refusal = agentic_tiers.collection_refusal(config.stash.get(_AGENTIC_PROBLEMS, []))
+    if refusal:
+        _refuse(config, items, refusal)
+        return
     if config.getoption("collectonly", False) or _run_names_a_provider():
         return
     unmarked = []
@@ -160,7 +189,12 @@ def pytest_collection_modifyitems(config, items):
             unmarked.append(item.nodeid)
     if not unmarked:
         return
-    message = provider_refusal(unmarked=unmarked)
+    _refuse(config, items, provider_refusal(unmarked=unmarked))
+
+
+def _refuse(config, items, message: str) -> None:
+    """End the session with ``message``, relaying it through the xdist controller
+    when there is one (see ``pytest_collection_modifyitems``)."""
     workerinput = getattr(config, "workerinput", None)
     if workerinput is None or not workerinput.get(_RELAY_KEY):
         raise pytest.UsageError(message)
@@ -184,8 +218,9 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
-        "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic "
-        "tasks where the model-under-test can fail",
+        "agentic(tier, title, asks, passes_if): an agentic test, where the model under test "
+        "drives the agent and can fail; tier 1 basic, tier 2 benchmark. The benchmark board "
+        "runs these tests only (tests/e2e/agentic_tiers.py)",
     )
     config.addinivalue_line(
         "markers",

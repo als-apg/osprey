@@ -695,6 +695,15 @@ def _is_pytest_file(name: str) -> bool:
     return (name.startswith("test_") and name.endswith(".py")) or name.endswith("_test.py")
 
 
+def _sweep_root(path: str) -> str | None:
+    """The ``UNIT_SELECTION.roots`` tree *path* lies under, without its slash, if any."""
+    for root in UNIT_SELECTION.roots:
+        root = root.rstrip("/")
+        if path.startswith(root + "/"):
+            return root
+    return None
+
+
 def _holds_test_module(directory: str, files: Sequence[str]) -> bool:
     """Whether *directory* holds a test file the sweep would collect."""
     prefix = directory + "/"
@@ -711,6 +720,8 @@ WIDENS_IMPORTED = "imported by {importer}"
 WIDENS_UNMIRRORED = "a Python file outside the test mirrors"
 WIDENS_PROJECT = "the project's dependencies reach every test"
 WIDENS_NO_TEST_MODULE = "its test directory holds no test module"
+WIDENS_ROOT_PACKAGE = "the root test package reaches every test below it"
+WIDENS_SWEEP_HELPER = "a helper under a sweep root that framework tests import"
 WIDENS_UNPLACED = "a file under packages/ or tests/ that no rule places"
 WIDENS_NO_MIRROR = "no tested package mirrors it"
 WIDENS_BUNDLED_PROJECT = "a bundled project outside the test mirrors"
@@ -859,8 +870,17 @@ def _select_pytest(
         if _hosted_outside_sweep(path):
             continue
         if suffix == ".py":
-            if path.startswith("tests/") and _is_pytest_file(name):
+            root = _sweep_root(path)
+            if root is not None and _is_pytest_file(name):
                 chosen.append(path)
+                continue
+            if root == "tests" and name == "__init__.py":
+                directory = PurePosixPath(path).parent.as_posix()
+                if directory == "tests":
+                    return _whole(path, WIDENS_ROOT_PACKAGE)
+                if not _holds_test_module(directory, files):
+                    return _whole(path, WIDENS_NO_TEST_MODULE)
+                chosen.append(directory)
                 continue
             if path in shaping:
                 chosen.append("tests/scripts")
@@ -871,6 +891,11 @@ def _select_pytest(
                     return reached
                 chosen.append(reached)
                 continue
+            if root is not None and root != "tests":
+                # A non-test module under any other sweep root (the connectors
+                # test package's helpers and inits) is imported by framework
+                # tests too, so it widens.
+                return _whole(path, WIDENS_SWEEP_HELPER)
             if _mirror_root(path) is None:
                 return _whole(path, WIDENS_UNMIRRORED)
         elif name in ("pyproject.toml", "uv.lock"):

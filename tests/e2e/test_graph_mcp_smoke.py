@@ -108,7 +108,7 @@ logger = logging.getLogger(__name__)
 # No module-level ``pytestmark`` — see the module docstring. The two halves of
 # this file have different prerequisites and therefore different markers:
 #
-#   * the live acceptance test carries ``e2e``/``slow``/``agentic_benchmark``
+#   * the live acceptance test carries ``e2e``/``slow``/``agentic``
 #     (the lane: the agent must choose and sequence tools and reason about what
 #     came back, and a weak model plausibly fails it), ``requires_als_apg``, and
 #     the SDK/CLI skips, and
@@ -608,7 +608,15 @@ def _print_run(result: Any, prose: str, prompt: str) -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.agentic_benchmark
+@pytest.mark.agentic(
+    tier=1,
+    title="What a PV belongs to",
+    asks=(
+        "Which device does this PV belong to, what else does that device expose, and where does it "
+        "sit?"
+    ),
+    passes_if="answers from the facility graph through its subagent; no invented addresses",
+)
 @pytest.mark.requires_als_apg
 @pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed")
 @pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")

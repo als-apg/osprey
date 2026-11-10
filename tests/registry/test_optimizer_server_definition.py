@@ -1,4 +1,4 @@
-"""The optimizer ServerDefinition: opt-in, no launch token, error guidance on every tool."""
+"""The optimizer ServerDefinition: opt-in, no launch token, stops ask, error guidance on every tool."""
 
 import asyncio
 import importlib
@@ -39,13 +39,21 @@ def test_off_by_default_and_on_by_override():
     assert _resolve({"servers": {"optimizer": {"enabled": True}}})["enabled"] is True
 
 
-def test_every_registered_tool_is_allowed_and_nothing_asks_or_gates():
+def test_every_registered_tool_is_allowed_or_asked_and_only_the_stops_ask():
     optimizer = _resolve()
-    allowed = optimizer["permissions_allow"]
+    allowed, asked = optimizer["permissions_allow"], optimizer["permissions_ask"]
     assert len(allowed) == len(set(allowed))
-    assert sorted(allowed) == sorted(_registered_tools())
-    assert optimizer["permissions_ask"] == []
-    assert optimizer["hooks_pre"] == []
+    assert not set(allowed) & set(asked)
+    assert sorted([*allowed, *asked]) == sorted(_registered_tools())
+    assert set(asked) == {"pause_job", "cancel_job"}
+
+
+def test_the_stops_carry_approval_only_never_the_kill_switch():
+    rules = {rule["matcher"]: rule for rule in _resolve()["hooks_pre"]}
+    assert set(rules) == {"mcp__optimizer__pause_job", "mcp__optimizer__cancel_job"}
+    for rule in rules.values():
+        (hook,) = rule["hooks"]
+        assert "osprey_approval.py" in hook["command"]
 
 
 def test_error_guidance_runs_after_every_tool():

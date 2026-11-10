@@ -38,6 +38,7 @@ from pathlib import Path
 
 import click
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.deploy_scaffold import scaffold_deploy_files
@@ -46,6 +47,7 @@ from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
 from osprey.deployment.image_facts import IMAGE_PYTHON
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey_connectors.errors import ConfigurationError
 from tests.fixtures.lifecycle_repo import (
     CI_PIPELINE_FILES,
@@ -879,26 +881,31 @@ class TestEnvironmentUrl:
         assert ctx.environment_url is None
 
 
-# ── The base-image prefix ────────────────────────────────────────────────────
+# ── The base registry ────────────────────────────────────────────────────────
 
 
-#: The six upstream images the pipeline pins by name. A runner that cannot
-#: reach Docker Hub needs every one of them from somewhere else, so the prefix
+#: The upstream images the pipeline pins by name. A runner that cannot reach
+#: Docker Hub needs every one of them from somewhere else, so the base registry
 #: is checked against the whole set rather than the two the exemplar renders.
+UPSTREAM_PINS = tuple(ref for name, ref in UPSTREAM_IMAGES.items() if name.startswith("ci_"))
+
 #: The Python the pipeline's render job runs ``osprey build`` on, which builds the
 #: deployment wheels the fit check judges: the images' own.
 PYTHON_PIN = f"python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim"
 
-UPSTREAM_PINS = (PYTHON_PIN, "docker:29", "docker:29-dind", "alpine:3.23")
+_MIRROR = "mirror.example.org/dockerhub"
+
+#: Where the exemplar profile's ``config:`` block starts, for inserting a key.
+_CONFIG_BLOCK = "config:\n  # ── Facility"
 
 
-def _full_pipeline(ci_image_prefix: str = "", image_platform: str | None = None) -> str:
-    """The pipeline with every stage rendered, prefix applied.
+def _full_pipeline(base_registry: str = "", image_platform: str | None = None) -> str:
+    """The pipeline with every stage rendered, the base registry applied.
 
     The exemplar declares no registry and no facility-owned image, so its
-    render carries only two of the six pins. Building the context directly is
+    render carries only two of the pins. Building the context directly is
     what puts the image and external-project stages in the output, and those
-    stages are where four of the six live.
+    stages are where the rest live.
     """
     from osprey.cli.deploy_scaffold_templates import CI_TEMPLATES, CIContext, render
 
@@ -923,7 +930,7 @@ def _full_pipeline(ci_image_prefix: str = "", image_platform: str | None = None)
                     "token_env_var": "OTHER_TOKEN",
                 }
             ],
-            ci_image_prefix=ci_image_prefix,
+            base_registry=base_registry,
             image_platform=image_platform,
         ),
     )
@@ -940,6 +947,15 @@ def test_unstated_the_service_image_build_names_no_platform() -> None:
 
     assert '    - docker build -t "$REGISTRY/$SERVICE' in pipeline
     assert "--platform" not in pipeline
+
+
+def test_a_stated_platform_and_the_base_registry_both_reach_the_service_image_build() -> None:
+    pipeline = _full_pipeline(_MIRROR, image_platform="linux/arm64")
+
+    assert (
+        "docker build --platform linux/arm64 "
+        f'--build-arg OSPREY_BASE_REGISTRY={_MIRROR} -t "$REGISTRY/$SERVICE'
+    ) in pipeline
 
 
 @pytest.mark.parametrize(
@@ -960,72 +976,110 @@ def test_the_pipeline_reads_the_platform_from_the_profile(config: dict, expected
     ctx = build_ci_context({"name": "d", "config": config}, deploy, Path("."), "d")
 
     assert ctx.image_platform == expected
-    assert ctx.image_python == f"{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}"
 
 
-def test_every_upstream_pin_is_rendered_without_a_prefix_by_default() -> None:
-    """The key is opt-in: unset, the pipeline names the public images."""
-    pipeline = _full_pipeline()
-    named = {
-        line.strip().removeprefix("- ").removeprefix("image: ") for line in pipeline.splitlines()
+def test_the_render_job_runs_on_the_images_python() -> None:
+    """The catalogue's pipeline Python is the one every image is built from."""
+    assert UPSTREAM_IMAGES["ci_python"] == PYTHON_PIN
+    assert f"image: {PYTHON_PIN}" in _full_pipeline()
+
+
+def _named_images(pipeline: str) -> set[str]:
+    return {
+        line.strip().removeprefix("- ").removeprefix("image: ").removeprefix("name: ")
+        for line in pipeline.splitlines()
     }
 
-    assert set(UPSTREAM_PINS) <= named
+
+def test_every_upstream_pin_is_rendered_as_docker_hub_names_it_by_default() -> None:
+    """The key is opt-in: unset, the pipeline names the public images."""
+    assert set(UPSTREAM_PINS) <= _named_images(_full_pipeline())
 
 
-def test_a_prefix_reaches_every_upstream_pin() -> None:
-    """One mirror, all six pins — a pin left behind is the job that still
-    needs Docker Hub, and it is not the first job to run."""
-    prefix = "mirror.example.org/dockerhub/"
-    pipeline = _full_pipeline(prefix)
+def test_the_base_registry_reaches_every_upstream_pin() -> None:
+    """One mirror, every pin — a pin left behind is the job that still needs
+    Docker Hub, and it is not the first job to run."""
+    named = _named_images(_full_pipeline(_MIRROR))
 
     for pin in UPSTREAM_PINS:
-        assert f"{prefix}{pin}" in pipeline
-    for line in pipeline.splitlines():
-        stripped = line.strip().removeprefix("- ").removeprefix("image: ")
-        if stripped in UPSTREAM_PINS:
-            raise AssertionError(f"an upstream pin is still unprefixed: {line!r}")
+        assert f"{_MIRROR}/library/{pin}" in named
+        assert pin not in named, f"an upstream pin is still pulled from Docker Hub: {pin}"
 
 
-def test_the_prefix_is_not_applied_to_this_deployments_own_images() -> None:
-    """``images.registry`` names where THIS deployment's images live; the
-    prefix names where upstream ones are mirrored. Conflating them would push
+@pytest.mark.parametrize("base_registry", [_MIRROR, ""], ids=["mirror", "no-mirror"])
+def test_every_docker_service_answers_as_docker(base_registry: str) -> None:
+    """The docker jobs reach their daemon at ``docker``, the alias the service
+    carries, whatever path the mirror serves the image under."""
+    jobs = yaml.safe_load(_full_pipeline(base_registry))
+    services = [
+        job["services"] for job in jobs.values() if isinstance(job, dict) and "services" in job
+    ]
+    dind = f"{base_registry}/library/docker:29-dind" if base_registry else "docker:29-dind"
+
+    assert services
+    assert all(entry == [{"name": dind, "alias": "docker"}] for entry in services), services
+
+
+def test_the_base_registry_is_not_applied_to_this_deployments_own_images() -> None:
+    """``images.registry`` names where THIS deployment's images live; the base
+    registry names where upstream ones are mirrored. Conflating them would push
     the facility's own image into the mirror's namespace."""
-    pipeline = _full_pipeline("mirror.example.org/dockerhub/")
+    pipeline = _full_pipeline(_MIRROR)
 
-    assert "mirror.example.org/dockerhub/registry.example.org" not in pipeline
+    assert f"{_MIRROR}/registry.example.org" not in pipeline
+    assert f"{_MIRROR}/library/registry.example.org" not in pipeline
     assert "registry.example.org/physics/other/agent:latest" in pipeline
 
 
-def test_a_prefix_without_a_trailing_slash_renders_the_same(runner: CliRunner, repo: Path) -> None:
-    """The profile carries a mirror host, not a concatenation rule.
+def test_the_facility_image_build_is_handed_the_base_registry() -> None:
+    """The facility recipe pulls its own base from the mirror the jobs use."""
+    builds = [line for line in _full_pipeline(_MIRROR).splitlines() if "docker build" in line]
+    unset = [line for line in _full_pipeline().splitlines() if "docker build" in line]
 
-    Normalizing on the way in is what lets the template concatenate without
-    re-deriving whether a separator is needed — the same shape
-    ``images.registry`` is resolved into.
+    assert builds and all(f"--build-arg OSPREY_BASE_REGISTRY={_MIRROR}" in b for b in builds)
+    assert unset and not any("OSPREY_BASE_REGISTRY" in line for line in unset)
+
+
+def test_the_profiles_base_registry_reaches_the_pipeline(runner: CliRunner, repo: Path) -> None:
+    """The pipeline reads the registry from the profile's ``config:`` block.
+
+    A trailing slash is the same registry, so both spellings emit one file.
     """
-    edit_profile(repo, "  ci: gitlab\n", "  ci: gitlab\n  ci_image_prefix: mirror.example.org\n")
-    assert emit(runner, repo).exit_code == 0
-    bare = (repo / CI_PATH).read_text(encoding="utf-8")
-
-    (repo / CI_PATH).unlink()
     edit_profile(
-        repo, "ci_image_prefix: mirror.example.org\n", "ci_image_prefix: mirror.example.org/\n"
+        repo, _CONFIG_BLOCK, f"config:\n  images.base_registry: {_MIRROR}/\n  # ── Facility"
     )
     assert emit(runner, repo).exit_code == 0
+    slashed = (repo / CI_PATH).read_text(encoding="utf-8")
 
-    assert (repo / CI_PATH).read_text(encoding="utf-8") == bare
-    assert f"image: mirror.example.org/{PYTHON_PIN}" in bare
+    (repo / CI_PATH).unlink()
+    edit_profile(repo, f"images.base_registry: {_MIRROR}/\n", f"images.base_registry: {_MIRROR}\n")
+    assert emit(runner, repo).exit_code == 0
+
+    assert (repo / CI_PATH).read_text(encoding="utf-8") == slashed
+    assert f"image: {_MIRROR}/library/{PYTHON_PIN}" in slashed
 
 
-def test_a_mapping_under_the_prefix_is_refused_by_name(runner: CliRunner, repo: Path) -> None:
+def test_a_mapping_for_the_base_registry_is_refused_by_name(runner: CliRunner, repo: Path) -> None:
     """The key is one string. A mapping is a profile that meant something else,
     and the message has to say which key so the author can find it."""
     edit_profile(
-        repo, "  ci: gitlab\n", "  ci: gitlab\n  ci_image_prefix:\n    host: mirror.example.org\n"
+        repo,
+        _CONFIG_BLOCK,
+        "config:\n  images.base_registry:\n    host: mirror.example.org\n  # ── Facility",
     )
 
     result = emit(runner, repo)
 
     assert result.exit_code == 1
-    assert "ci_image_prefix" in result.output
+    assert "images.base_registry" in result.output
+
+
+def test_a_leftover_ci_image_prefix_is_refused_naming_its_replacement(
+    runner: CliRunner, repo: Path
+) -> None:
+    edit_profile(repo, "  ci: gitlab\n", f"  ci: gitlab\n  ci_image_prefix: {_MIRROR}/\n")
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 1
+    assert "images.base_registry" in result.output

@@ -21,8 +21,11 @@
 #   ALS_APG_API_KEY / ALS_APG_BASE_URL / OSPREY_E2E_JUDGE_MODEL   LLM judge wiring
 #   ANTHROPIC_API_KEY           collection-gate shim (real routing overridden)
 #   OSPREY_E2E_BUDGET_SCALE     per-query max_budget_usd multiplier (default 1)
+#   OSPREY_BENCH_SELECT         optional pytest -k expression (matrix.py --select)
+#   OSPREY_BENCH_RESULTS_DIR    where the outputs below go (matrix.py --results-dir)
+#   OSPREY_BENCH_SUT_BASE_URL / OSPREY_BENCH_SUT_KEY   what the start-of-cell call uses
 #
-# Outputs (under results/, relative to repo root):
+# Outputs (under $OSPREY_BENCH_RESULTS_DIR, default results/ in the repo root):
 #   results/<safe_model>__seed<seed>.xml    JUnit XML (per-test outcomes)
 #   results/<safe_model>__seed<seed>.json   summary {model,seed,passed,failed,...}
 #   results/<safe_model>__seed<seed>.live.jsonl  one JSON line per test as it ends
@@ -52,24 +55,68 @@ export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-1}"
 echo ">> budget_scale=$OSPREY_E2E_BUDGET_SCALE" >&2
 
 SAFE="${MODEL//\//__}"
-mkdir -p "$REPO/results"
-XML="$REPO/results/${SAFE}__seed${SEED}.xml"
-JSON="$REPO/results/${SAFE}__seed${SEED}.json"
+# The launcher names the results dir (matrix.py --results-dir); default results/.
+RESULTS="${OSPREY_BENCH_RESULTS_DIR:-$REPO/results}"
+mkdir -p "$RESULTS"
+XML="$RESULTS/${SAFE}__seed${SEED}.xml"
+JSON="$RESULTS/${SAFE}__seed${SEED}.json"
 # live per-test stream (conftest appends one JSON line per test as it finishes),
 # so the dashboard fills in mid-run. Fresh file per run.
-export OSPREY_E2E_LIVE="$REPO/results/${SAFE}__seed${SEED}.live.jsonl"
+export OSPREY_E2E_LIVE="$RESULTS/${SAFE}__seed${SEED}.live.jsonl"
 : > "$OSPREY_E2E_LIVE"
 # benchmark-lane manifest (conftest writes nodeid -> agentic/harness at collection
-# time). The dashboard joins outcomes against it to score the capability lane
-# (agentic_benchmark) separately from the harness-integrity lane.
-export OSPREY_E2E_LANES="$REPO/results/${SAFE}__seed${SEED}.lanes.json"
+# time). The dashboard joins outcomes against it, and reads each agentic test's tier
+# and description from it.
+export OSPREY_E2E_LANES="$RESULTS/${SAFE}__seed${SEED}.lanes.json"
 # per-query timing (wall time, time waiting on the model, turns, tokens); the
 # dashboard's latency columns read it.
-export OSPREY_E2E_QUERY_LOG="$REPO/results/${SAFE}__seed${SEED}.queries.jsonl"
+export OSPREY_E2E_QUERY_LOG="$RESULTS/${SAFE}__seed${SEED}.queries.jsonl"
 : > "$OSPREY_E2E_QUERY_LOG"
 
 echo ">> model=$MODEL seed=$SEED provider=$OSPREY_E2E_FORCE_PROVIDER route=$ROUTE" >&2
 echo ">> junit=$XML" >&2
+
+# --- free local gates, before any paid call -------------------------------
+# Model-matrix scope (issue #259): run the LLM-driven e2e tests that route
+# through the forced model-under-test, excluding files that measure nothing
+# about the model (own provider axis, no-LLM smokes, hardcoded-model tests).
+# The exclusion list with per-file reasons is single-sourced in
+# matrix_e2e_config.json — do not enumerate it here (it drifts).
+# Still `pytest tests/e2e/` (path) for registry-safe collection; --ignore prunes.
+# The selection beside the exclusions is the board's own: the tiered agentic
+# tests only (-m agentic), each scored on its first attempt (-p no:rerunfailures
+# switches off the `flaky` reruns PR CI keeps). check_e2e_coverage.py holds both.
+RUN_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+  --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-run-args | tr '\n' ' ')"
+# Lane gate: refuse to run (and score) a suite where any in-scope test is
+# missing its agentic/harness_benchmark marker, or carries an incomplete tier
+# marker — an unmarked test would silently fall out of the board's run set.
+if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
+    --check-lanes >/dev/null; then
+  echo "FATAL: benchmark lane markers incomplete (see LANE-GATE lines above)." >&2
+  exit 2
+fi
+# Image gate: the machine-switch tests need images they never build, and an
+# image from another revision dies in their setup. Refuse before any model runs;
+# a smoke run (OSPREY_BENCH_SELECT) is refused only if it selects one of them.
+if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
+    --check-board-images --select "${OSPREY_BENCH_SELECT:-}" >/dev/null; then
+  echo "FATAL: the board's images are missing or stale (see IMAGE-GATE lines above)." >&2
+  exit 2
+fi
+
+# --- one small call to the model and the judge, before the cell spends more ---
+# It costs a model call and a judge call, so it runs only once the free local
+# gates above have passed. A refusal stops the cell here: the summary names who
+# refused and why, and no further tokens are spent.
+if ! "$PY" "$REPO/scripts/benchmark/cell_preflight.py" --model "$MODEL" --seed "$SEED" \
+    --provider "$OSPREY_E2E_FORCE_PROVIDER" --route "$ROUTE" \
+    --judge "${OSPREY_E2E_JUDGE_MODEL:-}" --out "$JSON"; then
+  echo "SETUP ERROR: the provider refused this cell (see PREFLIGHT above)." >&2
+  exit 2
+fi
 
 # --- per-cell ARIEL database isolation (issue #259) ----------------------
 # Concurrent matrix cells share one Postgres server. The scenario tests call
@@ -84,7 +131,14 @@ echo ">> junit=$XML" >&2
 #
 # Disable with OSPREY_BENCH_SHARED_DB=1 (falls back to the legacy shared DB).
 PG_BIN="${OSPREY_BENCH_PG_BIN:-$HOME/bin/pg16-edb/pgsql/bin}"
+# A host without that layout uses the psql on PATH.
+if [ ! -x "$PG_BIN/psql" ] && command -v psql >/dev/null 2>&1; then
+  PG_BIN="$(dirname "$(command -v psql)")"
+fi
+# psql authenticates as the per-cell URI below does, unless the shell says otherwise.
+export PGPASSWORD="${PGPASSWORD:-ariel}"
 PROV_DIR=""
+ARIEL_PROBLEM=""
 if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
   # Postgres unquoted identifiers fold to lowercase and forbid '-'/'/'; sanitize.
   CELL_DB="ariel_$(printf '%s' "${SAFE}_seed${SEED}" | tr -C 'a-zA-Z0-9' '_' | tr 'A-Z' 'a-z')"
@@ -103,8 +157,11 @@ if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
     # never starts the archive store. Order matters: sim apply purges
     # embeddings, so reembed must come last.
     PROV_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ariel_prov_${CELL_DB}.XXXXXX")"
+    # In the cell's own port block, like every project the cell builds: on the
+    # default block it would name ports a deployment on this host already holds.
     if "$PY" -m osprey.cli.main init "$PROV_DIR/prov" --preset demo --no-git \
-         --set provider=als-apg --set model=claude-haiku-4-5-20251001 \
+         --set provider=als-apg --set model=claude-haiku-5-5 \
+         --set "port_base=${OSPREY_E2E_PORT_BASE:-25000}" \
          --set "config.ariel.database.uri=$OSPREY_ARIEL_DB_URI" >&2 \
        && "$PY" -m osprey.cli.main build --repo "$PROV_DIR/prov" \
          --skip-deps --skip-lifecycle >&2; then
@@ -114,13 +171,27 @@ if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
         && "$PY" -m osprey.cli.main ariel migrate \
         && "$PY" -m osprey.cli.main sim apply nominal --yes --no-seed-archiver \
         && "$PY" -m osprey.cli.main ariel reembed --model nomic-embed-text --dimension 768 ) >&2 \
-        || echo ">> WARNING: per-cell ARIEL provisioning failed; logbook tests in this cell will skip/gate" >&2
+        || ARIEL_PROBLEM="the per-cell ARIEL logbook ${CELL_DB} could not be provisioned (migrate, seed or re-embed failed)"
     else
-      echo ">> WARNING: provisioning project build failed; logbook tests will skip/gate" >&2
+      ARIEL_PROBLEM="the ARIEL provisioning project for ${CELL_DB} did not build"
     fi
   else
-    echo ">> WARNING: could not create per-cell DB ${CELL_DB}; logbook tests will skip/gate" >&2
+    ARIEL_PROBLEM="could not create the per-cell ARIEL database ${CELL_DB} with $PG_BIN/psql on localhost:5432 (no psql, no server, or no rights)"
   fi
+fi
+
+# Without its logbook the cell's logbook and scenario tests skip, and the cell
+# would score a model on fewer tests than its neighbours. A full cell stops here;
+# a smoke selection (OSPREY_BENCH_SELECT) is warned and goes on.
+if [ -n "$ARIEL_PROBLEM" ]; then
+  if [ -z "${OSPREY_BENCH_SELECT:-}" ]; then
+    "$PY" "$REPO/scripts/benchmark/cell_preflight.py" --model "$MODEL" --seed "$SEED" \
+      --provider "$OSPREY_E2E_FORCE_PROVIDER" --route "$ROUTE" \
+      --judge "${OSPREY_E2E_JUDGE_MODEL:-}" --out "$JSON" --setup-error "$ARIEL_PROBLEM"
+    echo "SETUP ERROR: $ARIEL_PROBLEM" >&2
+    exit 2
+  fi
+  echo ">> WARNING: $ARIEL_PROBLEM; logbook tests in this smoke run will skip" >&2
 fi
 
 START=$(date +%s)
@@ -129,26 +200,14 @@ START=$(date +%s)
 # the session CONTINUE — the thread method instead hard-kills the whole pytest
 # process on the first overrun, leaving an empty junit (total=0). The e2e async
 # tests run via pytest-asyncio in the main thread, so SIGALRM interrupts them.
-# Model-matrix scope (issue #259): run the LLM-driven e2e tests that route
-# through the forced model-under-test, excluding files that measure nothing
-# about the model (own provider axis, no-LLM smokes, hardcoded-model tests).
-# The exclusion list with per-file reasons is single-sourced in
-# matrix_e2e_config.json — do not enumerate it here (it drifts).
-# Still `pytest tests/e2e/` (path) for registry-safe collection; --ignore prunes.
-IGNORE_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
-  --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-ignore-args | tr '\n' ' ')"
-# Lane gate: refuse to run (and score) a suite where any in-scope test is
-# missing its agentic_benchmark/harness_benchmark marker — an unmarked test
-# would silently pollute the capability score the matrix exists to measure.
-if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
-    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
-    --check-lanes >/dev/null; then
-  echo "FATAL: benchmark lane markers incomplete (see LANE-GATE lines above)." >&2
-  exit 2
-fi
-# shellcheck disable=SC2086  # intentional word-split of space-free --ignore tokens
+# OSPREY_BENCH_SELECT narrows the cell to the tests a pytest -k expression
+# selects (a smoke run); unset, the cell runs the whole in-scope suite.
+SELECT_ARGS=()
+[ -n "${OSPREY_BENCH_SELECT:-}" ] && SELECT_ARGS=(-k "$OSPREY_BENCH_SELECT")
+# shellcheck disable=SC2086  # intentional word-split of space-free selection tokens
 "$PY" -m pytest tests/e2e/ \
-  $IGNORE_ARGS \
+  $RUN_ARGS \
+  "${SELECT_ARGS[@]+"${SELECT_ARGS[@]}"}" \
   -p no:cacheprovider -q --no-header \
   -o addopts="" \
   --timeout="${E2E_TEST_TIMEOUT:-1800}" --timeout-method=signal \
@@ -159,6 +218,7 @@ WALL=$((END - START))
 
 # --- summarize JUnit XML -> summary JSON ---------------------------------
 MODEL="$MODEL" SEED="$SEED" ROUTE="$ROUTE" PROVIDER="$OSPREY_E2E_FORCE_PROVIDER" \
+JUDGE="${OSPREY_E2E_JUDGE_MODEL:-}" \
 XML="$XML" JSON="$JSON" \
 WALL="$WALL" PYTEST_RC="$PYTEST_RC" "$PY" - <<'PYEOF'
 import json, os, xml.etree.ElementTree as ET
@@ -169,6 +229,7 @@ summary = {
     "seed": int(os.environ["SEED"]),
     "provider": os.environ.get("PROVIDER", ""),
     "route": os.environ["ROUTE"],
+    "judge": os.environ.get("JUDGE", ""),
     "pytest_rc": int(os.environ["PYTEST_RC"]),
     "total_duration_s": int(os.environ["WALL"]),
     "passed": 0, "failed": 0, "timeout": 0, "skipped": 0, "errors": 0, "total": 0,
@@ -201,7 +262,17 @@ try:
                 outcome = "passed"
             summary[KEY[outcome]] += 1
             summary["total"] += 1
-            summary["tests"].append({"name": name, "outcome": outcome, "duration_s": dur})
+            entry = {"name": name, "outcome": outcome, "duration_s": dur}
+            # A skip's reason; "n/a: <label> (...)" marks a test that does not
+            # apply to this model (tests/e2e/agentic_tiers.py), shown as such.
+            if outcome == "skipped":
+                entry["reason"] = tc.find("skipped").get("message", "")
+            # The tier the test's agentic marker carried when it ran
+            # (tests/e2e/conftest.py writes it into the report).
+            tier = tc.find("properties/property[@name='agentic_tier']")
+            if tier is not None:
+                entry["tier"] = int(tier.get("value"))
+            summary["tests"].append(entry)
 except FileNotFoundError:
     summary["error"] = "junit xml not produced (collection/import crash)"
 with open(jsonp, "w") as f:

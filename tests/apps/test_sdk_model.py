@@ -76,7 +76,7 @@ def _ring_render(root: Path) -> Path:
             if role == "setpoint"
             else {"axis": plane},
             "default": 0.0,
-            "role": role,
+            "engine_role": role,
             "plane": plane,
             "refresh": "pass",
         }
@@ -102,7 +102,7 @@ def _ring_render(root: Path) -> Path:
         },
         "served_models.json": {"schema": "osprey.facility.served_models/1", "models": [RING]},
         "variables.json": {
-            "schema": "osprey.facility.simulator/2",
+            "schema": "osprey.facility.simulator/3",
             "code": "TEST",
             "models": [
                 {

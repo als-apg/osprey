@@ -10,9 +10,9 @@ directory relative to this ``interfaces`` package, or an object
 receives a file it loads from ``vendor/`` beside its page.
 
 By default, interfaces serve CDN URLs directly — no setup required.
-Firewalled deployments (e.g. the LBL control room) opt into local bundles
-by setting ``OSPREY_OFFLINE=1`` or ``offline: true`` in ``config.yml``,
-then run ``osprey vendor fetch`` to populate the target dirs.
+Firewalled deployments opt into local bundles by setting ``OSPREY_OFFLINE=1``
+or ``offline: true`` in ``config.yml``, then run ``osprey vendor fetch`` to
+populate the target dirs.
 """
 
 from __future__ import annotations

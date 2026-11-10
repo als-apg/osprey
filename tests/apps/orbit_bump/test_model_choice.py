@@ -98,7 +98,7 @@ def _render(root: Path, periodic: tuple[str, ...]) -> Path:
                         if role == "setpoint"
                         else {"axis": "x"},
                         "default": 0.0,
-                        "role": role,
+                        "engine_role": role,
                         "plane": "x",
                         "refresh": "pass",
                     }
@@ -150,7 +150,7 @@ def _render(root: Path, periodic: tuple[str, ...]) -> Path:
             "models": list(periodic),
         },
         "variables.json": {
-            "schema": "osprey.facility.simulator/2",
+            "schema": "osprey.facility.simulator/3",
             "code": "TEST",
             "models": models,
             "channels": channels,

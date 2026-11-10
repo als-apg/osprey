@@ -35,6 +35,7 @@ non-self-excluding ``.dockerignore`` beside every service recipe.
 import dataclasses
 import pathlib
 import re
+import shlex
 import subprocess
 
 import pytest
@@ -375,6 +376,60 @@ class TestLayerSplit:
         assert "-c" not in calls[0]
 
 
+# ── Offline vendoring ────────────────────────────────────────────────────────
+#
+# An image that serves vendored web assets fetches them at build time when the
+# deployment is offline, and records the mode so the serving check agrees.
+
+OFFLINE_ARG = 'ARG OSPREY_OFFLINE="0"'
+OFFLINE_FETCH = 'if [ "$OSPREY_OFFLINE" = "1" ]; then osprey vendor fetch; fi'
+OFFLINE_ENV = "ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}"
+
+
+def test_bluesky_web_vendors_its_assets_when_offline():
+    """The plans panel's assets are fetched between the wheel layer and the project label."""
+    text = _dockerfile("bluesky_web")
+    lines = [line for _, line in _instructions(text)]
+    wheel_body = _wheel_body("bluesky_web")
+
+    assert lines.count(OFFLINE_ARG) == 1
+    assert [b for b in _run_bodies(text) if "vendor fetch" in b] == [OFFLINE_FETCH]
+    arg = lines.index(OFFLINE_ARG)
+    fetch = lines.index(f"RUN {OFFLINE_FETCH}")
+    env = lines.index(OFFLINE_ENV)
+    wheel = next(i for i, line in enumerate(lines) if line.startswith("RUN") and wheel_body in line)
+    project = lines.index('ARG OSPREY_PROJECT_NAME=""')
+    assert wheel < arg < fetch < env < project
+
+
+@pytest.mark.parametrize(
+    ("offline", "expected"), [("1", ["vendor fetch"]), ("0", [])], ids=["offline", "online"]
+)
+def test_offline_vendor_run_fetches_only_when_offline(tmp_path, offline, expected):
+    """The fetch RUN calls ``osprey vendor fetch`` for ``1`` only, and succeeds either way."""
+    log = tmp_path / "osprey-calls.log"
+    log.touch()
+    osprey_stub = f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(log))}\nexit 0\n'
+    env = stubbed_env(tmp_path, {"osprey": osprey_stub}, OSPREY_OFFLINE=offline)
+
+    result = run_body(OFFLINE_FETCH, env)
+
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert log.read_text().splitlines() == expected
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_a_recipe_that_declares_offline_vendors_and_records_it(dockerfile):
+    """An image can never serve a mode it was not built for."""
+    text = dockerfile.read_text(encoding="utf-8")
+    if "ARG OSPREY_OFFLINE" not in text:
+        return
+    lines = [line for _, line in _instructions(text)]
+
+    assert OFFLINE_FETCH in _run_bodies(text)
+    assert OFFLINE_ENV in lines
+
+
 # ── Pre-release pins ─────────────────────────────────────────────────────────
 #
 # Every recipe that installs the framework by version, discovered by the ARG it
@@ -600,7 +655,10 @@ _OWN_DEPS_LAYER = {"services/optimizer"}
 SHARED_DEPS_IDS = [
     label
     for label, path in zip(SHIPPED_DOCKERFILE_IDS, SHIPPED_DOCKERFILES, strict=True)
-    if "FROM python:" in path.read_text(encoding="utf-8") and label not in _OWN_DEPS_LAYER
+    if re.search(
+        r"^FROM \$\{OSPREY_BASE_REGISTRY\}/library/python:", path.read_text(encoding="utf-8"), re.M
+    )
+    and label not in _OWN_DEPS_LAYER
 ]
 
 
@@ -768,13 +826,73 @@ def test_python_services_share_one_deps_layer__mutation_va_final_stage_from_va_b
     """A VA final stage built FROM va-base no longer counts as sharing the deps layer."""
     path = TEMPLATES_DIR / "services" / "virtual_accelerator" / "Dockerfile"
     text = path.read_text(encoding="utf-8")
-    final = text.rindex("\nFROM python:3.11-slim\n")
+    final = text.rindex("\nFROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim\n")
     deps = text.index('ARG OSPREY_VERSION=""', final)
     mutated = text[:final] + "\nFROM va-base\n" + text[deps:]
     reference = TEMPLATES_DIR / "services" / "bluesky_web" / "Dockerfile"
     chain = _final_stage_chain(mutated)
     end = next(i for i, line in enumerate(chain) if MANIFEST_INSTALL in line)
     assert chain[: end + 1] != _shared_prefix(reference)
+
+
+BASE_REGISTRY_ARG = 'ARG OSPREY_BASE_REGISTRY="docker.io"'
+
+
+def _base_registry_violations(text: str) -> list[str]:
+    """Why a recipe does not pull its base image through ``OSPREY_BASE_REGISTRY``.
+
+    The recipe declares the ARG exactly once, ahead of its first ``FROM`` (the
+    one scope every ``FROM`` line reads), and every ``FROM`` that names an image
+    rather than an earlier stage begins with the ARG and names a Docker Hub
+    namespace after it (``${OSPREY_BASE_REGISTRY}/library/python:3.11-slim``):
+    the ARG names the registry standing in for docker.io, which keeps Docker
+    Hub's paths, so a base without its namespace names an image no mirror
+    serves. ``native-wheels-*`` is a stage selected by architecture, not an
+    image.
+    """
+    lines = text.splitlines()
+    problems = []
+    declarations = [i for i, line in enumerate(lines) if line == BASE_REGISTRY_ARG]
+    first_from = next((i for i, line in enumerate(lines) if line.startswith("FROM ")), None)
+    if len(declarations) != 1:
+        problems.append(f"{len(declarations)} declarations of {BASE_REGISTRY_ARG}")
+    elif first_from is None or declarations[0] > first_from:
+        problems.append(f"{BASE_REGISTRY_ARG} does not precede the first FROM")
+    stages: set[str] = set()
+    for line in lines:
+        if not line.startswith("FROM "):
+            continue
+        words = line.split()
+        base_words = [w for w in words[1:] if not w.startswith("--")]
+        base = base_words[0]
+        if len(base_words) >= 3 and base_words[1].upper() == "AS":
+            stages.add(base_words[2])
+        if base in stages or base.startswith("native-wheels-"):
+            continue
+        prefix = "${OSPREY_BASE_REGISTRY}/"
+        if not base.startswith(prefix):
+            problems.append(f"{line!r} names its base without the base registry")
+        elif "/" not in base[len(prefix) :]:
+            problems.append(f"{line!r} names its base without its Docker Hub namespace")
+    return problems
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_every_shipped_recipe_pulls_its_base_through_the_base_registry(dockerfile):
+    """``images.base_registry`` reaches every base image a shipped recipe pulls."""
+    assert _base_registry_violations(dockerfile.read_text(encoding="utf-8")) == []
+
+
+def test_base_registry_guard_catches_a_bare_base():
+    """A base named without the registry ARG fails the check."""
+    assert _base_registry_violations(f"{BASE_REGISTRY_ARG}\nFROM python:3.11-slim\n")
+
+
+def test_base_registry_guard_catches_a_base_without_its_namespace():
+    """A base named under the registry ARG without ``library/`` fails the check."""
+    assert _base_registry_violations(
+        f"{BASE_REGISTRY_ARG}\nFROM ${{OSPREY_BASE_REGISTRY}}/python:3.11-slim\n"
+    )
 
 
 #: Shipped recipes that install with pip, and so fetch through the build caches.
@@ -874,14 +992,15 @@ def _stage_trees(text: str) -> list[str]:
     A stage built ``FROM`` an earlier stage (by name, or through a
     ``${...}``-selected name) inherits that stage's trust store, so it belongs
     to the same tree; a stage that starts from a registry image begins a new
-    tree, which has to install the site CA itself. A single-stage recipe is one
-    tree.
+    tree, which has to install the site CA itself. A stage name holds no ``/``,
+    so a base that does (``${OSPREY_BASE_REGISTRY}/library/python:…``) is an image. A
+    single-stage recipe is one tree.
     """
     named: set[str] = set()
     starts: list[int] = []
     for match in re.finditer(r"^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$", text, flags=re.M | re.I):
         base, name = match.group(1), match.group(2)
-        if base not in named and "${" not in base:
+        if base not in named and ("${" not in base or "/" in base):
             starts.append(match.start())
         if name:
             named.add(name)
@@ -895,11 +1014,12 @@ def test_stage_trees_split_at_an_external_base():
     """A stage on an earlier stage stays in its tree; a new registry base starts one."""
     trees = _stage_trees(
         "ARG T\nFROM python:3.11-slim AS base\nRUN a\nFROM base AS b\nRUN b\n"
-        "FROM b-${T} AS c\nFROM python:3.11-slim\nRUN d\n"
+        "FROM b-${T} AS c\nFROM python:3.11-slim\nRUN d\nFROM ${R}/python:3.11-slim\nRUN e\n"
     )
-    assert len(trees) == 2
+    assert len(trees) == 3
     assert "RUN b" in trees[0] and "RUN d" not in trees[0]
     assert "RUN d" in trees[1] and "RUN a" not in trees[1]
+    assert "RUN e" in trees[2] and "RUN d" not in trees[2]
 
 
 @pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)

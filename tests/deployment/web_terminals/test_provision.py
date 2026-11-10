@@ -854,6 +854,48 @@ def test_registry_mode_with_registry_url_needs_no_auth_image(monkeypatch, tmp_pa
     _run_preflight(monkeypatch, tmp_path, config)
 
 
+def _unset_image_tag_config(monkeypatch) -> dict:
+    """A registry-mode config whose `image_tag` names an unset variable."""
+    monkeypatch.delenv("OSPREY_IMAGE_TAG", raising=False)
+    config = _sidecar_config("registry")
+    config["registry"] = {"url": "reg.example/osprey"}
+    config["modules"]["web_terminals"]["image_tag"] = "${OSPREY_IMAGE_TAG}"
+    return config
+
+
+def test_registry_mode_preflight_refuses_an_unset_image_tag_variable_before_any_mint(
+    monkeypatch, tmp_path
+):
+    """A tag that would render tagless image refs is refused before the image
+    build and before any credential is minted."""
+    # Arrange
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+    minted: list[object] = []
+    monkeypatch.setattr(
+        provision,
+        "ensure_auth_credentials",
+        lambda *args, **kwargs: minted.append(args),
+    )
+    config = _unset_image_tag_config(monkeypatch)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=r"OSPREY_IMAGE_TAG is not set"):
+        _run_preflight(monkeypatch, tmp_path, config)
+    assert minted == []
+
+
+def test_preflight_report_lists_an_unset_image_tag_variable(monkeypatch, tmp_path):
+    """The collected report names the same refusal the gate raises."""
+    # Arrange
+    config = _unset_image_tag_config(monkeypatch)
+
+    # Act
+    problems = provision.web_terminal_preflight_problems(config, repo_root=tmp_path)
+
+    # Assert
+    assert any("OSPREY_IMAGE_TAG is not set" in problem for problem, _remedy in problems)
+
+
 def test_registry_mode_with_auth_image_passes_preflight(monkeypatch, tmp_path):
     _stub_clean_provisioning(monkeypatch, tmp_path)
 
