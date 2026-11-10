@@ -10,10 +10,12 @@ each rule is pinned here on a normalised body.
 from __future__ import annotations
 
 import copy
+import subprocess
+import sys
 
 import pytest
 
-from osprey.facility.layers.mml.family import FamilyView, FieldView
+from osprey.facility.layers.mml.family import CHANNEL_KEYS, FamilyView, FieldView, is_family_dict
 
 
 def _view(body: dict, system: str = "SR", name: str = "BPM") -> FamilyView:
@@ -367,3 +369,32 @@ class TestAligned:
     def test_scalar_on_single_device(self):
         """A scalar on a one-device family is aligned as a one-slot list."""
         assert _view({"DeviceList": [1, 1], "Position": 2.5}).aligned("Position") == [2.5]
+
+
+class TestIsFamilyDict:
+    """A family is a dict with a channel-keyed sub-dict or a ``DeviceList``."""
+
+    @pytest.mark.parametrize("key", CHANNEL_KEYS)
+    def test_a_channel_keyed_field_makes_a_family(self, key):
+        """One field carrying either channel key is enough."""
+        assert is_family_dict("QF", {"Monitor": {key: ["QF:I"]}, "FamilyName": "QF"}) is True
+
+    def test_a_device_list_makes_a_family(self):
+        """A family with no channel field is still a family when it lists devices."""
+        assert is_family_dict("GIRDER", {"FamilyName": "GIRDER", "DeviceList": [[1, 1]]}) is True
+
+    def test_a_device_list_under_setup_makes_a_family(self):
+        """The family arrays may sit in ``setup`` or ``_setup``."""
+        assert is_family_dict("BPM", {"setup": {"DeviceList": [[1, 1]]}}) is True
+        assert is_family_dict("BPM", {"_setup": {"DeviceList": [[1, 1]]}}) is True
+
+
+def test_the_json_loader_does_not_import_channel_finder():
+    """The MML JSON loader reads the family rule from the facility layer alone."""
+    code = (
+        "import sys\n"
+        "import osprey.facility.layers.mml.loaders.json_any\n"
+        "assert not any(m.startswith('osprey.services.channel_finder') for m in sys.modules)\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
