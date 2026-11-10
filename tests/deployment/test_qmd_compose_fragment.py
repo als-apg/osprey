@@ -632,33 +632,13 @@ def test_mirror_path_is_read_from_settings_when_present():
     assert "./data/real_mirror:/corpus/ariel:ro" in service["volumes"]
 
 
-def _export(**fields) -> dict:
-    """A config whose ARIEL qmd export is on, with *fields* on its block."""
-    return {"ariel": {"enhancement_modules": {"qmd_export": {"enabled": True, **fields}}}}
-
-
-def test_ariel_embed_switch_reads_the_nested_spelling_first():
-    """``embed`` follows the same settings-wins rule as ``mirror_path``, and a
-    ``false`` in ``settings`` wins over a ``true`` beside it."""
-    from osprey.deployment.compose_generator import configured_ariel_embed
-
-    assert configured_ariel_embed({}) is True
-    assert configured_ariel_embed(_export()) is True
-    assert configured_ariel_embed(_export(embed=False)) is False
-    assert configured_ariel_embed(_export(embed=True, settings={"embed": False})) is False
-    assert configured_ariel_embed(_export(embed=False, settings={"embed": True})) is True
-    with pytest.raises(ValueError, match=r"qmd_export\.settings\.embed must be true or false"):
-        configured_ariel_embed(_export(settings={"embed": "no"}))
-
-
-def _ariel(*, embed: bool, strategy: str | None = None, hybrid: bool = True) -> dict:
-    """An ARIEL block whose export names its mirror and *embed*, with hybrid search."""
+def _ariel(*, strategy: str | None = None, hybrid: bool = True) -> dict:
+    """An ARIEL block whose export names its mirror, with hybrid search."""
     block: dict = {
         "enhancement_modules": {
             "qmd_export": {
                 "enabled": True,
                 "mirror_path": "data/ariel_mirror",
-                "settings": {"embed": embed},
             }
         },
         "search_modules": {"hybrid": {"enabled": hybrid}},
@@ -679,7 +659,7 @@ def test_embed_switch_renders_per_sidecar():
     ]
     rendered = sidecars(
         facility_knowledge=OKF_BUNDLE,
-        ariel=_ariel(embed=False, strategy="rrf"),
+        ariel=_ariel(strategy="rrf"),
         qmd={"corpora": corpora},
     )
 
@@ -691,25 +671,38 @@ def test_embed_switch_renders_per_sidecar():
     }
 
 
-def test_ariel_embed_off_with_the_qmd_strategy_is_refused():
-    """The ``qmd`` strategy queries qmd's vectors; with embedding off its vector
-    lane would return nothing, silently."""
-    from osprey.services.ariel_search.search.qmd import DEFAULT_STRATEGY
-
-    for strategy in ("qmd", None):
-        with pytest.raises(ValueError) as refused:
-            sidecars(ariel=_ariel(embed=False, strategy=strategy))
-        assert str(refused.value) == (
-            "ariel.enhancement_modules.qmd_export.settings.embed is false, but "
-            f"ariel.search_modules.hybrid.settings.strategy is {strategy or DEFAULT_STRATEGY!r}, "
-            "which queries qmd's vectors; set strategy: rrf or remove embed: false"
-        )
+def _without_search_modules() -> dict:
+    block = _ariel()
+    del block["search_modules"]
+    return block
 
 
-def test_ariel_embed_off_with_the_rrf_strategy_renders():
-    assert _embed_env(sidecars(ariel=_ariel(embed=False, strategy="rrf"))["qmd-ariel"]) == "0"
-    # Without hybrid search nothing queries the ariel sidecar's vectors.
-    assert _embed_env(sidecars(ariel=_ariel(embed=False, hybrid=False))["qmd-ariel"]) == "0"
+@pytest.mark.parametrize(
+    ("ariel", "expected"),
+    [
+        pytest.param(_ariel(), "1", id="strategy-unset"),
+        pytest.param(_ariel(strategy="qmd"), "1", id="qmd"),
+        pytest.param(_ariel(strategy="rrf"), "0", id="rrf"),
+        pytest.param(_ariel(hybrid=False), "0", id="hybrid-disabled"),
+        pytest.param(_without_search_modules(), "0", id="no-search-modules"),
+    ],
+)
+def test_ariel_sidecar_embeds_when_hybrid_search_queries_vectors(ariel, expected):
+    assert _embed_env(sidecars(ariel=ariel)["qmd-ariel"]) == expected
+
+
+def test_the_ariel_embed_is_the_readers_lanes(monkeypatch):
+    """The resolver asks ARIEL's search module which lanes it queries."""
+    import osprey.services.ariel_search.search.qmd as ariel_qmd
+
+    monkeypatch.setattr(ariel_qmd, "qmd_lanes", lambda hybrid: ("lex",))
+
+    assert _embed_env(sidecars(ariel=_ariel())["qmd-ariel"]) == "0"
+
+
+def test_an_enabled_hybrid_block_with_a_bad_strategy_is_refused():
+    with pytest.raises(ValueError, match="search_modules.hybrid.settings.strategy must be one of"):
+        sidecars(ariel=_ariel(strategy="other"))
 
 
 # ---------------------------------------------------------------------------

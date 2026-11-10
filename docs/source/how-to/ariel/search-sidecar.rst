@@ -142,10 +142,9 @@ derived from configuration you already have:
      - ``ariel.enhancement_modules.qmd_export`` → ``mirror_path``
      - the export is enabled and names a path
 
-A deployment on ARIEL ``strategy: rrf`` sets
-``ariel.enhancement_modules.qmd_export.settings.embed: false`` so the ``ariel``
-sidecar builds its keyword index only; ``osprey up`` refuses it while hybrid
-search runs a strategy that queries qmd's vectors. ``okf`` always embeds.
+The ``ariel`` sidecar computes vectors only when ARIEL hybrid search queries
+them: with ``strategy: rrf``, or with hybrid search off, it builds its keyword
+index only. ``okf`` always embeds.
 
 Each sidecar is the compose service ``qmd-<corpus>`` (``qmd-okf``,
 ``qmd-ariel``, …), all running the one image. Its corpus is bind-mounted

@@ -1149,7 +1149,8 @@ def _resolve_qmd_corpora(config, repo_root):
     * ARIEL's markdown mirror (``ariel``), when
       ``ariel.enhancement_modules.qmd_export`` is enabled AND names a
       ``mirror_path`` (an enabled export with no path is a config error the
-      exporter itself refuses at runtime; there is nothing to mount here).
+      exporter itself refuses at runtime; there is nothing to mount here); it
+      embeds only when ARIEL's hybrid search queries vectors.
 
     The corpora ``services.qmd.corpora`` declares follow, in list order.
 
@@ -1162,10 +1163,10 @@ def _resolve_qmd_corpora(config, repo_root):
         corpus mount, ``None`` for a prebuilt corpus without one), ``index_dir``
         (the prebuilt index's bind source, else ``None``), ``volume`` (the
         managed index's named volume, else ``None``) and ``embed`` (``False``
-        for a keyword-only index)
+        for a keyword-only index: a declared corpus's own ``embed``, and for
+        ``ariel`` whether ARIEL's hybrid search queries qmd's vectors)
     :rtype: list[dict]
-    :raises ValueError: If the ``ariel`` corpus has embedding off while ARIEL's
-        hybrid search queries qmd's vectors
+    :raises ValueError: If ARIEL's hybrid search is enabled with malformed settings
     """
     from osprey.deployment.qmd_service import (
         INDEX_MANAGED,
@@ -1204,22 +1205,15 @@ def _resolve_qmd_corpora(config, repo_root):
 
     mirror_path = configured_ariel_mirror_path(config)
     if mirror_path is not None:
-        ariel_embed = configured_ariel_embed(config)
-        if not ariel_embed:
-            # A keyword-only index under a strategy that queries its vectors
-            # would leave the hybrid mode's vector lane empty, with no error.
-            from osprey.services.ariel_search.search.qmd import DEFAULT_STRATEGY
+        from osprey.services.ariel_search.config import SearchModuleConfig
+        from osprey.services.ariel_search.search.qmd import qmd_lanes
 
-            ariel = config.get("ariel") or {}
-            hybrid = (ariel.get("search_modules") or {}).get("hybrid") or {}
-            strategy = (hybrid.get("settings") or {}).get("strategy") or DEFAULT_STRATEGY
-            if hybrid.get("enabled") and strategy != "rrf":
-                raise ValueError(
-                    f"{ARIEL_QMD_EMBED_KEY} is false, but "
-                    f"ariel.search_modules.hybrid.settings.strategy is {strategy!r}, which "
-                    "queries qmd's vectors; set strategy: rrf or remove embed: false"
-                )
-        corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path, embed=ariel_embed))
+        hybrid = ((config.get("ariel") or {}).get("search_modules") or {}).get("hybrid")
+        lanes = qmd_lanes(
+            SearchModuleConfig.from_dict(hybrid) if isinstance(hybrid, dict) else None
+        )
+        # The ariel index holds vectors exactly when ARIEL's hybrid search queries them.
+        corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path, embed="vec" in lanes))
 
     corpora.extend(
         corpus(declared.name, declared.source, declared.index, declared.index_dir, declared.embed)
@@ -1255,31 +1249,6 @@ def configured_ariel_mirror_path(config):
     if isinstance(mirror_path, str) and mirror_path.strip():
         return mirror_path.strip()
     return None
-
-
-#: The config path of the ``ariel`` corpus's embed switch, as error messages name it.
-ARIEL_QMD_EMBED_KEY = "ariel.enhancement_modules.qmd_export.settings.embed"
-
-
-def configured_ariel_embed(config):
-    """Whether the ``ariel`` corpus's sidecar computes vectors.
-
-    ``False`` builds the keyword index only, for a deployment whose ARIEL
-    search queries qmd's BM25 lane alone. Read with the same settings-wins rule
-    as :func:`configured_ariel_mirror_path`; default ``True``.
-
-    :param config: Configuration dictionary
-    :type config: dict
-    :return: The switch
-    :rtype: bool
-    :raises ValueError: If the configured value is not a boolean
-    """
-    embed = _qmd_export_setting(config, "embed")
-    if embed is None:
-        return True
-    if not isinstance(embed, bool):
-        raise ValueError(f"{ARIEL_QMD_EMBED_KEY} must be true or false, got {embed!r}")
-    return embed
 
 
 def _qmd_export_setting(config, key):
