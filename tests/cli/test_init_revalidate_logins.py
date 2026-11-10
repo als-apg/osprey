@@ -48,6 +48,7 @@ def _repo_with_logbook_in_apps(tmp_path: Path, text: str) -> Path:
     """The exemplar with its shared ``logbook`` login kept in ``apps/`` instead."""
     root = build_exemplar_repo(tmp_path / "als-exemplar")
     (root / "tiers" / "logbook.yml").unlink()
+    (root / "apps").mkdir(exist_ok=True)
     (root / "apps" / "logbook.yml").write_text(text, encoding="utf-8")
     return root
 
