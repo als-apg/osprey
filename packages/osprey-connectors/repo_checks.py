@@ -41,6 +41,21 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.ipc.FrameDecodeError": "a caller tells a bad frame read from the others",
     "osprey_connectors.ipc.FrameEncodeError": "a caller tells a bad frame write from the others",
+    "osprey_connectors.ipc.GATEWAYS_MISSING": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
+    "osprey_connectors.ipc.GATEWAYS_NONE_DECLARED": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
+    "osprey_connectors.ipc.GATEWAYS_ROWS": (
+        "a caller names the verdict that a target declares gateway rows"
+    ),
+    "osprey_connectors.ipc.declared_gateways": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
@@ -51,8 +66,11 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.series.loss_refill_bound": (
         "the framework's archive rewrite reads the loss refill bound"
     ),
+    "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
 }
 
 #: Interim: the listed names that had no user when this check was added. Each
@@ -102,7 +120,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.ipc.SETTLE_TIMEOUT_S",
         "osprey_connectors.ipc.verify_child_report",
         "osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR",
-        "osprey_connectors.posture_store.CONTROL_TREE_MARKER_NAME",
         "osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS",
         "osprey_connectors.posture_store.LOGIN_TIERS_KEY",
         "osprey_connectors.posture_store.VALID_POSTURES",

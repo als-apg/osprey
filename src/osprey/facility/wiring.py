@@ -1,11 +1,11 @@
 """The computed slots of every wiring record.
 
-A wiring record carries seven slots the build fills and no author states:
-``direction``, ``unit``, ``default``, ``value_range``, ``role``, ``plane`` and
-``refresh``. ``default`` waits for a deck; ``role``, ``plane`` and ``refresh``
-wait for an engine, and are what the model's engine ``describe()`` says the
-record is; ``direction``, ``unit`` and ``value_range`` are filled for every
-model. This module is their one writer: it loads each physics model's engine
+A wiring record carries eight slots the build fills and no author states:
+``direction``, ``unit``, ``default``, ``value_range``, ``role``, ``plane``,
+``refresh`` and ``marks``. ``default`` waits for a deck; ``role``, ``plane``,
+``refresh`` and ``marks`` wait for an engine, and are what the model's engine
+``describe()`` says the record is, in the facility schema's words;
+``direction``, ``unit`` and ``value_range`` are filled for every model. This module is their one writer: it loads each physics model's engine
 once, and the simulator view reads the description from the record. It runs
 after S5, so every id a record names resolves and the record rules hold, and
 before S6, whose checks compare against the ``default`` it writes.
@@ -35,8 +35,10 @@ __all__ = ["element_stop", "fill_wiring_slots"]
 
 _MODELS_FILE = "models.yaml"
 
-#: The keys of an engine's description a wiring record carries.
+#: The keys of an engine's description every described wiring record carries.
 _DESCRIPTION_KEYS = ("role", "plane", "refresh")
+#: The key of an engine's description listing its marks; written only when it lists one.
+_MARKS_KEY = "marks"
 
 
 def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
@@ -50,12 +52,12 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     * ``unit``: the channel's unit, when the channel states one;
     * ``value_range``: ``[min_value, max_value]`` of the channel's limits
       record, when that record states both bounds;
-    * ``role``, ``plane`` and ``refresh``: what the model's engine
+    * ``role``, ``plane``, ``refresh`` and ``marks``: what the model's engine
       ``describe()`` says the record is; ``plane`` is null for a record that
-      steers or reads no plane.
+      steers or reads no plane, and ``marks`` is absent for a record the
+      engine marks with none.
 
-    ``default`` waits for a deck; ``role``, ``plane`` and ``refresh`` wait for
-    an engine, which every model but a ``texture`` one names. Each filled slot
+    ``default`` waits for a deck; the description waits for an engine, which every model but a ``texture`` one names. Each filled slot
     is recorded in the record's ``provenance.defaults``. The engine is reached
     through the ``osprey.simulation.engines`` entry-point group, read once per
     build. A record the engine has no start value for, or cannot describe, is
@@ -226,8 +228,18 @@ def _describe_record(
         _check_description(model, record, description, pairs)
     except FacilityBuildError as stop:
         return [stop]
-    _write_slots(record, {key: description[key] for key in _DESCRIPTION_KEYS})
+    slots = {key: description[key] for key in _DESCRIPTION_KEYS}
+    marks = _marks(description)
+    if marks:
+        slots[_MARKS_KEY] = sorted(marks)
+    _write_slots(record, slots)
     return []
+
+
+def _marks(description: Mapping[str, Any]) -> list[Any]:
+    """The marks a description lists, whatever shape the engine gave them in."""
+    marks = description.get(_MARKS_KEY) or []
+    return list(marks) if isinstance(marks, list | tuple | set | frozenset) else [marks]
 
 
 def _check_description(
@@ -236,8 +248,46 @@ def _check_description(
     description: Mapping[str, Any],
     pairs: frozenset[str],
 ) -> None:
-    """Stop when an engine's description contradicts the facility file."""
+    """Stop when an engine's description contradicts the schema or the facility file.
+
+    Every word a description says is one the facility schema states for its slot,
+    and only a ``write`` record carries the ``command`` mark.
+    """
+    from osprey.facility.schema import core
+
     address = str(record["address"])
+    words: dict[str, frozenset[Any]] = {
+        "role": frozenset(member.value for member in core.WiringRoleEnum),
+        "plane": frozenset(member.value for member in core.PlaneEnum) | {None},
+        "refresh": frozenset(member.value for member in core.RefreshEnum),
+        _MARKS_KEY: frozenset(member.value for member in core.WiringMarkEnum),
+    }
+    said = [(key, description.get(key)) for key in _DESCRIPTION_KEYS]
+    said += [(_MARKS_KEY, mark) for mark in _marks(description)]
+    for key, word in said:
+        if not isinstance(word, str | None) or word not in words[key]:
+            stated = ", ".join(sorted(str(w) for w in words[key] if w is not None))
+            raise FacilityBuildError(
+                "engine-invalid",
+                str(model["name"]),
+                stating_files(model, None, fallback=_MODELS_FILE),
+                f"make the engine's describe() give {address} a {key} of {stated}",
+                record_kind="model",
+                detail=(
+                    f"the engine describes {address} with {key} {word!r}, "
+                    "which the facility schema does not state"
+                ),
+            )
+    command = core.WiringMarkEnum.command.value
+    if command in _marks(description) and record.get("direction") != "write":
+        raise FacilityBuildError(
+            "engine-invalid",
+            str(model["name"]),
+            stating_files(model, None, fallback=_MODELS_FILE),
+            f"make the engine's describe() mark write records alone {command}",
+            record_kind="model",
+            detail=f"the engine marks {address} {command}; its direction is read",
+        )
     if record.get("direction") == "write":
         expected, why = "setpoint", "its direction is write"
     elif address in pairs:

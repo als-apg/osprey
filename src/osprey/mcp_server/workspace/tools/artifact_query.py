@@ -14,12 +14,15 @@ extension type's key. The store computes it from what the writer recorded;
 ``artifact_delete_all``).
 """
 
+import base64
 import json
 import logging
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal
 
 from fastmcp.exceptions import ToolError
+from fastmcp.tools import ToolResult
+from mcp.types import ImageContent, TextContent
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
@@ -199,6 +202,13 @@ async def artifact_list(
 # model's context with bulk data that should be processed via `execute`).
 _MAX_INLINE_SIZE = 100 * 1024
 
+# The image types returned as image content, and their cap. The bound is the
+# same transport buffer: base64 grows the bytes by a third, so 512 KiB stays
+# well inside ~1 MB with the metadata beside it. A figure the plot tools save
+# is far below it.
+_IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+_MAX_IMAGE_SIZE = 512 * 1024
+
 # Hard ceiling for over-cap preview generation. Files above this size skip
 # JSON parsing entirely to avoid pathological memory use on the error path.
 _PREVIEW_PARSE_LIMIT = 16 * 1024 * 1024
@@ -350,24 +360,36 @@ def _oversize_suggestions(file_path: Any) -> list[str]:
     ]
 
 
+def _image_result(result: dict[str, Any], data: bytes, mime: str) -> ToolResult:
+    """The metadata as text, followed by the image itself."""
+    return ToolResult(
+        content=[
+            TextContent(type="text", text=json.dumps(result, default=str)),
+            ImageContent(type="image", data=base64.b64encode(data).decode("ascii"), mimeType=mime),
+        ]
+    )
+
+
 @mcp.tool()
-async def artifact_read(artifact_id: str) -> str:
+async def artifact_read(artifact_id: str) -> str | ToolResult:
     """Read a stored artifact by ID: its metadata, file path and, when small, its content.
 
     Always returns the artifact's metadata and absolute ``file_path`` (pass it
-    to tools like ``graph_extract(image_path=...)``). ``content`` is included
-    when the file is at most 100 KB and is text; a JSON file comes back as its
-    parsed value. Otherwise ``content_omitted`` says why: ``"binary"`` (an
-    image or other non-text file) or ``"too_large"``, which also carries a
-    structured ``preview`` and ``suggestions`` for processing the data in the
-    Python sandbox (``execute``) or via ``data_source=`` on the plot tools.
+    to tools like ``graph_extract(image_path=...)``). A PNG, JPEG, GIF or WebP
+    image of at most 512 KB comes back as the image itself after the metadata,
+    so you can look at the figure. ``content`` is included when the file is at
+    most 100 KB and is text; a JSON file comes back as its parsed value.
+    Otherwise ``content_omitted`` says why: ``"binary"`` (another non-text
+    file) or ``"too_large"``, which also carries a structured ``preview`` and
+    ``suggestions`` for processing the data in the Python sandbox
+    (``execute``) or via ``data_source=`` on the plot tools.
 
     Args:
         artifact_id: ID of the artifact to read.
 
     Returns:
         JSON with the artifact's metadata, ``file_path`` and ``content`` or
-        ``content_omitted``.
+        ``content_omitted``; for an image, that JSON followed by the image.
     """
     try:
         from osprey.stores.artifact_store import get_artifact_store
@@ -396,12 +418,16 @@ async def artifact_read(artifact_id: str) -> str:
             )
 
         size = file_path.stat().st_size
-        if size > _MAX_INLINE_SIZE:
+        mime = entry.mime_type
+        if mime in _IMAGE_MIMES and size <= _MAX_IMAGE_SIZE:
+            return _image_result(result, file_path.read_bytes(), mime)
+        limit = _MAX_IMAGE_SIZE if mime in _IMAGE_MIMES else _MAX_INLINE_SIZE
+        if size > limit:
             result.update(
                 {
                     "content_omitted": "too_large",
                     "size_bytes": size,
-                    "limit_bytes": _MAX_INLINE_SIZE,
+                    "limit_bytes": limit,
                     "preview": _build_oversize_preview(file_path, size),
                     "suggestions": _oversize_suggestions(result["file_path"]),
                 }

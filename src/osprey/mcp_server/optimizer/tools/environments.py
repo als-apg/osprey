@@ -12,25 +12,24 @@ initial_bounds              GET  /environments/{name}/initial-bounds  (target)
 ==========================  ===================================================
 
 A route marked ``target`` reads a machine, and the service requires it to be
-named; a tool given no ``target`` names the deployment's current one.
+named; the tool names the session's control target, the one machine every
+read of the session describes.
 """
 
 import json
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import quote
 
 from osprey.mcp_server.optimizer.server import mcp
-from osprey.mcp_server.optimizer.server_context import default_target, request
-
-Target = Literal["va", "standin", "live"]
+from osprey.mcp_server.optimizer.server_context import control_target, request
 
 
 def _env(name: str) -> str:
     return f"/environments/{quote(name, safe='')}"
 
 
-def _machine(target: Target | None) -> dict[str, Any]:
-    return {"target": target or default_target()}
+def _machine() -> dict[str, Any]:
+    return {"target": control_target()}
 
 
 @mcp.tool()
@@ -50,30 +49,24 @@ async def get_environment(name: str) -> str:
 
 
 @mcp.tool()
-async def environment_status(name: str, target: Target | None = None) -> str:
-    """Check whether an environment is reachable and healthy on a machine.
-
-    The optimizer serves only va and standin today: a session on live is refused unless ``target`` names one of those.
+async def environment_status(name: str) -> str:
+    """Check whether an environment is reachable and healthy on the session's control target.
 
     Args:
         name: Environment name.
-        target: Machine to check (va or standin). Default: the session's current control target.
     """
-    return json.dumps(await request("GET", f"{_env(name)}/status", params=_machine(target)))
+    return json.dumps(await request("GET", f"{_env(name)}/status", params=_machine()))
 
 
 @mcp.tool()
-async def read_observables(name: str, names: list[str], target: Target | None = None) -> str:
-    """Read the current values of an environment's observables (objective measurements) on a machine.
-
-    The optimizer serves only va and standin today: a session on live is refused unless ``target`` names one of those.
+async def read_observables(name: str, names: list[str]) -> str:
+    """Read the current values of an environment's observables (objective measurements) on the session's control target.
 
     Args:
         name: Environment name.
         names: Observable names, as get_environment lists them.
-        target: Machine to read (va or standin). Default: the session's current control target.
     """
-    params = {**_machine(target), "names": names}
+    params = {**_machine(), "names": names}
     return json.dumps(await request("GET", f"{_env(name)}/observables", params=params))
 
 
@@ -88,19 +81,16 @@ async def list_presets(name: str) -> str:
 
 
 @mcp.tool()
-async def initial_bounds(name: str, preset: str | None = None, target: Target | None = None) -> str:
-    """Resolve the starting bounds for each variable from its current setpoint on a machine.
+async def initial_bounds(name: str, preset: str | None = None) -> str:
+    """Resolve the starting bounds for each variable from its current setpoint on the session's control target.
 
     Without a preset every variable gets its safety range; with one, only the preset's variables, with its overrides applied around the current setpoints. Returns ``bounds`` and ``current_values`` (each variable's current setpoint reading).
-
-    The optimizer serves only va and standin today: a session on live is refused unless ``target`` names one of those.
 
     Args:
         name: Environment name.
         preset: Preset name, from list_presets.
-        target: Machine to read setpoints from (va or standin). Default: the session's current control target.
     """
-    params = _machine(target)
+    params = _machine()
     if preset is not None:
         params["preset"] = preset
     return json.dumps(await request("GET", f"{_env(name)}/initial-bounds", params=params))

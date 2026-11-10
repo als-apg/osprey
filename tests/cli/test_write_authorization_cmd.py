@@ -25,7 +25,7 @@ from osprey_connectors import write_authorization as wa
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 
-FAR_FUTURE_NS = time.time_ns() + 10 * 365 * 24 * 3600 * 10**9
+FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 LIMITS = {
     "SR:A": {"writable": True, "min_value": 0.0, "max_value": 10.0},
@@ -165,6 +165,19 @@ class TestLaptop:
         result = run("approve", str(path), "--yes")
         assert result.exit_code != 0 and "this account" in result.output
 
+    def test_a_request_past_a_ceiling_is_refused_and_writes_nothing(self, tmp_path):
+        """A file read back fine but past a ceiling: the approval's write refuses it."""
+        over = wa.parse_request(
+            {**ask().to_payload(), "id": uuid.uuid4().hex, "steps": wa.MAX_STEPS + 1}
+        )
+        path = tmp_path / f"{over.id}.json"
+        path.write_text(json.dumps(over.to_payload()), encoding="utf-8")
+        result = run("approve", str(path), "--yes")
+        assert result.exit_code != 0
+        assert "nothing was written" in result.output
+        assert "ceiling" in result.output
+        assert wa.approved_grant(over.id) is None
+
     def test_an_id_with_no_pending_request_says_whether_it_was_approved(self):
         unknown = uuid.uuid4().hex
         result = run("approve", unknown, "--yes")
@@ -242,11 +255,20 @@ class TestDeployment:
 
     @staticmethod
     def _stage_map(repo: Path, login_tiers: dict[str, str]) -> None:
-        """The login map a build stages for the shared containers."""
+        """The login map a build stages for the shared containers.
+
+        The as-built ``build/config.yml`` names the service, as every build's
+        does: the map is read from the services that drive the target there.
+        """
         path = repo / "build" / "services" / "bluesky" / "config.yml"
         path.parent.mkdir(parents=True, exist_ok=True)
         document = {"control_system": {"writes": "allowed", "login_tiers": login_tiers}}
         path.write_text(yaml.safe_dump(document), encoding="utf-8")
+        as_built = repo / "build" / "config.yml"
+        built = yaml.safe_load(as_built.read_text(encoding="utf-8")) if as_built.is_file() else {}
+        built = built if isinstance(built, dict) else {}
+        built.setdefault("services", {}).setdefault("bluesky", {})
+        as_built.write_text(yaml.safe_dump(built), encoding="utf-8")
 
     def test_a_request_filed_on_the_host_is_listed_approved_by_id_and_counted(self, repo):
         request = self._put(repo, "alice", on_host=True)

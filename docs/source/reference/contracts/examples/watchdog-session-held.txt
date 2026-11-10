@@ -1,0 +1,2 @@
+Writes are paused: this session has an unanswered hold the operator must answer. Raised by: guard-circumvention.
+[osprey-refusal: session_held]

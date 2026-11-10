@@ -145,7 +145,6 @@ class ArgoProviderAdapter(BaseProvider):
     description = "ANL Argo proxy (supports multiple models)"
     requires_api_key = True
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = True
     default_base_url = "https://apps.inside.anl.gov/argoapi/v1"
     # Break-glass redirect: a set ARGO_BASE_URL beats config and the default on

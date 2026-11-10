@@ -91,6 +91,34 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     return _spellable(str(_resolved_agent_data_root(config, project_dir) / CHAT_UPLOADS_SUBDIR))
 
 
+def agent_output_read_globs(config: dict, project_dir: Path) -> list[str]:
+    """The absolute globs over the agent's own output that settings.json lets it Read.
+
+    The artifact store (``artifacts/``) and the executors' working folders
+    (``data/``, or ``sessions/<id>/data/`` for a session-scoped run), under the
+    agent-data root as the runtime resolves it. Absolute for the reason
+    :func:`chat_uploads_dir` is: the agent runs in ``build/``, the root sits beside
+    it. Never the root itself, which also holds the control-context store and the
+    dispatch worker's Claude config; a read there still raises a card.
+    """
+    root = _spellable(str(_resolved_agent_data_root(config, project_dir)))
+    return [f"{root}/artifacts/**", f"{root}/data/**", f"{root}/sessions/*/data/**"]
+
+
+def agent_output_edit_globs(config: dict, project_dir: Path) -> list[str]:
+    """The absolute globs settings.json lets the agent's file-editing tools write.
+
+    The artifact store (``artifacts/``) and the tree the Jupyter panel serves
+    (``notebooks/``), under the agent-data root spelled as
+    :func:`agent_output_read_globs` spells it, so the template names that root one
+    way. Claude Code checks every file-editing tool (``NotebookEdit`` included)
+    against ``Edit(path)`` rules, and the memory guard holds ``NotebookEdit`` to the
+    same two trees.
+    """
+    root = _spellable(str(_resolved_agent_data_root(config, project_dir)))
+    return [f"{root}/artifacts/**", f"{root}/notebooks/**"]
+
+
 def _resolved_agent_data_root(config: dict, project_dir: Path) -> Path:
     """The render's agent-data root as an absolute path, as the runtime resolves it.
 
@@ -416,16 +444,22 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
             for event in CLAUDE_CODE_HOOK_EVENTS
             if event in declared_hooks and event not in FRAMEWORK_WIRED_EVENTS
         ],
-        # The agent-data root the rendered artifacts must agree with.
-        # settings.json grants the agent Read access to its own artifacts
-        # through it, so a literal in that template would silently stop covering
-        # the directory the moment a project relocated `agent_data.base_dir` —
-        # and the agent would be refused the files it had just written.
+        # The agent-data root the rendered artifacts must agree with, as the
+        # config spells it (relative to the repo). The prose names the root
+        # through it; settings.json names it absolutely instead, through the
+        # agent_output_*_globs below, because the agent runs in the render and a
+        # relative rule would match nothing there.
         "agent_data_root": agent_data_base_dir(config),
         # Where the operator chat stores the files operators attach, as the absolute
         # path the agent reads them by; settings.json allows exactly that
         # directory (see chat_uploads_dir).
         "chat_uploads_dir": chat_uploads_dir(config, project_dir),
+        # The agent's own output it may Read, as absolute globs (see
+        # agent_output_read_globs).
+        "agent_output_read_globs": agent_output_read_globs(config, project_dir),
+        # The agent's own trees it may Edit, spelled like the Read globs (see
+        # agent_output_edit_globs).
+        "agent_output_edit_globs": agent_output_edit_globs(config, project_dir),
         # Write tools blocked by the writes kill switch (for hook_config.json)
         "control_system_write_tools": control_system.get("write_tools", []),
         # Write tools the kill switch stops short of gating on the session's
@@ -554,9 +588,80 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # renders it as `showThinkingSummaries`, true unless the deployment
         # sets `claude_code.thinking.display: omitted`.
         "show_thinking_summaries": _thinking_display(config) == "summarized",
+        # Each application tool's approval declaration, keyed by its full
+        # name, and the class and guidance of each application error type, for
+        # hook_config.json. Read from the rendered `apps.<name>` leaves, so
+        # every render path writes the same file.
+        "app_approvals": _app_approvals(config),
+        "app_error_types": _app_error_types(config),
         # The code-review hook's deadline — _build_framework_hook_rules renders it
         # as both the rule's timeout and the command's --deadline.
         "code_review_deadline_s": _code_review_deadline_s(config),
+        # `panel:<id>`, true for every panel block the render shows: the
+        # condition a `shown_when: panel` application server carries, merged
+        # before resolve_servers runs like the server gates above.
+        **_shown_panel_keys(config),
+    }
+
+
+#: The class of each error type an application's tool server emits, as
+#: ``<app>.<type>``; the guidance text comes from the application's manifest.
+APP_ERROR_CLASSES: dict[str, str] = {"unreachable": "Connection", "refused": "Safety"}
+
+
+def _app_blocks(config: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    apps = config.get("apps")
+    if not isinstance(apps, Mapping):
+        return []
+    return [(str(name), block) for name, block in apps.items() if isinstance(block, Mapping)]
+
+
+def _app_approvals(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Every ``apps.<name>.approval.<tool>`` entry, keyed ``mcp__<name>__<tool>``.
+
+    Each entry gains ``app``, the application name its path names.
+    """
+    declared: dict[str, Any] = {}
+    for name, block in _app_blocks(config):
+        approval = block.get("approval")
+        if not isinstance(approval, Mapping):
+            continue
+        for tool, entry in approval.items():
+            if isinstance(entry, Mapping):
+                declared[f"mcp__{name}__{tool}"] = {"app": name, **entry}
+    return declared
+
+
+def _app_error_types(config: Mapping[str, Any]) -> dict[str, dict[str, str | None]]:
+    """``{"<app>.<type>": {class, text}}`` for every application with a tool server."""
+    types: dict[str, dict[str, str | None]] = {}
+    for name, block in _app_blocks(config):
+        tools = block.get("tools")
+        if not isinstance(tools, Mapping):
+            continue
+        errors = tools.get("errors")
+        for kind, error_class in APP_ERROR_CLASSES.items():
+            text = errors.get(kind) if isinstance(errors, Mapping) else None
+            types[f"{name}.{kind}"] = {
+                "class": error_class,
+                "text": text if isinstance(text, str) and text else None,
+            }
+    return types
+
+
+def _shown_panel_keys(config: Mapping[str, Any]) -> dict[str, bool]:
+    """``{"panel:<id>": True}`` for every ``web.panels`` block the render shows."""
+    from osprey.apps.projection import PANEL_CONDITION_PREFIX
+    from osprey.profiles.web_panels import panel_spec_enabled
+
+    web = config.get("web")
+    panels = web.get("panels") if isinstance(web, Mapping) else None
+    if not isinstance(panels, Mapping):
+        return {}
+    return {
+        f"{PANEL_CONDITION_PREFIX}{pid}": True
+        for pid, block in panels.items()
+        if panel_spec_enabled(block)
     }
 
 

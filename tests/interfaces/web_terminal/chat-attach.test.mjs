@@ -133,6 +133,7 @@ async function mount({ key: initialKey = KEY } = {}) {
     onBeforeSend: (transform) => {
       transforms.push(transform);
     },
+    onLocalCommand: () => {},
     scrollToBottom: () => {},
     onNewSession: () => {},
   });

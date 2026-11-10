@@ -1,0 +1,13 @@
+gchat_bridge:
+  trigger: gchat-question        # default; must exist in your triggers file
+  mentions: true            # default; false posts @mentions as plain text
+
+dispatch:
+  triggers: my_triggers.yml      # the file that trigger must be declared in
+  worker_count: 1
+
+env:
+  required:
+    - GCHAT_SA_KEY
+    - GCHAT_SUBSCRIPTION
+    - GCHAT_APP_ID
