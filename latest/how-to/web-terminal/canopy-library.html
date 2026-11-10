@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
@@ -640,9 +626,8 @@ the source tree directly. Both end in the same kind of commit.</p>
 <a class="reference internal" href="canopy.html"><span class="doc">CANOPY</span></a>), kept in git, as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> sets it up. The examples
 use <code class="docutils literal notranslate"><span class="pre">~/my-assistant</span></code> for the deployment.</p>
 </div>
-</details></section>
-<section id="the-library-and-its-report">
-<h1>The library and its report<a class="headerlink" href="#the-library-and-its-report" title="Link to this heading">#</a></h1>
+</details><section id="the-library-and-its-report">
+<h2>The library and its report<a class="headerlink" href="#the-library-and-its-report" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">data/canopy/library</span></code> holds:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">screens/</span></code>: one <code class="docutils literal notranslate"><span class="pre">&lt;id&gt;.screen.json</span></code> per screen, and the images the
@@ -670,7 +655,7 @@ library included. Commit the library first.</p>
 </div>
 </section>
 <section id="accept-a-screen-a-user-shared">
-<h1>Accept a screen a user shared<a class="headerlink" href="#accept-a-screen-a-user-shared" title="Link to this heading">#</a></h1>
+<h2>Accept a screen a user shared<a class="headerlink" href="#accept-a-screen-a-user-shared" title="Link to this heading">#</a></h2>
 <p>A user asks the agent to share a screen. The agent’s <code class="docutils literal notranslate"><span class="pre">request_push</span></code> files a
 <strong>push request</strong> in that user’s own data: the screen, every screen and image
 it needs, where it should go, and a note. Nothing is published yet. The user
@@ -728,7 +713,7 @@ refusal lists the files that differ and prints two ways out: discard the
 half-written files, or keep them and regenerate the report. Follow it.</p>
 </section>
 <section id="build-screens-on-your-own-machine">
-<h1>Build screens on your own machine<a class="headerlink" href="#build-screens-on-your-own-machine" title="Link to this heading">#</a></h1>
+<h2>Build screens on your own machine<a class="headerlink" href="#build-screens-on-your-own-machine" title="Link to this heading">#</a></h2>
 <p>A developer can edit the library directly, with Claude Code and a CANOPY server
 on their own machine. No OSPREY stack runs: channels show mock values, so a
 screenshot shows the layout, not the machine.</p>
@@ -792,7 +777,7 @@ push the commit, let the pipeline build the images, then run <code class="docuti
 </ol>
 </section>
 <section id="regenerate-the-report">
-<span id="canopy-library-report"></span><h1>Regenerate the report<a class="headerlink" href="#regenerate-the-report" title="Link to this heading">#</a></h1>
+<span id="canopy-library-report"></span><h2>Regenerate the report<a class="headerlink" href="#regenerate-the-report" title="Link to this heading">#</a></h2>
 <p>Run this after every change to the screens, and after every CANOPY upgrade
 even when no screen changed, because a newer CANOPY may compute the report
 differently:</p>
@@ -807,7 +792,7 @@ library, so look at the files first. Then read the diff of
 diff needs no commit.</p>
 </section>
 <section id="remove-restore-or-undo-a-screen">
-<h1>Remove, restore or undo a screen<a class="headerlink" href="#remove-restore-or-undo-a-screen" title="Link to this heading">#</a></h1>
+<h2>Remove, restore or undo a screen<a class="headerlink" href="#remove-restore-or-undo-a-screen" title="Link to this heading">#</a></h2>
 <p>There is no push command for these. Each is a change to the source tree: make
 it with git, regenerate the report, commit and build as above.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># remove a screen</span>
@@ -835,7 +820,7 @@ hold and <code class="docutils literal notranslate"><span class="pre">git</span>
 is not a rollback: the next build ships what git holds.</p>
 </section>
 <section id="facility-collections">
-<h1>Facility collections<a class="headerlink" href="#facility-collections" title="Link to this heading">#</a></h1>
+<h2>Facility collections<a class="headerlink" href="#facility-collections" title="Link to this heading">#</a></h2>
 <p>A <strong>collection</strong> opens several screens and tools together in one view. The
 deployment’s own collections are JSON files in <code class="docutils literal notranslate"><span class="pre">data/canopy/collections</span></code>,
 one <code class="docutils literal notranslate"><span class="pre">&lt;id&gt;.json</span></code> each, and every user sees them read-only. The image build
@@ -847,7 +832,7 @@ and Trace, the correlation plot and the waveform view, each already showing
 channels of the example facility.</p>
 </section>
 <section id="when-the-build-refuses-the-library">
-<h1>When the build refuses the library<a class="headerlink" href="#when-the-build-refuses-the-library" title="Link to this heading">#</a></h1>
+<h2>When the build refuses the library<a class="headerlink" href="#when-the-build-refuses-the-library" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a library, with one line per problem and its fix,
 when:</p>
 <ul class="simple">
@@ -870,6 +855,7 @@ prints the <code class="docutils literal notranslate"><span class="pre">chmod</s
 </dd>
 </dl>
 </div>
+</section>
 </section>
 
 
@@ -919,16 +905,14 @@ prints the <code class="docutils literal notranslate"><span class="pre">chmod</s
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Share CANOPY Screens</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#the-library-and-its-report">The library and its report</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#accept-a-screen-a-user-shared">Accept a screen a user shared</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#build-screens-on-your-own-machine">Build screens on your own machine</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#regenerate-the-report">Regenerate the report</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#remove-restore-or-undo-a-screen">Remove, restore or undo a screen</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-collections">Facility collections</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-build-refuses-the-library">When the build refuses the library</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-library-and-its-report">The library and its report</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#accept-a-screen-a-user-shared">Accept a screen a user shared</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-screens-on-your-own-machine">Build screens on your own machine</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#regenerate-the-report">Regenerate the report</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#remove-restore-or-undo-a-screen">Remove, restore or undo a screen</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-collections">Facility collections</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-build-refuses-the-library">When the build refuses the library</a></li>
 </ul>
-
   </nav></div>
 
   <div class="sidebar-secondary-item">

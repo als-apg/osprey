@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 current active has-children"><a class="reference internal" href="index.html">Multi-User Support</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="tiers.html">Privilege Tiers</a></li>
@@ -645,6 +631,12 @@ multi-user page (see the worked example in
 name files under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>. The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset sets
 <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">password</span></code> with <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code>, which suits
 <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> only; set <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">token</span></code> to use login URLs.</p>
+<p>Merge each snippet’s keys into the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code> entry under
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>; a second copy of that key silently replaces the
+first. A list in a snippet, such as <code class="docutils literal notranslate"><span class="pre">users:</span></code>, stands as the whole list, so
+write every entry you keep into it. Keep it one dotted key: a nested
+<code class="docutils literal notranslate"><span class="pre">modules:</span></code> block would replace the whole <code class="docutils literal notranslate"><span class="pre">modules</span></code> subtree, dropping the
+keys the preset sets.</p>
 <section id="choose-a-method">
 <h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
 <p><strong>Token</strong> needs no stanza. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints an operator secret for every
@@ -659,8 +651,8 @@ delete that user’s <code class="docutils literal notranslate"><span class="pre
 holds a URL is that user — so it suits a single trusted host and nothing
 beyond it.</p>
 <p id="multi-user-open-mode"><strong>Open</strong> — no credential anywhere, for a console behind a locked door:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
 </pre></div>
@@ -755,8 +747,8 @@ put it back in that file’s <code class="docutils literal notranslate"><span cl
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: <code class="docutils literal notranslate"><span class="pre">none</span></code> is for rooms where the agents are trusted too.</p>
 <p><strong>Passwords</strong>, managed by OSPREY:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span><span class="w">     </span><span class="c1"># host side; mounted for you</span>
@@ -769,8 +761,8 @@ not a boundary: <code class="docutils literal notranslate"><span class="pre">non
 <p><strong>OIDC</strong>, against your facility’s single sign-on. Each roster entry names the
 identity that maps to it, so a valid login as somebody else cannot open this
 user’s terminal:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span>
@@ -806,10 +798,13 @@ that endpoint would be a second, weaker trust path — so against such a
 provider every login fails with <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">ID</span> <span class="pre">token</span> <span class="pre">carries</span> <span class="pre">no</span> <span class="pre">usable</span> <span class="pre">'email'</span>
 <span class="pre">claim</span></code> although <code class="docutils literal notranslate"><span class="pre">email</span></code> was in <code class="docutils literal notranslate"><span class="pre">scopes</span></code> and the provider released it.
 That symptom has one fix:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">oidc</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
-<span class="w">  </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">email</span>
-<span class="w">  </span><span class="nt">claims_in_id_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">email</span>
+<span class="w">        </span><span class="nt">claims_in_id_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
 <p>With it the login route sends the OIDC <code class="docutils literal notranslate"><span class="pre">claims</span></code> request parameter — the
@@ -888,8 +883,8 @@ broker keeps the proof in a signed token that the login service checks itself.</
 <span id="multi-user-role-from-sso"></span><h2>Let single sign-on pick the tier<a class="headerlink" href="#let-single-sign-on-pick-the-tier" title="Link to this heading">#</a></h2>
 <p>Instead of pinning a tier on every roster entry, name roles once and let
 the provider’s groups choose:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">authorization</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">roles</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">}</span>
@@ -1063,17 +1058,19 @@ a build error.</p></td>
 <p>A shared app takes the same set. List the app by name to open it to the whole
 roster, or as a mapping to name who may open it. <code class="docutils literal notranslate"><span class="pre">user:</span></code> members need not be
 on the roster: they reach the app and nothing else.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">shared</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logbook</span><span class="w">                          </span><span class="c1"># every roster login</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls</span><span class="w">                   </span><span class="c1"># the admins and two named experts</span>
-<span class="w">    </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">tier</span><span class="p p-Indicator">:</span><span class="nv">admin</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;user:ada@example.org&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;user:grace@example.org&quot;</span><span class="p p-Indicator">]</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">shared</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logbook</span><span class="w">                        </span><span class="c1"># every roster login</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls</span><span class="w">                 </span><span class="c1"># the admins and two named experts</span>
+<span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">tier</span><span class="p p-Indicator">:</span><span class="nv">admin</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;user:ada@example.org&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;user:grace@example.org&quot;</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <p>A card whose set is anything but <code class="docutils literal notranslate"><span class="pre">[self]</span></code> is a <strong>shared card</strong>: one
 terminal, one tier, one audit directory, opened by more than one person.
 Here is one shared with the whole roster:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span>
@@ -1103,8 +1100,8 @@ Here is one shared with the whole roster:</p>
 </div>
 <p>And here are two cards that nobody needs a roster entry to open — one shared
 with a whole single sign-on domain, one with two named people:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
 <span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
@@ -1273,10 +1270,12 @@ service, so the address does not exist.</p>
 </section>
 <section id="keep-names-off-the-landing-page">
 <span id="multi-user-hide-names"></span><h2>Keep names off the landing page<a class="headerlink" href="#keep-names-off-the-landing-page" title="Link to this heading">#</a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">landing</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">groups</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">users</span>
-<span class="w">      </span><span class="nt">names</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hidden</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">landing</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">groups</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">users</span>
+<span class="w">          </span><span class="nt">names</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hidden</span>
 </pre></div>
 </div>
 <p>The users section then shows one “Log in to your terminal” button and no names.
@@ -1294,8 +1293,8 @@ through their card. Under <code class="docutils literal notranslate"><span class
 write, and every card’s processes run as <code class="docutils literal notranslate"><span class="pre">osprey</span></code> unless told otherwise. On
 a card behind a login wall, <code class="docutils literal notranslate"><span class="pre">control_identity</span></code> gives that card’s writes its
 owner’s account name instead:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
 <span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
@@ -1305,9 +1304,11 @@ owner’s account name instead:</p>
 <span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">email</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice@example.org</span>
 <span class="w">        </span><span class="nt">control_identity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol@example.org</span>
 <span class="w">        </span><span class="nt">control_identity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cjones</span>
 </pre></div>
@@ -1386,9 +1387,10 @@ callback that is not character-for-character the registered one. On 443 the
 port stays out of the origin and the callback is
 <code class="docutils literal notranslate"><span class="pre">https://&lt;fqdn&gt;/auth/oidc/callback</span></code>.</p>
 <p><strong>Something in front terminates TLS</strong> — a facility load balancer or ingress:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">external_origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://terminals.example.org</span><span class="w">   </span><span class="c1"># what the browser reaches</span>
+<span class="w">    </span><span class="nt">history_origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://terminals.example.org:8443</span><span class="w">   </span><span class="c1"># the history page, same host</span>
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
 <span class="w">      </span><span class="nt">allow_insecure_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -1397,7 +1399,12 @@ port stays out of the origin and the callback is
 <p><code class="docutils literal notranslate"><span class="pre">external_origin</span></code> is required here: every terminal refuses a state-changing
 request unless the browser says it came from that address, and nothing else
 in the configuration can work out what the thing in front answers on. Write
-it as a bare origin — scheme, host, port if non-default, no path.</p>
+it as a bare origin — scheme, host, port if non-default, no path.
+<code class="docutils literal notranslate"><span class="pre">history_origin</span></code> is required beside it for the same reason: it is the
+address browsers reach the history page on (<a class="reference internal" href="index.html#multi-user-history-page"><span class="std std-ref">The history page</span></a>),
+on the same host as <code class="docutils literal notranslate"><span class="pre">external_origin</span></code>. Behind a sign-in, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+refuses an <code class="docutils literal notranslate"><span class="pre">external_origin</span></code> without it
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.history_origin_required</span></code>).</p>
 <p>The deployment answers on that one origin, and every other name is redirected
 there. A front proxy must forward the browser’s own <code class="docutils literal notranslate"><span class="pre">Host</span></code> (for nginx in
 front: <code class="docutils literal notranslate"><span class="pre">proxy_set_header</span> <span class="pre">Host</span> <span class="pre">$host;</span></code>). A proxy that sends its upstream’s name
@@ -1459,8 +1466,8 @@ authentication service’s memory, so a restart clears it. It applies to
 password login only; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> the identity provider applies its own
 policy.</p>
 <p>The four keys and their defaults:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
 <span class="w">      </span><span class="nt">throttle</span><span class="p">:</span>

@@ -17,25 +17,8 @@ repository. ``osprey_connectors.session_hold`` owns its format, its reader and i
 session key is one path segment: it starts with a letter or digit, continues with letters,
 digits, ``.``, ``_`` and ``-``, and runs to 128 characters.
 
-.. code-block:: json
-
-   {
-     "schema": 1,
-     "session_key": "<key>",
-     "flags": [
-       {
-         "flag_id": "<id>",
-         "source": "guard-circumvention",
-         "reason": "Asked the agent to edit hooks, settings or configuration to loosen a gate.",
-         "prompt_ref": "<record_session_id>:<submission_id>",
-         "prompt_excerpt": "<at most 200 characters>",
-         "opened_at": "2026-10-31T00:00:00Z",
-         "state": "open",
-         "stop_unconfirmed": false,
-         "started": []
-       }
-     ]
-   }
+.. literalinclude:: examples/watchdog-hold-record.json
+   :language: json
 
 A session is held while any flag's ``state`` is ``open``. A flag closes only by an answer that
 names it, and stays in the record, closed, with ``answer``, ``operator`` and ``answered_at``.
@@ -56,10 +39,10 @@ Where the hold refuses
 ======================
 
 A held session's write is refused with the reason ``session_held``, naming the watchdogs that
-raised the hold where the record can be read::
+raised the hold where the record can be read:
 
-   Writes are paused: this session has an unanswered hold the operator must answer. Raised by: guard-circumvention.
-   [osprey-refusal: session_held]
+.. literalinclude:: examples/watchdog-session-held.txt
+   :language: text
 
 .. list-table::
    :header-rows: 1

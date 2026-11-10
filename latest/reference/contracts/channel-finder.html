@@ -525,10 +525,27 @@ addresses follow, with the tree itself underneath:</p>
 <span class="w">    </span><span class="p">],</span>
 <span class="w">    </span><span class="nt">&quot;naming_pattern&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{system}:{family}[{device}]:{field}:{subfield}&quot;</span>
 <span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;tree&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="nt">&quot;tree&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;SR&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;_description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Storage ring&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;BPM&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;_description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Beam position monitors&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;DEVICE&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="nt">&quot;_expansion&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;range&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;_pattern&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{:02d}&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;_range&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">]},</span>
+<span class="w">          </span><span class="nt">&quot;X&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">&quot;_description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Horizontal position&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;RB&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;_description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Readback&quot;</span><span class="p">}</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
 </div>
+<p>An <code class="docutils literal notranslate"><span class="pre">instances</span></code> level is a node named after the level in capitals (<code class="docutils literal notranslate"><span class="pre">DEVICE</span></code>
+here), whose <code class="docutils literal notranslate"><span class="pre">_expansion</span></code> lists the instances. This tree holds two channels,
+<code class="docutils literal notranslate"><span class="pre">SR:BPM[01]:X:RB</span></code> and <code class="docutils literal notranslate"><span class="pre">SR:BPM[02]:X:RB</span></code>.</p>
 </section>
 <section id="middle-layer">
 <span id="channel-finder-db-middle-layer"></span><h3>Middle-layer<a class="headerlink" href="#middle-layer" title="Link to this heading">#</a></h3>

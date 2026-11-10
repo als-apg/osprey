@@ -453,7 +453,7 @@
 <p>Build and run your first OSPREY agent in about five minutes, with no containers
 and no hardware. The <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset is the smallest deployment that
 still shows the whole write-safety chain: the simulator, served in this
-process, that answers for the channels of your facility file, fourteen safety
+process, that answers for the channels of your facility file, eleven safety
 and bookkeeping hooks, and a browser interface.</p>
 <p>Three <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands take you from nothing to a running agent:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
@@ -490,7 +490,7 @@ spelled out in files you own — nothing is hidden or inherited:</p>
 
   profile.yml   your assistant&#39;s settings; edit this
   data/         channel lists and facility docs; edit these
-  .env          from your shell: ANTHROPIC_API_KEY. Not in git
+  .env          seeded: ANTHROPIC_API_KEY. Not in git
   .env.shared   settings shared by every host; your .env wins
   README.md     what everything here does
 </pre></div>
@@ -510,7 +510,7 @@ deleting it is safe.</p></li>
 <p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. This one file is the manifest for the whole deployment,
 and the preset deliberately leaves most of it unset — because every key it
 leaves unset is emitted into your copy as a <strong>commented block</strong> you can turn on
-later. The hello-world preset’s minimalism yields exactly <strong>12</strong> such blocks,
+later. The hello-world preset’s minimalism yields exactly <strong>15</strong> such blocks,
 covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.</p>
@@ -529,6 +529,8 @@ write-safety chain), three rules, and one output style:</p>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limits</span><span class="w">         </span><span class="c1"># Enforce per-channel min/max limits, from data/facility/limits.yaml</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">build/.claude/hooks/</span></code> also holds four helper scripts. The hooks import
+them; they are not hooks themselves.</p>
 <p>And all remaining configuration lives in the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, one dotted key
 per line:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
@@ -551,7 +553,7 @@ per line:</p>
 <span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="c1"># ...</span>
 <span class="w">  </span><span class="c1"># The THIRD guard: a write that passed the master switch and the limits check</span>
-<span class="w">  </span><span class="c1"># still pauses for a yes/no prompt, unless the switch is at `allowed`.</span>
+<span class="w">  </span><span class="c1"># still pauses for a yes/no prompt, unless its slider stands at `allowed`.</span>
 <span class="w">  </span><span class="c1"># Applied by the approval hook, so it reaches only hook-wired tools;</span>
 <span class="w">  </span><span class="c1"># everything else is gated by the rendered settings.json permissions.</span>
 <span class="w">  </span><span class="nt">approval.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -685,7 +687,7 @@ osprey<span class="w"> </span>web
 <p>Do <strong>not</strong> edit <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> instead — that file is generated output,
 and your edit would vanish on the next build.</p>
 <p>The deployment now <em>may</em> write, but your switch is still off. Click the
-control-target chip in the header (<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">off</span></code>) and move the
+control-target chip in the sidebar (<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">off</span></code>) and move the
 simulator to <em>asked</em> (<a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>). A write asked for
 with the switch off is refused with a line telling you to do exactly that.</p>
 </section>
@@ -722,17 +724,29 @@ limits file, so the write is refused whatever the value.</p>
 </section>
 <section id="step-9-edit-the-limits-file">
 <h2>Step 9: Edit the Limits File<a class="headerlink" href="#step-9-edit-the-limits-file" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> is your first editable safety artifact. The
-shipped file looks like this (comments abridged):</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">records</span><span class="p">:</span>
+<p><code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> is your first editable safety artifact. This is
+the shipped file:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Bundled with OSPREY: the hello_world facility. Delete this line to make the file yours.</span>
+<span class="c1"># The limits hook checks every write against these records. A channel not</span>
+<span class="c1"># listed here follows control_system.limits_checking.mode; hello-world runs</span>
+<span class="c1"># optional, so a channel with no record is written with no limits and listing</span>
+<span class="c1"># a channel is how you put bounds on it or block it.</span>
+<span class="c1">#</span>
+<span class="c1"># A setpoint record with min_value and max_value is writable within them.</span>
+<span class="c1"># writable: false blocks every write to the channel. confirm: false turns off</span>
+<span class="c1"># the re-read after a write.</span>
+<span class="nt">records</span><span class="p">:</span>
+<span class="c1"># Focusing quadrupole current: writable, but only within these bounds.</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:CURRENT:SP</span>
 <span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
 <span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300.0</span>
 <span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="c1"># Defocusing quadrupole current: writable, with a tighter ceiling.</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QD:01:CURRENT:SP</span>
 <span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
 <span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250.0</span>
 <span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="c1"># Beam current: a measurement, so writes are refused outright.</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:BEAM:CURRENT</span>
 <span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </pre></div>
@@ -804,9 +818,10 @@ counts what each identity wrote, by kind, across every exported day:</p>
 <span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">entries</span><span class="w"> </span><span class="k">DESC</span><span class="p">,</span><span class="w"> </span><span class="k">identity</span><span class="p">,</span><span class="w"> </span><span class="n">kind</span>
 </pre></div>
 </div>
-<p>Save it as <code class="docutils literal notranslate"><span class="pre">hello-world-tutorial.sql</span></code> in the repo root and run it with DuckDB,
-which OSPREY installs:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import duckdb; duckdb.sql(open(&#39;hello-world-tutorial.sql&#39;).read()).show()&quot;</span>
+<p>Save it as <code class="docutils literal notranslate"><span class="pre">hello-world-tutorial.sql</span></code> in the repo root and run it from there
+with DuckDB, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> installs into the build’s own Python
+environment:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>build/.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import duckdb; duckdb.sql(open(&#39;hello-world-tutorial.sql&#39;).read()).show()&quot;</span>
 </pre></div>
 </div>
 <p>On the first day the archive is still empty, and DuckDB reports that no file
@@ -822,13 +837,13 @@ for a production facility deployment: <code class="docutils literal notranslate"
 commented blocks map everything it can become.</p>
 <ul class="simple">
 <li><p><strong>The production tutorial</strong>: <a class="reference internal" href="demo.html"><span class="doc">The Demo Deployment</span></a> builds the
-<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset, which adds a channel database with
-natural-language channel finding, a seeded electronic logbook, a real
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset, which adds natural-language channel finding
+over a facility knowledge graph, a seeded electronic logbook, a real
 archive, sub-agents, and operator skills — on the same safety model.</p></li>
 <li><p><strong>How it works</strong>: <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> explains the MCP server
 architecture, the connector system, and the safety mechanisms in depth.</p></li>
 <li><p><strong>The profile format</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> documents every key
-those 12 commented blocks can hold.</p></li>
+those 15 commented blocks can hold.</p></li>
 <li><p><strong>CLI reference</strong>: <a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a> covers all <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
 commands.</p></li>
 </ul>

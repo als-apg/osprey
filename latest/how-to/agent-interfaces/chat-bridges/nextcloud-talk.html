@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -586,6 +572,8 @@ there, rather than replying to a month of history.</p>
 <p>Add a <code class="docutils literal notranslate"><span class="pre">nextcloud_bridge:</span></code> block to your build profile. Two settings: which
 dispatcher trigger the bridge fires — that trigger decides what the agent is
 allowed to do with a chat question — and whether the agent may &#64;mention people:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">profile.yml</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">nextcloud_bridge</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">trigger</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nextcloud-question</span><span class="w">    </span><span class="c1"># default; must exist in your triggers file</span>
 <span class="w">  </span><span class="nt">mentions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                </span><span class="c1"># default; false posts @mentions as plain text</span>
@@ -597,6 +585,7 @@ allowed to do with a chat question — and whether the agent may &#64;mention pe
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NEXTCLOUD_APP_PASSWORD</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NEXTCLOUD_ROOMS</span>
 </pre></div>
+</div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -719,14 +708,20 @@ follow-up (default 3000). A longer one is sent as its opening, and the
 agent reads the rest only if it needs it. <code class="docutils literal notranslate"><span class="pre">0</span></code> always sends every
 answer in full.</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">GITLAB_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_PROJECT</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_ISSUES_TOKEN</span></code></p></td>
+<td><p class="sd-card-text">Optional alert host. With <code class="docutils literal notranslate"><span class="pre">GITLAB_URL</span></code> and <code class="docutils literal notranslate"><span class="pre">GITLAB_ISSUES_TOKEN</span></code>
+set, the bridge holds queued questions while <code class="docutils literal notranslate"><span class="pre">GITLAB_PROJECT</span></code> has an
+open <code class="docutils literal notranslate"><span class="pre">osprey-alert</span></code> issue, or while GitLab cannot be reached. Leave
+them unset to skip the check.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code></p></td>
 <td><p class="sd-card-text">Where the bridge keeps what it remembers: the questions it has
 answered and how far it has read in each room. Both default to files
 under <code class="docutils literal notranslate"><span class="pre">/data</span></code>, its own volume; change them only if you deliberately
 relocate that state, and move both together: losing <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code>
 alone replays or skips history.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">TZ</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">TZ</span></code></p></td>
 <td><p class="sd-card-text">Timezone, taken from your project configuration so timestamps match
 the rest of the stack.</p></td>
 </tr>

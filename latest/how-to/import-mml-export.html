@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -691,6 +677,9 @@ slot otherwise.</p></td>
 </tbody>
 </table>
 </div>
+<p>This fragment of <code class="docutils literal notranslate"><span class="pre">mapping.yaml</span></code> shows one <code class="docutils literal notranslate"><span class="pre">devices</span></code> answer per family; the
+family’s other keys (<code class="docutils literal notranslate"><span class="pre">aliases</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>, <code class="docutils literal notranslate"><span class="pre">provenance</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channels</span></code> and <code class="docutils literal notranslate"><span class="pre">fields</span></code>, all required) stay as drafted:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">families</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">HCM</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">devices</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">names</span>
@@ -718,7 +707,16 @@ so in a comment under each answer. An import under which a wired channel would
 be two devices stops with <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">mapping-invalid</span></code>, naming the channel,
 both families, both ids and the fix.</p>
 <p><code class="docutils literal notranslate"><span class="pre">models.&lt;name&gt;.wiring</span></code> lists the families the model drives or reads, each
-with the field, engine attribute and calibration that bind it to the deck.</p>
+with the field, engine attribute and calibration that bind it to the deck.
+The optional <code class="docutils literal notranslate"><span class="pre">models.&lt;name&gt;.tune</span></code> names the channels the model’s tunes are
+read on: one address per plane, <code class="docutils literal notranslate"><span class="pre">{x:</span> <span class="pre">&lt;address&gt;,</span> <span class="pre">y:</span> <span class="pre">&lt;address&gt;}</span></code> and
+optionally <code class="docutils literal notranslate"><span class="pre">s</span></code>, or one waveform, <code class="docutils literal notranslate"><span class="pre">{address:</span> <span class="pre">&lt;address&gt;,</span> <span class="pre">planes:</span> <span class="pre">[x,</span> <span class="pre">y]}</span></code>,
+its planes optionally ending in <code class="docutils literal notranslate"><span class="pre">s</span></code>.</p>
+<p>The optional top-level <code class="docutils literal notranslate"><span class="pre">branches:</span></code> block declares classes the shared
+vocabulary lacks, each as <code class="docutils literal notranslate"><span class="pre">&lt;class&gt;:</span> <span class="pre">{parent,</span> <span class="pre">description}</span></code>. A family whose
+<code class="docutils literal notranslate"><span class="pre">class</span></code> is neither a vocabulary class nor a declared branch names the class
+it extends as its <code class="docutils literal notranslate"><span class="pre">branch</span></code>. The import writes each class the vocabulary
+lacks to <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">facility:</span></code> block seeds <code class="docutils literal notranslate"><span class="pre">data/facility/identity.yaml</span></code> on the first
 import and is then removed from the mapping.</p>
 <p>A mapping that disagrees with the exports prints one <code class="docutils literal notranslate"><span class="pre">&lt;key&gt;:</span> <span class="pre">&lt;message&gt;</span></code> line
@@ -758,7 +756,9 @@ became, and the response check reads it.</p>
 <p>The import writes places only for a model whose mapping entry answers
 <code class="docutils literal notranslate"><span class="pre">places</span></code>; a mapping with no such answer writes no <code class="docutils literal notranslate"><span class="pre">places.yaml</span></code> and no
 device <code class="docutils literal notranslate"><span class="pre">place</span></code>. The model is a place, and each sector <code class="docutils literal notranslate"><span class="pre">sectors</span></code> lists is a
-place under it, named by <code class="docutils literal notranslate"><span class="pre">token</span></code> formatted with the sector number:</p>
+place under it, named by <code class="docutils literal notranslate"><span class="pre">token</span></code> formatted with the sector number. This
+fragment of <code class="docutils literal notranslate"><span class="pre">mapping.yaml</span></code> shows only the <code class="docutils literal notranslate"><span class="pre">places</span></code> answer; the model’s
+<code class="docutils literal notranslate"><span class="pre">description</span></code> and <code class="docutils literal notranslate"><span class="pre">provenance</span></code> are required and stay as drafted:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">models</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">SR</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR</span>

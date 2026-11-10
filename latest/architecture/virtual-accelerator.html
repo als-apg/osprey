@@ -551,18 +551,29 @@ rot.</p>
 <code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.view.SimulatorView</span></code>, the one reader every
 consumer of a view opens it with. Each wiring record of <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>
 states what its engine’s <code class="docutils literal notranslate"><span class="pre">describe()</span></code> said of it at build time, written
-into the facility file: its <code class="docutils literal notranslate"><span class="pre">role</span></code>
-(<code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>), the transverse
-<code class="docutils literal notranslate"><span class="pre">plane</span></code> it steers or reads (<code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> or none) and its <code class="docutils literal notranslate"><span class="pre">refresh</span></code>. A
-write’s pass reads what the write can change, and never a channel whose binding
-refreshes <code class="docutils literal notranslate"><span class="pre">periodic</span></code>, which the next periodic pass publishes: a physics
-setting reads itself, its readback and what its model computes from its
-settings; any other write reads every served channel. Of what it reads, a
-write’s pass posts the written channels and those whose value or undefined
-condition changed; an unchanged channel keeps the timestamp of its last post.
-The start-up pass and every periodic pass post every channel. Each channel
-also names the node it is <code class="docutils literal notranslate"><span class="pre">on</span></code>. A view an older OSPREY wrote is refused
-before the ready line, with a message asking for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+into the facility file:</p>
+<ul class="simple">
+<li><p>its <code class="docutils literal notranslate"><span class="pre">role</span></code>: <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>;</p></li>
+<li><p>the transverse <code class="docutils literal notranslate"><span class="pre">plane</span></code> it steers or reads: <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> or none;</p></li>
+<li><p>its <code class="docutils literal notranslate"><span class="pre">refresh</span></code>.</p></li>
+</ul>
+<p>Each channel also names the node it is <code class="docutils literal notranslate"><span class="pre">on</span></code>.</p>
+<p>The server publishes channel values in <em>passes</em>: one after each write, one at
+start-up, and the periodic passes:</p>
+<ul class="simple">
+<li><p><strong>What a write’s pass reads.</strong> It reads what the write can change, and
+never a channel whose binding refreshes <code class="docutils literal notranslate"><span class="pre">periodic</span></code>; the next periodic pass
+publishes those. A physics setting reads itself, its readback and what its
+model computes from its settings. Any other write reads every served
+channel.</p></li>
+<li><p><strong>What a write’s pass posts.</strong> Of what it reads, it posts the written
+channels and those whose value or undefined condition changed. An unchanged
+channel keeps the timestamp of its last post.</p></li>
+<li><p><strong>What the periodic pass does.</strong> The start-up pass and every periodic pass
+post every channel.</p></li>
+</ul>
+<p>A view an older OSPREY wrote is refused before the ready line, with a message
+asking for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 </section>
 <section id="two-transports-one-write-path">
 <h2>Two transports, one write path<a class="headerlink" href="#two-transports-one-write-path" title="Link to this heading">#</a></h2>
@@ -622,21 +633,29 @@ orbit.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lume-pva-apg[ca,pva]</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0.1.5</span></code></p></td>
 <td><p>The serving stack <code class="docutils literal notranslate"><span class="pre">runner.py</span></code> subclasses — <code class="docutils literal notranslate"><span class="pre">pcaspy</span></code> for Channel
-Access, <code class="docutils literal notranslate"><span class="pre">p4p</span></code> for PVAccess. 0.1.3 adds the two hooks the model
-surface is built on: <code class="docutils literal notranslate"><span class="pre">_enqueue(...,</span> <span class="pre">jobs=)</span></code>, which runs a callable on
-the run loop’s own thread batched with the writes already queued there,
-and <code class="docutils literal notranslate"><span class="pre">_cycle_output_names()</span></code>, which lets a subclass narrow the set of
-variables re-read after each cycle. 0.1.4 makes the model info the
-server announces follow the configuration it was given, so a variable
-held back from the channel namespace is not advertised as one. 0.1.5
-takes each variable’s display precision and description from the
-runner configuration, raises an alarm on an output the model names as
-failed, serves integer variables as integers on PVAccess, and exposes a
-public tick period whose ticks coalesce.</p></td>
+Access, <code class="docutils literal notranslate"><span class="pre">p4p</span></code> for PVAccess.</p>
+<p>Releases 0.1.3 to 0.1.5 add the features OSPREY relies on, listed
+below the table.</p>
+</td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>OSPREY relies on these <code class="docutils literal notranslate"><span class="pre">lume-pva-apg</span></code> features, by the release that added
+them:</p>
+<ul class="simple">
+<li><p><strong>0.1.3</strong> adds the two hooks the model surface is built on:
+<code class="docutils literal notranslate"><span class="pre">_enqueue(...,</span> <span class="pre">jobs=)</span></code>, which runs a callable on the run loop’s own thread
+batched with the writes already queued there, and <code class="docutils literal notranslate"><span class="pre">_cycle_output_names()</span></code>,
+which lets a subclass narrow the set of variables re-read after each cycle.</p></li>
+<li><p><strong>0.1.4</strong> makes the model info the server announces follow the
+configuration it was given, so a variable held back from the channel
+namespace is not advertised as one.</p></li>
+<li><p><strong>0.1.5</strong> takes each variable’s display precision and description from the
+runner configuration, raises an alarm on an output the model names as
+failed, serves integer variables as integers on PVAccess, and exposes a
+public tick period whose ticks coalesce.</p></li>
+</ul>
 <p><code class="docutils literal notranslate"><span class="pre">pcaspy</span></code> publishes wheels for linux-x86_64 only, so the <code class="docutils literal notranslate"><span class="pre">lume-pva-apg</span></code>
 entry that brings it is marked accordingly, and <code class="docutils literal notranslate"><span class="pre">serving/runner.py</span></code> alone is
 unimportable off that platform; it is reached lazily, and the rest of <code class="docutils literal notranslate"><span class="pre">serving/</span></code> imports anywhere.

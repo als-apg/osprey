@@ -527,6 +527,11 @@ refused (see
 <td><p><code class="docutils literal notranslate"><span class="pre">True</span></code></p></td>
 <td><p>Save code and output to a workspace data file and artifact store.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">approved_target</span></code></p></td>
+<td><p>set by the hook</p></td>
+<td><p>On a <code class="docutils literal notranslate"><span class="pre">&quot;readwrite&quot;</span></code> call, the control target the approval hook admitted
+it on; a value the agent passes is overwritten.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -611,6 +616,16 @@ role names) once, from its present
 setting, by the same integrated strength. Group stepping is unipolar:
 an omitted modulation is <code class="docutils literal notranslate"><span class="pre">&quot;unipolar&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;bipolar&quot;</span></code> is refused.</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">approved_target</span></code></p></td>
+<td><p>set by the hook</p></td>
+<td><p>The control target the approval hook admitted the call on. The hook
+fills it in; a value the agent passes is overwritten.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">approved_view_sha256</span></code></p></td>
+<td><p>set by the hook</p></td>
+<td><p>The <code class="docutils literal notranslate"><span class="pre">sha256</span></code> of the pyAML view the approval names. The hook fills it
+in; a value the agent passes is overwritten.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -694,14 +709,6 @@ rebuild. When the whole request has no solve, the call fails as an
 <code class="docutils literal notranslate"><span class="pre">execution_error</span></code> carrying the solve’s stderr.</p>
 </section>
 </section>
-<section id="installation">
-<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
-<p>The Python executor is included in the default Osprey installation:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync
-</pre></div>
-</div>
-<p>No additional setup is needed.</p>
-</section>
 </section>
 
 
@@ -757,7 +764,6 @@ rebuild. When the whole request has no solve, the call fails as an
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-response-matrix"><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 </ul>
   </nav></div>
 

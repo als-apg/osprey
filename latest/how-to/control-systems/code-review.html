@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -556,15 +542,17 @@ reasons; you get a line in the activity log. <a class="reference internal" href=
 explains how it fits with the other checks. It is off until you turn it on.</p>
 <section id="turn-it-on">
 <h2>Turn it on<a class="headerlink" href="#turn-it-on" title="Link to this heading">#</a></h2>
-<p>Add the section to your profile. The two hooks have to be in the <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list as well;
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses to turn code review on without them:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">code_review</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">block</span><span class="w">          </span><span class="c1"># stop unsafe code; `flag` only reports it</span>
+<p>Add the <code class="docutils literal notranslate"><span class="pre">code_review</span></code> keys under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in your profile, as dotted keys. The two
+hooks have to be in the top-level <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list as well; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses to
+turn code review on without them:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">code_review.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">code_review.level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">block</span><span class="w">    </span><span class="c1"># stop unsafe code; `flag` only reports it</span>
 
 <span class="nt">hooks</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">code-review</span><span class="w">         </span><span class="c1"># reviews the notebook cells the agent writes</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory-guard</span><span class="w">        </span><span class="c1"># keeps those edits inside the agent-data root</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">code-review</span><span class="w">           </span><span class="c1"># reviews the notebook cells the agent writes</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory-guard</span><span class="w">          </span><span class="c1"># keeps those edits inside the agent-data root</span>
 </pre></div>
 </div>
 <p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and reload the session. The reviewer uses the same model and provider

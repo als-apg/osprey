@@ -455,6 +455,11 @@ machine, and the standards your change is held to once it does.</p>
 <section id="environment-setup">
 <h2>Environment Setup<a class="headerlink" href="#environment-setup" title="Link to this heading">#</a></h2>
 <p><strong>Prerequisites:</strong> Python 3.11+, Git, a GitHub account, and <a class="reference external" href="https://docs.astral.sh/uv/">uv</a>.
+The check command in step 4 also needs <a class="reference external" href="https://nodejs.org/">Node.js</a> with <code class="docutils literal notranslate"><span class="pre">npm</span></code>, for the
+front-end checks, and Claude Code at the version this tree pins, for the test sweep.
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/pinned_claude.py</span> <span class="pre">--pin</span></code> prints that version. A binary of the
+pinned version at <code class="docutils literal notranslate"><span class="pre">~/.local/share/claude/versions/&lt;pin&gt;</span></code> is found beside the
+<code class="docutils literal notranslate"><span class="pre">claude</span></code> on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, so you do not have to replace the one you use.
 Building the docs also needs <a class="reference external" href="https://graphviz.org/download/">Graphviz</a> (the <code class="docutils literal notranslate"><span class="pre">dot</span></code> command).</p>
 <p><strong>1. Fork and Clone</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/YOUR-USERNAME/osprey.git
@@ -476,15 +481,22 @@ uv<span class="w"> </span>add<span class="w"> </span>&lt;package&gt;
 </pre></div>
 </div>
 <p><strong>3. Set Up Pre-commit Hooks</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pre-commit<span class="w"> </span>install
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pre-commit<span class="w"> </span>install
 </pre></div>
 </div>
 <p>Hooks auto-fix formatting and prevent commits with common problems.</p>
 <p><strong>4. Verify Installation</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>-v
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/check.py<span class="w"> </span>quick
 </pre></div>
 </div>
-<p>If all tests pass, you are ready to contribute.</p>
+<p>This runs the quick tier of the merge gate: lint, format, type and import
+checks, and the parallel test sweep. The sweep selects tests from the same
+declaration as CI’s unit lane, and leaves out the tests marked <code class="docutils literal notranslate"><span class="pre">slow</span></code>.
+Before any check runs, the command puts the tree’s pins in place: it runs
+<code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">ci</span></code> when <code class="docutils literal notranslate"><span class="pre">node_modules</span></code> differs from <code class="docutils literal notranslate"><span class="pre">package-lock.json</span></code>, and puts the
+pinned Claude Code first on <code class="docutils literal notranslate"><span class="pre">PATH</span></code>. When a tool it needs is missing, it runs
+nothing and names what to install. The last line is the verdict. When it says
+the run is clean, you are ready to contribute.</p>
 </section>
 <section id="code-standards">
 <h2>Code Standards<a class="headerlink" href="#code-standards" title="Link to this heading">#</a></h2>
@@ -583,8 +595,8 @@ resolves less than the full run and reports errors the full run does not.</p>
 </table>
 </div>
 <p><strong>Running tests:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Unit tests (fast, no API keys required)</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>-v
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The unit sweep, as CI&#39;s unit lane selects it (no API keys required)</span>
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/check.py<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--<span class="w"> </span>-n<span class="w"> </span>auto
 
 <span class="c1"># Single test file</span>
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/path/to/test_file.py<span class="w"> </span>-v
@@ -607,7 +619,7 @@ uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </sp
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/interfaces/<span class="w"> </span>-m<span class="w"> </span>browser<span class="w"> </span>-v
 
 <span class="c1"># With coverage</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>--cov<span class="o">=</span>src/osprey
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/check.py<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--<span class="w"> </span>-n<span class="w"> </span>auto<span class="w"> </span>--cov<span class="o">=</span>src/osprey
 </pre></div>
 </div>
 </section>

@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -623,14 +609,13 @@ own to edit:</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>One server key has no <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> spelling: <code class="docutils literal notranslate"><span class="pre">hooks.pre_tool_use</span></code>,
-which attaches a hook preset (such as <code class="docutils literal notranslate"><span class="pre">approval</span></code>) to every tool of one
-server. The renderer reads it from <code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>,
-but the build rewrites each declared server’s entry there wholesale after
-the <code class="docutils literal notranslate"><span class="pre">config:</span></code> overlay is applied, so an overlay cannot add it to a server
-the profile declares. Reach for a
-<a class="reference internal" href="../../reference/configuration/profile.html#profile-tool-permissions"><span class="std std-ref">tool permission</span></a> — <code class="docutils literal notranslate"><span class="pre">ask:</span></code> prompts before
-the call — or a framework server, which can carry hooks of its own.</p>
+<p>An <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> entry also takes <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> and <code class="docutils literal notranslate"><span class="pre">writes:</span></code>.
+<code class="docutils literal notranslate"><span class="pre">hooks:</span> <span class="pre">{pre_tool_use:</span> <span class="pre">[&lt;preset&gt;,</span> <span class="pre">...]}</span></code> attaches a hook preset (such as
+<code class="docutils literal notranslate"><span class="pre">approval</span></code>) to every tool of the server. <code class="docutils literal notranslate"><span class="pre">writes:</span></code> lists the server’s
+write tools by bare name; the build gates each one with the writes-check and
+approval hooks, and a read-only run blocks them. A key the entry does not
+define is ignored with a warning that names the release from which it is
+refused.</p>
 <p>One preset is narrower than attaching it to a whole server suggests:
 <code class="docutils literal notranslate"><span class="pre">limits</span></code> validates only <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>-shaped input — a call carrying a
 <code class="docutils literal notranslate"><span class="pre">channel</span></code>/<code class="docutils literal notranslate"><span class="pre">value</span></code> pair, or an <code class="docutils literal notranslate"><span class="pre">operations</span></code> list. It abstains on any

@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
@@ -567,9 +553,8 @@ opens the screen you ask for, arranges tabs, and builds new screens.</p>
 <a class="reference internal" href="../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>). Sharing screens with everyone has its own
 page, <a class="reference internal" href="canopy-library.html"><span class="doc">Share CANOPY Screens</span></a>.</p>
 </div>
-</details></section>
-<section id="how-it-fits-together">
-<h1>How it fits together<a class="headerlink" href="#how-it-fits-together" title="Link to this heading">#</a></h1>
+</details><section id="how-it-fits-together">
+<h2>How it fits together<a class="headerlink" href="#how-it-fits-together" title="Link to this heading">#</a></h2>
 <div class="osprey-diagram">
 <svg id="canopy-panel-svg" viewBox="0 0 1020 368" role="img" aria-labelledby="canopy-panel-title canopy-panel-desc">
   <title id="canopy-panel-title">Where a CANOPY screen gets its values, and where its writes go</title>
@@ -662,7 +647,7 @@ opens it: they share its screens and saved views, and its writes are audited
 under the card’s name.</p>
 </section>
 <section id="turn-it-on">
-<h1>Turn it on<a class="headerlink" href="#turn-it-on" title="Link to this heading">#</a></h1>
+<h2>Turn it on<a class="headerlink" href="#turn-it-on" title="Link to this heading">#</a></h2>
 <p>OSPREY does not build CANOPY. It takes a ready-made <strong>payload</strong>: a directory
 with CANOPY’s Python packages and web pages, built from the canopy repository.</p>
 <ol class="arabic">
@@ -676,7 +661,7 @@ prints:</p>
 <p>A payload built at any other commit stops the build.</p>
 </li>
 <li><p><strong>Name the payload</strong> in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">OSPREY_CANOPY_PAYLOAD</span><span class="o">=</span>/srv/canopy/payload
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>OSPREY_CANOPY_PAYLOAD=/srv/canopy/payload
 </pre></div>
 </div>
 </li>
@@ -717,7 +702,7 @@ screen CANOPY opens first and the channel Trace starts with:</p>
 is in <a class="reference internal" href="../../reference/configuration/config.html#config-web-panels-canopy"><span class="std std-ref">the configuration reference</span></a>.</p>
 </section>
 <section id="use-the-panel">
-<h1>Use the panel<a class="headerlink" href="#use-the-panel" title="Link to this heading">#</a></h1>
+<h2>Use the panel<a class="headerlink" href="#use-the-panel" title="Link to this heading">#</a></h2>
 <p>Open a screen from the panel’s sidebar or the command palette, or ask the
 agent (“open the RF overview”). Screens and tools open as tabs in CANOPY’s own
 tiles, which you drag and split much as you do the terminal’s
@@ -738,7 +723,7 @@ you are on. If the deployment archives another machine, or none, they say
 your agent data.</p>
 </section>
 <section id="write-to-the-machine-from-a-screen">
-<h1>Write to the machine from a screen<a class="headerlink" href="#write-to-the-machine-from-a-screen" title="Link to this heading">#</a></h1>
+<h2>Write to the machine from a screen<a class="headerlink" href="#write-to-the-machine-from-a-screen" title="Link to this heading">#</a></h2>
 <p>A button, slider or entry field on a screen writes as you. The chip’s write
 switch for the machine decides how:</p>
 <ul class="simple">
@@ -768,7 +753,7 @@ it opened and how.</p>
 catch a click meant for something else.</p>
 </section>
 <section id="what-the-agent-can-do-in-the-panel">
-<h1>What the agent can do in the panel<a class="headerlink" href="#what-the-agent-can-do-in-the-panel" title="Link to this heading">#</a></h1>
+<h2>What the agent can do in the panel<a class="headerlink" href="#what-the-agent-can-do-in-the-panel" title="Link to this heading">#</a></h2>
 <p>The agent reaches your CANOPY and nobody else’s. Its CANOPY tools fall into
 three groups:</p>
 <ul class="simple">
@@ -798,7 +783,7 @@ Read such a check as incomplete, not as a pass.</p>
 </div>
 </section>
 <section id="size-the-host">
-<h1>Size the host<a class="headerlink" href="#size-the-host" title="Link to this heading">#</a></h1>
+<h2>Size the host<a class="headerlink" href="#size-the-host" title="Link to this heading">#</a></h2>
 <p>Each CANOPY takes about 270 MiB, and one runs for every login whose tier shows
 the panel, whether or not the tab is open. The agent’s screenshot tool starts
 a headless browser that adds up to 450 MiB while it is in use.
@@ -807,7 +792,7 @@ CANOPY. For a wall display that many people watch, use one shared card: ten
 users on one screen are ten sets of subscriptions on the control system.</p>
 </section>
 <section id="upgrade-canopy">
-<span id="canopy-upgrading"></span><h1>Upgrade CANOPY<a class="headerlink" href="#upgrade-canopy" title="Link to this heading">#</a></h1>
+<span id="canopy-upgrading"></span><h2>Upgrade CANOPY<a class="headerlink" href="#upgrade-canopy" title="Link to this heading">#</a></h2>
 <p>A CANOPY upgrade is an OSPREY upgrade plus a new payload:</p>
 <ol class="arabic simple">
 <li><p>Upgrade OSPREY to a release tested against the new CANOPY, and read its
@@ -835,6 +820,7 @@ commit of step 3, and rebuild.</p>
 </dd>
 </dl>
 </div>
+</section>
 </section>
 
 
@@ -884,16 +870,14 @@ commit of step 3, and rebuild.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">CANOPY</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-fits-together">How it fits together</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-it-on">Turn it on</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-panel">Use the panel</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#write-to-the-machine-from-a-screen">Write to the machine from a screen</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-agent-can-do-in-the-panel">What the agent can do in the panel</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#size-the-host">Size the host</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrade-canopy">Upgrade CANOPY</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-fits-together">How it fits together</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-it-on">Turn it on</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-panel">Use the panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-to-the-machine-from-a-screen">Write to the machine from a screen</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-agent-can-do-in-the-panel">What the agent can do in the panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#size-the-host">Size the host</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrade-canopy">Upgrade CANOPY</a></li>
 </ul>
-
   </nav></div>
 
   <div class="sidebar-secondary-item">

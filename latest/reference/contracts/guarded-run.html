@@ -496,30 +496,77 @@ control-target check of <a class="reference internal" href="../../architecture/s
 lock adds no check of its own to those writes; it replaces none of them.</p>
 <section id="one-run-per-target">
 <h2>One run per target<a class="headerlink" href="#one-run-per-target" title="Link to this heading">#</a></h2>
-<p>A guarded run holds one lock per control target, <code class="docutils literal notranslate"><span class="pre">live</span></code>, <code class="docutils literal notranslate"><span class="pre">va</span></code> or
-<code class="docutils literal notranslate"><span class="pre">standin</span></code>. The lock is a file,
-<code class="docutils literal notranslate"><span class="pre">var/guarded_run/&lt;target&gt;/run.lock</span></code> in the deployment repo, and the
-directory is deployment-wide: the deploy provisions it on the host and binds
-it at the same place in every container that runs the agent, so a run
+<div class="pst-scrollable-table-container"><table class="table" id="id1">
+<caption><span class="caption-text">Where the lock lives</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Item</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Lock file</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">var/guarded_run/&lt;target&gt;/run.lock</span></code> in the deployment repo</p></td>
+</tr>
+<tr class="row-odd"><td><p>Targets</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">live</span></code>, <code class="docutils literal notranslate"><span class="pre">va</span></code>, <code class="docutils literal notranslate"><span class="pre">standin</span></code>: one lock per target</p></td>
+</tr>
+<tr class="row-even"><td><p>Directory mode</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0o2775</span></code> for each guarded-run directory a run creates: setgid and
+group-writable. <code class="docutils literal notranslate"><span class="pre">var/</span></code> gets the process’s default mode, and an
+existing directory keeps the mode it has.</p></td>
+</tr>
+<tr class="row-odd"><td><p>File mode</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0o664</span></code> for a created lock file</p></td>
+</tr>
+<tr class="row-even"><td><p>Directory contents</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">run.lock</span></code> only</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The directory is deployment-wide: the deploy provisions it on the host and
+binds it at the same place in every container that runs the agent, so a run
 started from a web terminal, a dispatched job or a local <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>
-contends for the same lock.</p>
+contends for the same lock. The setgid directories let every identity of the
+deployment sharing their group take the lock.</p>
 <p>The lock is taken without waiting and held until the run ends. A second run
-on the same target, of either kind, is refused before it starts, with the
-holder’s process id, the time it took the lock, whose run it is, its target
-and the name it writes under. A read-only run is
-refused before the lock is taken.</p>
+on the same target, of either kind, is refused before it starts (see
+<a class="reference internal" href="#refusals">Refusals</a>). A read-only run is refused before the lock is taken.</p>
 </section>
 <section id="who-holds-it">
 <h2>Who holds it<a class="headerlink" href="#who-holds-it" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p>A read-write <code class="docutils literal notranslate"><span class="pre">execute</span></code> or <code class="docutils literal notranslate"><span class="pre">execute_file</span></code> run takes the lock before its
-code starts and releases it after its record is saved.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> runs its script through the same sandbox, so it takes the
-lock the same way.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pyaml_cs_osprey.run_tool</span></code>, which runs every pyAML tool of a measurement,
-runs under the lock the process already holds, and takes it when the process
-holds none.</p></li>
-</ul>
+<div class="pst-scrollable-table-container"><table class="table" id="id2">
+<caption><span class="caption-text">Who takes the lock</span><a class="headerlink" href="#id2" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 35.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Caller</p></th>
+<th class="head"><p>How it holds the lock</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>A read-write <code class="docutils literal notranslate"><span class="pre">execute</span></code> or <code class="docutils literal notranslate"><span class="pre">execute_file</span></code> run</p></td>
+<td><p>Takes it before its code starts and releases it after its record is
+saved.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code></p></td>
+<td><p>Runs its script through the same sandbox, so it takes the lock the
+same way.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pyaml_cs_osprey.run_tool</span></code>, which runs every pyAML tool of a
+measurement</p></td>
+<td><p>Runs under the lock the process already holds, and takes it when the
+process holds none.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 </section>
 <section id="whose-run-it-is">
 <h2>Whose run it is<a class="headerlink" href="#whose-run-it-is" title="Link to this heading">#</a></h2>
@@ -543,8 +590,7 @@ sandbox’s writes changes.</p></li>
 task the run starts runs under it. Asking for the lock again from inside the
 process is refused like any other second run. A process holds the lock of one
 target at a time; asking for another target’s lock while it holds one is
-refused before anything is opened:
-<code class="docutils literal notranslate"><span class="pre">this</span> <span class="pre">process</span> <span class="pre">holds</span> <span class="pre">the</span> <span class="pre">run</span> <span class="pre">lock</span> <span class="pre">on</span> <span class="pre">&lt;held&gt;;</span> <span class="pre">it</span> <span class="pre">cannot</span> <span class="pre">take</span> <span class="pre">one</span> <span class="pre">on</span> <span class="pre">&lt;asked&gt;</span></code>.</p>
+refused before anything is opened.</p>
 <p>Joining a run never extends its hold: the lock is released when the code that
 took it ends, whatever joined it; the executor takes it for the whole script.</p>
 <p>A forked child never holds the lock, at any moment, from any thread: a fork
@@ -554,26 +600,122 @@ inherits it.</p>
 </section>
 <section id="the-lock-file">
 <h2>The lock file<a class="headerlink" href="#the-lock-file" title="Link to this heading">#</a></h2>
+<p>While a run holds the lock, <code class="docutils literal notranslate"><span class="pre">run.lock</span></code> holds its holder record, a JSON
+object with these keys. The record is emptied on release.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id3">
+<caption><span class="caption-text">Holder record</span><a class="headerlink" href="#id3" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 55.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">null</span></code> when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pid</span></code></p></td>
+<td><p>The holder’s process id</p></td>
+<td><p>Never</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">started</span></code></p></td>
+<td><p>The time the holder took the lock</p></td>
+<td><p>Never</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">owner</span></code></p></td>
+<td><p>The account the run acts for</p></td>
+<td><p>The run acts for nobody</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">target</span></code></p></td>
+<td><p>The control target</p></td>
+<td><p>Never</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">identity</span></code></p></td>
+<td><p>The name the process writes under on the control system, from
+<code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY</span></code></p></td>
+<td><p>The process sets none</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A refusal of a held target names each key, and a key reads <code class="docutils literal notranslate"><span class="pre">unknown</span></code> when
+the holder’s record does not name it.</p>
 <p><code class="docutils literal notranslate"><span class="pre">run.lock</span></code> is a regular file with one name, opened inside the target’s
 directory without following a link at <code class="docutils literal notranslate"><span class="pre">guarded_run</span></code>, at the target’s
 directory or at the file. A link, a hard link, a FIFO or anything else that is
 not such a file is refused with its path named: the run does not start, and
 nothing is read or written through it.</p>
-<p>While a run holds the lock, the file records its holder,
-<code class="docutils literal notranslate"><span class="pre">{&quot;pid&quot;,</span> <span class="pre">&quot;started&quot;,</span> <span class="pre">&quot;owner&quot;,</span> <span class="pre">&quot;target&quot;,</span> <span class="pre">&quot;identity&quot;}</span></code>: the process, the time it
-took the lock, the account the run acts for (<code class="docutils literal notranslate"><span class="pre">null</span></code> for nobody), the target,
-and the name the process writes under on the control system, from
-<code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY</span></code> (<code class="docutils literal notranslate"><span class="pre">null</span></code> when it sets none). The record is
-emptied on release. A created lock file has mode <code class="docutils literal notranslate"><span class="pre">0o664</span></code>, and each created
-directory <code class="docutils literal notranslate"><span class="pre">0o2775</span></code>, setgid, so every identity of the deployment
-sharing its group can take the lock. The directory holds no file but
-<code class="docutils literal notranslate"><span class="pre">run.lock</span></code>.</p>
 <p>The approval prompt never opens this directory: it binds the call to its target
 (<code class="docutils literal notranslate"><span class="pre">approved_target</span></code>) and asks. Only the run refuses a held target, before its
-code starts and with nothing moved:
-<code class="docutils literal notranslate"><span class="pre">another</span> <span class="pre">guarded</span> <span class="pre">run</span> <span class="pre">is</span> <span class="pre">live</span> <span class="pre">under</span> <span class="pre">&lt;directory&gt;</span> <span class="pre">(pid</span> <span class="pre">&lt;pid&gt;,</span> <span class="pre">since</span> <span class="pre">&lt;time&gt;,</span>
-<span class="pre">owner</span> <span class="pre">&lt;owner&gt;,</span> <span class="pre">target</span> <span class="pre">&lt;target&gt;,</span> <span class="pre">identity</span> <span class="pre">&lt;identity&gt;)</span></code>, each field reading
-<code class="docutils literal notranslate"><span class="pre">unknown</span></code> when the holder’s record does not name it.</p>
+code starts and with nothing moved.</p>
+</section>
+<section id="refusals">
+<h2>Refusals<a class="headerlink" href="#refusals" title="Link to this heading">#</a></h2>
+<p>Each refusal is raised before the run’s code starts. In the texts, <code class="docutils literal notranslate"><span class="pre">&lt;…&gt;</span></code>
+stands for a value the refusal fills in. A refusal of the operating system
+itself (an <code class="docutils literal notranslate"><span class="pre">OSError</span></code> the lock file’s open raises) is passed on as it is.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id4">
+<caption><span class="caption-text">Refusals</span><a class="headerlink" href="#id4" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Case</p></th>
+<th class="head"><p>Text</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Second run on a held target</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">another</span> <span class="pre">guarded</span> <span class="pre">run</span> <span class="pre">is</span> <span class="pre">live</span> <span class="pre">under</span> <span class="pre">&lt;directory&gt;</span> <span class="pre">(pid</span> <span class="pre">&lt;pid&gt;,</span> <span class="pre">since</span> <span class="pre">&lt;time&gt;,</span> <span class="pre">owner</span> <span class="pre">&lt;owner&gt;,</span> <span class="pre">target</span> <span class="pre">&lt;target&gt;,</span> <span class="pre">identity</span> <span class="pre">&lt;identity&gt;)</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Another target while the process holds one</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">this</span> <span class="pre">process</span> <span class="pre">holds</span> <span class="pre">the</span> <span class="pre">run</span> <span class="pre">lock</span> <span class="pre">on</span> <span class="pre">&lt;held&gt;;</span> <span class="pre">it</span> <span class="pre">cannot</span> <span class="pre">take</span> <span class="pre">one</span> <span class="pre">on</span> <span class="pre">&lt;asked&gt;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Read-only run</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY</span> <span class="pre">refused</span> <span class="pre">the</span> <span class="pre">write:</span> <span class="pre">readonly</span> <span class="pre">execution</span> <span class="pre">mode:</span> <span class="pre">a</span> <span class="pre">guarded</span> <span class="pre">run</span> <span class="pre">needs</span> <span class="pre">execution_mode='readwrite'</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Record names another target</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">run</span> <span class="pre">on</span> <span class="pre">&lt;target&gt;</span> <span class="pre">cannot</span> <span class="pre">hold</span> <span class="pre">a</span> <span class="pre">context</span> <span class="pre">for</span> <span class="pre">target</span> <span class="pre">&lt;record</span> <span class="pre">target&gt;</span> <span class="pre">admitted</span> <span class="pre">on</span> <span class="pre">&lt;admitted</span> <span class="pre">target&gt;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Join with a different record</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">this</span> <span class="pre">process</span> <span class="pre">holds</span> <span class="pre">the</span> <span class="pre">run</span> <span class="pre">lock</span> <span class="pre">on</span> <span class="pre">&lt;target&gt;</span> <span class="pre">under</span> <span class="pre">another</span> <span class="pre">context;</span> <span class="pre">a</span> <span class="pre">join</span> <span class="pre">runs</span> <span class="pre">under</span> <span class="pre">the</span> <span class="pre">held</span> <span class="pre">one</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Link at the lock file</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;</span> <span class="pre">is</span> <span class="pre">a</span> <span class="pre">link;</span> <span class="pre">the</span> <span class="pre">guarded-run</span> <span class="pre">directory</span> <span class="pre">holds</span> <span class="pre">files</span> <span class="pre">only</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Hard link at the lock file</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;</span> <span class="pre">has</span> <span class="pre">&lt;count&gt;</span> <span class="pre">hard</span> <span class="pre">links;</span> <span class="pre">the</span> <span class="pre">guarded-run</span> <span class="pre">directory</span> <span class="pre">holds</span> <span class="pre">files</span> <span class="pre">only</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>FIFO or other non-regular file at the lock file</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">regular</span> <span class="pre">file;</span> <span class="pre">the</span> <span class="pre">guarded-run</span> <span class="pre">directory</span> <span class="pre">holds</span> <span class="pre">files</span> <span class="pre">only</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Link at <code class="docutils literal notranslate"><span class="pre">guarded_run</span></code> or the target’s directory</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;</span> <span class="pre">is</span> <span class="pre">a</span> <span class="pre">link;</span> <span class="pre">a</span> <span class="pre">guarded-run</span> <span class="pre">directory</span> <span class="pre">is</span> <span class="pre">never</span> <span class="pre">a</span> <span class="pre">link</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Something other than a directory at <code class="docutils literal notranslate"><span class="pre">guarded_run</span></code> or the target’s directory</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">directory</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Lock file replaced while it was opened</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;path&gt;</span> <span class="pre">was</span> <span class="pre">replaced</span> <span class="pre">while</span> <span class="pre">it</span> <span class="pre">was</span> <span class="pre">opened</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Target that is not a control target</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Unknown</span> <span class="pre">control</span> <span class="pre">target</span> <span class="pre">&lt;name&gt;</span> <span class="pre">for</span> <span class="pre">a</span> <span class="pre">guarded</span> <span class="pre">run.</span> <span class="pre">Valid</span> <span class="pre">targets</span> <span class="pre">are</span> <span class="pre">live,</span> <span class="pre">va,</span> <span class="pre">standin.</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>No deployment repo root</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">guarded</span> <span class="pre">runs</span> <span class="pre">need</span> <span class="pre">var/guarded_run:</span> <span class="pre">no</span> <span class="pre">deployment</span> <span class="pre">repo</span> <span class="pre">root</span> <span class="pre">found</span> <span class="pre">(resolved</span> <span class="pre">&lt;root&gt;,</span> <span class="pre">which</span> <span class="pre">holds</span> <span class="pre">no</span> <span class="pre">profile.yml</span> <span class="pre">or</span> <span class="pre">config.yml).</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Directory cannot be created</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">guarded</span> <span class="pre">runs</span> <span class="pre">need</span> <span class="pre">var/guarded_run:</span> <span class="pre">cannot</span> <span class="pre">create</span> <span class="pre">&lt;directory&gt;:</span> <span class="pre">&lt;error&gt;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Directory not writable</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">guarded</span> <span class="pre">runs</span> <span class="pre">need</span> <span class="pre">var/guarded_run:</span> <span class="pre">&lt;directory&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">writable.</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
 </section>
 <section id="what-the-lock-does-not-do">
 <h2>What the lock does not do<a class="headerlink" href="#what-the-lock-does-not-do" title="Link to this heading">#</a></h2>
@@ -660,6 +802,7 @@ ledger.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#whose-run-it-is">Whose run it is</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-process-holds-it">The process holds it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-lock-file">The lock file</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refusals">Refusals</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-lock-does-not-do">What the lock does not do</a></li>
 </ul>
   </nav></div>

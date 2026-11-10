@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -583,6 +569,8 @@ so anything sent while the bridge was down is waiting when it comes back.</p>
 dispatcher trigger the bridge fires — that trigger decides what the agent is
 allowed to do with a chat question — and whether the agent may &#64;mention people.
 The block is only meaningful next to a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">profile.yml</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">gchat_bridge</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">trigger</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gchat-question</span><span class="w">        </span><span class="c1"># default; must exist in your triggers file</span>
 <span class="w">  </span><span class="nt">mentions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">            </span><span class="c1"># default; false posts @mentions as plain text</span>
@@ -597,6 +585,7 @@ The block is only meaningful next to a <code class="docutils literal notranslate
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GCHAT_SUBSCRIPTION</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GCHAT_APP_ID</span>
 </pre></div>
+</div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -738,9 +727,10 @@ agent reads the rest only if it needs it. <code class="docutils literal notransl
 answer in full.</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">GITLAB_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_PROJECT</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_ISSUES_TOKEN</span></code></p></td>
-<td><p class="sd-card-text">Where to file an issue when a question is finally given up on. Leave
-unset if you have no such host: nothing is filed and nothing is
-checked.</p></td>
+<td><p class="sd-card-text">Optional alert host. With <code class="docutils literal notranslate"><span class="pre">GITLAB_URL</span></code> and <code class="docutils literal notranslate"><span class="pre">GITLAB_ISSUES_TOKEN</span></code>
+set, the bridge holds queued questions while <code class="docutils literal notranslate"><span class="pre">GITLAB_PROJECT</span></code> has an
+open <code class="docutils literal notranslate"><span class="pre">osprey-alert</span></code> issue, or while GitLab cannot be reached. Leave
+them unset to skip the check.</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">APP_VERSION_DISPLAY</span></code></p></td>
 <td><p class="sd-card-text">A release label shown with each acknowledgement, so a conversation

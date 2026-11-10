@@ -509,7 +509,8 @@ looks like a working one.</p>
 <section id="mcp-server">
 <span id="extending-mcp-server"></span><h2>MCP server<a class="headerlink" href="#mcp-server" title="Link to this heading">#</a></h2>
 <p>An MCP server is how new tools reach the agent. Adding an <em>external</em> server
-needs no Python at all — it is a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> block, covered in
+needs no Python at all — it is an entry in the <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> block of
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, covered in
 <a class="reference internal" href="../how-to/agent-interfaces/add-mcp-server.html"><span class="doc">Add an MCP Server</span></a>. A <em>framework</em> server is the
 developer seam: a package under <code class="docutils literal notranslate"><span class="pre">src/osprey/mcp_server/</span></code> holding a
 module-level <code class="docutils literal notranslate"><span class="pre">FastMCP</span></code> instance and a <code class="docutils literal notranslate"><span class="pre">create_server()</span></code> factory in

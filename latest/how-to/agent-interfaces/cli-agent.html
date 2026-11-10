@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -788,9 +774,10 @@ rather than a hand-maintained copy.</p></li>
 <li><p><strong>Destructive workspace tools</strong> — <code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code> and
 <code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code>, which permanently remove stored artifacts.</p></li>
 <li><p><strong>Facility-custom write tools</strong> — any tool a custom MCP server in
-<code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code> marks under <code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code> (or a custom server
-that writes-check-gates all its tools) is blocked too. Declare custom write
-tools under <code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code> so the read-only path recognises them.</p></li>
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code> lists under <code class="docutils literal notranslate"><span class="pre">writes:</span></code> or marks under
+<code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code> (or a custom server that writes-check-gates all its
+tools) is blocked too. Declare custom write tools under <code class="docutils literal notranslate"><span class="pre">writes:</span></code>
+so the read-only path recognises them.</p></li>
 </ul>
 <p>Audited <em>read</em> tools (e.g. <code class="docutils literal notranslate"><span class="pre">mcp__controls__channel_read</span></code>) remain available.
 The agent may still <strong>create</strong> workspace artifacts (plots, documents) and write

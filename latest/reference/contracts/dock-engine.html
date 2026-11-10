@@ -489,24 +489,54 @@ validation, geometry, drop planning, open/close/reopen and hit-testing, as pure
 functions with no DOM and no runtime dependencies. OSPREY does not edit it.</p>
 <section id="what-osprey-holds">
 <h2>What OSPREY holds<a class="headerlink" href="#what-osprey-holds" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><strong>The built engine.</strong> <code class="docutils literal notranslate"><span class="pre">web_terminal/static/vendor/dock-engine.mjs</span></code> and its
-types <code class="docutils literal notranslate"><span class="pre">dock-engine.d.mts</span></code> are byte copies of the runtime’s <code class="docutils literal notranslate"><span class="pre">dist/</span></code> at one
-commit. <code class="docutils literal notranslate"><span class="pre">vendor_manifest.json</span></code> lists both by that source and no URL, so
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> never fetches them. The terminal serves the engine at
-<code class="docutils literal notranslate"><span class="pre">/static/vendor/dock-engine.mjs</span></code> beside dockview.</p></li>
-<li><p><strong>The server’s layout rules.</strong> <code class="docutils literal notranslate"><span class="pre">osprey.interfaces.web_terminal.dock_layout</span></code>
-implements <code class="docutils literal notranslate"><span class="pre">validate_layout</span></code>, <code class="docutils literal notranslate"><span class="pre">layout_refusal</span></code>, <code class="docutils literal notranslate"><span class="pre">normalize_layout</span></code> and
-the reason vocabulary <code class="docutils literal notranslate"><span class="pre">LAYOUT_REASONS</span></code> in the standard library, so a preset,
-a layout report or an agent operation is refused for the reason the browser
-would give.</p></li>
-<li><p><strong>The engine’s cases.</strong> The runtime’s <code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">normalize</span></code> cases are
-copied into <code class="docutils literal notranslate"><span class="pre">tests/dock_engine/cases/</span></code>. <code class="docutils literal notranslate"><span class="pre">tests/dock_engine/cases-pin.json</span></code>
-records the runtime commit, path and git blob of each copy and of the bundle.</p></li>
-</ul>
-<p><code class="docutils literal notranslate"><span class="pre">tests/dock_engine/</span></code> replays the cases through <code class="docutils literal notranslate"><span class="pre">dock_layout</span></code> and fails when
-a copy no longer matches its blob, when a copy is missing or extra, or when the
-manifest’s sha256 names other bytes than the vendored engine.</p>
+<p>OSPREY holds three things from the runtime. Each is pinned to one runtime
+commit and checked by a test under <code class="docutils literal notranslate"><span class="pre">tests/dock_engine/</span></code>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 33.0%" />
+<col style="width: 33.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>What</p></th>
+<th class="head"><p>Pinned by</p></th>
+<th class="head"><p>Checked by</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>The built engine</strong>: <code class="docutils literal notranslate"><span class="pre">dock-engine.mjs</span></code> and its types
+<code class="docutils literal notranslate"><span class="pre">dock-engine.d.mts</span></code>, in
+<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/web_terminal/static/vendor/</span></code></p></td>
+<td><p>The runtime commit, path and git blob of each, in
+<code class="docutils literal notranslate"><span class="pre">tests/dock_engine/cases-pin.json</span></code>; the sha256 and source commit of
+each, with no URL, in <code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/vendor_manifest.json</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">test_cases_pin.py</span></code>: each copy matches its blob, and the manifest’s
+sha256 names the vendored bytes</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>The engine’s cases</strong>: the runtime’s <code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">normalize</span></code>
+cases, in <code class="docutils literal notranslate"><span class="pre">tests/dock_engine/cases/</span></code></p></td>
+<td><p>The runtime commit, path and git blob of each copy, in
+<code class="docutils literal notranslate"><span class="pre">cases-pin.json</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">test_cases_pin.py</span></code>: no copy changed, missing or extra</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>The server’s layout rules</strong>:
+<code class="docutils literal notranslate"><span class="pre">osprey.interfaces.web_terminal.dock_layout</span></code> — <code class="docutils literal notranslate"><span class="pre">validate_layout</span></code>,
+<code class="docutils literal notranslate"><span class="pre">layout_refusal</span></code>, <code class="docutils literal notranslate"><span class="pre">normalize_layout</span></code> and the reason vocabulary
+<code class="docutils literal notranslate"><span class="pre">LAYOUT_REASONS</span></code></p></td>
+<td><p>The engine’s cases</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">test_case_replay.py</span></code> replays every case through <code class="docutils literal notranslate"><span class="pre">dock_layout</span></code>;
+<code class="docutils literal notranslate"><span class="pre">test_cases_pin.py</span></code> checks that the bundle’s reasons are
+<code class="docutils literal notranslate"><span class="pre">LAYOUT_REASONS</span></code>, in order</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The engine files are byte copies of the runtime’s <code class="docutils literal notranslate"><span class="pre">dist/</span></code>. Their manifest
+entries have no URL, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> never fetches them: a missing
+or changed copy is an error that names the commit to re-copy from. The terminal
+serves the engine at <code class="docutils literal notranslate"><span class="pre">/static/vendor/dock-engine.mjs</span></code> beside dockview.</p>
+<p>The server’s rules use the standard library only, so a preset, a layout report
+or an agent operation is refused for the reason the browser would give.</p>
 </section>
 <section id="osprey-s-policy">
 <h2>OSPREY’s policy<a class="headerlink" href="#osprey-s-policy" title="Link to this heading">#</a></h2>
@@ -521,9 +551,10 @@ cases are unchanged: a tile’s <code class="docutils literal notranslate"><span
 </section>
 <section id="changing-the-engine">
 <h2>Changing the engine<a class="headerlink" href="#changing-the-engine" title="Link to this heading">#</a></h2>
-<p>A rule changes in the runtime, with its cases. OSPREY then re-copies the bundle
-and the two case directories from one runtime commit, re-pins them, updates the
-two manifest entries, and changes <code class="docutils literal notranslate"><span class="pre">dock_layout</span></code> until the cases pass.</p>
+<p>A rule changes in the runtime first, with its cases. Then, from one runtime
+commit, re-copy the bundle and the two case directories, re-pin them in
+<code class="docutils literal notranslate"><span class="pre">cases-pin.json</span></code>, update the two manifest entries, and change
+<code class="docutils literal notranslate"><span class="pre">dock_layout</span></code> until the cases pass.</p>
 </section>
 </section>
 

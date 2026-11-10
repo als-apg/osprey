@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
@@ -626,9 +612,11 @@ the same image — so they all read the same <code class="docutils literal notra
 user somewhere else, add <code class="docutils literal notranslate"><span class="pre">theme</span></code> to their entry in the user list. The snippet
 shows only the keys this section is about; the deployment also carries
 <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> and each user’s <code class="docutils literal notranslate"><span class="pre">tier</span></code> from the multi-user page (see the
-worked example in <a class="reference internal" href="multi-user/index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>).</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+worked example in <a class="reference internal" href="multi-user/index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>). Merge its keys into the
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code> entry under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>; a second
+copy of that key silently replaces the first.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>

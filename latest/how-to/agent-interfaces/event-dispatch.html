@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -673,9 +659,12 @@ a dispatch image:</p>
 <p class="sd-card-text">Both services are plain Python entrypoints, so you can run them straight from
 your venv — handy for development. First repoint the worker URL in
 <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> (the Docker hostname does not resolve on the host):</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">triggers.yml</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dispatcher</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">dispatch_target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:10011</span>
 </pre></div>
+</div>
 </div>
 <p class="sd-card-text">Generate the two bearer tokens once (the containerized path does this for you;
 here you set them by hand) and export them so both shells share them:</p>
@@ -855,6 +844,8 @@ it cannot make this call.</p>
 <p class="sd-card-text">Triggers live in <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> at the project root. The file has a
 <code class="docutils literal notranslate"><span class="pre">dispatcher:</span></code> block (where the dispatcher finds its worker) and a list of
 <code class="docutils literal notranslate"><span class="pre">triggers:</span></code>. A minimal webhook trigger:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">triggers.yml</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dispatcher</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">dispatch_target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://dispatch-worker-1:10011</span><span class="w">  </span><span class="c1"># worker URL</span>
 <span class="w">  </span><span class="nt">max_concurrent_runs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
@@ -873,6 +864,7 @@ it cannot make this call.</p>
 <span class="w">      </span><span class="nt">max_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 <span class="w">      </span><span class="nt">backoff_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
 </pre></div>
+</div>
 </div>
 <p class="sd-card-text">Each webhook trigger is reachable at <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/webhook/&lt;name&gt;</span></code>.</p>
 <p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">max_concurrent_runs</span></code> and <code class="docutils literal notranslate"><span class="pre">max_queue_depth</span></code> are shown with their
@@ -902,7 +894,8 @@ run gets <code class="docutils literal notranslate"><span class="pre">allowed_to
 file at load if it is not a list of tool names.</p>
 <p class="sd-card-text"><strong>Tool denylist (defence in depth).</strong> The worker enforces a server-side tool
 denylist regardless of what a trigger requests: <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>,
-every plugin’s and claude.ai connector’s MCP tools, all shell tools
+every plugin’s and claude.ai connector’s MCP tools (<code class="docutils literal notranslate"><span class="pre">mcp__plugin_*</span></code>,
+<code class="docutils literal notranslate"><span class="pre">mcp__claude_ai_*</span></code>), all shell tools
 (<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">TaskStop</span></code>, <code class="docutils literal notranslate"><span class="pre">Monitor</span></code>), the tools that fire or schedule jobs
 (<code class="docutils literal notranslate"><span class="pre">Workflow</span></code>, <code class="docutils literal notranslate"><span class="pre">CronCreate</span></code>, <code class="docutils literal notranslate"><span class="pre">ScheduleWakeup</span></code>, and the dispatcher’s own
 <code class="docutils literal notranslate"><span class="pre">manual_fire</span></code>), <code class="docutils literal notranslate"><span class="pre">SendMessage</span></code> and <code class="docutils literal notranslate"><span class="pre">EnterWorktree</span></code>. This sits on top of
@@ -925,6 +918,8 @@ that is not one, stops the triggers file from loading, with an error naming
 the trigger; a blank one is empty. Three sources ship. A <code class="docutils literal notranslate"><span class="pre">source:</span></code> that no installed source registers is logged when the
 dispatcher starts, and its triggers are skipped while the rest of the file
 loads.</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">triggers.yml</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hourly-summary</span>
 <span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cron</span>
@@ -955,6 +950,7 @@ loads.</p>
 <span class="w">        </span><span class="no">The pressure crossed its threshold; describe the event.</span>
 <span class="w">      </span><span class="nt">allowed_tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
 </pre></div>
+</div>
 </div>
 <dl>
 <dt><code class="docutils literal notranslate"><span class="pre">source:</span> <span class="pre">webhook</span></code></dt><dd><p>Fires on an authenticated <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/webhook/&lt;name&gt;</span></code> carrying the

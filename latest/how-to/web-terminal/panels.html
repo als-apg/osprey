@@ -403,21 +403,7 @@
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="multi-user/tiers.html">Privilege Tiers</a></li>
@@ -762,7 +748,8 @@ element:</p>
 <span class="p">);</span>
 </pre></div>
 </div>
-<p>The terminal also reads the older <code class="docutils literal notranslate"><span class="pre">osprey-focus-exit</span></code> for one release. It then
+<p>The terminal also reads the older <code class="docutils literal notranslate"><span class="pre">osprey-focus-exit</span></code> until
+canopy-screen-runtime 0.2.0, whose viewers stop sending it. It then
 focuses the next (or previous) element of its own page, in
 document order relative to the panel’s tile — after <code class="docutils literal notranslate"><span class="pre">backward</span></code>, that is the
 tile’s header. It acts only on a message from its own origin and from the
@@ -888,7 +875,7 @@ which is refused with a <code class="docutils literal notranslate"><span class="
 operator somewhere the panel picked.</p>
 </div>
 <section id="panels-you-add-run-at-an-opaque-origin">
-<h3>Panels you add run at an opaque origin<a class="headerlink" href="#panels-you-add-run-at-an-opaque-origin" title="Link to this heading">#</a></h3>
+<span id="web-terminal-panels-opaque-origin"></span><h3>Panels you add run at an opaque origin<a class="headerlink" href="#panels-you-add-run-at-an-opaque-origin" title="Link to this heading">#</a></h3>
 <p>A panel under <code class="docutils literal notranslate"><span class="pre">panels/</span></code> and a panel registered while the terminal runs are
 bytes an agent can write, so the terminal never runs them as itself. Which
 panels this covers is decided by where they come from, not by anything the
@@ -1018,9 +1005,11 @@ reference panel and you start compliant.</p>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
 Serving &amp; discovery</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Discovered panels are served straight from disk, from the same origin as
-the terminal — no proxy. Discovery is <strong>fail-closed</strong>: only a fully valid
-panel is ever served. The <code class="docutils literal notranslate"><span class="pre">allow_runtime_panels</span></code> switch is deliberately
+<p class="sd-card-text">Discovered panels are served straight from disk, with no proxy, at an
+opaque origin rather than the terminal’s own (see
+<a class="reference internal" href="#web-terminal-panels-opaque-origin"><span class="std std-ref">Panels you add run at an opaque origin</span></a>). Discovery is
+<strong>fail-closed</strong>: only a fully valid panel is ever served. The
+<code class="docutils literal notranslate"><span class="pre">allow_runtime_panels</span></code> switch is deliberately
 off by default because it is also what lets the agent register panels at
 runtime — turning it on is your explicit decision to trust the panels the
 terminal makes available.</p>

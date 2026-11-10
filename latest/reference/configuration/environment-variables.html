@@ -596,6 +596,49 @@ one setting, whether the build is managed or a hand-run <code class="docutils li
 What they configure is the build — a container that is already running reads
 nothing from them.</p>
 </section>
+<section id="the-host-s-profile-variant">
+<h2>The host’s profile variant<a class="headerlink" href="#the-host-s-profile-variant" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">OSPREY_PROFILE_VARIANT</span></code> names the overlay profile, <code class="docutils literal notranslate"><span class="pre">profiles/&lt;name&gt;.yml</span></code>,
+that a build of this checkout merges over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. Unlike the host-level
+knobs, it is not read from the shell environment or the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain. The
+build reads it only from the gitignored <code class="docutils literal notranslate"><span class="pre">.env.variant</span></code> file at the repository
+root (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-host-variants"><span class="std std-ref">One repository, several hosts</span></a>).</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>.env.variant:   OSPREY_PROFILE_VARIANT=teststand
+</pre></div>
+</div>
+</section>
+<section id="the-archive-pass">
+<h2>The archive pass<a class="headerlink" href="#the-archive-pass" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">archive</span></code> (<a class="reference internal" href="../cli.html"><span class="doc">CLI Reference</span></a>) reads three of its options from a
+variable when the flag is not given. The archive service’s compose file sets
+all three for its container.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 32.0%" />
+<col style="width: 68.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_SOURCES</span></code></p></td>
+<td><p>The sources tree, <code class="docutils literal notranslate"><span class="pre">&lt;sources&gt;/&lt;kind&gt;/&lt;name&gt;/...</span></code>. Stands in for
+<code class="docutils literal notranslate"><span class="pre">--sources</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_DEST</span></code></p></td>
+<td><p>The existing archive root the day directories are written into. Stands
+in for <code class="docutils literal notranslate"><span class="pre">--dest</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_INTERVAL_SECONDS</span></code></p></td>
+<td><p>Seconds between passes under <code class="docutils literal notranslate"><span class="pre">--watch</span></code>, at least <code class="docutils literal notranslate"><span class="pre">60</span></code>, default
+<code class="docutils literal notranslate"><span class="pre">86400</span></code>. Stands in for <code class="docutils literal notranslate"><span class="pre">--interval</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
 <section id="canopy-payload">
 <h2>CANOPY payload<a class="headerlink" href="#canopy-payload" title="Link to this heading">#</a></h2>
 <p>A deployment that shows the CANOPY panel builds its images from a prebuilt
@@ -858,6 +901,8 @@ compose files are resolved.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#secrets-and-env">Secrets, and <code class="docutils literal notranslate"><span class="pre">.env</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#host-level-knobs">Host-level knobs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-host-s-profile-variant">The host’s profile variant</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-archive-pass">The archive pass</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#canopy-payload">CANOPY payload</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#virtual-accelerator-source">Virtual accelerator source</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-phoebus-server-s-overrides">The Phoebus server’s overrides</a></li>

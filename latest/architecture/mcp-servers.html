@@ -463,10 +463,16 @@
 <p>OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through <a class="reference external" href="https://github.com/jlowin/fastmcp">FastMCP</a>
 servers. The OSPREY agent discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
-tools via stdio JSON-RPC. The <strong>10 core in-tree servers</strong> below are the ones a
-deployment normally renders. The <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server, last on this page, ships
-in-tree too but is off unless a deployment switches it on; build profiles can
-inject additional servers beyond these.</p>
+tools via stdio JSON-RPC. This page lists every server that ships in-tree,
+with every tool each one can register. The <strong>10 core servers</strong> are the ones a
+deployment normally renders: <code class="docutils literal notranslate"><span class="pre">control_system</span></code>, the four channel-finder
+variants, <code class="docutils literal notranslate"><span class="pre">workspace</span></code>, <code class="docutils literal notranslate"><span class="pre">python_executor</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel</span></code>,
+<code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">graph</span></code>. Four more ship in-tree but are off
+by default: <code class="docutils literal notranslate"><span class="pre">phoebus</span></code>, <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> and <code class="docutils literal notranslate"><span class="pre">health</span></code>. A profile
+enables one with <code class="docutils literal notranslate"><span class="pre">claude_code.servers.&lt;name&gt;.enabled:</span> <span class="pre">true</span></code>. The
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset enables <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> and <code class="docutils literal notranslate"><span class="pre">health</span></code>; <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> and
+<code class="docutils literal notranslate"><span class="pre">optimizer</span></code> stay off in every preset. Build profiles can inject additional servers beyond
+these.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
   <title id="mcp-server-map-title">The MCP server map</title>
@@ -545,7 +551,10 @@ safety-limits enforcement on all write operations.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">channel_read</span></code> – Read current values from one or more control system channels.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">channel_write</span></code> – Write values to one or more control system channels (requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_write</span></code> – Write values to one or more control system channels. Every write
+goes through the writes check and the limits check. The write switch’s position then
+decides: at <em>off</em> the write is refused, at <em>asked</em> the operator approves it at a prompt,
+and at <em>allowed</em> it runs unprompted (see <a class="reference internal" href="safety-chain.html#architecture-safety-chain-order"><span class="std std-ref">Enforcement order</span></a>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> – Retrieve historical archived data for one or more channels over a
 time range. <code class="docutils literal notranslate"><span class="pre">processing</span></code> selects the per-bin aggregation (<code class="docutils literal notranslate"><span class="pre">raw</span></code>, <code class="docutils literal notranslate"><span class="pre">mean</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>,
 <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">median</span></code>, <code class="docutils literal notranslate"><span class="pre">std</span></code>, <code class="docutils literal notranslate"><span class="pre">count</span></code>) and <code class="docutils literal notranslate"><span class="pre">bin_size</span></code> sets the bin width in seconds;
@@ -558,6 +567,12 @@ bin that was used and whether it was requested or chosen automatically.</p></li>
 write-gated and under what constraints (lookup, pattern match, summary). Not a channel
 roster – an unlisted channel may still exist; use channel-finder to discover what channels
 exist.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">control_target</span></code> – Report which control system the deployment points at (<code class="docutils literal notranslate"><span class="pre">live</span></code>,
+<code class="docutils literal notranslate"><span class="pre">va</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code>), each target’s endpoints and reachability, and whether the session
+may move to it now. Read-only: it connects to nothing.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">control_target_set</span></code> – Point the deployment’s control-system tools at another target.
+The target belongs to the deployment, so every session on it moves too (requires human
+approval).</p></li>
 </ul>
 </section>
 </section>
@@ -729,6 +744,8 @@ never names it.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">submit_response</span></code> – Submit a formatted response to the web terminal.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">facility_description</span></code> – Get the hand-written facility description and the build’s generated facts page (places with device counts, device classes with their groups, models, and the signals and roles the channels use).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">prior_answer_read</span></code> – Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">provenance_locator</span></code> – Return the telemetry coordinates (session id, service name, time
+window) that locate this session in the agent record, for a filed issue to carry.</p></li>
 </ul>
 <p><strong>Setup / Diagnostics:</strong></p>
 <ul class="simple">
@@ -749,6 +766,14 @@ boundary with limits enforcement and timeout protection, not a sandbox; see
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">execute</span></code> – Execute Python code with safety checks, process isolation, and timeout.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">execute_file</span></code> – Execute a Python file from the workspace with the same safety envelope as <code class="docutils literal notranslate"><span class="pre">execute</span></code>.</p></li>
+</ul>
+<p>Two more tools are registered only when the render’s facility facts record a pyAML view
+(see <a class="reference internal" href="../how-to/measure-with-pyaml.html"><span class="doc">Measure with the pyAML Tools</span></a>):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> – Measure a response matrix or the chromaticity with pyAML on the
+control target. It steps setpoints, so it is a write: see <a class="reference internal" href="safety-chain.html#architecture-safety-chain-pyaml-tool"><span class="std std-ref">A pyAML tool</span></a>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> – Solve a served model’s orbit response to its correctors on
+the model alone. Read-only.</p></li>
 </ul>
 </section>
 </section>
@@ -891,6 +916,84 @@ targets its profile lists (<code class="docutils literal notranslate"><span clas
 </ul>
 </section>
 </section>
+<section id="bluesky">
+<h2>Bluesky<a class="headerlink" href="#bluesky" title="Link to this heading">#</a></h2>
+<section id="id7">
+<h3><code class="docutils literal notranslate"><span class="pre">bluesky</span></code><a class="headerlink" href="#id7" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.bluesky</span></code></p>
+<p>A thin HTTP client of the facility-side Bluesky bridge. It lists plans and
+devices, and stages a shared plan draft. It queues and starts that draft, stops
+a run and reads run data. It also writes and validates session plans. It is off
+by default and enabled with <code class="docutils literal notranslate"><span class="pre">claude_code.servers.bluesky.enabled:</span> <span class="pre">true</span></code>; the
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset enables it. <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and
+<code class="docutils literal notranslate"><span class="pre">queue_start</span></code> can set hardware in motion, so they are governed writes, like
+<code class="docutils literal notranslate"><span class="pre">channel_write</span></code>: the writes check runs first, then the write switch’s position
+decides whether the operator is asked. See <a class="reference internal" href="../how-to/bluesky/queue.html"><span class="doc">Plans and the Queue</span></a>.</p>
+<p><strong>Plans and devices:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_plans</span></code> – List the plans registered on the bridge, with each plan’s metadata,
+provenance and parameter schema.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_plan_source</span></code> – Read one plan’s source text as it sits on disk.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_devices</span></code> – List the device names this deployment’s plans accept, one page at a
+time.</p></li>
+</ul>
+<p><strong>Draft:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_draft</span></code> – Read the shared plan draft, its revision and its lane.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">set_draft</span></code> – Create or edit the shared plan draft; every open Bluesky panel shows
+the edit live.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">clear_draft</span></code> – Clear the shared plan draft.</p></li>
+</ul>
+<p><strong>Authoring:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">write_plan</span></code> – Write a session-tier plan file on the bridge; the bridge never runs
+it (requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">validate_plan</span></code> – Validate a written session plan with the static checks and a
+mock-device dry run (requires human approval).</p></li>
+</ul>
+<p><strong>Queue:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_status</span></code> – Report whether this deployment can run plans at all or is
+browse-only.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_list</span></code> – Read the queue: pending items, the running item and the manager’s
+state.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_add</span></code> – Add the shared draft, at a pinned revision, to the queue. Starts
+nothing on a stopped queue.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_start</span></code> – Start draining the queue: every pending item runs, in order.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_stop</span></code> – Stop the queue after the running item finishes, or withdraw a
+pending stop (requires human approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">queue_remove</span></code> – Remove one pending item from the queue (requires human approval).</p></li>
+</ul>
+<p><strong>Runs:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_runs</span></code> – List the runs OSPREY queued, newest first.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_run</span></code> – Read one run’s lifecycle status.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_run_data</span></code> – Read a bounded window of a run’s data.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_run_figure</span></code> – Read a run’s figure, bounded to a fixed point budget.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">stop_run</span></code> – Abort the running plan now. Data collected so far is kept and the
+hardware stays where the plan left it (requires human approval).</p></li>
+</ul>
+</section>
+</section>
+<section id="health">
+<h2>Health<a class="headerlink" href="#health" title="Link to this heading">#</a></h2>
+<section id="id8">
+<h3><code class="docutils literal notranslate"><span class="pre">health</span></code><a class="headerlink" href="#id8" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.health</span></code></p>
+<p>Runs the facility health suite for the agent. It is off by default and enabled
+with <code class="docutils literal notranslate"><span class="pre">claude_code.servers.health.enabled:</span> <span class="pre">true</span></code>; the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset
+enables it. Its tools take only a category filter, so every probe they run is
+declared in config and read-only.
+See <a class="reference internal" href="../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">health_check</span></code> – Run the cached poll tier: config load, connector reachability,
+provider canaries, archiver freshness and other fast read-only checks.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">health_check_full</span></code> – Run the full tier, which adds the costly <code class="docutils literal notranslate"><span class="pre">on_demand</span></code> checks
+the poll tier reports as skipped (requires human approval).</p></li>
+</ul>
+</section>
+</section>
 </section>
 
 
@@ -977,6 +1080,14 @@ targets its profile lists (<code class="docutils literal notranslate"><span clas
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optimizer">Optimizer</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id6"><code class="docutils literal notranslate"><span class="pre">optimizer</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bluesky">Bluesky</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id7"><code class="docutils literal notranslate"><span class="pre">bluesky</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#health">Health</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id8"><code class="docutils literal notranslate"><span class="pre">health</span></code></a></li>
 </ul>
 </li>
 </ul>

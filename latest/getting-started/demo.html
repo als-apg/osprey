@@ -500,7 +500,7 @@ source and whose <code class="docutils literal notranslate"><span class="pre">bu
 are still gated behind the human-approval prompt.</p>
 <p>Unlike <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, the preset ships a <strong>full facility description</strong> under
 <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> (places, devices, channels, groups, models and limits), from
-which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the channel database and every other file a
+which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the facility graph and every other file a
 service reads (<a class="reference internal" href="../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a>), a <strong>seeded electronic
 logbook</strong>, and an <strong>archive of its own</strong> — a real store this project deploys,
 seeds and records into — plus a set of sub-agents and operator skills.</p>
@@ -532,6 +532,9 @@ works. The duration at the end of each step is how long that slice took:</p>
   · archive base: seeded 57,600 documents x 2,908 channels (2026-07-12 09:14 to 2026-08-11 09:14 UTC) in 96.3s (14.2s)
 </pre></div>
 </div>
+<p>The counts and durations above are an example from an earlier run. Yours
+depend on how many channels your facility serves and on the retention
+settings.</p>
 <p>Each of those documents holds one instant across every channel, which is why
 the count is in the tens of thousands rather than the millions. Expect a minute
 or two on a first deploy — it is writing, not hanging. Later deploys check what
@@ -560,8 +563,8 @@ same safety hooks, then adds production capabilities. The most visible additions
 </thead>
 <tbody>
 <tr class="row-even"><td><p><strong>Channel finder</strong> (sub-agent)</p></td>
-<td><p>Resolve channels from a natural-language description by exploring a channel
-database — no need to know PV names.</p></td>
+<td><p>Resolve channels from a natural-language description by searching the
+facility knowledge graph — no need to know PV names.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Logbook search</strong> (sub-agents)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">logbook-search</span></code> and <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code> query a seeded operations
@@ -602,8 +605,8 @@ tools.</p>
 </section>
 <section id="step-3-find-channels-by-description">
 <h2>Step 3: Find Channels by Description<a class="headerlink" href="#step-3-find-channels-by-description" title="Link to this heading">#</a></h2>
-<p>This is the headline capability. In Hello World you had to know the exact PV:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read channel SR:BEAM:CURRENT
+<p>This is the headline capability. Until now you had to know the exact PV, as in Hello World:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read channel SR:DIAG:DCCT:01:CURRENT:RB
 </pre></div>
 </div>
 <p>With the demo, you describe the channel in plain language and the
@@ -611,8 +614,8 @@ agent figures out the PV for you:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read the current in the booster&#39;s defocusing quadrupole
 </pre></div>
 </div>
-<p>The main agent delegates to the <strong>channel-finder</strong> sub-agent, which explores the
-channel database and resolves your description to a real PV before reading it.
+<p>The main agent delegates to the <strong>channel-finder</strong> sub-agent, which searches the
+facility knowledge graph and resolves your description to a real PV before reading it.
 The exact wording depends on your <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> and output style, but you’ll see
 something like:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Resolved &quot;booster defocusing quadrupole current&quot; → BR:MAG:QD:01:CURRENT:RB
@@ -632,17 +635,25 @@ scheme:</p>
 </div>
 <p>The first resolves to <code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code> (the storage-ring DC current
 transformer); the second resolves to the <code class="docutils literal notranslate"><span class="pre">SR:MAG:HCM:*:CURRENT:SP</span></code> family.</p>
-<p><strong>How it works.</strong> The channel database is organized as a hierarchy whose
-levels are the facility’s place levels, then the device’s class, the device and
-one leaf per channel (<code class="docutils literal notranslate"><span class="pre">machine</span> <span class="pre">:</span> <span class="pre">sector</span> <span class="pre">:</span> <span class="pre">class</span> <span class="pre">:</span> <span class="pre">device</span> <span class="pre">:</span> <span class="pre">leaf</span></code> in the
-demo facility, so <code class="docutils literal notranslate"><span class="pre">SR:MAG:HCM:01:CURRENT:SP</span></code> is the leaf
-<code class="docutils literal notranslate"><span class="pre">SR</span> <span class="pre">:</span> <span class="pre">SECT1</span> <span class="pre">:</span> <span class="pre">HCorrector</span> <span class="pre">:</span> <span class="pre">SR/HCM01</span> <span class="pre">:</span> <span class="pre">current_setpoint</span></code>), and the channel-finder
-agent navigates it systematically: it checks prior examples
-(<code class="docutils literal notranslate"><span class="pre">view_examples</span></code>), explores the available options at each level
-(<code class="docutils literal notranslate"><span class="pre">get_options</span></code>), then constructs and validates the final addresses
-(<code class="docutils literal notranslate"><span class="pre">build_channels</span></code>). It <strong>never fabricates PV names</strong> — every channel it returns
-comes from the database. For a deeper look at the finder and its other search
-strategies, see <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>.</p>
+<p><strong>How it works.</strong> The preset runs the <code class="docutils literal notranslate"><span class="pre">graph</span></code> channel finder. It answers
+from the facility knowledge graph that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from the
+facility file. The channel-finder agent works with five tools:</p>
+<ul class="simple">
+<li><p><strong>Keyword lookup.</strong> <code class="docutils literal notranslate"><span class="pre">search_channels</span></code> reads the search index that
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives from the graph. It matches your words against each
+channel’s address, description, device, signals and class names, and returns
+the matches a page at a time with counts that help narrow the search.</p></li>
+<li><p><strong>Graph queries.</strong> For questions about structure, such as what a device
+carries or how classes relate, the agent queries the graph store that
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> loads. It adapts an example from <code class="docutils literal notranslate"><span class="pre">example_queries</span></code>, can check
+the graph’s labels and properties with <code class="docutils literal notranslate"><span class="pre">get_schema</span></code>, then runs the query
+with <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code>.</p></li>
+<li><p><strong>The rules.</strong> <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> tells the agent how addresses are spelled and
+which tool fits which question.</p></li>
+</ul>
+<p>The agent <strong>never fabricates PV names</strong>: every address it returns is one the
+graph holds. For the other search strategies, see
+<a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>.</p>
 </section>
 <section id="step-4-search-the-electronic-logbook">
 <h2>Step 4: Search the Electronic Logbook<a class="headerlink" href="#step-4-search-the-electronic-logbook" title="Link to this heading">#</a></h2>
@@ -742,8 +753,8 @@ see <a class="reference internal" href="../how-to/web-terminal/operate.html"><sp
 </section>
 <section id="step-7-tune-the-assistant-and-go-to-production">
 <h2>Step 7: Tune the Assistant and Go to Production<a class="headerlink" href="#step-7-tune-the-assistant-and-go-to-production" title="Link to this heading">#</a></h2>
-<p><strong>Choose a channel-finder strategy.</strong> The preset defaults to <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>
-mode, which scales to large facilities with thousands of channels. For a small
+<p><strong>Choose a channel-finder strategy.</strong> The preset defaults to <code class="docutils literal notranslate"><span class="pre">graph</span></code> mode,
+which answers from the facility knowledge graph this deployment runs. For a small
 facility (under ~1,000 channels) the <code class="docutils literal notranslate"><span class="pre">in_context</span></code> strategy can be simpler and
 faster. The strategy is a build-time choice, so set it and rebuild:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
@@ -809,8 +820,8 @@ the agent for a grid scan, review it in the BLUESKY panel, and start it from
 the BLUESKY panel, all against the Virtual Accelerator.
 <a class="reference internal" href="../how-to/bluesky/run-first-plan.html"><span class="doc">Run Your First Plan</span></a> walks through it in ten minutes.</p></li>
 <li><p><strong>Channel finder in depth</strong>: <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> compares the
-hierarchical, in-context, and middle-layer strategies and explains the database
-format.</p></li>
+graph, hierarchical, in-context, and middle-layer strategies and explains
+each one’s data format.</p></li>
 <li><p><strong>Web terminal</strong>: <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> launches the browser UI and
 its panels with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p></li>
 <li><p><strong>Start your own deployment</strong>: trim <code class="docutils literal notranslate"><span class="pre">demo</span></code> down to what your facility

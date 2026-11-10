@@ -857,13 +857,24 @@ exact, and whether a later page exists</p></td>
 <p>The <code class="docutils literal notranslate"><span class="pre">get_ariel_search_service()</span></code> function provides a singleton
 <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> instance. The service is lazily initialized from
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> on first access and reused for subsequent calls.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.services.ariel_search.capability</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_ariel_search_service</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.services.ariel_search.capability</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">close_ariel_service</span><span class="p">,</span>
+    <span class="n">get_ariel_search_service</span><span class="p">,</span>
+<span class="p">)</span>
 
-<span class="n">service</span> <span class="o">=</span> <span class="k">await</span> <span class="n">get_ariel_search_service</span><span class="p">()</span>
-<span class="k">async</span> <span class="k">with</span> <span class="n">service</span><span class="p">:</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">service</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="s2">&quot;RF cavity fault&quot;</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">search_logbook</span><span class="p">():</span>
+    <span class="n">service</span> <span class="o">=</span> <span class="k">await</span> <span class="n">get_ariel_search_service</span><span class="p">()</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">service</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="s2">&quot;RF cavity fault&quot;</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">shutdown</span><span class="p">():</span>
+    <span class="k">await</span> <span class="n">close_ariel_service</span><span class="p">()</span>
 </pre></div>
 </div>
+<p>Don’t use the singleton as an async context manager (<code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">with</span> <span class="pre">service:</span></code>):
+leaving the block closes the service, and every later call in the process gets
+the closed instance. Call <code class="docutils literal notranslate"><span class="pre">close_ariel_service()</span></code> once, at shutdown.</p>
 <p><strong>Lifecycle:</strong> The singleton is created once per process. In the web
 interface, the <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> factory manages its own service instance
 through the FastAPI lifespan. For cleanup in tests, use
@@ -1040,18 +1051,18 @@ reserved: an adapter cannot declare it. Both create endpoints return
 the logbook did not take them and they stayed in ARIEL only.</p>
 <p class="sd-card-text">An entry-field failure on any of these endpoints returns one of three
 envelopes:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;invalid_entry_field&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;field&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;book&quot;</span><span class="p">}</span>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Logbook must be one of: operations, physics&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;invalid_entry_field&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;field&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;book&quot;</span><span class="p">}</span>
 </pre></div>
 </div>
 <p class="sd-card-text">is 422: a submitted value (or an options query’s parent value) is
 invalid and the author can correct it.</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;entry_field_options_unavailable&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;field&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;scan&quot;</span><span class="p">}</span>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;The options for entry field &#39;scan&#39; are unavailable right now.&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;entry_field_options_unavailable&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;field&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;scan&quot;</span><span class="p">}</span>
 </pre></div>
 </div>
 <p class="sd-card-text">is 502: the adapter failed or took longer than 10 seconds to list a
 <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code>’s choices. The detail is a generic message, not the
 adapter’s error text.</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;entry_fields_misdeclared&quot;</span><span class="p">}</span>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Generic JSON misdeclares entry field &#39;book&#39;: the name is declared more than once&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;entry_fields_misdeclared&quot;</span><span class="p">}</span>
 </pre></div>
 </div>
 <p class="sd-card-text">is 500: the adapter declares its fields wrongly, and only a change to
@@ -1103,26 +1114,44 @@ driver’s <code class="docutils literal notranslate"><span class="pre">errors</
 </pre></div>
 </div>
 <p class="sd-card-text"><strong>SearchResponse:</strong></p>
+<p class="sd-card-text">Every field is present, at its default when the search left it empty.
+<code class="docutils literal notranslate"><span class="pre">search_modes_used</span></code> names the one mode the search ran; it is empty when the
+search timed out or the requested mode is unavailable.</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;entries&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span>
 <span class="w">      </span><span class="nt">&quot;entry_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;12345&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;source_system&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ALS eLog&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-15T08:30:00Z&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;source_system&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Generic JSON&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-15T08:30:00-08:00&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="nt">&quot;author&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;J. Smith&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="nt">&quot;raw_text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;RF cavity trip at 08:15...&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">      </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">      </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-15T08:31:12-08:00&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;updated_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-15T08:31:12-08:00&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;RF cavity fault requiring manual reset&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="nt">&quot;keywords&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;RF&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;cavity&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;trip&quot;</span><span class="p">],</span>
 <span class="w">      </span><span class="nt">&quot;score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.92</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;highlights&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;&lt;b&gt;RF cavity&lt;/b&gt; trip at 08:15&quot;</span><span class="p">]</span>
+<span class="w">      </span><span class="nt">&quot;highlights&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;&lt;b&gt;RF cavity&lt;/b&gt; trip at 08:15&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;matched_via&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">      </span><span class="nt">&quot;matched_attachment_ids&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">      </span><span class="nt">&quot;facility_references&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;subject&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;entry_url&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;enhancement_status&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;search_modes_used&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;answer&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;sources&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;12345&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;search_modes_used&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;reasoning&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Keyword search: 1 results&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;total_results&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;total&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;total_exact&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;has_more&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;execution_time_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">340</span>
+<span class="w">  </span><span class="nt">&quot;execution_time_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">340</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;diagnostics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="nt">&quot;expanded_terms&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
 <span class="p">}</span>
 </pre></div>
 </div>
@@ -1141,7 +1170,8 @@ driver’s <code class="docutils literal notranslate"><span class="pre">errors</
 <span class="w">  </span><span class="nt">&quot;last_ingestion&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-15T06:00:00Z&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;errors&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
 <span class="w">  </span><span class="nt">&quot;enhancement_coverage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;text_embedding&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Text embedding&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;complete&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15102</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;pending&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;stale&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;failed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;n/a&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">}</span>
+<span class="w">    </span><span class="nt">&quot;text_embedding&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Text embedding&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;n/a&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;not_run&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;pending&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;stale&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;failed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;complete&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15102</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;semantic_processor&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Summary and keywords&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;n/a&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;not_run&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;pending&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;stale&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;failed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;complete&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15200</span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
@@ -1156,7 +1186,7 @@ failed or stale card’s <code class="docutils literal notranslate"><span class=
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
 Capabilities</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code> endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single <code class="docutils literal notranslate"><span class="pre">direct</span></code> category), along with shared parameters:</p>
+<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code> endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single <code class="docutils literal notranslate"><span class="pre">direct</span></code> category), along with shared parameters, the default search mode, the vocabulary state, the <code class="docutils literal notranslate"><span class="pre">attachments</span></code> block, the <code class="docutils literal notranslate"><span class="pre">filter_dimensions</span></code> the filter rail offers, and the enabled <code class="docutils literal notranslate"><span class="pre">enhancement_modules</span></code>. This is the whole response for a deployment with the <code class="docutils literal notranslate"><span class="pre">keyword</span></code> and <code class="docutils literal notranslate"><span class="pre">semantic</span></code> modes enabled and no vocabulary or enhancement module; with a vocabulary, <code class="docutils literal notranslate"><span class="pre">expand_query</span></code> joins the shared parameters:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;categories&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nt">&quot;direct&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
@@ -1165,11 +1195,20 @@ Capabilities</label><div class="sd-tab-content docutils">
 <span class="w">        </span><span class="p">{</span>
 <span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span>
 <span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Keyword&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Full-text PostgreSQL search...&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Fast text-based lookup using full-text search. Use for specific terms, equipment names, PV names, or phrases. Plain words must all appear, with a ranked partial fallback only when no entry has them all; quoted phrases are always required; OR widens, AND/NOT narrow. Dates and authors go in the date and author filters, not the query.&quot;</span><span class="p">,</span>
 <span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">            </span><span class="p">{</span>
+<span class="w">              </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;include_highlights&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Include Highlights&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Include highlighted snippets in search results&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bool&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Options&quot;</span>
+<span class="w">            </span><span class="p">},</span>
 <span class="w">            </span><span class="p">{</span>
 <span class="w">              </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fuzzy_fallback&quot;</span><span class="p">,</span>
 <span class="w">              </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Fuzzy Fallback&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Fall back to fuzzy matching when no exact matches are found&quot;</span><span class="p">,</span>
 <span class="w">              </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bool&quot;</span><span class="p">,</span>
 <span class="w">              </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">              </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Options&quot;</span>
@@ -1179,25 +1218,126 @@ Capabilities</label><div class="sd-tab-content docutils">
 <span class="w">        </span><span class="p">{</span>
 <span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">,</span>
 <span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Semantic&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Embedding-based similarity search...&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Find conceptually related entries using text embeddings. Use for queries describing concepts, situations, or events where exact words may not match.&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">            </span><span class="p">{</span>
+<span class="w">              </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;similarity_threshold&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Similarity Threshold&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Minimum cosine similarity score for results (0-1)&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;float&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Retrieval&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;min&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;max&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;step&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.01</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">          </span><span class="p">]</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">      </span><span class="p">]</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;default_mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;shared_parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;max_results&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;start_date&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;date&quot;</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;author&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;source_system&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dynamic_select&quot;</span><span class="p">,</span>
-<span class="w">     </span><span class="nt">&quot;options_endpoint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/filter-options/source_systems&quot;</span><span class="p">}</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;max_results&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Max Results&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Maximum number of entries to return&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;int&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;General&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;min&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;max&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;step&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;start_date&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Start Date&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filter entries after this date&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;date&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filters&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;end_date&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;End Date&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filter entries before this date&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;date&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filters&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;author&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Author&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filter entries by author name&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filters&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;placeholder&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filter by author...&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;source_system&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Source System&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filter entries by source system&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dynamic_select&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Filters&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;options_endpoint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/filter-options/source_systems&quot;</span>
+<span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;vocabulary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;concepts&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;expand_by_default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;copy_on_ingest&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;images&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;formats&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;viewable&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="s2">&quot;png&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;jpeg&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;gif&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;webp&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;bmp&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;tiff&quot;</span>
+<span class="w">      </span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;reserved&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="s2">&quot;svg&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;pdf&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;text&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;heif&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;video&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;audio&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;archive&quot;</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;view&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;captions&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;picture_search&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;picture_search_unavailable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">  </span><span class="p">},</span>
 <span class="w">  </span><span class="nt">&quot;filter_dimensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;author&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Author&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;builtin&quot;</span><span class="p">}</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;author&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Author&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;builtin&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;source_system&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Source System&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;builtin&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tags&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Tags&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;builtin&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;enhancement&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Enhancements&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;enhancement&quot;</span>
+<span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;enhancement_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;image_caption&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Image caption&quot;</span><span class="p">}</span>
-<span class="w">  </span><span class="p">]</span>
+<span class="w">  </span><span class="nt">&quot;enhancement_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
 <span class="p">}</span>
 </pre></div>
 </div>

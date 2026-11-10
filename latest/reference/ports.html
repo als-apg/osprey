@@ -487,8 +487,7 @@ default. Move the base and the whole deployment moves with it, so a second
 deployment can share the host without being renumbered service by service:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
 <span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">deployment</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">port_base</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20000</span>
+<span class="w">  </span><span class="nt">deployment.port_base</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20000</span>
 </pre></div>
 </div>
 <p>With that base the web terminal answers on <code class="docutils literal notranslate"><span class="pre">20100</span></code> instead of <code class="docutils literal notranslate"><span class="pre">10100</span></code>, the
@@ -774,8 +773,11 @@ band, and moves with the base like everything else.</p>
 </section>
 <section id="the-keys">
 <span id="reference-ports-keys"></span><h2>The keys<a class="headerlink" href="#the-keys" title="Link to this heading">#</a></h2>
-<p>All three are set in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, but not at the same level of it, and a
-key written at the wrong level is simply not read.</p>
+<p>Each is set in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, but not at the same level of it. A key
+misplaced at the top level is refused; one misplaced under <code class="docutils literal notranslate"><span class="pre">config:</span></code> is
+accepted and not read. Write a <code class="docutils literal notranslate"><span class="pre">config:</span></code> key dotted, one per
+line: a nested <code class="docutils literal notranslate"><span class="pre">deployment:</span></code> mapping replaces the whole <code class="docutils literal notranslate"><span class="pre">deployment</span></code>
+subtree (see <a class="reference internal" href="configuration/profile.html#reference-profile"><span class="std std-ref">Build Profile — profile.yml</span></a>).</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 28.0%" />
@@ -797,7 +799,13 @@ key written at the wrong level is simply not read.</p>
 <td><p>The first port of the deployment’s block. Everything in the table above
 is this number plus an offset.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">worker_port_stride</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">port_base</span></code></p></td>
+<td><p>–</p></td>
+<td><p>Top level</p></td>
+<td><p>Shorthand for <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code>, and wins over it when both are
+set.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">worker_port_stride</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
 <td><p>Top-level <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code></p></td>
 <td><p>The gap between one dispatch worker’s port and the next, in host-network
@@ -805,7 +813,7 @@ mode. A build profile key, not a <code class="docutils literal notranslate"><spa
 through to <code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.worker_port_stride</span></code> in the
 rendered config.</p></td>
 </tr>
-<tr class="row-even"><td><p>Each row’s <strong>Override key</strong></p></td>
+<tr class="row-odd"><td><p>Each row’s <strong>Override key</strong></p></td>
 <td><p>–</p></td>
 <td><p>Under <code class="docutils literal notranslate"><span class="pre">config:</span></code></p></td>
 <td><p>An absolute port for that one service, ignoring the layout.</p></td>
@@ -814,13 +822,12 @@ rendered config.</p></td>
 </table>
 </div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">port_base</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20000</span>
+
 <span class="nt">dispatch</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_triggers.yml</span>
 <span class="w">  </span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
 <span class="w">  </span><span class="nt">worker_port_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-
-<span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">deployment</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">port_base</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20000</span>
 </pre></div>
 </div>
 <p>A base below <code class="docutils literal notranslate"><span class="pre">1024</span></code> is refused: those ports are privileged, and the

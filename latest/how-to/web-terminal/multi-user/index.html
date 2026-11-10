@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 current active has-children"><a class="current reference internal" href="#">Multi-User Support</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="tiers.html">Privilege Tiers</a></li>
@@ -732,13 +718,19 @@ see <a class="reference internal" href="login.html"><span class="doc">Require a 
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
 Switching it on</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">The whole feature is one config block. This is what a project built from
-the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset carries in its <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<p class="sd-card-text">The whole feature is one config block. This is an excerpt of what a
+project built from the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset carries in its <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>;
+the preset also sets <code class="docutils literal notranslate"><span class="pre">landing.notices</span></code> and <code class="docutils literal notranslate"><span class="pre">landing.footer</span></code> (see
+<a class="reference internal" href="#multi-user-landing-notices"><span class="std std-ref">What your operators read first</span></a>):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span><span class="w">       </span><span class="c1"># osprey up builds the images itself</span>
 <span class="w">    </span><span class="nt">default_tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
+<span class="w">      </span><span class="nt">session_lifetime</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">43200</span>
+<span class="w">      </span><span class="nt">allow_insecure_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">landing</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">groups</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">users</span>
@@ -764,6 +756,9 @@ the <code class="docutils literal notranslate"><span class="pre">demo</span></co
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel-finder</span>
 </pre></div>
 </div>
+<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">auth:</span></code> lines put every terminal behind a password login.
+<code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code> suits <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> only; see
+<a class="reference internal" href="login.html"><span class="doc">Require a Login</span></a> before you serve the stack on a reachable host.</p>
 <p class="sd-card-text">Each <code class="docutils literal notranslate"><span class="pre">tier</span></code> names a file in the repository’s <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> and each
 <code class="docutils literal notranslate"><span class="pre">shared:</span></code> entry a file in <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, both written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>.
 Every render shares one data tree, one set of secrets and one set of
@@ -940,10 +935,12 @@ carried into every tier and app the build renders.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Running from a <strong>source checkout</strong> of the OSPREY repository rather than a
-released install? Add <code class="docutils literal notranslate"><span class="pre">--dev</span></code> to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The images install
-the framework from PyPI by default, and a source tree’s version isn’t
-published there; <code class="docutils literal notranslate"><span class="pre">--dev</span></code> bakes your local checkout into the images
-instead.</p>
+released install? The images install the framework from PyPI by default,
+and a source tree’s version isn’t published there; <code class="docutils literal notranslate"><span class="pre">--dev</span></code> bakes your
+local checkout into the images instead. Give it to both commands,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--dev</span></code> then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code>, or run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--build</span> <span class="pre">--dev</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> refuses a render built
+without it.</p>
 </div>
 <section id="what-osprey-build-and-osprey-up-do-for-the-web-tier">
 <h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> do for the web tier<a class="headerlink" href="#what-osprey-build-and-osprey-up-do-for-the-web-tier" title="Link to this heading">#</a></h3>
@@ -1132,7 +1129,7 @@ a credential for the card itself. Clicking any card opens that session at
 cards with one sign-in button; see <a class="reference internal" href="login.html#multi-user-hide-names"><span class="std std-ref">Keep names off the landing page</span></a>.</p>
 </section>
 <section id="what-your-operators-read-first">
-<h3>What your operators read first<a class="headerlink" href="#what-your-operators-read-first" title="Link to this heading">#</a></h3>
+<span id="multi-user-landing-notices"></span><h3>What your operators read first<a class="headerlink" href="#what-your-operators-read-first" title="Link to this heading">#</a></h3>
 <p>At the bottom of the landing page sit collapsible <strong>notices</strong> — the things your
 facility wants people to read before they open a terminal. Each notice is one
 markdown file, listed in config:</p>
@@ -1174,10 +1171,8 @@ string and is always escaped.</p>
 </section>
 <section id="logging-out-and-switching-users">
 <h3>Logging out and switching users<a class="headerlink" href="#logging-out-and-switching-users" title="Link to this heading">#</a></h3>
-<p>The <strong>☰ More</strong> menu at the bottom of the sidebar names the signed-in user —
-the display name where the roster sets one, the username otherwise — and
-their role, and has <strong>Sign out</strong>. That POSTs to the terminal’s logout
-route, clears the local session pointer, and returns you to the landing page.
+<p>To log out, use the <strong>Sign out</strong> row in the sidebar footer, as described in
+<a class="reference internal" href="../operate.html#web-terminal-sign-out"><span class="std std-ref">Sign out</span></a>. It returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login
 starts <strong>fresh</strong>. Simply navigating away (without logout) keeps the session
@@ -1211,9 +1206,14 @@ page’s origin</strong>, the web tier’s second server on its own port
 agent wrote on the terminals’ origin cannot read it. A visit without a valid
 sign-in goes to the terminals’ sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.</p>
-<p>Who sees what is decided per person, from the roster, every time a page loads:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<p>Who sees what is decided per person, from the roster, every time a page loads.
+In <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, the roster goes under <code class="docutils literal notranslate"><span class="pre">config:</span></code> and <code class="docutils literal notranslate"><span class="pre">agent_record:</span></code> is a
+top-level key. Merge these keys into the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code> and
+<code class="docutils literal notranslate"><span class="pre">agent_record:</span></code> entries already there; a second copy of either key silently
+replaces the first. A list in the snippet, such as <code class="docutils literal notranslate"><span class="pre">users:</span></code>, stands as the
+whole list, so write every entry you keep into it.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">authorization</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">roles</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">,</span><span class="nt"> history</span><span class="p">:</span><span class="w"> </span><span class="nv">all</span><span class="p p-Indicator">}</span>
@@ -1221,6 +1221,9 @@ no history page; each terminal still shows its own past sessions.</p>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
 <span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span><span class="w">             </span><span class="c1"># history: own, the default</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">        </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span><span class="w">              </span><span class="c1"># history: all, from the role</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 <span class="w">        </span><span class="nt">tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>

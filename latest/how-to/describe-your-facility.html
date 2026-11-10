@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -575,6 +561,8 @@ an importer, and through a fix. What the build writes from the result is in
   fixes.yaml                corrections to records another source states
   imported/&lt;layer&gt;/         records an importer wrote
   knowledge/                the facility knowledge pages
+  ariel/vocabulary.yml      the logbook shorthand ARIEL expands
+  benchmarks/               the channel-finder benchmark queries
 </pre></div>
 </div>
 <p>Every file is optional. A deployment with no <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> at all builds
@@ -761,15 +749,19 @@ prints the exporter. Run it in MATLAB once per sub-machine.</p></li>
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span> <span class="pre">&lt;stem&gt;.ao.json</span></code> writes
 <code class="docutils literal notranslate"><span class="pre">imported/mml/mapping.yaml</span></code> and stops with <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">mapping-draft</span></code>.
 The mapping holds every decision the export does not state.</p></li>
-<li><p><strong>Review the mapping.</strong> Replace every <code class="docutils literal notranslate"><span class="pre">null</span></code>. The top-level blocks are
-<code class="docutils literal notranslate"><span class="pre">models</span></code> (what each exported system is called as a model),
-<code class="docutils literal notranslate"><span class="pre">section_order</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> (each family’s <code class="docutils literal notranslate"><span class="pre">class</span></code>, <code class="docutils literal notranslate"><span class="pre">devices</span></code>,
-<code class="docutils literal notranslate"><span class="pre">description</span></code> and <code class="docutils literal notranslate"><span class="pre">fields</span></code>) and <code class="docutils literal notranslate"><span class="pre">directions</span></code> (whether each field is
-<code class="docutils literal notranslate"><span class="pre">read</span></code> or <code class="docutils literal notranslate"><span class="pre">write</span></code>). Where the export leaves a family’s shape open, a
-<code class="docutils literal notranslate"><span class="pre">judgments:</span></code> block carries one slot per question: a channel row beyond
-the family’s devices (<code class="docutils literal notranslate"><span class="pre">drop</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code> or <code class="docutils literal notranslate"><span class="pre">{field:</span> <span class="pre">&lt;name&gt;}</span></code>), a
-device no channel binds (<code class="docutils literal notranslate"><span class="pre">drop</span></code> or <code class="docutils literal notranslate"><span class="pre">keep</span></code>), and a channel shared
-across devices (<code class="docutils literal notranslate"><span class="pre">keep_all</span></code> or an owning device).</p></li>
+<li><p><strong>Review the mapping.</strong> Replace every <code class="docutils literal notranslate"><span class="pre">null</span></code>. Four top-level blocks are
+required: <code class="docutils literal notranslate"><span class="pre">models</span></code> (what each exported system is called as a model),
+<code class="docutils literal notranslate"><span class="pre">section_order</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> and <code class="docutils literal notranslate"><span class="pre">directions</span></code> (whether each field is
+<code class="docutils literal notranslate"><span class="pre">read</span></code> or <code class="docutils literal notranslate"><span class="pre">write</span></code>). Each family states its <code class="docutils literal notranslate"><span class="pre">aliases</span></code>,
+<code class="docutils literal notranslate"><span class="pre">description</span></code>, <code class="docutils literal notranslate"><span class="pre">provenance</span></code>, <code class="docutils literal notranslate"><span class="pre">channels</span></code> and <code class="docutils literal notranslate"><span class="pre">fields</span></code>, and may
+state a <code class="docutils literal notranslate"><span class="pre">class</span></code>, its <code class="docutils literal notranslate"><span class="pre">devices</span></code>, a <code class="docutils literal notranslate"><span class="pre">rename</span></code> and the <code class="docutils literal notranslate"><span class="pre">branch</span></code> a new
+class extends. Three top-level blocks are optional: <code class="docutils literal notranslate"><span class="pre">facility</span></code> (the
+identity the first import seeds), <code class="docutils literal notranslate"><span class="pre">branches</span></code> (device classes the
+mapping adds, each with its <code class="docutils literal notranslate"><span class="pre">parent</span></code>) and <code class="docutils literal notranslate"><span class="pre">judgments</span></code>. Where the
+export leaves a family’s shape open, <code class="docutils literal notranslate"><span class="pre">judgments:</span></code> carries one slot per
+question: a channel row beyond the family’s devices (<code class="docutils literal notranslate"><span class="pre">drop</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>
+or <code class="docutils literal notranslate"><span class="pre">{field:</span> <span class="pre">&lt;name&gt;}</span></code>), a device no channel binds (<code class="docutils literal notranslate"><span class="pre">drop</span></code> or <code class="docutils literal notranslate"><span class="pre">keep</span></code>),
+and a channel shared across devices (<code class="docutils literal notranslate"><span class="pre">keep_all</span></code> or an owning device).</p></li>
 <li><p><strong>Wire the model.</strong> Each model’s <code class="docutils literal notranslate"><span class="pre">wiring</span></code> block in the mapping lists the
 families the model drives or reads. Per family it names the
 <code class="docutils literal notranslate"><span class="pre">element_field</span></code>, the family field the model wires; <code class="docutils literal notranslate"><span class="pre">engine</span></code>, the deck
@@ -788,10 +780,12 @@ the export was sampled on.</p></li>
 <p>The record files under <code class="docutils literal notranslate"><span class="pre">imported/mml/</span></code> belong to the import and are
 rewritten by every run; <code class="docutils literal notranslate"><span class="pre">mapping.yaml</span></code> is yours and is only drafted when
 absent. The import also creates <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and
-<code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code> when they do not exist, and never rewrites them
-afterwards. It replaces a bundled facility, saying so in one line, and refuses
-only hand-written records of the kinds it writes, naming each file.</p>
+<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code>
+when they do not exist, and never rewrites them afterwards. It creates
+<code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> when absent; when the file exists, the import appends only
+the classes it lacks and leaves its rows as written. It replaces a bundled
+facility, saying so in one line, and refuses only hand-written records of the
+kinds it writes, naming each file.</p>
 </section>
 <section id="a-channel-list">
 <h3>A channel list<a class="headerlink" href="#a-channel-list" title="Link to this heading">#</a></h3>
@@ -800,36 +794,44 @@ only hand-written records of the kinds it writes, naming each file.</p>
 <code class="docutils literal notranslate"><span class="pre">role</span></code>, <code class="docutils literal notranslate"><span class="pre">pair</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">unit</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>,
 <code class="docutils literal notranslate"><span class="pre">tags</span></code>, <code class="docutils literal notranslate"><span class="pre">s</span></code> and <code class="docutils literal notranslate"><span class="pre">model</span></code>; a file with no <code class="docutils literal notranslate"><span class="pre">address</span></code> column holds one
 address per line.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>address,role,device,unit,description
-SR:MAG:QF:01:CURRENT:SP,setpoint,QF01,A,Focusing quadrupole current
-SR:MAG:QF:01:CURRENT:RB,,QF01,A,Focusing quadrupole current readback
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">channels.csv</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>address,role,pair,device,s,unit,description
+SR:MAG:QF:01:CURRENT:SP,setpoint,SR:MAG:QF:01:CURRENT:RB,QF01,1.5,A,Focusing quadrupole current
+SR:MAG:QF:01:CURRENT:RB,,,QF01,1.5,A,Focusing quadrupole current readback
 </pre></div>
+</div>
 </div>
 <p>The files under <code class="docutils literal notranslate"><span class="pre">imported/list/</span></code> belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
-into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. A run whose list states no <code class="docutils literal notranslate"><span class="pre">s</span></code> leaves no
-<code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>. The list import runs the same step as every format: it
-replaces a bundled facility and refuses only hand-written channel and device
-lists, so it still positions a list against your own deck, models and places.</p>
+into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. Each device a row gives an <code class="docutils literal notranslate"><span class="pre">s</span></code> is written to
+<code class="docutils literal notranslate"><span class="pre">imported/list/devices.yaml</span></code>; a <code class="docutils literal notranslate"><span class="pre">model</span></code> column names the model whose deck
+<code class="docutils literal notranslate"><span class="pre">s</span></code> is measured along. A run whose list states no <code class="docutils literal notranslate"><span class="pre">s</span></code> leaves no
+<code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>, and a device the list then names needs a record of its own,
+such as an <code class="docutils literal notranslate"><span class="pre">add</span></code> fix, or the build stops with <code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>. The
+list import runs the same step as every format: it replaces a bundled facility
+and refuses only hand-written channel and device lists, so it still positions
+a list against your own deck, models and places.</p>
 </section>
 </section>
 <section id="fixes">
 <h2>Fixes<a class="headerlink" href="#fixes" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> corrects a record another source states, without editing that
-source. Each fix names a record and gives the reason:</p>
+source. Each fix names a record and gives the reason. These two correct the
+channel list above:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">schema</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey.facility.fixes/1</span>
 <span class="nt">fixes</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">op</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">set</span>
 <span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel</span>
-<span class="w">    </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:QF:SP</span>
-<span class="w">    </span><span class="nt">fields</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="nv">setpoint</span><span class="p p-Indicator">}</span>
-<span class="w">    </span><span class="nt">was</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">mml</span><span class="p">:</span><span class="w"> </span><span class="nv">readback</span><span class="p p-Indicator">}}</span>
-<span class="w">    </span><span class="nt">why</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The export lists the setpoint as a monitor.</span>
+<span class="w">    </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:CURRENT:SP</span>
+<span class="w">    </span><span class="nt">fields</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="nv">Focusing quadrupole current setpoint</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">was</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">list</span><span class="p">:</span><span class="w"> </span><span class="nv">Focusing quadrupole current</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">why</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The list&#39;s description leaves out that this is the setpoint.</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">op</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">add</span>
 <span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">device</span>
-<span class="w">    </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/QF9</span>
+<span class="w">    </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">QF02</span>
 <span class="w">    </span><span class="nt">record</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="nv">Quadrupole</span><span class="p p-Indicator">}</span>
-<span class="w">    </span><span class="nt">why</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Missing from the export.</span>
+<span class="w">    </span><span class="nt">why</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Missing from the list.</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">set</span></code> replaces the fields it names, each whole; <code class="docutils literal notranslate"><span class="pre">add</span></code> adds a record;
@@ -843,7 +845,10 @@ does not depend on the order of the fixes.</p>
 </section>
 <section id="limits">
 <h2>Limits<a class="headerlink" href="#limits" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> holds the write limits, one record per channel:</p>
+<p><code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> holds the write limits, one record per channel. The
+demo preset ships this one:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">limits.yaml</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">records</span><span class="p">:</span>
 <span class="c1"># Symmetric range: the corrector current stays within [-12, 12].</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:SP</span>
@@ -858,6 +863,7 @@ does not depend on the order of the fixes.</p>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:VAC:ION-PUMP:01:VOLTAGE:SP</span>
 <span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </pre></div>
+</div>
 </div>
 <p>A setpoint record with both <code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> is writable within
 them; <code class="docutils literal notranslate"><span class="pre">max_step</span></code> bounds a single change; <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code> blocks every
@@ -875,11 +881,12 @@ limits. The hello-world and demo presets ship <code class="docutils literal notr
 <section id="seeds">
 <h2>Seeds<a class="headerlink" href="#seeds" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> says how a channel behaves in the simulator when no model
-wires it. It is keyed by address:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">SR:BEAM:CURRENT</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">nominal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250.0</span>
+wires it. It is keyed by address. The preset’s booster current starts at
+1.2 mA with Gaussian noise:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">BR:DIAG:DCCT:01:CURRENT:RB</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">nominal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.2</span>
 <span class="w">  </span><span class="nt">noise</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">absolute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+<span class="w">    </span><span class="nt">absolute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">nominal</span></code> is the value at start; <code class="docutils literal notranslate"><span class="pre">noise</span></code> is Gaussian, <code class="docutils literal notranslate"><span class="pre">{absolute:</span>
@@ -892,11 +899,11 @@ wired channel’s operating point, lies outside the <code class="docutils litera
 <p><code class="docutils literal notranslate"><span class="pre">pulse</span></code> gives a waveform channel its trace. It names two other channels:
 <code class="docutils literal notranslate"><span class="pre">driver</span></code>, whose reading scales the trace, and <code class="docutils literal notranslate"><span class="pre">enable</span></code>, which switches it
 on. The trace’s shape is fixed in code, not in the seed; with <code class="docutils literal notranslate"><span class="pre">enable</span></code> off
-the trace is flat zero.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">INJ:SEPTUM:PULSE</span><span class="p">:</span>
+the trace is flat zero. The preset’s septum current waveform:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">SR:MAG:SEPTUM:01:CURRENT:WAVEFORM</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">pulse</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:SEPTUM:AMPL</span>
-<span class="w">    </span><span class="nt">enable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:SEPTUM:ENABLE</span>
+<span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:SEPTUM:01:CURRENT:SP</span>
+<span class="w">    </span><span class="nt">enable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:SEPTUM:01:STATUS:ON</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">gate</span></code> says what a channel does while an interlock-like input blocks it.
@@ -904,12 +911,15 @@ the trace is flat zero.</p>
 reads its blocking label the channel takes <code class="docutils literal notranslate"><span class="pre">gated</span></code>, and otherwise it behaves
 as its other seed keys say. <code class="docutils literal notranslate"><span class="pre">gated</span></code> is typed by the gated channel: a factor
 greater than zero on a float channel (the value is scaled by it), a label on a
-bool or enum channel, an integer on an int channel.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">SR:BEAM:CURRENT</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">nominal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250.0</span>
+bool or enum channel, an integer on an int channel. In the preset, the
+sum signal of the first beam position monitor in the gun-to-linac line drops
+to 1% of full beam while the gun’s heater or its high voltage is off:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">GTL:DIAG:BPM:01:SUM:RB</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">nominal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
 <span class="w">  </span><span class="nt">gate</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">inputs</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">SR:RF:PERMIT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">blocked</span>
+<span class="w">      </span><span class="nt">GTL:GUN:EGUN:01:HEATER_ON:RB</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;FALSE&#39;</span>
+<span class="w">      </span><span class="nt">GTL:GUN:EGUN:01:HV_ON:RB</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;FALSE&#39;</span>
 <span class="w">    </span><span class="nt">gated</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
 </pre></div>
 </div>
@@ -990,8 +1000,16 @@ in <a class="reference internal" href="../architecture/facility-file.html#archit
 <section id="measurement">
 <h2>Measurement<a class="headerlink" href="#measurement" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> states which measurements a model allows and
-what they use:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">kinds</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">orm</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">dispersion</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">trm</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">crm</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">chromaticity_monitor</span><span class="p p-Indicator">]</span>
+what they use. The demo preset ships this one for its storage
+ring:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">measurement/SR.yaml</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">kinds</span><span class="p">:</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orm</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dispersion</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">trm</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">crm</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chromaticity_monitor</span>
 <span class="nt">groups</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">bpm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/BPM</span>
 <span class="w">  </span><span class="nt">hcor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/HCM</span>
@@ -1011,6 +1029,7 @@ what they use:</p>
 <span class="nt">sextu_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
 <span class="nt">frequency_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100.0</span>
 </pre></div>
+</div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">kinds</span></code> names the allowed measurements: <code class="docutils literal notranslate"><span class="pre">orm</span></code>, <code class="docutils literal notranslate"><span class="pre">dispersion</span></code>, <code class="docutils literal notranslate"><span class="pre">trm</span></code>,
 <code class="docutils literal notranslate"><span class="pre">crm</span></code> and <code class="docutils literal notranslate"><span class="pre">chromaticity_monitor</span></code>. <code class="docutils literal notranslate"><span class="pre">groups</span></code> names the group, or the list

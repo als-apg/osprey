@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -545,10 +531,11 @@
                   
   <section id="how-to-use-the-channel-finder">
 <span id="how-to-channel-finder"></span><h1>How to Use the Channel Finder<a class="headerlink" href="#how-to-use-the-channel-finder" title="Link to this heading">#</a></h1>
-<p>The Channel Finder translates natural language queries (e.g., “beam current,”
-“terminal voltage”) into control system addresses (e.g., <code class="docutils literal notranslate"><span class="pre">SR:DCCT:Current</span></code>,
-<code class="docutils literal notranslate"><span class="pre">TMVST</span></code>). It uses LLM-based pipelines, so a query can use everyday terms
-rather than exact channel names.</p>
+<p>The Channel Finder translates natural language queries, such as “beam current”
+or “RF cavity voltage”, into control system addresses, such as
+<code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code> or <code class="docutils literal notranslate"><span class="pre">SR:RF:CAVITY:01:VOLTAGE:RB</span></code> in the
+demo preset. It uses LLM-based pipelines, so a query can use
+everyday terms rather than exact channel names.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <p>Hellert et al. (2025), <em>From Natural Language to Control Signals</em>,
@@ -604,7 +591,7 @@ explicitly.</p>
 </tbody>
 </table>
 </div>
-<p>The three are not size tiers of one design. Each takes a differently shaped
+<p>The four are not size tiers of one design. Each takes a differently shaped
 database and resolves a query by a different mechanism:</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 364" role="img" aria-labelledby="cf-pipelines-title cf-pipelines-desc">
@@ -708,7 +695,7 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview<span
 </section>
 <section id="middle-layer-pipeline">
 <h2>Middle Layer Pipeline<a class="headerlink" href="#middle-layer-pipeline" title="Link to this heading">#</a></h2>
-<p>A React agent explores the database using query tools
+<p>A ReAct (reason and act) agent explores the database using query tools
 (<code class="docutils literal notranslate"><span class="pre">list_systems</span></code>, <code class="docutils literal notranslate"><span class="pre">list_families</span></code>, <code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code>,
 <code class="docutils literal notranslate"><span class="pre">list_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">get_common_names</span></code>, <code class="docutils literal notranslate"><span class="pre">statistics</span></code>, <code class="docutils literal notranslate"><span class="pre">validate</span></code>, and —
 when DuckDB is installed — <code class="docutils literal notranslate"><span class="pre">run_sql</span></code>). What <code class="docutils literal notranslate"><span class="pre">run_sql</span></code> hands back is bounded

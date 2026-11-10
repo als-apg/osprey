@@ -462,9 +462,9 @@ resume at any point.</p>
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text"><strong>A coding-agent CLI</strong> — the setup runs inside a coding-agent session;
-the commands here use Claude Code. Install it from
-<a class="reference external" href="https://claude.ai/code">claude.ai/code</a> and make sure
-<code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">--version</span></code> works in your terminal.</p></li>
+the commands here use Claude Code. Install the pinned version as Step 2
+of <a class="reference internal" href="installation.html"><span class="doc">Installation</span></a> shows, and make sure <code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">--version</span></code> works in
+your terminal.</p></li>
 <li><p class="sd-card-text"><strong>uv</strong> — the setup puts OSPREY on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code> with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">install</span></code>.
 <a class="reference internal" href="installation.html"><span class="doc">Installation</span></a> covers installing <code class="docutils literal notranslate"><span class="pre">uv</span></code>; OSPREY itself can wait for the
 conversation.</p></li>
@@ -477,8 +477,7 @@ works on the result, and a list of your channel names if you have one.</p></li>
 </details><section id="install-the-skill">
 <h2>Install the skill<a class="headerlink" href="#install-the-skill" title="Link to this heading">#</a></h2>
 <p>The skill ships in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> plugin:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-claude<span class="w"> </span>plugin<span class="w"> </span>marketplace<span class="w"> </span>add<span class="w"> </span>als-apg/osprey<span class="w"> </span>--sparse<span class="w"> </span>.claude-plugin<span class="w"> </span>plugins
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude<span class="w"> </span>plugin<span class="w"> </span>marketplace<span class="w"> </span>add<span class="w"> </span>als-apg/osprey<span class="w"> </span>--sparse<span class="w"> </span>.claude-plugin<span class="w"> </span>plugins
 claude<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>osprey@osprey
 </pre></div>
 </div>
@@ -487,8 +486,7 @@ claude<span class="w"> </span>plugin<span class="w"> </span>install<span class="
 </section>
 <section id="run-it">
 <h2>Run it<a class="headerlink" href="#run-it" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-mkdir<span class="w"> </span>-p<span class="w"> </span>~/my-osprey-project
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span>~/my-osprey-project
 <span class="nb">cd</span><span class="w"> </span>~/my-osprey-project
 claude
 </pre></div>
@@ -571,10 +569,8 @@ build at any pause.</p></li>
 </section>
 <section id="build-and-run">
 <h2>Build and run<a class="headerlink" href="#build-and-run" title="Link to this heading">#</a></h2>
-<p>The setup leaves you inside a deployment repository:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-<span class="nb">cd</span><span class="w"> </span>my-project
-osprey<span class="w"> </span>build<span class="w">     </span><span class="c1"># render build/ from the profile</span>
+<p>The setup leaves you inside the deployment repository it built:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w">     </span><span class="c1"># render build/ from the profile</span>
 osprey<span class="w"> </span>web<span class="w">       </span><span class="c1"># web dashboard on your own machine</span>
 </pre></div>
 </div>
@@ -588,8 +584,7 @@ editing <code class="docutils literal notranslate"><span class="pre">profile.yml
 platform, the deploy host, and the container registry if that host pulls its
 images. A fresh profile ships this block commented out. Credentials are named
 there, never written there. Then:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>scaffold<span class="w"> </span>ci<span class="w">    </span><span class="c1"># CI pipeline + post-deploy health check script</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>ci<span class="w">    </span><span class="c1"># CI pipeline + post-deploy health check script</span>
 osprey<span class="w"> </span>up<span class="w"> </span>-d<span class="w">          </span><span class="c1"># start it</span>
 osprey<span class="w"> </span>status<span class="w">         </span><span class="c1"># what is running, where it answers, which build it is</span>
 </pre></div>

@@ -484,7 +484,8 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>feature/your-feature-name
 </pre></div>
 </div>
-<p><strong>2. Make changes</strong> – follow the code standards below, add tests, update docs.</p>
+<p><strong>2. Make changes</strong> – follow the code standards on <a class="reference internal" href="development-setup.html"><span class="doc">Development Setup</span></a>, add
+tests, update docs.</p>
 <p><strong>3. Test locally</strong> with the check command, <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span></code>, which runs
 the merge gate from the checks every owner declares:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The quick tier -- before every commit (--fix lets ruff and prettier rewrite</span>
@@ -607,10 +608,17 @@ lanes run against <code class="docutils literal notranslate"><span class="pre">m
 </ul>
 <p>A release-notes pull request always carries <code class="docutils literal notranslate"><span class="pre">full-ci</span></code>: these lanes are the
 only proof the agentic paths work on the tree about to be tagged.</p>
-<p>There is deliberately no schedule. A scheduled run spends model tokens with
-nobody watching, and its red reaches nobody; a lane that only runs when someone
-asked for it has a person waiting on the result. If you consume <code class="docutils literal notranslate"><span class="pre">main</span></code>
-directly, pin a sha a full run was green on rather than raw head.</p>
+<p>On <code class="docutils literal notranslate"><span class="pre">main</span></code>, <code class="docutils literal notranslate"><span class="pre">.github/workflows/main-full-ci.yml</span></code> starts that dispatch once a
+day, and only when <code class="docutils literal notranslate"><span class="pre">main</span></code> has moved since the last revalidation run, so a quiet
+day spends no model tokens. A red revalidation run opens or updates the one
+“Full CI red on main” issue, and the next green run closes it, so a red reaches
+a person. If you consume <code class="docutils literal notranslate"><span class="pre">main</span></code> directly, pin a sha a full run was green on
+rather than raw head. This prints the newest such sha, for the whole run or for
+one lane; it reads the runs through <code class="docutils literal notranslate"><span class="pre">gh</span></code>, so sign in to the GitHub CLI first:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>scripts/ci/full_ci_on_main.py<span class="w"> </span>last-green
+python3<span class="w"> </span>scripts/ci/full_ci_on_main.py<span class="w"> </span>last-green<span class="w"> </span>scan-agentic-e2e
+</pre></div>
+</div>
 <p>Everything else on a PR is unchanged: the unit, lint, docs and package lanes and
 every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
 run on every push. Those cost runner minutes, not tokens, and the deploy lanes
@@ -761,7 +769,7 @@ not an inconvenience around it.</p>
 the <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code> skill gives guided help following this workflow. It
 walks you through branching, commits, push, PR, and CI iteration,
 auto-detecting whether you have push access to <code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code> or are
-contributing from a fork. It ships in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> plugin alongside five
+contributing from a fork. It ships in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> plugin alongside nine
 others; how to install it, and which skill fits which step of the journey, is
 on <a class="reference internal" href="agent-skills.html"><span class="doc">Agent Skills</span></a>.</p>
 </section>

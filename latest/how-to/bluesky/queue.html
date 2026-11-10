@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -677,6 +663,8 @@ POST   /queue/start        arm the queue (needs the launch token; may name
                            the queue it means — expected_plan_queue_uid)
 POST   /queue/stop         stop after the running item, and disarm
 POST   /queue/abort        abort the running plan, and disarm — never gated
+POST   /queue/items/&lt;uid&gt;/move
+                           move one waiting item (reorder; ungated)
 DELETE /queue/items/&lt;uid&gt;  drop one waiting item
 DELETE /queue/items        drop every waiting item
 GET    /queue              what is queued and running, and the queue&#39;s own
@@ -684,7 +672,9 @@ GET    /queue              what is queued and running, and the queue&#39;s own
 GET    /queue/removals     what was taken off the queue, newest first,
                            and who asked (X-Osprey-Owner names the asker)
 GET    /runs               recent runs; /runs/&lt;id&gt;/data for the numbers,
-                           /runs/&lt;id&gt;/figure for the plotted view
+                           /runs/&lt;id&gt;/figure for the plotted view,
+                           /runs/&lt;id&gt;/export for the whole run as a
+                           CSV or parquet file
 DELETE /runs/&lt;id&gt;          remove one finished run from the list
 DELETE /history            remove every finished run from the list
 </pre></div>

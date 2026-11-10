@@ -539,9 +539,9 @@ it. That review is not one of the layers on this page, which hold whatever it sa
 <p>Agent-authored Python runs as a subprocess on the same host as the Osprey
 agent. It is the only execution backend, so there is nothing to choose
 between:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
-<span class="nt">execution</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">subprocess</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">execution.execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">subprocess</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">subprocess</span></code> is the default and the key can be left out entirely. Two other
@@ -653,8 +653,9 @@ inside the MCP server process.</p></li>
 <code class="docutils literal notranslate"><span class="pre">python_executor.execution_timeout_seconds</span></code> (default 600 s). The
 process is killed if it exceeds the limit.</p></li>
 </ol>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">python_executor</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python_executor.execution_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
 </pre></div>
 </div>
 <section id="what-counts-as-a-control-system-write">
@@ -841,7 +842,7 @@ same operator alert a readonly refusal raises.</p>
 <p><strong>Before the run.</strong> For the <code class="docutils literal notranslate"><span class="pre">execute</span></code> tool in a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run, the
 approval hook refuses the unambiguous raw spellings before any human is asked
 to approve: <code class="docutils literal notranslate"><span class="pre">caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">caput_many(</span></code>, <code class="docutils literal notranslate"><span class="pre">epics.caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">PV(...).put(</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ctxt.put(</span></code>, <code class="docutils literal notranslate"><span class="pre">aioca.caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">write_door</span></code> and <code class="docutils literal notranslate"><span class="pre">open_door</span></code>. It reads
+<code class="docutils literal notranslate"><span class="pre">aioca.caput(</span></code>, <code class="docutils literal notranslate"><span class="pre">write_door</span></code> and <code class="docutils literal notranslate"><span class="pre">open_door</span></code>. It reads
 the source with comments and string literals removed, so a spelling inside a
 comment or a message does not count. The hook answers with a <code class="docutils literal notranslate"><span class="pre">deny</span></code> and the
 <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> message, and files a refused audit record with reason

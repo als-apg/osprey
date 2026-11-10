@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -618,6 +604,8 @@ say <code class="docutils literal notranslate"><span class="pre">azurewebsites.n
 dispatcher trigger the bridge fires — that trigger decides what the agent is
 allowed to do with a chat question — and whether the agent may &#64;mention people.
 The block is only meaningful next to a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">profile.yml</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">teams_bridge</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">trigger</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">teams-question</span><span class="w">        </span><span class="c1"># default; must exist in your triggers file</span>
 <span class="w">  </span><span class="nt">mentions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">            </span><span class="c1"># default; false posts @mentions as plain text</span>
@@ -634,6 +622,7 @@ The block is only meaningful next to a <code class="docutils literal notranslate
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEAMS_SERVICEBUS_CONNECTION_STRING</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEAMS_SERVICEBUS_QUEUE</span>
 </pre></div>
+</div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -693,10 +682,10 @@ to the queue, so it never holds a key that could.</p></td>
 deployment at it.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_CLOUD</span></code></p></td>
-<td><p>Optional. Leave it unset for an ordinary commercial tenant. Set it to
-<code class="docutils literal notranslate"><span class="pre">gcchigh</span></code> for a GCC High tenant; those are the only two values, and any
-other one stops the bridge at startup rather than failing later as an
-unexplained authentication error.</p></td>
+<td><p>Optional. Leave it unset, or set it to <code class="docutils literal notranslate"><span class="pre">commercial</span></code>, for an ordinary
+commercial tenant. Set it to <code class="docutils literal notranslate"><span class="pre">gcchigh</span></code> for a GCC High tenant. Those are
+the only two values; any other one stops the bridge at startup rather
+than failing later as an unexplained authentication error.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_FILES_DRIVE_ID</span></code></p></td>
 <td><p>Optional. The drive id of the one document library the bot shares files
@@ -795,9 +784,10 @@ agent reads the rest only if it needs it. <code class="docutils literal notransl
 answer in full.</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">GITLAB_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_PROJECT</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_ISSUES_TOKEN</span></code></p></td>
-<td><p class="sd-card-text">Where to file an issue when a question is finally given up on. Leave
-unset if you have no such host: nothing is filed and nothing is
-checked.</p></td>
+<td><p class="sd-card-text">Optional alert host. With <code class="docutils literal notranslate"><span class="pre">GITLAB_URL</span></code> and <code class="docutils literal notranslate"><span class="pre">GITLAB_ISSUES_TOKEN</span></code>
+set, the bridge holds queued questions while <code class="docutils literal notranslate"><span class="pre">GITLAB_PROJECT</span></code> has an
+open <code class="docutils literal notranslate"><span class="pre">osprey-alert</span></code> issue, or while GitLab cannot be reached. Leave
+them unset to skip the check.</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">APP_VERSION_DISPLAY</span></code></p></td>
 <td><p class="sd-card-text">A release label shown with each acknowledgement, so a conversation
@@ -993,14 +983,20 @@ Content-Type: application/json
 }
 </pre></div>
 </div>
-<p>Read the library’s drive id and add the two variables to the <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+<p>Read the library’s drive id:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>rest<span class="w"> </span>--method<span class="w"> </span>get<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--url<span class="w"> </span><span class="s2">&quot;https://graph.microsoft.com/v1.0/sites/</span><span class="nv">$SITE_ID</span><span class="s2">/lists/</span><span class="nv">$LIST_ID</span><span class="s2">/drive&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--query<span class="w"> </span>id<span class="w"> </span>-o<span class="w"> </span>tsv
-
-<span class="nv">TEAMS_FILES_DRIVE_ID</span><span class="o">=</span>b!the-drive-id
+</pre></div>
+</div>
+<p>Then add the two variables to the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>, with the drive id the
+command printed:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">.env</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">TEAMS_FILES_DRIVE_ID</span><span class="o">=</span>b!the-drive-id
 <span class="nv">TEAMS_FILES_FOLDER</span><span class="o">=</span>osprey/answers
 </pre></div>
+</div>
 </div>
 <p>On GCC High the Graph host follows <code class="docutils literal notranslate"><span class="pre">TEAMS_CLOUD</span></code> (<code class="docutils literal notranslate"><span class="pre">graph.microsoft.us</span></code>).
 Confirm your cloud offers the <code class="docutils literal notranslate"><span class="pre">Selected</span></code> permissions before you set a library,

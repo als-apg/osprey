@@ -643,26 +643,35 @@ about what the build makes of them.</p>
 </div>
 <section id="the-facility-file">
 <h2>The facility file<a class="headerlink" href="#the-facility-file" title="Link to this heading">#</a></h2>
-<p>A facility <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> copies from a preset is bundled: every copied text file
-opens with the bundled-origin line, except the knowledge indexes, which
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span></code> writes. Delete the line to make a file yours. The
-import, in every format, replaces the bundled files and refuses only hand-written
-records of the kinds that format writes. A bundled facility carries data only:
-records, decks, models, limits, seeds, scenarios, knowledge pages, benchmark query
-sources and the ARIEL vocabulary, and never a skill, agent or rule.</p>
 <p><code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> is every record of the facility in one document,
 under a <code class="docutils literal notranslate"><span class="pre">schema</span></code> header: <code class="docutils literal notranslate"><span class="pre">identity</span></code>, <code class="docutils literal notranslate"><span class="pre">classes</span></code>, <code class="docutils literal notranslate"><span class="pre">places</span></code>, <code class="docutils literal notranslate"><span class="pre">devices</span></code>,
 <code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>, <code class="docutils literal notranslate"><span class="pre">models</span></code> with their wiring, <code class="docutils literal notranslate"><span class="pre">limits</span></code> and
-<code class="docutils literal notranslate"><span class="pre">scenarios</span></code>. It holds two things no source file does. The first is what the
-build computes: the readback a setpoint is paired with when no source names
-one; each device’s place and position along its model’s deck, its ordinal
-among its class in its place and in its model, and the groups that name it;
-and each wiring record’s unit, direction, value range and operating point,
-and what its model’s engine says it is: role, plane and refresh. The second is <code class="docutils literal notranslate"><span class="pre">provenance</span></code>: per record, which layer and file stated each field,
+<code class="docutils literal notranslate"><span class="pre">scenarios</span></code>. A model’s <em>deck</em> is the lattice file its simulation engine
+loads, and its <em>wiring</em> is the set of records that tie channel addresses to
+elements of that deck.</p>
+<p>The file holds two things no source file does. The first is what the build
+computes:</p>
+<ul class="simple">
+<li><p>the readback a setpoint is paired with, when no source names one;</p></li>
+<li><p>for each device, its place and position along its model’s deck, its ordinal
+among its class in its place and in its model, and the groups that name it;</p></li>
+<li><p>for each wiring record, its unit, direction, value range and operating
+point, and what its model’s engine says it is: role, plane and refresh.</p></li>
+</ul>
+<p>The second is <code class="docutils literal notranslate"><span class="pre">provenance</span></code>: per record, which layer and file stated each field,
 which fixes were applied and which fields the build filled.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">show</span> <span class="pre">&lt;id&gt;</span></code> prints it.</p>
 <p>The file is the same in every render of a build. It carries no timestamp, no
 OSPREY version and no absolute path, so equal sources give equal bytes.</p>
+<p>The sources can start as a copy of a preset. A facility <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> copies
+from a preset is <em>bundled</em>: every copied text file opens with the
+bundled-origin line. The exception is the knowledge indexes, which
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span></code> writes. Delete the line to make a file yours.
+The import, in every format, replaces the bundled files and refuses only
+hand-written records of the kinds that format writes. A bundled facility
+carries data only: records, decks, models, limits, seeds, scenarios, knowledge
+pages, benchmark query sources and the ARIEL vocabulary, and never a skill,
+agent or rule.</p>
 </section>
 <section id="reading-the-facility-file">
 <h2>Reading the facility file<a class="headerlink" href="#reading-the-facility-file" title="Link to this heading">#</a></h2>
@@ -700,57 +709,62 @@ filters the file’s own channel records and names a model or a place.</p>
 <td></td>
 <td></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">record(kind,</span> <span class="pre">id)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility_bytes()</span></code></p></td>
+<td><p>The bytes of <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> for the document it was built from, serialised by <code class="docutils literal notranslate"><span class="pre">osprey.facility.render.facility_bytes</span></code> (two-space indent, one final newline), so the renders of one build share one serialisation.</p></td>
+<td><p>Sorted keys.</p></td>
+<td></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">record(kind,</span> <span class="pre">id)</span></code></p></td>
 <td><p>The one record of that kind and id.</p></td>
 <td></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">require(kind,</span> <span class="pre">id)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">require(kind,</span> <span class="pre">id)</span></code></p></td>
 <td><p>The same, for a caller that cannot go on without it.</p></td>
 <td></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">KeyError</span></code> naming the kind and the id.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">of_kind(kind)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">of_kind(kind)</span></code></p></td>
 <td><p>Every record of a kind that carries its id; the first of a duplicate id.</p></td>
 <td><p>Document order.</p></td>
 <td><p>Empty.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ids(kind)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ids(kind)</span></code></p></td>
 <td><p>The ids of a kind.</p></td>
 <td></td>
 <td><p>Empty.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">find(id)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">find(id)</span></code></p></td>
 <td><p>Every record, of any kind, with that id.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">RECORD_KINDS</span></code>: place, device, channel, group, model.</p></td>
 <td><p>Empty.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channels_on(device_id)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channels_on(device_id)</span></code></p></td>
 <td><p>The channels whose <code class="docutils literal notranslate"><span class="pre">on.device</span></code> names the device or that list it in <code class="docutils literal notranslate"><span class="pre">endpoint_of</span></code>.</p></td>
 <td><p>Document order, each once.</p></td>
 <td><p>Empty, also for an unknown id.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">wired(address)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">wired(address)</span></code></p></td>
 <td><p>The one wiring record naming an address, as the file holds it.</p></td>
 <td></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code> for an address no model wires.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">resolve(target)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">resolve(target)</span></code></p></td>
 <td><p>The channel and device records a reference target names, by exact id.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">LINK_KINDS</span></code>: channel, then device.</p></td>
 <td><p>Empty when dangling.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">targets()</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">targets()</span></code></p></td>
 <td><p>Every string <code class="docutils literal notranslate"><span class="pre">resolve</span></code> resolves.</p></td>
 <td></td>
 <td><p>Empty.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">describe(target)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">describe(target)</span></code></p></td>
 <td><p>A fresh <code class="docutils literal notranslate"><span class="pre">{kind,</span> <span class="pre">id,</span> <span class="pre">unit?,</span> <span class="pre">description?}</span></code> per record <code class="docutils literal notranslate"><span class="pre">resolve</span></code> returns.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">resolve</span></code> order.</p></td>
 <td><p>Empty when dangling.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">select_channels(selection)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">select_channels(selection)</span></code></p></td>
 <td><p>The channels a <code class="docutils literal notranslate"><span class="pre">ChannelSelection</span></code> matches. Its <code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">group</span></code>, <code class="docutils literal notranslate"><span class="pre">signal</span></code>, <code class="docutils literal notranslate"><span class="pre">role</span></code> and <code class="docutils literal notranslate"><span class="pre">plane</span></code> facets AND; a place takes every place under it; <code class="docutils literal notranslate"><span class="pre">role</span></code> and <code class="docutils literal notranslate"><span class="pre">plane</span></code> match the wiring record naming the address.</p></td>
 <td><p>Document order.</p></td>
 <td><p>Empty when nothing matches; <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> naming a model, place or group the file does not hold, or a role or plane outside the schema’s vocabulary.</p></td>
@@ -1000,10 +1014,12 @@ channel and per signal named, with the device classes as a class tree.</p>
 </section>
 <section id="the-schema">
 <span id="architecture-facility-schema"></span><h2>The schema<a class="headerlink" href="#the-schema" title="Link to this heading">#</a></h2>
-<p>The facility file’s shape is two LinkML modules in
+<p>The facility file’s shape is two <a class="reference external" href="https://linkml.io/">LinkML</a> modules (LinkML
+is a YAML language for data schemas) in
 <code class="docutils literal notranslate"><span class="pre">src/osprey/facility/schema/</span></code>: <code class="docutils literal notranslate"><span class="pre">core.yaml</span></code>, the records, and
 <code class="docutils literal notranslate"><span class="pre">vocabulary.yaml</span></code>, the device classes, signal roles and property names. Both
-carry NARAD’s schemas forward. NARAD requires more than a bare channel list
+carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
+facility exports and mapping them across facilities. NARAD requires more than a bare channel list
 can state, so <code class="docutils literal notranslate"><span class="pre">loosenings.yaml</span></code> records, per slot NARAD requires, what became
 of it (<code class="docutils literal notranslate"><span class="pre">dropped</span></code>, <code class="docutils literal notranslate"><span class="pre">optional</span></code>, <code class="docutils literal notranslate"><span class="pre">renamed:&lt;slot&gt;</span></code> or <code class="docutils literal notranslate"><span class="pre">header</span></code>) and why.
 The graph view writes the facility file back in NARAD’s terms.</p>

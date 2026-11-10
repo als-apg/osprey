@@ -403,21 +403,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy.html">CANOPY</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/canopy-library.html">Share CANOPY Screens</a></li>
-
-
-
-
-
-
-
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
@@ -985,10 +971,12 @@ stack deploys one. <code class="docutils literal notranslate"><span class="pre">
 Virtual Accelerator:</p>
 <ul class="simple">
 <li><p><strong>the store</strong> — a MongoDB service (<code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> on the deployment’s
-network, published on host port 27017 by default), holding one collection of
-timestamped samples; every channel the facility declares is recorded under
-its own address, an EPICS field name (<code class="docutils literal notranslate"><span class="pre">.RBV</span></code>) included, and waveform
-channels are kept in a sibling collection (see <a class="reference internal" href="#waveform-channels">Waveform channels</a>);</p></li>
+network, published on host port 10801 at the default port base, set by the
+profile’s <code class="docutils literal notranslate"><span class="pre">va_archiver.port_host</span></code>; see <a class="reference internal" href="../../reference/ports.html#reference-ports-layout"><span class="std std-ref">The layout</span></a>). It
+holds one collection of timestamped samples. Every channel the facility
+declares is recorded under its own address, an EPICS field name (<code class="docutils literal notranslate"><span class="pre">.RBV</span></code>)
+included, and waveform channels are kept in a sibling collection (see
+<a class="reference internal" href="#waveform-channels">Waveform channels</a>);</p></li>
 <li><p><strong>the recorder</strong> — a small service that reads the running machine on a fixed
 cadence and writes what answered into that collection.</p></li>
 </ul>

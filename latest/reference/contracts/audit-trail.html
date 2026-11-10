@@ -553,7 +553,8 @@ refusing store records that name a reserved path</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">&lt;server&gt;</span></code></p></td>
 <td><p>Tool calls on an OSPREY MCP server, allowed and refused alike, on a
-surface named for the server: <code class="docutils literal notranslate"><span class="pre">osprey_workspace</span></code>, <code class="docutils literal notranslate"><span class="pre">python</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky</span></code></p></td>
+surface named for the server: <code class="docutils literal notranslate"><span class="pre">osprey_workspace</span></code>, <code class="docutils literal notranslate"><span class="pre">python</span></code>,
+<code class="docutils literal notranslate"><span class="pre">bluesky</span></code>. A server that was never told its name records on <code class="docutils literal notranslate"><span class="pre">mcp</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hook_writes_check</span></code>, <code class="docutils literal notranslate"><span class="pre">hook_approval</span></code>,
 <code class="docutils literal notranslate"><span class="pre">hook_limits</span></code>, <code class="docutils literal notranslate"><span class="pre">hook_memory_guard</span></code>,
@@ -578,17 +579,22 @@ rather than on an actor</p></td>
 <td><p>Control-system writes a notebook cell was refused — a write posture, a
 limit, a target that moved while the cell ran</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">preflight</span></code> (written as <code class="docutils literal notranslate"><span class="pre">queueserver</span></code> and as each lane’s
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">canopy</span></code></p></td>
+<td><p>Each CANOPY panel write and each panel write refused, under the person
+who clicked — see <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-panel-write"><span class="std std-ref">A panel write</span></a>. Its
+<code class="docutils literal notranslate"><span class="pre">detail</span></code> holds the value sent: see <a class="reference internal" href="#audit-trail-payloads"><span class="std std-ref">What the trail is not</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">preflight</span></code> (written as <code class="docutils literal notranslate"><span class="pre">queueserver</span></code> and as each lane’s
 <code class="docutils literal notranslate"><span class="pre">&lt;lane&gt;-queueserver</span></code>)</p></td>
 <td><p>Whether a queued plan’s declared channels answered before it moved, per
 run: <code class="docutils literal notranslate"><span class="pre">allowed</span></code> (<code class="docutils literal notranslate"><span class="pre">all_responded</span></code> or <code class="docutils literal notranslate"><span class="pre">skipped</span></code>) or <code class="docutils literal notranslate"><span class="pre">refused</span></code>
 (<code class="docutils literal notranslate"><span class="pre">unresponsive</span></code>), with the lane, the target and the counts in
 <code class="docutils literal notranslate"><span class="pre">detail</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
 <td><p>Logins and login refusals, where a deployment has a login wall</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
 <td><p>Each watchdog’s verdict on a prompt, its failures, and the operator’s
 answer to a flag — see <a class="reference internal" href="watchdog.html#reference-watchdog"><span class="std std-ref">Watchdog Contract</span></a></p></td>
 </tr>
@@ -654,21 +660,26 @@ from the posture value</p></td>
 names none. An identifier the trail joins on, and nothing more: the
 write posture it describes belongs to the deployment</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tool_use_id</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">on_behalf_of</span></code></p></td>
+<td><p>The person a service decided for, where the identity the record is
+filed under is not that person: the user a login was for, the owner of
+a queued plan. Absent when there is no such person</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tool_use_id</span></code></p></td>
 <td><p>The agent harness’s id for the tool call the record is about. Present
 on records a tool call produced — the hooks, the MCP servers, the
 Python executor — and absent elsewhere. It is the key that joins a
 record to its <code class="docutils literal notranslate"><span class="pre">tool_call</span></code> record and to the tool call in the agent’s
 own transcript</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">subject</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">subject</span></code></p></td>
 <td><p>What the decision was about: a dotted config key, a tool name, or the
 project-relative path when a whole file is the target</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">decision</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">decision</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">allowed</span></code>, <code class="docutils literal notranslate"><span class="pre">refused</span></code>, <code class="docutils literal notranslate"><span class="pre">ask</span></code>, <code class="docutils literal notranslate"><span class="pre">approved</span></code> or <code class="docutils literal notranslate"><span class="pre">denied</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">reason</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">reason</span></code></p></td>
 <td><p>Short machine-readable reason — <code class="docutils literal notranslate"><span class="pre">protected_key</span></code>, <code class="docutils literal notranslate"><span class="pre">reserved</span> <span class="pre">path</span></code>,
 <code class="docutils literal notranslate"><span class="pre">reserved</span> <span class="pre">path</span> <span class="pre">in</span> <span class="pre">ownership</span> <span class="pre">store</span></code>; a control-system write the
 write posture refused reads <code class="docutils literal notranslate"><span class="pre">posture</span></code> on every surface (the hook,
@@ -680,7 +691,7 @@ or <code class="docutils literal notranslate"><span class="pre">hook_code_review
 login service has a vocabulary of its own — see
 <a class="reference internal" href="#audit-trail-login-refusals"><span class="std std-ref">Why a login was refused</span></a></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">detail</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">detail</span></code></p></td>
 <td><p>Surface-specific context: for a protected-set refusal, the file the
 write was aimed at (<code class="docutils literal notranslate"><span class="pre">target=</span></code>) and the channel that owns it, named
 the same way the refusal message names it; on the web surfaces, the
@@ -691,6 +702,16 @@ switch adds <code class="docutils literal notranslate"><span class="pre">from_ta
 adds the account and host the control system sees it from, and the
 person behind a dispatched run or a queued plan; see
 <a class="reference internal" href="#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">role</span></code></p></td>
+<td><p>The role the actor held, where the decision was bound to one: on
+<code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> the role the session was minted with, or the role a
+refused login was for, where one is known; on the web
+surfaces the role the login service forwarded. Absent otherwise</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">source</span></code>, <code class="docutils literal notranslate"><span class="pre">source_truncated</span></code></p></td>
+<td><p>On <code class="docutils literal notranslate"><span class="pre">executor</span></code> only: the code a refused run tried to execute, and
+<code class="docutils literal notranslate"><span class="pre">true</span></code> where it was cut — see <a class="reference internal" href="#audit-trail-payloads"><span class="std std-ref">What the trail is not</span></a></p></td>
 </tr>
 </tbody>
 </table>
@@ -951,7 +972,8 @@ under the asserted identity.</p>
 </section>
 <section id="the-tool-call-record">
 <span id="audit-trail-tool-call"></span><h2>The tool-call record<a class="headerlink" href="#the-tool-call-record" title="Link to this heading">#</a></h2>
-<p>The default records hold identifiers and never values. Beside them, every
+<p>The default records hold identifiers and, except on the two surfaces in
+<a class="reference internal" href="#audit-trail-payloads"><span class="std std-ref">What the trail is not</span></a>, never values. Beside them, every
 osprey MCP server files one <code class="docutils literal notranslate"><span class="pre">audit</span></code> entry on the <code class="docutils literal notranslate"><span class="pre">tool_call</span></code> surface for
 each call that ran against something worth naming: a control target, an
 approval, or facts the tool noted while it ran. There is no switch; it is
@@ -1082,7 +1104,7 @@ window, it is answered from the archive on the deploy host, where whoever owns
 <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> reads every day’s export.</p>
 </section>
 <section id="what-the-trail-is-not">
-<h2>What the trail is not<a class="headerlink" href="#what-the-trail-is-not" title="Link to this heading">#</a></h2>
+<span id="audit-trail-payloads"></span><h2>What the trail is not<a class="headerlink" href="#what-the-trail-is-not" title="Link to this heading">#</a></h2>
 <p><strong>It is append-only, not tamper-evident.</strong> Entries are only ever added, and
 OSPREY never rewrites one; it removes them only by whole day, under the
 retention rule below. But there is no hash chain and no signature: anyone who
@@ -1098,17 +1120,28 @@ only the days the archive already holds, so no entry leaves the record before
 it has a lasting copy. Nothing in OSPREY deletes the archive’s exports except
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>, which marks each day it purged in that day’s
 manifest.</p>
-<p><strong>One surface carries a payload:</strong> <code class="docutils literal notranslate"><span class="pre">executor</span></code>. Every other record holds
-identifiers and config keys only — a surface name, a username, a tool name, a
-dotted key, a short reason — never a config value, a prompt, or an agent
-message. The Python executor is the deliberate exception: a refused run records
-the code it refused, whole, in a <code class="docutils literal notranslate"><span class="pre">source</span></code> field (8000 characters, with
-<code class="docutils literal notranslate"><span class="pre">source_truncated:</span> <span class="pre">true</span></code> where a longer script was cut). A record of a refused
-write that does not say what the write <em>was</em> is an alert, not an audit trail.
-What that means for anyone reading or forwarding the trail: this one surface
+<p><strong>Two surfaces carry a payload:</strong> <code class="docutils literal notranslate"><span class="pre">executor</span></code> and <code class="docutils literal notranslate"><span class="pre">canopy</span></code>. Every other
+default record holds identifiers and config keys only — a surface name, a
+username, a tool name, a dotted key, a short reason — never a config value, a
+prompt, or an agent message. A record of a write that does not say what the
+write <em>was</em> is an alert, not an audit trail, so there are two exceptions:</p>
+<ul class="simple">
+<li><p><strong>The Python executor.</strong> A refused run records the code it refused, whole, in
+a <code class="docutils literal notranslate"><span class="pre">source</span></code> field (8000 characters, with <code class="docutils literal notranslate"><span class="pre">source_truncated:</span> <span class="pre">true</span></code> where a
+longer script was cut).</p></li>
+<li><p><strong>A CANOPY panel write.</strong> Every record of a panel write — the attempt,
+its outcome, a refusal — carries the value, as the last two <code class="docutils literal notranslate"><span class="pre">detail</span></code>
+tokens, <code class="docutils literal notranslate"><span class="pre">value_len=&lt;n&gt;</span> <span class="pre">value=&lt;text&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">value_len</span></code> is the length of the
+whole value. The text keeps at most 256 characters, fewer where the rest of
+<code class="docutils literal notranslate"><span class="pre">detail</span></code> leaves less room, and is written as a JSON string with no
+whitespace, so a value cannot forge a token. A panel write is one click with
+no tool call behind it, so no tool-call record holds the value.</p></li>
+</ul>
+<p>What that means for anyone reading or forwarding the trail: <code class="docutils literal notranslate"><span class="pre">executor</span></code>
 contains whatever the agent tried to run, including anything the conversation
-put into the script. Give it the same care as the code itself, and expect it to
-be the surface that grows.</p>
+put into the script, and <code class="docutils literal notranslate"><span class="pre">canopy</span></code> contains every value a person sent to the
+machine from a panel. Give both the same care as the code and the setpoints
+themselves, and expect <code class="docutils literal notranslate"><span class="pre">executor</span></code> to be the surface that grows.</p>
 </section>
 </section>
 
