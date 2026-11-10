@@ -26,24 +26,11 @@ and carries only the parts its task needs:
 - **subagents** — agents of the app's own that the main agent hands a task
   to, each with the tools it needs.
 
-Two parts depend on the backend:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 70
-
-   * - Part
-     - Needs a backend
-   * - Panel
-     - Always: the backend serves the page and holds what it shows.
-   * - Tool server
-     - For a tool that writes to the machine, and for any state the tools
-       keep. A tool server without a backend only reads or computes: it keeps
-       nothing between calls and opens no data store of the deployment.
-   * - Skills, subagents
-     - Never.
-
-So an app can be a skill and a subagent with no code of its own, a set of
+A panel always needs a backend, which serves the page and holds what it shows.
+A tool server needs one for a tool that writes to the machine and for any state
+the tools keep; without one it only reads or computes, keeps nothing between
+calls and opens no data store of the deployment. Skills and subagents need no
+backend. So an app can be a skill and a subagent with no code of its own, a set of
 read-only tools, a backend with a panel, or all five. The diagram shows the
 full shape, the one this section builds:
 
@@ -204,8 +191,7 @@ all of it from the scaffold, with your name in place:
 The scaffold is the full shape with one skill. Delete the parts your app does
 not need, with their blocks in ``app.yml``; add a subagent as one file,
 ``agents/<name>.md``. Everything in it is ordinary FastAPI, JavaScript, YAML
-and Markdown. What OSPREY
-supplies, so the app does not have to:
+and Markdown. What OSPREY supplies, so the app does not have to:
 
 - **the connection to the machine** — the backend asks for a connector and
   reads or writes channels through it; the connector applies the write

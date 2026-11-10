@@ -134,8 +134,7 @@ preset): the panel shows the readback, and the agent's write tool is denied.
 From here the app is ordinary code. The sections below go through the parts
 in the order you will touch them: the manifest, the backend, the tool server,
 the panel and its tests, then writes, logins, skills and subagents. Run
-``osprey app
-check`` as you go and ``osprey build && osprey up -d`` to see a change in the
+``osprey app check`` as you go and ``osprey build && osprey up -d`` to see a change in the
 terminal.
 
 The manifest
@@ -147,7 +146,7 @@ copied:
 .. literalinclude:: ../../../../src/osprey/apps/scaffold-app/app.yml
    :language: yaml
 
-Three blocks, one per part the scaffold runs:
+The first three blocks describe one part each:
 
 ``containers``
    The backend. ``runtime: osprey`` runs the app's Python package on the
@@ -172,16 +171,11 @@ Three blocks, one per part the scaffold runs:
    two sentences the agent sees when the backend does not answer or refuses.
 
 Each block is optional, and so are ``skills`` and ``agents``; an ``app.yml``
-with none of the five is refused. Leave out what the app does not have:
-
-- without ``panel``, the app has no sidebar row;
-- without ``tools``, the agent gets no tools from it;
-- without ``containers``, nothing runs for the app in the deployment. A
-  ``panel`` then has nothing to serve it and is refused, and so is a write
-  tool (an ``approval`` entry), which needs a container with
-  ``drives_target: true``. The tool server of such an app only reads or
-  computes: it keeps nothing between calls and opens no data store of the
-  deployment. Anything that holds state is a backend.
+with none of the five is refused. Without ``panel`` the app has no sidebar
+row. Without ``containers`` it has no backend: a ``panel`` is refused, and so
+is a write tool (an ``approval`` entry), which needs a container with
+``drives_target: true``; the tool server only reads or computes and keeps
+nothing between calls. Anything that holds state is a backend.
 
 Every key is listed under `Manifest keys`_. Unknown keys are refused, and a
 key that belongs to the container's compose file (``volumes``, ``ports``,
@@ -473,7 +467,7 @@ per agent. The build installs it into every login that shows the app.
 
    You answer questions about earlier trims of one corrector. ...
 
-The frontmatter keys:
+The frontmatter keys, required unless marked optional:
 
 .. list-table::
    :header-rows: 1
@@ -482,21 +476,20 @@ The frontmatter keys:
    * - Key
      - Meaning
    * - ``name``
-     - The agent's name; equals the file name.
+     - The agent's name; the file name without ``.md``.
    * - ``description``
      - What the agent is for; the main agent routes by it.
    * - ``tools``
-     - The tools the agent may call. Required: an app's agent lists its
-       tools. A tool of the app is written ``mcp__<app>__<tool>`` and must be
-       in the app's ``tools.read`` or ``tools.approval``.
+     - The tools the agent may call; a tool of the app is
+       ``mcp__<app>__<tool>``.
    * - ``delegation``
      - The note the main agent's brief carries for this agent: when to hand
        it a task.
    * - ``delegates``
-     - Tools of the app the main agent is told to leave to this agent. Their
-       names replace ``{delegated_tools}`` in ``delegation``.
+     - Optional. Tools of the app the main agent is told to leave to this
+       agent; their names replace ``{delegated_tools}`` in ``delegation``.
    * - ``summary``, ``disallowedTools``, ``maxTurns``
-     - Optional, as in any agent file.
+     - Optional, as in OSPREY's own agent files.
 
 The text below the frontmatter is the agent's instructions, copied as written.
 
@@ -525,9 +518,9 @@ your app needs under ``dependencies`` — orbit bump adds ``numpy`` — and the
 build installs it with the wheel. A package that would change a version the
 framework pins is refused by ``osprey app check``.
 
-The panel's files, the skill and any agent file are included in the wheel by the
-``force-include`` block, so the installed package carries them; leave that
-block as it is.
+The panel's files and the skill are included in the wheel by the
+``force-include`` block, so the installed package carries them. When you
+delete ``panel/`` or ``skills/``, delete its line there too.
 
 Manifest keys
 =============
