@@ -101,37 +101,7 @@ class Gap(NamedTuple):
 
 
 #: Page text that differs from the code: (page, needle) -> the gap.
-_STALE: dict[tuple[str, str], Gap] = {
-    (BUILD_PROFILES_PAGE, "the channel-finder view the profile selects"): Gap(
-        "wrong",
-        "#2412",
-        "data/channel_finder/<mode>.json the channel-finder view, in every mode but graph",
-        "The demo preset runs the graph pipeline, and no channel-finder view "
-        "is written in graph mode (facility/views/__init__.py VIEWS: only in_context, "
-        "hierarchical and middle_layer write channel_finder/).",
-    ),
-    (BUILD_PROFILES_PAGE, "data/facility_facts.md"): Gap(
-        "missing",
-        "#2412",
-        "data/facility_facts.md the facts view, as markdown",
-        "The facts view writes data/facility_facts.md beside data/facility_facts.json "
-        "(render_facility_outputs of every render).",
-    ),
-    (FACILITY_PAGE, "ariel/"): Gap(
-        "missing",
-        "#2420",
-        "ariel/vocabulary.yml the logbook shorthand ARIEL expands",
-        "The preset ships data/facility/ariel/vocabulary.yml, which the build reads as "
-        "ARIEL's vocabulary (facility/settings.py VOCABULARY_SOURCE).",
-    ),
-    (FACILITY_PAGE, "benchmarks/"): Gap(
-        "missing",
-        "#2420",
-        "benchmarks/ the channel-finder benchmark queries",
-        "The preset ships data/facility/benchmarks/cross_paradigm/queries/, which the "
-        "benchmarks view reads (facility/views/benchmarks.py QUERY_SOURCES).",
-    ),
-}
+_STALE: dict[tuple[str, str], Gap] = {}
 
 
 @lru_cache(maxsize=1)
@@ -441,9 +411,7 @@ def test_build_tree_paths_are_on_disk(built_demo: BuiltProject) -> None:
     assert mode == "graph"
     assert "graph" not in {view.name for view in VIEWS if view.path == "channel_finder"}
     (line,) = [entry for entry in block.splitlines() if "data/channel_finder/" in entry]
-    needle = "the channel-finder view the profile selects"
-    expected = needle if _is_stale(BUILD_PROFILES_PAGE, needle) else "in every mode but graph"
-    assert expected in line
+    assert "in every mode but graph" in line
 
 
 def test_every_facility_output_is_on_the_build_tree(built_demo: BuiltProject) -> None:
@@ -514,7 +482,7 @@ def test_facility_tree_spells_the_names_the_build_reads() -> None:
     } == set(sources.RECORD_FILES)
     assert f"{KNOWLEDGE_DIR}/" in paths
     assert "imported/<layer>/" in paths
-    # The two the tree leaves out are read from these paths (see _STALE).
+    # The tree draws these two directories; the build reads them from here.
     assert VOCABULARY_SOURCE.startswith("data/facility/ariel/")
     assert QUERY_SOURCES.startswith("benchmarks/")
 
