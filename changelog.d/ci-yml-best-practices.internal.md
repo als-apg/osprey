@@ -17,3 +17,13 @@ generated image, moved to `tests/e2e/test_dockerfile_agent_e2e.py` and runs in t
 revalidation dispatch, the release gate and `full_ci_on_main.py` count it, and it fails on a skipped
 test. `deploy-e2e` holds no secret either: it calls no model, and `osprey up` only refuses an empty
 provider key, so it boots on a placeholder value and now runs on Dependabot pull requests too.
+
+The longer programs that lived inline in `ci.yml` are now scripts under `scripts/ci/`, linted
+(shellcheck, ruff, mypy) and runnable on a laptop, each with its own tests under `tests/scripts/`.
+`podman_compose.py` holds the podman-compose pin once for both podman jobs (`pin`, with
+`--optional` for `static-checks`), the two-shape lane's provider assertion (`assert-provider`) and
+the merged-topology parse (`parse-check`). `proxied_build.sh` runs `dockerfile-e2e`'s proxied
+build in five subcommands (`start`, `probe`, `build`, `assert`, `stop`), and `fetch_n10s_jar.sh`
+fetches the neosemantics jar for both graph lanes. The workflow keeps each step's name, timeout
+and a comment on what it proves; `canopy-contract` stays inline so its credential boundary reads in
+one place.

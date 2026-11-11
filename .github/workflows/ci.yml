@@ -593,106 +593,16 @@ jobs:
 
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # `podman compose` would otherwise find the runner's docker-compose plugin first and certify nothing.
-      # `podman ps` pays rootless storage init before the probe's 5 s timeout. Degrades without podman:
-      # this job gates every PR, and two-shape-boot-e2e still reds if podman is gone.
-      run: |
-        if ! command -v podman >/dev/null 2>&1; then
-          echo "⏭️  podman is not on this runner image — the podman-compose parse"
-          echo "    coverage below will skip. The two-shape-boot-e2e lane is NOT"
-          echo "    guarded this way and will red if podman is genuinely gone."
-          echo "OSPREY_PARSE_SKIP=1" >> "$GITHUB_ENV"
-          exit 0
-        fi
-        # Its dependencies pinned too, and --no-deps: the install set is exactly these three.
-        pip install --user --no-deps podman-compose==1.0.6 python-dotenv==1.2.4 PyYAML==6.0.3
-        PODMAN_COMPOSE_BIN="$(command -v podman-compose || true)"
-        if [ -z "$PODMAN_COMPOSE_BIN" ]; then
-          echo "❌ podman-compose is not on PATH after install"
-          exit 1
-        fi
-        mkdir -p ~/.config/containers
-        cat > ~/.config/containers/containers.conf <<EOF
-        [engine]
-        compose_providers = ["$PODMAN_COMPOSE_BIN"]
-        EOF
-        # Also via env: a user-level containers.conf.d drop-in would outrank the file above.
-        echo "PODMAN_COMPOSE_PROVIDER=$PODMAN_COMPOSE_BIN" >> "$GITHUB_ENV"
-        podman --version
-        podman ps >/dev/null
+      # `--optional`: this job gates every PR, so a runner without podman skips the parse below;
+      # two-shape-boot-e2e pins without it and still reds if podman is gone.
+      run: python3 scripts/ci/podman_compose.py pin --optional
 
     - name: Parse the merged podman topology (podman-compose config, no containers)
+      # OSPREY's own argv runs `config`: the merged document must parse, with .env outranking .env.shared.
       env:
         # Without it the probe finds the runner's docker daemon first.
         CONTAINER_RUNTIME: podman
-      run: |
-        if [ "${OSPREY_PARSE_SKIP:-}" = "1" ]; then
-          echo "⏭️  skipped: podman is absent from this runner (see the pin step above)."
-          exit 0
-        fi
-        uv run osprey init parse-check --preset hello-world --no-git \
-          --set dispatch.triggers=tutorial_triggers.yml \
-          --set dispatch.worker_count=1 \
-          --set dispatch.workspace_mode=isolated \
-          --set dispatch.network=bridge \
-          --set 'config.deployed_services=[]'
-        cd parse-check
-        # Same key, different values: the result shows local-wins precedence, not just that the file was read.
-        printf '\nDISPATCH_WORKER_TOKEN=shared-loses\n' >> .env.shared
-        printf 'EVENT_DISPATCHER_TOKEN=local-wins\nDISPATCH_WORKER_TOKEN=local-wins\n' > .env
-        uv run osprey build --skip-deps --skip-lifecycle
-        uv run python - <<'PY'
-        import os
-        import subprocess
-        import sys
-        from pathlib import Path
-
-        from osprey.deployment.compose_generator import (
-            compose_base_cmd,
-            compose_provider_env,
-            resolve_repo_root,
-        )
-        from osprey.deployment.container_lifecycle import _env_file_args, as_built_compose_files
-        from osprey.deployment.runtime_helper import (
-            ComposeProvider,
-            detect_compose_provider,
-            get_runtime_command,
-        )
-        from osprey_connectors.config import load_config
-
-        config = load_config("build/config.yml")
-        root = Path(resolve_repo_root(config)).resolve()
-        runtime_cmd = get_runtime_command(config)
-
-        info = detect_compose_provider(runtime_cmd, config)
-        print("provider banner:", info.banner)
-        assert info.provider is ComposeProvider.PODMAN_COMPOSE, info
-        assert info.version == (1, 0, 6), info
-
-        # Building the argv is what writes .osprey-compose.yml and build/.env.merged.
-        argv = compose_base_cmd(
-            runtime_cmd,
-            as_built_compose_files(config, root),
-            root,
-            _env_file_args(root, info.provider),
-            info.provider,
-        )
-        print("argv:", " ".join(argv))
-        assert "--project-directory" not in argv, "podman-compose does not parse that flag"
-
-        env = {**os.environ, **compose_provider_env(info.provider, root)}
-        parsed = subprocess.run(
-            [*argv, "config"], capture_output=True, text=True, env=env, cwd=root, check=False
-        )
-        sys.stdout.write(parsed.stdout)
-        sys.stderr.write(parsed.stderr)
-        assert parsed.returncode == 0, "podman-compose could not parse the merged topology"
-
-        for service in ("event-dispatcher", "dispatch-worker-1"):
-            assert f"{service}:" in parsed.stdout, f"{service} missing from the merged document"
-        assert "local-wins" in parsed.stdout, "build/.env.merged did not interpolate the topology"
-        assert "shared-loses" not in parsed.stdout, ".env.shared outranked .env in the merge"
-        print("✅ merged topology parses under podman-compose 1.0.6, .env.merged interpolates it")
-        PY
+      run: uv run python scripts/ci/podman_compose.py parse-check
 
     - name: Capture failure diagnostics
       if: failure()
@@ -1314,13 +1224,7 @@ jobs:
 
     - name: Fetch the pinned neosemantics (n10s) jar for the graph benchmark lane
       # Fetched here: a failed download in the fixture would SKIP the graph paradigm.
-      run: |
-        set -euo pipefail
-        url="$(uv run python -c 'from tests._graphdb_container import N10S_JAR_URL; print(N10S_JAR_URL)')"
-        jar="$RUNNER_TEMP/$(basename "$url")"
-        curl -fsSL --retry 3 --retry-all-errors --max-time 300 -o "$jar" "$url"
-        ls -l "$jar"
-        echo "OSPREY_TEST_N10S_JAR=$jar" >> "$GITHUB_ENV"
+      run: scripts/ci/fetch_n10s_jar.sh
 
     - name: Run channel-finder MCP benchmarks
       timeout-minutes: 30
@@ -1594,12 +1498,7 @@ jobs:
     - name: Fetch the pinned neosemantics (n10s) jar
       # As in the benchmarks job: a fixture download failure would skip.
       if: matrix.n10s
-      run: |
-        set -euo pipefail
-        url="$(uv run python -c 'from tests._graphdb_container import N10S_JAR_URL; print(N10S_JAR_URL)')"
-        jar="$RUNNER_TEMP/$(basename "$url")"
-        curl -fsSL --retry 3 --retry-all-errors --max-time 300 -o "$jar" "$url"
-        echo "OSPREY_TEST_N10S_JAR=$jar" >> "$GITHUB_ENV"
+      run: scripts/ci/fetch_n10s_jar.sh
 
     - name: Run the stack E2E module
       timeout-minutes: ${{ matrix.step_timeout }}
@@ -1974,138 +1873,25 @@ jobs:
     # The proxied build is proven from the proxy's access log, not the build's exit status: this
     # runner has open egress.
     - name: Start a logging forward proxy (tinyproxy)
-      # `LogLevel Info` is load-bearing: the request line the assertion reads is logged at Info.
       env:
         # Tag for the reader, digest for the pull.
         PROXY_BASE_IMAGE: docker.io/library/debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/osprey-proxy
-        mkdir -p /tmp/osprey-proxy
-        cat > /tmp/osprey-proxy/tinyproxy.conf <<'CONF'
-        Port 8888
-        Timeout 600
-        MaxClients 100
-        LogLevel Info
-        LogFile "/proxy/access.log"
-        CONF
-        : > /tmp/osprey-proxy/access.log
-        chmod 666 /tmp/osprey-proxy/access.log
-        docker run -d --name osprey-ci-proxy --network host \
-          -v /tmp/osprey-proxy:/proxy "$PROXY_BASE_IMAGE" \
-          sh -c 'apt-get update -qq \
-                 && apt-get install -y -qq --no-install-recommends tinyproxy \
-                 && exec tinyproxy -d -c /proxy/tinyproxy.conf'
-        # A bare TCP connect: a probe that fetched through the proxy would write the access log under test.
-        for _ in $(seq 60); do
-          if (exec 3<>/dev/tcp/127.0.0.1/8888) 2>/dev/null; then
-            echo "✅ tinyproxy is listening on 127.0.0.1:8888"
-            exit 0
-          fi
-          sleep 2
-        done
-        echo "❌ tinyproxy never came up on 127.0.0.1:8888"
-        docker logs osprey-ci-proxy || true
-        exit 1
+      run: scripts/ci/proxied_build.sh start
 
     - name: Assert the uppercase-only proxy contract reaches the build
       # BuildKit copies HTTP_PROXY into http_proxy inside RUN, which would pass the assertion with the
       # bridge deleted, so the build uses podman. This probe fails the lane if podman ever does the same.
       env:
         PROBE_BASE_IMAGE: docker.io/library/busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/osprey-proxy-probe
-        mkdir -p /tmp/osprey-proxy-probe
-        cat > /tmp/osprey-proxy-probe/Dockerfile <<PROBE
-        FROM $PROBE_BASE_IMAGE
-        RUN env | sort | grep -i proxy || echo "NO-PROXY-ENV"
-        PROBE
-        # Retry only the base-image pull: the measured build runs once from local storage, so the
-        # property under test is never retried into passing.
-        pulled=
-        for attempt in 1 2 3; do
-          if podman pull "$PROBE_BASE_IMAGE"; then
-            pulled=yes
-            break
-          fi
-          echo "pull attempt $attempt of 3 failed; retrying in $((attempt * 5))s"
-          sleep "$((attempt * 5))"
-        done
-        if [ -z "$pulled" ]; then
-          echo "❌ could not fetch the probe base image in 3 attempts — a registry"
-          echo "   failure, which says nothing about the proxy contract below"
-          exit 1
-        fi
-        # `|| rc=$?`: under `set -e` a bare assignment would abort before the output below is printed.
-        rc=0
-        out="$(podman build --no-cache --pull=never --http-proxy=false \
-          --build-arg HTTP_PROXY=http://127.0.0.1:8888 \
-          --build-arg HTTPS_PROXY=http://127.0.0.1:8888 \
-          /tmp/osprey-proxy-probe 2>&1)" || rc=$?
-        printf '%s\n' "$out"
-        if [ "$rc" -ne 0 ]; then
-          echo "❌ the probe build failed (podman exit $rc); its output is above"
-          exit 1
-        fi
-        if ! grep -q 'HTTP_PROXY=http://127.0.0.1:8888' <<<"$out"; then
-          echo "❌ the uppercase HTTP_PROXY build-arg never reached the RUN environment"
-          exit 1
-        fi
-        if grep -q 'http_proxy=' <<<"$out"; then
-          echo "❌ this build runtime injects a lowercase proxy variable of its own —"
-          echo "   the access-log assertion would then pass with the Dockerfile's"
-          echo "   lowercase bridge deleted, i.e. it would prove nothing."
-          exit 1
-        fi
-        echo "✅ uppercase in, uppercase only — the bridge is the sole path to apt"
+      run: scripts/ci/proxied_build.sh probe
 
     - name: Build the web-terminal auth sidecar through the proxy
-      # `--http-proxy=false` drops buildah's copy of the host's proxy variables, so the build-args are
-      # the only ones.
+      # Uppercase proxy build-args only: the Dockerfile's lowercase bridge is the one path to apt.
       timeout-minutes: 15
-      run: |
-        set -euo pipefail
-        version="$(uv run --no-sync python -c 'import osprey; print(osprey.__version__)')"
-        echo "OSPREY_VERSION=$version"
-        rm -rf /tmp/osprey-sidecar-ctx
-        mkdir -p /tmp/osprey-sidecar-ctx
-        cp -a src/osprey/templates/modules/web_terminals/auth_sidecar/. /tmp/osprey-sidecar-ctx/
-        : > /tmp/osprey-sidecar-ctx/osprey-local-requirements.txt
-        podman build --no-cache --network=host --http-proxy=false \
-          --build-arg HTTP_PROXY=http://127.0.0.1:8888 \
-          --build-arg HTTPS_PROXY=http://127.0.0.1:8888 \
-          --build-arg OSPREY_VERSION="$version" \
-          --build-arg OSPREY_DEV=1 \
-          --tag osprey-auth-sidecar:proxied-ci \
-          /tmp/osprey-sidecar-ctx
+      run: scripts/ci/proxied_build.sh build
 
     - name: Assert apt and pip traffic went through the proxy
-      run: |
-        set -euo pipefail
-        log=/tmp/osprey-proxy/access.log
-        if [ ! -s "$log" ]; then
-          echo "❌ proxy access log missing or empty at $log — nothing was proxied at all"
-          docker logs osprey-ci-proxy || true
-          exit 1
-        fi
-        apt_hits="$(grep -F 'deb.debian.org' "$log" || true)"
-        pip_hits="$(grep -E 'pypi\.org|files\.pythonhosted\.org' "$log" || true)"
-        echo "── apt traffic seen by the proxy ──────────────────────────────"
-        head -n 20 <<<"${apt_hits:-<none>}"
-        echo "── pip traffic seen by the proxy ──────────────────────────────"
-        head -n 20 <<<"${pip_hits:-<none>}"
-        if [ -z "$apt_hits" ]; then
-          echo "❌ no deb.debian.org request reached the proxy: the lowercase-proxy"
-          echo "   bridge in the auth-sidecar Dockerfile is not doing its job."
-          exit 1
-        fi
-        if [ -z "$pip_hits" ]; then
-          echo "❌ no pypi.org / files.pythonhosted.org request reached the proxy:"
-          echo "   the framework install bypassed it."
-          exit 1
-        fi
-        echo "✅ both apt and pip traffic went through the proxy"
+      run: scripts/ci/proxied_build.sh assert
 
     - name: Capture failure diagnostics
       if: failure()
@@ -2116,13 +1902,7 @@ jobs:
     - name: Stop the forward proxy
       # Last: the capture step needs the container's logs.
       if: always()
-      run: |
-        set -euo pipefail
-        if [ -f /tmp/osprey-proxy/access.log ]; then
-          echo "── last 40 proxy access-log lines ─────────────────────────────"
-          tail -n 40 /tmp/osprey-proxy/access.log || true
-        fi
-        docker rm -f osprey-ci-proxy > /dev/null 2>&1 || true
+      run: scripts/ci/proxied_build.sh stop
 
   multi-user-deploy-lifecycle-e2e:
     name: Multi-User Deploy Lifecycle E2E (${{ matrix.runtime }} runtime)
@@ -2335,47 +2115,14 @@ jobs:
     - *sync-dev-deps
 
     - name: Pin podman-compose 1.0.6 as podman's compose provider
-      run: |
-        # Its dependencies pinned too, and --no-deps: the install set is exactly these three.
-        pip install --user --no-deps podman-compose==1.0.6 python-dotenv==1.2.4 PyYAML==6.0.3
-        PODMAN_COMPOSE_BIN="$(command -v podman-compose || true)"
-        if [ -z "$PODMAN_COMPOSE_BIN" ]; then
-          echo "❌ podman-compose is not on PATH after install"
-          exit 1
-        fi
-        mkdir -p ~/.config/containers
-        cat > ~/.config/containers/containers.conf <<EOF
-        [engine]
-        compose_providers = ["$PODMAN_COMPOSE_BIN"]
-        EOF
-        echo "PODMAN_COMPOSE_PROVIDER=$PODMAN_COMPOSE_BIN" >> "$GITHUB_ENV"
-        podman --version
-        podman ps >/dev/null
+      # No `--optional`: a runner that lost podman reds here.
+      run: python3 scripts/ci/podman_compose.py pin
 
     - name: Step 0 — assert the compose provider is podman-compose 1.0.6
+      # Before the boot, so a wrong engine is caught before the image build is spent under it.
       env:
         CONTAINER_RUNTIME: podman
-      run: |
-        podman compose version
-        uv run python - <<'PY'
-        from osprey.deployment.runtime_helper import (
-            ComposeProvider,
-            detect_compose_provider,
-            get_runtime_command,
-        )
-
-        runtime_cmd = get_runtime_command()
-        info = detect_compose_provider(runtime_cmd)
-        print("runtime command:", " ".join(runtime_cmd))
-        print("provider banner:", info.banner)
-        assert info.provider is ComposeProvider.PODMAN_COMPOSE, (
-            f"this lane must run podman-compose; probed {info.provider} instead"
-        )
-        assert info.version == (1, 0, 6), (
-            f"this lane pins podman-compose 1.0.6; probed {info.version_text}"
-        )
-        print("✅ compose provider is podman-compose 1.0.6")
-        PY
+      run: uv run python scripts/ci/podman_compose.py assert-provider
 
     - name: Run two-shape boot E2E (podman)
       timeout-minutes: 70

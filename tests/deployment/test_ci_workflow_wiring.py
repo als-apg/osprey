@@ -161,19 +161,9 @@ INVENTORY_JOB = "static-checks"
 INVENTORY_STEP = "Check the recorded CLI tool inventory against the pinned build"
 #: Resumes an authored transcript under the pinned build (same job as the inventory).
 RESUME_PROBE_STEP = "Resume an authored transcript under the pinned CLI"
-PODMAN_COMPOSE_PIN = "podman-compose==1.0.6"
-#: The containers.conf key that forces podman's choice of external provider.
-COMPOSE_PROVIDER_FORCE_KEY = "compose_providers"
-#: The env-var expression of the same choice, which sidesteps the config chain.
-COMPOSE_PROVIDER_FORCE_ENV = "PODMAN_COMPOSE_PROVIDER"
 PODMAN_PIN_STEP = "Pin podman-compose 1.0.6 as podman's compose provider"
-#: The runner-image presence guard. Matched with a negative lookahead rather
-#: than as a substring: ``command -v podman-compose`` contains the shorter
-#: string and appears in BOTH pin steps, so a plain ``in`` check reports the
-#: lane as guarded when it is not. Anchoring on the redirection that happens to
-#: follow it today would work but would break the moment someone writes
-#: ``command -v podman || ...``; the lookahead pins the command name itself.
-_PODMAN_PRESENCE_GUARD_RE = re.compile(r"command -v podman(?![-\w])")
+#: Pins, forces and asserts the provider; its own suite is tests/scripts/test_podman_compose.py.
+PODMAN_COMPOSE_SCRIPT = "scripts/ci/podman_compose.py"
 OVERLAY_JOB = "dispatch-overlay-e2e"
 OVERLAY_TEST_FILE = "tests/e2e/test_dispatch_overlay_visibility.py"
 CATALOG_JOB = "bluesky-catalog-e2e"
@@ -6574,213 +6564,82 @@ def test_two_shape_boot_job_runs_the_module_under_podman__mutation_drops_the_ste
         test_two_shape_boot_job_runs_the_module_under_podman(mutated)
 
 
-def _podman_compose_is_pinned_and_forced(wf: dict[str, Any], job_name: str) -> list[str]:
-    """Which parts of the provider pin are MISSING from a job (empty = all).
-
-    Three independent mechanisms, and none implies the others. An unpinned
-    install drifts to whatever podman-compose release exists on the day. An
-    unforced provider lets podman pick the docker-compose CLI plugin no matter
-    which podman-compose sits beside it — podman's documented default order
-    tries docker-compose FIRST, which is exactly how "we installed it" and "it
-    executes" came apart in the neighbouring lane.
-
-    The env override is the third because the file has one gap: podman reads a
-    USER-level ``containers.conf.d/*.conf`` drop-in AFTER the user's
-    ``containers.conf``, so such a drop-in would outrank the file this lane
-    writes. ``PODMAN_COMPOSE_PROVIDER`` sidesteps the chain entirely. Nothing
-    in this repo writes such a drop-in, so this is hardening against a future
-    runner image rather than a fix for a live hole — an unpinned belt is how a
-    belt quietly disappears.
-    """
-    serialized = json.dumps(_jobs(wf)[job_name])
-    return [
-        label
-        for label, token in (
-            ("version pin", PODMAN_COMPOSE_PIN),
-            ("force", COMPOSE_PROVIDER_FORCE_KEY),
-            ("env override", COMPOSE_PROVIDER_FORCE_ENV),
-        )
-        if token not in serialized
-    ]
+#: Each job that speaks podman-compose: its pin step's command, then the step
+#: that claims the provider and the subcommand it runs. ``static-checks`` gates
+#: every PR, so its pin is ``--optional`` (a runner without podman skips the
+#: parse); the lane's is not, so a runner that lost podman still reds there.
+PODMAN_COMPOSE_JOBS = {
+    PARSE_ONLY_JOB: (
+        f"python3 {PODMAN_COMPOSE_SCRIPT} pin --optional",
+        PARSE_ONLY_STEP,
+        "parse-check",
+    ),
+    TWO_SHAPE_JOB: (
+        f"python3 {PODMAN_COMPOSE_SCRIPT} pin",
+        TWO_SHAPE_PROVIDER_STEP,
+        "assert-provider",
+    ),
+}
 
 
-@pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
-def test_podman_compose_is_pinned_and_forced(workflow: dict[str, Any], job_name: str) -> None:
-    """Both jobs that speak podman-compose must pin the version AND force
-    podman to use it, for the reasons in this section's header."""
-    assert _podman_compose_is_pinned_and_forced(workflow, job_name) == []
-
-
-@pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
-def test_podman_compose_is_pinned_and_forced__mutation_unpins_the_version(job_name: str) -> None:
-    """Installing an unpinned podman-compose must be reported: the floor this
-    branch is written against is 1.0.6, and a lane that silently moved off it
-    would report on an engine nobody chose."""
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][job_name] = json.loads(
-        json.dumps(mutated["jobs"][job_name]).replace(PODMAN_COMPOSE_PIN, "podman-compose")
-    )
-    assert _podman_compose_is_pinned_and_forced(mutated, job_name) == ["version pin"]
-
-
-@pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
-def test_podman_compose_is_pinned_and_forced__mutation_drops_the_force(job_name: str) -> None:
-    """The dangerous half: podman-compose is installed, so the job LOOKS
-    provider-correct, but nothing tells podman to prefer it over the
-    docker-compose plugin already on the runner."""
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][job_name] = json.loads(
-        json.dumps(mutated["jobs"][job_name]).replace(COMPOSE_PROVIDER_FORCE_KEY, "unrelated_key")
-    )
-    assert _podman_compose_is_pinned_and_forced(mutated, job_name) == ["force"]
-
-
-#: A pip install of podman-compose, with whatever it names after it.
-_PODMAN_COMPOSE_INSTALL_RE = re.compile(r"\bpip3? install\b[^\n]*\bpodman-compose\S*")
-
-
-def _podman_compose_installs(wf: dict[str, Any]) -> list[tuple[str, str]]:
-    return [
-        (job_id, match.group(0))
-        for job_id, job in _jobs(wf).items()
-        for step in job.get("steps") or []
-        for match in _PODMAN_COMPOSE_INSTALL_RE.finditer(str(step.get("run", "")))
-    ]
-
-
-def test_every_podman_compose_install_is_pinned(workflow: dict[str, Any]) -> None:
-    """Every lane that installs podman-compose installs the release the
-    provider-pinned lanes are written against, so no podman lane reports on
-    an engine that moved under it."""
-    installs = _podman_compose_installs(workflow)
-    assert len(installs) >= 2, f"expected the two provider-pinned lanes' installs, found {installs}"
-    unpinned = [(job, line) for job, line in installs if PODMAN_COMPOSE_PIN not in line.split()]
-    assert unpinned == [], f"podman-compose installed without `{PODMAN_COMPOSE_PIN}`: {unpinned}"
-
-
-def test_every_podman_compose_install_is_pinned__mutation_unpins_the_two_shape_lane() -> None:
-    mutated = _load_workflow()
-    job = TWO_SHAPE_JOB
-    mutated["jobs"][job] = json.loads(
-        json.dumps(mutated["jobs"][job]).replace(PODMAN_COMPOSE_PIN, "podman-compose")
-    )
-    with pytest.raises(AssertionError, match=job):
-        test_every_podman_compose_install_is_pinned(mutated)
-
-
-@pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
-def test_podman_compose_is_pinned_and_forced__mutation_drops_the_env_override(
-    job_name: str,
+def test_podman_compose_jobs_pin_then_probe_through_the_script(
+    workflow: dict[str, Any] | None = None,
 ) -> None:
-    """The quietest of the three to lose: the file still forces the provider, so
-    nothing observable changes until a runner image ships a user-level
-    containers.conf.d drop-in — at which point the lane silently runs the
-    engine it was written to leave behind."""
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][job_name] = json.loads(
-        json.dumps(mutated["jobs"][job_name]).replace(COMPOSE_PROVIDER_FORCE_ENV, "UNRELATED_VAR")
-    )
-    assert _podman_compose_is_pinned_and_forced(mutated, job_name) == ["env override"]
-
-
-def _assert_probes_the_provider(run_text: str) -> None:
-    """The content every provider-asserting step must carry, wherever it lives.
-
-    Extracted so the parse-only twin is held to the lane's standard rather than
-    inheriting its prose: deleting both assertions from the parse step's inline
-    Python used to fail nothing, which is the same regression class the lane's
-    own ordering test exists to prevent one job over.
-    """
-    assert "detect_compose_provider" in run_text, (
-        "must probe through OSPREY's own detector, so it answers the same "
-        "question the deploy asks rather than a lookalike"
-    )
-    assert "ComposeProvider.PODMAN_COMPOSE" in run_text, "must assert the provider it claims"
-    # The parsed tuple, never the text: `podman-compose==1.0.6` on the install
-    # line would satisfy a substring search over the job while the assertion
-    # itself checked nothing.
-    assert "(1, 0, 6)" in run_text, "must assert the parsed version, not just the banner"
-
-
-#: Every step that claims the provider, in the job it belongs to. Both are held
-#: to `_assert_probes_the_provider`; only the lane's is order-constrained,
-#: because only the lane has an expensive boot to run afterwards.
-PROVIDER_ASSERTION_STEPS = (
-    (TWO_SHAPE_JOB, TWO_SHAPE_PROVIDER_STEP),
-    (PARSE_ONLY_JOB, PARSE_ONLY_STEP),
-)
-
-
-@pytest.mark.parametrize(("job_name", "step_name"), PROVIDER_ASSERTION_STEPS)
-def test_every_provider_claiming_step_actually_probes(
-    workflow: dict[str, Any], job_name: str, step_name: str
-) -> None:
-    """Both jobs force podman-compose; both must SAY so falsifiably."""
-    _assert_probes_the_provider(_find_named_step(workflow, job_name, step_name)["run"])
-
-
-@pytest.mark.parametrize(("job_name", "step_name"), PROVIDER_ASSERTION_STEPS)
-def test_every_provider_claiming_step_actually_probes__mutation_drops_the_asserts(
-    job_name: str, step_name: str
-) -> None:
-    """Stripping the two assertions leaves a step that still runs the right
-    engine — the pin and the force are asserted elsewhere — but no longer
-    demonstrates it. That is precisely how a falsifiability check rots into a
-    comment."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, job_name, step_name)
-    step["run"] = "\n".join(
-        line
-        for line in step["run"].splitlines()
-        if "ComposeProvider.PODMAN_COMPOSE" not in line and "(1, 0, 6)" not in line
-    )
-    with pytest.raises(AssertionError):
-        test_every_provider_claiming_step_actually_probes(mutated, job_name, step_name)
-
-
-def test_two_shape_lane_asserts_its_provider_before_the_boot(workflow: dict[str, Any]) -> None:
-    """Step 0 is what makes the pin falsifiable rather than aspirational, and
-    its POSITION is half of what it is worth. Placed after the boot it would
-    still catch a wrong engine — but only after the lane had already spent the
-    image build and reported the axis certified under it.
-
-    The version is asserted as the parsed tuple the probe returns, not as text
-    anywhere in the job: ``podman-compose==1.0.6`` in the install line above
-    would satisfy a substring search while the assertion itself checked nothing.
-    """
-    names = _step_names(workflow, TWO_SHAPE_JOB)
-    assert TWO_SHAPE_PROVIDER_STEP in names, f"no provider assertion step; got {names}"
+    """The pin, the force and the probe live in ``scripts/ci/podman_compose.py``,
+    whose suite holds each of them; what ci.yml owes is calling them, in order:
+    the pin before the step that claims the provider, under ``CONTAINER_RUNTIME
+    =podman`` (or the probe finds the runner's docker first), and the lane's
+    probe before the boot it certifies, so a wrong engine is caught before the
+    image build is spent under it. No job installs podman-compose inline, where
+    the pin would have a second, unchecked spelling."""
+    wf = workflow if workflow is not None else _load_workflow()
+    for job, (pin_run, probe_step, subcommand) in PODMAN_COMPOSE_JOBS.items():
+        names = _step_names(wf, job)
+        pin = _find_named_step(wf, job, PODMAN_PIN_STEP)
+        assert pin["run"].strip() == pin_run, f"{job}: the pin step runs {pin['run']!r}"
+        probe = _find_named_step(wf, job, probe_step)
+        assert probe["run"].strip() == f"uv run python {PODMAN_COMPOSE_SCRIPT} {subcommand}"
+        assert probe.get("env", {}).get("CONTAINER_RUNTIME") == "podman", f"{job}: {probe_step}"
+        assert names.index(PODMAN_PIN_STEP) < names.index(probe_step), f"{job}: probe before pin"
+    names = _step_names(wf, TWO_SHAPE_JOB)
     assert names.index(TWO_SHAPE_PROVIDER_STEP) < names.index(TWO_SHAPE_BOOT_STEP), (
         "the provider assertion must run BEFORE the boot it certifies"
     )
-    _assert_probes_the_provider(
-        _find_named_step(workflow, TWO_SHAPE_JOB, TWO_SHAPE_PROVIDER_STEP)["run"]
-    )
+    inline = [
+        job_id
+        for job_id, job in _jobs(wf).items()
+        for step in job.get("steps") or []
+        if re.search(r"\bpip3? install\b[^\n]*\bpodman-compose", str(step.get("run", "")))
+    ]
+    assert inline == [], f"podman-compose installed inline, not through the script: {inline}"
 
 
-def test_two_shape_lane_asserts_its_provider__mutation_moves_it_after_the_boot() -> None:
-    """Reordering must fail even though every step survives — the assertion
-    would then certify a boot that had already happened."""
-    mutated = copy.deepcopy(_load_workflow())
+def test_podman_compose_jobs__mutation_guards_the_lane_too() -> None:
+    """Guarding the LANE as well would make podman's absence invisible
+    everywhere: both halves would skip and the gate would stay green."""
+    mutated = _load_workflow()
+    _find_named_step(mutated, TWO_SHAPE_JOB, PODMAN_PIN_STEP)["run"] += " --optional"
+    with pytest.raises(AssertionError, match=TWO_SHAPE_JOB):
+        test_podman_compose_jobs_pin_then_probe_through_the_script(mutated)
+
+
+def test_podman_compose_jobs__mutation_moves_the_probe_after_the_boot() -> None:
+    mutated = _load_workflow()
     steps = _jobs(mutated)[TWO_SHAPE_JOB]["steps"]
-    probe = next(s for s in steps if s.get("name") == TWO_SHAPE_PROVIDER_STEP)
+    probe = _find_named_step(mutated, TWO_SHAPE_JOB, TWO_SHAPE_PROVIDER_STEP)
     steps.remove(probe)
     steps.append(probe)
-    assert TWO_SHAPE_PROVIDER_STEP in _step_names(mutated, TWO_SHAPE_JOB)  # still present
     with pytest.raises(AssertionError, match="BEFORE the boot"):
-        test_two_shape_lane_asserts_its_provider_before_the_boot(mutated)
+        test_podman_compose_jobs_pin_then_probe_through_the_script(mutated)
 
 
-def test_two_shape_lane_asserts_its_provider__mutation_drops_the_version_check() -> None:
-    """A step 0 that recognizes podman-compose but accepts any version is the
-    quiet half of the same failure: the lane keeps running after a release that
-    changed the argv it certifies."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, TWO_SHAPE_JOB, TWO_SHAPE_PROVIDER_STEP)
-    step["run"] = step["run"].replace("(1, 0, 6)", "info.version")
-    assert "ComposeProvider.PODMAN_COMPOSE" in step["run"]  # the provider half survives
-    with pytest.raises(AssertionError, match="parsed version"):
-        test_two_shape_lane_asserts_its_provider_before_the_boot(mutated)
+def test_podman_compose_jobs__mutation_installs_inline() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)["e2e-tests"]["steps"].append(
+        {"name": "Install", "run": "pip install --user podman-compose"}
+    )
+    with pytest.raises(AssertionError, match="installed inline"):
+        test_podman_compose_jobs_pin_then_probe_through_the_script(mutated)
 
 
 def test_e2e_lane_ignores_two_shape_boot(workflow: dict[str, Any]) -> None:
@@ -7132,108 +6991,6 @@ def test_parse_only_step_lives_in_a_fast_job__mutation_gates_the_host_job() -> N
         test_parse_only_step_lives_in_a_fast_job(mutated)
 
 
-def _parse_step_run(wf: dict[str, Any]) -> str:
-    return _find_named_step(wf, PARSE_ONLY_JOB, PARSE_ONLY_STEP)["run"]
-
-
-def test_parse_only_step_parses_osprey_own_argv(workflow: dict[str, Any]) -> None:
-    """What separates this from a YAML lint: the document handed to
-    podman-compose is written BY ``compose_base_cmd`` as a side effect of
-    building the argv, and the argv is what the step runs. A hand-rolled
-    ``podman-compose -f build/services/*.yml config`` would parse something
-    real and prove nothing about the merged topology the deploy actually ships.
-    """
-    run_text = _parse_step_run(workflow)
-    assert "compose_base_cmd" in run_text, "the step must run OSPREY's own argv, not a lookalike"
-    # Spelled as the argv is built, NOT as a bare `"config" in run_text`: the
-    # step's own body contains `load_config("build/config.yml")`, which supplies
-    # that substring for free. The bare form stayed green when the subcommand
-    # was rewritten to `ps` — an inert half of an otherwise load-bearing pair.
-    assert '[*argv, "config"]' in run_text, (
-        "the step must run the merged topology through `config`, not another subcommand"
-    )
-
-
-def test_parse_only_step_parses_osprey_own_argv__mutation_hand_rolls_the_argv() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, PARSE_ONLY_JOB, PARSE_ONLY_STEP)
-    step["run"] = step["run"].replace("compose_base_cmd", "_hand_rolled_cmd")
-    with pytest.raises(AssertionError, match="own argv"):
-        test_parse_only_step_parses_osprey_own_argv(mutated)
-
-
-def test_parse_only_step_parses_osprey_own_argv__mutation_swaps_the_subcommand() -> None:
-    """`config` is what parses and interpolates; `ps` merely talks to the
-    runtime. Swapping them leaves a step that still builds the real argv and
-    still exits 0, having proved nothing about the merged document."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, PARSE_ONLY_JOB, PARSE_ONLY_STEP)
-    step["run"] = step["run"].replace('[*argv, "config"]', '[*argv, "ps"]')
-    assert "compose_base_cmd" in step["run"]  # the argv half survives untouched
-    with pytest.raises(AssertionError, match="not another subcommand"):
-        test_parse_only_step_parses_osprey_own_argv(mutated)
-
-
-def test_parse_only_step_degrades_rather_than_reds_the_tier_0_gate(
-    workflow: dict[str, Any],
-) -> None:
-    """``static-checks`` carries no ``if:`` — it gates every push, schedule and
-    fork PR — so podman's absence from a future runner image must cost this
-    extra coverage, not the job that gates everything.
-
-    The skip is deliberately NOT the usual vacuous-green hazard, and the reason
-    is worth stating: the two-shape lane runs the same pin UNguarded, so a
-    runner that genuinely lost podman still reds there on the next PR. This
-    guard narrows the blast radius; it does not make the coverage revocable.
-    """
-    pin_run = _find_named_step(workflow, PARSE_ONLY_JOB, PODMAN_PIN_STEP)["run"]
-    assert _PODMAN_PRESENCE_GUARD_RE.search(pin_run), (
-        f"the '{PARSE_ONLY_JOB}' pin step must tolerate a runner image without podman"
-    )
-    lane_pin = _find_named_step(workflow, TWO_SHAPE_JOB, PODMAN_PIN_STEP)["run"]
-    assert not _PODMAN_PRESENCE_GUARD_RE.search(lane_pin), (
-        f"the '{TWO_SHAPE_JOB}' pin step must NOT be guarded — an unguarded lane is "
-        "what keeps the skip above from hiding a genuinely missing podman"
-    )
-
-
-def test_parse_only_step_degrades__mutation_drops_the_guard() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, PARSE_ONLY_JOB, PODMAN_PIN_STEP)
-    step["run"] = _PODMAN_PRESENCE_GUARD_RE.sub("true", step["run"])
-    with pytest.raises(AssertionError, match="without podman"):
-        test_parse_only_step_degrades_rather_than_reds_the_tier_0_gate(mutated)
-
-
-def test_podman_presence_guard_is_not_satisfied_by_podman_compose() -> None:
-    """The lookahead's whole job, pinned directly.
-
-    Both pin steps run ``command -v podman-compose``. A substring check reports
-    the LANE as guarded on the strength of that line alone, which inverts the
-    assertion above — it would then demand the opposite of what it means.
-    """
-    assert _PODMAN_PRESENCE_GUARD_RE.search(
-        'PODMAN_COMPOSE_BIN="$(command -v podman-compose)"'
-    ) is (None)
-    for guarded in (
-        "command -v podman >/dev/null",
-        "command -v podman || exit 0",
-        "command -v podman",
-    ):
-        assert _PODMAN_PRESENCE_GUARD_RE.search(guarded), f"missed {guarded!r}"
-
-
-def test_parse_only_step_degrades__mutation_guards_the_lane_too() -> None:
-    """Guarding the LANE as well would make podman's absence invisible
-    everywhere — both halves would skip quietly and the gate would stay green
-    with nothing behind it."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, TWO_SHAPE_JOB, PODMAN_PIN_STEP)
-    step["run"] = "if ! command -v podman >/dev/null 2>&1; then exit 0; fi\n" + step["run"]
-    with pytest.raises(AssertionError, match="must NOT be guarded"):
-        test_parse_only_step_degrades_rather_than_reds_the_tier_0_gate(mutated)
-
-
 def test_parse_only_job_has_a_timeout(workflow: dict[str, Any]) -> None:
     """The job now shells out to `osprey init`, `osprey build` and a compose
     parse. None can hang in principle, but all are new shapes for a Tier 0 job
@@ -7250,30 +7007,6 @@ def test_parse_only_job_has_a_timeout__mutation_drops_it() -> None:
         test_parse_only_job_has_a_timeout(mutated)
 
 
-def test_parse_only_step_proves_the_env_chain_interpolates(workflow: dict[str, Any]) -> None:
-    """The interpolation half, and it is asserted in the direction that can
-    fail. Seeding one value would only show that SOME env file was read; the
-    step writes the same key into both chain members with different values, so
-    the local one appearing — and the shared one not — is what distinguishes a
-    merged file that preserved precedence from one that merely exists."""
-    run_text = _parse_step_run(workflow)
-    for sentinel in ("local-wins", "shared-loses"):
-        assert sentinel in run_text, (
-            f"the parse step must seed and assert the {sentinel!r} chain sentinel"
-        )
-
-
-def test_parse_only_step_proves_the_env_chain_interpolates__mutation_drops_a_sentinel() -> None:
-    """Dropping the losing sentinel leaves a step that still reads an env file
-    but can no longer tell which one won."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, PARSE_ONLY_JOB, PARSE_ONLY_STEP)
-    step["run"] = step["run"].replace("shared-loses", "local-wins")
-    assert "local-wins" in step["run"]  # the other sentinel survives
-    with pytest.raises(AssertionError, match="shared-loses"):
-        test_parse_only_step_proves_the_env_chain_interpolates(mutated)
-
-
 # ---------------------------------------------------------------------------
 # The proxied build inside dockerfile-e2e
 # ---------------------------------------------------------------------------
@@ -7283,300 +7016,81 @@ def test_parse_only_step_proves_the_env_chain_interpolates__mutation_drops_a_sen
 # observable from a build's exit status on a runner with open egress: delete
 # the export and apt simply fetches directly, and the build still succeeds. The
 # lane therefore routes a real build through a tinyproxy and asserts on the
-# PROXY'S ACCESS LOG, and what is pinned here is that it keeps doing exactly
-# that — the failure mode these guards exist for is a sequence that survives as
-# a green step while proving nothing.
+# PROXY'S ACCESS LOG. Each step is ``scripts/ci/proxied_build.sh <subcommand>``,
+# and tests/scripts/test_proxied_build.py holds what each subcommand proves;
+# what is pinned here is that the lane keeps running all of them, in order,
+# and tears the proxy down whatever happened.
 
 DOCKERFILE_E2E_JOB = "dockerfile-e2e"
 DOCKERFILE_AGENT_JOB = "dockerfile-agent-e2e"
-PROXY_START_STEP = "Start a logging forward proxy (tinyproxy)"
-PROXY_CONTRACT_STEP = "Assert the uppercase-only proxy contract reaches the build"
-PROXY_BUILD_STEP = "Build the web-terminal auth sidecar through the proxy"
-PROXY_ASSERT_STEP = "Assert apt and pip traffic went through the proxy"
-PROXY_STOP_STEP = "Stop the forward proxy"
+PROXIED_BUILD_SCRIPT = "scripts/ci/proxied_build.sh"
+#: The five steps, each with the subcommand it runs. They are one proof split
+#: across steps for readability, and each is droppable in a way that leaves the
+#: lane green: without ``start`` the build is unproxied, without ``probe`` the
+#: log assertion can be satisfied by the runtime rather than the Dockerfile,
+#: without ``assert`` the build's exit status is all that is left, and without
+#: ``stop`` a fixed-name container keeps its port on a shared runner.
 PROXY_SEQUENCE = (
-    PROXY_START_STEP,
-    PROXY_CONTRACT_STEP,
-    PROXY_BUILD_STEP,
-    PROXY_ASSERT_STEP,
-    PROXY_STOP_STEP,
+    ("Start a logging forward proxy (tinyproxy)", "start"),
+    ("Assert the uppercase-only proxy contract reaches the build", "probe"),
+    ("Build the web-terminal auth sidecar through the proxy", "build"),
+    ("Assert apt and pip traffic went through the proxy", "assert"),
+    ("Stop the forward proxy", "stop"),
 )
-#: The host-side path the proxy's access log is mounted to and read back from.
-PROXY_ACCESS_LOG = "/tmp/osprey-proxy/access.log"
-#: The apt mirror the template Dockerfiles rewrite their sources to. This is
-#: the half that proves the BRIDGE: apt reads no uppercase proxy variable, so
-#: its traffic can only reach the proxy through the Dockerfile's export.
-PROXY_APT_HOST = "deb.debian.org"
-#: The pip side — either host is enough to show the framework install was
-#: proxied too.
-PROXY_PIP_HOSTS = ("pypi.org", "files.pythonhosted.org")
-#: The build context: small, and it uses both apt and pip.
-PROXIED_BUILD_TARGET = "src/osprey/templates/modules/web_terminals/auth_sidecar"
-_UPPERCASE_PROXY_ARG_RE = re.compile(r"--build-arg\s+(HTTP_PROXY|HTTPS_PROXY)=")
-_LOWERCASE_PROXY_ARG_RE = re.compile(r"--build-arg\s+(http_proxy|https_proxy)=")
 
 
-def _proxy_step_run(wf: dict[str, Any], step_name: str) -> str:
-    return _find_named_step(wf, DOCKERFILE_E2E_JOB, step_name)["run"]
-
-
-def test_dockerfile_e2e_carries_the_whole_proxied_sequence(workflow: dict[str, Any]) -> None:
-    """All five steps, checked by name. They are one proof split across steps
-    for readability, and each is independently droppable in a way that leaves
-    the lane green: without the start step the build is unproxied, without the
-    contract probe the log assertion can be satisfied by a runtime rather than
-    by the Dockerfile, without the assertion the build's exit status is all
-    that is left, and without the teardown a fixed-name container keeps port
-    8888 on a shared runner."""
-    for step_name in PROXY_SEQUENCE:
-        _find_named_step(workflow, DOCKERFILE_E2E_JOB, step_name)
-
-
-@pytest.mark.parametrize("dropped", PROXY_SEQUENCE)
-def test_dockerfile_e2e_carries_the_whole_proxied_sequence__mutation_drops_one(
-    dropped: str,
+def test_dockerfile_e2e_runs_the_whole_proxied_sequence(
+    workflow: dict[str, Any] | None = None,
 ) -> None:
-    """Dropping any single step must fail — otherwise the check is satisfied
-    by the other four and the sequence can be dismantled one step at a time."""
-    mutated = copy.deepcopy(_load_workflow())
+    """Every step, in order, each running its own subcommand; the teardown
+    under ``if: always()``, since a teardown that only ran on success would
+    leave the proxy behind for precisely the run that failed."""
+    wf = workflow if workflow is not None else _load_workflow()
+    steps = _jobs(wf)[DOCKERFILE_E2E_JOB]["steps"]
+    ran = [
+        (step.get("name"), step["run"].strip())
+        for step in steps
+        if PROXIED_BUILD_SCRIPT in str(step.get("run", ""))
+    ]
+    expected = [(name, f"{PROXIED_BUILD_SCRIPT} {sub}") for name, sub in PROXY_SEQUENCE]
+    assert ran == expected, f"the proxied sequence is {ran}"
+    stop = _find_named_step(wf, DOCKERFILE_E2E_JOB, PROXY_SEQUENCE[-1][0])
+    assert stop.get("if") == "always()", f"the proxy teardown runs under {stop.get('if')!r}"
+
+
+@pytest.mark.parametrize(("dropped", "_sub"), PROXY_SEQUENCE)
+def test_dockerfile_e2e_runs_the_whole_proxied_sequence__mutation_drops_one(
+    dropped: str, _sub: str
+) -> None:
+    """Dropping any single step must fail, so the sequence cannot be
+    dismantled one step at a time."""
+    mutated = _load_workflow()
+    _jobs(mutated)[DOCKERFILE_E2E_JOB]["steps"].remove(
+        _find_named_step(mutated, DOCKERFILE_E2E_JOB, dropped)
+    )
+    with pytest.raises(AssertionError, match="proxied sequence"):
+        test_dockerfile_e2e_runs_the_whole_proxied_sequence(mutated)
+
+
+def test_dockerfile_e2e_runs_the_whole_proxied_sequence__mutation_asserts_before_the_build() -> (
+    None
+):
+    mutated = _load_workflow()
     steps = _jobs(mutated)[DOCKERFILE_E2E_JOB]["steps"]
-    steps.remove(_find_named_step(mutated, DOCKERFILE_E2E_JOB, dropped))
-    with pytest.raises(AssertionError, match=re.escape(dropped)):
-        test_dockerfile_e2e_carries_the_whole_proxied_sequence(mutated)
-
-
-def test_proxy_assertion_reads_the_access_log(workflow: dict[str, Any]) -> None:
-    """The assertion must be about LOG CONTENT. On this runner the internet is
-    directly reachable, so a build whose bridge was deleted exits 0 all the
-    same: an exit-status check would be a green step over a broken bridge.
-    Both host classes are required, and separately — apt proves the lowercase
-    bridge, pip proves the proxy was engaged for the framework install."""
-    run_text = _proxy_step_run(workflow, PROXY_ASSERT_STEP)
-    assert PROXY_ACCESS_LOG in run_text, (
-        f"'{PROXY_ASSERT_STEP}' must read the proxy's access log at {PROXY_ACCESS_LOG}"
+    check = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_SEQUENCE[3][0])
+    steps.remove(check)
+    steps.insert(
+        steps.index(_find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_SEQUENCE[2][0])), check
     )
-    assert PROXY_APT_HOST in run_text, (
-        f"'{PROXY_ASSERT_STEP}' must assert that {PROXY_APT_HOST} traffic reached the proxy"
-    )
-    assert any(host in run_text for host in PROXY_PIP_HOSTS), (
-        f"'{PROXY_ASSERT_STEP}' must assert that pip traffic ({' or '.join(PROXY_PIP_HOSTS)}) "
-        f"reached the proxy"
-    )
+    with pytest.raises(AssertionError, match="proxied sequence"):
+        test_dockerfile_e2e_runs_the_whole_proxied_sequence(mutated)
 
 
-def test_proxy_assertion_reads_the_access_log__mutation_checks_exit_status_instead() -> None:
-    """The shape this guard exists for: an assertion step reduced to "the build
-    exited 0", which on an open-egress runner is true whether or not anything
-    was proxied."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_ASSERT_STEP)
-    step["run"] = 'set -euo pipefail\necho "✅ the proxied build exited 0"\n'
-    with pytest.raises(AssertionError, match="access log"):
-        test_proxy_assertion_reads_the_access_log(mutated)
-
-
-def test_proxy_assertion_reads_the_access_log__mutation_drops_only_the_apt_host() -> None:
-    """Losing the apt half must fail on its own. It is the half that proves the
-    bridge — pip honours the uppercase names unaided, so a pip-only assertion
-    would stay green with every `export http_proxy=…` line deleted."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_ASSERT_STEP)
-    original = step["run"]
-    step["run"] = original.replace(PROXY_APT_HOST, "example.invalid")
-    assert step["run"] != original, f"no {PROXY_APT_HOST} in the step — mutation is stale"
-    assert any(host in step["run"] for host in PROXY_PIP_HOSTS)  # the pip half survives
-    with pytest.raises(AssertionError, match=PROXY_APT_HOST):
-        test_proxy_assertion_reads_the_access_log(mutated)
-
-
-def test_proxy_assertion_reads_the_access_log__mutation_drops_only_the_pip_hosts() -> None:
-    """And losing the pip half must fail too, so the two are independent."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_ASSERT_STEP)
-    original = step["run"]
-    for host in PROXY_PIP_HOSTS:
-        step["run"] = step["run"].replace(host, "example.invalid")
-    assert step["run"] != original, "no pip host in the step — mutation is stale"
-    assert PROXY_APT_HOST in step["run"]  # the apt half survives
-    with pytest.raises(AssertionError, match="pip traffic"):
-        test_proxy_assertion_reads_the_access_log(mutated)
-
-
-def test_proxied_build_passes_only_uppercase_proxy_build_args(workflow: dict[str, Any]) -> None:
-    """Uppercase in, and nothing else. The lowercase spelling is what the
-    Dockerfile itself is supposed to derive; handing it to the build directly
-    would satisfy apt without the export ever running, which is the same
-    vacuous green as asserting on exit status."""
-    run_text = _proxy_step_run(workflow, PROXY_BUILD_STEP)
-    passed = {match.group(1) for match in _UPPERCASE_PROXY_ARG_RE.finditer(run_text)}
-    assert passed == {"HTTP_PROXY", "HTTPS_PROXY"}, (
-        f"'{PROXY_BUILD_STEP}' must pass both uppercase proxy build-args; got {sorted(passed)}"
-    )
-    lowercase = _LOWERCASE_PROXY_ARG_RE.search(run_text)
-    assert lowercase is None, (
-        f"'{PROXY_BUILD_STEP}' passes a lowercase proxy build-arg "
-        f"({lowercase.group(1) if lowercase else ''}) — the Dockerfile's bridge must be the "
-        f"only source of it, or the lane proves nothing"
-    )
-
-
-def test_proxied_build_passes_only_uppercase_proxy_build_args__mutation_drops_https() -> None:
-    """Dropping either uppercase arg must fail: pip and apt both reach their
-    hosts over HTTPS, so HTTP_PROXY alone routes neither."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_BUILD_STEP)
-    original = step["run"]
-    step["run"] = re.sub(r"\s*--build-arg\s+HTTPS_PROXY=\S+\s*\\\n", "\n", original)
-    assert step["run"] != original, "HTTPS_PROXY build-arg not found — mutation is stale"
-    with pytest.raises(AssertionError, match="both uppercase proxy build-args"):
-        test_proxied_build_passes_only_uppercase_proxy_build_args(mutated)
-
-
-def test_proxied_build_passes_only_uppercase_proxy_build_args__mutation_adds_lowercase() -> None:
-    """Adding the lowercase spelling alongside is the plausible "just make the
-    build work" edit, and it silently retires the thing under test."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_BUILD_STEP)
-    original = step["run"]
-    step["run"] = original.replace(
-        "--build-arg HTTP_PROXY=",
-        "--build-arg http_proxy=http://127.0.0.1:8888 \\\n  --build-arg HTTP_PROXY=",
-    )
-    assert step["run"] != original, "HTTP_PROXY build-arg not found — mutation is stale"
-    with pytest.raises(AssertionError, match="lowercase proxy build-arg"):
-        test_proxied_build_passes_only_uppercase_proxy_build_args(mutated)
-
-
-def test_proxied_build_uses_a_case_preserving_runtime(workflow: dict[str, Any]) -> None:
-    """Measured, not assumed: docker's BuildKit expands `--build-arg
-    HTTP_PROXY=…` into BOTH `HTTP_PROXY` and `http_proxy` inside RUN, so a
-    docker build would satisfy the access-log assertion with the Dockerfile's
-    bridge deleted. podman (buildah) passes the names it is given. The runtime
-    is therefore part of the proof, and the contract probe step re-checks it on
-    the runner every run."""
-    run_text = _proxy_step_run(workflow, PROXY_BUILD_STEP)
-    assert "podman build" in run_text, (
-        f"'{PROXY_BUILD_STEP}' must build with podman — see the docstring"
-    )
-    assert "docker build" not in run_text, (
-        f"'{PROXY_BUILD_STEP}' must not build with docker: BuildKit supplies the lowercase "
-        f"proxy variables itself, which is precisely what the Dockerfile bridge is for"
-    )
-
-
-def test_proxied_build_uses_a_case_preserving_runtime__mutation_switches_to_docker() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_BUILD_STEP)
-    original = step["run"]
-    step["run"] = original.replace("podman build", "docker build")
-    assert step["run"] != original, "no podman build in the step — mutation is stale"
-    with pytest.raises(AssertionError):
-        test_proxied_build_uses_a_case_preserving_runtime(mutated)
-
-
-def test_contract_probe_rejects_a_runtime_that_injects_lowercase(workflow: dict[str, Any]) -> None:
-    """The probe is what keeps the whole sequence honest across runtime
-    upgrades, so its two halves are pinned: the uppercase value must be seen to
-    arrive, and a lowercase one must be seen NOT to. A probe that only checked
-    the first would go on passing on a runtime that supplies both."""
-    run_text = _proxy_step_run(workflow, PROXY_CONTRACT_STEP)
-    assert "HTTP_PROXY=" in run_text, (
-        f"'{PROXY_CONTRACT_STEP}' must assert the uppercase value reaches the RUN environment"
-    )
-    assert "http_proxy=" in run_text, (
-        f"'{PROXY_CONTRACT_STEP}' must fail when the runtime injects a lowercase proxy "
-        f"variable of its own — without that half the log assertion can be satisfied by "
-        f"the build runtime instead of by the Dockerfile"
-    )
-
-
-def test_contract_probe_rejects_a_runtime_that_injects_lowercase__mutation_drops_the_half() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_CONTRACT_STEP)
-    step["run"] = _drop_lines(
-        step["run"], lambda line: "http_proxy=" in line, "no lowercase check in the probe"
-    )
-    assert "HTTP_PROXY=" in step["run"]  # the uppercase half survives
-    with pytest.raises(AssertionError, match="lowercase proxy"):
-        test_contract_probe_rejects_a_runtime_that_injects_lowercase(mutated)
-
-
-def test_proxied_build_threads_the_version_args(workflow: dict[str, Any]) -> None:
-    """The sidecar Dockerfile exits non-zero on an empty ``OSPREY_VERSION``,
-    and a branch version is usually not on PyPI — ``OSPREY_DEV=1`` is what
-    turns that pin miss into an unpinned prime. Both are threaded explicitly so
-    the proxy bridge stays the only thing that can fail in this build."""
-    run_text = _proxy_step_run(workflow, PROXY_BUILD_STEP)
-    assert "--build-arg OSPREY_VERSION=" in run_text, (
-        f"'{PROXY_BUILD_STEP}' must pass OSPREY_VERSION; the Dockerfile requires it"
-    )
-    assert "--build-arg OSPREY_DEV=1" in run_text, (
-        f"'{PROXY_BUILD_STEP}' must pass OSPREY_DEV=1 so an unreleased pin falls back "
-        f"to an unpinned prime instead of failing the build"
-    )
-    assert PROXIED_BUILD_TARGET in run_text, (
-        f"'{PROXY_BUILD_STEP}' must build from {PROXIED_BUILD_TARGET}"
-    )
-
-
-@pytest.mark.parametrize(
-    ("dropped", "message"),
-    [
-        ("--build-arg OSPREY_DEV=1", "OSPREY_DEV=1"),
-        ("--build-arg OSPREY_VERSION=", "OSPREY_VERSION"),
-    ],
-)
-def test_proxied_build_threads_the_version_args__mutation_drops_one(
-    dropped: str, message: str
-) -> None:
-    """Either one missing turns a bridge failure and a version failure into the
-    same red step, which is the reading problem this threading exists to avoid."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_BUILD_STEP)
-    original = step["run"]
-    step["run"] = original.replace(dropped, "--build-arg UNRELATED=")
-    assert step["run"] != original, f"{dropped!r} not found — mutation is stale"
-    with pytest.raises(AssertionError, match=message):
-        test_proxied_build_threads_the_version_args(mutated)
-
-
-def test_every_proxied_step_sets_pipefail(workflow: dict[str, Any]) -> None:
-    """GitHub's default shell is ``bash -e`` WITHOUT pipefail, so a pipeline
-    reports its last command's status. These steps grep for evidence of
-    absence, which is exactly the shape a swallowed status turns into a silent
-    pass."""
-    for step_name in PROXY_SEQUENCE:
-        run_text = _proxy_step_run(workflow, step_name)
-        assert "set -euo pipefail" in run_text, f"'{step_name}' must open with `set -euo pipefail`"
-
-
-def test_every_proxied_step_sets_pipefail__mutation_drops_it_from_one() -> None:
-    """One step losing it is enough to fail — the guard must not be satisfied
-    by its neighbours."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_ASSERT_STEP)
-    original = step["run"]
-    step["run"] = original.replace("set -euo pipefail", "set -e")
-    assert step["run"] != original, "no pipefail in the step — mutation is stale"
-    with pytest.raises(AssertionError, match=re.escape(PROXY_ASSERT_STEP)):
-        test_every_proxied_step_sets_pipefail(mutated)
-
-
-def test_proxy_teardown_runs_even_when_the_assertion_fails(workflow: dict[str, Any]) -> None:
-    """The proxy is a fixed-name container holding a fixed port on a runner
-    other steps share. A teardown that only runs on success leaves it behind
-    for precisely the run that failed."""
-    step = _find_named_step(workflow, DOCKERFILE_E2E_JOB, PROXY_STOP_STEP)
-    assert step.get("if") == "always()", (
-        f"'{PROXY_STOP_STEP}' must carry `if: always()`; got {step.get('if')!r}"
-    )
-
-
-def test_proxy_teardown_runs_even_when_the_assertion_fails__mutation_drops_the_condition() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_STOP_STEP)["if"]
-    with pytest.raises(AssertionError, match="always"):
-        test_proxy_teardown_runs_even_when_the_assertion_fails(mutated)
+def test_dockerfile_e2e_runs_the_whole_proxied_sequence__mutation_drops_the_condition() -> None:
+    mutated = _load_workflow()
+    del _find_named_step(mutated, DOCKERFILE_E2E_JOB, PROXY_SEQUENCE[-1][0])["if"]
+    with pytest.raises(AssertionError, match="teardown"):
+        test_dockerfile_e2e_runs_the_whole_proxied_sequence(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -12778,7 +12292,6 @@ def _record_cleanup_steps(wf: dict[str, Any]) -> dict[tuple[str, str], tuple[str
 #: Lanes that run a docker-backed module or carry a docker cleanup step but
 #: never run ``osprey up``, so no agent record can exist there to strand.
 RECORD_CLEANUP_EXEMPT: dict[str, str] = {
-    "dockerfile-e2e": "runs the generated image on its own; no compose deployment",
     "execution-environment-parity-e2e": "builds and runs the project image only",
     "graph-reseed-e2e": "runs the graph store container only",
     "nextcloud-talk-bridge-e2e": "runs fixture containers and the bridge process only",
