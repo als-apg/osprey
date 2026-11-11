@@ -216,7 +216,7 @@ and ``username``, with ``GRAPHDB_PASSWORD`` in the project ``.env``). See
 :ref:`profile-graph-mode` for both shapes, and :doc:`deploy-project/index` for the
 block itself. A build that enables the channel finder but renders no
 ``services.graphdb`` block is refused, naming the missing block, rather than
-shipping a pipeline with nothing to read. The channel-finder app runs on its
+shipping a pipeline with nothing to read. The channel-finder login runs on its
 host deployment's services, so it reads this mode from the host's
 ``services.graphdb`` block.
 
