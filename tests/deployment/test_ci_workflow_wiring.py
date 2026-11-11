@@ -130,7 +130,8 @@ SCAN_AGENTIC_TEST_FILE = "tests/e2e/test_plan_stack_agentic.py"
 SCAN_AGENTIC_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 ARCHIVER_JOB = "archiver-world-e2e"
 ARCHIVER_TEST_FILE = "tests/e2e/test_archiver_world_e2e.py"
-TARGET_SWITCH_JOB = "target-switch-e2e"
+#: The control-target switch lane: a cell of the VA live job (two live CA servers, its own runner).
+TARGET_SWITCH_JOB = "va-live-e2e[target-switch]"
 #: The agent-driven half of the same feature. A separate lane rather than a
 #: second step in the one above because it needs the LLM secret and the CLI,
 #: and lane-level `if:` gating is the only granularity GitHub offers.
@@ -140,10 +141,9 @@ QMD_WARMUP_JOB = "qmd-cache-warmup"
 VA_LIVE_JOB = "va-live-e2e"
 VA_BLUESKY_JOB = "va-live-e2e[plan-deploy]"
 #: The run step of each lane that executes modules from tests/va/e2e/. The
-#: partition below is over this mapping, so a further live lane is registered
-#: here and nowhere else.
+#: partition below is over this mapping and every cell of each job, so a further
+#: live lane is registered here and nowhere else.
 VA_LIVE_LANE_RUN_STEPS = {
-    TARGET_SWITCH_JOB: "Run the control-target switch E2E",
     VA_LIVE_JOB: "Run the live virtual accelerator E2E",
 }
 VA_E2E_ENABLE_FLAG = "OSPREY_VA_E2E_ENABLE"
@@ -6021,7 +6021,7 @@ def test_every_container_job_captures_diagnostics(workflow: dict[str, Any]) -> N
 
 def test_every_container_job_captures_diagnostics__mutation_drops_a_lane() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    job = _jobs(mutated)[WRITEBACK_JOB]
+    job = _jobs(mutated)[_host(mutated, WRITEBACK_JOB)]
     del job["steps"][_capture_step_index(job)]
     with pytest.raises(AssertionError):
         test_every_container_job_captures_diagnostics(mutated)
@@ -6046,14 +6046,15 @@ def test_capture_runs_before_teardown(workflow: dict[str, Any]) -> None:
 
 def test_capture_runs_before_teardown__mutation_moves_it_after_cleanup() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[WRITEBACK_JOB]["steps"]
-    steps.append(steps.pop(_capture_step_index(_jobs(mutated)[WRITEBACK_JOB])))
+    job = _jobs(mutated)[_host(mutated, WRITEBACK_JOB)]
+    job["steps"].append(job["steps"].pop(_capture_step_index(job)))
     with pytest.raises(AssertionError):
         test_capture_runs_before_teardown(mutated)
 
 
 WRITEBACK_E2E_MODULE = REPO_ROOT / "tests" / "e2e" / "test_deploy_writeback_e2e.py"
-WRITEBACK_CLEANUP_STEP = "Clean up any stranded write-back-e2e resources"
+#: A ``stack-e2e`` cell, so its cleanup is the stack lanes' shared step.
+WRITEBACK_CLEANUP_STEP = "Clean up any stranded stack resources"
 WRITEBACK_PROJECT_PREFIX = "osprey-e2e-wb-"
 
 
@@ -6079,7 +6080,7 @@ def test_writeback_cleanup_sweeps_every_project_the_test_creates(
 ) -> None:
     """The cleanup tears down exactly the projects the e2e module names, so
     renaming a project cannot leave its containers and volumes behind."""
-    run = _find_named_step(workflow, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)["run"]
+    run = _cleanup_step_run(workflow, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)
     cases = _writeback_project_cases()
     assert cases, f"no PROJECT_* constants found in {WRITEBACK_E2E_MODULE}"
     assert _compose_downs(_cleanup_trace(run)) == {
@@ -6089,10 +6090,10 @@ def test_writeback_cleanup_sweeps_every_project_the_test_creates(
 
 def test_writeback_cleanup_sweeps_every_project_the_test_creates__mutation_stale_case() -> None:
     mutated = _load_workflow()
-    step = _find_named_step(mutated, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)
-    before = step["run"]
-    step["run"] = before.replace(f"{WRITEBACK_PROJECT_PREFIX}render", "osprey-e2e-wb-orphan")
-    assert step["run"] != before, "no render project in the cleanup call — mutation is stale"
+    cell = _cell_entry(mutated, WRITEBACK_JOB)
+    before = cell["cleanup"]
+    cell["cleanup"] = before.replace(f"{WRITEBACK_PROJECT_PREFIX}render", "osprey-e2e-wb-orphan")
+    assert cell["cleanup"] != before, "no render project in the cell's cleanup — mutation is stale"
     with pytest.raises(AssertionError):
         test_writeback_cleanup_sweeps_every_project_the_test_creates(mutated)
 
@@ -7879,18 +7880,6 @@ def test_chain_boot_suite_runs_in_the_va_live_run_step(
     assert CHAIN_BOOT_MODULE in named, f"'{VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB]}' runs {named}"
 
 
-def test_chain_boot_suite_runs_in_the_va_live_run_step__mutation_moves_it_to_another_lane() -> None:
-    """The partition still holds on this mutation, so only the pin sees it."""
-    mutated = copy.deepcopy(_load_workflow())
-    _drop_va_live_suite(mutated, CHAIN_BOOT_MODULE)
-    other = _find_named_step(mutated, TARGET_SWITCH_JOB, VA_LIVE_LANE_RUN_STEPS[TARGET_SWITCH_JOB])
-    other["run"] = f"{other['run']} {CHAIN_BOOT_MODULE}\n"
-    test_every_live_va_suite_is_named_by_one_lane(mutated)
-    test_no_live_va_suite_is_named_by_two_lanes(mutated)
-    with pytest.raises(AssertionError):
-        test_chain_boot_suite_runs_in_the_va_live_run_step(mutated)
-
-
 def _collected_floor_errors(source: str, *, guard: str) -> list[str]:
     """What a module's collection floor is missing, read from its text.
 
@@ -8353,10 +8342,10 @@ def test_every_virtual_accelerator_lane_builds_through_the_shared_action(
 ) -> None:
     """Every lane that needs this image gets it from the one shared recipe.
 
-    At the baseline the four are ``target-switch-e2e``,
-    ``target-switch-agentic-e2e``, ``va-live-e2e`` and
-    ``va-bluesky-deploy-e2e``, and the set is derived rather than listed: a
-    fifth lane joins it by naming the image, not by being added here.
+    At the baseline the two are ``target-switch-agentic-e2e`` and
+    ``va-live-e2e`` (whose cells include the target switch), and the set is
+    derived rather than listed: a third job joins it by naming the image, not
+    by being added here.
     """
     wrong = {
         name: len(_va_action_steps(workflow, name)) for name in sorted(_va_image_jobs(workflow))
@@ -8393,8 +8382,8 @@ def test_every_virtual_accelerator_lane_builds_through_the_shared_action__mutati
     None
 ):
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]
-    steps[_va_action_steps(mutated, TARGET_SWITCH_JOB)[0]]["with"] = {
+    steps = _jobs(mutated)[TARGET_SWITCH_AGENTIC_JOB]["steps"]
+    steps[_va_action_steps(mutated, TARGET_SWITCH_AGENTIC_JOB)[0]]["with"] = {
         "tag": "osprey-va-full:experiment"
     }
     with pytest.raises(AssertionError):
@@ -8617,8 +8606,8 @@ def test_every_lane_builds_after_the_shared_builder__mutation_moves_a_bench_buil
     None
 ):
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]
-    steps.insert(0, steps.pop(_steps_using(mutated, TARGET_SWITCH_JOB, BENCH_IOC_ACTION)[0]))
+    steps = _jobs(mutated)[VA_LIVE_JOB]["steps"]
+    steps.insert(0, steps.pop(_steps_using(mutated, VA_LIVE_JOB, BENCH_IOC_ACTION)[0]))
     with pytest.raises(AssertionError):
         test_every_lane_builds_after_the_shared_builder(mutated)
 
@@ -8642,7 +8631,8 @@ def test_every_bench_ioc_lane_builds_through_the_shared_action(workflow: dict[st
     build or the cache itself.
     """
     lanes = _bench_ioc_jobs(workflow)
-    assert {TARGET_SWITCH_JOB, TARGET_SWITCH_AGENTIC_JOB} <= lanes, (
+    # The switch cell runs in the VA live job, so that job is the one naming the image.
+    assert {VA_LIVE_JOB, TARGET_SWITCH_AGENTIC_JOB} <= lanes, (
         f"both switch lanes run against {BENCH_IOC_TAG}; the derived set is {sorted(lanes)}"
     )
     wrong = {
@@ -8924,8 +8914,8 @@ def test_every_virtual_accelerator_lane_removes_the_image_it_built__mutation_mak
     None
 ):
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]
-    for index in _steps_using(mutated, TARGET_SWITCH_JOB, VA_REMOVE_ACTION):
+    steps = _jobs(mutated)[VA_LIVE_JOB]["steps"]
+    for index in _steps_using(mutated, VA_LIVE_JOB, VA_REMOVE_ACTION):
         # The removal survives, but stops running on a red lane.
         del steps[index]["if"]
     with pytest.raises(AssertionError):
@@ -8938,9 +8928,9 @@ def test_each_lane_removes_every_image_it_built(workflow: dict[str, Any]) -> Non
     It is not a lane preference: it is the list of images this lane built that
     the shared removal cannot know about. So a lane that gains a second build
     gains its removal, and a lane that loses one stops asking for a removal
-    with no subject. At the baseline the two switch lanes build
-    ``bench-ioc:latest`` and pass it; the other two build nothing else and
-    pass nothing.
+    with no subject. Per job, not per cell: the VA live job builds
+    ``bench-ioc:latest`` in its target-switch cell and every cell passes it,
+    since removing a tag a cell never built is a no-op.
     """
     unpaired = {}
     for name in sorted(_va_image_jobs(workflow)):
@@ -8962,8 +8952,8 @@ def test_each_lane_removes_every_image_it_built(workflow: dict[str, Any]) -> Non
 
 def test_each_lane_removes_every_image_it_built__mutation_drops_the_extra_tag() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]
-    for index in _steps_using(mutated, TARGET_SWITCH_JOB, VA_REMOVE_ACTION):
+    steps = _jobs(mutated)[VA_LIVE_JOB]["steps"]
+    for index in _steps_using(mutated, VA_LIVE_JOB, VA_REMOVE_ACTION):
         del steps[index]["with"]
     with pytest.raises(AssertionError):
         test_each_lane_removes_every_image_it_built(mutated)
@@ -8975,7 +8965,7 @@ def test_each_lane_removes_every_image_it_built__mutation_asks_for_a_tag_the_lan
     mutated = copy.deepcopy(_load_workflow())
     steps = _jobs(mutated)[VA_LIVE_JOB]["steps"]
     for index in _steps_using(mutated, VA_LIVE_JOB, VA_REMOVE_ACTION):
-        steps[index]["with"] = {"extra-tags": "bench-ioc:latest"}
+        steps[index]["with"] = {"extra-tags": f"{BENCH_IOC_TAG} osprey-never-built:latest"}
     with pytest.raises(AssertionError):
         test_each_lane_removes_every_image_it_built(mutated)
 
@@ -9287,7 +9277,7 @@ def test_every_uv_sync_is_locked() -> None:
         for verb, command in _uv_commands(step["run"])
         if verb == "sync"
     ]
-    assert len(syncs) > 40, (
+    assert len(syncs) > 30, (
         f"the scan found only {len(syncs)} `uv sync` commands; it has gone blind"
     )
     assert _unlocked_syncs(documents) == []
@@ -10541,9 +10531,12 @@ def test_the_tag_gate_names_match__mutation_renames_a_lane() -> None:
 
 
 def test_the_tag_gate_names_match__mutation_a_cell_renders_another_lanes_prefix() -> None:
-    """A matrix cell is a check of its own, so its rendered name counts as a match too."""
+    """A matrix cell is a check of its own, so its rendered name counts as a match too.
+
+    The stack cells render under the job's fixed ``Stack E2E — `` prefix, so the
+    mutation that reaches another lane's prefix is one to the job's template."""
     mutated = copy.deepcopy(_load_workflow())
-    _cell_entry(mutated, TILED_JOB)["name"] = "Dispatch Stack E2E (tiled)"
+    _jobs(mutated)[STACK_JOB]["name"] = "Dispatch Stack E2E (${{ matrix.name }})"
     with pytest.raises(AssertionError, match=re.escape(f"also matches ['{STACK_JOB}']")):
         test_the_tag_gate_names_match_the_rendered_job_names(mutated)
 
@@ -12143,10 +12136,8 @@ WEB_TERMINAL_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
         "full-chain-auth-e2e",
         "Clean up any stranded full-chain-auth resources",
     ): ("osprey-e2e-full-chain-auth",),
-    (
-        "jupyter-panel-e2e",
-        "Clean up any stranded notebook-panel resources",
-    ): ("osprey-e2e-jnb",),
+    # A stack-e2e cell: the stack lanes' shared cleanup step.
+    ("jupyter-panel-e2e", "Clean up any stranded stack resources"): ("osprey-e2e-jnb",),
 }
 
 #: The lanes whose deploy builds the auth sidecar, which is ``<project>-auth``
@@ -12452,10 +12443,7 @@ STACK_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
         "full-chain-auth-e2e",
         "Clean up any stranded full-chain-auth resources",
     ): ("osprey-e2e-full-chain-auth",),
-    (
-        "jupyter-panel-e2e",
-        "Clean up any stranded notebook-panel resources",
-    ): ("osprey-e2e-jnb",),
+    ("jupyter-panel-e2e", STACK_CLEANUP_STEP): ("osprey-e2e-jnb",),
     **{(job, STACK_CLEANUP_STEP): projects for job, projects in _STACK_LANE_PROJECTS.items()},
     ("e2e-tests", STACK_CLEANUP_STEP): tuple(
         project for projects in _STACK_LANE_PROJECTS.values() for project in projects
@@ -12698,7 +12686,7 @@ def test_every_stack_lane_owes_the_record_cleanup__mutation_adds_an_unowned_lane
 
 def test_every_stack_lane_owes_the_record_cleanup__mutation_stale_exemption() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    del _jobs(mutated)["graph-reseed-e2e"]
+    _drop_lane(mutated, "graph-reseed-e2e")
     with pytest.raises(AssertionError, match="graph-reseed-e2e"):
         test_every_stack_lane_owes_the_record_cleanup(mutated)
 
@@ -12757,12 +12745,13 @@ def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_project_f
     job: str, step_name: str, project: str, dropped: str
 ) -> None:
     """A project left off a lane's cleanup-script call (or its matrix cell's
-    ``project``) is a gap naming that lane."""
+    ``cleanup``) is a gap naming that lane."""
     mutated = copy.deepcopy(_load_workflow())
     if job in _lane_cells(mutated):
         cell = _cell_entry(mutated, job)
-        assert cell.get("project") == project, f"'{job}'s cell cleans no {project} — stale"
-        cell["project"] = "some-other-project"
+        tokens = str(cell.get("cleanup", "")).split()
+        assert project in tokens, f"'{job}'s cell cleans no {project} — stale"
+        cell["cleanup"] = " ".join(t if t != project else "some-other-project" for t in tokens)
     else:
         step = _find_named_step(mutated, job, step_name)
         before = step["run"]
@@ -12871,22 +12860,22 @@ def test_no_run_script_absorbs_a_step_key__a_heredoc_block_is_not_a_key() -> Non
 
 
 # ---------------------------------------------------------------------------
-# the graph-reseed lane: its own job, secret-free, out of the shared lane, gated
+# the graph-reseed lane: its own stack-e2e cell, secret-free, out of the shared lane, gated
 # ---------------------------------------------------------------------------
 
 GRAPH_RESEED_JOB = "graph-reseed-e2e"
 GRAPH_RESEED_TEST_FILE = "tests/e2e/test_graph_reseed_stamp.py"
-GRAPH_RESEED_STEP = "Run graph reseed stamp E2E"
+GRAPH_RESEED_STEP = "Run the stack E2E module"
 
 
 def test_graph_reseed_job_runs_its_file_in_a_named_step(workflow: dict[str, Any]) -> None:
-    step = _find_named_step(workflow, GRAPH_RESEED_JOB, GRAPH_RESEED_STEP)
-    assert f"pytest {GRAPH_RESEED_TEST_FILE}" in step["run"]
+    run = _cleanup_step_run(workflow, GRAPH_RESEED_JOB, GRAPH_RESEED_STEP)
+    assert f"pytest {GRAPH_RESEED_TEST_FILE}" in run
 
 
 def test_graph_reseed_job_runs_its_file_in_a_named_step__mutation_drops_job() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][GRAPH_RESEED_JOB]
+    _drop_lane(mutated, GRAPH_RESEED_JOB)
     with pytest.raises((AssertionError, KeyError)):
         test_graph_reseed_job_runs_its_file_in_a_named_step(mutated)
 

@@ -19,8 +19,8 @@ These functions read a deck -- a lattice file pyAT loads with
 * :func:`error_text` gives the one line a failed build or solve reports;
 * :func:`readout` turns solved monitor positions into what each monitor
   reports;
-* :func:`fault_variables` names every fault a model built from a wiring
-  declares, without building it.
+* :func:`fault_variables` names every fault a model built from a wiring and
+  its settings declares, without building it.
 
 A wiring record is read by key or by attribute: ``id``, ``address``,
 ``element`` or ``slices`` (each ``element``, ``weight``), the ``engine`` block
@@ -51,9 +51,11 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
 from osprey.simulation.engines.pyat_faults import (
     ELEMENT_SCOPE,
+    ERROR_ELEMENTS_KEY,
     FAULT_SEPARATOR,
     MULTIPOLE_PREFIXES,
     FaultSlot,
+    error_elements,
     fault_variables,
     multipole_attribute,
     multipole_field,
@@ -86,7 +88,9 @@ __all__ = [
 ]
 
 #: The keys the ``pyat`` settings block may carry.
-SETTINGS_KEYS: frozenset[str] = frozenset({"solve", "twiss_in", "rest_mass_gev"})
+SETTINGS_KEYS: frozenset[str] = frozenset(
+    {"solve", "twiss_in", "rest_mass_gev", ERROR_ELEMENTS_KEY}
+)
 
 #: The ``solve`` values, the first one the default.
 SOLVES: tuple[str, ...] = ("periodic", "single_pass")
@@ -225,10 +229,20 @@ class ElementStop(FacilityBuildError):
         element: The element's name.
         count: How often the deck holds it: 0 when absent, above 1 when
             repeated.
+
+    ``named_by`` says where the element is named when no wiring record names
+    it, and leads the stop's detail.
     """
 
     def __init__(
-        self, deck: Deck, element: str, count: int, record_id: str, record_kind: str
+        self,
+        deck: Deck,
+        element: str,
+        count: int,
+        record_id: str,
+        record_kind: str,
+        *,
+        named_by: str | None = None,
     ) -> None:
         if count == 0:
             detail = f"element {element} is not in the deck"
@@ -236,6 +250,8 @@ class ElementStop(FacilityBuildError):
         else:
             detail = f"element {element} appears {count} times in the deck"
             remedy = "give the element a unique name in the deck"
+        if named_by is not None:
+            detail = f"{named_by}: {detail}"
         super().__init__(
             "engine-invalid",
             record_id,
@@ -384,7 +400,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
     Args:
         deck: The lattice file.
         settings: The model's settings, ``{pyat: {solve?, twiss_in?,
-            rest_mass_gev?}}``, or ``None``.
+            rest_mass_gev?, error_elements?}}``, or ``None``.
         model: The model name the stop names; the deck's file stem when
             omitted.
 
@@ -396,8 +412,12 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             ``solve`` value, repeated monitor names, a periodic deck holding a
             cavity without longitudinal motion, ``single_pass`` without
             ``twiss_in``, ``twiss_in`` on a periodic model, a ``twiss_in``
-            value of the wrong length, or a
-            ``rest_mass_gev`` that is not a finite non-negative number.
+            value of the wrong length, a
+            ``rest_mass_gev`` that is not a finite non-negative number, or an
+            ``error_elements`` list that is malformed, names an element
+            twice, or states ``multipoles`` on an element with no polynomial.
+        ElementStop: an ``error_elements`` item names an element the deck
+            does not hold exactly once.
     """
     import at
 
@@ -420,7 +440,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             model_id,
             "model",
             f"settings key pyat carries unknown keys {', '.join(unknown)}",
-            "use only solve, twiss_in, rest_mass_gev",
+            f"use only solve, twiss_in, rest_mass_gev, {ERROR_ELEMENTS_KEY}",
         )
     solve = block.get("solve", SOLVES[0])
     if solve not in SOLVES:
@@ -501,9 +521,53 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
                 "give rest_mass_gev as a finite non-negative number",
             )
         rest_mass_gev = float(rest_mass)
+    _check_error_elements(loaded, deck, settings, model_id)
     return Prepared(
         solve=solve, twiss_in=twiss_in, rest_mass_gev=rest_mass_gev, length_m=loaded.length_m
     )
+
+
+def _check_error_elements(loaded: _Loaded, deck: Deck, settings: Any, model_id: str) -> None:
+    """Hold the settings' ``error_elements`` list to its shape and to the deck.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` for a malformed list, an
+            element named twice, or ``multipoles`` on an element that carries
+            no ``PolynomB`` or ``PolynomA``.
+        ElementStop: a declared element is absent from the deck or repeated
+            in it.
+    """
+    key = f"settings key pyat.{ERROR_ELEMENTS_KEY}"
+    declared, problems = error_elements(settings)
+    if problems:
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            problems[0],
+            f"state {ERROR_ELEMENTS_KEY} as a list of {{element: <name>, multipoles: "
+            "true|false}, each element once",
+        )
+    for element, multipoles in declared.items():
+        found = loaded.indices.get(element, ())
+        if len(found) != 1:
+            raise ElementStop(deck, element, len(found), model_id, "model", named_by=key)
+        if not multipoles:
+            continue
+        missing = [
+            attribute
+            for attribute in MULTIPOLE_PREFIXES.values()
+            if not hasattr(loaded.lattice[found[0]], attribute)
+        ]
+        if missing:
+            raise _stop(
+                deck,
+                model_id,
+                "model",
+                f"{key} states multipoles on element {element}, which carries no "
+                f"{' or '.join(missing)}",
+                f"drop multipoles from {element}, or name an element with polynomials",
+            )
 
 
 def _read_element(loaded: _Loaded, deck: Deck, record: Any, record_id: str) -> float | None:
@@ -920,7 +984,8 @@ def build(
     The model drives its own copy of the deck, so the deck a later call loads
     is never the one a model has written to. Every other key of ``active``
     is a fault seed, ``<address>/<field>``, written onto its element before the
-    model adopts the variables, or an element error, ``<element>/<field>``
+    model adopts the variables, or an element error, ``<element>/<field>``,
+    on an element the wiring binds or the settings' ``error_elements`` declare
     (:func:`~osprey.simulation.engines.pyat_faults.fault_variables`): a
     misalignment (``dx``, ``dy``, ``roll``) becomes the element's entrance and
     exit transforms, a multipole error (``dB<n>``, ``dA<n>``) is added to the
@@ -944,13 +1009,18 @@ def build(
 
     Raises:
         FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
-            refuses, or for a record naming no element that reads no plane of
-            the tunes or the chromaticity.
+            refuses, an ``error_elements`` element the deck does not hold
+            exactly once among them, or for a record naming no element that
+            reads no plane of the tunes or the chromaticity.
         ValueError: an entry cannot be built as a variable, a default or an
             active value lies outside its ``value_range``, a key of
             ``active`` names no setpoint and no fault of the model, an
-            element error lies outside its bounds or is not finite, or a
-            ``single_pass`` model wires a tune or chromaticity record.
+            element error lies outside its bounds or is not finite, an
+            ``error_elements`` element is a wired monitor's or is named like
+            a wired address
+            (:class:`~osprey.simulation.engines.pyat_faults.ErrorElementsError`),
+            or a ``single_pass`` model wires a tune or
+            chromaticity record.
         pydantic.ValidationError: a fault seed lies outside its bounds.
         UnknownElementError: an element error names an element the deck does
             not hold exactly once, or a multipole error one with no such
@@ -1024,7 +1094,9 @@ def build(
 
     faults = {name: float(value) for name, value in active.items() if name not in writes}
     element_slots = {
-        name: slot for name, slot in fault_variables(entries).items() if slot.scope == ELEMENT_SCOPE
+        name: slot
+        for name, slot in fault_variables(entries, settings).items()
+        if slot.scope == ELEMENT_SCOPE
     }
     errors = {name: faults.pop(name) for name in sorted(faults) if name in element_slots}
     misalignments, multipoles = _element_errors(errors, element_slots)

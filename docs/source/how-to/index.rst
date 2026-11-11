@@ -46,7 +46,7 @@ Build & deploy
       :link-type: doc
 
       A panel for the operator and tools for the agent over one backend:
-      what an app is, how to make one, and the orbit bump example.
+      what an app is and how to make one.
 
 Operate
 -------

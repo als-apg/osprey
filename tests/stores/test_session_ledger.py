@@ -15,6 +15,8 @@ Pinned here:
 from __future__ import annotations
 
 import json
+import os
+import stat
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -92,6 +94,25 @@ class TestAppend:
         state = tmp_path / "state" / "alice"
         assert session_ledger.append(state, KEY, T1, AT_1)
         assert session_ledger.exists(state)
+
+    def test_a_directory_the_ledger_creates_first_is_group_shared(self, tmp_path):
+        # The ledger can reach an identity's state directory before the
+        # control-context record does; the record then finds it existing and
+        # sets no mode, so the ledger's own create must leave it 0o2770 under the
+        # location's group, or the other uid cannot reach the 0o640 files in it.
+        tree = tmp_path / "state"
+        tree.mkdir()
+        os.chmod(tree, 0o2770)
+        state = tree / "alice"
+        previous = os.umask(0o077)
+        try:
+            assert session_ledger.append(state, KEY, T1, AT_1)
+            control_context.write_json_atomic(state / "control_context.json", {"schema": 1})
+        finally:
+            os.umask(previous)
+
+        assert stat.S_IMODE(state.stat().st_mode) == 0o2770
+        assert state.stat().st_gid == tree.stat().st_gid
 
     def test_append_many_applies_no_repeat_within_the_call(self, tmp_path):
         added = session_ledger.append_many(
