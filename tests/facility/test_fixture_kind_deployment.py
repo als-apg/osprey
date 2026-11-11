@@ -23,13 +23,10 @@ from __future__ import annotations
 import ast
 import asyncio
 import copy
-import importlib
 import json
 import shutil
-import sys
 import zipfile
 from collections.abc import Callable, Iterator
-from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -40,7 +37,22 @@ from click.testing import Result
 from osprey.facility import kinds
 from osprey.facility.errors import FacilityBuildError
 from osprey_connectors.simulation.view import VARIABLES_FILE
-from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
+from tests.facility._fixture_kind import (
+    BLOCK,
+    DISTRIBUTION,
+    ENGINE,
+    FACTS,
+    FIXTURE_ROLE,
+    KIND,
+    PACKAGE_DIR,
+    PYPROJECT,
+    SOURCE,
+    fake_wheel,
+    fixture_tree,
+    install,
+    read_entry_points_afresh,
+)
+from tests.facility._pyaml_trees import built_document, measured_tree
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -49,115 +61,17 @@ pytest.importorskip("pyaml")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: The deployment package's directory: its import package and its dist-info.
-PACKAGE_DIR = Path(__file__).resolve().parent / "fixtures" / "fixture_kind"
-
 #: Packages the registry refuses, each a site of its own beside the deployment package.
 REFUSED = PACKAGE_DIR / "refused"
 
-#: The kind, its engine and the distribution that declares both.
-KIND = "fixture_kind"
-ENGINE = "fixture_ring"
-DISTRIBUTION = "fixture-kind-deployment"
-
-#: Where the deployment keeps the package's source, as its profile names it.
-SOURCE = "./kinds/fixture_kind"
-
-#: The package's ``pyproject.toml`` in the deployment.
-PYPROJECT = f"""\
-[project]
-name = "{DISTRIBUTION}"
-version = "0.1"
-dependencies = []
-
-[project.entry-points."osprey.facility.kinds"]
-{KIND} = "fixture_kind_deployment:FIXTURE_KIND"
-
-[project.entry-points."osprey.simulation.engines"]
-{ENGINE} = "fixture_kind_deployment.engine"
-"""
-
 #: The built-in kinds, in their distribution's order.
 BUILT_INS = ("orm", "dispersion", "trm", "crm", "chromaticity_monitor")
-
-#: The facility-added signal role the bunch-clean enable carries.
-FIXTURE_ROLE = {
-    "name": "fixture_role",
-    "aliases": ["bunch clean enable"],
-    "description": "Enables the bunch cleaning ahead of a shot.",
-}
-
-#: The instruments the measurement file names, each with its channel; the RF status is absent.
-INSTRUMENTS = {
-    "inject_request": "INJ:REQ",
-    "inject_busy": "INJ:BUSY",
-    "clean_enable": "CLEAN:EN",
-    "beam_current": "BEAM:I",
-}
-
-#: The kind's sub-block: a trigger sample, two ordered settings, a chain of three steps.
-BLOCK: dict[str, Any] = {
-    "trigger_sample": 12,
-    "settings": [
-        {
-            "id": "clean",
-            "label": "Bunch clean",
-            "description": "Bunch cleaning per device",
-            "scope": "device",
-            "signal": "fixture_role",
-            "timeout_s": 2.0,
-        },
-        {
-            "id": "current",
-            "label": "Beam current",
-            "description": "The stored current the shot aims for",
-            "scope": "global",
-            "address": "BEAM:I",
-            "timeout_s": 2.0,
-        },
-    ],
-    "steps": [
-        {"id": "settle", "label": "Settle", "description": "Wait for the ring", "default": True},
-        {
-            "id": "inject",
-            "label": "Inject",
-            "description": "Request one shot",
-            "default": True,
-            "command": {
-                "address": "INJ:REQ",
-                "value": 1,
-                "timeout_s": 5.0,
-                "done": {"address": "INJ:BUSY", "value": 0},
-            },
-        },
-        {
-            "id": "clean",
-            "label": "Clean",
-            "description": "Clean the bunches",
-            "default": False,
-            "command": {"address": "INJ:REQ", "value": 2, "timeout_s": 5.0},
-        },
-    ],
-}
-
-#: What the kind's facts writer writes from ``BLOCK``.
-FACTS = {
-    "chain": ["settle", "inject", "clean"],
-    "commands": ["INJ:REQ", "INJ:REQ"],
-    "trigger_sample": 12,
-    "settings": ["clean", "current"],
-}
 
 #: What the kind's settings transform asks of the engine: the trigger sample plus its window.
 PATCHED = {ENGINE: {"turns": 12 + 64}}
 
 
 # --- the package on the path -----------------------------------------------------------
-
-
-def _read_entry_points_afresh() -> None:
-    """Drop the suite's once-per-session reading of the entry points, if it holds one."""
-    getattr(metadata.entry_points, "cache_clear", lambda: None)()
 
 
 @pytest.fixture(autouse=True)
@@ -167,38 +81,16 @@ def _entry_points_read_afresh() -> Iterator[None]:
     Torn down after the test's ``sys.path`` is restored, so a reading made
     while a fixture package was installed does not outlive the test.
     """
-    _read_entry_points_afresh()
+    read_entry_points_afresh()
     yield
-    _read_entry_points_afresh()
-
-
-def _install(monkeypatch: pytest.MonkeyPatch, *sites: Path) -> None:
-    """Put each site and its dist-info on ``sys.path`` for the test's duration."""
-    for site in sites:
-        monkeypatch.syspath_prepend(str(site))
-    for module in [name for name in sys.modules if name.startswith("fixture_kind_")]:
-        monkeypatch.delitem(sys.modules, module)
-    importlib.invalidate_caches()
-    _read_entry_points_afresh()
+    read_entry_points_afresh()
 
 
 @pytest.fixture
 def installed(monkeypatch: pytest.MonkeyPatch) -> kinds.KindDeclaration:
     """The deployment package installed; its kind's declaration."""
-    _install(monkeypatch, PACKAGE_DIR)
+    install(monkeypatch, PACKAGE_DIR)
     return kinds.registered()[KIND]
-
-
-def _fake_wheel(source: Path, out_dir: Path) -> Path:
-    """Stand in for the wheel build: the package and its entry points, zipped as a wheel."""
-    wheel = out_dir / "fixture_kind_deployment-0.1-py3-none-any.whl"
-    info = "fixture_kind_deployment-0.1.dist-info"
-    with zipfile.ZipFile(wheel, "w") as archive:
-        for path in sorted((source / "fixture_kind_deployment").glob("*.py")):
-            archive.write(path, path.relative_to(source).as_posix())
-        for name in ("METADATA", "entry_points.txt"):
-            archive.write(PACKAGE_DIR / info / name, f"{info}/{name}")
-    return wheel
 
 
 # --- the facility tree -----------------------------------------------------------------
@@ -208,35 +100,6 @@ def _sr(tree: dict[str, Any]) -> dict[str, Any]:
     (record,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
     sr: dict[str, Any] = record
     return sr
-
-
-def fixture_tree(block: dict[str, Any] | None = None) -> dict[str, Any]:
-    """The measured tree with SR on the fixture engine and the fixture kind listed.
-
-    SR keeps ``trm``; LINE stays on pyat with the built-in ``orm``. SR gains the
-    instruments' channels, the bunch-clean enable carrying ``fixture_role``, and
-    the injection request wired as a record the engine fires.
-    """
-    tree = with_correctors(with_rf(measured_tree()))
-    tree["signals.yaml"] = [dict(FIXTURE_ROLE)]
-    tree["records/channels.yaml"] += [
-        {"id": "INJ:REQ", "role": "setpoint", "on": {"place": "SR"}},
-        {"id": "INJ:BUSY", "on": {"place": "SR"}},
-        {"id": "CLEAN:EN", "role": "setpoint", "signal": "fixture_role", "on": {"place": "SR"}},
-        {"id": "BEAM:I", "unit": "mA", "on": {"place": "SR"}},
-    ]
-    sr = _sr(tree)
-    sr["engine"] = ENGINE
-    sr["wiring"].append({"address": "INJ:REQ", "engine": {"fire": "inject"}})
-    measurement = tree["measurement/SR.yaml"]
-    measurement["kinds"] = ["trm", KIND]
-    measurement["groups"]["series_monitors"] = "SR/BPM"
-    measurement["instruments"] |= INSTRUMENTS
-    measurement |= {
-        "corrector_delta": 1.0e-5,
-        "kind_blocks": {KIND: copy.deepcopy(BLOCK if block is None else block)},
-    }
-    return tree
 
 
 def _model(document: dict[str, Any], name: str) -> dict[str, Any]:
@@ -272,7 +135,7 @@ def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deploy:
     from tests._builds import BuiltProject, init_project, run_build
     from tests.facility._synthetic_trees import write_tree
 
-    monkeypatch.setattr(wheel_build, "_build_wheel", _fake_wheel)
+    monkeypatch.setattr(wheel_build, "_build_wheel", fake_wheel)
 
     def build(
         tree: dict[str, Any], dependencies: list[str] | None = None
@@ -510,7 +373,7 @@ def test_the_operator_skill_names_the_kind_its_step_keys_and_its_arguments(built
 def test_a_kind_naming_a_hook_osprey_does_not_offer_stops_the_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _install(monkeypatch, PACKAGE_DIR, REFUSED / "hooked")
+    install(monkeypatch, PACKAGE_DIR, REFUSED / "hooked")
 
     assert _stop(tmp_path, measured_tree()).startswith(
         "facility: value-invalid: measurement kind hooked_kind — it names hook 'on_trigger', "
@@ -522,7 +385,7 @@ def test_a_kind_naming_a_hook_osprey_does_not_offer_stops_the_build(
 def test_a_kind_named_like_a_built_in_stops_the_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _install(monkeypatch, PACKAGE_DIR, REFUSED / "clash")
+    install(monkeypatch, PACKAGE_DIR, REFUSED / "clash")
 
     assert _stop(tmp_path, measured_tree()) == (
         "facility: value-invalid: measurement kind orm — built-in declares a kind of the "
@@ -534,7 +397,7 @@ def test_a_kind_named_like_a_built_in_stops_the_build(
 def test_a_kind_named_like_another_packages_kind_stops_the_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _install(monkeypatch, PACKAGE_DIR, REFUSED / "twin")
+    install(monkeypatch, PACKAGE_DIR, REFUSED / "twin")
 
     message = _stop(tmp_path, measured_tree())
 
