@@ -1437,7 +1437,12 @@ logs. What the two doors protect is that nobody can choose to be someone else.</
 <a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-service-door"><span class="std std-ref">service door, not a terminal</span></a> for what that costs the person
 using it. In the single-user containerised shape, where one sidecar is reached with the
 deployment-wide secret, requests name nobody by design — that secret says a request is
-allowed, not who sent it.</p>
+allowed, not who sent it. The exceptions are the OPTIMIZER panel and an application panel that
+sets <code class="docutils literal notranslate"><span class="pre">panel.roster_grant.single_user_alias</span></code>, whose writes would otherwise name nobody and could
+be refused <code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code>. While such a sidecar publishes on loopback, the secret the
+terminal’s proxy sends names the one operator, <code class="docutils literal notranslate"><span class="pre">deployment.host_identity</span></code>, and the chip
+governs those writes. That opens no new door: on a single-user host the same secret already
+signs in to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> as that operator. A login at the sidecar’s own address names nobody.</p>
 <p>A job the OSPREY agent fires goes out through the terminal’s own panel proxy. The agent never
 holds the dispatcher’s key; the proxy holds it, adds it on the way out and stamps the same name
 the rest of that terminal’s traffic carries. The worker that runs the job hands that name on to
