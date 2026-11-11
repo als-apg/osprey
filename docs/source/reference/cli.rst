@@ -154,9 +154,13 @@ records), the provider entries and keys OSPREY ships that ``providers.yml``
 lacks and no deviation marker claims absent (every value already in it is
 kept, an edited entry OSPREY ships included), and, while the profile's lists name nothing by path, the repo's own
 skills, agents, rules, output styles and hooks named by path in ``profile.yml``
-and each app (a bare entry the repo ships a file for becomes its path), so
+and each ``lists: own`` login (a bare entry the repo ships a file for becomes its path), so
 every render keeps what it carried.
-Your deployment's own selections — the roster, the shared apps, the default
+A login file left in ``apps/`` moves to ``tiers/<name>.yml``: one never edited
+is re-emitted from the bundled login, an edited one keeps its lines and gains
+``lists: own``. A ``landing.groups`` entry ``type: apps`` becomes
+``type: shared``; until then it reads as ``shared`` for one release.
+Your deployment's own selections — the roster, the shared logins, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key
 ``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
@@ -236,9 +240,8 @@ Check the deployment profile without building.
    osprey validate [TARGET] [--repo DIRECTORY] [--drift error|warn]
 
 With no argument, validates the deployment repository enclosing the working
-directory. ``TARGET`` names a different profile to check instead — a tier
-file under ``tiers/``, an app file under ``apps/``, or a directory holding a
-``profile.yml``.
+directory. ``TARGET`` names a different profile to check instead — a login
+file under ``tiers/``, or a directory holding a ``profile.yml``.
 
 Resolves ``extends:`` chains and runs the full consistency check — convention
 directories, the ``data:`` tree, service templates, lifecycle steps, env vars —
@@ -1730,6 +1733,10 @@ switch the interfaces over to local bundles.
 
    ``-t, --target DIR`` — Fetch only the assets for this manifest target
    directory, e.g. ``tuning/static/vendor/`` (repeatable). Default: every target.
+   A target the manifest marks ``"base": "package"`` is named relative to the
+   ``osprey`` package rather than its ``interfaces`` package; an unknown target is
+   refused with the list of known ones. An application's own ``vendor:`` entries
+   are fetched by ``osprey build``, not by this command.
 
    Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
    fails cert verification until it is pointed at the site's CA bundle.
