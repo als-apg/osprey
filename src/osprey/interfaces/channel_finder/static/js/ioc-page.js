@@ -21,6 +21,7 @@ import { icon } from '/design-system/js/icons.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { renderState } from '/design-system/js/panel-state.js';
 import { fetchIocFacts, readValues } from './directory-api.js';
+import { formatRoute } from './route.js';
 
 /** @typedef {import('./directory-api.js').IocFacts} IocFacts */
 /** @typedef {import('./directory-api.js').ValueRow} ValueRow */
@@ -178,7 +179,7 @@ function renderPage(container, facts, mounted) {
   page.append(health);
 
   const link = el('a', 'cf-ioc-link', 'All PVs of this IOC');
-  link.href = `#/allpvs?ioc=${encodeURIComponent(facts.ioc)}`;
+  link.href = formatRoute({ view: 'allpvs', params: { ioc: [facts.ioc] } });
   page.append(link);
 
   container.replaceChildren(page);

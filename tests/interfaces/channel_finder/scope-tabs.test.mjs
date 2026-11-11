@@ -169,7 +169,7 @@ describe('with the directory descriptor', () => {
   test('a button routes when clicked, and the pressed state follows', async () => {
     const { views } = await boot(WITH_DIRECTORY);
     click('allpvs');
-    expect(location.hash).toBe('#allpvs');
+    expect(location.hash).toBe('#/allpvs');
     expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
     expect(pressed()).toEqual(['allpvs']);
     click('feedback');

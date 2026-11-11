@@ -12,6 +12,7 @@ import {
   facetsHtml,
   tableHtml,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/allpvs-render.js';
+import { FACET_KEYS } from '../../../src/osprey/interfaces/channel_finder/static/js/route.js';
 
 const ROW = {
   name: 'SR:<b>X</b>',
@@ -109,6 +110,21 @@ describe('allpvs-render', () => {
     );
     expect(silent?.textContent).toBe('no answer');
     expect(cell(new Map(), 'values read failed')?.getAttribute('title')).toBe('values read failed');
+  });
+
+  test('one facet group per route filter key, in its order', () => {
+    const one = [{ value: 'v', count: 1 }];
+    const facets = { origin: one, ioc: one, record_type: one };
+    const box = parse(facetsHtml(page({ facets }), NO_FILTERS()));
+    const groups = [...box.querySelectorAll('.allpvs-facet-group')];
+    expect(groups.map((g) => g.querySelector('.allpvs-facet')?.getAttribute('data-facet'))).toEqual(
+      FACET_KEYS
+    );
+    expect(groups.map((g) => g.querySelector('.osprey-section-label')?.textContent)).toEqual([
+      'Origin',
+      'IOC',
+      'Record type',
+    ]);
   });
 
   test('a filter in force stays listed with no count for it', () => {

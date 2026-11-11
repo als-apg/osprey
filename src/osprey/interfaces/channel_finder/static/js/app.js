@@ -18,6 +18,7 @@ import { mountAllPvs, unmountAllPvs } from './allpvs.js';
 import { mountPvPage, unmountPvPage } from './pv-page.js';
 import { mountIocPage, unmountIocPage } from './ioc-page.js';
 import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
+import { parseRoute } from './route.js';
 
 // A follower of the Web Terminal hub: theme-boot.js already applied data-theme
 // pre-paint, and this attaches the postMessage listener for the hub's live
@@ -26,19 +27,7 @@ initTheme({ role: 'follower' });
 
 applyEmbedded();
 
-/**
- * Route parameters: `name` for pv and ioc; for allpvs, the view's filters the
- * route names (`q`, and the repeatable `origin`, `ioc` and `record_type`).
- * @typedef {{
- *   name?: string,
- *   q?: string,
- *   origin?: string[],
- *   ioc?: string[],
- *   record_type?: string[],
- * }} RouteParams
- */
-
-/** @typedef {{ view: string, params: RouteParams }} Route */
+/** @typedef {import('./route.js').RouteParams} RouteParams */
 
 /** @typedef {{ mount: (container: HTMLElement, params: RouteParams) => void, unmount: () => void }} ViewModule */
 
@@ -96,61 +85,6 @@ async function init() {
 }
 
 // ---- Routing ----
-
-/** The repeatable All PVs filters a route carries beside `q`. */
-const ROUTE_FILTERS = new Set(['origin', 'ioc', 'record_type']);
-
-/**
- * The All PVs params of a route's query: `q` once, the filters as lists, any
- * other key ignored. Values are decoded as a `<name>` is and not by
- * URLSearchParams, because a `+` in them is a plus; a malformed one throws.
- * @param {string} query
- * @returns {RouteParams}
- */
-function allPvsParams(query) {
-  /** @type {RouteParams} */
-  const params = {};
-  for (const part of query.split('&')) {
-    const at = part.indexOf('=');
-    if (at < 0) continue;
-    const key = part.slice(0, at);
-    const value = part.slice(at + 1);
-    if (key === 'q') {
-      params.q ??= decodeURIComponent(value);
-    } else if (ROUTE_FILTERS.has(key) && value) {
-      const filter = /** @type {'origin'|'ioc'|'record_type'} */ (key);
-      (params[filter] ??= []).push(decodeURIComponent(value));
-    }
-  }
-  return params;
-}
-
-/**
- * Parse a location hash: a bare view name (`#explore`), or a route of the Deep
- * links form (`#/pv/<name>`, `#/ioc/<name>`, `#/allpvs?q=<words>&ioc=<name>`),
- * where `<name>` is one percent-encoded segment. Whether the view exists is
- * not judged here: only a malformed route answers null.
- * @param {string} hash
- * @returns {Route|null}
- */
-export function parseRoute(hash) {
-  const route = hash.replace(/^#\/?/, '');
-  const queryAt = route.indexOf('?');
-  const path = queryAt < 0 ? route : route.slice(0, queryAt);
-  const query = queryAt < 0 ? '' : route.slice(queryAt + 1);
-  const [view, ...rest] = path.split('/');
-  try {
-    if (view === 'pv' || view === 'ioc') {
-      if (rest.length !== 1 || !rest[0]) return null;
-      return { view, params: { name: decodeURIComponent(rest[0]) } };
-    }
-    if (rest.length) return null;
-    if (view === 'allpvs') return { view, params: allPvsParams(query) };
-    return { view: view || 'explore', params: {} };
-  } catch {
-    return null; // malformed percent-encoding
-  }
-}
 
 /**
  * @param {string} view
