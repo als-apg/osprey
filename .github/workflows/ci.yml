@@ -1049,94 +1049,30 @@ jobs:
           uv run pytest $E2E_FILTER -v --tb=short \
             -p no_skips --no-skips-message "✅ the scoped E2E filter ran" --no-skips-allow-partial
         else
-          # Every --ignore runs in another job (or is opt-in / dispatch-only); none is untested.
+          # Every module another lane hosts (or no CI job runs) is left out; the LANES tables
+          # in scripts/repo_checks.py are the one list, and the step prints what it derived.
+          python3 scripts/ci/e2e_shared_lane.py ignores > "$RUNNER_TEMP/e2e-ignores"
+          mapfile -t ignores < "$RUNNER_TEMP/e2e-ignores"
+          # No list would run every dedicated lane's modules here too.
+          [ "${#ignores[@]}" -gt 0 ] || { echo "::error::derived no --ignore list"; exit 1; }
           # -n 4 --dist loadfile: real-LLM round-trips at near-zero CPU.
           uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
             -p no_skips --no-skips-message "✅ the E2E suite ran" --no-skips-allow-partial \
-            --ignore=tests/e2e/test_preset_agentic.py \
-            --ignore=tests/e2e/test_plan_stack_agentic.py \
-            --ignore=tests/e2e/test_dispatch_deploy.py \
-            --ignore=tests/e2e/test_single_user_narrowing_e2e.py \
-            --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
-            --ignore=tests/e2e/test_bluesky_deploy.py \
-            --ignore=tests/e2e/test_optimizer_deploy.py \
-            --ignore=tests/e2e/test_bluesky_queue_e2e.py \
-            --ignore=tests/e2e/test_dockerfile_e2e.py \
-            --ignore=tests/e2e/test_dockerfile_agent_e2e.py \
-            --ignore=tests/e2e/test_privilege_split.py \
-            --ignore=tests/e2e/test_audit_two_container.py \
-            --ignore=tests/e2e/test_execution_environment_parity.py \
-            --ignore=tests/e2e/test_tiled_roundtrip.py \
-            --ignore=tests/e2e/test_va_substrate_equivalence.py \
-            --ignore=tests/e2e/test_target_switch_agentic.py \
-            --ignore=tests/e2e/test_orm_roundtrip.py \
-            --ignore=tests/e2e/test_grid_scan_roundtrip.py \
-            --ignore=tests/e2e/test_bump_roundtrip.py \
-            --ignore=tests/e2e/test_preflight_probe.py \
-            --ignore=tests/e2e/test_archiver_world_e2e.py \
-            --ignore=tests/e2e/test_graph_reseed_stamp.py \
-            --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
-            --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
-            --ignore=tests/e2e/test_bluesky_web_deploy.py \
-            --ignore=tests/e2e/test_deploy_lifecycle.py \
-            --ignore=tests/e2e/test_two_shape_boot.py \
-            --ignore=tests/e2e/test_deploy_writeback_e2e.py \
-            --ignore=tests/e2e/test_nextcloud_talk_bridge_e2e.py \
-            --ignore=tests/e2e/test_gchat_bridge_e2e.py \
-            --ignore=tests/e2e/fixtures/test_gchat_fixture_smoke.py \
-            --ignore=tests/e2e/test_teams_bridge_e2e.py \
-            --ignore=tests/e2e/fixtures/test_teams_fixture_smoke.py \
-            --ignore=tests/e2e/test_slack_bridge_e2e.py \
-            --ignore=tests/e2e/fixtures/test_slack_fixture_smoke.py \
-            --ignore=tests/e2e/web_terminals/test_auth_perimeter.py \
-            --ignore=tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py \
-            --ignore=tests/e2e/test_full_chain_auth.py \
-            --ignore=tests/e2e/test_jupyter_panel_lifecycle.py \
-            --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
-            --ignore=tests/e2e/test_agent_record_e2e.py \
-            --ignore=tests/e2e/test_host_record_e2e.py \
-            --ignore=tests/e2e/test_scripted_model.py \
-            --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
-            --ignore=tests/e2e/test_dispatch_deploy_render.py \
-            --ignore=tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
-            --ignore=tests/e2e/web_terminals/test_skills_overlay_discovery.py \
-            --ignore=tests/e2e/web_terminals/test_loopback_chokepoint.py \
-            --ignore=tests/e2e/web_terminals/test_session_restart_e2e.py \
-            --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-            --ignore=tests/e2e/web_terminals/test_render_permissions_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
-            --ignore=tests/e2e/test_watchdog_agent_scripted.py \
-            --ignore=tests/e2e/test_watchdog_hold_scripted.py \
-            --ignore=tests/e2e/test_watchdog_live.py \
-            --ignore=tests/e2e/tier2
+            "${ignores[@]}"
         fi
     - *capture-diagnostics
     # The deploy's own teardown does not run when the job is killed, and a reused runner keeps the
     # stack. Exact names, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
+      env:
+        E2E_FILTER: ${{ inputs.e2e_filter }}
       run: |
-        scripts/ci/cleanup_stacks.sh \
-          queue-e2e \
-          osprey-e2e-bluesky-deploy \
-          osprey-e2e-catalog \
-          osprey-e2e-tiled \
-          panels-proj \
-          plan-agentic \
-          orm-roundtrip \
-          grid-scan-roundtrip \
-          bump-roundtrip \
-          preflight-probe \
-          sandbox-escape \
-          osprey-e2e-dispatch \
-          osprey-e2e-overlay \
-          suproj \
-          osprey-e2e-va-substrate \
-          lane-e2e \
-          osprey-e2e-agent-record \
-          osprey-e2e-host-record
+        # The compose project of each module the run selected; $E2E_FILTER can name any lane's.
+        projects=$(python3 scripts/ci/e2e_shared_lane.py stacks)
+        echo "Removing what these projects left, if anything: ${projects:-none}"
+        # shellcheck disable=SC2086 # one project per word
+        [ -z "$projects" ] || scripts/ci/cleanup_stacks.sh $projects
 
   e2e-no-model:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)

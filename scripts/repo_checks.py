@@ -2070,6 +2070,26 @@ SCAN_STACK = (
     "tests/e2e/_queue_drive**",
 )
 
+#: The modules ``stack-e2e`` runs, one matrix cell each.
+_STACK_E2E_MODULES = tuple(
+    f"tests/e2e/{name}"
+    for name in (
+        "test_bluesky_deploy.py",
+        "test_bluesky_web_deploy.py",
+        "test_va_substrate_equivalence.py",
+        "test_bluesky_queue_e2e.py",
+        "test_archiver_world_e2e.py",
+        "test_tiled_roundtrip.py",
+        "test_bluesky_catalog_e2e.py",
+        "test_bluesky_sandbox_escape_e2e.py",
+        "test_optimizer_deploy.py",
+        "test_execution_environment_parity.py",
+        "test_deploy_writeback_e2e.py",
+        "test_jupyter_panel_lifecycle.py",
+        "test_graph_reseed_stamp.py",
+    )
+)
+
 _PLUGIN_TREES = ("plugins/**", ".claude-plugin/**", ".agents/plugins/**")
 
 
@@ -2078,7 +2098,9 @@ def _e2e(job: str, *tests: str, why: str = "containers", prefix: str | None = No
 
 
 def _scan(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
-    return Lane(job, why, (*SCAN_STACK, *(f"tests/e2e/{name}" for name in tests)), prefix)
+    named = tuple(f"tests/e2e/{name}" for name in tests)
+    # SCAN_STACK's globs reach the other scan-stack lanes' modules.
+    return Lane(job, why, (*SCAN_STACK, *named), prefix, modules=named)
 
 
 def _va(job: str, *tests: str) -> Lane:
@@ -2149,7 +2171,30 @@ LANES: tuple[Lane, ...] = (
     ),
     Lane("build-boot-smoke", "matrix", ("tests/integration/test_build_boot.py",)),
     Lane("e2e-tests", SPENDS, ("tests/e2e/**",), "E2E Tests"),
-    Lane("e2e-no-model", "containers", ("tests/e2e/**",)),
+    Lane(
+        "e2e-no-model",
+        "containers",
+        ("tests/e2e/**",),
+        modules=tuple(
+            f"tests/e2e/{name}"
+            for name in (
+                "test_scripted_model.py",
+                "claude_code/test_safety_gates_scripted.py",
+                "test_dispatch_deploy_render.py",
+                "web_terminals/test_scaffold_render_roundtrip.py",
+                "web_terminals/test_skills_overlay_discovery.py",
+                "web_terminals/test_loopback_chokepoint.py",
+                "web_terminals/test_session_restart_e2e.py",
+                "web_terminals/test_terminal_auth_e2e.py",
+                "web_terminals/test_render_permissions_scripted.py",
+                "claude_code/test_chat_approval_gates_scripted.py",
+                "claude_code/test_chat_plan_mode_scripted.py",
+                "claude_code/test_chat_attachment_read_scripted.py",
+                "test_watchdog_agent_scripted.py",
+                "test_watchdog_hold_scripted.py",
+            )
+        ),
+    ),
     Lane("deploy-e2e", "containers", ("src/osprey/**",)),
     _e2e(
         "dispatch-stack-e2e",
@@ -2164,27 +2209,12 @@ LANES: tuple[Lane, ...] = (
         "containers",
         (
             *SCAN_STACK,
-            *(
-                f"tests/e2e/{name}"
-                for name in (
-                    "test_bluesky_deploy.py",
-                    "test_bluesky_web_deploy.py",
-                    "test_va_substrate_equivalence.py",
-                    "test_bluesky_queue_e2e.py",
-                    "test_archiver_world_e2e.py",
-                    "test_tiled_roundtrip.py",
-                    "test_bluesky_catalog_e2e.py",
-                    "test_bluesky_sandbox_escape_e2e.py",
-                    "test_optimizer_deploy.py",
-                    "test_execution_environment_parity.py",
-                    "test_deploy_writeback_e2e.py",
-                    "test_jupyter_panel_lifecycle.py",
-                    "test_graph_reseed_stamp.py",
-                )
-            ),
+            *_STACK_E2E_MODULES,
             "src/osprey/templates/services/optimizer/**",
             "packages/osprey-optimizer/**",
         ),
+        # SCAN_STACK's globs reach the scan-stack modules other lanes run.
+        modules=_STACK_E2E_MODULES,
     ),
     _scan(
         "orm-roundtrip-e2e",
@@ -2256,6 +2286,14 @@ LANES: tuple[Lane, ...] = (
             "tests/integration/test_qmd_models_mount.py",
             "tests/integration/test_qmd_okf_search_sidecar.py",
         ),
+        # test_deploy_lifecycle.py is in scope, and the job runs its `-m qmd` half;
+        # multi-user-deploy-lifecycle-e2e hosts the module and runs the rest.
+        modules=(
+            "tests/integration/test_qmd_ariel_resync_paths.py",
+            "tests/integration/test_qmd_ariel_search_sidecar.py",
+            "tests/integration/test_qmd_models_mount.py",
+            "tests/integration/test_qmd_okf_search_sidecar.py",
+        ),
     ),
     Lane(
         "qmd-cache-warmup",
@@ -2297,8 +2335,58 @@ LANES: tuple[Lane, ...] = (
         "benchmarks",
         "on-demand benchmark",
         ("tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",),
+        modules=(
+            "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
+            "tests/e2e/tier2/test_ariel_picture_run_id.py",
+        ),
     ),
 )
+
+#: The lane that runs every ``tests/e2e`` test module no other host claims.
+SHARED_E2E_LANE = "e2e-tests"
+
+#: The host of the modules no CI job runs.
+OFF_CI = "off-ci"
+
+#: The ``tests/e2e`` test modules no CI job runs, each with the reason.
+E2E_OFF_CI: dict[str, str] = {
+    "tests/e2e/test_watchdog_live.py": "spends a direct-route key per call; run by hand",
+    "tests/e2e/tier2/test_chart_value_reading.py": "deploys a full stack; benchmark board only",
+}
+
+
+def is_e2e_module(path: str) -> bool:
+    """Whether *path* is a test module of ``tests/e2e``, at any depth."""
+    return path.startswith("tests/e2e/") and kit.matches(path, "test_*.py")
+
+
+def e2e_hosts(lanes: Iterable[Lane], files: Iterable[str]) -> dict[str, tuple[str, ...]]:
+    """Each ``tests/e2e`` test module of *files* to the hosts that claim it.
+
+    A lane claims the modules its ``modules`` globs match, or its scope's where
+    it names none; :data:`E2E_OFF_CI` claims its own. A module nothing claims
+    is :data:`SHARED_E2E_LANE`'s, so the shared lane's ``--ignore`` list is
+    every other module, and a module two hosts claim breaks the invariant that
+    each runs in exactly one place.
+    """
+    claims = [
+        (lane.job, lane.scope if lane.modules is None else lane.modules)
+        for lane in lanes
+        if lane.job != SHARED_E2E_LANE
+    ]
+    hosts = {}
+    for path in sorted(filter(is_e2e_module, files)):
+        named = [job for job, globs in claims if any(kit.matches(path, g) for g in globs)]
+        if path in E2E_OFF_CI:
+            named.append(OFF_CI)
+        hosts[path] = tuple(named) or (SHARED_E2E_LANE,)
+    return hosts
+
+
+def e2e_shared_ignores(lanes: Iterable[Lane], files: Iterable[str]) -> list[str]:
+    """The modules the shared lane leaves to another host, sorted."""
+    return [path for path, hosts in e2e_hosts(lanes, files).items() if hosts != (SHARED_E2E_LANE,)]
+
 
 #: What ``list --json`` prints beside the checks and the lanes.
 LISTED = {

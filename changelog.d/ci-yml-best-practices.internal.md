@@ -49,3 +49,16 @@ design (opt-in provider matrices, backends no runner provisions), runs with
 `scripts/ci/junit_no_skips.py` is gone. The capture-diagnostics action's `name` input now defaults
 to the job id, so a plain job's capture step is one shared YAML anchor, and only matrix jobs, whose
 cells need distinct artifact names, pass a name.
+
+`e2e-tests` no longer carries a hand-kept `--ignore` list or a hand-kept list of stacks to clean up.
+`scripts/ci/e2e_shared_lane.py ignores` derives the list at run time from the `LANES` tables in
+`scripts/repo_checks.py` and prints each left-out module with the lane that runs it, so the log
+still shows what ran. A lane names the test modules it runs with `Lane.modules` where its `scope`
+names more (`e2e-no-model`, `stack-e2e`, `orm-roundtrip-e2e`, `qmd-sidecar-e2e`, `benchmarks`);
+`E2E_OFF_CI` names the two modules no CI job runs. A new module under `tests/e2e` that no lane
+claims runs in `e2e-tests`. One test in `tests/scripts/test_check.py` holds that every
+`tests/e2e/**/test_*.py` runs in exactly one place: claimed by one lane and named by that lane's job
+alone. It replaces the per-lane "the shared lane ignores this file" wiring tests. The cleanup step
+removes the compose project (`PROJECT_NAME`) of each module the run selected (`stacks`), so a
+dispatch whose `e2e_filter` names another lane's module cleans up that module's stack; the old
+18-name list named only stacks of modules the default run never collects.

@@ -210,6 +210,10 @@ class Lane:
     #: The prefix of the job's rendered ``name:``; a matrix lane renders one job
     #: per cell, so a prefix is the stable handle. Set iff the lane spends models.
     prefix: str | None = None
+    #: Path globs of the test modules the job runs, where ``scope`` names other
+    #: files too (another lane's tests through a glob, a whole tree); ``None``
+    #: means the scope's test modules are exactly the ones it runs.
+    modules: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if (self.why == SPENDS) != (self.prefix is not None):

@@ -192,9 +192,9 @@ required (the seed has to land somewhere); only the seeding is automatic.
 
 These deploy a real stack — virtual accelerator, bluesky bridge, Tiled — and
 drive it. They are heavy (Docker builds, minutes each), so each gets its own CI
-lane (a `stack-e2e` matrix cell, or a job of its own) rather than riding the bulk `e2e-tests` job, which `--ignore`s every one of
-them. The map below records which lane **runs** which file; `ci.yml` is the
-source of truth.
+lane (a `stack-e2e` matrix cell, or a job of its own) rather than riding the bulk `e2e-tests` job,
+which leaves out every module a lane in `LANES` (`scripts/repo_checks.py`) claims. The map below
+records which lane **runs** which file; `LANES` and `ci.yml` are the source of truth.
 
 | Module | CI lane |
 | --- | --- |

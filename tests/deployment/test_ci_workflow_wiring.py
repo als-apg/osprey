@@ -93,6 +93,8 @@ def _load_by_path(relative: str, name: str) -> ModuleType:
 check_set = _load_by_path(CHECK_SCRIPT, "_check_set_by_path")
 #: The framework's checks module: the unit sweep's selection and the package build.
 framework_checks = check_set.FRAMEWORK
+#: What the shared e2e lane runs and cleans up, derived from the lanes at run time.
+e2e_shared_lane = _load_by_path("scripts/ci/e2e_shared_lane.py", "_e2e_shared_lane_by_path")
 #: How a check starts a tool in the project's environment, as one shell line.
 CHECK_UV_RUN = shlex.join(framework_checks.UV_RUN)
 #: The CANOPY integration's checks module: the contract and the marker's rules.
@@ -670,28 +672,6 @@ def _drop_lane(wf: dict[str, Any], lane: str) -> None:
     include.remove(next(entry for entry in include if dict(entry) == cell))
 
 
-# ---------------------------------------------------------------------------
-# (c) e2e-tests' run step --ignores both new-lane files
-# ---------------------------------------------------------------------------
-
-
-def test_e2e_tests_ignores_both_new_lane_files(workflow: dict[str, Any]) -> None:
-    step = _find_named_step(workflow, E2E_TESTS_JOB, "Run E2E tests")
-    run_text = step["run"]
-    assert f"--ignore={TILED_TEST_FILE}" in run_text
-    assert f"--ignore={VA_TEST_FILE}" in run_text
-
-
-def _drop_ignore_line(run_text: str, target_file: str) -> str:
-    """Remove the `--ignore=<target_file>` line, whichever way it happens to
-    be terminated (line-continuation backslash mid-list, or bare newline on
-    the last entry)."""
-    lines = run_text.splitlines(keepends=True)
-    kept = [line for line in lines if f"--ignore={target_file}" not in line]
-    assert len(kept) == len(lines) - 1, f"expected exactly one line dropped for {target_file}"
-    return "".join(kept)
-
-
 def _drop_lines(text: str, dropped: Callable[[str], bool], stale: str) -> str:
     """Remove every line ``dropped`` matches, keeping each line's own ending.
 
@@ -711,28 +691,6 @@ def test_drop_lines_fails_when_nothing_matches() -> None:
 
 def test_drop_lines_keeps_the_trailing_newline() -> None:
     assert _drop_lines("a\nb\nc\n", lambda line: "b" in line, "no b") == "a\nc\n"
-
-
-def test_e2e_tests_ignores_both_new_lane_files__mutation_drops_tiled_ignore() -> None:
-    """Removing only the tiled-roundtrip ignore line must fail — proves the
-    two ignore assertions are independent, not satisfied by either alone."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], TILED_TEST_FILE)
-    assert f"--ignore={VA_TEST_FILE}" in step["run"]  # the other survives untouched
-    with pytest.raises(AssertionError):
-        assert f"--ignore={TILED_TEST_FILE}" in step["run"]
-
-
-def test_e2e_tests_ignores_both_new_lane_files__mutation_drops_va_ignore() -> None:
-    """Removing only the VA-substrate ignore line must fail the same way,
-    confirming the two files are checked independently in the real assertion."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], VA_TEST_FILE)
-    assert f"--ignore={TILED_TEST_FILE}" in step["run"]  # the other survives untouched
-    with pytest.raises(AssertionError):
-        assert f"--ignore={VA_TEST_FILE}" in step["run"]
 
 
 # ---------------------------------------------------------------------------
@@ -1543,18 +1501,17 @@ def test_every_ignored_file_has_a_host__mutation_gates_the_host_step() -> None:
 
 
 def test_every_ignored_file_has_a_host__mutation_a_host_that_only_ignores_the_file() -> None:
-    """The shared e2e lane spells one of its files in an ``--ignore=``, so a
-    substring read of that step would report the file as covered by the very
-    lane that specifically declines to run it.
+    """A lane that spells a file in an ``--ignore=`` (the shared e2e lane, given
+    one here) must not be read as covering it by a substring search of its step.
 
     That lane's own job gate is lifted first, and the step naming the file is
     checked to carry none either, so what keeps the lane out of the hosts is the
     stripping under test and not a gate that would have excluded it anyway.
     """
     mutated = copy.deepcopy(_load_workflow())
-    assert TEAMS_TEST_FILE in json.dumps(_jobs(mutated)[E2E_TESTS_JOB]), (
-        f"{E2E_TESTS_JOB} no longer names {TEAMS_TEST_FILE} at all; this probe is stale"
-    )
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = step["run"].replace("tests/e2e/ ", f"tests/e2e/ --ignore={TEAMS_TEST_FILE} ", 1)
+    assert TEAMS_TEST_FILE in step["run"], "the shared lane's sweep moved; this probe is stale"
     del _jobs(mutated)[E2E_TESTS_JOB]["if"]
     naming = [
         step
@@ -3039,49 +2996,51 @@ def _dockerbuild_marked_e2e_files() -> list[str]:
     )
 
 
-def _run_step_ignores_all(wf: dict[str, Any], files: list[str]) -> list[str]:
-    """Return the subset of ``files`` MISSING from the e2e-tests run step's
-    ``--ignore`` list (empty = fully guarded)."""
-    run_text = _find_named_step(wf, E2E_TESTS_JOB, "Run E2E tests")["run"]
-    return [f for f in files if f"--ignore={f}" not in run_text]
+def _left_in_shared_lane(files: list[str], lanes: tuple[Any, ...] | None = None) -> list[str]:
+    """The *files* the shared ``e2e-tests`` lane runs: those no other host claims.
+
+    Read through ``repo_checks.e2e_hosts``, the function that lane's ``--ignore``
+    list is rendered from at run time (``scripts/ci/e2e_shared_lane.py``), so
+    what this reports is what the lane runs. That each claimed module is run by
+    its claiming job and nowhere else is the invariant in tests/scripts/test_check.py.
+    """
+    lanes = check_set.LANES if lanes is None else lanes
+    hosts = framework_checks.e2e_hosts(lanes, files)
+    return [f for f in files if hosts.get(f) == (framework_checks.SHARED_E2E_LANE,)]
 
 
-def test_every_dockerbuild_marked_file_is_ignored_in_e2e_lane(workflow: dict[str, Any]) -> None:
+def test_every_dockerbuild_marked_file_leaves_the_shared_lane() -> None:
     """A ``dockerbuild``-marked e2e file runs a real image build + full-stack
-    deploy; swept into the shared e2e-tests lane it either double-executes
-    (if it has its own job) or leaves host-global residue — fixed
-    ``<prefix>-web-<user>``/``<prefix>-nginx`` container names and named
-    store volumes whose credentials are pinned on first init —
-    that breaks later tests on the same runner. There is no marker-expression
-    equivalent (``-m "not dockerbuild"`` would also drop legit in-lane
-    ``slow``-marked tests sharing files), so the curated ``--ignore`` list IS
-    the mechanism; this guard makes it total: every marked file, present or
-    future, must be ignored here and given its own job."""
+    deploy; swept into the shared e2e-tests lane it leaves host-global residue
+    (fixed ``<prefix>-web-<user>``/``<prefix>-nginx`` container names and named
+    store volumes whose credentials are pinned on first init) that breaks later
+    tests on the same runner. There is no marker-expression equivalent
+    (``-m "not dockerbuild"`` would also drop legit in-lane ``slow``-marked tests
+    sharing files), so a lane of its own in ``LANES`` is the mechanism; this
+    guard makes it total: every marked file, present or future, needs one."""
     files = _dockerbuild_marked_e2e_files()
     assert files, "expected at least one dockerbuild-marked e2e file (marker scan broke?)"
-    missing = _run_step_ignores_all(workflow, files)
-    assert missing == [], (
-        f"dockerbuild-marked e2e file(s) not --ignored in the '{E2E_TESTS_JOB}' lane: "
-        f"{missing} — add an --ignore AND a dedicated job for each"
+    left = _left_in_shared_lane(files)
+    assert left == [], (
+        f"dockerbuild-marked e2e file(s) the '{E2E_TESTS_JOB}' lane still runs: {left} — "
+        f"give each a lane in scripts/repo_checks.py LANES and a job that runs it"
     )
 
 
-def test_every_dockerbuild_marked_file_is_ignored__mutation_drops_one_ignore() -> None:
-    """Removing a single marked file's ignore line must fail the guard."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], LIFECYCLE_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [ORM_TEST_FILE]) == []  # others survive
-    assert _run_step_ignores_all(mutated, _dockerbuild_marked_e2e_files()) == [LIFECYCLE_TEST_FILE]
+def test_every_dockerbuild_marked_file_leaves__mutation_a_lane_drops_its_claim() -> None:
+    """A lane whose claim on a marked file goes returns that file, and only it."""
+    dropped = "multi-user-deploy-lifecycle-e2e"
+    lanes = tuple(lane for lane in check_set.LANES if lane.job != dropped)
+    assert len(lanes) == len(check_set.LANES) - 1, f"no {dropped} lane; stale"
+    assert _left_in_shared_lane(_dockerbuild_marked_e2e_files(), lanes) == [LIFECYCLE_TEST_FILE]
 
 
-def test_every_dockerbuild_marked_file_is_ignored__mutation_new_marked_file() -> None:
-    """A future dockerbuild-marked file with no ignore entry must be reported
-    missing — the exact 'leaked into the shared lane' shape this guard exists
-    to catch before it costs a 50-minute red run."""
-    workflow = _load_workflow()
+def test_every_dockerbuild_marked_file_leaves__mutation_new_marked_file() -> None:
+    """A future dockerbuild-marked file no lane claims is reported — the exact
+    'leaked into the shared lane' shape this guard exists to catch before it
+    costs a 50-minute red run."""
     phantom = "tests/e2e/test_future_dockerbuild_stack.py"
-    assert _run_step_ignores_all(workflow, [*_dockerbuild_marked_e2e_files(), phantom]) == [phantom]
+    assert _left_in_shared_lane([*_dockerbuild_marked_e2e_files(), phantom]) == [phantom]
 
 
 # ---------------------------------------------------------------------------
@@ -3182,7 +3141,7 @@ def test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it(workflow: dict[str
     only benchmark signal). The e2e-tests lane must honor the same input in
     the opposite direction, so the benchmark button doesn't also burn a full
     ~19-min LLM lane run."""
-    assert _run_step_ignores_all(workflow, [BENCHMARKS_TEST_FILE]) == []
+    assert _left_in_shared_lane([BENCHMARKS_TEST_FILE]) == []
     job_if = _jobs(workflow)[BENCHMARKS_JOB]["if"]
     assert "workflow_dispatch" in job_if and "run_benchmarks" in job_if, (
         f"'{BENCHMARKS_JOB}' must gate on the run_benchmarks dispatch input; got: {job_if!r}"
@@ -3193,34 +3152,25 @@ def test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it(workflow: dict[str
     )
 
 
-def test_benchmarks_job_is_dispatch_gated__mutation_drops_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], BENCHMARKS_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [BENCHMARKS_TEST_FILE]) == [BENCHMARKS_TEST_FILE]
-
-
 def test_tier2_job_is_dispatch_gated_and_lane_ignores_it(workflow: dict[str, Any]) -> None:
     """Tier 2 tests score a model, not a change: a fair task a capable model may
     still miss. The shared e2e-tests lane must ignore their directory, or a
     model's miss reds a PR, AND the on-demand job must exist behind the
     ``run_benchmarks`` input and run that directory, or the --ignore silently
     deletes the only place Tier 2 runs."""
-    assert _run_step_ignores_all(workflow, [TIER2_DIR]) == []
+    tier2 = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in _e2e_test_sources()
+        if path.relative_to(REPO_ROOT).as_posix().startswith(f"{TIER2_DIR.rstrip('/')}/")
+    ]
+    assert tier2, f"no test module under {TIER2_DIR}; stale"
+    assert _left_in_shared_lane(tier2) == []
     job = _jobs(workflow)[TIER2_JOB]
     assert "workflow_dispatch" in job["if"] and "run_benchmarks" in job["if"], (
         f"'{TIER2_JOB}' must gate on the run_benchmarks dispatch input; got: {job['if']!r}"
     )
     run_text = "\n".join(step.get("run", "") for step in job["steps"])
     assert f"pytest {TIER2_DIR}" in run_text, f"'{TIER2_JOB}' must run {TIER2_DIR}"
-
-
-def test_tier2_job_is_dispatch_gated__mutation_drops_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], TIER2_DIR)
-    with pytest.raises(AssertionError):
-        test_tier2_job_is_dispatch_gated_and_lane_ignores_it(mutated)
 
 
 def test_tier2_job_is_dispatch_gated__mutation_drops_job() -> None:
@@ -3549,21 +3499,6 @@ def test_dependency_floor_gates_the_merge__mutation_drops_needs_entry() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_e2e_lane_ignores_nextcloud_talk_bridge(workflow: dict[str, Any]) -> None:
-    """The lane runs a real Nextcloud container plus a dispatcher/worker pair;
-    swept into the shared e2e-tests lane it would double-execute against its
-    own fixed host port and exact-named container."""
-    assert _run_step_ignores_all(workflow, [NEXTCLOUD_TEST_FILE]) == []
-
-
-def test_e2e_lane_ignores_nextcloud_talk_bridge__mutation_drops_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], NEXTCLOUD_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [BENCHMARKS_TEST_FILE]) == []  # others survive
-    assert _run_step_ignores_all(mutated, [NEXTCLOUD_TEST_FILE]) == [NEXTCLOUD_TEST_FILE]
-
-
 def test_gate_checks_nextcloud_talk_bridge_result(workflow: dict[str, Any]) -> None:
     """The generic completeness guard above covers this lane too; its own named
     check makes a removal name the right lane in the failure."""
@@ -3734,7 +3669,7 @@ def _emulator_container_e2e_files() -> list[str]:
     )
 
 
-def test_shared_lane_ignores_every_emulator_container_file(workflow: dict[str, Any]) -> None:
+def test_every_emulator_container_file_leaves_the_shared_lane() -> None:
     """The collision this guard exists for: ``PubSubEmulator.start()`` pre-cleans
     by ``rm -f``-ing the exact container name it is about to use, and every file
     below reaches that same name. The shared e2e lane runs ``-n 4 --dist
@@ -3748,34 +3683,12 @@ def test_shared_lane_ignores_every_emulator_container_file(workflow: dict[str, A
         f"emulator-fixture scan found {files} — expected at least the two Google Chat "
         f"files; the fixture module was renamed or the scan broke"
     )
-    missing = _run_step_ignores_all(workflow, files)
-    assert missing == [], (
-        f"file(s) using the fixed-name Pub/Sub emulator container not --ignored in the "
-        f"'{E2E_TESTS_JOB}' lane: {missing} — they would run concurrently there and "
-        f"tear down each other's emulator"
+    left = _left_in_shared_lane(files)
+    assert left == [], (
+        f"file(s) using the fixed-name Pub/Sub emulator container the '{E2E_TESTS_JOB}' "
+        f"lane still runs: {left} — they would run concurrently there and tear down "
+        f"each other's emulator"
     )
-
-
-def test_shared_lane_ignores_emulator_files__mutation_drops_bridge_ignore() -> None:
-    """Dropping only the bridge module's ignore must fail — the smoke file
-    surviving is exactly the half-fix this guard rejects."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], GCHAT_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [GCHAT_SMOKE_FILE]) == []  # the other survives
-    with pytest.raises(AssertionError):
-        test_shared_lane_ignores_every_emulator_container_file(mutated)
-
-
-def test_shared_lane_ignores_emulator_files__mutation_drops_smoke_ignore() -> None:
-    """And the mirror image: leaving the fixture smoke test in the parallel
-    lane is just as fatal, since it starts the same container by the same name."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], GCHAT_SMOKE_FILE)
-    assert _run_step_ignores_all(mutated, [GCHAT_TEST_FILE]) == []  # the other survives
-    with pytest.raises(AssertionError):
-        test_shared_lane_ignores_every_emulator_container_file(mutated)
 
 
 def _gchat_pytest_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3895,40 +3808,6 @@ def test_gchat_bridge_job_declares_llm_secret__mutation_strips_secret() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_shared_lane_ignores_both_teams_files(workflow: dict[str, Any]) -> None:
-    """Neither Teams file may be left in the shared ``e2e-tests`` lane, and the
-    failure it prevents is not a slow test — it is a COLLECTION error for the
-    whole lane. Both files import ``azure.servicebus`` at module scope, and
-    that lane syncs ``--extra dev`` only, so pytest errors there before running
-    anything. Unlike the Google Chat pair the reason is the dependency, not a
-    shared container, so the two files are named rather than discovered."""
-    missing = _run_step_ignores_all(workflow, [TEAMS_SMOKE_FILE, TEAMS_TEST_FILE])
-    assert missing == [], (
-        f"Teams e2e file(s) not --ignored in the '{E2E_TESTS_JOB}' lane: {missing} — "
-        f"that lane installs no '{TEAMS_EXTRA}' extra, so collecting them errors"
-    )
-
-
-def test_shared_lane_ignores_both_teams_files__mutation_drops_module_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], TEAMS_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [TEAMS_SMOKE_FILE]) == []  # the other survives
-    with pytest.raises(AssertionError):
-        test_shared_lane_ignores_both_teams_files(mutated)
-
-
-def test_shared_lane_ignores_both_teams_files__mutation_drops_smoke_ignore() -> None:
-    """The mirror image, and the half-fix this guard exists for: the smoke file
-    imports the same stack, so leaving it behind breaks the lane just as hard."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], TEAMS_SMOKE_FILE)
-    assert _run_step_ignores_all(mutated, [TEAMS_TEST_FILE]) == []  # the other survives
-    with pytest.raises(AssertionError):
-        test_shared_lane_ignores_both_teams_files(mutated)
-
-
 #: Matches both ``uv run pytest`` and ``uv run --no-sync pytest`` so the
 #: ``--no-sync`` pin below still FINDS the step it is asserting about after the
 #: flag is mutated away — a finder keyed on the flag would silently find no
@@ -4044,35 +3923,6 @@ def test_teams_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate()
 # need is a core dependency, so there is no install to pin. What is pinned is
 # the rest — both files leave the shared lane and arrive here, every skip
 # fails the job, no `if:` gate, and the merge gate reads the result.
-
-
-def test_shared_lane_ignores_both_slack_files(workflow: dict[str, Any]) -> None:
-    """Both Slack files are model-free and run on every pull request in their
-    own lane, so the shared ``e2e-tests`` lane must ignore them: left there they
-    would run twice, once behind a label they do not need. Named rather than
-    discovered, as for Teams, so dropping one names the file it dropped."""
-    missing = _run_step_ignores_all(workflow, [SLACK_SMOKE_FILE, SLACK_TEST_FILE])
-    assert missing == [], (
-        f"Slack e2e file(s) not --ignored in the '{E2E_TESTS_JOB}' lane: {missing}"
-    )
-
-
-def test_shared_lane_ignores_both_slack_files__mutation_drops_module_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], SLACK_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [SLACK_SMOKE_FILE]) == []  # the other survives
-    with pytest.raises(AssertionError):
-        test_shared_lane_ignores_both_slack_files(mutated)
-
-
-def test_shared_lane_ignores_both_slack_files__mutation_drops_smoke_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], SLACK_SMOKE_FILE)
-    assert _run_step_ignores_all(mutated, [SLACK_TEST_FILE]) == []  # the other survives
-    with pytest.raises(AssertionError):
-        test_shared_lane_ignores_both_slack_files(mutated)
 
 
 def _slack_pytest_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
@@ -4491,87 +4341,6 @@ def test_record_lane_runs_on_every_pull_request_without_a_key__mutation_adds_a_l
     job["if"] = f"{job['if']} && {FULL_CI_LABEL_CLAUSE}"
     with pytest.raises(AssertionError):
         test_record_lane_runs_on_every_pull_request_without_a_key(mutated)
-
-
-def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
-    """The ``tests/e2e/**/test_*.py`` paths the shared lane's directory sweep
-    still collects, repo-relative and POSIX.
-
-    Derived from disk rather than from a list, so a module added to the tree is
-    in this set the moment it exists — the sweep names a directory, and what
-    leaves it leaves by an ``--ignore``.
-    """
-    run_text = _find_named_step(wf, E2E_TESTS_JOB, "Run E2E tests")["run"]
-    ignored = set(re.findall(r"--ignore=(\S+)", run_text))
-    repo_root = CI_YML.parents[2]
-    swept = {path.relative_to(repo_root).as_posix() for path in _e2e_test_sources()}
-    return swept - ignored
-
-
-def test_shared_lane_hands_over_every_model_free_file(workflow: dict[str, Any]) -> None:
-    """The handover is one ``--ignore`` per file: the shared lane names a
-    directory, so a file only stops being swept when it is named."""
-    missing = _run_step_ignores_all(workflow, list(MODEL_FREE_TEST_FILES))
-    assert missing == [], (
-        f"model-free e2e file(s) still swept by the '{E2E_TESTS_JOB}' lane: {missing} — "
-        f"they would run in both lanes, paying the label for work that needs no label"
-    )
-
-
-def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_record_smoke_ignore() -> (
-    None
-):
-    smoke = RECORD_E2E_FILE
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], smoke)
-    others = [f for f in MODEL_FREE_TEST_FILES if f != smoke]
-    assert _run_step_ignores_all(mutated, others) == []  # every other file survives
-    with pytest.raises(AssertionError, match="still swept"):
-        test_shared_lane_hands_over_every_model_free_file(mutated)
-
-
-def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_terminal_auth_ignore() -> (
-    None
-):
-    """The neighbouring ``--ignore`` names ``test_terminal_auth_multiuser_e2e.py``,
-    which does not contain this file's path as a substring — so exactly one
-    line goes and the mutation stays one file wide."""
-    terminal_auth = "tests/e2e/web_terminals/test_terminal_auth_e2e.py"
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], terminal_auth)
-    others = [f for f in MODEL_FREE_TEST_FILES if f != terminal_auth]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
-    with pytest.raises(AssertionError, match="still swept"):
-        test_shared_lane_hands_over_every_model_free_file(mutated)
-
-
-def test_no_end_to_end_file_runs_in_both_lanes(workflow: dict[str, Any]) -> None:
-    """The two lanes divide one directory, and the division is the claim — a
-    file in both is paid for twice, and the set is computed from what is on
-    disk rather than from the lists, so it also sees a file that returns to the
-    sweep under a path neither list spells the same way."""
-    swept = _e2e_files_the_shared_lane_sweeps(workflow)
-    assert swept, (
-        f"the '{E2E_TESTS_JOB}' sweep was computed as empty — the discovery broke, and "
-        f"an empty set makes the disjointness below vacuous"
-    )
-    both = sorted(set(MODEL_FREE_TEST_FILES) & swept)
-    assert both == [], (
-        f"file(s) in both end-to-end lanes: {both} — each is collected twice, once "
-        f"behind the label and once without it"
-    )
-
-
-def test_no_end_to_end_file_runs_in_both_lanes__mutation_returns_a_file_to_the_sweep() -> None:
-    render = "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py"
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], render)
-    assert set(MODEL_FREE_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {render}
-    with pytest.raises(AssertionError, match="in both end-to-end lanes"):
-        test_no_end_to_end_file_runs_in_both_lanes(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -5478,27 +5247,6 @@ def test_bluesky_queue_job_exists__mutation_drops_the_run_step() -> None:
     host["steps"] = [step for step in host["steps"] if step.get("name") in kept]
     with pytest.raises(AssertionError):
         test_bluesky_queue_job_exists(mutated)
-
-
-def test_e2e_lane_ignores_bluesky_queue(workflow: dict[str, Any]) -> None:
-    """The guards above catch "runs nowhere"; this one catches "runs twice".
-
-    The module carries no ``dockerbuild`` marker, so the blanket
-    marker->--ignore guard does not reach it and this bespoke check is the
-    only thing holding the ``--ignore`` in place. Drop that line and the whole
-    queueserver stack — bridge, Redis, Tiled, VA, bluesky-web sidecar, on fixed
-    host ports — boots a second time inside the shared lane's ``-n 4`` run,
-    concurrently with its own job. Nothing would fail; it would just get slow
-    and flaky in a way nobody could attribute."""
-    assert _run_step_ignores_all(workflow, [QUEUE_TEST_FILE]) == []
-
-
-def test_e2e_lane_ignores_bluesky_queue__mutation_drops_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], QUEUE_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [ORM_TEST_FILE]) == []  # others survive
-    assert _run_step_ignores_all(mutated, [QUEUE_TEST_FILE]) == [QUEUE_TEST_FILE]
 
 
 # ---------------------------------------------------------------------------
@@ -6464,21 +6212,6 @@ def test_podman_compose_jobs__mutation_installs_inline() -> None:
     )
     with pytest.raises(AssertionError, match="installed inline"):
         test_podman_compose_jobs_pin_then_probe_through_the_script(mutated)
-
-
-def test_e2e_lane_ignores_two_shape_boot(workflow: dict[str, Any]) -> None:
-    """Named explicitly as well as swept up by the blanket ``dockerbuild``
-    guard above: this module builds two images and binds real host ports under
-    its host shape, so leaking it into the shared lane would collide with the
-    lane's own stacks rather than merely double-execute."""
-    assert _run_step_ignores_all(workflow, [TWO_SHAPE_TEST_FILE]) == []
-
-
-def test_e2e_lane_ignores_two_shape_boot__mutation_drops_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], TWO_SHAPE_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [TWO_SHAPE_TEST_FILE]) == [TWO_SHAPE_TEST_FILE]
 
 
 def _accepts_an_epic_base(job_if: str) -> bool:
@@ -11943,8 +11676,7 @@ def test_privilege_split_cleanup_sweeps_each_module_prefix__mutation_drops_the_s
 STACK_CLEANUP_STEP = "Clean up any stranded stack resources"
 
 #: The compose projects of the lanes whose modules deploy a stack, each from
-#: its module's ``PROJECT_NAME``. The shared ``e2e-tests`` lane can run any of
-#: them through its ``E2E_FILTER`` input, so its cleanup step names them all.
+#: its module's ``PROJECT_NAME``.
 _STACK_LANE_PROJECTS: dict[str, tuple[str, ...]] = {
     "bluesky-queue-e2e": ("queue-e2e",),
     "bluesky-deploy-e2e": ("osprey-e2e-bluesky-deploy",),
@@ -12007,8 +11739,10 @@ STACK_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
     ): ("osprey-e2e-full-chain-auth",),
     ("jupyter-panel-e2e", STACK_CLEANUP_STEP): ("osprey-e2e-jnb",),
     **{(job, STACK_CLEANUP_STEP): projects for job, projects in _STACK_LANE_PROJECTS.items()},
+    # The shared lane's cleanup derives its projects from the modules the run selected
+    # (scripts/ci/e2e_shared_lane.py stacks); these are the default sweep's.
     ("e2e-tests", STACK_CLEANUP_STEP): tuple(
-        project for projects in _STACK_LANE_PROJECTS.values() for project in projects
+        e2e_shared_lane.stacks(e2e_shared_lane.check.repository_files(), "")
     ),
 }
 
@@ -12280,7 +12014,6 @@ def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_removal(
     ("job", "step_name", "project", "dropped"),
     [
         ("bluesky-queue-e2e", STACK_CLEANUP_STEP, "queue-e2e", "queue-e2e-agent-record"),
-        ("e2e-tests", STACK_CLEANUP_STEP, "suproj", "suproj-agent-record-clickhouse"),
         (
             "auth-perimeter-e2e",
             "Clean up any stranded auth-perimeter resources",
@@ -12324,6 +12057,24 @@ def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_project_f
         AssertionError, match=rf"'{re.escape(job)}': \[[^\]]*'{re.escape(dropped)}'"
     ):
         test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_the_shared_lane_cleanup_removes_what_its_filter_brought_up(
+    workflow: dict[str, Any],
+) -> None:
+    """``E2E_FILTER`` can bring a dedicated lane's module into the shared lane, and
+    its stack with it; the cleanup step then removes that module's project."""
+    run = _cleanup_step_run(workflow, E2E_TESTS_JOB, STACK_CLEANUP_STEP)
+    narrowed = (
+        f"export E2E_FILTER='tests/e2e/test_single_user_narrowing_e2e.py -k narrowing'\n{run}"
+    )
+    assert _record_cleanup_gaps(narrowed, "suproj") == []
+    elsewhere = f"export E2E_FILTER='{TEAMS_TEST_FILE}'\n{run}"
+    assert _record_cleanup_gaps(elsewhere, "suproj") == [
+        "suproj-agent-record",
+        "suproj-agent-record-clickhouse",
+        "suproj_agent_record_clickhouse_data",
+    ]
 
 
 def test_stack_lanes_remove_the_agent_record_by_name__mutation_script_drops_a_removal() -> None:
@@ -12439,19 +12190,6 @@ def test_graph_reseed_job_runs_its_file_in_a_named_step__mutation_drops_job() ->
     _drop_lane(mutated, GRAPH_RESEED_JOB)
     with pytest.raises((AssertionError, KeyError)):
         test_graph_reseed_job_runs_its_file_in_a_named_step(mutated)
-
-
-def test_e2e_tests_ignores_the_graph_reseed_file(workflow: dict[str, Any]) -> None:
-    step = _find_named_step(workflow, E2E_TESTS_JOB, "Run E2E tests")
-    assert f"--ignore={GRAPH_RESEED_TEST_FILE}" in step["run"]
-
-
-def test_e2e_tests_ignores_the_graph_reseed_file__mutation_drops_ignore() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], GRAPH_RESEED_TEST_FILE)
-    with pytest.raises(AssertionError):
-        test_e2e_tests_ignores_the_graph_reseed_file(mutated)
 
 
 # ---------------------------------------------------------------------------

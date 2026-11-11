@@ -819,6 +819,134 @@ def workflow() -> dict[str, Any]:
     return yaml.safe_load(CI_YML.read_text(encoding="utf-8"))
 
 
+# ---------------------------------------------------------------------------
+# Every tests/e2e test module runs in exactly one place
+# ---------------------------------------------------------------------------
+
+#: A job that runs part of a module another lane hosts, by marker, with the reason.
+E2E_MARKER_SPLITS = {
+    ("qmd-sidecar-e2e", "tests/e2e/test_deploy_lifecycle.py"): "runs the `-m qmd` half",
+}
+#: The shared lane's run step, and what it holds when it splices the derived list in.
+SHARED_E2E_STEP = "Run E2E tests"
+SHARED_E2E_SPLICE = ("scripts/ci/e2e_shared_lane.py ignores", '"${ignores[@]}"')
+
+_E2E_PATH = re.compile(r"tests/e2e/[\w./-]*")
+_IGNORE_ARG = re.compile(r"--ignore=(\S+)")
+
+
+def _under(module: str, path: str) -> bool:
+    path = path.partition("::")[0].rstrip("/")
+    return module == path or module.startswith(f"{path}/")
+
+
+def e2e_runners(
+    wf: dict[str, Any], lanes: Sequence[Any], files: Sequence[str]
+) -> dict[str, set[str]]:
+    """Each tests/e2e test module to what runs it, read off ci.yml: every job other
+    than the shared lane that names it (or a directory above it) outside an
+    ``--ignore=``, ``off-ci`` for the modules no job runs, and the shared lane for
+    each module its run step does not leave out. That step leaves out the derived
+    list only while it splices it in; otherwise it runs all of ``tests/e2e``."""
+    modules = [path for path in files if fw.is_e2e_module(path)]
+    runners: dict[str, set[str]] = {module: set() for module in modules}
+    for job_id, job in wf["jobs"].items():
+        if job_id == fw.SHARED_E2E_LANE:
+            continue
+        text = json.dumps(job)
+        dropped = _IGNORE_ARG.findall(text)
+        named = _E2E_PATH.findall(_IGNORE_ARG.sub("", text))
+        for module in modules:
+            if (job_id, module) in E2E_MARKER_SPLITS:
+                continue
+            if any(_under(module, n) for n in named) and not any(
+                _under(module, d) for d in dropped
+            ):
+                runners[module].add(job_id)
+    steps = wf["jobs"][fw.SHARED_E2E_LANE]["steps"]
+    run = next(str(s.get("run", "")) for s in steps if s.get("name") == SHARED_E2E_STEP)
+    spliced = all(part in run for part in SHARED_E2E_SPLICE)
+    left = set(fw.e2e_shared_ignores(lanes, files)) if spliced else set()
+    for module in modules:
+        if module in fw.E2E_OFF_CI:
+            runners[module].add(fw.OFF_CI)
+        if module not in left:
+            runners[module].add(fw.SHARED_E2E_LANE)
+    return runners
+
+
+def e2e_hosting_problems(wf: dict[str, Any], lanes: Sequence[Any]) -> dict[str, str]:
+    """Each tests/e2e test module not run in exactly the one place the lanes say:
+    claimed by two hosts, run by a job that does not claim it beside the one that
+    does, or claimed by a job that does not run it."""
+    files = check.repository_files()
+    runners = e2e_runners(wf, lanes, files)
+    problems = {}
+    for module, claimed in fw.e2e_hosts(lanes, files).items():
+        ran = sorted(runners[module])
+        if len(claimed) != 1:
+            problems[module] = f"claimed by {list(claimed)}"
+        elif ran != list(claimed):
+            problems[module] = f"hosted by {claimed[0]}, run by {ran}"
+    return problems
+
+
+def test_every_e2e_module_runs_in_exactly_one_place() -> None:
+    assert e2e_hosting_problems(workflow(), check.LANES) == {}
+    named = [p for lane in check.LANES for p in lane.modules or () if "*" not in p]
+    assert [p for p in named if not (REPO_ROOT / p).is_file()] == []
+    assert [p for p in fw.E2E_OFF_CI if not (REPO_ROOT / p).is_file()] == []
+
+
+def test_a_module_two_lanes_claim_is_reported() -> None:
+    twin = kit.Lane("twin-e2e", "containers", ("tests/e2e/test_two_shape_boot.py",))
+    assert e2e_hosting_problems(workflow(), (*check.LANES, twin)) == {
+        "tests/e2e/test_two_shape_boot.py": "claimed by ['two-shape-boot-e2e', 'twin-e2e']"
+    }
+
+
+def test_a_lane_module_the_shared_lane_still_runs_is_reported() -> None:
+    wf = workflow()
+    steps = wf["jobs"][fw.SHARED_E2E_LANE]["steps"]
+    step = next(s for s in steps if s.get("name") == SHARED_E2E_STEP)
+    assert SHARED_E2E_SPLICE[1] in step["run"], "the shared lane splices no list; stale"
+    step["run"] = step["run"].replace(SHARED_E2E_SPLICE[1], "")
+    problems = e2e_hosting_problems(wf, check.LANES)
+    assert problems["tests/e2e/test_two_shape_boot.py"] == (
+        "hosted by two-shape-boot-e2e, run by ['e2e-tests', 'two-shape-boot-e2e']"
+    )
+    assert len(problems) == len(fw.e2e_shared_ignores(check.LANES, check.repository_files()))
+
+
+def test_a_job_running_a_module_no_lane_gives_it_is_reported() -> None:
+    wf = workflow()
+    wf["jobs"]["e2e-no-model"]["steps"].append(
+        {"name": "stray", "run": "uv run pytest tests/e2e/test_ariel_search.py"}
+    )
+    assert e2e_hosting_problems(wf, check.LANES) == {
+        "tests/e2e/test_ariel_search.py": (
+            "hosted by e2e-tests, run by ['e2e-no-model', 'e2e-tests']"
+        )
+    }
+
+
+def test_a_lane_module_its_job_no_longer_runs_is_reported() -> None:
+    wf = workflow()
+    include = wf["jobs"]["stack-e2e"]["strategy"]["matrix"]["include"]
+    kept = [c for c in include if c.get("module") != "tests/e2e/test_tiled_roundtrip.py"]
+    assert len(kept) == len(include) - 1, "no tiled-roundtrip cell; stale"
+    include[:] = kept
+    assert e2e_hosting_problems(wf, check.LANES) == {
+        "tests/e2e/test_tiled_roundtrip.py": "hosted by stack-e2e, run by []"
+    }
+
+
+def test_a_marker_split_is_the_one_second_runner_allowed() -> None:
+    ((job, module),) = E2E_MARKER_SPLITS
+    assert f"pytest {module} -m qmd" in json.dumps(workflow()["jobs"][job])
+    assert fw.e2e_hosts(check.LANES, [module]) == {module: ("multi-user-deploy-lifecycle-e2e",)}
+
+
 #: Required jobs that are neither a caller nor a lane. The baseline push checks nothing, so
 #: no range should be told to run it; the gate needs it only so a failed push is not green.
 GATED_NON_LANES = ("visual-baselines-push",)
@@ -3995,7 +4123,14 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
     assert tuple(rebuilt(item) for item in declared) == check.CHECKS
     assert "touched" not in data
     lanes = tuple(
-        check.Lane(i["job"], i["why"], tuple(i["scope"]), i["prefix"]) for i in data["lanes"]
+        check.Lane(
+            i["job"],
+            i["why"],
+            tuple(i["scope"]),
+            i["prefix"],
+            None if i["modules"] is None else tuple(i["modules"]),
+        )
+        for i in data["lanes"]
     )
     assert lanes == check.LANES
     assert data["tiers"] == ["quick", "full"]
