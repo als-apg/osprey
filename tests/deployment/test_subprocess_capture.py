@@ -841,7 +841,16 @@ def _sleeping_group(ready: Path, *, ignore_term: bool = False) -> subprocess.Pop
     group = subprocess.Popen(
         ["sh", "-c", f"{trap}: > {shlex.quote(str(ready))}; exec sleep 60"], process_group=0
     )
-    _wait_for_file(ready, empty_ok=True)
+    # No wall-clock budget: the shell writes ``ready`` or exits on its own
+    # however slowly a loaded host starts it; the per-test timeout is the hang
+    # breaker.
+    wait_until(
+        lambda: ready.exists() or group.poll() is not None,
+        timeout=None,
+        interval=0.02,
+        what=f"a write to {ready} or the shell's exit",
+    )
+    assert ready.exists(), f"the shell exited {group.returncode} before writing {ready}"
     return group
 
 
