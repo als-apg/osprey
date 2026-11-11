@@ -132,7 +132,7 @@ ALLOW_LIST = (
             "**/.image/demo-logbook/build/config.yml",
             "**/.image/demo-knowledge/build/config.yml",
         ),
-        "the logbook and knowledge apps switch the pv-directory server off by name",
+        "the logbook and knowledge logins switch the pv-directory server off by name",
         _without_server,
     ),
     Allowed(
