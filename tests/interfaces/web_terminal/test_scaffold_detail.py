@@ -152,8 +152,9 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
 
 
 def _goto(page: Page, base_url: str) -> None:
-    """Navigate to the hub."""
+    """Navigate to the hub and wait for its ready mark, before any test acts."""
     page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_hub_ready(page)
 
 
 def _open_settings_drawer(page: Page) -> None:
@@ -487,7 +488,6 @@ def test_mcp_json_renders_through_split_mcp_renderer(tmp_path, monkeypatch, chro
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
-        wait_for_hub_ready(page)
 
         _open_settings_drawer(page)
         page.click(CONFIG_TAB_SELECTOR)

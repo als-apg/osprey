@@ -12,8 +12,9 @@ known-benign noise.
 finished arranging the shell, for any suite that drives or photographs the
 web-terminal hub. ``open_hub_page`` is the hub's own entry point — it opens the
 page and waits, through ``wait_for_hub_ready``, for the panel manager's ready
-mark and the dock grid together — and ``rail_entry`` builds the locator for one
-of that rail's buttons.
+mark and the dock grid together — ``wait_for_window_ready`` is the same wait for
+a window the hub pops a pane out into, and ``rail_entry`` builds the locator for
+one of that rail's buttons.
 """
 
 from __future__ import annotations
@@ -240,6 +241,23 @@ def wait_for_hub_ready(page: Page) -> None:
     """
     expect(page.locator("html[data-panels-ready]")).to_be_attached(timeout=_HUB_READY_TIMEOUT_MS)
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=_HUB_READY_TIMEOUT_MS)
+
+
+def wait_for_window_ready(window: Page) -> None:
+    """Wait until a window the hub opened (a pane or panel popped out) is dressed.
+
+    ``attached-window.js`` moves the node into the window, hands the mount to
+    its caller to dress (the window's bar, its menus), and only then marks the
+    mount ``.attached-window-root[data-window-ready]``. The window's ``<html>``
+    mirrors the hub's, so ``html[data-panels-ready]`` there says nothing about
+    the window itself.
+
+    Args:
+        window: The page of the window, as ``expect_popup`` hands it back.
+    """
+    expect(window.locator(".attached-window-root[data-window-ready]")).to_be_attached(
+        timeout=_HUB_READY_TIMEOUT_MS
+    )
 
 
 def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = None) -> Page:

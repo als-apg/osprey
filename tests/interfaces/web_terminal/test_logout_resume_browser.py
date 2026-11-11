@@ -36,6 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from osprey.interfaces._serving import authorize_browser_context
+from tests.interfaces._browser import wait_for_hub_ready
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 from tests.interfaces.web_terminal._user_terminal import launch_landing, launch_terminal
 
@@ -91,6 +92,7 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         with page.expect_websocket() as first_ws:
             page.goto(base_url, wait_until="load")
         assert "mode=resume" not in first_ws.value.url
+        wait_for_hub_ready(page)
 
         logout = page.locator("#logout-btn")
         expect(logout).to_have_count(1)
@@ -124,7 +126,11 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         dialog = page.locator(".posture-modal-overlay:not([data-closing])")
         expect(dialog.locator(".posture-modal-title")).to_have_text("Sign out of OSPREY?")
         dialog.locator(".posture-modal-confirm").click()
-        page.wait_for_url(lambda u: u.startswith(landing_url))
+        # Sign-out ends the server's sessions before it navigates, which a
+        # loaded host does slowly: the wait is for the navigation to commit,
+        # with no budget of its own (0; the per-test timeout is the hang
+        # breaker), and readiness is the landing page's own mark.
+        page.wait_for_url(lambda u: u.startswith(landing_url), wait_until="commit", timeout=0)
         expect(page.locator("#landing-marker")).to_be_visible()
 
         # The auth session was asked to end at the ORIGIN ROOT, naming this user once.
