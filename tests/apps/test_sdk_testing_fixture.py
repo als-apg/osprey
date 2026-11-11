@@ -210,6 +210,38 @@ def test_the_plugins_fixtures_make_and_build_a_deployment(
     assert tree.root != first.root
 
 
+# --- the example on build-your-own-app ---------------------------------------------------
+
+DOCS_PAGE = Path(__file__).resolve().parents[2] / "docs/source/how-to/apps/build-your-own-app.rst"
+
+
+def _python_blocks(page: Path) -> list[str]:
+    """Each ``code-block:: python`` of an RST page, dedented."""
+    blocks: list[str] = []
+    for chunk in page.read_text(encoding="utf-8").split(".. code-block:: python\n")[1:]:
+        lines: list[str] = []
+        for line in chunk.splitlines():
+            if line and not line.startswith("   "):
+                break
+            lines.append(line[3:])
+        blocks.append("\n".join(lines).strip("\n") + "\n")
+    return blocks
+
+
+@pytest.mark.no_auth_seam
+def test_the_docs_example_runs_against_a_scaffold_copy(
+    synthetic_deployment, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app_dir = _new_app(tmp_path, "corrector-trim")
+    _importable(app_dir, "corrector_trim", monkeypatch)
+    namespace: dict[str, Any] = {"__file__": str(app_dir / "tests" / "test_backend.py")}
+
+    (example,) = [b for b in _python_blocks(DOCS_PAGE) if "synthetic_deployment" in b]
+
+    exec(compile(example, str(DOCS_PAGE), "exec"), namespace)
+    namespace["test_state_reads_the_configured_channel"](synthetic_deployment)
+
+
 # --- a deployment's own measurement kind, through the same fixture -----------------------
 
 # The kind's package, the tree that lists it and the wheel stand-in are the ones

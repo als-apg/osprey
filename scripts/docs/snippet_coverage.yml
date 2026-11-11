@@ -552,6 +552,12 @@ tested:
     languages: [literal]
     kind: pins
     what: the image name order equals what resolve_image_defaults composes
+  - test: tests/apps/test_sdk_testing_fixture.py
+    pages: [how-to/apps/build-your-own-app.rst]
+    languages: [python]
+    kind: runs
+    contains: "synthetic_deployment"
+    what: runs the example test against a scaffold copy named corrector-trim, through the plugin's fixture
 
 not_counted:
   - test: tests/docs/test_no_model_tier_words.py
