@@ -65,6 +65,7 @@ ENGINE_ZONES: dict[str, str] = {
     "src/osprey/facility/layers/**": "the importers author a model's wiring in its engine's words",
     "src/osprey/templates/**/data/**": "a shipped facility definition states its engine blocks",
     "src/osprey/templates/facilities/**": "a shipped facility definition states its engine blocks",
+    "src/osprey/apps/sdk/testing/**": "the SDK's synthetic facility trees state their engine blocks",
     "src/osprey/interfaces/lattice_dashboard/state.py": "walks the pyAT elements of a deck",
     "src/osprey/interfaces/lattice_dashboard/workers/**": "walk the pyAT elements of a deck",
     "src/osprey/mcp_server/phoebus/tools/databrowser_tools.py": "Phoebus's own plot axis key",
