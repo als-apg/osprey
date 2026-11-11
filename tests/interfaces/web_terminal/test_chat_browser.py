@@ -575,6 +575,11 @@ def test_send_button_does_not_move_when_stop_appears_and_leaves(tmp_path, chromi
         expect(stop_btn).to_be_visible(timeout=10_000)
         expect(send_btn).to_be_hidden()
         streaming_x = stop_btn.bounding_box()["x"]
+        # Stop shows the moment the page sends; the server's turn opens later. Its
+        # first text proves the turn is open, so the Stop below interrupts it.
+        expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
+            "starting…", timeout=10_000
+        )
 
         stop_btn.click()
         expect(stop_btn).to_be_hidden(timeout=10_000)
