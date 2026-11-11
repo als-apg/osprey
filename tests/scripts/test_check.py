@@ -844,6 +844,12 @@ E2E_MARKER_SPLITS = {
 #: The shared lane's run step, and what it holds when it splices the derived list in.
 SHARED_E2E_STEP = "Run E2E tests"
 SHARED_E2E_SPLICE = ("scripts/ci/e2e_shared_lane.py ignores", '"${ignores[@]}"')
+#: A lane's run step that derives its pytest paths from the lane, and what it holds
+#: when it splices them in.
+LANE_MODULES_SPLICE = (
+    re.compile(r"scripts/ci/e2e_shared_lane\.py modules ([\w-]+)"),
+    '"${modules[@]}"',
+)
 
 _E2E_PATH = re.compile(r"tests/e2e/[\w./-]*")
 _IGNORE_ARG = re.compile(r"--ignore=(\S+)")
@@ -873,13 +879,27 @@ def _e2e_run_units(wf: dict[str, Any], lanes: Sequence[Any]) -> list[tuple[str, 
     return units
 
 
+def _spliced_modules(unit: Any, lanes: Sequence[Any]) -> list[str]:
+    """The modules *unit*'s run steps derive from a lane and splice into pytest."""
+    by_id = {lane.id: lane for lane in lanes}
+    runs = [str(step.get("run", "")) for step in unit.get("steps") or []]
+    return [
+        module
+        for run in runs
+        if LANE_MODULES_SPLICE[1] in run
+        for lane_id in LANE_MODULES_SPLICE[0].findall(run)
+        for module in by_id[lane_id].modules or ()
+    ]
+
+
 def e2e_runners(
     wf: dict[str, Any], lanes: Sequence[Any], files: Sequence[str]
 ) -> dict[str, set[str]]:
     """Each tests/e2e test module to what runs it, read off ci.yml: every job (or,
     in a job hosting several lanes, every cell's lane) other than the shared lane
     that names it (or a directory above it) outside an
-    ``--ignore=``, ``off-ci`` for the modules no job runs, and the shared lane for
+    ``--ignore=``, or splices in a lane's derived module list that holds it,
+    ``off-ci`` for the modules no job runs, and the shared lane for
     each module its run step does not leave out. That step leaves out the derived
     list only while it splices it in; otherwise it runs all of ``tests/e2e``."""
     modules = [path for path in files if fw.is_e2e_module(path)]
@@ -889,7 +909,7 @@ def e2e_runners(
             continue
         text = json.dumps(unit)
         dropped = _IGNORE_ARG.findall(text)
-        named = _E2E_PATH.findall(_IGNORE_ARG.sub("", text))
+        named = [*_E2E_PATH.findall(_IGNORE_ARG.sub("", text)), *_spliced_modules(unit, lanes)]
         for module in modules:
             if (runner, module) in E2E_MARKER_SPLITS:
                 continue
@@ -950,6 +970,18 @@ def test_a_lane_module_the_shared_lane_still_runs_is_reported() -> None:
         "hosted by two-shape-boot-e2e, run by ['e2e-tests', 'two-shape-boot-e2e']"
     )
     assert len(problems) == len(fw.e2e_shared_ignores(check.LANES, check.repository_files()))
+
+
+def test_a_lane_module_its_step_no_longer_splices_is_reported() -> None:
+    wf = workflow()
+    step = next(
+        s for s in wf["jobs"]["e2e-no-model"]["steps"] if LANE_MODULES_SPLICE[1] in s.get("run", "")
+    )
+    step["run"] = step["run"].replace(LANE_MODULES_SPLICE[1], "")
+    (lane,) = [lane for lane in check.LANES if lane.id == "e2e-no-model"]
+    assert e2e_hosting_problems(wf, check.LANES) == dict.fromkeys(
+        lane.modules or (), "hosted by e2e-no-model, run by []"
+    )
 
 
 def test_a_job_running_a_module_no_lane_gives_it_is_reported() -> None:
