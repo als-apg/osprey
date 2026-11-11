@@ -404,7 +404,8 @@ The package is installed where ``osprey build`` runs and in the project image,
 through the profile's ``dependencies``. Pinning test:
 ``tests/facility/test_fixture_kind_deployment.py``, whose package under
 ``tests/facility/fixtures/fixture_kind/`` registers a kind and an engine. The
-contract: :doc:`/reference/contracts/facility-kinds`.
+contract: :doc:`/reference/contracts/facility-kinds`; step by step:
+:doc:`/how-to/register-a-measurement-kind`.
 
 .. _extending-agent-harness:
 

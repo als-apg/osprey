@@ -86,3 +86,23 @@ def test_the_page_names_the_entry_point_group_and_the_built_in_kinds() -> None:
 
     assert len(named) == len(set(named))
     assert set(named) == set(kinds.builtin_kinds())
+
+
+def test_the_contract_and_the_how_to_lead_to_each_other() -> None:
+    how_to = "/how-to/register-a-measurement-kind"
+    contract = "/reference/contracts/facility-kinds"
+    extending = (DOCS_SOURCE / "contributing" / "extending-osprey.rst").read_text(encoding="utf-8")
+    lines = extending.splitlines()
+    start = lines.index("Measurement kind") + 2
+    end = next(
+        (i - 1 for i in range(start + 1, len(lines)) if set(lines[i]) == {"-"}),
+        len(lines),
+    )
+    section = "\n".join(lines[start:end])
+    how_to_page = (DOCS_SOURCE / "how-to" / "register-a-measurement-kind.rst").read_text(
+        encoding="utf-8"
+    )
+
+    assert f":doc:`{how_to}`" in _page()
+    assert f":doc:`{how_to}`" in section
+    assert f":doc:`{contract}`" in how_to_page
