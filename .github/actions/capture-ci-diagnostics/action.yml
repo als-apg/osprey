@@ -39,6 +39,8 @@ runs:
         set -u
         DIAG="ci-diag"
         mkdir -p "$DIAG/containers"
+        # In the step log too, so a full runner disk shows without downloading the artifact.
+        df -h / || true
 
         # ---- runner health -------------------------------------------------
         # Answers the "was this an infra stall?" question with evidence rather

@@ -2,7 +2,7 @@
 
 Tier 2 tests measure what a model can do in OSPREY rather than gate a change:
 the task is fair, but a capable model may still miss it. They run on demand
-(the ``tier2-model-benchmark`` CI job) and in the model matrix, never on a pull
+(the ``benchmarks`` CI job) and in the model matrix, never on a pull
 request.
 
 The logbook holds one entry whose only attachment is a plot. The question asks

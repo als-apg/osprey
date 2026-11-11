@@ -55,12 +55,12 @@
   "conclusion": "success"
  },
  {
-  "name": "Dispatch Deploy E2E (full Docker stack + real agent runs + multi-user web tier)",
+  "name": "Dispatch Stack E2E (deploy, full Docker stack + real agent runs + multi-user web tier)",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Dispatch Overlay E2E (overlay skill/data/trigger visibility, full Docker stack)",
+  "name": "Dispatch Stack E2E (overlay skill/data/trigger visibility)",
   "status": "completed",
   "conclusion": "success"
  },
@@ -120,7 +120,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Single-User Narrowing E2E (full Docker stack + owner-narrowed dispatch run)",
+  "name": "Dispatch Stack E2E (single-user narrowing, owner-narrowed dispatch run)",
   "status": "completed",
   "conclusion": "success"
  },
