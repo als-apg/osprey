@@ -515,12 +515,10 @@ specific first:
        path cannot diverge.
    * - The local account
      - The single-user laptop case, where the process account *is* the person.
-       A session ``osprey web``, ``chat`` or ``query`` starts from a built
-       deployment answers one rung up instead, as ``deployment.host_identity``.
-       That is a directory name too, so it holds only ``a``--``z``, digits,
-       ``_`` and ``-``: the build lowercases the login that ran it and makes
-       each run of other characters one ``-``, so ``GMartino`` is ``gmartino``.
-       A name ``profile.yml`` states is used as written.
+       ``osprey web``, ``chat`` and ``query`` file under the name the build
+       recorded for it, ``deployment.host_identity``: the login in lowercase,
+       so ``GMartino`` files as ``gmartino``. State a name in ``profile.yml``
+       to choose another.
    * - ``unknown``
      - An honest floor. A slim image often has no account entry for its uid;
        that is routine, and an unresolvable identity must never cost the
