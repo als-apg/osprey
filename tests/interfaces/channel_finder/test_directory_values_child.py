@@ -140,9 +140,21 @@ class TestFraming:
             struct.pack(">I", 3) + b"NaN",
             struct.pack(">I", 8) + b"Infinity",
             struct.pack(">I", 200_000) + b"[" * 100_000 + b"]" * 100_000,
+            struct.pack(">I", 2 * (ipc.MAX_FRAME_DEPTH + 1))
+            + b"[" * (ipc.MAX_FRAME_DEPTH + 1)
+            + b"]" * (ipc.MAX_FRAME_DEPTH + 1),
             struct.pack(">I", ipc.MAX_FRAME_BYTES + 1),
         ],
-        ids=["header cut", "body cut", "not json", "NaN", "Infinity", "too deep", "over the limit"],
+        ids=[
+            "header cut",
+            "body cut",
+            "not json",
+            "NaN",
+            "Infinity",
+            "too deep",
+            "past the depth bound",
+            "over the limit",
+        ],
     )
     async def test_a_broken_frame_is_refused(self, data):
         with pytest.raises(ipc.FrameError):

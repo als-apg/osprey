@@ -33,6 +33,12 @@ MAX_VALUE_BYTES = 64 * 1024
 #: The largest frame either side reads.
 MAX_FRAME_BYTES = 8 * 1024 * 1024
 
+#: The deepest nesting a frame may hold. A request is an object holding a list,
+#: a response a list of row objects whose values may be arrays, so the wire's
+#: own messages stop well short of this; a deeper frame is refused outright
+#: rather than left to whatever depth the interpreter's parser happens to reach.
+MAX_FRAME_DEPTH = 16
+
 #: The child's module, as ``python -m`` takes it.
 CHILD_MODULE = "osprey.interfaces.channel_finder.directory_values_child"
 
@@ -138,6 +144,25 @@ def _encode(message: Any) -> bytes:
     return json.dumps(message, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
+def _depth(message: Any) -> int:
+    """How deeply *message* nests containers; a scalar is 0, ``[]`` and ``{}`` are 1."""
+    deepest = 0
+    pending: list[tuple[Any, int]] = [(message, 0)]
+    while pending:
+        value, level = pending.pop()
+        if isinstance(value, dict):
+            children: Any = value.values()
+        elif isinstance(value, list):
+            children = value
+        else:
+            continue
+        level += 1
+        if level > deepest:
+            deepest = level
+        pending.extend((child, level) for child in children)
+    return deepest
+
+
 def encoded_size(message: Any) -> int:
     """How many bytes *message* takes in a frame's body."""
     return len(_encode(message))
@@ -159,7 +184,8 @@ async def read_frame(reader: asyncio.StreamReader, *, limit: int = MAX_FRAME_BYT
     """The next message on *reader*, or ``None`` when the peer closed between frames.
 
     Raises:
-        FrameError: The frame is over *limit*, cut short, or not JSON.
+        FrameError: The frame is over *limit*, cut short, not JSON, or nests
+            deeper than :data:`MAX_FRAME_DEPTH`.
     """
     try:
         header = await reader.readexactly(_HEADER.size)
@@ -175,11 +201,14 @@ async def read_frame(reader: asyncio.StreamReader, *, limit: int = MAX_FRAME_BYT
     except asyncio.IncompleteReadError as exc:
         raise FrameError("frame body cut short") from exc
     try:
-        return json.loads(body, parse_constant=_refuse_constant)
+        message = json.loads(body, parse_constant=_refuse_constant)
     except FrameError:
         raise
     except (ValueError, RecursionError) as exc:
         raise FrameError("frame is not JSON") from exc
+    if _depth(message) > MAX_FRAME_DEPTH:
+        raise FrameError(f"frame nests deeper than {MAX_FRAME_DEPTH}")
+    return message
 
 
 def encode_request(names: Sequence[str]) -> bytes:
