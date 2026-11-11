@@ -2498,7 +2498,9 @@ def test_a_pytest_run_stopped_at_its_bound_is_a_failure(
 ) -> None:
     recorder.failing = {"tests/pty/": 124}
     assert check.main(["run", "pytest-pty"]) == 1
-    assert "check: pytest-pty: failed (still running at its bound)" in capsys.readouterr().out
+    out = capsys.readouterr().out.strip().splitlines()
+    assert "check: pytest-pty: failed (no verdict, host bound)" in out
+    assert out[-1] == "check: not clean: failed: pytest-pty (no verdict, host bound)"
 
 
 def test_named_paths_whose_tests_are_all_deselected_are_named_as_not_run(
@@ -3165,15 +3167,145 @@ def test_a_failed_pytest_names_its_failing_tests(
     assert out[-1] == f"check: not clean: failed: pytest ({shown}, +2)"
 
 
-def test_a_failed_check_without_a_report_keeps_its_exit_status(
+def test_a_check_cut_at_its_bound_names_the_ids_it_left_as_partial(
     recorder: Recorder, capsys: pytest.CaptureFixture[str]
 ) -> None:
     recorder.reports = {"tests/pty/": PYTEST_REPORT_XML}
     recorder.failing = {"tests/pty/": 124}
     assert check.main(["run", "pytest-pty"]) == 1
     out = capsys.readouterr().out.strip().splitlines()
-    assert "check: pytest-pty: failed (still running at its bound)" in out
-    assert out[-1] == "check: not clean: failed: pytest-pty"
+    names = "tests/sub/test_a.py::TestK::test_x, tests/sub/test_a.py::test_p[a.b], "
+    names += "tests/sub/test_broken.py"
+    assert f"check: pytest-pty: failed ({names}; partial, cut at its bound)" in out
+    assert out[-1] == f"check: not clean: failed: pytest-pty ({names}; partial, cut at its bound)"
+
+
+def test_a_failed_check_without_a_report_keeps_its_exit_status(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorder.failing = {"ruff check": 1}
+    assert check.main(["run", "ruff"]) == 1
+    out = capsys.readouterr().out.strip().splitlines()
+    assert any(line.startswith("check: ruff: failed (exit 1") for line in out)
+    assert out[-1].startswith("check: not clean: failed: ruff")
+
+
+#: Seven failing pytest cases, more than a line shows.
+SEVEN_FAILING = "<testsuites><testsuite>{}</testsuite></testsuites>".format(
+    "".join(
+        f'<testcase file="tests/test_m.py" classname="tests.test_m" name="test_{index}">'
+        "<failure>no</failure></testcase>"
+        for index in range(7)
+    )
+)
+
+
+def test_reports_dir_keeps_the_reports_and_never_opens_a_temporary_one(
+    recorder: Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refused(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("a temporary directory was opened")
+
+    monkeypatch.setattr(check.tempfile, "TemporaryDirectory", refused)
+    kept = tmp_path / "kept" / "reports"
+    recorder.reports = {"run_bounded.py": SEVEN_FAILING}
+    recorder.failing = {"run_bounded.py": 1}
+    assert check.main(["run", "pytest", "--reports-dir", str(kept)]) == 1
+    assert (kept / "pytest" / "junit.xml").read_text(encoding="utf-8") == SEVEN_FAILING
+    outcome = json.loads((kept / "pytest" / "outcome.json").read_text(encoding="utf-8"))
+    assert outcome == {"state": "failed", "status": 1, "bound_cut": False}
+    assert any(f"--junitxml={kept}/pytest/junit.xml" in argv for argv in recorder.calls)
+
+
+def test_reports_dir_refuses_a_directory_that_holds_an_earlier_run(
+    recorder: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    kept = tmp_path / "kept"
+    _write_report(kept, "pytest", PYTEST_REPORT_XML)
+    assert check.main(["run", "pytest", "--reports-dir", str(kept)]) == 2
+    assert "is not empty" in last_error_line(capsys)
+    assert recorder.calls == []
+    # An empty one is taken.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert check.main(["run", "pytest", "--reports-dir", str(empty)]) == 0
+
+
+def test_failures_lists_every_id_and_agrees_with_the_verdict(
+    recorder: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    kept = tmp_path / "kept"
+    recorder.reports = {"run_bounded.py": SEVEN_FAILING}
+    recorder.failing = {"run_bounded.py": 1}
+    assert check.main(["run", "pytest", "--reports-dir", str(kept)]) == 1
+    verdict_line = capsys.readouterr().out.strip().splitlines()[-1]
+    assert check.main(["failures", str(kept)]) == 0
+    listed = capsys.readouterr().out.strip().splitlines()
+    assert listed == sorted(f"tests/test_m.py::test_{index}" for index in range(7))
+    assert len(listed) > check.FAILURES_SHOWN
+    # The verdict names the first of the same list and counts the rest.
+    assert verdict_line == f"check: not clean: failed: pytest ({check._names(tuple(listed))})"
+    assert check.main(["failures", str(kept), "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["failures"] == listed
+    assert data["checks"]["pytest"] == {"state": "failed", "partial": False, "failures": listed}
+
+
+def test_failures_reads_a_bound_cut_check_without_ids_as_no_verdict(
+    recorder: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    kept = tmp_path / "kept"
+    recorder.failing = {"tests/pty/": 124}
+    assert check.main(["run", "pytest-pty", "--reports-dir", str(kept)]) == 1
+    assert capsys.readouterr().out.strip().splitlines()[-1] == (
+        "check: not clean: failed: pytest-pty (no verdict, host bound)"
+    )
+    assert check.main(["failures", str(kept)]) == 0
+    assert capsys.readouterr().out.strip().splitlines() == ["pytest-pty: no verdict, host bound"]
+    assert check.main(["failures", str(kept), "--json"]) == 0
+    entry = json.loads(capsys.readouterr().out)["checks"]["pytest-pty"]
+    assert entry == {"state": "host bound", "partial": False, "failures": []}
+
+
+def test_failures_lists_a_bound_cut_checks_ids_and_says_partial(
+    recorder: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    kept = tmp_path / "kept"
+    recorder.reports = {"tests/pty/": PYTEST_REPORT_XML}
+    recorder.failing = {"tests/pty/": 124}
+    assert check.main(["run", "pytest-pty", "--reports-dir", str(kept)]) == 1
+    capsys.readouterr()
+    assert check.main(["failures", str(kept)]) == 0
+    assert capsys.readouterr().out.strip().splitlines() == [
+        "tests/sub/test_a.py::TestK::test_x",
+        "tests/sub/test_a.py::test_p[a.b]",
+        "tests/sub/test_broken.py",
+        "pytest-pty: partial, cut at its bound",
+    ]
+    assert check.main(["failures", str(kept), "--json"]) == 0
+    entry = json.loads(capsys.readouterr().out)["checks"]["pytest-pty"]
+    assert entry["state"] == "failed" and entry["partial"] is True
+
+
+def test_failures_says_so_for_a_failed_check_that_left_no_ids(
+    recorder: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    kept = tmp_path / "kept"
+    recorder.failing = {"run_bounded.py": 2}
+    assert check.main(["run", "pytest", "--reports-dir", str(kept)]) == 1
+    capsys.readouterr()
+    assert check.main(["failures", str(kept)]) == 0
+    assert capsys.readouterr().out.strip().splitlines() == [f"pytest: {check.NO_IDS}"]
+
+
+def test_failures_refuses_a_missing_directory_or_one_without_checks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert check.main(["failures", str(tmp_path / "missing")]) == 2
+    assert "no such directory" in last_error_line(capsys)
+    (tmp_path / "stray").mkdir()
+    assert check.main(["failures", str(tmp_path)]) == 2
+    assert "holds no check's reports" in last_error_line(capsys)
 
 
 def test_the_verdict_caps_the_named_failures_at_five() -> None:
