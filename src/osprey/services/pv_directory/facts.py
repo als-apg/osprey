@@ -31,7 +31,10 @@ from urllib.parse import quote
 
 from osprey.channel_roster import registered_channels
 from osprey.services.pv_directory._connectors import (
+    ENGINEER,
+    IOC_HEALTH_SIGNALS,
     NO_SOURCE_REASON,
+    SERVED_SIGNAL_PROPERTY,
     Unavailable,
     as_payload,
     unavailable_payload,
@@ -50,9 +53,6 @@ _HISTORY_LIMIT = 20
 _HISTORY_KINDS = ("alarm_log", "put_log")
 _DEFAULT_ENGINEER_PROPERTY = "Engineer"
 _DEFAULT_HEALTH_SUFFIXES = ("HEARTBEAT", "UPTIME")
-#: The signals the simulator serves for each of its IOCs, ``<code>:SIM:<model>:<signal>``.
-_SIMULATOR_HEALTH_SIGNALS = ("HEARTBEAT", "UPTIME", "ENGINEER")
-_SIMULATOR_ENGINEER_SIGNAL = "ENGINEER"
 #: The measured RecSync properties holding an IOC's Channel Access and PV Access ports.
 _PORT_PROPERTIES = ("caPort", "pvaPort")
 _HEALTH_PAGE_SIZE = 50
@@ -306,7 +306,7 @@ class Facts:
         if row is not None:
             described = await self._service.describe(row["name"])
             properties = (described.get("record") or {}).get("properties") or {}
-        health_pvs, health_reason = health
+        health_pvs, health_reason, engineer = health
 
         facts = {
             **empty,
@@ -320,9 +320,8 @@ class Facts:
             **({"health_pvs_reason": health_reason} if not health_pvs else {}),
         }
         if on_va:
-            engineer = [name for name in health_pvs if _signal(name) == _SIMULATOR_ENGINEER_SIGNAL]
-            if engineer:
-                facts.update(engineer=engineer[0], engineer_source="ENGINEER PV")
+            if engineer is not None:
+                facts.update(engineer=engineer, engineer_source="ENGINEER PV")
         else:
             prop = self._display.get("engineer_property") or _DEFAULT_ENGINEER_PROPERTY
             if properties.get(prop):
@@ -341,28 +340,49 @@ class Facts:
             return {"curated_count": None, "curated_reason": counted["reason"]}
         return {"curated_count": counted["total"]}
 
-    async def _health_pvs(self, ioc: str, on_va: bool) -> tuple[list[str], str]:
-        """The IOC's health PV names by the rule of its target, and the reason when none."""
+    async def _health_pvs(self, ioc: str, on_va: bool) -> tuple[list[str], str, str | None]:
+        """The IOC's health PV names by the rule of its target, the reason when none, its engineer.
+
+        On ``va`` the health PVs are the rows the simulator marks with an IOC
+        health signal, and the engineer is the row marked ``ENGINEER``; on any
+        other target they are the names ending in a configured suffix.
+        """
         if on_va:
-            suffixes = tuple(f":{signal}" for signal in _SIMULATOR_HEALTH_SIGNALS)
+            pages = await asyncio.gather(
+                *(
+                    self._service.search(
+                        ioc=[ioc],
+                        properties={SERVED_SIGNAL_PROPERTY: signal},
+                        page_size=_HEALTH_PAGE_SIZE,
+                    )
+                    for signal in IOC_HEALTH_SIGNALS
+                )
+            )
+            found = {
+                signal: [row["name"] for row in page.get("rows") or ()]
+                for signal, page in zip(IOC_HEALTH_SIGNALS, pages, strict=True)
+            }
+            names = sorted({name for listed in found.values() for name in listed})
+            engineer = next(iter(found[ENGINEER]), None)
         else:
             suffixes = _suffixes(self._display.get("ioc_health_suffixes"))
-        pages = await asyncio.gather(
-            *(
-                self._service.search(ioc=[ioc], name=f"*{suffix}", page_size=_HEALTH_PAGE_SIZE)
-                for suffix in suffixes
+            pages = await asyncio.gather(
+                *(
+                    self._service.search(ioc=[ioc], name=f"*{suffix}", page_size=_HEALTH_PAGE_SIZE)
+                    for suffix in suffixes
+                )
             )
-        )
+            names = sorted(
+                {
+                    row["name"]
+                    for page in pages
+                    for row in page.get("rows") or ()
+                    if row["name"].endswith(suffixes)
+                }
+            )
+            engineer = None
         failed = [page["reason"] for page in pages if page["outcome"] == "unavailable"]
-        names = sorted(
-            {
-                row["name"]
-                for page in pages
-                for row in page.get("rows") or ()
-                if row["name"].endswith(suffixes)
-            }
-        )
-        return names, failed[0] if failed and not names else _NO_HEALTH_PVS
+        return names, failed[0] if failed and not names else _NO_HEALTH_PVS, engineer
 
     # -- small helpers ---------------------------------------------------
 
@@ -514,7 +534,3 @@ def _suffixes(value: Any) -> tuple[str, ...]:
         if listed:
             return listed
     return _DEFAULT_HEALTH_SUFFIXES
-
-
-def _signal(name: str) -> str:
-    return name.rpartition(":")[2]

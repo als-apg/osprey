@@ -11,6 +11,7 @@ import pytest
 
 from osprey_connectors.pv_directory._simulator import SimulatorDirectory
 from osprey_connectors.pv_directory.contract import (
+    SERVED_SIGNAL_PROPERTY,
     BackendSpec,
     DirectoryRecord,
     Outcome,
@@ -21,8 +22,13 @@ from osprey_connectors.pv_directory.contract import (
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
+    ENGINEER,
+    HEARTBEAT,
+    IOC_HEALTH_SIGNALS,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
+    STATUS_SIGNAL,
+    UPTIME,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
     VIEW_RELPATH,
@@ -54,7 +60,7 @@ def _channel(address: str, **fields: Any) -> dict[str, Any]:
 
 
 def _health(model: str) -> list[str]:
-    return [f"T:SIM:{model}:{suffix}" for suffix in ("HEARTBEAT", "UPTIME", "ENGINEER")]
+    return [f"T:SIM:{model}:{signal}" for signal in IOC_HEALTH_SIGNALS]
 
 
 _CHANNELS = [
@@ -199,6 +205,31 @@ async def test_each_health_and_status_pv_says_what_it_is_in_plain_words(
         "STATUS": "stringin",
     }
     assert {row.ioc for row in rows.values()} == {"sim-SR"}
+
+
+async def test_each_status_and_health_row_carries_its_signal(
+    directory: SimulatorDirectory,
+) -> None:
+    for signal in (STATUS_SIGNAL, HEARTBEAT, UPTIME, ENGINEER):
+        record = await directory.describe(f"T:SIM:SR:{signal}", DEADLINE)
+        assert isinstance(record, DirectoryRecord)
+        assert record.properties == {SERVED_SIGNAL_PROPERTY: signal}
+    channel = await directory.describe(SETPOINT, DEADLINE)
+    assert isinstance(channel, DirectoryRecord)
+    assert SERVED_SIGNAL_PROPERTY not in channel.properties
+
+
+async def test_a_search_by_the_signal_mark_finds_only_those_rows(
+    directory: SimulatorDirectory,
+) -> None:
+    assert await _names(
+        directory, ioc=("sim-SR",), properties={SERVED_SIGNAL_PROPERTY: ENGINEER}
+    ) == ["T:SIM:SR:ENGINEER"]
+    assert await _names(directory, properties={SERVED_SIGNAL_PROPERTY: HEARTBEAT}) == [
+        "T:SIM:BARE:HEARTBEAT",
+        "T:SIM:SR:HEARTBEAT",
+        "T:SIM:texture:HEARTBEAT",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -386,7 +417,7 @@ async def test_a_record_carries_no_ports_and_no_engineer_property(
     assert isinstance(record, DirectoryRecord)
     assert record.properties == {"role": "setpoint", "unit": "A", "valueType": "float"}
     assert isinstance(health, DirectoryRecord)
-    assert health.properties == {}
+    assert health.properties == {SERVED_SIGNAL_PROPERTY: ENGINEER}
     names = await directory.property_names(DEADLINE)
     assert isinstance(names, list)
     assert not {"caPort", "pvaPort", "Engineer"} & set(names)
@@ -473,7 +504,13 @@ async def test_the_source_is_the_specs(directory: SimulatorDirectory) -> None:
 
 
 async def test_properties_are_listed_by_name_and_value(directory: SimulatorDirectory) -> None:
-    assert await directory.property_names(DEADLINE) == ["role", "unit", "valueType"]
+    assert await directory.property_names(DEADLINE) == ["role", "signal", "unit", "valueType"]
+    assert await directory.property_values("signal", None, DEADLINE) == [
+        "ENGINEER",
+        "HEARTBEAT",
+        "STATUS",
+        "UPTIME",
+    ]
     assert await directory.property_values("unit", None, DEADLINE) == ["A"]
     assert await directory.property_values("role", "set", DEADLINE) == ["setpoint"]
     assert await directory.property_values("role", "nope", DEADLINE) == []

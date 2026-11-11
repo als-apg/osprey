@@ -26,6 +26,14 @@ import osprey.channel_roster as channel_roster  # noqa: E402
 from osprey.services.pv_directory import _connectors, facts, service  # noqa: E402
 from osprey_connectors import control_context  # noqa: E402
 from osprey_connectors.factory import ConnectorFactory  # noqa: E402
+from osprey_connectors.simulation.view import (  # noqa: E402
+    ENGINEER,
+    HEARTBEAT,
+    STATUS_SIGNAL,
+    UPTIME,
+)
+
+SIGNAL = contract.SERVED_SIGNAL_PROPERTY
 
 _REAL_ALARM_STATE = ConnectorFactory.create_alarm_state_connector
 
@@ -88,6 +96,7 @@ class FakeDirectory(FakeBackend):
             and (query.status is None or record.row.status == query.status)
             and (query.name is None or fnmatch.fnmatchcase(record.row.name, query.name))
             and query.words in record.row.name
+            and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
     async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
@@ -870,10 +879,10 @@ async def test_the_va_ioc(tmp_path: Path, record: _Record) -> None:
     record.move("va", 1)
     FakeDirectory.records = _records(
         _record("SR:BPM1:X", ioc="sim-SR"),
-        _record("ca:SIM:SR:STATUS", ioc="sim-SR"),
-        _record("ca:SIM:SR:HEARTBEAT", ioc="sim-SR"),
-        _record("ca:SIM:SR:UPTIME", ioc="sim-SR"),
-        _record("ca:SIM:SR:ENGINEER", ioc="sim-SR"),
+        _record("ca:SIM:SR:STATUS", ioc="sim-SR", **{SIGNAL: STATUS_SIGNAL}),
+        _record("ca:SIM:SR:HEARTBEAT", ioc="sim-SR", **{SIGNAL: HEARTBEAT}),
+        _record("ca:SIM:SR:UPTIME", ioc="sim-SR", **{SIGNAL: UPTIME}),
+        _record("ca:SIM:SR:ENGINEER", ioc="sim-SR", **{SIGNAL: ENGINEER}),
     )
     page = _facts(_config(tmp_path, VA_BUILD, {}), tmp_path)
 
@@ -885,6 +894,37 @@ async def test_the_va_ioc(tmp_path: Path, record: _Record) -> None:
     assert ioc["engineer_source"] == "ENGINEER PV"
     assert ioc["engineer"] == "ca:SIM:SR:ENGINEER"
     assert ioc["health_pvs"] == ["ca:SIM:SR:ENGINEER", "ca:SIM:SR:HEARTBEAT", "ca:SIM:SR:UPTIME"]
+
+
+async def test_on_va_a_health_name_without_the_mark_is_not_a_health_pv(
+    tmp_path: Path, record: _Record
+) -> None:
+    record.move("va", 1)
+    FakeDirectory.records = _records(
+        _record("ca:SIM:SR:EXTRA:HEARTBEAT", ioc="sim-SR"),
+        _record("ca:SIM:SR:ALIVE_COUNTER", ioc="sim-SR", **{SIGNAL: HEARTBEAT}),
+    )
+    page = _facts(_config(tmp_path, VA_BUILD, {}), tmp_path)
+
+    ioc = await page.ioc_facts("sim-SR")
+
+    assert ioc["health_pvs"] == ["ca:SIM:SR:ALIVE_COUNTER"]
+
+
+async def test_on_va_the_engineer_is_the_row_marked_engineer(
+    tmp_path: Path, record: _Record
+) -> None:
+    record.move("va", 1)
+    FakeDirectory.records = _records(
+        _record("ca:SIM:SR:RESPONSIBLE", ioc="sim-SR", **{SIGNAL: ENGINEER}),
+        _record("ca:SIM:SR:HEARTBEAT", ioc="sim-SR", **{SIGNAL: HEARTBEAT}),
+    )
+    page = _facts(_config(tmp_path, VA_BUILD, {}), tmp_path)
+
+    ioc = await page.ioc_facts("sim-SR")
+
+    assert ioc["engineer"] == "ca:SIM:SR:RESPONSIBLE"
+    assert ioc["engineer_source"] == "ENGINEER PV"
 
 
 # -- connectors without the PV directory modules -------------------------------

@@ -30,6 +30,7 @@ __all__ = [
     "ALARM_STALE_WINDOW_S",
     "DEFAULT_DESCRIPTION_PROPERTY",
     "ROW_FIELD_PROPERTIES",
+    "SERVED_SIGNAL_PROPERTY",
     "AlarmConfigRecord",
     "AlarmHistoryRow",
     "AlarmLog",
@@ -66,6 +67,10 @@ ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
 
 #: The description property RecSync records, for a section that names none.
 DEFAULT_DESCRIPTION_PROPERTY: str = "recordDesc"
+
+#: The property the simulator directory sets on each status and IOC health row,
+#: valued with that row's signal from ``simulation.view``; channel rows carry none.
+SERVED_SIGNAL_PROPERTY: str = "signal"
 
 _Origin = Literal["curated", "directory", "unknown"]
 

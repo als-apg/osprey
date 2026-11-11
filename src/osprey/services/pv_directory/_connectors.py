@@ -22,6 +22,7 @@ try:
         ALARM_STALE_WINDOW_S,
         DEFAULT_DESCRIPTION_PROPERTY,
         ROW_FIELD_PROPERTIES,
+        SERVED_SIGNAL_PROPERTY,
         AlarmConfigRecord,
         AlarmHistoryRow,
         AlarmLog,
@@ -41,6 +42,7 @@ try:
         Unavailable,
     )
     from osprey_connectors.pv_directory.targets import has_simulator, pv_directory_targets
+    from osprey_connectors.simulation.view import ENGINEER, IOC_HEALTH_SIGNALS
 
     DIRECTORY_CONNECTORS_AVAILABLE = True
 except ImportError:
@@ -56,6 +58,8 @@ except ImportError:
     AlarmState = None  # type: ignore[assignment,misc]
     AlarmStateRecord = None  # type: ignore[assignment,misc]
     BackendSpec = None  # type: ignore[assignment,misc]
+    ENGINEER = None  # type: ignore[assignment]
+    IOC_HEALTH_SIGNALS = None  # type: ignore[assignment]
     DirectoryPage = None  # type: ignore[assignment,misc]
     DirectoryRecord = None  # type: ignore[assignment,misc]
     DirectoryRow = None  # type: ignore[assignment,misc]
@@ -64,6 +68,7 @@ except ImportError:
     PutLog = None  # type: ignore[assignment,misc]
     PutRow = None  # type: ignore[assignment,misc]
     PVDirectory = None  # type: ignore[assignment,misc]
+    SERVED_SIGNAL_PROPERTY = None  # type: ignore[assignment]
     SearchQuery = None  # type: ignore[assignment,misc]
     Source = None  # type: ignore[assignment,misc]
     Unavailable = None  # type: ignore[assignment,misc]
@@ -74,9 +79,12 @@ __all__ = [
     "ALARM_STALE_WINDOW_S",
     "DEFAULT_DESCRIPTION_PROPERTY",
     "DIRECTORY_CONNECTORS_AVAILABLE",
+    "ENGINEER",
     "FLOOR_REASON",
+    "IOC_HEALTH_SIGNALS",
     "NO_SOURCE_REASON",
     "ROW_FIELD_PROPERTIES",
+    "SERVED_SIGNAL_PROPERTY",
     "AlarmConfigRecord",
     "AlarmHistoryRow",
     "AlarmLog",

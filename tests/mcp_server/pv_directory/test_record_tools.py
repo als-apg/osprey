@@ -26,6 +26,7 @@ from osprey.mcp_server.pv_directory.tools import ioc_record, pv_record  # noqa: 
 from osprey.services.pv_directory import _connectors  # noqa: E402
 from osprey_connectors import control_context  # noqa: E402
 from osprey_connectors.factory import ConnectorFactory  # noqa: E402
+from osprey_connectors.simulation.view import ENGINEER, HEARTBEAT, UPTIME  # noqa: E402
 from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
 
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -33,6 +34,7 @@ LIVE_BUILD = {"type": "epics"}
 FACILITY = {"type": "channelfinder", "settings": {"url": "http://cf.example", "timeout_s": 0.5}}
 PUT_LOG = {"type": "caputlog", "settings": {"url": "http://pl.example"}}
 PANEL = "/panel/channel-finder/#/"
+SIGNAL = contract.SERVED_SIGNAL_PROPERTY
 
 
 # -- fakes --------------------------------------------------------------------
@@ -67,6 +69,7 @@ class FakeDirectory(FakeBackend):
             and (query.status is None or record.row.status == query.status)
             and (query.name is None or fnmatch.fnmatchcase(record.row.name, query.name))
             and query.words in record.row.name
+            and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
     async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
@@ -346,9 +349,9 @@ async def test_an_ioc_whose_curated_count_cannot_be_counted_says_why(tmp_path: P
 async def test_the_va_ioc_names_its_engineer_channel(tmp_path: Path, record: _Record) -> None:
     record.move("va", 1)
     FakeDirectory.records = _records(
-        _record("ca:SIM:SR:HEARTBEAT", ioc="sim-SR"),
-        _record("ca:SIM:SR:UPTIME", ioc="sim-SR"),
-        _record("ca:SIM:SR:ENGINEER", ioc="sim-SR"),
+        _record("ca:SIM:SR:HEARTBEAT", ioc="sim-SR", **{SIGNAL: HEARTBEAT}),
+        _record("ca:SIM:SR:UPTIME", ioc="sim-SR", **{SIGNAL: UPTIME}),
+        _record("ca:SIM:SR:ENGINEER", ioc="sim-SR", **{SIGNAL: ENGINEER}),
     )
     _install(tmp_path, VA_BUILD, {})
 
