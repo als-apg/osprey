@@ -4,11 +4,6 @@
     "kind": "static",
     "osprey_version": "2026.9.0b3.post6888+g82ba71940"
   },
-  "apps_orbit_bump": {
-    "captured_utc": "2026-11-11T00:36:27.289192+00:00",
-    "kind": "static",
-    "osprey_version": "2026.9.0b3.post6888+g82ba71940"
-  },
   "ariel": {
     "captured_utc": "2026-11-02T21:19:12.931951+00:00",
     "kind": "static",

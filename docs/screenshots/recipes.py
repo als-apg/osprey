@@ -266,20 +266,6 @@ REGISTRY: list[DocShot] = [
         themes=("light", "dark"),
         viewport=(1280, 800),
     ),
-    # An app panel (opt-in ``--stack``): the sidebar's Apps group with the
-    # example app's panel open, once its orbit response matrix is ready. The
-    # demo preset leaves the app off, so the recipe turns it on for a stack of
-    # its own.
-    DocShot(
-        name="apps_orbit_bump",
-        environment="tutorial_stack",
-        kind="static",
-        panel="orbit-bump",
-        init_sets=("apps.orbit-bump={}",),
-        wait_selector='[data-field="orm"].osprey-chip--ok',
-        themes=("light", "dark"),
-        viewport=(1280, 800),
-    ),
 ]
 
 
