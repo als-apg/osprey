@@ -210,6 +210,21 @@ async def test_a_late_count_stays_in_the_result_as_partial(tmp_path: Path) -> No
     assert {entry["part"] for entry in result["partial"]} == {"count", "facets"}
 
 
+def _no_source_page(form: dict[str, Any]) -> dict[str, Any]:
+    """The whole ``DirectoryPage`` a search answers around the No-source *form*."""
+    return {
+        **form,
+        "searched": "",
+        "request": "",
+        "total": None,
+        "rows": [],
+        "truncated": False,
+        "partial": [],
+        "facets": None,
+        "facets_reason": None,
+    }
+
+
 async def test_no_source_on_the_target_refuses_not_supported(tmp_path: Path) -> None:
     _install(tmp_path, {"display": {}})
 
@@ -218,7 +233,7 @@ async def test_no_source_on_the_target_refuses_not_supported(tmp_path: Path) -> 
 
     envelope = refused["envelope"]
     expected = _connectors.unavailable_payload(_connectors.NO_SOURCE_REASON, target="live")
-    assert envelope["details"] == expected
+    assert envelope["details"] == _no_source_page(expected)
     assert envelope["error_message"] == f"directory_search: {_connectors.NO_SOURCE_REASON}"
 
 
@@ -415,5 +430,5 @@ async def test_modules_blocked_both_tools_refuse_with_the_upgrade_reason(
         await properties.directory_properties("iocName")
 
     expected = _connectors.unavailable_payload(_connectors.FLOOR_REASON, target="live")
-    assert searched["envelope"]["details"] == expected
+    assert searched["envelope"]["details"] == _no_source_page(expected)
     assert listed["envelope"]["details"]["reason"] == _connectors.FLOOR_REASON

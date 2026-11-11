@@ -304,6 +304,7 @@ def _routes() -> dict[str, Any]:
 def test_the_fixture_names_every_json_panel_route() -> None:
     assert set(_routes()) == {
         "search",
+        "search no source",
         "count",
         "pv/{name}",
         "ioc/{name}",

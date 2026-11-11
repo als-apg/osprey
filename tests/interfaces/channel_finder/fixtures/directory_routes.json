@@ -37,6 +37,19 @@
     "facets_reason": null,
     "reason": null
   },
+  "search no source": {
+    "outcome": "unavailable",
+    "searched": "",
+    "request": "",
+    "source": {"target": "live", "service": "none", "label": "All PVs", "rehearsal": false},
+    "total": null,
+    "rows": [],
+    "truncated": false,
+    "partial": [],
+    "facets": null,
+    "facets_reason": null,
+    "reason": "not available for this target"
+  },
   "count": {
     "outcome": "found",
     "total": 2,

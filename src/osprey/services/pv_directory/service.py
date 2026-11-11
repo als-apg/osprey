@@ -124,7 +124,7 @@ class DirectoryService:
         at = self._at
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
-            return unavailable_payload(reason or NO_SOURCE_REASON, target=target)
+            return _no_source_page(reason or NO_SOURCE_REASON, target)
         query = SearchQuery(**fields)
         server = dataclasses.replace(query, origin=())
         deadline = self._timeout()
@@ -180,7 +180,7 @@ class DirectoryService:
         at = self._at
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
-            return unavailable_payload(reason or NO_SOURCE_REASON, target=target)
+            return _no_source_count(reason or NO_SOURCE_REASON, target)
         query = SearchQuery(**fields)
         server = dataclasses.replace(query, origin=())
         deadline = self._timeout()
@@ -497,6 +497,26 @@ class DirectoryService:
         self._sets.move_to_end(full)
         while len(self._sets) > _CACHE_SIZE:
             self._sets.popitem(last=False)
+
+
+def _no_source_page(reason: str, target: str) -> dict[str, Any]:
+    """The whole ``DirectoryPage`` a search answers with no source on *target*."""
+    return {
+        **unavailable_payload(reason, target=target),
+        "searched": "",
+        "request": "",
+        "total": None,
+        "rows": [],
+        "truncated": False,
+        "partial": [],
+        "facets": None,
+        "facets_reason": None,
+    }
+
+
+def _no_source_count(reason: str, target: str) -> dict[str, Any]:
+    """The count a search answers with no source on *target*: ``total`` is ``None``."""
+    return {**unavailable_payload(reason, target=target), "total": None}
 
 
 async def _cancel(tasks: Iterable[asyncio.Task[Any]]) -> None:

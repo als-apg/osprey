@@ -32,21 +32,6 @@ const PANEL_HTML = (() => {
 
 const DESCRIPTOR = { label: 'All PVs', configured_services: [], canopy: true, ariel: true };
 
-/** The Contracts' No source form. */
-const NO_SOURCE = {
-  outcome: 'unavailable',
-  reason: 'not available for this target',
-  source: { target: 'live', service: 'none', label: 'All PVs', rehearsal: false },
-  searched: '',
-  request: '',
-  total: null,
-  rows: [],
-  truncated: false,
-  partial: [],
-  facets: null,
-  facets_reason: null,
-};
-
 /** @type {(() => void) | null} */
 let unmount = null;
 
@@ -86,6 +71,7 @@ function answer(status, body) {
  *   framed?: boolean,
  *   trace?: number,
  *   search?: any,
+ *   searchStatus?: number,
  *   values?: any,
  *   csv?: { status: number, body: string },
  *   query?: string,
@@ -104,6 +90,7 @@ async function mount(setup = {}) {
     framed = true,
     trace = 200,
     search = ROUTES.search,
+    searchStatus = 200,
     values = null,
     csv = { status: 200, body: 'name\nDEMO:BPM01:X\n' },
     query = '',
@@ -121,7 +108,7 @@ async function mount(setup = {}) {
     if (opts.method === 'HEAD') return answer(trace, '');
     if (target.startsWith('/api/directory/search')) {
       searches.push(target);
-      return answer(200, typeof search === 'function' ? search(target) : search);
+      return answer(searchStatus, typeof search === 'function' ? search(target) : search);
     }
     if (target.startsWith('/api/directory/values')) {
       const names = new URL(target, 'http://x').searchParams.getAll('name');
@@ -216,15 +203,40 @@ describe('rows and states', () => {
   });
 
   test('the no-source form shows its reason and no table', async () => {
-    const { container, labels } = await mount({ search: NO_SOURCE });
+    const { container, labels } = await mount({ search: ROUTES['search no source'] });
     await vi.waitFor(() =>
       expect(container.querySelector('.osprey-state')?.textContent).toContain(
-        'not available for this target'
+        'All PVs: not available for this target'
       )
     );
     expect(container.querySelector('table')).toBeNull();
     expect(button(container, 'Retry')).toBeUndefined();
     expect(labels).toHaveBeenCalledWith('All PVs');
+    expect(document.getElementById('cf-result-count')?.textContent).toBe('');
+  });
+
+  test('an unavailable page replaces the Searching state', async () => {
+    const { container, searches } = await mount({ search: ROUTES['search no source'] });
+    await vi.waitFor(() => expect(searches).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(container.querySelector('.osprey-state')?.textContent).not.toContain('Searching')
+    );
+  });
+
+  test('a 503 search shows the failure with Retry', async () => {
+    const { container, searches } = await mount({
+      search: { detail: 'no answer within 6 s' },
+      searchStatus: 503,
+    });
+    await vi.waitFor(() =>
+      expect(container.querySelector('.osprey-state')?.textContent).toContain(
+        'Directory did not answer:'
+      )
+    );
+    const retry = button(container, 'Retry');
+    expect(retry).toBeDefined();
+    retry?.click();
+    await vi.waitFor(() => expect(searches).toHaveLength(2));
   });
 
   test('no match never says the PV does not exist', async () => {
