@@ -119,11 +119,8 @@ LIVE_CA_STEP = "Run live Channel Access suites in isolation"
 E2E_TESTS_JOB = "e2e-tests"
 GATE_JOB = "all-checks-passed"
 SECRET_TOKEN = "secrets.ALS_APG_API_KEY"
-TILED_TEST_FILE = "tests/e2e/test_tiled_roundtrip.py"
-VA_TEST_FILE = "tests/e2e/test_va_substrate_equivalence.py"
 LIFECYCLE_TEST_FILE = "tests/e2e/test_deploy_lifecycle.py"
 ORM_JOB = "orm-roundtrip-e2e"
-ORM_TEST_FILE = "tests/e2e/test_orm_roundtrip.py"
 GRID_TEST_FILE = "tests/e2e/test_grid_scan_roundtrip.py"
 QUEUE_JOB = "bluesky-queue-e2e"
 QUEUE_TEST_FILE = "tests/e2e/test_bluesky_queue_e2e.py"
@@ -131,10 +128,8 @@ SCAN_AGENTIC_JOB = "scan-agentic-e2e"
 SCAN_AGENTIC_TEST_FILE = "tests/e2e/test_plan_stack_agentic.py"
 ARCHIVER_JOB = "archiver-world-e2e"
 ARCHIVER_TEST_FILE = "tests/e2e/test_archiver_world_e2e.py"
-#: The control-target switch lane: a cell of the VA live job (two live CA servers, its own runner).
-TARGET_SWITCH_JOB = "va-live-e2e[target-switch]"
-#: The agent-driven half of the same feature. A separate lane rather than a
-#: second step in the one above because it needs the LLM secret and the CLI,
+#: The agent-driven half of the control-target switch (a cell of the VA live job). A separate lane
+#: rather than a second step in that cell because it needs the LLM secret and the CLI,
 #: and lane-level `if:` gating is the only granularity GitHub offers.
 TARGET_SWITCH_AGENTIC_JOB = "target-switch-agentic-e2e"
 #: Saves the qmd sidecar layer cache in main's scope; see the qmd section below.
@@ -165,7 +160,6 @@ PODMAN_PIN_STEP = "Pin podman-compose 1.0.6 as podman's compose provider"
 #: Pins, forces and asserts the provider; its own suite is tests/scripts/test_podman_compose.py.
 PODMAN_COMPOSE_SCRIPT = "scripts/ci/podman_compose.py"
 OVERLAY_JOB = "dispatch-overlay-e2e"
-OVERLAY_TEST_FILE = "tests/e2e/test_dispatch_overlay_visibility.py"
 CATALOG_JOB = "bluesky-catalog-e2e"
 SANDBOX_JOB = "bluesky-sandbox-escape-e2e"
 BENCHMARKS_JOB = "benchmarks"
@@ -191,21 +185,6 @@ SLACK_SMOKE_FILE = "tests/e2e/fixtures/test_slack_fixture_smoke.py"
 
 NO_MODEL_JOB = "e2e-no-model"
 NO_MODEL_RUN_STEP = "Run the model-free E2E files"
-#: The files the model-free lane names, in the order its run step names them.
-NO_MODEL_TEST_FILES = (
-    "tests/e2e/test_scripted_model.py",
-    "tests/e2e/claude_code/test_safety_gates_scripted.py",
-    "tests/e2e/test_dispatch_deploy_render.py",
-    "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
-    "tests/e2e/web_terminals/test_skills_overlay_discovery.py",
-    "tests/e2e/web_terminals/test_loopback_chokepoint.py",
-    "tests/e2e/web_terminals/test_session_restart_e2e.py",
-    "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
-    "tests/e2e/web_terminals/test_render_permissions_scripted.py",
-    "tests/e2e/claude_code/test_chat_approval_gates_scripted.py",
-    "tests/e2e/claude_code/test_chat_plan_mode_scripted.py",
-    "tests/e2e/claude_code/test_chat_attachment_read_scripted.py",
-)
 
 #: The agent record's replay: model-free, but its own lane, because each case
 #: deploys a whole stack and waits out a stopped source. One matrix cell per case.
@@ -216,8 +195,6 @@ RECORD_E2E_FILE = "tests/e2e/test_agent_record_e2e.py"
 #: the two-case size: the run step's floor. Below it the lane reds on its own
 #: waits, not on a fault.
 RECORD_E2E_MIN_STEP_MINUTES = 40
-#: Every model-free file, whichever of the two model-free lanes runs it.
-MODEL_FREE_TEST_FILES = (*NO_MODEL_TEST_FILES, RECORD_E2E_FILE)
 SAME_REPO_CLAUSE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
@@ -3482,35 +3459,6 @@ def test_dependency_floor_job_keeps_the_pin_when_running_tests() -> None:
         assert "uv run --no-sync" in run, f"`uv run` without --no-sync would undo the pin: {run!r}"
 
 
-def test_dependency_floor_gates_the_merge(workflow: dict[str, Any]) -> None:
-    assert FLOOR_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-def test_dependency_floor_gates_the_merge__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(FLOOR_JOB)
-    with pytest.raises(AssertionError):
-        assert FLOOR_JOB in _jobs(mutated)[GATE_JOB]["needs"]
-
-
-# ---------------------------------------------------------------------------
-# (h) nextcloud-talk-bridge-e2e lane
-# ---------------------------------------------------------------------------
-
-
-def test_gate_checks_nextcloud_talk_bridge_result(workflow: dict[str, Any]) -> None:
-    """The generic completeness guard above covers this lane too; its own named
-    check makes a removal name the right lane in the failure."""
-    assert _gate_checks_lane(workflow, NEXTCLOUD_JOB)
-
-
-def test_gate_checks_nextcloud_talk_bridge_result__mutation_drops_the_need() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(NEXTCLOUD_JOB)
-    with pytest.raises(AssertionError):
-        test_gate_checks_nextcloud_talk_bridge_result(mutated)
-
-
 # ---------------------------------------------------------------------------
 # (i) Nextcloud fixture image-pin drift guard
 # ---------------------------------------------------------------------------
@@ -3965,15 +3913,6 @@ def test_slack_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate()
         test_slack_bridge_job_runs_on_every_pull_request(mutated)
 
 
-def test_slack_bridge_job_gates_the_merge(workflow: dict[str, Any]) -> None:
-    """A lane whose result nothing reads is a lane that can red forever: the
-    gate job needs it, and the gate script's roll-up examines its result."""
-    assert SLACK_JOB in _jobs(workflow)[GATE_JOB]["needs"], (
-        f"'{GATE_JOB}' does not need '{SLACK_JOB}'"
-    )
-    assert _gate_checks_lane(workflow, SLACK_JOB), f"the gate does not fail on a failed {SLACK_JOB}"
-
-
 # ---------------------------------------------------------------------------
 # the model-free end-to-end lane: the tests/e2e files that reach no gateway
 # ---------------------------------------------------------------------------
@@ -4125,40 +4064,6 @@ def test_record_lane_shares_the_model_free_gate__mutation_same_repo_only() -> No
     job["if"] = job["if"] + f" && {SAME_REPO_CLAUSE}"
     with pytest.raises(AssertionError, match="gates differently"):
         test_record_lane_shares_the_model_free_gate(mutated)
-
-
-def test_model_free_lane_names_every_file_it_owns(workflow: dict[str, Any]) -> None:
-    """Named by path rather than by marker because a path that stops existing
-    exits pytest non-zero and reds the step, while a marker that stops matching
-    selects nothing and greens it — and the on-disk half is what makes the
-    first half mean something, since a renamed file would otherwise leave the
-    lane asserting about a string."""
-    missing = [f for f in NO_MODEL_TEST_FILES if f not in _model_free_selected_paths(workflow)]
-    assert missing == [], (
-        f"'{NO_MODEL_RUN_STEP}' does not name: {missing} — a file the lane owns and nothing runs"
-    )
-    absent = [f for f in NO_MODEL_TEST_FILES if not (CI_YML.parents[2] / f).is_file()]
-    assert absent == [], (
-        f"the lane names file(s) no longer on disk: {absent} — pytest exits non-zero on "
-        f"a path it cannot collect, so the step reds until the list is corrected"
-    )
-
-
-def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_the_run_step() -> (
-    None
-):
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
-    lines = step["run"].splitlines(keepends=True)
-    kept = [line for line in lines if "tests/e2e/test_scripted_model.py" not in line]
-    assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    # the neighbour survives, so the mutation is one file wide
-    assert "tests/e2e/claude_code/test_safety_gates_scripted.py" in _model_free_selected_paths(
-        mutated
-    )
-    with pytest.raises(AssertionError, match="does not name"):
-        test_model_free_lane_names_every_file_it_owns(mutated)
 
 
 def test_model_free_lane_carries_no_dependabot_guard(workflow: dict[str, Any]) -> None:
@@ -5435,8 +5340,6 @@ def test_no_lane_reaches_for_the_agent_sdks_bundled_cli() -> None:
     assert "_bundled" not in text
     assert "_bundled" not in PINNED_CLI_ACTION_FILE.read_text(encoding="utf-8")
 
-
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # (g) the archiver-world lane: its own job, secret-free, and gated on both halves
@@ -6770,28 +6673,6 @@ def test_posture_toggle_browser_test_runs_in_the_browser_lane__mutation_ignores_
     mutated = copy.deepcopy(_load_workflow())
     _ignore_in_its_step(mutated, POSTURE_BROWSER_TEST_FILE)
     assert POSTURE_BROWSER_TEST_FILE not in _browser_collectors(mutated)
-
-
-# The control-target switch lane: registered in both halves of the gate
-# ---------------------------------------------------------------------------
-#
-# This lane needs no secrets — two Channel Access servers and a deterministic
-# switch between them — which makes it the easiest lane in the file to add and
-# the easiest to leave half-wired. The triple below is the same one every other
-# lane carries, for the same reason: a lane nothing reads is a lane nobody
-# notices going red.
-
-
-# ---------------------------------------------------------------------------
-# The agent-driven control-target switch lane: the same triple, one tier riskier
-# ---------------------------------------------------------------------------
-#
-# Its sibling above needs no secrets; this one needs the LLM key AND the SDK's
-# pinned CLI, which is two more ways to go vacuously green. Two of those are
-# covered elsewhere in this file and both cover this lane by construction: the
-# ``CLI_DEPENDENT_JOBS`` parametrization (the pinned-CLI step) and
-# ``_als_apg_probe_steps`` discovery (the pre-flight probe honours
-# ``ALS_APG_BASE_URL``). What is left is the gate wiring, pinned here.
 
 
 # ---------------------------------------------------------------------------
@@ -8231,10 +8112,6 @@ def test_deploy_e2e_placeholder__mutation_drops_the_key() -> None:
         test_deploy_e2e_boots_on_a_placeholder_key_and_runs_on_dependabot(mutated)
 
 
-def _step_names(wf: dict[str, Any], job_name: str) -> list[str]:
-    return [step.get("name", "") for step in _jobs(wf)[job_name]["steps"]]
-
-
 def test_lint_checks_the_lockfile_before_installing(workflow: dict[str, Any]) -> None:
     """`uv lock --check` names a pyproject/uv.lock split, the same check the
     local quick tier runs; every lane's `uv sync --locked` then fails on it
@@ -8990,21 +8867,6 @@ def test_full_chain_auth_job_runs_its_module__mutation_drops_the_module() -> Non
         test_full_chain_auth_job_runs_its_module(mutated)
 
 
-def test_the_gate_covers_full_chain_auth(workflow: dict[str, Any]) -> None:
-    """Only lane in the repo that exercises login -> nginx -> sidecar -> render
-    container end to end. Its result must be read where the merge is decided."""
-    assert _gate_checks_lane(workflow, FULL_CHAIN_JOB), (
-        f"the gate does not fail on a failed {FULL_CHAIN_JOB}"
-    )
-
-
-def test_the_gate_covers_full_chain_auth__mutation_drops_the_need() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(FULL_CHAIN_JOB)
-    with pytest.raises(AssertionError):
-        test_the_gate_covers_full_chain_auth(mutated)
-
-
 def test_privilege_split_job_runs_the_audit_two_container_module(workflow: dict[str, Any]) -> None:
     """The audit two-container module rides as a SECOND step in an existing lane
     rather than a job of its own, so neither the ``needs`` half nor the
@@ -9038,10 +8900,6 @@ def test_privilege_split_job_runs_the_audit_two_container_module__mutation_defau
     del _find_named_step(mutated, PRIVSPLIT_JOB, AUDIT_2C_STEP)["if"]
     with pytest.raises(AssertionError, match="must carry"):
         test_privilege_split_job_runs_the_audit_two_container_module(mutated)
-
-
-def _lane_pytest_steps(wf: dict[str, Any], job: str) -> list[dict[str, Any]]:
-    return [s for s in _jobs(wf)[job]["steps"] if "uv run pytest" in str(s.get("run", ""))]
 
 
 #: The pytest targets of the full-chain lane's run step: its own module and
@@ -9490,11 +9348,12 @@ _SAME_REPO_PR_CLAUSES = (
 
 
 def _write_scopes(wf: dict[str, Any]) -> dict[str, set[str]]:
-    scopes = {
-        name: {scope for scope, level in (job.get("permissions") or {}).items() if level == "write"}
-        for name, job in _jobs(wf).items()
+    """``{job: write scopes}`` for each job of *wf* that holds any."""
+    return {
+        name: scopes
+        for name, job in wf["jobs"].items()
+        if (scopes := {s for s, v in (job.get("permissions") or {}).items() if v == "write"})
     }
-    return {name: held for name, held in scopes.items() if held}
 
 
 def _step_using(job: dict[str, Any], action: str) -> dict[str, Any]:
@@ -10763,14 +10622,6 @@ def _both_releases() -> list[tuple[str, dict[str, Any], str]]:
         (RELEASE_YML.name, _load_release(), RELEASE_GATE_JOB),
         (CONNECTORS_RELEASE_YML.name, _load_connectors_release(), CONNECTORS_GATE_JOB),
     ]
-
-
-def _write_scopes(release: dict[str, Any]) -> dict[str, set[str]]:
-    return {
-        name: scopes
-        for name, job in release["jobs"].items()
-        if (scopes := {s for s, v in (job.get("permissions") or {}).items() if v == "write"})
-    }
 
 
 def _assert_least_privilege(name: str, release: dict[str, Any]) -> None:
@@ -13562,7 +13413,6 @@ _CANOPY_CREDENTIALED_GIT_RE = re.compile(
 _GIT_SHARED_CONFIG_RE = re.compile(r"\bgit\s+config\s+--(?:global|system)\b(?!\s+--get)")
 _CREDENTIAL_IN_URL_RE = re.compile(r"https?://[^\s/\"']*@")
 _BUILD_TOOL_RE = re.compile(r"\b(?:uv|uvx|pip|pip3|python|python3|pytest|npm|make)\b")
-_HEREDOC_PY_RE = re.compile(r"<<'PY'\n(?P<body>.*?)\nPY\n", re.S)
 
 
 def _canopy_step(wf: dict[str, Any], step_id: str) -> dict[str, Any]:
@@ -13616,17 +13466,6 @@ def test_canopy_contract_job_exists__mutation_drops_job() -> None:
     del mutated["jobs"][CANOPY_CONTRACT_JOB]
     with pytest.raises(AssertionError):
         test_canopy_contract_job_exists(mutated)
-
-
-def test_all_checks_passed_needs_canopy_contract(workflow: dict[str, Any]) -> None:
-    assert CANOPY_CONTRACT_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-def test_all_checks_passed_needs_canopy_contract__mutation_drops_needs_entry() -> None:
-    mutated = _load_workflow()
-    _jobs(mutated)[GATE_JOB]["needs"].remove(CANOPY_CONTRACT_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_canopy_contract(mutated)
 
 
 def test_gate_reads_canopy_contract_as_always_on(workflow: dict[str, Any]) -> None:
@@ -15092,74 +14931,6 @@ def test_secret_free_lane_has_no_llm_secret__mutation_survives_lookalike() -> No
         {"name": "unrelated", "env": {"CODECOV_TOKEN": "${{ secrets.CODECOV_TOKEN }}"}}
     )
     assert not _job_declares_secret(mutated, TILED_JOB, SECRET_TOKEN)
-
-
-#: Lanes pinned on the ``needs:`` entry alone.
-_NEEDED_LANES = [TILED_JOB, VA_JOB, NEXTCLOUD_JOB, FULL_CHAIN_JOB]
-
-
-@pytest.mark.parametrize("job", _NEEDED_LANES)
-def test_all_checks_passed_needs_lane(workflow: dict[str, Any], job: str) -> None:
-    """A single job nobody depends on can go red forever without blocking a merge."""
-    assert _host(workflow, job) in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-@pytest.mark.parametrize("job", _NEEDED_LANES)
-def test_all_checks_passed_needs_lane__mutation_drops_needs_entry(job: str) -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(_host(mutated, job))
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_lane(mutated, job)
-
-
-#: The lanes pinned on both halves of the gate.
-_GATED_LANES = [
-    GCHAT_JOB,
-    TEAMS_JOB,
-    NO_MODEL_JOB,
-    # These two travel with the lane: if ``bluesky-queue-e2e`` cannot go green
-    # in the PR, the job, its gate entry AND its guard rows are dropped together
-    # and re-landed together in the follow-up. A gate entry left behind without
-    # its lane blocks every merge; a lane left behind without its gate entry is
-    # unwatched.
-    QUEUE_JOB,
-    # Same drop-together/re-land-together discipline as the queue lane. This
-    # lane is the expensive one: nobody re-reads its log once the roll-up is
-    # green.
-    SCAN_AGENTIC_JOB,
-    ARCHIVER_JOB,
-    TWO_SHAPE_JOB,
-    # The only EXECUTED proof that the render zone is root-owned and the served
-    # process runs as uid 1000.
-    PRIVSPLIT_JOB,
-    TARGET_SWITCH_JOB,
-    # Its own row rather than folded into the sibling's: these two lanes can be
-    # added, reverted or re-landed independently — they share only the two
-    # images — and a gate entry that quietly covers "the target-switch lane"
-    # without saying which one is exactly how the expensive half, five agent
-    # sessions on real API budget, goes unwatched.
-    TARGET_SWITCH_AGENTIC_JOB,
-    GRAPH_RESEED_JOB,
-    RECORD_E2E_JOB,
-]
-
-
-@pytest.mark.parametrize("job", _GATED_LANES)
-def test_all_checks_passed_gates_on_lane(workflow: dict[str, Any], job: str) -> None:
-    """``needs:`` alone is not a gate — the roll-up runs ``if: !cancelled()``, so a
-    needed job that failed still lets it start; the gate's script is what turns
-    the result into an exit code. Both halves are pinned."""
-    host = _host(workflow, job)
-    assert host in _jobs(workflow)[GATE_JOB]["needs"]
-    assert _gate_checks_lane(workflow, host)
-
-
-@pytest.mark.parametrize("job", _GATED_LANES)
-def test_all_checks_passed_gates_on_lane__mutation_drops_needs_entry(job: str) -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(_host(mutated, job))
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_gates_on_lane(mutated, job)
 
 
 # ---------------------------------------------------------------------------
