@@ -26,8 +26,15 @@ import {
   lockReason,
   reachException,
   reasonPhrase,
+  switchProgressLabel,
 } from './control-target-facts.js';
-import { isPending, kindAttr, stateWord } from './control-target-chip.js';
+import {
+  isPending,
+  kindAttr,
+  paintProgress,
+  pendingProgress,
+  stateWord,
+} from './control-target-chip.js';
 import { button, el, renderSwitch, writePhraseLine } from './control-target-popover-switch.js';
 
 /**
@@ -242,6 +249,27 @@ function infoAffordance(row, kind) {
 }
 
 /**
+ * The pending switch's steps under its `switching…`: the bar, and the step it
+ * is on in words. The count is the chip's ({@link pendingProgress}).
+ * @param {NonNullable<ReturnType<typeof pendingProgress>>} progress
+ * @returns {HTMLElement}
+ */
+function progressLine(progress) {
+  const label = switchProgressLabel(progress);
+  const line = el('div', 'ctc-progress-line');
+  const bar = el('span', 'ctc-progress');
+  bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-label', 'Switch progress');
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', String(progress.total));
+  bar.setAttribute('aria-valuenow', String(progress.done));
+  bar.setAttribute('aria-valuetext', label);
+  paintProgress(bar, progress.ratio);
+  line.append(bar, el('span', 'ctc-progress-label', label));
+  return line;
+}
+
+/**
  * The feedback lines a row or the card carries: the last switch's outcome
  * while it is news, and the reason the last click did nothing.
  * @param {any} row
@@ -257,6 +285,8 @@ function outcomeLines(row, state, ctx) {
     line.dataset.status = outcome.status;
     if (outcome.title) line.title = outcome.title;
     lines.push(line);
+    const progress = outcome.status === 'pending' ? pendingProgress() : null;
+    if (progress) lines.push(progressLine(progress));
   }
   const gestureNote = ctx.gestureNotes.get(row.target);
   if (gestureNote) {

@@ -1053,6 +1053,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 .control-target-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1241,6 +1242,82 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 @media (prefers-reduced-motion: reduce) {
   [data-pending="true"] > .ctc-dot { animation: none; }
+}
+
+/* The pending switch's steps: sent, accepted, then one per controls server.
+   The fill is the count, so it moves only when a step lands; the sheen
+   crossing the track says the wait is alive in between, and is dropped for a
+   viewer who asked for no motion. Neutral on purpose: the kind and the write
+   state own every colour here. */
+.ctc-progress {
+  position: relative;
+  display: block;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-secondary) 22%, transparent);
+  border-radius: var(--radius-full);
+}
+
+.ctc-progress[hidden] {
+  display: none;
+}
+
+.ctc-progress::before,
+.ctc-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.ctc-progress::before {
+  background: var(--text-primary);
+  border-radius: inherit;
+  transform: scaleX(var(--ctc-progress, 0));
+  transform-origin: left;
+  transition: transform var(--duration-slow) ease;
+}
+
+.ctc-progress::after {
+  width: 40%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text-primary) 45%, transparent), transparent);
+  animation: ctc-sheen 1.2s ease-in-out infinite; /* hygiene-allow-scale: the same perception constant as ctc-breathe, which it runs beside */
+}
+
+@keyframes ctc-sheen {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctc-progress::before { transition: none; }
+  .ctc-progress::after { animation: none; display: none; }
+}
+
+/* On the chip: along its bottom edge, inside the corners. */
+.control-target-chip > .ctc-progress {
+  position: absolute;
+  right: var(--space-2);
+  bottom: 2px;
+  left: var(--space-2);
+}
+
+/* In the popover: under the row's `switching…`, with the step in words. */
+.ctc-progress-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.ctc-progress-line > .ctc-progress {
+  flex: 0 0 48px;
+}
+
+.ctc-progress-label {
+  white-space: nowrap;
 }
 
 /* ---- The popover ----
