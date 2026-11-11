@@ -73,6 +73,11 @@ class DocShot:
     (:func:`docs.screenshots.capture._capture_web_terminal_static`). Either way
     it is an ``osprey web`` launch against the built tutorial repo, with no agent
     turn and no provider key needed."""
+    init_sets: tuple[str, ...] = ()
+    """Extra ``osprey init --set KEY=VALUE`` values for the tutorial stack
+    (``tutorial_stack`` only). Recipes naming the same values share one stack;
+    a recipe with values of its own gets a stack of its own, so what it turns
+    on never shows in another recipe's image."""
 
     # standalone_interface / tutorial_stack app boot
     app_factory: str | None = None
@@ -241,6 +246,8 @@ def validate_registry(registry: list[DocShot] | None = None) -> None:
         the ``tutorial_stack`` environment;
       * ``standalone_interface`` recipes require an ``app_factory``;
       * ``static_page`` recipes require a ``source_file``;
+      * ``panel`` and ``init_sets`` require the ``tutorial_stack`` environment,
+        and every ``init_sets`` value is ``KEY=VALUE``;
       * a ``stage`` requires the ``hermetic_hub`` environment and must be a key
         of :data:`docs.screenshots.contact_sheet.STAGES`;
       * ``themes`` is a non-empty subset of ``{light, dark}``.
@@ -281,6 +288,12 @@ def validate_registry(registry: list[DocShot] | None = None) -> None:
 
         if shot.panel is not None and shot.environment != "tutorial_stack":
             raise ValueError(f"{shot.name!r}: panel requires the tutorial_stack environment")
+
+        if shot.init_sets and shot.environment != "tutorial_stack":
+            raise ValueError(f"{shot.name!r}: init_sets requires the tutorial_stack environment")
+        for pair in shot.init_sets:
+            if "=" not in pair:
+                raise ValueError(f"{shot.name!r}: init_sets value {pair!r} is not KEY=VALUE")
 
         if shot.environment == "static_page" and not shot.source_file:
             raise ValueError(f"{shot.name!r}: static_page recipes require a source_file")

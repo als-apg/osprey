@@ -354,9 +354,12 @@ def capture_shot(browser: Browser, base_url: str, shot: DocShot) -> list[Path]:
 
     for theme in shot.themes:
         for view in views:
+            # A page that takes no ``?theme=`` (the landing and sign-in pages)
+            # follows the browser's colour scheme, so the theme sets that too.
             page = browser.new_page(
                 viewport={"width": shot.viewport[0], "height": shot.viewport[1]},
                 device_scale_factor=device_scale,
+                color_scheme=theme,
             )
             try:
                 # The interface app is gated by WebAuthMiddleware; a bare page is
@@ -626,7 +629,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
         provider = os.environ.get(PROVIDER_ENV)
         if provider:
             init_cmd += ["--set", f"provider={provider}"]
-        # A docs video's own deployment settings (videos.DocVideo.init_sets).
+        # A video's or a recipe's own deployment settings (its ``init_sets``).
         for pair in sets:
             init_cmd += ["--set", pair]
         _run_stack_step(
@@ -1254,7 +1257,7 @@ def capture_tutorial_stack(
     :func:`capture_on_stack`. Raises :class:`ScreenshotSkip` when the container
     runtime is unavailable so a ``--stack`` run degrades gracefully.
     """
-    with tutorial_stack() as project_dir:
+    with tutorial_stack(shot.init_sets) as project_dir:
         return capture_on_stack(browser_factory(), project_dir, shot, agentic=agentic)
 
 
@@ -1297,31 +1300,38 @@ def capture_on_stack(
 def _capture_stack_shots(
     browser: Browser, shots: list[DocShot], *, agentic: bool, failed: list[str]
 ) -> list[Path]:
-    """Capture every ``tutorial_stack`` recipe on one tutorial stack, built once.
+    """Capture every ``tutorial_stack`` recipe, one stack per distinct ``init_sets``.
 
-    A recipe that skips, or fails on an error state (its name is appended to
-    *failed*), is reported and the rest still run; a stack that never comes up
-    skips them all. One manifest entry is stamped per captured recipe.
+    Recipes naming the same ``init_sets`` share a stack, built once; the stacks
+    run one after another. A recipe that skips, or fails on an error state (its
+    name is appended to *failed*), is reported and the rest still run; a stack
+    that never comes up skips its recipes. One manifest entry is stamped per
+    captured recipe.
     """
+    groups: dict[tuple[str, ...], list[DocShot]] = {}
+    for shot in shots:
+        groups.setdefault(shot.init_sets, []).append(shot)
+
     written: list[Path] = []
-    try:
-        with tutorial_stack() as project_dir:
-            for shot in shots:
-                try:
-                    paths = capture_on_stack(browser, project_dir, shot, agentic=agentic)
-                except ScreenshotSkip as exc:
-                    print(f"skipped {shot.name}: {exc}", file=sys.stderr)
-                    continue
-                except CaptureRejected as exc:
-                    print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
-                    failed.append(shot.name)
-                    continue
-                stamp_manifest(shot.name, shot.kind)
-                written.extend(paths)
-                print(f"captured {shot.name}: {len(paths)} file(s)")
-    except ScreenshotSkip as exc:
-        for shot in shots:
-            print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+    for sets, group in groups.items():
+        try:
+            with tutorial_stack(sets) as project_dir:
+                for shot in group:
+                    try:
+                        paths = capture_on_stack(browser, project_dir, shot, agentic=agentic)
+                    except ScreenshotSkip as exc:
+                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                        continue
+                    except CaptureRejected as exc:
+                        print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
+                        failed.append(shot.name)
+                        continue
+                    stamp_manifest(shot.name, shot.kind)
+                    written.extend(paths)
+                    print(f"captured {shot.name}: {len(paths)} file(s)")
+        except ScreenshotSkip as exc:
+            for shot in group:
+                print(f"skipped {shot.name}: {exc}", file=sys.stderr)
     return written
 
 
@@ -1331,7 +1341,7 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
     ``standalone_interface`` recipes are booted and captured directly;
     ``static_page`` recipes are served from their committed HTML file;
     ``hermetic_hub`` recipes boot the contact sheet's seeded web terminal;
-    ``tutorial_stack`` recipes all share one stack (:func:`_capture_stack_shots`)
+    ``tutorial_stack`` recipes share a stack per ``init_sets`` (:func:`_capture_stack_shots`)
     and are skipped (with a clear notice) where its runtime is absent.
     Absent chromium/Playwright skips the whole run gracefully. One manifest
     entry is stamped per successfully captured recipe ``name``.
@@ -1355,6 +1365,9 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
                         print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
                         failed.append(shot.name)
                         continue
+                    except ScreenshotSkip as exc:  # its app could not be built here
+                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                        continue
                 elif shot.environment == "static_page":
                     try:
                         paths = _capture_static_page(browser, shot)
@@ -1368,7 +1381,7 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
                         print(f"skipped {shot.name}: {exc}", file=sys.stderr)
                         continue
                 else:
-                    continue  # captured below, on one stack shared by every such recipe
+                    continue  # captured below, on a stack shared with its like
 
                 stamp_manifest(shot.name, shot.kind)
                 written.extend(paths)

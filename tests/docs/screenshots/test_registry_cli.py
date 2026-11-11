@@ -86,6 +86,17 @@ def test_agentic_requires_prompt_and_wait_for():
         validate_registry([DocShot(name="h", environment="tutorial_stack", kind="agentic")])
 
 
+def test_init_sets_need_the_tutorial_stack():
+    with pytest.raises(ValueError, match="init_sets"):
+        validate_registry([_standalone(init_sets=("apps.orbit-bump={}",))])
+
+
+def test_init_sets_are_key_value_pairs():
+    with pytest.raises(ValueError, match="KEY=VALUE"):
+        validate_registry([_stack_static(init_sets=("apps.orbit-bump",))])
+    validate_registry([_stack_static(init_sets=("apps.orbit-bump={}",))])
+
+
 def test_agentic_must_be_tutorial_stack():
     with pytest.raises(ValueError, match="tutorial_stack"):
         validate_registry(

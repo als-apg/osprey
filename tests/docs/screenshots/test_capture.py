@@ -130,7 +130,7 @@ def test_tutorial_stack_provider_skips(monkeypatch) -> None:
     from contextlib import contextmanager
 
     @contextmanager
-    def _skip_stack():
+    def _skip_stack(sets=()):  # noqa: ARG001
         raise ScreenshotSkip("container runtime unavailable")
         yield  # pragma: no cover - unreachable; marks this a generator
 

@@ -437,7 +437,7 @@ def test_run_shares_one_stack_across_stack_recipes(monkeypatch, tmp_path) -> Non
     captured: list[str] = []
 
     @contextmanager
-    def _one_stack():
+    def _one_stack(sets=()):  # noqa: ARG001
         entered.append(1)
         yield tmp_path
 
@@ -462,3 +462,64 @@ def test_run_shares_one_stack_across_stack_recipes(monkeypatch, tmp_path) -> Non
 
     assert entered == [1]
     assert captured == ["a", "c"]
+
+
+def test_run_builds_one_stack_per_init_sets(monkeypatch, tmp_path) -> None:
+    """Recipes naming other ``init_sets`` get their own stack, one after the other."""
+    from contextlib import contextmanager
+
+    live: list[tuple[str, ...]] = []
+    seen: list[tuple[tuple[str, ...], str]] = []
+
+    @contextmanager
+    def _stack(sets=()):
+        assert not live, "two stacks at once"
+        live.append(sets)
+        try:
+            yield tmp_path
+        finally:
+            live.clear()
+
+    @contextmanager
+    def _browser():
+        yield object()
+
+    def _capture(_browser, project_dir, shot, *, agentic):  # noqa: ARG001
+        seen.append((live[0], shot.name))
+        return [tmp_path / f"{shot.name}.png"]
+
+    monkeypatch.setattr(capture, "tutorial_stack", _stack)
+    monkeypatch.setattr(capture, "chromium_context", _browser)
+    monkeypatch.setattr(capture, "capture_on_stack", _capture)
+    monkeypatch.setattr(capture, "stamp_manifest", lambda name, kind: None)
+    app = ("apps.orbit-bump={}",)
+    shots = [
+        DocShot(name="a", environment="tutorial_stack", kind="static"),
+        DocShot(name="b", environment="tutorial_stack", kind="static", init_sets=app),
+        DocShot(name="c", environment="tutorial_stack", kind="static"),
+    ]
+
+    capture.run(shots, stack=True)
+
+    assert seen == [((), "a"), ((), "c"), (app, "b")]
+
+
+def test_single_recipe_stack_takes_its_init_sets(monkeypatch, tmp_path) -> None:
+    from contextlib import contextmanager
+
+    built: list[tuple[str, ...]] = []
+
+    @contextmanager
+    def _stack(sets=()):
+        built.append(sets)
+        yield tmp_path
+
+    monkeypatch.setattr(capture, "tutorial_stack", _stack)
+    monkeypatch.setattr(capture, "capture_on_stack", lambda *a, **k: [])
+    shot = DocShot(
+        name="a", environment="tutorial_stack", kind="static", init_sets=("apps.orbit-bump={}",)
+    )
+
+    capture.capture_tutorial_stack(lambda: None, shot, agentic=False)
+
+    assert built == [("apps.orbit-bump={}",)]
