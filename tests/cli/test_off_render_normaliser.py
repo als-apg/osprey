@@ -7,9 +7,10 @@ what shows the whole normalisation holds on a real tree.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -34,6 +35,7 @@ from tests.cli._off_render import (
     differing,
     initialise,
     is_excluded,
+    manifest_view,
     normalise,
     preset_hash,
     render,
@@ -323,6 +325,51 @@ def test_a_snapshot_keeps_the_differences_that_matter(tmp_path: Path) -> None:
         "build/.osprey-manifest.json"
     ]
     assert differing(base, {**base, "extra": "x"}) == ["extra"]
+
+
+def _two_row_manifest() -> bytes:
+    document = json.loads(_manifest())
+    document["file_checksums"] = {"config.yml": "sha256:one", "data/a.json": "sha256:two"}
+    return normalise("build/.osprey-manifest.json", json.dumps(document).encode())
+
+
+@pytest.mark.parametrize("source_zone", [True, False])
+def test_the_manifest_view_drops_the_rows_compared_another_way(source_zone: bool) -> None:
+    view = manifest_view(
+        _two_row_manifest(),
+        PurePosixPath("build"),
+        {"build/data/a.json"},
+        source_zone=source_zone,
+    )
+    assert json.loads(view)["file_checksums"] == {"config.yml": "sha256:one"}
+
+
+def test_the_manifest_view_keeps_the_source_zone_digests_when_the_source_zone_is_compared() -> None:
+    manifest = normalise("build/.osprey-manifest.json", _manifest())
+    view = json.loads(manifest_view(manifest, PurePosixPath("build"), (), source_zone=True))
+    assert view["creation"] == {
+        "template": "demo",
+        "profile_key_digests": {"watchdogs": "sha256:six"},
+    }
+
+
+def test_the_manifest_view_drops_the_source_zone_digests_without_the_source_zone() -> None:
+    manifest = normalise("build/.osprey-manifest.json", _manifest())
+    kept = json.loads(manifest_view(manifest, PurePosixPath("build"), (), source_zone=True))
+    view = json.loads(manifest_view(manifest, PurePosixPath("build"), (), source_zone=False))
+    assert view["creation"] == {"template": "demo"}
+    assert {key: item for key, item in view.items() if key != "creation"} == {
+        key: item for key, item in kept.items() if key != "creation"
+    }
+
+
+def test_the_manifest_view_is_what_a_snapshot_hashes(tmp_path: Path) -> None:
+    relative = "build/.osprey-manifest.json"
+    repo = _tree(tmp_path / "repo", {relative: _manifest()})
+    view = manifest_view(
+        normalise(relative, _manifest()), PurePosixPath("build"), set(), source_zone=True
+    )
+    assert snapshot(repo)[relative].endswith(hashlib.sha256(view.encode()).hexdigest())
 
 
 def test_the_configurations_add_no_directory_section() -> None:

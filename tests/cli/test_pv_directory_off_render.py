@@ -43,6 +43,7 @@ from tests.cli._off_render import (
     Configuration,
     differing,
     is_excluded,
+    manifest_view,
     normalise,
     preset_hash,
     render,
@@ -179,11 +180,6 @@ def _rule(relative: str, allowed: tuple[Allowed, ...]) -> Allowed | None:
     return next((rule for rule in allowed if _matches(relative, rule.globs)), None)
 
 
-#: The manifest's per-key digests of the source zone: of the profile, left out with it,
-#: and of the material beside it, compared file by file in the tree itself.
-SOURCE_ZONE_DIGESTS = "profile_key_digests"
-
-
 class Seen:
     """What the comparison sees of one rendered repo.
 
@@ -232,18 +228,11 @@ class Seen:
         except UnicodeDecodeError:
             return None
         if _is_manifest(relative):
-            return self._manifest(text, PurePosixPath(relative).parent)
+            return manifest_view(
+                text, PurePosixPath(relative).parent, self.unseen, source_zone=False
+            )
         rule = _rule(relative, self.allowed)
         return rule.compare(text) if rule is not None else text
-
-    def _manifest(self, text: str, directory: PurePosixPath) -> str:
-        document = json.loads(text)
-        rows = document.get("file_checksums", {})
-        document["file_checksums"] = {
-            key: row for key, row in rows.items() if (directory / key).as_posix() not in self.unseen
-        }
-        document.get("creation", {}).pop(SOURCE_ZONE_DIGESTS, None)
-        return json.dumps(document, sort_keys=True, indent=1)
 
 
 def _is_manifest(relative: str) -> bool:
