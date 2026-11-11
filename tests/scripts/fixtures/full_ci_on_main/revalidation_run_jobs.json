@@ -55,12 +55,12 @@
   "conclusion": "success"
  },
  {
-  "name": "Dispatch Stack E2E (deploy, full Docker stack + real agent runs + multi-user web tier)",
+  "name": "Dispatch Stack E2E — Deploy",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Dispatch Stack E2E (overlay skill/data/trigger visibility)",
+  "name": "Dispatch Stack E2E — Overlay Visibility",
   "status": "completed",
   "conclusion": "success"
  },
@@ -110,7 +110,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)",
+  "name": "Dispatch Stack E2E — Scan Stack Agentic",
   "status": "completed",
   "conclusion": "success"
  },
@@ -120,12 +120,12 @@
   "conclusion": "success"
  },
  {
-  "name": "Dispatch Stack E2E (single-user narrowing, owner-narrowed dispatch run)",
+  "name": "Dispatch Stack E2E — Single-User Narrowing",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Host Record E2E (host sessions record without a container; the stack takes the record over)",
+  "name": "Dispatch Stack E2E — Host Record",
   "status": "completed",
   "conclusion": "success"
  },

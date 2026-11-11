@@ -198,7 +198,7 @@ class TestLastGreen:
             "bbb",
             [_run(2, "bbb"), _run(1, "aaa")],
             {
-                2: _revalidation_jobs(**{"Scan Stack Agentic E2E": "skipped"}),
+                2: _revalidation_jobs(**{"Dispatch Stack E2E — Scan Stack Agentic": "skipped"}),
                 1: _revalidation_jobs(),
             },
         )
@@ -214,7 +214,7 @@ class TestLastGreen:
 
     def test_one_lane_reads_any_completed_main_run_where_it_ran(self) -> None:
         """A push run where the lane skipped says nothing about it."""
-        push_jobs = _revalidation_jobs(**{"Scan Stack Agentic E2E": "skipped"})
+        push_jobs = _revalidation_jobs(**{"Dispatch Stack E2E — Scan Stack Agentic": "skipped"})
         fake = FakeGh(
             "ccc",
             [_run(3, "ccc", event="push"), _run(2, "bbb", conclusion="failure"), _run(1, "aaa")],
@@ -236,6 +236,35 @@ class TestLastGreen:
             {2: jobs, 1: _revalidation_jobs()},
         )
         assert _tool(fake).last_green("agentic-per-preset") == "aaa"
+
+    def test_a_cell_lane_reads_its_own_cell_only(self) -> None:
+        """Lanes sharing one matrix job judge their own cells, not each other's."""
+        jobs = _revalidation_jobs(**{"Dispatch Stack E2E — Deploy": "failure"})
+        fake = FakeGh(
+            "bbb",
+            [_run(2, "bbb", conclusion="failure"), _run(1, "aaa")],
+            {2: jobs, 1: _revalidation_jobs()},
+        )
+        assert _tool(fake).last_green("host-record-e2e") == "bbb"
+        assert _tool(fake).last_green("dispatch-deploy-e2e") == "aaa"
+
+    def test_a_skipped_matrix_job_satisfies_none_of_its_cell_lanes(self) -> None:
+        """A skipped matrix job renders one job, its name template unexpanded."""
+        jobs = [j for j in _revalidation_jobs() if not j["name"].startswith("Dispatch Stack E2E")]
+        jobs.append(
+            {
+                "name": "Dispatch Stack E2E — ${{ matrix.name }}",
+                "status": "completed",
+                "conclusion": "skipped",
+            }
+        )
+        fake = FakeGh(
+            "bbb",
+            [_run(2, "bbb"), _run(1, "aaa")],
+            {2: jobs, 1: _revalidation_jobs()},
+        )
+        assert _tool(fake).last_green("host-record-e2e") == "aaa"
+        assert _tool(fake).last_green() == "aaa"
 
     def test_one_lane_skips_a_cancelled_run(self) -> None:
         fake = FakeGh(
@@ -267,7 +296,7 @@ def _red_fake(**extra: Any) -> FakeGh:
         [_run(2, "bbb", conclusion="failure"), _run(1, "aaa")],
         {
             2: _revalidation_jobs(
-                **{"Scan Stack Agentic E2E": "failure", "E2E Tests": "timed_out"}
+                **{"Dispatch Stack E2E — Scan Stack Agentic": "failure", "E2E Tests": "timed_out"}
             ),
             1: _revalidation_jobs(),
         },
@@ -284,7 +313,7 @@ class TestReport:
         body = issue["body"]
         assert "bbb" in body
         assert f"https://github.com/{REPO}/actions/runs/2" in body
-        assert "Scan Stack Agentic E2E" in body and "E2E Tests" in body
+        assert "Dispatch Stack E2E — Scan Stack Agentic" in body and "E2E Tests" in body
         assert "last green aaa" in body
         assert "Tier 0" not in body
 
@@ -292,11 +321,11 @@ class TestReport:
         fake = _red_fake()
         _tool(fake).report()
         fake.runs.insert(0, _run(3, "ccc", conclusion="failure"))
-        fake.jobs[3] = _revalidation_jobs(**{"Dispatch Stack E2E (deploy": "failure"})
+        fake.jobs[3] = _revalidation_jobs(**{"Dispatch Stack E2E — Deploy": "failure"})
         _tool(fake).report()
         assert len(fake.issues) == 1
         assert "ccc" in fake.issues[0]["body"]
-        assert "Dispatch Stack E2E (deploy" in fake.issues[0]["body"]
+        assert "Dispatch Stack E2E — Deploy" in fake.issues[0]["body"]
 
     def test_the_same_red_twice_writes_nothing_the_second_time(self) -> None:
         fake = _red_fake()
@@ -349,5 +378,6 @@ class TestReport:
         assert fake.writes() == []
 
 
-def test_the_spending_lane_map_has_the_nine_lanes() -> None:
-    assert len(full_ci_on_main.SPENDING_LANES) == 9
+def test_the_spending_lane_map_has_the_eleven_lanes() -> None:
+    """Seven spending jobs; dispatch-stack-e2e hosts five lanes, one per cell."""
+    assert len(full_ci_on_main.SPENDING_LANES) == 11

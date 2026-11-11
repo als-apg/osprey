@@ -2095,8 +2095,22 @@ _STACK_E2E_MODULES = tuple(
 _PLUGIN_TREES = ("plugins/**", ".claude-plugin/**", ".agents/plugins/**")
 
 
-def _e2e(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
-    return Lane(job, why, tuple(f"tests/e2e/{name}" for name in tests), prefix)
+def _e2e(
+    job: str, *tests: str, why: str = "containers", prefix: str | None = None, id: str = ""
+) -> Lane:
+    return Lane(job, why, tuple(f"tests/e2e/{name}" for name in tests), prefix, id=id)
+
+
+#: ``dispatch-stack-e2e``'s cells, each its own spending lane: the cell's
+#: ``lane:``, its ``name:`` and its module. The release gate and
+#: ``full_ci_on_main`` then require every cell by its own rendered name.
+_DISPATCH_STACK_CELLS = (
+    ("dispatch-deploy-e2e", "Deploy", "test_dispatch_deploy.py"),
+    ("single-user-narrowing-e2e", "Single-User Narrowing", "test_single_user_narrowing_e2e.py"),
+    ("dispatch-overlay-e2e", "Overlay Visibility", "test_dispatch_overlay_visibility.py"),
+    ("host-record-e2e", "Host Record", "test_host_record_e2e.py"),
+    ("scan-agentic-e2e", "Scan Stack Agentic", "test_plan_stack_agentic.py"),
+)
 
 
 def _scan(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
@@ -2198,13 +2212,15 @@ LANES: tuple[Lane, ...] = (
         ),
     ),
     Lane("deploy-e2e", "containers", ("src/osprey/**",)),
-    _e2e(
-        "dispatch-stack-e2e",
-        "test_dispatch_deploy.py",
-        "test_single_user_narrowing_e2e.py",
-        "test_dispatch_overlay_visibility.py",
-        why=SPENDS,
-        prefix="Dispatch Stack E2E",
+    *(
+        _e2e(
+            "dispatch-stack-e2e",
+            module,
+            why=SPENDS,
+            prefix=f"Dispatch Stack E2E — {name}",
+            id=lane,
+        )
+        for lane, name, module in _DISPATCH_STACK_CELLS
     ),
     Lane(
         "stack-e2e",
@@ -2225,14 +2241,7 @@ LANES: tuple[Lane, ...] = (
         "test_bump_roundtrip.py",
         "test_preflight_probe.py",
     ),
-    _e2e(
-        "scan-agentic-e2e",
-        "test_plan_stack_agentic.py",
-        why=SPENDS,
-        prefix="Scan Stack Agentic E2E",
-    ),
     _e2e("agent-record-e2e", "test_agent_record_e2e.py"),
-    _e2e("host-record-e2e", "test_host_record_e2e.py", why=SPENDS, prefix="Host Record E2E"),
     _e2e(
         "nextcloud-talk-bridge-e2e",
         "test_nextcloud_talk_bridge_e2e.py",

@@ -230,7 +230,7 @@ PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_E
 # Guards against silent under-discovery: if probe steps are renamed or reshaped
 # so the finder stops matching them, the count check fails loudly instead of
 # passing over an empty list. Raise this when probe lanes are added.
-EXPECTED_MIN_ALS_APG_PROBES = 9
+EXPECTED_MIN_ALS_APG_PROBES = 8
 
 #: Where the scheduler override is defined. Both conftests import it by name
 #: from here (see ``test_both_conftests_import_the_scheduler_override``).
@@ -5268,16 +5268,16 @@ def test_bluesky_queue_job_exists__mutation_drops_the_run_step() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (k) scan-agentic-e2e: the agent-driven plan lane, secret-gated
+# (k) scan-agentic-e2e: the agent-driven plan lane, a dispatch-stack cell, secret-gated
 # ---------------------------------------------------------------------------
 
 
 def test_scan_agentic_job_exists(workflow: dict[str, Any]) -> None:
     """``test_plan_stack_agentic.py`` is ``--ignore``'d by the shared e2e-tests
     lane (its two live tests deploy the VA/bridge/queue stack on fixed host
-    ports), so this dedicated job is the only place any of it runs — the
+    ports), so this dispatch-stack cell is the only place any of it runs — the
     offline floor and judge checks included, since they live in the same
-    module. The job existing is not enough: one of its steps has to name the
+    module. The cell existing is not enough: one of its steps has to name the
     module, or the lane reports green having run nothing.
 
     Unlike the queue lane above, nothing bespoke holds that ``--ignore`` in
@@ -5286,13 +5286,13 @@ def test_scan_agentic_job_exists(workflow: dict[str, Any]) -> None:
     (``test_every_dockerbuild_marked_file_is_ignored_in_e2e_lane``) is what
     pins it. This check is the other half of that pair — (e) proves the module
     left the shared lane, and only this one proves it arrived somewhere."""
-    assert SCAN_AGENTIC_JOB in _jobs(workflow)
-    assert SCAN_AGENTIC_TEST_FILE in json.dumps(_jobs(workflow)[SCAN_AGENTIC_JOB])
+    assert SCAN_AGENTIC_JOB in _lane_cells(workflow)
+    assert SCAN_AGENTIC_TEST_FILE in json.dumps(_lane_job(workflow, SCAN_AGENTIC_JOB))
 
 
 def test_scan_agentic_job_exists__mutation_drops_job() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][SCAN_AGENTIC_JOB]
+    _drop_lane(mutated, SCAN_AGENTIC_JOB)
     with pytest.raises(AssertionError):
         test_scan_agentic_job_exists(mutated)
 
@@ -5301,10 +5301,11 @@ def test_scan_agentic_job_exists__mutation_drops_the_run_step() -> None:
     """The vacuous-green half: the job survives, but nothing in it names the
     e2e module any more."""
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[SCAN_AGENTIC_JOB]["steps"]
-    kept = [step for step in steps if SCAN_AGENTIC_TEST_FILE not in json.dumps(step)]
+    steps = _lane_job(mutated, SCAN_AGENTIC_JOB)["steps"]
+    kept = [step["name"] for step in steps if SCAN_AGENTIC_TEST_FILE not in json.dumps(step)]
     assert len(kept) == len(steps) - 1, "expected exactly one step to name the e2e module"
-    _jobs(mutated)[SCAN_AGENTIC_JOB]["steps"] = kept
+    host = _jobs(mutated)[DISPATCH_STACK_JOB]
+    host["steps"] = [step for step in host["steps"] if step.get("name") in kept]
     with pytest.raises(AssertionError):
         test_scan_agentic_job_exists(mutated)
 
@@ -5318,8 +5319,8 @@ def test_scan_agentic_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
 
 def test_scan_agentic_job_declares_llm_secret__mutation_strips_secret() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][SCAN_AGENTIC_JOB] = json.loads(
-        json.dumps(mutated["jobs"][SCAN_AGENTIC_JOB]).replace("secrets.ALS_APG_API_KEY", "")
+    mutated["jobs"][DISPATCH_STACK_JOB] = json.loads(
+        json.dumps(mutated["jobs"][DISPATCH_STACK_JOB]).replace("secrets.ALS_APG_API_KEY", "")
     )
     with pytest.raises(AssertionError):
         assert _job_declares_secret(mutated, SCAN_AGENTIC_JOB, SECRET_TOKEN)
@@ -5346,6 +5347,8 @@ CLI_DEPENDENT_JOBS = (
     BENCHMARKS_JOB,
     NO_MODEL_JOB,
     RECORD_E2E_JOB,
+    # dispatch-stack-e2e cells; the cells that drive no host CLI skip the step (`matrix.cli`).
+    "host-record-e2e",
     SCAN_AGENTIC_JOB,
     TARGET_SWITCH_AGENTIC_JOB,
     NEXTCLOUD_JOB,
@@ -5381,11 +5384,13 @@ def test_cli_dependent_lane_installs_the_pinned_claude(
     action reads the pin out of it) and ahead of the lane's tests.
     """
     wf = workflow if workflow is not None else _load_workflow()
-    step = _find_named_step(wf, job_name, PINNED_CLI_STEP)
+    steps = _lane_job(wf, job_name)["steps"]
+    found = [s for s in steps if s.get("name") == PINNED_CLI_STEP]
+    assert len(found) == 1, f"{job_name}: runs {len(found)} '{PINNED_CLI_STEP}' steps, expected 1"
+    step = found[0]
     assert step.get("uses") == PINNED_CLI_ACTION, (
         f"{job_name}: the step must use {PINNED_CLI_ACTION}, got {step.get('uses')!r}"
     )
-    steps = _jobs(wf)[job_name]["steps"]
     at = steps.index(step)
     assert any("uv sync" in (s.get("run") or "") for s in steps[:at]), (
         f"{job_name}: the venv must be synced before the pinned CLI is installed"
@@ -5399,12 +5404,20 @@ def test_cli_dependent_lane_installs_the_pinned_claude(
 @pytest.mark.parametrize("job_name", CLI_DEPENDENT_JOBS)
 def test_cli_dependent_lane_installs_the_pinned_claude__mutation_drops_step(job_name: str) -> None:
     mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[job_name]["steps"]
+    steps = _jobs(mutated)[_host(mutated, job_name)]["steps"]
     kept = [s for s in steps if s.get("name") != PINNED_CLI_STEP]
     assert len(kept) == len(steps) - 1, "expected exactly one step dropped"
-    _jobs(mutated)[job_name]["steps"] = kept
+    _jobs(mutated)[_host(mutated, job_name)]["steps"] = kept
     with pytest.raises(AssertionError):
         test_cli_dependent_lane_installs_the_pinned_claude(job_name, mutated)
+
+
+def test_cli_dependent_lane_installs_the_pinned_claude__mutation_a_cell_opts_out() -> None:
+    """A dispatch-stack cell whose `cli` flag goes skips the install step."""
+    mutated = copy.deepcopy(_load_workflow())
+    del _cell_entry(mutated, "host-record-e2e")["cli"]
+    with pytest.raises(AssertionError, match="runs 0"):
+        test_cli_dependent_lane_installs_the_pinned_claude("host-record-e2e", mutated)
 
 
 @pytest.mark.parametrize("job_name", CLI_DEPENDENT_JOBS)
@@ -9256,7 +9269,10 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 #: Each spending lane to the prefix of its rendered job name: the lanes the
 #: LANES tables mark ``why="models"``, held below against ci.yml and release.yml.
 SPENDING_PREFIXES = check_set.kit.spending(check_set.LANES)
+#: The spending lane ids: a job id, or a cell's ``lane:`` in a job hosting several lanes.
 SPENDING_LANES = frozenset(SPENDING_PREFIXES)
+#: The ci.yml jobs that run the spending lanes.
+SPENDING_JOBS = frozenset(lane.job for lane in check_set.LANES if lane.id in SPENDING_LANES)
 # Lanes that carry the secret but spend nothing worth gating: the two benchmark
 # jobs run only on a deliberate run_benchmarks dispatch, never on a PR. A NEW
 # secret-bearing lane must be listed in one set or the other, on purpose. A lane
@@ -9282,19 +9298,19 @@ def test_every_secret_bearing_lane_declares_its_spend_posture(workflow: dict[str
     revalidation) or listed as holding it without spending. No third category: a new
     agentic lane that nobody classifies would run on every push by default,
     which is exactly how the bill got where it was."""
-    unclassified = _secret_bearing_jobs(workflow) - SPENDING_LANES - NON_SPENDING_KEY_LANES
+    unclassified = _secret_bearing_jobs(workflow) - SPENDING_JOBS - NON_SPENDING_KEY_LANES
     assert unclassified == set(), (
         f"secret-bearing lanes with no declared posture: {sorted(unclassified)}"
     )
     # and the classification is not stale the other way either
-    assert SPENDING_LANES <= _secret_bearing_jobs(workflow)
+    assert SPENDING_JOBS <= _secret_bearing_jobs(workflow)
 
 
 def test_every_secret_bearing_lane_declares_its_spend_posture__mutation_adds_unclassified_lane() -> (
     None
 ):
     mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"]["new-agentic-lane"] = copy.deepcopy(mutated["jobs"]["scan-agentic-e2e"])
+    mutated["jobs"]["new-agentic-lane"] = copy.deepcopy(mutated["jobs"][DISPATCH_STACK_JOB])
     with pytest.raises(AssertionError, match="no declared posture"):
         test_every_secret_bearing_lane_declares_its_spend_posture(mutated)
 
@@ -9304,7 +9320,7 @@ def test_spending_lane_runs_only_under_label_or_revalidation(
     workflow: dict[str, Any], lane: str
 ) -> None:
     """Both arms, no schedule arm, and the label INSIDE the pull-request arm."""
-    condition = _jobs(workflow)[lane]["if"]
+    condition = _lane_job(workflow, lane)["if"]
     assert FULL_CI_LABEL_CLAUSE in condition, f"{lane}: no full-ci label clause"
     assert SCHEDULE_ARM not in condition, f"{lane}: schedule arm — an unattended run"
     assert _DEPENDABOT_GUARD in condition, f"{lane}: Dependabot guard dropped"
@@ -9318,11 +9334,11 @@ def test_spending_lane_runs_only_under_label_or_revalidation(
 def test_spending_lane_gating__mutation_drops_the_label_clause() -> None:
     """The regression that restores the bill: the PR arm admits every push."""
     mutated = copy.deepcopy(_load_workflow())
-    job = _jobs(mutated)["scan-agentic-e2e"]
+    job = _jobs(mutated)[DISPATCH_STACK_JOB]
     job["if"] = job["if"].replace(f"\n  && {FULL_CI_LABEL_CLAUSE}", "")
     assert FULL_CI_LABEL_CLAUSE not in job["if"], "mutation is stale"
     with pytest.raises(AssertionError, match="label clause|closes before"):
-        test_spending_lane_runs_only_under_label_or_revalidation(mutated, "scan-agentic-e2e")
+        test_spending_lane_runs_only_under_label_or_revalidation(mutated, SCAN_AGENTIC_JOB)
 
 
 def test_spending_lane_gating__mutation_ors_the_label_beside_the_pr_arm() -> None:
@@ -9330,13 +9346,13 @@ def test_spending_lane_gating__mutation_ors_the_label_beside_the_pr_arm() -> Non
     pull-request conjunction, which admits every same-repo PR exactly as
     before and reads as gated."""
     mutated = copy.deepcopy(_load_workflow())
-    job = _jobs(mutated)["scan-agentic-e2e"]
+    job = _jobs(mutated)[DISPATCH_STACK_JOB]
     job["if"] = job["if"].replace(
         f"\n  && {FULL_CI_LABEL_CLAUSE})", f")\n|| {FULL_CI_LABEL_CLAUSE}"
     )
     assert _UNLABELED_PR_ARM_CLOSE in job["if"], "mutation is stale"
     with pytest.raises(AssertionError, match="closes before the label clause"):
-        test_spending_lane_runs_only_under_label_or_revalidation(mutated, "scan-agentic-e2e")
+        test_spending_lane_runs_only_under_label_or_revalidation(mutated, SCAN_AGENTIC_JOB)
 
 
 def test_spending_lane_gating__mutation_adds_a_schedule_arm() -> None:
@@ -9352,13 +9368,13 @@ def test_spending_lanes_name_no_base_ref(workflow: dict[str, Any]) -> None:
     """The label is the only pull-request gate on a spending lane: no clause
     names the base branch. Widening the workflow trigger to another base
     therefore cannot start a spending lane on an unlabeled pull request."""
-    scoped = sorted(lane for lane in SPENDING_LANES if "base.ref" in _jobs(workflow)[lane]["if"])
+    scoped = sorted(job for job in SPENDING_JOBS if "base.ref" in _jobs(workflow)[job]["if"])
     assert scoped == [], f"spending lanes whose if: names a base ref: {scoped}"
 
 
 def test_spending_lanes_name_no_base_ref__mutation_adds_an_integration_base() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    job = _jobs(mutated)["scan-agentic-e2e"]
+    job = _jobs(mutated)[DISPATCH_STACK_JOB]
     job["if"] = job["if"] + " || startsWith(github.event.pull_request.base.ref, 'integration/')"
     with pytest.raises(AssertionError, match="names a base ref"):
         test_spending_lanes_name_no_base_ref(mutated)
@@ -9392,7 +9408,7 @@ def test_secret_free_lanes_keep_the_per_pr_shape(workflow: dict[str, Any]) -> No
 
 def test_secret_free_lanes_keep_the_per_pr_shape__mutation_gates_deploy_by_label() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)["deploy-e2e"]["if"] = _jobs(mutated)["scan-agentic-e2e"]["if"]
+    _jobs(mutated)["deploy-e2e"]["if"] = _jobs(mutated)[DISPATCH_STACK_JOB]["if"]
     with pytest.raises(AssertionError, match="spends nothing"):
         test_secret_free_lanes_keep_the_per_pr_shape(mutated)
 
@@ -9853,17 +9869,25 @@ def test_the_tag_gate_covers_every_spending_lane() -> None:
 def _assert_lane_prefixes_match(
     workflow: dict[str, Any], lanes: dict[str, str], source: str = "release.yml"
 ) -> None:
-    jobs = _jobs(workflow)
+    """Each ``{lane id: prefix}`` names its own checks and nothing else.
+
+    A lane id is a job (every cell of it must render under the prefix) or a
+    lane cell of a matrix job (that cell alone). No other rendered check, a
+    sibling cell included, may start with the prefix, and no prefix may start
+    another lane's: either would let one lane's job stand in for another's."""
+    rendered = [
+        (job_id, name) for job_id, job in _jobs(workflow).items() for name in _rendered_names(job)
+    ]
     for lane, prefix in lanes.items():
-        for name in _rendered_names(jobs[lane]):
+        nested = sorted(o for o, p in lanes.items() if o != lane and p.startswith(prefix))
+        assert nested == [], f"{lane}: {prefix!r} is ambiguous, it starts the prefix of {nested}"
+        own = _lane_names(workflow, lane)
+        assert own, f"{lane}: {source} names a lane ci.yml does not run"
+        for name in own:
             assert name.startswith(prefix), (
                 f"{lane}: {source} looks for {prefix!r}, ci.yml renders {name!r}"
             )
-        others = [
-            n
-            for n, j in jobs.items()
-            if n != lane and any(name.startswith(prefix) for name in _rendered_names(j))
-        ]
+        others = sorted({j for j, name in rendered if name not in own and name.startswith(prefix)})
         assert others == [], f"{prefix!r} also matches {others}"
 
 
@@ -9872,6 +9896,15 @@ def _rendered_names(job: dict[str, Any]) -> list[str]:
     name = str(job.get("name", ""))
     cells = _cells(job)
     return [str(_substitute(name, cell)) for cell in cells] if cells else [name]
+
+
+def _lane_names(wf: dict[str, Any], lane: str) -> list[str]:
+    """The check names *lane* renders: its own cell's, or every cell of its job."""
+    cells = _lane_cells(wf)
+    if lane in cells:
+        job_id, cell = cells[lane]
+        return [str(_substitute(str(_jobs(wf)[job_id].get("name", "")), cell))]
+    return _rendered_names(_jobs(wf)[lane]) if lane in _jobs(wf) else []
 
 
 def test_the_tag_gate_names_match_the_rendered_job_names(workflow: dict[str, Any]) -> None:
@@ -9885,9 +9918,35 @@ def test_the_tag_gate_names_match__mutation_renames_a_lane() -> None:
     left looking for a job that no run will ever contain, and the gate then
     fails a release instead of a test."""
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)["scan-agentic-e2e"]["name"] = "Scan Stack (agentic)"
+    _jobs(mutated)["nextcloud-talk-bridge-e2e"]["name"] = "Nextcloud (Talk bridge)"
     with pytest.raises(AssertionError, match="release.yml looks for"):
         test_the_tag_gate_names_match_the_rendered_job_names(mutated)
+
+
+def test_the_tag_gate_names_match__mutation_renames_a_cell() -> None:
+    """A spending cell renamed in ci.yml: its lane's prefix finds no job."""
+    mutated = copy.deepcopy(_load_workflow())
+    _cell_entry(mutated, SCAN_AGENTIC_JOB)["name"] = "Plan Stack Agentic"
+    with pytest.raises(AssertionError, match=f"{SCAN_AGENTIC_JOB}: release.yml looks for"):
+        test_the_tag_gate_names_match_the_rendered_job_names(mutated)
+
+
+def test_the_tag_gate_names_match__mutation_a_sibling_cell_takes_a_prefix() -> None:
+    """A cell of the same job rendering under another cell's prefix is a match too."""
+    mutated = copy.deepcopy(_load_workflow())
+    entry = _cell_entry(mutated, "dispatch-overlay-e2e")
+    entry["name"] = "Host Record overlay"
+    with pytest.raises(AssertionError, match=re.escape(f"also matches ['{DISPATCH_STACK_JOB}']")):
+        _assert_lane_prefixes_match(
+            mutated, {"host-record-e2e": SPENDING_PREFIXES["host-record-e2e"]}
+        )
+
+
+def test_the_tag_gate_names_match__mutation_an_ambiguous_prefix() -> None:
+    """A prefix that starts another lane's prefix matches that lane's job as well."""
+    lanes = {**_required_lane_prefixes(), "dispatch-deploy-e2e": "Dispatch Stack E2E"}
+    with pytest.raises(AssertionError, match="is ambiguous"):
+        _assert_lane_prefixes_match(_load_workflow(), lanes)
 
 
 def test_the_tag_gate_names_match__mutation_a_cell_renders_another_lanes_prefix() -> None:
@@ -9896,26 +9955,62 @@ def test_the_tag_gate_names_match__mutation_a_cell_renders_another_lanes_prefix(
     The stack cells render under the job's fixed ``Stack E2E — `` prefix, so the
     mutation that reaches another lane's prefix is one to the job's template."""
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[STACK_JOB]["name"] = "Dispatch Stack E2E (${{ matrix.name }})"
+    _jobs(mutated)[STACK_JOB]["name"] = "E2E Tests — ${{ matrix.name }}"
     with pytest.raises(AssertionError, match=re.escape(f"also matches ['{STACK_JOB}']")):
         test_the_tag_gate_names_match_the_rendered_job_names(mutated)
 
 
+def test_every_cell_of_a_spending_matrix_job_is_a_spending_lane(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """A job hosting several spending lanes is never one lane: each cell is a
+    spending lane of its own, so the gates require it by its own prefix, and a
+    cell LANES does not name would be a cell no gate requires."""
+    wf = workflow if workflow is not None else _load_workflow()
+    hosted: dict[str, set[str]] = {}
+    for lane in check_set.LANES:
+        if lane.id != lane.job:
+            hosted.setdefault(lane.job, set()).add(lane.id)
+    assert hosted, "no job hosts several lanes: drop this test with the last one"
+    for job_id, ids in hosted.items():
+        lanes = {_cell_lane(job_id, cell) for cell in _cells(_jobs(wf)[job_id])}
+        assert lanes == ids, f"{job_id}: cells {sorted(lanes)} but LANES names {sorted(ids)}"
+        spending = {i for i in ids if i in SPENDING_PREFIXES}
+        assert spending in (set(), ids), f"{job_id}: only {sorted(spending)} of its cells spend"
+
+
+def test_every_cell_of_a_spending_matrix_job__mutation_adds_an_unregistered_cell() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    include = _jobs(mutated)[DISPATCH_STACK_JOB]["strategy"]["matrix"]["include"]
+    include.append({**include[0], "lane": "new-dispatch-e2e", "name": "New"})
+    with pytest.raises(AssertionError, match="but LANES names"):
+        test_every_cell_of_a_spending_matrix_job_is_a_spending_lane(mutated)
+
+
 def test_the_tag_gate_requires_every_dispatch_stack_cell() -> None:
-    """One prefix stands for the three former dispatch lanes: every cell renders
-    under it, and the gate refuses the run unless every matching job succeeded."""
-    prefix = _required_lane_prefixes()[DISPATCH_STACK_JOB]
+    """Each dispatch cell is a lane the gate requires by its own name: one red
+    or skipped cell is that lane missing, and a skipped matrix job, which GitHub
+    renders once with its name template unexpanded, satisfies none of them."""
+    wf = _load_workflow()
+    lanes = {
+        lane: prefix
+        for lane, prefix in _required_lane_prefixes().items()
+        if _host(wf, lane) == DISPATCH_STACK_JOB
+    }
+    assert set(lanes) == {
+        _cell_lane(DISPATCH_STACK_JOB, c) for c in _cells(_jobs(wf)[DISPATCH_STACK_JOB])
+    }
     gate = _green_lanes_module()
     cells = [
         {"name": name, "conclusion": "success"}
-        for name in _rendered_names(_jobs(_load_workflow())[DISPATCH_STACK_JOB])
+        for name in _rendered_names(_jobs(wf)[DISPATCH_STACK_JOB])
     ]
-    assert len(cells) == 3
-    assert gate.missing_lanes(cells, {DISPATCH_STACK_JOB: prefix}) == {}
-    cells[1]["conclusion"] = "skipped"
-    assert gate.missing_lanes(cells, {DISPATCH_STACK_JOB: prefix}) == {
-        DISPATCH_STACK_JOB: "skipped, success"
-    }
+    assert len(cells) == len(lanes) == 5
+    assert gate.missing_lanes(cells, lanes) == {}
+    cells[3]["conclusion"] = "skipped"
+    assert gate.missing_lanes(cells, lanes) == {"host-record-e2e": "skipped"}
+    skipped_job = [{"name": _jobs(wf)[DISPATCH_STACK_JOB]["name"], "conclusion": "skipped"}]
+    assert gate.missing_lanes(skipped_job, lanes) == dict.fromkeys(lanes, "no such job in the run")
 
 
 def test_the_tag_gate_blocks_the_publish() -> None:
@@ -13169,18 +13264,12 @@ def test_the_lookup_lane_map_is_the_spending_lane_set(
         f"full_ci_on_main.py lanes differ from SPENDING_LANES: "
         f"{sorted(set(lanes.items()) ^ set(SPENDING_PREFIXES.items()))}"
     )
-    jobs = _jobs(_load_workflow())
-    for lane, prefix in lanes.items():
-        assert jobs[lane]["name"].startswith(prefix), (
-            f"{lane}: full_ci_on_main.py looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
-        )
-        others = [n for n, j in jobs.items() if n != lane and j.get("name", "").startswith(prefix)]
-        assert others == [], f"{prefix!r} also matches {others}"
+    _assert_lane_prefixes_match(_load_workflow(), lanes, "full_ci_on_main.py")
 
 
 def test_the_lookup_lane_map__mutation_renames_a_key() -> None:
     lanes = dict(_full_ci_on_main_lanes())
-    lanes["scan-agentic"] = lanes.pop("scan-agentic-e2e")
+    lanes["scan-agentic"] = lanes.pop(SCAN_AGENTIC_JOB)
     with pytest.raises(AssertionError, match="differ from SPENDING_LANES"):
         test_the_lookup_lane_map_is_the_spending_lane_set(lanes)
 
@@ -14916,9 +15005,9 @@ def test_lane_matrix_cells_run_as_separate_lanes__mutations() -> None:
     del _cell_entry(mutated, TILED_JOB)["step_timeout"]
     assert [p.split(":")[0] for p in _lane_matrix_problems(mutated)] == [TILED_JOB]
     mutated = copy.deepcopy(_load_workflow())
-    _cell_entry(mutated, "single-user-narrowing-e2e")["what"] = _cell_entry(
+    _cell_entry(mutated, "single-user-narrowing-e2e")["name"] = _cell_entry(
         mutated, "dispatch-overlay-e2e"
-    )["what"]
+    )["name"]
     assert _lane_matrix_problems(mutated) == [
         "dispatch-overlay-e2e: renders the same check name as single-user-narrowing-e2e"
     ]
@@ -15117,7 +15206,7 @@ CACHE_SAVING_ACTIONS = ("actions/cache@", "actions/cache/save@")
 #: The input that turns the action's save on.
 QMD_WARM_INPUT = "warm"
 
-#: Every step that starts the qmd sidecar, by job and step name. Each deploys
+#: Every step that starts the qmd sidecar, by lane and step name. Each deploys
 #: the demo preset with qmd left in, or (qmd-sidecar-e2e) starts
 #: the sidecar directly. Kept by hand: which module's ``osprey up`` renders a
 #: qmd service is a fact about its fixture, not about the workflow. A lane whose
@@ -15129,8 +15218,16 @@ QMD_DEPLOYING_STEPS: dict[str, tuple[str, ...]] = {
         "Run the wall-clock budgets serially",
         "Run the multi-user shared-bundle sidecar E2E",
     ),
-    "scan-agentic-e2e": ("Run scan stack agentic E2E",),
-    DISPATCH_STACK_JOB: ("Run the dispatch stack E2E module",),
+    # dispatch-stack-e2e's cells bar host-record-e2e, whose stack starts no qmd (`matrix.qmd_image`).
+    **dict.fromkeys(
+        (
+            "dispatch-deploy-e2e",
+            "single-user-narrowing-e2e",
+            "dispatch-overlay-e2e",
+            SCAN_AGENTIC_JOB,
+        ),
+        ("Run the dispatch stack E2E module",),
+    ),
 }
 
 
@@ -15144,9 +15241,10 @@ def qmd_image_action() -> dict[str, Any]:
 
 
 def _qmd_action_calls(wf: dict[str, Any]) -> list[tuple[str, int, dict[str, Any]]]:
+    """Each lane's calls of the action, a matrix lane's as its cell runs them."""
     return [
         (name, index, step)
-        for name, job in _jobs(wf).items()
+        for name, job in _lane_jobs(wf).items()
         for index, step in enumerate(job.get("steps", []))
         if step.get("uses") == QMD_IMAGE_ACTION
     ]
@@ -15181,9 +15279,12 @@ def test_only_the_warmup_saves_the_qmd_cache(workflow: dict[str, Any]) -> None:
 
 def test_only_the_warmup_saves_the_qmd_cache__mutation_a_pr_lane_warms() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, "scan-agentic-e2e", "Build the qmd sidecar image")
+    step = _find_named_step(mutated, SCAN_AGENTIC_JOB, "Build the qmd sidecar image")
     step["with"] = {QMD_WARM_INPUT: "true"}
-    assert len(_saving_steps_outside_the_warmup(mutated)) == 1
+    assert (
+        f"{SCAN_AGENTIC_JOB}: 'Build the qmd sidecar image' calls the action with {QMD_WARM_INPUT}: true"
+        in _saving_steps_outside_the_warmup(mutated)
+    )
 
 
 def test_only_the_warmup_saves_the_qmd_cache__mutation_a_lane_brings_its_own_cache() -> None:
@@ -15315,7 +15416,8 @@ def _qmd_deploy_problems(wf: dict[str, Any]) -> list[str]:
         if len(calls) != 1:
             problems.append(f"{name}: calls {QMD_IMAGE_ACTION} {len(calls)} times, expected 1")
             continue
-        steps = _jobs(wf)[name]["steps"]
+        job = _lane_job(wf, name)
+        steps = job["steps"]
         for step_name in step_names:
             index = next((i for i, s in enumerate(steps) if s.get("name") == step_name), None)
             if index is None:
@@ -15323,7 +15425,7 @@ def _qmd_deploy_problems(wf: dict[str, Any]) -> list[str]:
                 continue
             if index < calls[0]:
                 problems.append(f"{name}: '{step_name}' runs before the image is built")
-            env = {**(_jobs(wf)[name].get("env") or {}), **(steps[index].get("env") or {})}
+            env = {**(job.get("env") or {}), **(steps[index].get("env") or {})}
             image = env.get(QMD_IMAGE_ENV)
             if image != QMD_IMAGE_TAG:
                 problems.append(f"{name}: '{step_name}' sets {QMD_IMAGE_ENV}={image!r}")
@@ -15339,11 +15441,22 @@ def test_every_qmd_deploying_step_starts_the_shared_image(workflow: dict[str, An
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_variable() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    del _find_named_step(mutated, "scan-agentic-e2e", "Run scan stack agentic E2E")["env"][
+    del _find_named_step(mutated, SCAN_AGENTIC_JOB, "Run the dispatch stack E2E module")["env"][
         QMD_IMAGE_ENV
     ]
+    assert f"{SCAN_AGENTIC_JOB}: 'Run the dispatch stack E2E module' sets {QMD_IMAGE_ENV}=None" in (
+        _qmd_deploy_problems(mutated)
+    )
+
+
+def test_every_qmd_deploying_step_starts_the_shared_image__mutation_a_cell_drops_its_image() -> (
+    None
+):
+    """A cell that loses its `qmd_image` neither builds the image nor names it."""
+    mutated = copy.deepcopy(_load_workflow())
+    del _cell_entry(mutated, SCAN_AGENTIC_JOB)["qmd_image"]
     assert _qmd_deploy_problems(mutated) == [
-        f"scan-agentic-e2e: 'Run scan stack agentic E2E' sets {QMD_IMAGE_ENV}=None"
+        f"{SCAN_AGENTIC_JOB}: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
     ]
 
 
@@ -15351,9 +15464,9 @@ def test_every_qmd_deploying_step_starts_the_shared_image__mutation_drops_the_bu
     mutated = copy.deepcopy(_load_workflow())
     steps = _jobs(mutated)[DISPATCH_STACK_JOB]["steps"]
     steps.remove(_find_named_step(mutated, DISPATCH_STACK_JOB, "Build the qmd sidecar image"))
-    assert _qmd_deploy_problems(mutated) == [
-        f"{DISPATCH_STACK_JOB}: calls {QMD_IMAGE_ACTION} 0 times, expected 1"
-    ]
+    assert f"{SCAN_AGENTIC_JOB}: calls {QMD_IMAGE_ACTION} 0 times, expected 1" in (
+        _qmd_deploy_problems(mutated)
+    )
 
 
 def test_every_qmd_deploying_step_starts_the_shared_image__mutation_builds_too_late() -> None:
@@ -15603,8 +15716,6 @@ NO_SKIPS_GATED: dict[str, tuple[str, ...] | None] = {
     BROWSER_AGENT_JOB: ("Run the watchdog browser suite",),
     NO_MODEL_JOB: None,
     RECORD_E2E_JOB: None,
-    "host-record-e2e": None,
-    SCAN_AGENTIC_JOB: None,
     GCHAT_JOB: None,
     TEAMS_JOB: None,
     PRIVSPLIT_JOB: None,
@@ -15763,14 +15874,15 @@ def test_every_spending_lane_and_stack_cell_fails_on_any_skipped_test(
     workflow: dict[str, Any],
 ) -> None:
     """A spending lane that skips its way to green spent nothing to prove nothing,
-    and a stack cell that skips proves no stack. Each is gated, and
-    no stack cell switches the gate off through its matrix values."""
-    ungated = sorted(SPENDING_LANES - set(NO_SKIPS_GATED))
+    and a stack cell that skips proves no stack. Each is gated, and no stack or
+    dispatch-stack cell switches the gate off through its matrix values."""
+    ungated = sorted(SPENDING_JOBS - set(NO_SKIPS_GATED))
     assert ungated == [], f"spending lanes without the no-skips gate: {ungated}"
-    assert STACK_JOB in NO_SKIPS_GATED and NO_SKIPS_GATED[STACK_JOB] is None
-    cells = _jobs(workflow)[STACK_JOB]["strategy"]["matrix"]["include"]
-    opted_out = sorted(str(c.get("lane")) for c in cells if "no_skips" in json.dumps(c))
-    assert opted_out == [], f"stack cells that touch the no-skips gate: {opted_out}"
+    for job_id in (STACK_JOB, DISPATCH_STACK_JOB):
+        assert job_id in NO_SKIPS_GATED and NO_SKIPS_GATED[job_id] is None
+        cells = _jobs(workflow)[job_id]["strategy"]["matrix"]["include"]
+        opted_out = sorted(str(c.get("lane")) for c in cells if "no_skips" in json.dumps(c))
+        assert opted_out == [], f"stack cells that touch the no-skips gate: {opted_out}"
 
 
 def test_every_spending_lane_and_stack_cell__mutation_drops_a_spending_lane() -> None:
@@ -15780,9 +15892,10 @@ def test_every_spending_lane_and_stack_cell__mutation_drops_a_spending_lane() ->
             test_every_spending_lane_and_stack_cell_fails_on_any_skipped_test(_load_workflow())
 
 
-def test_every_spending_lane_and_stack_cell__mutation_opts_a_cell_out() -> None:
+@pytest.mark.parametrize("job_id", [STACK_JOB, DISPATCH_STACK_JOB])
+def test_every_spending_lane_and_stack_cell__mutation_opts_a_cell_out(job_id: str) -> None:
     mutated = _load_workflow()
-    cell = _jobs(mutated)[STACK_JOB]["strategy"]["matrix"]["include"][-1]
+    cell = _jobs(mutated)[job_id]["strategy"]["matrix"]["include"][-1]
     cell["pytest_args"] = "-p no:no_skips"
     with pytest.raises(AssertionError, match="stack cells that touch"):
         test_every_spending_lane_and_stack_cell_fails_on_any_skipped_test(mutated)

@@ -206,7 +206,7 @@ records which lane **runs** which file; `LANES` and `ci.yml` are the source of t
 | `test_tiled_roundtrip.py` | `stack-e2e` (`tiled-roundtrip-e2e` cell) |
 | `test_bluesky_catalog_e2e.py` | `stack-e2e` (`bluesky-catalog-e2e` cell) |
 | `test_bluesky_sandbox_escape_e2e.py` | `stack-e2e` (`bluesky-sandbox-escape-e2e` cell) |
-| `test_plan_stack_agentic.py` | `scan-agentic-e2e` |
+| `test_plan_stack_agentic.py` | `dispatch-stack-e2e` (`scan-agentic-e2e` cell) |
 
 Two entries are worth reading twice. `test_grid_scan_roundtrip.py` and
 `test_bump_roundtrip.py` are **adopted into** `orm-roundtrip-e2e` rather than

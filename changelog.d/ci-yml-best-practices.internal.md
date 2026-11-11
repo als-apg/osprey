@@ -72,3 +72,18 @@ every stack cell they hold no secret and fail on a skipped test. Their modules m
 `full-chain-auth-e2e` and `two-shape-boot-e2e` now use the latter. A wiring test pins the trigger's
 branch list, so adding a base reds until someone decides whether the same-repo lanes belong on it.
 `e2e-no-model` and `agent-record-e2e` share one `any-pr-or-secret-revalidation` anchor.
+
+A lane in `LANES` now has an `id` of its own beside its `job`: the job id for a lane that is a whole
+job, the cell's `lane:` value for a lane that is one cell of a matrix job. `spending()`, the
+release gate's `REQUIRED_LANES` (now `<lane id>=<prefix>` lines), `require_green_lanes.py` and
+`full_ci_on_main.py` (`SPENDING_LANES`, `last-green <lane>`) key by it. `host-record-e2e` and
+`scan-agentic-e2e` are now `dispatch-stack-e2e` cells, and that job's cells render as `Dispatch
+Stack E2E — <cell>` (`Deploy`, `Single-User Narrowing`, `Overlay Visibility`, `Host Record`, `Scan
+Stack Agentic`). Each cell is a spending lane with its own prefix, so the release gate and
+`full_ci_on_main.py` require every cell by name, and a skipped job, whose name GitHub renders
+unexpanded, satisfies none of them; `last-green host-record-e2e` and `last-green scan-agentic-e2e`
+keep working. Each cell keeps its timeout (60, 25 and 75 minutes), its skip gate, its probe and its
+cleanup; only the cells that need them install the pinned Claude Code CLI, build the qmd image or
+export the dispatcher's dev tokens. A wiring test holds that each spending prefix names its own
+lane's checks and no other, that no prefix starts another, that every cell of a job hosting several
+lanes is a lane, and that `REQUIRED_LANES` and `SPENDING_LANES` equal the spending lanes of `LANES`.

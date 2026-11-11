@@ -46,8 +46,9 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import check
 
-#: Spending-lane job id -> prefix of its rendered job name, read from the lanes
-#: check.py collects: each lane the LANES tables mark ``why="models"``.
+#: Spending-lane id -> prefix of its rendered job name, read from the lanes
+#: check.py collects: each lane the LANES tables mark ``why="models"``. A lane
+#: id is its job id, or its cell's ``lane:`` in a job hosting several lanes.
 SPENDING_LANES: dict[str, str] = check.kit.spending(check.LANES)
 #: Lanes that run on a dispatch only when ``revalidate_secret_lanes`` is set.
 _REVALIDATION_MARKERS = tuple(
