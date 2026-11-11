@@ -34,6 +34,7 @@ from osprey.agent_record.config import HISTORY_SERVICE, history_origin_port, his
 from osprey.agent_record.identities import (
     BRIDGE_IDENTITIES,
     OPERATOR_IDENTITY,
+    derived_host_identity,
     host_identity,
     reader_entries,
 )
@@ -5371,12 +5372,13 @@ def host_identity_advisories(config: Any, runtime_user: str | None) -> list[str]
     another account is said once. About the invoking account rather than the
     config, so it is asked where something is launched and nowhere else. Empty
     when no account name is known, when the config records no identity, and
-    when the account is the one the build recorded.
+    when the account is the one the build recorded, under its own name or the
+    identity a build derives from it.
     """
     if runtime_user is None:
         return []
     identity = host_identity(as_dict(config))
-    if identity is None or identity == runtime_user:
+    if identity is None or identity in (runtime_user, derived_host_identity(runtime_user)):
         return []
     return [
         f"deployment.host_identity is {identity!r} and this command runs as "

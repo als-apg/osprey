@@ -348,6 +348,40 @@ def test_single_user_deployment_reports_the_acting_identity(
     assert rows["write_switch.op"].value == "never (writes: never)"
 
 
+def test_single_user_deployment_reports_the_recorded_host_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The login is the name the build recorded, not the account's own spelling."""
+    monkeypatch.setattr(sc, "acting_identity", lambda: "GMartino")
+    config, build = _render(
+        tmp_path,
+        limits=GOOD_LIMITS,
+        config_extra={"deployment": {"host_identity": "gmartino"}},
+    )
+    _record(build.parent, "gmartino", {"va": "allowed"})
+    rows = _run(config, build)
+    assert "write_switch.GMartino" not in rows
+    assert rows["write_switch.gmartino"].value == "allowed on va · capped at asked"
+    assert sc._logins(config) == [("gmartino", None)]
+
+
+def test_a_bound_directory_is_the_recorded_host_identitys_without_the_stack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bound = tmp_path / "bound"
+    bound.mkdir()
+    monkeypatch.setenv("OSPREY_CONTROL_CONTEXT_DIR", str(bound))
+    monkeypatch.setattr(sc, "acting_identity", lambda: "GMartino")
+    single = {"deployment": {"host_identity": "gmartino"}}
+    assert sc._login_dir(single, tmp_path, "gmartino") == bound
+    # With the stack, a bind is the terminal user's own, whatever the build recorded.
+    config, _build = _users_config(tmp_path / "stack")
+    config["deployment"] = {"host_identity": "builder"}
+    monkeypatch.setattr(sc, "acting_identity", lambda: "alice")
+    assert sc._login_dir(config, tmp_path, "alice") == bound
+    assert sc._login_dir(config, tmp_path, "builder") is None
+
+
 def test_write_authorizations_counts_live_grants(tmp_path: Path) -> None:
     config, build = _users_config(tmp_path)
     directory = _record(build.parent, "alice", {"va": "asked"}) / "authorizations"

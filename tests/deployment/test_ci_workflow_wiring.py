@@ -3918,10 +3918,18 @@ def test_slack_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate()
 # ---------------------------------------------------------------------------
 
 
-def _model_free_selected_paths(wf: dict[str, Any]) -> list[str]:
-    """The paths the model-free lane's run step hands pytest to collect."""
-    run_text = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"]
-    return [token for token in run_text.split() if token.startswith("tests/")]
+def _model_free_selected_paths(lanes: tuple[Any, ...] = check_set.LANES) -> list[str]:
+    """The paths the model-free lane's run step hands pytest: its lane's modules,
+    derived at run time by ``scripts/ci/e2e_shared_lane.py modules``."""
+    return e2e_shared_lane.modules(NO_MODEL_JOB, lanes)
+
+
+def _with_model_free_modules(*modules: str) -> tuple[Any, ...]:
+    """The lanes, with the model-free lane naming *modules* instead of its own."""
+    return tuple(
+        replace(lane, modules=modules) if lane.id == NO_MODEL_JOB else lane
+        for lane in check_set.LANES
+    )
 
 
 def _record_lane_paths(wf: dict[str, Any]) -> list[str]:
@@ -3931,8 +3939,8 @@ def _record_lane_paths(wf: dict[str, Any]) -> list[str]:
 
 
 def _model_free_lanes_paths(wf: dict[str, Any]) -> list[str]:
-    """Every path either model-free lane names."""
-    return [*_model_free_selected_paths(wf), *_record_lane_paths(wf)]
+    """Every path either model-free lane runs."""
+    return [*_model_free_selected_paths(), *_record_lane_paths(wf)]
 
 
 def _collected_ids(args: list[str]) -> set[str]:
@@ -3993,9 +4001,69 @@ def test_only_the_model_free_lane_files_carry_the_marker(workflow: dict[str, Any
         and path.relative_to(root).as_posix() not in lane
     )
     assert stray == [], (
-        f"marked model_free but not named in '{NO_MODEL_RUN_STEP}' or "
-        f"'{RECORD_E2E_RUN_STEP}': {stray}"
+        f"marked model_free but neither a module of the '{NO_MODEL_JOB}' lane in LANES "
+        f"(scripts/repo_checks.py) nor named in '{RECORD_E2E_RUN_STEP}': {stray}"
     )
+
+
+#: How the model-free step derives its paths: the lane's modules, read at run time.
+NO_MODEL_MODULES_CMD = f"python3 scripts/ci/e2e_shared_lane.py modules {NO_MODEL_JOB}"
+NO_MODEL_SPLICE = 'uv run pytest "${modules[@]}"'
+_EMPTY_MODULES_REFUSAL = re.compile(
+    r'\[ "\$\{#modules\[@\]\}" -gt 0 \] \|\| \{ echo "::error::[^"]+"; exit 1; \}'
+)
+
+
+def _model_free_step_problems(wf: dict[str, Any]) -> list[str]:
+    """Why the model-free step would not run exactly its lane's modules, if it would not."""
+    run = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"]
+    asked = re.search(rf"{re.escape(NO_MODEL_MODULES_CMD)}\s", run)
+    derive, splice = asked.start() if asked else -1, run.find(NO_MODEL_SPLICE)
+    refusal = _EMPTY_MODULES_REFUSAL.search(run)
+    problems = []
+    if derive < 0:
+        problems.append(f"does not run {NO_MODEL_MODULES_CMD!r}")
+    if splice < 0:
+        problems.append("hands pytest no derived list")
+    if refusal is None or not derive < refusal.start() < splice:
+        problems.append("runs an empty list instead of refusing it")
+    if named := [token for token in run.split() if token.startswith("tests/")]:
+        problems.append(f"names {named} itself")
+    return problems
+
+
+def test_model_free_step_runs_its_lanes_modules(workflow: dict[str, Any]) -> None:
+    """The step takes its paths from the lane, as the shared lane takes its
+    ``--ignore`` list, and refuses an empty one: pytest handed no path collects
+    the whole tree, where every test not marked ``model_free`` is refused."""
+    assert _model_free_step_problems(workflow) == []
+
+
+def test_model_free_step_runs_its_lanes_modules__mutation_drops_the_refusal() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    refusal = _EMPTY_MODULES_REFUSAL.search(step["run"])
+    assert refusal, "the step refuses no empty list; stale"
+    step["run"] = step["run"].replace(refusal.group(), "")
+    assert _model_free_step_problems(mutated) == ["runs an empty list instead of refusing it"]
+
+
+def test_model_free_step_runs_its_lanes_modules__mutation_asks_another_lane() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = step["run"].replace(NO_MODEL_MODULES_CMD, NO_MODEL_MODULES_CMD + "-x")
+    assert _model_free_step_problems(mutated) == [f"does not run {NO_MODEL_MODULES_CMD!r}"]
+
+
+def test_model_free_step_runs_its_lanes_modules__mutation_names_a_path_again() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = step["run"].replace(
+        NO_MODEL_SPLICE, f"{NO_MODEL_SPLICE} tests/e2e/test_scripted_model.py"
+    )
+    assert _model_free_step_problems(mutated) == [
+        "names ['tests/e2e/test_scripted_model.py'] itself"
+    ]
 
 
 def test_model_free_lane_exists(workflow: dict[str, Any]) -> None:
@@ -4198,19 +4266,17 @@ def test_record_lane_cells_cover_every_case_once__mutation_fails_fast() -> None:
         test_record_lane_cells_cover_every_case_once(mutated)
 
 
-def test_record_lane_is_not_in_the_model_free_lane(workflow: dict[str, Any]) -> None:
+def test_record_lane_is_not_in_the_model_free_lane(
+    lanes: tuple[Any, ...] = check_set.LANES,
+) -> None:
     """One file, one lane: in both it is deployed twice per pull request."""
-    assert RECORD_E2E_FILE not in _model_free_selected_paths(workflow), (
+    assert RECORD_E2E_FILE not in _model_free_selected_paths(lanes), (
         f"'{NO_MODEL_JOB}' still runs {RECORD_E2E_FILE}, which has its own lane"
     )
 
 
 def test_record_lane_is_not_in_the_model_free_lane__mutation_names_it_there() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
-    step["run"] = step["run"].replace(
-        "tests/e2e/test_scripted_model.py", f"{RECORD_E2E_FILE} tests/e2e/test_scripted_model.py"
-    )
+    mutated = _with_model_free_modules(RECORD_E2E_FILE, *_model_free_selected_paths())
     with pytest.raises(AssertionError, match="has its own lane"):
         test_record_lane_is_not_in_the_model_free_lane(mutated)
 

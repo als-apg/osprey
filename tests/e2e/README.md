@@ -337,8 +337,9 @@ deploys a whole stack and waits out a stopped source (hello-world on the
 embedded record, demo on ClickHouse; one matrix cell, and one
 runner, per case). A wiring test in
 `tests/deployment/test_ci_workflow_wiring.py` holds the two sets equal. Adding
-a model-free module therefore means marking it and naming it in one of those
-lanes in one change.
+a model-free module therefore means marking it and adding it to the
+`e2e-no-model` lane's `modules` in `LANES` (`scripts/repo_checks.py`), which
+the job reads at run time, in one change.
 
 ### Scripted gate tests
 
@@ -454,8 +455,8 @@ async def test_my_workflow(e2e_project_factory):
    when it builds with `e2e_provider()` and therefore follows the run, the
    gateway-specific marker (`requires_als_apg`, `requires_cborg`, …) when the test
    pins a provider itself. A test that reaches no model carries `model_free`, and
-   its module is named in a model-free lane (`e2e-no-model`, or
-   `agent-record-e2e` for the record's replay) in the same change.
+   its module joins a model-free lane (the `e2e-no-model` lane's `modules` in
+   `LANES`, or `agent-record-e2e` for the record's replay) in the same change.
 4. **Clean validation** - verify actual outputs (files, code content) not just LLM responses
 
 ## CI/CD Integration
