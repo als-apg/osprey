@@ -18,7 +18,7 @@ import { mountAllPvs, unmountAllPvs } from './allpvs.js';
 import { mountPvPage, unmountPvPage } from './pv-page.js';
 import { mountIocPage, unmountIocPage } from './ioc-page.js';
 import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
-import { parseRoute } from './route.js';
+import { formatRoute, parseRoute } from './route.js';
 
 // A follower of the Web Terminal hub: theme-boot.js already applied data-theme
 // pre-paint, and this attaches the postMessage listener for the hub's live
@@ -28,6 +28,7 @@ initTheme({ role: 'follower' });
 applyEmbedded();
 
 /** @typedef {import('./route.js').RouteParams} RouteParams */
+/** @typedef {import('./route.js').Route} Route */
 
 /** @typedef {{ mount: (container: HTMLElement, params: RouteParams) => void, unmount: () => void }} ViewModule */
 
@@ -45,7 +46,7 @@ const DIRECTORY_VIEWS = new Set(['allpvs', 'pv', 'ioc']);
 
 /** @type {string|null} */
 let currentView = null;
-// The view and params mounted now; a route equal to it is not re-mounted.
+// The hash of the route mounted now, as formatRoute spells it; an equal route is not re-mounted.
 /** @type {string|null} */
 let currentRouteKey = null;
 let _initialized = false;
@@ -79,7 +80,8 @@ async function init() {
   renderViewSwitch();
   state.on('directoryLabel', renderViewSwitch);
 
-  // Route to initial view
+  // Route to initial view; a view states its route from its first mount on.
+  state.on('replaceRoute', replaceRoute);
   routeFromHash();
   window.addEventListener('hashchange', routeFromHash);
 }
@@ -102,11 +104,25 @@ function routeFromHash() {
 }
 
 /**
+ * A mounted view states the route it now shows: written over the current
+ * history entry, and remembered as mounted, so the hash the view was opened
+ * with mounts it again. A route for a view that is not mounted is ignored.
+ * @param {Route} route
+ */
+function replaceRoute(route) {
+  if (route.view !== currentView) return;
+  const hash = formatRoute(route);
+  if (hash === location.hash) return;
+  history.replaceState(history.state, '', hash);
+  currentRouteKey = hash;
+}
+
+/**
  * @param {string} viewName
  * @param {RouteParams} params
  */
 function activateView(viewName, params) {
-  const routeKey = JSON.stringify([viewName, params]);
+  const routeKey = formatRoute({ view: viewName, params });
   if (currentRouteKey === routeKey) return;
 
   const container = document.getElementById('view-container');

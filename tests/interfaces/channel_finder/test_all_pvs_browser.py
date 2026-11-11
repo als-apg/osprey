@@ -15,7 +15,8 @@ Coverage, each in Chromium:
       shared sidebar, and no ``nav`` header contribution is sent.
   (b) a word search lists curated (◆) and control-system-only (◇) rows, the
       IOC health PVs among the ◇ ones, with current values read.
-  (c) a filter narrows the rows, and the result count follows it.
+  (c) a filter narrows the rows, and the result count follows it; the address
+      bar carries it, so Back from a PV page restores it.
   (d) a PV page shows its sections in order, the live alarm state (severity,
       latched, acknowledged) and the current value; no alarm or put history,
       since the section configures neither; the logbook is not available on
@@ -286,6 +287,32 @@ def test_a_filter_narrows_the_rows_and_the_count_follows(chromium_browser: Brows
     rows = _rows(host)
     assert len(rows) == expected == _count(host)
     assert {row["mark"] for row in rows} == {"◇"}
+
+
+def test_back_from_a_pv_page_restores_the_filter(chromium_browser: Browser, panel_url: str):
+    host = _open(chromium_browser, panel_url, "#/allpvs")
+    _search(host, WORD)
+    facet = host.locator('.allpvs-facet[data-facet="origin"][data-value="directory"]')
+    expected = int(facet.locator(".allpvs-facet-n").inner_text())
+    facet.click()
+    host.wait_for_function("() => location.hash.includes('origin=directory')")
+    assert f"q={WORD}" in host.evaluate("location.hash")
+    host.wait_for_function(
+        "n => document.querySelectorAll('.allpvs-table tbody tr[data-name]').length === n",
+        arg=expected,
+    )
+
+    host.locator(f"{ROWS} td.name a").first.click()
+    host.wait_for_selector(".pv-page .pvp-name")
+    # Back inside the frame: the host page sees no navigation of its own to wait for.
+    host.evaluate("history.back()")
+    host.wait_for_selector(
+        '.allpvs-facet[data-facet="origin"][data-value="directory"][aria-pressed="true"]'
+    )
+    host.wait_for_function(
+        "n => document.querySelector('#cf-result-count strong')?.textContent === String(n)",
+        arg=expected,
+    )
 
 
 def test_a_pv_page_shows_its_sections_alarm_state_and_value(

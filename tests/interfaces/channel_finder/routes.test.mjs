@@ -143,6 +143,64 @@ describe('routing', () => {
     expect(views.allpvs.mount).toHaveBeenCalledTimes(2);
   });
 
+  describe('a view stating its route', () => {
+    test('is written when the view states it on its first mount', async () => {
+      const { views } = await boot('#/allpvs?ioc=X', undefined, (state, views) => {
+        views.allpvs.mount.mockImplementation(() =>
+          state.emit('replaceRoute', { view: 'allpvs', params: { q: '', ioc: ['X'] } })
+        );
+      });
+      expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
+      expect(location.hash).toBe('#/allpvs?q=&ioc=X');
+      go('#/allpvs?ioc=X');
+      expect(views.allpvs.mount).toHaveBeenCalledTimes(2);
+    });
+
+    test('the written route in another param order does not re-mount', async () => {
+      const { state, views } = await boot('#/allpvs?q=a');
+      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
+      go('#/allpvs?ioc=X&q=a');
+      expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
+    });
+
+    test('replaces the hash without a history entry or a re-mount', async () => {
+      const { state, views } = await boot('#/allpvs?q=a');
+      const entries = window.history.length;
+      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
+      expect(location.hash).toBe('#/allpvs?q=a&ioc=X');
+      expect(window.history.length).toBe(entries);
+      expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
+    });
+
+    test('Back to the written hash mounts its words and filters', async () => {
+      const { state, views } = await boot('#/allpvs?q=a');
+      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
+      go('#/pv/P');
+      go('#/allpvs?q=a&ioc=X');
+      expect(views.allpvs.mount).toHaveBeenCalledTimes(2);
+      expect(views.allpvs.mount.mock.calls[1][1]).toEqual({ q: 'a', ioc: ['X'] });
+    });
+
+    test('a route for a view that is not mounted is ignored', async () => {
+      const { state, views } = await boot('#/pv/P');
+      const entries = window.history.length;
+      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
+      expect(location.hash).toBe('#/pv/P');
+      expect(window.history.length).toBe(entries);
+      go('#/pv/P');
+      expect(views.pv.mount).toHaveBeenCalledTimes(1);
+      expect(views.allpvs.mount).not.toHaveBeenCalled();
+    });
+
+    test('the hash the view was opened with mounts it again', async () => {
+      const { state, views } = await boot('#/allpvs?q=a');
+      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
+      go('#/allpvs?q=a');
+      expect(views.allpvs.mount).toHaveBeenCalledTimes(2);
+      expect(views.allpvs.mount.mock.calls[1][1]).toEqual({ q: 'a' });
+    });
+  });
+
   test('bare view names keep working, and explore is the default', async () => {
     const { views } = await boot('');
     expect(views.explore.mount).toHaveBeenCalledTimes(1);

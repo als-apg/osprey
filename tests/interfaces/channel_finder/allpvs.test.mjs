@@ -126,11 +126,13 @@ async function mount(setup = {}) {
   state.scopeQuery = query;
   const labels = vi.fn();
   state.on('directoryLabel', labels);
+  const routes = vi.fn();
+  state.on('replaceRoute', routes);
   const view = await import(`${JS}/allpvs.js`);
   const container = /** @type {HTMLElement} */ (document.getElementById('view-container'));
   view.mountAllPvs(container, params);
   unmount = view.unmountAllPvs;
-  return { state, view, container, fetchMock, searches, postMessage, labels };
+  return { state, view, container, fetchMock, searches, postMessage, labels, routes };
 }
 
 /** @param {HTMLElement} root */
@@ -340,6 +342,53 @@ describe('search and filters', () => {
     const input = /** @type {HTMLInputElement} */ (document.getElementById('cf-search'));
     expect(input.disabled).toBe(true);
     expect(document.getElementById('cf-result-count')?.hidden).toBe(true);
+  });
+});
+
+describe('the address bar', () => {
+  /** @param {import('vitest').Mock} routes */
+  const lastParams = (routes) => routes.mock.calls.at(-1)?.[0].params;
+
+  test('mount states the route words', async () => {
+    const { routes } = await mount({ params: { q: 'BPM' } });
+    expect(routes).toHaveBeenCalledTimes(1);
+    expect(routes).toHaveBeenCalledWith({ view: 'allpvs', params: { q: 'BPM' } });
+  });
+
+  test('a facet click states the facet beside the words', async () => {
+    const { routes } = await mount({ params: { q: 'BPM' } });
+    const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
+    await vi.waitFor(() =>
+      expect(sidebar.querySelector('[data-facet="origin"][data-value="curated"]')).not.toBeNull()
+    );
+    /** @type {HTMLButtonElement} */ (
+      sidebar.querySelector('[data-facet="origin"][data-value="curated"]')
+    ).click();
+    expect(lastParams(routes)).toEqual({ q: 'BPM', origin: ['curated'] });
+  });
+
+  test('new words state the words with the facets cleared', async () => {
+    const { routes } = await mount({ params: { q: 'BPM', ioc: ['IOC1'] } });
+    expect(lastParams(routes)).toEqual({ q: 'BPM', ioc: ['IOC1'] });
+    const input = /** @type {HTMLInputElement} */ (document.getElementById('cf-search'));
+    input.value = 'QF';
+    input.dispatchEvent(new Event('input'));
+    expect(routes).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(lastParams(routes)).toEqual({ q: 'QF' }));
+  });
+
+  test('blank words are stated as an empty q', async () => {
+    const { routes } = await mount();
+    expect(routes).toHaveBeenCalledWith({ view: 'allpvs', params: { q: '' } });
+  });
+
+  test('paging states nothing', async () => {
+    const { container, searches, routes } = await mount({ search: pageOf(60) });
+    await vi.waitFor(() => expect(rows(container).length).toBeGreaterThan(1));
+    const before = routes.mock.calls.length;
+    /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="next"]')).click();
+    await vi.waitFor(() => expect(searches.at(-1)).toContain('page=1'));
+    expect(routes).toHaveBeenCalledTimes(before);
   });
 });
 
