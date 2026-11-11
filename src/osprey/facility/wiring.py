@@ -2,8 +2,9 @@
 
 A wiring record carries eight slots the build fills and no author states:
 ``direction``, ``unit``, ``default``, ``value_range``, ``engine_role``,
-``plane``, ``refresh`` and ``marks``. ``default`` waits for a deck;
-``engine_role``, ``plane``,
+``plane``, ``refresh`` and ``marks``. ``default`` waits for a deck, or for an
+engine that sets ``deckless_start_values`` and so starts a deckless model's
+setpoints itself; ``engine_role``, ``plane``,
 ``refresh`` and ``marks`` wait for an engine, and are what the model's engine
 ``describe()`` says the record is, in the facility schema's words;
 ``direction``, ``unit`` and ``value_range`` are filled for every model. This module is their one writer: it loads each physics model's engine
@@ -55,7 +56,9 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     The slots are written in place on ``validated.document``:
 
     * ``default``: the engine's start value for the address, from the deck
-      at ``facility_dir / model.deck``;
+      at ``facility_dir / model.deck``; for a deckless model, only when its
+      engine sets ``deckless_start_values``, which is then asked with no deck
+      and gives a value for each setpoint it starts;
     * ``direction``: ``write`` for a setpoint channel, else ``read``;
     * ``unit``: the channel's unit, when the channel states one;
     * ``value_range``: ``[min_value, max_value]`` of the channel's limits
@@ -65,7 +68,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
       steers or reads no plane, and ``marks`` is absent for a record the
       engine marks with none.
 
-    ``default`` waits for a deck; the description waits for an engine, which every model but a ``texture`` one names. Each filled slot
+    ``default`` waits for a deck or a deckless engine; the description waits for an engine, which every model but a ``texture`` one names. Each filled slot
     is recorded in the record's ``provenance.defaults``. The engine is reached
     through the ``osprey.simulation.engines`` entry-point group, read once per
     build. A record the engine has no start value for, or cannot describe, is
@@ -191,7 +194,8 @@ def _fill_model(
             )
         ]
     records = [r for r in model.get("wiring", []) if r["address"] in channels]
-    if "deck" not in model:
+    deckless = "deck" not in model
+    if deckless and getattr(engine, "deckless_start_values", False) is not True:
         errors: list[FacilityBuildError] = []
         for record in records:
             _fill_record(record, channels[record["address"]], limits.get(record["address"]))
@@ -204,7 +208,7 @@ def _fill_model(
     }
     try:
         values = engine.start_values(
-            facility_dir / model["deck"],
+            None if deckless else facility_dir / model["deck"],
             model.get("wiring", []),
             model.get("settings"),
             readbacks=readbacks,
@@ -238,6 +242,11 @@ def _fill_model(
     errors = []
     for record in records:
         address = record["address"]
+        if deckless:
+            # A deckless engine starts its setpoints only; a reading has no start value.
+            _fill_record(record, channels[address], limits.get(address), values.get(address))
+            errors.extend(_describe_record(describe, model, record, pairs))
+            continue
         if address not in values:
             errors.append(
                 FacilityBuildError(
@@ -395,7 +404,7 @@ def _fill_record(
     limit: Mapping[str, Any] | None,
     default: float | list[float] | None = None,
 ) -> None:
-    """Write a record's computed slots; ``default`` only when a deck gave one."""
+    """Write a record's computed slots; ``default`` only when the engine gave one."""
     slots: dict[str, Any] = {"direction": "write" if _role(channel) == "setpoint" else "read"}
     if default is not None:
         slots["default"] = default

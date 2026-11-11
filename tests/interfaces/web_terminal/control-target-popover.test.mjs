@@ -1531,6 +1531,14 @@ describe('switching', () => {
     await chipModule.refetch();
     await flush();
     expect(chipModule.isPending()).toBe(true);
+    // And the row counts the steps: sent, accepted, the one server to go.
+    const bar = document.querySelector('.ctc-progress-line [role="progressbar"]');
+    expect(bar?.getAttribute('aria-valuenow')).toBe('2');
+    expect(bar?.getAttribute('aria-valuemax')).toBe('3');
+    expect(bar?.getAttribute('aria-valuetext')).toBe('0 of 1 controls server');
+    expect(document.querySelector('.ctc-progress-label')?.textContent).toBe(
+      '0 of 1 controls server'
+    );
 
     // The server reaches 4: landed. Without the 202's generation the chip
     // would have nothing to compare against and wait out its deadline.
@@ -1539,6 +1547,7 @@ describe('switching', () => {
     await flush();
     expect(chipModule.isPending()).toBe(false);
     expect(outcomes('va')).toContain('✓ switched');
+    expect(document.querySelector('.ctc-progress-line')).toBeNull();
   });
 
   test('a request for the target already held arms no wait at all', async () => {

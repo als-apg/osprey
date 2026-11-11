@@ -13,10 +13,31 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from lume.model import LUMEModel
 
-__all__ = ["ENTRY_POINT_GROUP", "EnginePlugin"]
+__all__ = ["ENTRY_POINT_GROUP", "OPTIONAL_NAMES", "TIME_CONTRACT", "EnginePlugin"]
 
 #: The entry-point group every engine plug-in registers under.
 ENTRY_POINT_GROUP = "osprey.simulation.engines"
+
+#: The optional functions by which time and client writes reach a model.
+TIME_CONTRACT = ("advance", "next_deadline", "emitted", "client_write")
+
+#: Every name a plug-in may state beyond :class:`EnginePlugin`'s, each looked
+#: up on the module by name; ``deckless_start_values`` and the ``*_ERRORS``
+#: tuples are values, the rest are functions.
+OPTIONAL_NAMES = (
+    *TIME_CONTRACT,
+    "deck_length",
+    "deckless_start_values",
+    "element_index",
+    "error_text",
+    "fault_variables",
+    "polynomial_kicks",
+    "readout",
+    "response_matrix",
+    "scenario_stops",
+    "REFUSAL_ERRORS",
+    "SOLVE_ERRORS",
+)
 
 
 @runtime_checkable
@@ -33,16 +54,33 @@ class EnginePlugin(Protocol):
     ======================================  ============================================  ==========================================
     name                                    what it gives                                 a module without it
     ======================================  ============================================  ==========================================
+    ``advance(model, t_s)``                 applies every step due by epoch second        the model is never advanced
+                                            ``t_s``; the first call after a build or a
+                                            reset anchors the model's time
+    ``client_write(model, values, t_s)``    tells the engine a client wrote these         a client write starts nothing
+                                            setpoints, already forwarded; the one call
+                                            that starts what a client write triggers
     ``deck_length(deck, *, model=None)``    the length of the deck's lattice in metres    the SDK's ``model_members`` raises
                                             (a ring's circumference)
-    ``element_index(deck, element, *,       the element's lattice index: ring order,      the SDK's ``model_members`` raises
-    model=None)``                           which tells co-located elements apart
+    ``deckless_start_values``               ``True``: ``start_values`` may be called      ``start_values`` is not called without a
+                                            with no deck                                  deck
+    ``element_index(deck, element,``        the element's lattice index: ring order,      the SDK's ``model_members`` raises
+    ``*, model=None)``                      which tells co-located elements apart
+    ``emitted(model)``                      the addresses of ``event`` channels fired     the model emits nothing
+                                            since the last call, cleared as returned
     ``error_text(exc)``                     the one line a failed build reports           the exception's own text
-    ``fault_variables(wiring)``             every fault a model built from the wiring     the model declares no faults
-                                            declares, by address or by element
+    ``fault_variables(wiring, settings)``   every fault a model built from the wiring     the model declares no faults
+                                            and its settings declares, by address or by
+                                            element, without a deck load. Raising
+                                            ``ValueError`` refuses the model: the build
+                                            stops ``engine-invalid`` with its text
+    ``next_deadline(model)``                the epoch second of the model's next due      the model has no deadline
+                                            step, or ``None``
     ``polynomial_kicks(deck, elements)``    a deck copy carrying named kicks as dipole    the pyAML view stops ``engine-invalid``
                                             polynomials; stand-in until pyAML reads a     when design correctors need it
                                             dipole kick held in ``KickAngle``
+    ``readout(model, values, t_ms)``        what each monitor reads of ``values``, its    a monitor reads its beam truth as given
+                                            beam truth at epoch millisecond ``t_ms``
     ``response_matrix(...)``                called with ``(deck, wiring, settings,        ``model_response_matrix`` ends without a
                                             correctors, step)``: the orbit response of    result; the response check stops
                                             the wired monitors, ``rows``, ``columns``,
@@ -65,6 +103,15 @@ class EnginePlugin(Protocol):
                                             solve"; stand-in until lume-base states       refusal
                                             ``SolveError``
     ======================================  ============================================  ==========================================
+
+    The four names of :data:`TIME_CONTRACT` make an engine time-driven: a lazy
+    state machine with no thread of its own. The same calls and clock readings
+    always yield the same values. A model's ``set`` only stores values and
+    never starts time-driven behaviour, since restore, rollback, journal replay
+    and scenario writes all reach it; what a client write triggers lives behind
+    ``client_write`` alone. ``build`` receives no clock, so the caller calls
+    ``advance`` right after a build, a rebuild or a reset.
+    :data:`OPTIONAL_NAMES` lists every name of this table.
     """
 
     def locate(self, deck: Any, element: str, *, model: str | None = None) -> tuple[float, float]:

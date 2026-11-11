@@ -275,7 +275,9 @@ when they do not exist, and never rewrites them afterwards. It creates
 ``classes.yaml`` when absent; when the file exists, the import appends only
 the classes it lacks and leaves its rows as written. It replaces a bundled
 facility, saying so in one line, and refuses only hand-written records of the
-kinds it writes, naming each file.
+kinds it writes, naming each file. That refusal guards the first import: once
+an imported layer exists, records you write by hand beside it stay through
+every later import, and the build combines them with the layers.
 
 A channel list
 --------------
@@ -486,6 +488,11 @@ and a ``wiring`` list that ties channel addresses to elements of the deck:
          curve:
            linear: {gain: 1.0, offset: 0.0}
          energy_scaling: none
+
+The ``pyat`` settings may also carry ``error_elements``, a list of
+``{element: <name>, multipoles: true|false}`` naming deck elements no wiring
+record binds that a scenario may still misalign or give a multipole error; see
+*Element errors* in :doc:`/architecture/virtual-accelerator`.
 
 A wiring record's ``calibration`` converts between the channel's hardware
 value and the engine's physics value, as a ``linear`` gain and offset or a

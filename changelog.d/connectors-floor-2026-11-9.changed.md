@@ -1,0 +1,1 @@
+The framework requires `osprey-connectors>=2026.11.9`, the first release whose composite drives a time-driven engine, whose simulator view accepts the `fast` and `event` refresh words, and which reads `simulation.fast_tick_s` (`resolve_fast_tick_s`); the virtual accelerator's injection engine, its runner and the build use all three.

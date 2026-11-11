@@ -211,6 +211,24 @@ def test_a_hand_written_record_of_another_kind_survives_the_import(cleared: Path
     assert (facility / LAYER_DIR / "channels.yaml").is_file()
 
 
+def test_a_record_written_by_hand_beside_the_layer_survives_a_reimport(cleared: Path) -> None:
+    pytest.importorskip("at")
+    facility = _facility(cleared)
+    assert _import(cleared).exit_code == 0
+    models = facility / "models.yaml"
+    models.write_text("- name: CHAIN\n  engine: texture\n", encoding="utf-8")
+    channels = facility / "records" / "channels.yaml"
+    channels.parent.mkdir(exist_ok=True)
+    channels.write_text("- id: CHAIN:REQUEST\n", encoding="utf-8")
+    kept = (models.read_bytes(), channels.read_bytes())
+
+    result = _import(cleared)
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr == ""
+    assert (models.read_bytes(), channels.read_bytes()) == kept
+
+
 def test_fixes_classes_and_knowledge_never_stop_the_import(cleared: Path) -> None:
     pytest.importorskip("at")
     facility = _facility(cleared)

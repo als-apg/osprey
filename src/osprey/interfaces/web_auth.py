@@ -142,7 +142,7 @@ OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"  # noqa: S105 -- names an environ
 #: Prefix of the per-user operator secrets a multi-user deployment mints
 #: (``OSPREY_TERMINAL_SECRET_<USER>``). Each per-user container receives its
 #: own under the fixed name above; a shared sidecar that per-user terminals
-#: proxy into — the bluesky-web panel — is handed every entitled user's
+#: proxy into — the bluesky-web or optimizer-web panel — is handed every entitled user's
 #: variable under its own name — with :data:`ROSTER_ACCEPT_ENV` beside them —
 #: and accepts any of them, so a render presenting its own secret is let in
 #: without the deployment-wide one ever leaving the deploy ``.env``. The one
@@ -152,9 +152,11 @@ OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"  # noqa: S105 -- names an environ
 ROSTER_SECRET_ENV_PREFIX = f"{OPERATOR_SECRET_ENV}_"
 
 #: The switch that lets a process ACCEPT the roster secrets it finds. Set to
-#: ``"1"`` in exactly one place: the bluesky-web sidecar's compose environment
-#: (``services/bluesky_web/docker-compose.yml``), beside the roster variables
-#: it lists. Every roster variable is popped from the environment wherever it
+#: ``"1"`` only in the compose environments of the shared sidecars per-user
+#: terminals proxy into — the bluesky-web and optimizer-web panels
+#: (``services/bluesky_web/docker-compose.yml``,
+#: ``services/optimizer_web/docker-compose.yml``) — beside the roster
+#: variables each lists. Every roster variable is popped from the environment wherever it
 #: is found — the deploy ``.env`` carries them all, and ``osprey web`` on the
 #: host loads that file — but only a process whose compose declared this flag
 #: treats them as operators. Without it the host's own terminal, loading the

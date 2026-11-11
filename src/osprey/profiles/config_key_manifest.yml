@@ -788,6 +788,14 @@ keys:
       `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.optimizer
+  services.optimizer_web.image:
+    rendered: false
+    evidence: 'OSPREY_OPTIMIZER_WEB_IMAGE:-\{\{ services\.optimizer_web\.image'
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
+    default: derived
+    default_note: osprey_images.optimizer_web
   services.optimizer.redis_image:
     rendered: false
     evidence: 'OSPREY_OPTIMIZER_REDIS_IMAGE:-\{\{ svc\.redis_image'
@@ -958,6 +966,9 @@ keys:
   services.bluesky_web.port: {evidence: '"bluesky-web": "services\.bluesky_web\.port"', default: derived, default_note: the layout's bluesky_web slot at this deployment's port base}
   services.optimizer.port: {rendered: false, evidence: '"optimizer": "services\.optimizer\.port"', default: derived, default_note: the layout's optimizer slot at this deployment's port base}
   services.optimizer.environments_dir: {rendered: false, evidence: 'svc\.environments_dir \}\}:/app/environments:ro', default: null}
+  services.optimizer_web: {rendered: false, evidence: 'hostenv\.passthrough\(services\.optimizer_web\)', default: null}
+  services.optimizer_web.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the optimizer-web injector writes ./services/optimizer_web"}
+  services.optimizer_web.port: {rendered: false, evidence: '"optimizer-web": "services\.optimizer_web\.port"', default: derived, default_note: the layout's optimizer_web slot at this deployment's port base}
   services.virtual_accelerator: {evidence: 'set svc = services\[instance_key\]', default: null}
   services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator"}
   services.virtual_accelerator.port: {evidence: 'dotted_get\(config, "services\.virtual_accelerator\.port"\) or DEFAULT_VA_PORT', default: derived, default_note: the virtual accelerator's Channel Access default port}
@@ -1034,6 +1045,11 @@ keys:
   web.panels.bluesky.url: {covered-by: web.panels.events.url, default: derived, default_note: "the bluesky-web sidecar's loopback URL, written by the bluesky-web injector"}
   web.panels.bluesky.path: {covered-by: web.panels.events.path, default: /bluesky/}
   web.panels.bluesky.label: {covered-by: web.panels.events.label, default: BLUESKY}
+  web.panels.optimizer: {rendered: false, covered-by: web.panels, default: n/a}
+  web.panels.optimizer.url: {rendered: false, covered-by: web.panels.events.url, default: derived, default_note: "the optimizer-web sidecar's loopback URL, written by the optimizer-web injector"}
+  web.panels.optimizer.path: {rendered: false, covered-by: web.panels.events.path, default: /optimizer/}
+  web.panels.optimizer.label: {rendered: false, covered-by: web.panels.events.label, default: OPTIMIZER}
+  web.panels.optimizer.read_timeout_s: {rendered: false, covered-by: web.panels.<app-panel>.read_timeout_s, default: derived, default_note: "the optimizer client's 80 s budget plus a 10 s margin (OPTIMIZER_PANEL_READ_TIMEOUT_S), written by the optimizer-web injector; the host's setting, projected into attached renders (an explicit null included), which may not set their own"}
 
   # ── Projected from a deployment's applications (notes.application_families) ──
   services.<app-container>:
@@ -1232,6 +1248,13 @@ keys:
     evidence: 'resolve_tick_s\('
     note: seconds between the simulator's ticks; a value at or below 0 stops the build
     default: 1.0
+  simulation.fast_tick_s:
+    rendered: false
+    evidence: 'resolve_fast_tick_s\('
+    note: >-
+      seconds between the served composite's timed passes; no preset states it,
+      the resolver holds the default; a value at or below 0 stops the build
+    default: 0.1
   simulation.default_scenarios:
     evidence: '\.get\("default_scenarios"\)'
     facility-fact: true

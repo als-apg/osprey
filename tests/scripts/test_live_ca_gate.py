@@ -324,3 +324,13 @@ def test_the_limit_comes_from_the_flag_then_the_environment_then_the_default(
         ("tests/a.py", 45.0),
         ("tests/a.py", 7.5),
     ]
+
+
+def test_pva_mode_runs_the_seam_timed_passes_and_injection_suites_in_that_order() -> None:
+    assert gate.PVA_SUITES == (
+        "tests/va/test_lume_pva_seam.py",
+        "tests/va/test_timed_passes_live.py",
+        "tests/va/test_injection_live.py",
+    )
+    root = _MODULE_PATH.parents[3]
+    assert all((root / suite).is_file() for suite in (*gate.LIVE_SUITES, *gate.PVA_SUITES))

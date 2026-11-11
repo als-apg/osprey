@@ -205,6 +205,13 @@ Profile YAML reference
      - absent
      - Deploys the optimizer service and its Redis job store
        (see :ref:`profile-optimizer`).
+   * - ``optimizer_web``
+     - mapping
+     - absent
+     - Deploys the ``optimizer-web`` sidecar that serves the ``optimizer``
+       panel and relays its writes to the optimizer service; needs an
+       ``optimizer:`` block. Its one key, ``port``, defaults to the port
+       layout's ``optimizer_web`` slot (see :ref:`reference-ports`).
    * - ``nextcloud_bridge`` / ``gchat_bridge`` / ``teams_bridge`` / ``slack_bridge``
      - mapping
      - absent

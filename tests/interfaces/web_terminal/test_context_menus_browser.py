@@ -410,6 +410,9 @@ def test_a_right_click_in_the_composer_or_a_rename_field_opens_no_osprey_menu(hu
     page.wait_for_timeout(200)
     expect(page.locator(_MENU)).to_have_count(0)
 
+    # The heading's menu is wired by panel-rail.js's render, which also adds
+    # the System group; index.html alone serves an unwired heading.
+    expect(page.locator('#panel-rail > [data-group="system"]')).to_be_attached(timeout=_TIMEOUT_MS)
     head = page.locator('#panel-rail > [data-group="tools"] > .sidebar-group-head')
     head.locator(".sidebar-group-name").focus()
     page.keyboard.press("Shift+F10")

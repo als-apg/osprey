@@ -68,6 +68,9 @@ services:
       # `simulation.tick_s`, rendered here by compose_generator. Not a host
       # passthrough, so the tick is the one the config states.
       VA_POLL_INTERVAL_S: "1.0"
+      # How often the composite's timed passes run between ticks, in seconds:
+      # the config key `simulation.fast_tick_s`, rendered the same way.
+      VA_FAST_INTERVAL_S: "0.1"
       # Where the IOC polls active_scenarios — the second mount below, not the
       # build-owned data dir.
       VA_STATE_DIR: /state/simulation

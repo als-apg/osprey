@@ -580,10 +580,12 @@ def _readout(
     """
     from osprey.simulation.engines.pyat_faults import fault_variables
 
-    wiring = {str(entry.get("name")): entry.get("wiring") or [] for entry in models}
     rosters = {
-        name: {(slot.address, slot.field) for slot in fault_variables(records).values()}
-        for name, records in wiring.items()
+        str(entry.get("name")): {
+            (slot.address, slot.field)
+            for slot in fault_variables(entry.get("wiring") or [], entry.get("settings")).values()
+        }
+        for entry in models
     }
     faults: dict[str, dict[str, dict[str, float]]] = {}
     lines: list[str] = []

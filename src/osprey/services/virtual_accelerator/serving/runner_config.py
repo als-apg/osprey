@@ -20,12 +20,17 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 :func:`periodic_addresses` names the channels the view says refresh
 ``periodic``, which a write pass leaves for the next periodic pass.
 
-:func:`setting_records` and :func:`pass_readback` name what a write pass of
-physics settings reads back. A physics setting reaches its own model alone, and
-there moves itself, its readback and what the model computes from its settings.
-Every other value stands as the last pass left it -- what moves with time alone,
-the next periodic pass publishes -- and reading it back again would make each
-write, one per corrector for an apply, cost the whole roster.
+:func:`fast_addresses` and :func:`event_addresses` name the channels the view
+says refresh ``fast`` and ``event``, which timed passes publish beside the
+global tick; a view with neither runs no timed pass at all.
+
+:func:`setting_records`, :func:`write_records` and :func:`pass_readback` name
+what a write pass reads back. A physics setting reaches its own model alone, and
+there moves itself, its readback and what the model computes from its settings;
+a texture setpoint moves itself, its echo and the texture channels derived from
+either. Every other value stands as the last pass left it -- what moves with
+time alone, the next periodic pass publishes -- and reading it back again would
+make each write, one per corrector for an apply, cost the whole roster.
 
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
@@ -40,7 +45,7 @@ import copy
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from osprey_connectors.simulation.view import PERIODIC, SETPOINT
+from osprey_connectors.simulation.view import PERIODIC, REFRESH, SETPOINT
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
@@ -50,9 +55,12 @@ __all__ = [
     "HEALTH_KEYS",
     "SAFETY_KEYS",
     "apply_safety",
+    "event_addresses",
+    "fast_addresses",
     "pass_readback",
     "periodic_addresses",
     "setting_records",
+    "write_records",
 ]
 
 #: The write-path keys every model runner configuration carries.
@@ -75,6 +83,8 @@ HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 FLOAT_PRECISION = 4
 
 _FLOAT = "float"
+# The refresh words of the view's vocabulary, taken from it, never restated.
+_, _, _FAST, _EVENT = REFRESH
 
 
 def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, Any]:
@@ -124,11 +134,40 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
     Returns:
         The bound addresses the periodic solve alone publishes.
     """
+    return _refreshing(view, PERIODIC)
+
+
+def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
+    """The addresses whose binding refreshes ``refresh``, across every model of the view."""
     return frozenset(
         binding.address
         for binding in view.bindings(served_only=False)
-        if binding.refresh == PERIODIC
+        if binding.refresh == refresh
     )
+
+
+def fast_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses whose binding refreshes ``fast``, across every model of the view.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        The bound addresses every timed pass reads and posts.
+    """
+    return _refreshing(view, _FAST)
+
+
+def event_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses whose binding refreshes ``event``, across every model of the view.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        The bound addresses posted when their engine emits them.
+    """
+    return _refreshing(view, _EVENT)
 
 
 def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
@@ -166,6 +205,23 @@ def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
     return records
 
 
+def write_records(
+    view: SimulatorView, texture_reach: Mapping[str, frozenset[str]]
+) -> dict[str, frozenset[str]]:
+    """The records any setpoint's write can change, by setpoint address.
+
+    Args:
+        view: The simulator view.
+        texture_reach: What a write to each settable texture channel can
+            change, as the composite's ``texture_reach`` names it.
+
+    Returns:
+        ``texture_reach``, and over it the :func:`setting_records` of the
+        setpoints a physics model binds.
+    """
+    return {**texture_reach, **setting_records(view)}
+
+
 def pass_readback(
     records: Mapping[str, frozenset[str]], written: Iterable[str]
 ) -> frozenset[str] | None:
@@ -173,7 +229,7 @@ def pass_readback(
 
     Args:
         records: The records each address's write can change, as
-            :func:`setting_records` names them.
+            :func:`write_records` names them.
         written: The addresses the pass writes.
 
     Returns:

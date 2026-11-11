@@ -305,6 +305,9 @@ Before it reads an export, the import looks at ``data/facility/``:
   device, group, model, deck, seed, limit, identity and measurement records; the
   list format writes channel and device records. A file is hand-written once its
   bundled-origin line is gone. Corrections belong in ``fixes.yaml``.
+* Once the facility holds an imported layer, records written by hand beside it
+  stay and stop no import. They are the facility's own additions, such as a
+  model no export states, and the build combines them with the layers.
 * Bundled files are replaced, and one line says so:
   ``import mml: replaced the bundled example facility (<n> files)``. The line
   prints before the export is read, so a stop that follows it, such as a mapping

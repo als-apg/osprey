@@ -89,7 +89,7 @@ from osprey_connectors.config import ConfigBuilder, load_project_config
 from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_DIR_MODE, atomic_replace
 
 logger = get_logger("deployment.compose")
 
@@ -1714,6 +1714,7 @@ _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
     "bluesky_bridge": "-bluesky-bridge",
     "bluesky_web": "-bluesky-web",
     "optimizer": "-optimizer",
+    "optimizer_web": "-optimizer-web",
     "gchat_bridge": "-gchat-bridge",
     "nextcloud_bridge": "-nextcloud-bridge",
     "teams_bridge": "-teams-bridge",
@@ -3123,10 +3124,12 @@ def _inject_project_metadata(config):
     # in-process simulator and the build's profile check call, so every surface
     # serving the composite ticks at the period the config states. Rendered as
     # a value rather than a ``${...}`` passthrough: the config is the only
-    # source of the tick.
-    from osprey_connectors.simulation import resolve_tick_s
+    # source of the tick. The fast period of the composite's timed passes
+    # travels the same way.
+    from osprey_connectors.simulation import resolve_fast_tick_s, resolve_tick_s
 
     config_with_labels["va_tick_s"] = resolve_tick_s(config)
+    config_with_labels["va_fast_tick_s"] = resolve_fast_tick_s(config)
 
     # Where each Virtual Accelerator instance appends its model logs on the
     # host, keyed by instance. Instance 1 writes the deployment's simulator log
@@ -4122,8 +4125,10 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
 #: wrote, which is what "shared corpus" has to mean for a multi-user roster.
 #: Nothing is granted to ``other``: the qmd sidecar reads as root and the web
 #: terminals come in through their group, so a world-readable corpus would widen
-#: access to a facility's knowledge for no consumer that needs it.
-SHARED_CORPUS_DIR_MODE = 0o2770
+#: access to a facility's knowledge for no consumer that needs it. It is the
+#: mode of every group-shared location (``safety_file.SHARED_DIR_MODE``), set
+#: here at deploy time on directories that already exist as well.
+SHARED_CORPUS_DIR_MODE = SHARED_DIR_MODE
 
 
 def resolve_facility_bundle_dir(
@@ -4790,7 +4795,11 @@ def dispatch_worker_audit_identities(config):
 #: (``web_terminals.provision``) alongside the roster's own identities. A
 #: projected service's identity comes from its block's ``audit_identity``
 #: (:func:`service_audit_identities`), not from this mapping.
-FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web", "optimizer": "optimizer"}
+FIXED_SERVICE_AUDIT_IDENTITIES = {
+    "bluesky_web": "bluesky-web",
+    "optimizer": "optimizer",
+    "optimizer_web": "optimizer-web",
+}
 
 
 def lane_queueserver_audit_identities(config):

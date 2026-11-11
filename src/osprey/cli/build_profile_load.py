@@ -40,7 +40,12 @@ from osprey.port_layout import (
 from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
+from osprey_connectors.simulation import (
+    FAST_TICK_KEY,
+    TICK_KEY,
+    resolve_fast_tick_s,
+    resolve_tick_s,
+)
 from osprey_connectors.types import (
     RETIRED_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
@@ -84,6 +89,7 @@ from .build_profile_schema import (
     McpServerDef,
     NextcloudBridgeProfileConfig,
     OptimizerConfig,
+    OptimizerWebConfig,
     ProfileProvenance,
     ServiceDef,
     SlackBridgeProfileConfig,
@@ -277,6 +283,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "virtual_accelerator",
         "bluesky_web",
         "optimizer",
+        "optimizer_web",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -335,6 +342,7 @@ LOGIN_DEPLOYMENT_FACTS = frozenset(
         "bluesky",
         "bluesky_web",
         "optimizer",
+        "optimizer_web",
         "virtual_accelerator",
         "nextcloud_bridge",
         "gchat_bridge",
@@ -593,6 +601,7 @@ _KNOWN_BLUESKY_KEYS = frozenset(f.name for f in fields(BlueskyConfig))
 # for the same reason the bluesky set is: a misspelled `target:` would leave the
 # deployment on its default target with no word said.
 _KNOWN_OPTIMIZER_KEYS = frozenset(f.name for f in fields(OptimizerConfig))
+_KNOWN_OPTIMIZER_WEB_KEYS = frozenset(f.name for f in fields(OptimizerWebConfig))
 
 # Keys recognized inside the ``bluesky.external:`` block, derived from its
 # dataclass exactly as the parent block's are, and for the same reason.
@@ -1057,27 +1066,30 @@ def _retired_tier_refusal() -> FacilityBuildError:
     )
 
 
-def _check_tick_s(raw: dict[str, Any]) -> None:
-    """Stop a profile whose simulation tick period is not a positive number.
+def _check_simulation_periods(raw: dict[str, Any]) -> None:
+    """Stop a profile whose simulation tick period or fast period is not a positive number.
 
     Args:
         raw: The resolved raw profile dict.
 
     Raises:
         FacilityBuildError: ``profile-invalid`` naming ``simulation.tick_s``
-            if the value is not a number of seconds greater than zero.
+            or ``simulation.fast_tick_s`` if the value is not a number of
+            seconds greater than zero.
     """
-    try:
-        resolve_tick_s(_expand_dotted(raw.get("config")))
-    except ValueError as error:
-        raise FacilityBuildError(
-            "profile-invalid",
-            TICK_KEY,
-            ["profile.yml"],
-            f"set `{TICK_KEY}` to a number of seconds greater than 0",
-            record_kind="path",
-            detail=str(error),
-        ) from error
+    config = _expand_dotted(raw.get("config"))
+    for key, resolve in ((TICK_KEY, resolve_tick_s), (FAST_TICK_KEY, resolve_fast_tick_s)):
+        try:
+            resolve(config)
+        except ValueError as error:
+            raise FacilityBuildError(
+                "profile-invalid",
+                key,
+                ["profile.yml"],
+                f"set `{key}` to a number of seconds greater than 0",
+                record_kind="path",
+                detail=str(error),
+            ) from error
 
 
 def _check_default_scenarios(raw: dict[str, Any]) -> None:
@@ -1821,13 +1833,13 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     Raises:
         BuildProfileError: If the profile is malformed.
         FacilityBuildError: ``profile-invalid`` for a retired tier key, an
-            unusable simulation tick or start set, or a limits database path
+            unusable simulation tick, fast period or start set, or a limits database path
             the profile states.
     """
     _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
     _raise_app_block_problems(raw, "the profile", login=False)
-    _check_tick_s(raw)
+    _check_simulation_periods(raw)
     _check_default_scenarios(raw)
     _check_limits_database_path(raw)
     _apply_connector_shorthand(raw)
@@ -2092,6 +2104,16 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
 
     optimizer = _parse_optimizer(raw.get("optimizer"), port_base)
 
+    optimizer_web_raw = raw.get("optimizer_web")
+    optimizer_web = None
+    if optimizer_web_raw is not None:
+        if not isinstance(optimizer_web_raw, dict):
+            raise BuildProfileError("Profile 'optimizer_web' must be a mapping")
+        _reject_unknown_block_keys(optimizer_web_raw, _KNOWN_OPTIMIZER_WEB_KEYS, "optimizer_web")
+        optimizer_web = OptimizerWebConfig(
+            port=optimizer_web_raw.get("port", default_port("optimizer_web", base=port_base)),
+        )
+
     nextcloud_bridge_raw = raw.get("nextcloud_bridge")
     nextcloud_bridge = None
     if nextcloud_bridge_raw is not None:
@@ -2230,6 +2252,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         virtual_accelerator=virtual_accelerator,
         bluesky_web=bluesky_web,
         optimizer=optimizer,
+        optimizer_web=optimizer_web,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,

@@ -20,6 +20,7 @@ from osprey.deployment.web_terminals import roster
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.deployment.web_terminals.roster import (
     BLUESKY_PANEL_ID,
+    OPTIMIZER_PANEL_ID,
     PanelRosterGrant,
     panel_roster_grant_table,
     service_panel_grant,
@@ -36,9 +37,10 @@ def _projected(panel_id: str = "knob-demo", single_user_alias: object = False) -
 # ---------------------------------------------------------------------------
 
 
-def test_the_bluesky_row_is_built_in() -> None:
+def test_the_bluesky_and_optimizer_rows_are_built_in() -> None:
     assert panel_roster_grant_table({}) == {
-        BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web")
+        BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
+        OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web"),
     }
 
 
@@ -46,7 +48,7 @@ def test_a_projected_row_is_read_off_the_rendered_service_block() -> None:
     config = {"services": {"knob-demo": _projected(single_user_alias=True), "plain": {}}}
     table = panel_roster_grant_table(config)
     assert table["knob-demo"] == PanelRosterGrant(service="knob-demo", single_user_alias=True)
-    assert set(table) == {BLUESKY_PANEL_ID, "knob-demo"}
+    assert set(table) == {BLUESKY_PANEL_ID, OPTIMIZER_PANEL_ID, "knob-demo"}
 
 
 @pytest.mark.parametrize("value", ["true", 1, None])

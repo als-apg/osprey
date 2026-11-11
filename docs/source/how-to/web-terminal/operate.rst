@@ -461,7 +461,8 @@ switch:
    and report when they have arrived.
 
 #. Watch the row. It reads ``switching…`` until every server has arrived, and
-   then ``✓ switched``.
+   then ``✓ switched``. A bar under it, and on the chip, counts the steps:
+   request sent, accepted, then one per server.
 
 The outcome line leaves the row after about a minute --- an outcome is news
 for as long as someone is watching for it.

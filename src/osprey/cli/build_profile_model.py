@@ -71,6 +71,7 @@ from .build_profile_schema import (
     McpServerDef,
     NextcloudBridgeProfileConfig,
     OptimizerConfig,
+    OptimizerWebConfig,
     ProfileProvenance,
     ServiceDef,
     SlackBridgeProfileConfig,
@@ -160,6 +161,7 @@ _SLOT_CLAIM_ALIASES: dict[str, tuple[str, ...]] = {
     "bluesky": ("bluesky.port",),
     "bluesky_web": ("bluesky_web.port",),
     "optimizer": ("optimizer.port",),
+    "optimizer_web": ("optimizer_web.port",),
     "mongo": ("va_archiver.port_host",),
 }
 """Ledger keys that move a layout slot under a name other than the slot's own.
@@ -513,6 +515,7 @@ class BuildProfile:
     virtual_accelerator: VAConfig | None = None
     bluesky_web: BlueskyWebConfig | None = None
     optimizer: OptimizerConfig | None = None
+    optimizer_web: OptimizerWebConfig | None = None
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
     teams_bridge: TeamsBridgeProfileConfig | None = None
@@ -1321,6 +1324,9 @@ class BuildProfile:
         if self.optimizer is not None:
             claimed["optimizer.port"] = self.optimizer.port
 
+        if self.optimizer_web is not None:
+            claimed["optimizer_web.port"] = self.optimizer_web.port
+
         if self.dispatch is not None:
             d = self.dispatch
             claimed["dispatch.dispatcher_port"] = d.dispatcher_port
@@ -2128,6 +2134,10 @@ class BuildProfile:
             # legitimately url-less here when a bluesky_web block is present.
             if panel == "bluesky" and self.bluesky_web is not None:
                 continue
+            # And the optimizer panel's, from the optimizer_web sidecar's port
+            # (``_inject_optimizer_web``).
+            if panel == "optimizer" and self.optimizer_web is not None:
+                continue
             missing = (
                 "no url for it under config: (an id with a dot in it is one key under "
                 f"web.panels, as in web.panels: {{{panel!r}: {{url: …}}}})"
@@ -2377,6 +2387,21 @@ class BuildProfile:
 
         if self.optimizer is not None:
             errors.extend(optimizer_errors(self.optimizer))
+
+        if self.optimizer_web is not None:
+            if not (1 <= self.optimizer_web.port <= 65535):
+                errors.append(
+                    f"optimizer_web.port must be in 1..65535 (got {self.optimizer_web.port})"
+                )
+            # The sidecar relays to the optimizer this deployment runs, by its
+            # in-network compose key, so a panel with no service behind it is
+            # a tab that answers 502 on every read.
+            if self.optimizer is None:
+                errors.append(
+                    "optimizer_web needs an optimizer: block in the same profile: the "
+                    "OPTIMIZER panel's sidecar relays to the optimizer service this "
+                    "deployment runs"
+                )
 
         # Validate the archiver store's knobs, and its agreement with the rest
         # of the profile — see va_archiver_errors for why the rules live beside
