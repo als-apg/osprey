@@ -1694,6 +1694,7 @@ def test_the_gateway_billing_notice_is_already_acknowledged(monkeypatch, tmp_pat
 
     state = json.loads((config_dir / ".claude.json").read_text())
     assert state["autoModeClassifierBillingNoticeAcknowledgedAt"] == 1_790_000_000_500
+    assert state["hasSeenAutoDefaultNotice"] is True
     assert state["hasCompletedOnboarding"] is True
 
 

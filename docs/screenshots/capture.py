@@ -854,6 +854,9 @@ def _isolated_claude_config(project_dir: Path) -> Path:
     state_path = config_dir / ".claude.json"
     state = json.loads(state_path.read_text()) if state_path.is_file() else {}
     state["autoModeClassifierBillingNoticeAcknowledgedAt"] = _now_ms()
+    # Claude Code announces auto mode as its default once, above the first
+    # prompt; marked as seen so the announcement is not on camera.
+    state["hasSeenAutoDefaultNotice"] = True
     # One Claude Code version everywhere: a session under this config must
     # never update the host's install (it would also put an update notice on
     # camera).
