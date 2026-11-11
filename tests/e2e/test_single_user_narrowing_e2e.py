@@ -10,9 +10,10 @@ identity would leave every single-user deployment silently un-narrowed.
 
 **What is different about single-user, and why it needs its own stack.** With
 no roster there is no ``web-<user>`` container, no nginx and no per-user
-volume. The identity whose chip the lanes read is the account that ran the
-build — ``acting_identity()`` on the host, named by nothing in the config — and
-the build path is what provisions ``control_target/<build account>/`` for it.
+volume. The identity whose chip the lanes read is the console's operator — the
+``deployment.host_identity`` the build stamps, which is the account that ran it
+unless the profile names another — and the build path is what provisions
+``control_target/<operator>/`` for it.
 Nothing in the multi-user stack exercises that: its every identity comes from
 the roster. So the shape has to be deployed, not simulated, and the module
 brings up its own stack with ``modules.web_terminals.enabled: false``.
@@ -74,6 +75,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_record.identities import host_identity
 from osprey.deployment.compose_generator import (
     CONTROL_TREE_MARKER_NAME,
     control_target_identity_dir,
@@ -296,20 +298,22 @@ def probe_channel(single_user_stack: Path) -> str:
     return bounded_setpoint(repo_view(single_user_stack))[0]
 
 
-def _build_account() -> str:
+def _build_account(repo: Path) -> str:
     """The identity a single-user deployment's lanes read the chip of.
 
-    The account that ran the build, resolved through the one ladder every
-    surface shares. Named by nothing in the config — which is the whole point of
-    this module — so it is read here the same way the build path reads it when
-    it provisions the directory.
+    The operator the build provisioned the directory for, read the way the build
+    path reads it: the render's stamped ``deployment.host_identity``, else the
+    acting identity. Never ``acting_identity()`` alone — a host where
+    ``OSPREY_AUDIT_IDENTITY`` names someone else would narrow a directory no
+    lane reads.
     """
-    return acting_identity()
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    return host_identity(config) or acting_identity()
 
 
 def _host_record(repo: Path) -> Path:
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-    return control_target_identity_dir(config, repo, _build_account()) / RECORD_FILENAME
+    return control_target_identity_dir(config, repo, _build_account(repo)) / RECORD_FILENAME
 
 
 def _narrow_the_build_account(repo: Path) -> Path:
@@ -329,13 +333,13 @@ def _narrow_the_build_account(repo: Path) -> Path:
     under test rather than a state to paper over.
     """
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-    identity_dir = control_target_identity_dir(config, repo, _build_account())
+    identity_dir = control_target_identity_dir(config, repo, _build_account(repo))
     marker = identity_dir.parent / CONTROL_TREE_MARKER_NAME
     assert marker.is_file(), (
         f"osprey build did not provision the control-context tree at "
         f"{identity_dir.parent} (no {CONTROL_TREE_MARKER_NAME}); in a single-user "
         f"deployment the build is the ONLY thing that provisions "
-        f"{_build_account()!r}'s own directory, and a narrowing seeded into an "
+        f"{_build_account(repo)!r}'s own directory, and a narrowing seeded into an "
         "unprovisioned tree reads as unavailable for every owner"
     )
     assert identity_dir.is_dir(), (
@@ -845,7 +849,7 @@ def test_the_build_accounts_record_is_group_readable_on_a_deployed_stack(
     record_path = _host_record(single_user_stack)
     assert record_path.is_file(), (
         f"no control-context record at {record_path} for the build account "
-        f"{_build_account()!r} after the fixture narrowed it"
+        f"{_build_account(single_user_stack)!r} after the fixture narrowed it"
     )
     mode = stat.S_IMODE(record_path.stat().st_mode)
     assert mode & stat.S_IRGRP, (
@@ -865,6 +869,7 @@ def test_the_build_accounts_record_is_group_readable_on_a_deployed_stack(
 
 
 def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing(
+    single_user_stack: Path,
     probe_channel: str,
 ) -> None:
     """S2: in a single-user deployment the chip gates a dispatch job's writes.
@@ -882,7 +887,7 @@ def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing(
     entrypoint's own access probe says which, and this row asserts that one by its
     refusal phrase; the narrowed record reads as the switch being off.
     """
-    _fire_and_assert_dispatched(WRITE_PROBE_OWNED_TRIGGER, owner=_build_account())
+    _fire_and_assert_dispatched(WRITE_PROBE_OWNED_TRIGGER, owner=_build_account(single_user_stack))
 
     run = _wait_for_terminal_run(WRITE_PROBE_OWNED_TRIGGER)
     record = _persisted_run_record(run["run_id"])
@@ -902,7 +907,7 @@ def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing(
     readable = _control_tree_is_readable_in_the_worker()
     expected = SWITCH_OFF_REFUSAL if readable else UNAVAILABLE_REFUSAL
     why = (
-        f"the build account {_build_account()!r} is narrowed to read-only, so the "
+        f"the build account {_build_account(single_user_stack)!r} is narrowed to read-only, so the "
         "write must be refused as switch_off"
         if readable
         else "the worker's entrypoint reported it cannot read the control-context tree, "
