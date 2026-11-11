@@ -120,7 +120,7 @@ def test_a_profile_build_derives_the_index_from_its_own_corpus(tmp_path: Path) -
     from osprey.cli.build_cmd import _rendered_config
     from osprey.deployment.graphdb_service import resolve_graph_index_path
     from osprey.services.channel_finder.graph_index import open_graph_index
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     repo = _graph_repo(tmp_path / "graph-own-corpus", corpus=corpora.SUBCLASS_CHAIN)
 
@@ -173,7 +173,7 @@ def test_a_render_with_a_graph_store_ships_the_index_in_any_mode(tmp_path: Path)
     keyword tool read the facility the store holds.
     """
     from osprey.services.channel_finder.graph_index import open_graph_index
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     repo = _graph_repo(
         tmp_path / "hierarchical-with-store", corpus=corpora.SUBCLASS_CHAIN, mode="hierarchical"
@@ -351,7 +351,7 @@ def test_the_stub_ships_a_real_index(tmp_path: Path) -> None:
     """
     from osprey.cli import build_cmd
     from osprey.services.channel_finder.graph_index import open_graph_index
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     assert getattr(build_cmd._build_graph_index, "stubbed_by_conftest", False), (
         "this test is about the stub, so it must not carry the real_graph_index marker"
@@ -399,7 +399,7 @@ def test_a_second_corpus_becomes_a_second_cache_entry_built_once(
     rendered these corpora.
     """
     import osprey.services.channel_finder.graph_index as graph_index
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     repeated, single = corpora.SUBCLASS_CHAIN, corpora.BOTH_EDGES
     digests = {corpus: ttl_sha256(corpus) for corpus in (repeated, single)}
@@ -453,7 +453,7 @@ def test_the_marker_puts_the_real_builder_back(
     import osprey.services.channel_finder.graph_index as graph_index
     from osprey.cli import build_cmd
     from osprey.services.channel_finder.graph_index import open_graph_index
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     assert not getattr(build_cmd._build_graph_index, "stubbed_by_conftest", False), (
         "the real_graph_index marker did not restore the real build step"

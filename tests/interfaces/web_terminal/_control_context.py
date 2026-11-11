@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from typing import Any
 from unittest.mock import patch
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 
 
 @contextmanager
@@ -44,5 +44,4 @@ def read_record() -> Any:
     taken against the same file.
     """
     control_context.invalidate_cache()
-    posture_store.invalidate_cache()
     return control_context.read_record()

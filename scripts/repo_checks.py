@@ -724,6 +724,7 @@ WIDENS_PROJECT = "the project's dependencies reach every test"
 WIDENS_NO_TEST_MODULE = "its test directory holds no test module"
 WIDENS_ROOT_PACKAGE = "the root test package reaches every test below it"
 WIDENS_SWEEP_HELPER = "a helper under a sweep root that framework tests import"
+WIDENS_SWEEP_CONFTEST = "a conftest under a sweep root other than tests/, which no rule scopes"
 WIDENS_UNPLACED = "a file under packages/ or tests/ that no rule places"
 WIDENS_NO_MIRROR = "no tested package mirrors it"
 WIDENS_BUNDLED_PROJECT = "a bundled project outside the test mirrors"
@@ -737,12 +738,20 @@ def _whole(path: str, rule: str) -> Selection:
     return Selection(WHOLE, reason=f"{path}: {rule}")
 
 
+def _statements(node: ast.AST) -> Iterator[ast.AST]:
+    """Every statement below *node*; an import is never inside an expression."""
+    for field in ("body", "orelse", "finalbody", "handlers", "cases"):
+        for child in getattr(node, field, ()):
+            yield child
+            yield from _statements(child)
+
+
 def _imported_modules(path: str, tree: ast.Module) -> Iterator[str]:
     """The files *tree*, read from *path*, may import, as repository paths."""
     parts = PurePosixPath(path).parts
     roots = [""] if parts[0] != "packages" or len(parts) < 2 else ["", f"packages/{parts[1]}/"]
     here = PurePosixPath(path).parent
-    for node in ast.walk(tree):
+    for node in _statements(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 yield from (root + alias.name.replace(".", "/") + ".py" for root in roots)
@@ -760,6 +769,86 @@ def _imported_modules(path: str, tree: ast.Module) -> Iterator[str]:
                 yield from (f"{base}/{alias.name}.py" for alias in node.names)
 
 
+def _runs(path: str, reached: set[str]) -> bool:
+    """Whether importing the files *reached* runs *path*.
+
+    A package's ``__init__.py`` runs for any module imported below it.
+    """
+    if path.endswith("/__init__.py"):
+        package = path.removesuffix("/__init__.py")
+        return package + ".py" in reached or any(r.startswith(package + "/") for r in reached)
+    return path in reached
+
+
+def _importers(
+    path: str,
+    files: Sequence[str],
+    beside: str | None = None,
+    sources: dict[str, tuple[str, set[str] | None]] | None = None,
+) -> Iterator[str]:
+    """The Python files under ``tests/`` or ``packages/`` whose imports run *path*.
+
+    Files below *beside*, a directory that already reaches *path*, are skipped.
+    *sources* keeps each file's text and imports across calls of one scan.
+    """
+    sources = {} if sources is None else sources
+    stem = PurePosixPath(path).stem
+    word = PurePosixPath(path).parent.name if stem == "__init__" else stem
+    for importer in files:
+        if not importer.endswith(".py") or not importer.startswith(("tests/", "packages/")):
+            continue
+        if importer == path or (beside is not None and importer.startswith(beside + "/")):
+            continue
+        if importer not in sources:
+            try:
+                sources[importer] = ((kit.ROOT / importer).read_text(encoding="utf-8"), None)
+            except (OSError, UnicodeDecodeError):
+                sources[importer] = ("", set())
+        text, reached = sources[importer]
+        if word not in text:
+            continue
+        if reached is None:
+            try:
+                reached = set(_imported_modules(importer, ast.parse(text)))
+            except (SyntaxError, ValueError):
+                reached = set()
+            sources[importer] = (text, reached)
+        if _runs(path, reached):
+            yield importer
+
+
+def _importer_selection(
+    path: str, files: Sequence[str], sources: dict[str, tuple[str, set[str] | None]]
+) -> list[str]:
+    """The tests that import a changed *path* test module or package, at any remove.
+
+    A test module importer runs itself; a conftest or ``__init__.py`` importer
+    its directory; a helper selects nothing itself, but its own importers count.
+    *sources* is the scan's cache, shared by every changed path of one selection.
+    """
+    chosen: list[str] = []
+    seen = {path}
+    pending = [path]
+    swept = [name for name in files if _sweep_root(name) is not None]
+    while pending:
+        target = pending.pop()
+        directory, name = target.rsplit("/", 1)
+        beside = directory if name in ("conftest.py", "__init__.py") else None
+        for importer in _importers(target, swept, beside, sources):
+            if importer in seen:
+                continue
+            seen.add(importer)
+            if _hosted_outside_sweep(importer):
+                continue
+            pending.append(importer)
+            leaf = importer.rsplit("/", 1)[-1]
+            if _is_pytest_file(leaf):
+                chosen.append(importer)
+            elif leaf in ("conftest.py", "__init__.py"):
+                chosen.append(importer.rsplit("/", 1)[0])
+    return chosen
+
+
 def _conftest_selection(path: str, files: Sequence[str]) -> str | Selection:
     """The directory a changed *path* conftest reaches, or why it reaches the sweep.
 
@@ -768,8 +857,11 @@ def _conftest_selection(path: str, files: Sequence[str]) -> str | Selection:
     defines a hook, acts beyond it.
     """
     directory = path.rsplit("/", 1)[0]
-    if not path.startswith("tests/") or len(PurePosixPath(path).parts) < 3:
+    root = _sweep_root(path)
+    if root is None or directory == root:
         return _whole(path, WIDENS_ROOT_CONFTEST)
+    if root != "tests":
+        return _whole(path, WIDENS_SWEEP_CONFTEST)
     try:
         tree = ast.parse((kit.ROOT / path).read_text(encoding="utf-8"))
     except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
@@ -779,23 +871,9 @@ def _conftest_selection(path: str, files: Sequence[str]) -> str | Selection:
             "pytest_"
         ):
             return _whole(path, WIDENS_HOOK.format(hook=node.name))
-    for importer in files:
-        if not importer.endswith(".py") or not importer.startswith(("tests/", "packages/")):
-            continue
-        if importer.startswith(directory + "/"):
-            continue
-        try:
-            text = (kit.ROOT / importer).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if "conftest" not in text:
-            continue
-        try:
-            reached = set(_imported_modules(importer, ast.parse(text)))
-        except (SyntaxError, ValueError):
-            continue
-        if path in reached:
-            return _whole(path, WIDENS_IMPORTED.format(importer=importer))
+    importer = next(_importers(path, files, directory), None)
+    if importer is not None:
+        return _whole(path, WIDENS_IMPORTED.format(importer=importer))
     if not _holds_test_module(directory, files):
         return _whole(path, WIDENS_NO_TEST_MODULE)
     return directory
@@ -866,6 +944,7 @@ def _select_pytest(
     paths: Sequence[str], files: Sequence[str], shaping: frozenset[str] = frozenset()
 ) -> Selection:
     chosen: list[str] = []
+    sources: dict[str, tuple[str, set[str] | None]] = {}
     for path in paths:
         name = path.rsplit("/", 1)[-1]
         suffix = PurePosixPath(path).suffix
@@ -875,6 +954,7 @@ def _select_pytest(
             root = _sweep_root(path)
             if root is not None and _is_pytest_file(name):
                 chosen.append(path)
+                chosen.extend(_importer_selection(path, files, sources))
                 continue
             if root == "tests" and name == "__init__.py":
                 directory = PurePosixPath(path).parent.as_posix()
@@ -883,6 +963,7 @@ def _select_pytest(
                 if not _holds_test_module(directory, files):
                     return _whole(path, WIDENS_NO_TEST_MODULE)
                 chosen.append(directory)
+                chosen.extend(_importer_selection(path, files, sources))
                 continue
             if path in shaping:
                 chosen.append("tests/scripts")

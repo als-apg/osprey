@@ -296,7 +296,7 @@ What a plug-in is given and asked for:
 - **Registration.** A plug-in is a module registered under the
   ``osprey.simulation.engines`` entry-point group in its package's own
   ``pyproject.toml``, under the name a model record's ``engine`` gives. The
-  composite looks it up with ``metadata.entry_points(group=ENGINE_GROUP,
+  composite looks it up with ``metadata.entry_points(group="osprey.simulation.engines",
   name=...)``; an engine no package registers fails that model.
 - **Build-time contract.** ``osprey build`` calls four pure functions of the
   module, none of which builds a model:

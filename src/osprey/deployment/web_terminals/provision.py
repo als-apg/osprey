@@ -324,74 +324,11 @@ _UP_ADVISORY_LINT_CODES = frozenset(
 )
 
 
-def web_terminal_preflight_advisories(
-    config: dict, *, repo_root: Path | str | None = None
-) -> list[str]:
-    """The privilege exposures an ``osprey up`` names without refusing.
-
-    The other half of :func:`web_terminal_preflight_problems`, and it exists for
-    the same reason the profile-altitude warning printers do: a finding nobody
-    prints is a finding nobody has. Both of these are real exposures that are
-    deliberately not build-failing (see :data:`_UP_ADVISORY_LINT_CODES`), so the
-    start says them out loud and proceeds.
-
-    Pure — it reads the rendered render configs and returns strings. The
-    printing belongs to the caller, which is the pass that already owns this
-    deploy's output column.
-
-    :param config: Raw deploy config.
-    :param repo_root: The deployment repo the renders are read from.
-    :return: One message per advisory finding, in lint order.
-    """
-    root = _resolved_repo_root(config, repo_root)
-    return _privilege_lint_halves(config, root)[1]
-
-
-def web_terminal_preflight_problems(
-    config: dict, *, repo_root: Path | str | None = None
-) -> list[tuple[str, str]]:
-    """Every :func:`preflight_web_terminals` refusal that can be probed instead.
-
-    The collectable subset of the fail-fast gate, in the gate's own order, so an
-    operator reading the collected report meets the findings where the deploy
-    would have hit them. Each entry is a ``(problem, remedy)`` pair; these
-    refusals all carry their fix inside their own prose, so the remedy half is
-    empty and the enumeration prints one block per finding.
-
-    **Also the deploy path's lint gate**, which nothing else on it was. ``osprey
-    scaffold web-terminals lint`` and the ``render`` pre-render gate read the
-    rendered altitude; ``osprey up`` read none of it, so a hand-edited
-    ``build/config.yml`` — a file no build fingerprint covers, since
-    ``profile.yml`` is untouched — could share a privileged tier's card
-    (``access: any``) and start containers with the lint screaming into a
-    terminal nobody ran. Only the open-door codes block here; see
-    :data:`_UP_BLOCKING_LINT_CODES`.
-
-    Deliberately NOT the whole of :func:`preflight_web_terminals`:
-
-    * The registry-mode and absent-chain arms of :func:`ensure_env_production`
-      stay behind. Both are refusals about a file that does not exist rather
-      than about its contents, and the gate reports them unchanged.
-    * :func:`_require_auth_sidecar_image` and :func:`_provision_auth_secrets`
-      stay behind because the second of them MINTS — it establishes credentials
-      and prints them once. A probe that could write is not a probe, and the
-      pair are ordered against each other for exactly that reason.
-
-    Nothing here writes, so calling it costs the deploy only the file reads and
-    leaves the gate itself to run afterwards, unchanged and idempotent.
-
-    :param config: Raw deploy config.
-    :param repo_root: The deployment repo the renders and secret files are read
-        from. Defaults to the one resolved from ``config``, as the gate does.
-    :return: The findings, empty when nothing is wrong.
-    """
-    return web_terminal_preflight_report(config, repo_root=repo_root)[0]
-
-
 def _privilege_lint_halves(config: dict, root: Path) -> tuple[list[str], list[str]]:
     """The blocking and advisory privilege findings, off ONE lint pass.
 
-    The two public probes above are two readings of the same
+    The blocking and advisory halves of :func:`web_terminal_preflight_report` are
+    two readings of the same
     :func:`~osprey.deployment.web_terminals.lint.lint_web_terminals` run, and the
     deploy path wants both. Running the lint once per reading walked every
     referenced render's rendered ``config.yml`` off disk twice, plus notice-doc
@@ -419,15 +356,46 @@ def web_terminal_preflight_report(
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """Both halves of the web-terminal preflight, off one lint pass.
 
-    What the deploy path takes, because it wants both and paid for two identical
-    lint runs to get them (see :func:`_privilege_lint_halves`). The two wrappers
-    stay for callers that want one half and for the purity each is pinned on;
-    this is the same work, ordered the same way, said once.
+    The blocking half is every :func:`preflight_web_terminals` refusal that can
+    be probed instead: the collectable subset of the fail-fast gate, in the
+    gate's own order, so an operator reading the collected report meets the
+    findings where the deploy would have hit them. Each entry is a
+    ``(problem, remedy)`` pair; these refusals all carry their fix inside their
+    own prose, so the remedy half is empty and the enumeration prints one block
+    per finding.
 
-    Writes nothing, like the wrappers.
+    The advisory half is the privilege exposures an ``osprey up`` names without
+    refusing, for the same reason the profile-altitude warning printers exist: a
+    finding nobody prints is a finding nobody has. Both are real exposures that
+    are deliberately not build-failing (see :data:`_UP_ADVISORY_LINT_CODES`), so
+    the start says them out loud and proceeds; the printing belongs to the
+    caller, which already owns this deploy's output column.
+
+    **Also the deploy path's lint gate**, which nothing else on it was. ``osprey
+    scaffold web-terminals lint`` and the ``render`` pre-render gate read the
+    rendered altitude; ``osprey up`` read none of it, so a hand-edited
+    ``build/config.yml`` — a file no build fingerprint covers, since
+    ``profile.yml`` is untouched — could share a privileged tier's card
+    (``access: any``) and start containers with the lint screaming into a
+    terminal nobody ran. Only the open-door codes block here; see
+    :data:`_UP_BLOCKING_LINT_CODES`.
+
+    Deliberately NOT the whole of :func:`preflight_web_terminals`:
+
+    * The registry-mode and absent-chain arms of :func:`ensure_env_production`
+      stay behind. Both are refusals about a file that does not exist rather
+      than about its contents, and the gate reports them unchanged.
+    * :func:`_require_auth_sidecar_image` and :func:`_provision_auth_secrets`
+      stay behind because the second of them MINTS — it establishes credentials
+      and prints them once. A probe that could write is not a probe, and the
+      pair are ordered against each other for exactly that reason.
+
+    Nothing here writes, so calling it costs the deploy only the file reads and
+    leaves the gate itself to run afterwards, unchanged and idempotent.
 
     :param config: Raw deploy config.
-    :param repo_root: See :func:`web_terminal_preflight_problems`.
+    :param repo_root: The deployment repo the renders and secret files are read
+        from. Defaults to the one resolved from ``config``, as the gate does.
     :return: ``(blocking, advisory)`` — the ``(problem, remedy)`` pairs that
         refuse the start, and the messages it says and proceeds past.
     """
@@ -559,7 +527,7 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
     raises (writing nothing) on a roster it cannot key — a charset violation,
     or two usernames colliding onto one credential variable — and that raise IS
     the deploy abort. ``osprey up``'s own lint gate
-    (:func:`web_terminal_preflight_problems`) is scoped to the open-door codes
+    (:func:`web_terminal_preflight_report`) is scoped to the open-door codes
     of ``_UP_BLOCKING_LINT_CODES`` and says nothing about credential collisions,
     so swallowing this would silently deploy a stack where one operator's
     password opens another's terminal.
@@ -1670,7 +1638,7 @@ def deploy_up_web_terminals(
         # that must surface HERE -- before compose ever runs -- not as an
         # opaque unbuilt-tag failure at `compose up` (see docstring's MODE
         # BRANCH section). `osprey up`'s lint gate
-        # (`web_terminal_preflight_problems`) blocks only on the open-door codes
+        # (`web_terminal_preflight_report`) blocks only on the open-door codes
         # of `_UP_BLOCKING_LINT_CODES`, so this strict resolve is still the only
         # preflight standing between a broken render catalog and that opaque failure.
         registry_cfg = config.get("registry") or {}
@@ -1984,7 +1952,7 @@ def deploy_down_web_terminals(
     """Tear down the web-terminal stack — the mirror of
     :func:`deploy_up_web_terminals`'s second compose invocation.
 
-    ``deploy_down``'s services invocation does not carry the web compose file
+    ``down_deployment``'s services invocation does not carry the web compose file
     in its ``-f`` list (the two stacks stay separate invocations — see the WHY
     TWO INVOCATIONS note on :func:`deploy_up_web_terminals`), so the web stack
     needs this dedicated ``down``. Without it the web containers outlive every

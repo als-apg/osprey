@@ -21,7 +21,7 @@ from osprey.interfaces.web_terminal.routes.session import router
 from osprey.stores import session_ledger
 from osprey.stores.artifact_forms import RUN_RECORD_KEY
 from osprey.stores.artifact_store import EXAMPLE_ORIGIN, ArtifactStore
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 
 KEY = "11111111-1111-4111-8111-111111111111"
 OTHER_KEY = "22222222-2222-4222-8222-222222222222"
@@ -48,9 +48,9 @@ def state_dir(tmp_path, monkeypatch) -> Path:
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(bound))
     monkeypatch.delenv("OSPREY_SESSION_ID", raising=False)
     monkeypatch.delenv("OSPREY_ARTIFACT_ORIGIN", raising=False)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield bound
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ def page(root, state_dir) -> TestClient:
 def _ledger(state_dir: Path, *rows: tuple[str, str, str]) -> None:
     for key, transcript, from_ts in rows:
         assert session_ledger.append(state_dir, key, transcript, from_ts)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 # ---- seeding ----------------------------------------------------------------
@@ -225,7 +225,7 @@ class TestNoSession:
 
     def test_an_unreadable_ledger_answers_empty_with_a_reason(self, store, page, state_dir):
         (state_dir / session_ledger.STORE_FILENAME).write_text("not json")
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         _save(store, "Mine", key=KEY, minute=5)
 
         body = page.get(ROUTE, params={"session_id": KEY}).json()

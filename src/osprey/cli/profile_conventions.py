@@ -1012,24 +1012,6 @@ def flatten_key_paths(doc: Mapping[str, Any]) -> dict[tuple[str, ...], Any]:
     return flat
 
 
-def flatten_dotted(doc: Mapping[str, Any]) -> dict[str, Any]:
-    """The dotted rendering of :func:`flatten_key_paths` — for display, not for matching.
-
-    Use it to *show* an operator which keys a document carries. Do not decide
-    anything on it: joining segments with ``.`` is lossy whenever a raw key
-    contains a dot, and two distinct leaves can collapse onto one entry.
-    :func:`protected_view` and :func:`is_protected_key_path` work on segment
-    paths for exactly that reason.
-
-    Args:
-        doc: Parsed document (a loaded ``config.yml`` or ``.mcp.json``).
-
-    Returns:
-        One entry per leaf, keyed by its dotted path.
-    """
-    return {".".join(key_path): value for key_path, value in flatten_key_paths(doc).items()}
-
-
 def protected_view(target_file: str, doc: Mapping[str, Any]) -> dict[tuple[str, ...], Any]:
     """The protected keys of ``doc``, flattened — the primitive a whole-file PUT diffs.
 
@@ -1369,22 +1351,6 @@ def _format_mirror_violations(violations: Sequence[tuple[str, str]]) -> str:
         "the named channel; the mirror is for files the build does not own."
     )
     return "\n".join(lines)
-
-
-def validate_project_mirror(mirror_dir: Path) -> None:
-    """Reject a ``project/`` mirror that writes build-owned paths.
-
-    Args:
-        mirror_dir: The profile's ``project/`` directory (missing is fine).
-
-    Raises:
-        BuildProfileError: Listing every reserved path the mirror would write.
-    """
-    if not mirror_dir.is_dir():
-        return
-    violations = _mirror_violations(mirror_dir)
-    if violations:
-        raise BuildProfileError(_format_mirror_violations(violations))
 
 
 def facility_mirror_violation(

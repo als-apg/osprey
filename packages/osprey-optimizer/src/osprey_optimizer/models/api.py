@@ -221,7 +221,7 @@ class JobResponse(OptimizationState):
     populated only for ``detail=full``.
     """
 
-    job_type: JobType
+    job_type: JobType = JobType.OPTIMIZATION
     created_at: str | None = None
     result_summary: ResultSummary | None = None
 

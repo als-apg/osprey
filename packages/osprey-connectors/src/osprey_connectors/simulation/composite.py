@@ -135,10 +135,6 @@ from osprey_connectors.simulation.view import (
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
 __all__ = [
-    "ENGINE_GROUP",
-    "INSTANCES",
-    "STATUS_NO_DECK",
-    "UDF",
     "Composite",
     "WriteRefusedError",
     "log_dir",
@@ -147,10 +143,10 @@ __all__ = [
 logger = get_logger("simulation_composite")
 
 #: The entry-point group every engine plug-in registers under.
-ENGINE_GROUP = "osprey.simulation.engines"
+_ENGINE_GROUP = "osprey.simulation.engines"
 
 #: The serving instances a model log record names.
-INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
+_INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
 
 #: The longest status text, in UTF-8 bytes.
 _STATUS_MAX_BYTES = 1023
@@ -159,7 +155,7 @@ _STATUS_MAX_BYTES = 1023
 _LOG_RECORD_MAX_BYTES = 4096
 
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
-UDF = "udf"
+_UDF = "udf"
 
 _ELLIPSIS = "…"
 _FAULT_SEPARATOR = "/"
@@ -263,7 +259,7 @@ class Composite(LUMEModel):
         state_dir: The directory holding the ``active_scenarios`` file; ``None``
             serves ``nominal`` alone.
         instance: The serving instance the model log names, one of
-            :data:`INSTANCES`.
+            :data:`_INSTANCES`.
         clock: Returns the current instant in epoch seconds.
         model_log: ``False`` sends the model log records to the process logger
             only, for a composite no instance serves.
@@ -273,7 +269,7 @@ class Composite(LUMEModel):
             never calls it, so every channel holds its start state until written.
 
     Raises:
-        ValueError: ``instance`` is not one of :data:`INSTANCES`.
+        ValueError: ``instance`` is not one of :data:`_INSTANCES`.
         NoSimulatorView: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
@@ -289,8 +285,8 @@ class Composite(LUMEModel):
         log_dir: Path | str | None = None,
         evolve: bool = False,
     ) -> None:
-        if instance not in INSTANCES:
-            raise ValueError(f"instance is {instance!r}; use one of {list(INSTANCES)}")
+        if instance not in _INSTANCES:
+            raise ValueError(f"instance is {instance!r}; use one of {list(_INSTANCES)}")
         if not isinstance(view, SimulatorView):
             view = SimulatorView.open(view)
         self._instance = instance
@@ -401,10 +397,10 @@ class Composite(LUMEModel):
         Raises:
             LookupError: No plug-in is registered under that name.
         """
-        found = metadata.entry_points(group=ENGINE_GROUP, name=name)
+        found = metadata.entry_points(group=_ENGINE_GROUP, name=name)
         for entry in found:
             return entry.load()
-        raise LookupError(f"no simulation engine {name!r} is registered in {ENGINE_GROUP}")
+        raise LookupError(f"no simulation engine {name!r} is registered in {_ENGINE_GROUP}")
 
     def _build(self, child: _Child) -> None:
         """Build a child at its active state; a raise leaves it failed with the engine's text.
@@ -1026,7 +1022,7 @@ class Composite(LUMEModel):
         for name in names:
             child = self._children.get(self._owner.get(name, TEXTURE_OWNER))
             if child is not None and child.model is None:
-                severities[name] = {"condition": UDF}
+                severities[name] = {"condition": _UDF}
             elif name in self._fault_severity:
                 severities[name] = {"condition": self._fault_severity[name]}
         return severities

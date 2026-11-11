@@ -5,7 +5,15 @@ import sys
 
 import pytest
 
-from osprey_connectors.simulation import state, values
+import osprey_connectors.simulation as simulation_package
+from osprey_connectors.simulation import state, status
+
+# The fast period ships in connectors 2026.11.9; the floor lane runs an older
+# release. Removed by the floor bump to >=2026.11.9.
+needs_fast_period = pytest.mark.skipif(
+    not hasattr(simulation_package, "resolve_fast_tick_s"),
+    reason="the installed connectors predate the fast period (<2026.11.9)",
+)
 
 
 def test_two_scenarios_writing_one_address_give_one_overlap_naming_it():
@@ -118,12 +126,11 @@ def test_the_values_module_imports_no_numpy_and_no_lume():
     assert not {m for m in modules if m == "lume" or m.startswith(("lume.", "lume_"))}
 
 
-def test_the_package_root_reexports_the_state_helpers():
+def test_the_package_root_holds_the_status_lookups_and_no_engine():
     import osprey_connectors.simulation as package
 
-    for name in state.__all__:
-        assert getattr(package, name) is getattr(state, name)
-    assert package.coerce is values.coerce
+    assert package.model_status is status.model_status
+    assert package.read_model_status is status.read_model_status
     assert not hasattr(package, "SimulationEngine")
 
 
@@ -208,6 +215,7 @@ def test_the_connectors_package_pins_lume_base_as_the_root_does():
     assert len(connectors) == 1 and "==" in connectors[0]
 
 
+@needs_fast_period
 @pytest.mark.parametrize("config", [{}, {"simulation": None}, {"simulation": {"models": []}}])
 def test_an_absent_fast_period_resolves_to_the_default(config):
     import osprey_connectors.simulation as package
@@ -216,6 +224,7 @@ def test_an_absent_fast_period_resolves_to_the_default(config):
     assert package.FAST_TICK_KEY == "simulation.fast_tick_s"
 
 
+@needs_fast_period
 def test_a_set_fast_period_is_returned_as_seconds():
     from osprey_connectors.simulation import resolve_fast_tick_s
 
@@ -223,6 +232,7 @@ def test_a_set_fast_period_is_returned_as_seconds():
     assert isinstance(resolve_fast_tick_s({"simulation": {"fast_tick_s": 1}}), float)
 
 
+@needs_fast_period
 @pytest.mark.parametrize("fast", [0, -0.5, "fast", True])
 def test_a_fast_period_that_is_not_positive_names_the_key(fast):
     from osprey_connectors.simulation import resolve_fast_tick_s
@@ -231,6 +241,7 @@ def test_a_fast_period_that_is_not_positive_names_the_key(fast):
         resolve_fast_tick_s({"simulation": {"fast_tick_s": fast}})
 
 
+@needs_fast_period
 def test_the_fast_period_names_are_exported():
     import osprey_connectors.simulation as package
 

@@ -16,6 +16,7 @@ whoever ran the deploy.
 """
 
 import pytest
+import yaml
 
 from osprey.deployment.container_lifecycle import _refuse_invented_history
 
@@ -210,12 +211,15 @@ def test_deploy_up_aborts_before_the_host_is_touched(lying_project):
     assert reached == []
 
 
-def test_deploy_restart_aborts_too(lying_project):
+def test_restart_aborts_too(lying_project):
     """config.yml is bind-mounted, so a restart is how an edit into the pairing
-    would take effect."""
+    would take effect — and the refusal comes before the restart's ``down``."""
     container_lifecycle, reached, tmp_path = lying_project
+    as_built = container_lifecycle.as_built_config_path(tmp_path)
+    as_built.parent.mkdir(parents=True, exist_ok=True)
+    as_built.write_text(yaml.safe_dump(VA_MOCK_NESTED), encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="virtual_accelerator"):
-        container_lifecycle.deploy_restart(str(tmp_path / "config.yml"))
+        container_lifecycle.restart_deployment(tmp_path)
 
     assert reached == []

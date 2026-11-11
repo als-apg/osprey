@@ -62,7 +62,7 @@ Report shape
 ------------
 The fields :class:`osprey_connectors.control_context.ServerReport` parses, and
 nothing else — a payload written here round-trips through
-:func:`~osprey_connectors.control_context.parse_report` unchanged. A controls
+:func:`~osprey_connectors.control_context.read_report` unchanged. A controls
 server writes the first ten; the eleventh, ``statement``, is carried only by a
 display-only report, and a well-formed one is what marks it::
 
@@ -261,10 +261,12 @@ REQUEST_TTL_S = 30
 #: now, which is what makes the fleet not converged, so it carries the
 #: ``expires_at`` past which a reader stops letting it block everybody
 #: (:func:`publish_last_switch`). ``applied`` and ``failed`` are termini and are
-#: read together with ``applied_target`` / ``applied_generation``.
-SWITCH_APPLYING = "applying"
-SWITCH_APPLIED = "applied"
-SWITCH_FAILED = "failed"
+#: read together with ``applied_target`` / ``applied_generation``. Taken from
+#: :mod:`osprey_connectors.control_context`, whose readers decide from them
+#: whether a session is held up, for the same reason the report names are.
+SWITCH_APPLYING = control_context.REPORT_APPLYING
+SWITCH_APPLIED = control_context.REPORT_APPLIED
+SWITCH_FAILED = control_context.REPORT_FAILED
 
 __all__ = [
     "INFLIGHT_FILE_GLOB",

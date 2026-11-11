@@ -442,9 +442,9 @@ def posture_root(tmp_path, monkeypatch):
     root = tmp_path / "agent_data"
     isolate_verdict_environment(monkeypatch, root)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 # ------------------------------------------------------------------- helpers
@@ -467,11 +467,10 @@ def arm(root, *targets):
     the switch goes through the person's gesture.
     """
     write_control_context(root, owned_by=None, switch=dict.fromkeys(targets, "on"))
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
 
 
 def narrow(root, *targets):
     """Record the operator's narrowing of *targets* on this deployment."""
     write_control_context(root, posture=dict.fromkeys(targets, posture_store.POSTURE_SANDBOX))
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()

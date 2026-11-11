@@ -1,29 +1,35 @@
-"""Benchmark-lane split tests (scripts/benchmark, tests/e2e lane markers).
+"""Benchmark-lane and run-set tests (scripts/benchmark, tests/e2e lane markers).
 
-The model matrix scores two lanes separately:
+Every in-scope e2e test declares one lane:
 
-  * ``agentic_benchmark`` — model-capability tests (the headline score);
-  * ``harness_benchmark`` — model-independent OSPREY safety/plumbing assertions.
+  * ``agentic`` — an agentic test, with its tier and plain-words description
+    (tests/e2e/agentic_tiers.py); the board runs these and only these;
+  * ``harness_benchmark`` — an agent may run, but the assertion is OSPREY's.
 
 Lane membership is declared by pytest markers on the e2e tests; each matrix
 cell re-derives a ``*.lanes.json`` manifest from live collection (conftest's
-``OSPREY_E2E_LANES`` hook), and the dashboard joins outcomes against it. Two
-invariants keep the split trustworthy:
+``OSPREY_E2E_LANES`` hook), and the dashboard joins outcomes against it. Three
+invariants keep the board trustworthy:
 
   1. every in-scope e2e test carries exactly one lane marker — gated by
      ``check_e2e_coverage.py --check-lanes`` (also run at matrix-cell startup);
-  2. the dashboard's lane join handles both test-id formats and never mistakes
+  2. a cell runs exactly the in-scope agentic tests, first attempt only;
+  3. the dashboard's tier join handles both test-id formats and never mistakes
      a lane manifest for a run summary.
 """
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
+import os
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 
@@ -77,7 +83,7 @@ def test_every_in_scope_e2e_test_declares_a_benchmark_lane():
     )
     assert proc.returncode == 0, (
         "lane gate failed — an in-scope e2e test is missing (or double-carries) its "
-        "agentic_benchmark/harness_benchmark marker:\n" + proc.stderr
+        "agentic/harness_benchmark marker:\n" + proc.stderr
     )
 
 
@@ -101,7 +107,7 @@ class TestLaneGateReadsTheCollectorsVerdict:
 
         def _run(cmd, cwd=None, env=None, capture_output=False, text=False):  # noqa: ARG001 - subprocess.run is called with these by keyword
             Path(env["OSPREY_E2E_LANES"]).write_text(
-                json.dumps({self._NODEID: "agentic"}), encoding="utf-8"
+                json.dumps({self._NODEID: {"lane": "agentic", "tier": 1}}), encoding="utf-8"
             )
             return subprocess.CompletedProcess(cmd, returncode, "", stderr)
 
@@ -121,56 +127,264 @@ class TestLaneGateReadsTheCollectorsVerdict:
 
 
 # ---------------------------------------------------------------------------
-# 2. Dashboard lane join
+# 2. The board's run set: the agentic tests, first attempt only
+# ---------------------------------------------------------------------------
+
+
+def test_a_cell_selects_the_agentic_tests_with_reruns_off():
+    """The selection a cell hands pytest, beside the exclusions."""
+    gate = _load("check_e2e_coverage")
+    args = gate.run_args({"tests/e2e/test_x.py": "why"})
+    assert args == [
+        "--ignore=tests/e2e/test_x.py",
+        "-m",
+        "agentic",
+        "-p",
+        "no:rerunfailures",
+        "-o",
+        "timeout_func_only=true",
+        "-o",
+        "junit_duration_report=call",
+    ]
+
+
+def test_the_timeout_and_the_reported_time_leave_out_a_fixture_wait(tmp_path):
+    """A cell can queue for a host-wide stack lock in a fixture for longer than the
+    per-test cap. Under the board's options that wait is neither a timeout scored
+    against the model nor time reported as the model's."""
+    (tmp_path / "test_wait.py").write_text(
+        "import time\nimport pytest\n\n\n"
+        "@pytest.fixture\ndef queue():\n    time.sleep(2)\n\n\n"
+        "def test_task(queue):\n    pass\n"
+    )
+
+    def run(*options: str) -> tuple[int, float]:
+        report = tmp_path / "junit.xml"
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "test_wait.py", "-q", "-p", "no:cacheprovider"]
+            + ["--timeout=1", "--timeout-method=signal", f"--junitxml={report}", *options],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        case = ET.parse(report).getroot().find(".//testcase")
+        return proc.returncode, float(case.get("time"))
+
+    assert run()[0] != 0, "control: without the options the wait trips the timeout"
+    code, reported = run("-o", "timeout_func_only=true", "-o", "junit_duration_report=call")
+    assert code == 0
+    assert reported < 1.0
+
+
+def _fixture_parameters(module: Path, name: str) -> list[str]:
+    tree = ast.parse(module.read_text(encoding="utf-8"))
+    function = next(n for n in ast.walk(tree) if getattr(n, "name", None) == name)
+    return [a.arg for a in function.args.args]
+
+
+def test_the_plan_stack_holds_the_host_lock_until_it_is_torn_down():
+    """Its project name and ports are fixed, so the deploy fixture must depend on
+    the lock's fixture: pytest then tears the stack down before releasing it."""
+    module = _REPO / "tests" / "e2e" / "test_plan_stack_agentic.py"
+    assert "_host_stack_turn" in _fixture_parameters(module, "deployed_scan_stack")
+    source = ast.get_source_segment(
+        module.read_text(encoding="utf-8"),
+        next(
+            n
+            for n in ast.walk(ast.parse(module.read_text(encoding="utf-8")))
+            if getattr(n, "name", None) == "_host_stack_turn"
+        ),
+    )
+    assert "host_stack_lock(STACK_LOCK)" in source
+
+
+class TestBoardImagesGate:
+    """A full cell refuses to start unless the images it needs were built at this
+    revision. The runtime and git are stood in for; no container is touched."""
+
+    ENTRIES: ClassVar = [
+        {"image": "va:latest", "override_env": "BOARD_TEST_VA_IMAGE", "build": "b1"},
+        {"image": "ioc:latest", "build": "b2"},
+    ]
+
+    @pytest.fixture
+    def gate(self, monkeypatch):
+        gate = _load("check_e2e_coverage")
+        ids = {"va:latest": "sha:va", "ioc:latest": "sha:ioc"}
+        monkeypatch.setattr(gate, "_image_id", ids.get)
+        monkeypatch.setattr(gate, "_revision", lambda _root: "rev1")
+        monkeypatch.delenv("BOARD_TEST_VA_IMAGE", raising=False)
+        gate.test_ids = ids
+        return gate
+
+    def test_recorded_images_at_this_revision_pass(self, gate, tmp_path):
+        stamp = tmp_path / "stamp.json"
+        assert gate.record_board_images(_REPO, self.ENTRIES, stamp) == []
+        assert gate.check_board_images(_REPO, self.ENTRIES, stamp) == []
+
+    def test_a_missing_image_is_named_with_the_build_command(self, gate, tmp_path):
+        stamp = tmp_path / "stamp.json"
+        gate.record_board_images(_REPO, self.ENTRIES, stamp)
+        del gate.test_ids["ioc:latest"]
+        problems = gate.check_board_images(_REPO, self.ENTRIES, stamp)
+        assert len(problems) == 1
+        assert "ioc:latest is not on this host" in problems[0]
+        assert gate.BUILD_IMAGES_COMMAND in problems[0]
+
+    def test_an_image_nobody_recorded_is_refused(self, gate, tmp_path):
+        problems = gate.check_board_images(_REPO, self.ENTRIES, tmp_path / "none.json")
+        assert len(problems) == 2
+
+    def test_an_image_rebuilt_since_the_record_is_refused(self, gate, tmp_path):
+        stamp = tmp_path / "stamp.json"
+        gate.record_board_images(_REPO, self.ENTRIES, stamp)
+        gate.test_ids["va:latest"] = "sha:other"
+        problem = gate.check_board_images(_REPO, self.ENTRIES, stamp)[0]
+        assert "va:latest was not built at this checkout's revision" in problem
+        assert gate.BUILD_IMAGES_COMMAND in problem
+
+    def test_images_from_another_revision_are_refused(self, gate, tmp_path, monkeypatch):
+        stamp = tmp_path / "stamp.json"
+        gate.record_board_images(_REPO, self.ENTRIES, stamp)
+        monkeypatch.setattr(gate, "_revision", lambda _root: "rev2")
+        problems = gate.check_board_images(_REPO, self.ENTRIES, stamp)
+        assert "built at rev1" in problems[0] and "this checkout is rev2" in problems[0]
+
+    def test_the_override_variable_names_the_image_to_check(self, gate, tmp_path, monkeypatch):
+        monkeypatch.setenv("BOARD_TEST_VA_IMAGE", "side:build")
+        gate.test_ids["side:build"] = "sha:side"
+        stamp = tmp_path / "stamp.json"
+        gate.record_board_images(_REPO, self.ENTRIES, stamp)
+        assert "side:build" in json.loads(stamp.read_text())["images"]
+
+    def test_a_cell_hands_the_gate_its_selection(self):
+        runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+        assert '--check-board-images --select "${OSPREY_BENCH_SELECT:-}"' in runner
+
+    @pytest.mark.parametrize(
+        ("collected", "code", "needed"),
+        [
+            ("tests/e2e/test_switch.py::test_a\ntests/e2e/test_b.py::test_b\n", 0, True),
+            ("tests/e2e/test_b.py::test_b\n", 0, False),
+            ("", 5, False),
+            ("", 4, True),
+        ],
+        ids=["reaches-a-test-that-needs-them", "reaches-none", "matches-nothing", "collector-died"],
+    )
+    def test_a_smoke_selection_meets_the_gate_only_when_it_needs_the_images(
+        self, monkeypatch, collected, code, needed
+    ):
+        gate = _load("check_e2e_coverage")
+
+        def _run(cmd, **_kwargs):
+            assert cmd[-2:] == ["-k", "chosen"]
+            return subprocess.CompletedProcess(cmd, code, collected, "")
+
+        monkeypatch.setattr(gate, "subprocess", SimpleNamespace(run=_run))
+        cfg = {
+            "excluded_files": [],
+            "board_images": [{"needed_by": ["tests/e2e/test_switch.py"]}],
+        }
+        assert gate.selection_needs_images(_REPO, cfg, "chosen") is needed
+
+
+def test_the_config_names_the_images_the_fixtures_require():
+    """The config cannot drift from what the switch module's fixtures fail on."""
+    from tests.fixtures import bench_ioc
+    from tests.va.e2e import _image as va_image
+
+    entries = {e["image"]: e for e in json.loads(_CONFIG.read_text())["board_images"]}
+    assert entries[va_image.DEFAULT_IMAGE]["build"] == va_image.BUILD_COMMAND
+    assert entries[va_image.DEFAULT_IMAGE]["override_env"] == va_image.IMAGE_ENV
+    assert entries[bench_ioc.IMAGE]["build"] == bench_ioc.BUILD_COMMAND
+
+
+def test_the_cell_runner_takes_its_selection_from_the_gate_script():
+    """One source for the selection: the runner splices the script's output in."""
+    runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+    assert "--print-run-args" in runner
+    assert "$RUN_ARGS" in runner
+
+
+@pytest.mark.slow
+def test_the_board_collects_every_in_scope_agentic_test_and_nothing_else(tmp_path):
+    """Collected with the board's own arguments, the run set is the in-scope
+    tests whose manifest entry is agentic with a tier — no harness check, no
+    model-free floor — and every one of them is there."""
+    gate = _load("check_e2e_coverage")
+    excluded = {e["path"]: e["reason"] for e in json.loads(_CONFIG.read_text())["excluded_files"]}
+
+    def collect(manifest: Path, args: list[str]) -> dict:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "tests/e2e/", "--collect-only", "-q"]
+            + ["-p", "no:cacheprovider", "-o", "addopts=", "--assert=plain", *args],
+            cwd=_REPO,
+            env={**os.environ, "OSPREY_E2E_LANES": str(manifest)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert proc.returncode == 0, proc.stdout[-800:] + proc.stderr[-800:]
+        return json.loads(manifest.read_text())
+
+    in_scope = collect(tmp_path / "scope.json", [f"--ignore={p}" for p in excluded])
+    selected = collect(tmp_path / "board.json", gate.run_args(excluded))
+    agentic = {n for n, e in in_scope.items() if e["lane"] == "agentic"}
+    assert set(selected) == agentic
+    assert all(selected[n]["tier"] in (1, 2) for n in selected)
+    switch = {n for n in selected if "test_target_switch_agentic.py" in n}
+    assert len(switch) == 4, "the machine-switch tests are on the board"
+
+
+# ---------------------------------------------------------------------------
+# 3. Dashboard tier join
 # ---------------------------------------------------------------------------
 
 _NODEID = "tests/e2e/claude_code/test_sdk_workflows.py::TestClaudeCodeSDKIntegration::test_a"
 _JUNIT = "tests.e2e.claude_code.test_sdk_workflows.TestClaudeCodeSDKIntegration::test_a"
+_META = {"lane": "agentic", "tier": 1, "title": "t", "asks": "a", "passes_if": "p"}
 
 
-def test_load_lanes_joins_manifest_nodeids_to_junit_names(tmp_path):
-    """A lane recorded under the pytest NODEID must be found for the same test
+def test_load_tiers_joins_manifest_nodeids_to_junit_names(tmp_path):
+    """A tier recorded under the pytest NODEID must be found for the same test
     named in JUnit dotted-classname form — the two formats the dashboard
     ingests (live stream vs completed summary)."""
-    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: "agentic"}))
-    lanes = dash.load_lanes(str(tmp_path))
-    assert lanes[dash.canon_name(_NODEID)] == "agentic"
-    assert lanes[dash.canon_name(_JUNIT)] == "agentic"
+    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: _META}))
+    tiers = dash.load_tiers(str(tmp_path))
+    assert tiers[dash.canon_name(_NODEID)]["tier"] == 1
+    assert tiers[dash.canon_name(_JUNIT)]["title"] == "t"
 
 
-def test_lane_conclusive_scores_only_the_requested_lane(tmp_path):
-    """Capability pass-rate must count agentic-lane outcomes only; harness and
-    manifest-absent tests must not pad (or dilute) it. Timeouts count against
+def test_a_result_takes_its_tier_from_the_manifest_or_its_own_record():
+    tiers = {dash.canon_name(_NODEID): _META}
+    assert dash.tier_of({"name": _JUNIT}, tiers) == 1
+    assert dash.tier_of({"name": "tests.e2e.test_y::test_y", "tier": 2}, tiers) == 2
+    assert dash.tier_of({"name": "tests.e2e.test_y::test_y"}, tiers) is None
+
+
+def test_conclusive_where_scores_only_the_selected_tests():
+    """A tier's pass count covers its own tests only. Timeouts count against
     the denominator, skips never do."""
-    harness_id = "tests/e2e/claude_code/test_safety_writes.py::test_h"
-    stale_id = "tests/e2e/test_gone.py::test_renamed_since"
-    (tmp_path / "m__seed1.lanes.json").write_text(
-        json.dumps({_NODEID: "agentic", harness_id: "harness"})
-    )
-    lanes = dash.load_lanes(str(tmp_path))
+    other = "tests/e2e/test_other.py::test_h"
     cell = {
         "tests": [
             {"name": _JUNIT, "outcome": "passed"},
             {"name": _NODEID.replace("test_a", "test_b"), "outcome": "timeout"},
-            {"name": harness_id, "outcome": "passed"},
-            {"name": stale_id, "outcome": "failed"},
+            {"name": other, "outcome": "passed"},
         ]
     }
-    (tmp_path / "x.lanes.json").write_text(
-        json.dumps({_NODEID.replace("test_a", "test_b"): "agentic"})
-    )
-    lanes = dash.load_lanes(str(tmp_path))
-    assert dash.lane_conclusive(cell, lanes, "agentic") == (1, 2)  # pass + timeout
-    assert dash.lane_conclusive(cell, lanes, "harness") == (1, 1)
+    keep = {dash.canon_name(_NODEID), dash.canon_name(_NODEID.replace("test_a", "test_b"))}
+    assert dash.conclusive_where(cell, keep.__contains__) == (1, 2)
     skipped_cell = {"tests": [{"name": _JUNIT, "outcome": "skipped"}]}
-    assert dash.lane_conclusive(skipped_cell, lanes, "agentic") == (0, 0)
+    assert dash.conclusive_where(skipped_cell, keep.__contains__) == (0, 0)
 
 
 def test_load_skips_lane_manifests_in_results_dir(tmp_path):
     """``load()`` globs ``*__seed*.json`` — a ``*__seed1.lanes.json`` manifest
     matches that glob and must be skipped, not parsed as a run summary (it has
     no 'model' key and used to crash the dashboard)."""
-    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: "agentic"}))
+    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: _META}))
     (tmp_path / "m__seed1.json").write_text(
         json.dumps(
             {
@@ -190,7 +404,291 @@ def test_load_skips_lane_manifests_in_results_dir(tmp_path):
     assert set(runs) == {("m", 1)}
 
 
-def test_load_lanes_empty_dir_falls_back(tmp_path):
-    """No manifest (results predate the lane split) → empty map, which the
-    dashboard renders as the legacy blended single score."""
-    assert dash.load_lanes(str(tmp_path)) == {}
+def test_load_tiers_ignores_manifests_from_before_the_tiers(tmp_path):
+    """A manifest of bare lane strings (results that predate the tiers) yields
+    no tiers, which the dashboard renders as one untiered section."""
+    (tmp_path / "m__seed1.lanes.json").write_text(json.dumps({_NODEID: "agentic"}))
+    assert dash.load_tiers(str(tmp_path)) == {}
+    assert dash.load_tiers(str(tmp_path / "missing")) == {}
+
+
+# ---------------------------------------------------------------------------
+# 4. A test that died in setup is not the model's
+# ---------------------------------------------------------------------------
+
+
+def test_the_summary_keeps_a_setup_error_an_error_whatever_its_text_says(tmp_path):
+    """The worker's JUnit parser, run as the worker runs it, on a report whose
+    setup error names a timeout."""
+    runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+    script = runner.split("<<'PYEOF'\n", 1)[1].split("\nPYEOF", 1)[0]
+    (tmp_path / "summ.py").write_text(script)
+    (tmp_path / "r.xml").write_text(
+        '<testsuites><testsuite><testcase classname="tests.e2e.test_x" name="test_y" time="180">'
+        '<error message="VA never answered: Timeout (&gt;180s) from pytest-timeout">x</error>'
+        "</testcase></testsuite></testsuites>"
+    )
+    out = tmp_path / "s.json"
+    subprocess.run(
+        [sys.executable, str(tmp_path / "summ.py")],
+        env={
+            **os.environ,
+            "MODEL": "m",
+            "SEED": "1",
+            "ROUTE": "r",
+            "XML": str(tmp_path / "r.xml"),
+            "JSON": str(out),
+            "WALL": "1",
+            "PYTEST_RC": "1",
+        },
+        check=True,
+        capture_output=True,
+    )
+    summary = json.loads(out.read_text())
+    assert (summary["errors"], summary["timeout"], summary["failed"]) == (1, 0, 0)
+    assert summary["tests"][0]["outcome"] == "error"
+
+
+def test_a_setup_error_scores_neither_a_pass_nor_a_failure():
+    keep = {dash.canon_name(_NODEID)}.__contains__
+    cell = {"tests": [{"name": _NODEID, "outcome": "error"}]}
+    assert dash.conclusive_where(cell, keep) == (0, 0)
+    passed = {"tests": [*cell["tests"], {"name": _JUNIT, "outcome": "passed"}]}
+    assert dash.conclusive_where(passed, keep) == (1, 1)
+
+
+# ---------------------------------------------------------------------------
+# 5. A cell's start-of-run call to its model and judge
+# ---------------------------------------------------------------------------
+
+
+class TestCellPreflight:
+    """Each cell asks its model and judge once before anything else. No network: the
+    call is stood in for, and the delays are not waited out."""
+
+    @staticmethod
+    def _module():
+        return _load("cell_preflight")
+
+    def _check(self, replies: list[tuple[int | None, str]], key: str = "secret") -> tuple:
+        calls = []
+
+        def post(url, headers, body):
+            calls.append((url, headers, body))
+            return replies[min(len(calls) - 1, len(replies) - 1)]
+
+        reason = self._module().check(
+            "anthropic", "https://g/v1", key, "m", post=post, sleep=lambda _s: None
+        )
+        return reason, calls
+
+    def test_an_answer_passes(self):
+        reason, calls = self._check([(200, "")])
+        assert reason is None
+        assert calls[0][0] == "https://g/v1/messages"
+        assert calls[0][2]["max_tokens"] <= 16
+
+    def test_a_400_for_an_unserved_model_is_refused_at_once(self):
+        reason, calls = self._check([(400, "Invalid model name passed in model=m")])
+        assert reason.startswith("400: Invalid model name")
+        assert len(calls) == 1
+
+    def test_a_plain_400_is_not_a_refusal(self):
+        """The shared rule (tests/e2e/refusals.py): a 400 that names no unserved model
+        is the cell's own outcome, so the preflight lets the cell run."""
+        body = json.dumps({"error": {"message": "prompt is too long: 210000 tokens > 200000"}})
+        reason, calls = self._check([(400, body)])
+        assert reason is None
+        assert len(calls) == 1
+
+    def test_a_refusal_shaped_400_is_refused(self):
+        body = json.dumps({"error": {"message": "model_not_found: m does not exist"}})
+        reason, calls = self._check([(400, body)])
+        assert reason.startswith("400: model_not_found")
+        assert len(calls) == 1
+
+    def test_the_preflight_decides_by_the_mid_session_rule(self):
+        """One producer: what check() calls a refusal is what refusal_reason says with
+        no model turn, for every status the rule distinguishes."""
+        rule = self._module()._refusals().refusal_reason
+        for status, text in [
+            (400, "bad request"),
+            (400, "Invalid model name"),
+            (401, "no"),
+            (404, "gone"),
+            (409, "conflict"),
+            (422, "unprocessable"),
+            (429, "slow"),
+            (503, "down"),
+        ]:
+            reason, _calls = self._check([(status, text)])
+            expected = rule(status=status, text=text, model_turns=False)
+            assert (reason is None) == (expected is None), (status, text)
+
+    def test_a_403_is_refused_at_once(self):
+        reason, calls = self._check([(403, "Access denied: IP address not recognized")])
+        assert reason.startswith("403: Access denied")
+        assert len(calls) == 1
+
+    def test_a_rate_limit_is_retried_and_may_clear(self):
+        reason, calls = self._check([(429, "slow"), (200, "")])
+        assert reason is None
+        assert len(calls) == 2
+
+    def test_a_5xx_that_outlasts_the_retries_is_a_refusal(self):
+        reason, calls = self._check([(503, "down")])
+        assert reason.startswith("503")
+        assert len(calls) == 3
+
+    def test_no_response_is_named_unreachable(self):
+        assert self._check([(None, "nodename not known")])[0].startswith("unreachable")
+
+    def test_the_key_never_reaches_the_reason(self):
+        assert "secret" not in self._check([(403, "your key secret is bad")])[0]
+
+    def test_the_reason_is_the_providers_words_without_the_callers_address(self):
+        body = json.dumps(
+            {"error": {"message": "Access denied: IP address 2001:5a8:47c3::36b8 no"}}
+        )
+        assert self._check([(403, body)])[0] == "403: Access denied: IP address <address> no"
+        body = json.dumps({"error": {"message": "IP address 10.1.2.3 is not recognized"}})
+        assert "10.1.2.3" not in self._check([(403, body)])[0]
+
+    def test_the_start_check_and_the_mid_session_path_share_one_scrubber(self):
+        """LiteLLM-style auth text through the start-of-cell path: the status and the
+        plain reason stay, the partial key, the hash and the address go."""
+        body = json.dumps(
+            {
+                "error": {
+                    "message": "Authentication Error, Invalid proxy server token passed. "
+                    "Received API Key = sk-...a7Qz, Key Hash (Token) ="
+                    "fb3c0a8e1d2f4b5a6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3 from fe80::1"
+                }
+            }
+        )
+        reason = self._check([(401, body)])[0]
+        assert reason.startswith("401: Authentication Error, Invalid proxy server token passed.")
+        assert "a7Qz" not in reason and "fb3c0a8e" not in reason and "fe80" not in reason
+
+    def test_a_missing_prerequisite_is_recorded_as_the_cells_setup_error(self, tmp_path):
+        out = tmp_path / "cell.json"
+        code = self._module().main(
+            ["--model", "m", "--seed", "1", "--provider", "p", "--route", "direct"]
+            + ["--out", str(out), "--setup-error", "could not create the ARIEL database"]
+        )
+        assert code == 1
+        assert json.loads(out.read_text())["setup_error"] == "could not create the ARIEL database"
+
+    def test_a_full_cell_stops_when_its_logbook_cannot_be_provisioned(self):
+        runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+        gate = runner[runner.index('if [ -n "$ARIEL_PROBLEM" ]') :]
+        assert '--setup-error "$ARIEL_PROBLEM"' in gate.split("fi\n", 1)[0]
+        assert runner.index('if [ -n "$ARIEL_PROBLEM" ]') < runner.index(
+            '"$PY" -m pytest tests/e2e/'
+        )
+        assert "will skip/gate" not in runner
+
+    def test_the_openai_route_calls_chat_completions(self):
+        url, headers, _body = self._module()._request("openai", "http://h/v1/", "", "m")
+        assert url == "http://h/v1/chat/completions"
+        assert headers == {}
+
+    def test_a_refused_model_writes_the_summary_and_never_asks_the_judge(
+        self, monkeypatch, tmp_path
+    ):
+        module = self._module()
+        asked = []
+
+        def check(_proto, _base, _key, model):
+            asked.append(model)
+            return "400: Invalid model name"
+
+        monkeypatch.setattr(module, "check", check)
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://g")
+        out = tmp_path / "cell.json"
+        code = module.main(
+            ["--model", "m", "--seed", "1", "--provider", "als-apg", "--route", "direct"]
+            + ["--judge", "j", "--out", str(out)]
+        )
+        assert code == 1
+        assert asked == ["m"]
+        summary = json.loads(out.read_text())
+        assert summary["setup_error"] == "als-apg refused m: 400: Invalid model name"
+        assert summary["total"] == 0
+
+    def test_a_refused_judge_stops_the_cell_too(self, monkeypatch, tmp_path):
+        module = self._module()
+        monkeypatch.setattr(
+            module, "check", lambda _p, _b, _k, model: "403: no" if model == "j" else None
+        )
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://g")
+        out = tmp_path / "cell.json"
+        code = module.main(
+            ["--model", "m", "--seed", "1", "--provider", "cborg", "--route", "proxy"]
+            + ["--judge", "j", "--out", str(out)]
+        )
+        assert code == 1
+        assert json.loads(out.read_text())["setup_error"] == "judge refused j: 403: no"
+
+    def test_a_cell_runs_it_before_anything_else(self):
+        runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+        assert runner.index("cell_preflight.py") < runner.index("per-cell ARIEL database")
+
+    def test_the_free_gates_run_before_the_paid_call(self):
+        """The preflight spends a model call and a judge call; the local lane and
+        image gates cost nothing, so a cell they refuse never pays for the probe."""
+        runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+        preflight = runner.index("cell_preflight.py")
+        assert runner.index("--check-lanes") < preflight
+        assert runner.index("--check-board-images") < preflight
+
+
+def test_the_docs_tier_list_matches_the_tests_markers():
+    """The docs page's per-tier list is generated from the agentic markers; a marker
+    edited without regenerating it fails here, in every run (it reads source, no
+    collection)."""
+    tier_list = _load("tier_list")
+    fragment = tier_list.FRAGMENT.read_text(encoding="utf-8")
+    assert fragment == tier_list.render(tier_list.source_tests()), (
+        "the docs tier list is stale: run scripts/benchmark/tier_list.py"
+    )
+
+
+@pytest.mark.slow
+def test_the_source_reading_agrees_with_live_collection():
+    """Reading the markers from source must find what collecting the board's run set
+    finds, so a marker spelled in a way source reading misses cannot drop out."""
+    tier_list = _load("tier_list")
+
+    def key(test):
+        return (test["tier"], test["title"], test["asks"], test["passes_if"])
+
+    collected = sorted({key(t) for t in tier_list.board_tests()})
+    assert sorted(key(t) for t in tier_list.source_tests()) == collected
+
+
+def test_the_tier_list_renders_one_collapsed_section_per_tier():
+    tier_list = _load("tier_list")
+    tests = [
+        {"tier": 2, "title": "Hard", "asks": "Why?", "passes_if": "says why"},
+        {"tier": 1, "title": "B task", "asks": "Read *this*", "passes_if": "the value"},
+        {"tier": 1, "title": "A task", "asks": "x | y", "passes_if": "z"},
+    ]
+    text = tier_list.render(tests)
+    assert ".. dropdown:: Tier 1 · 2 tests" in text and ".. dropdown:: Tier 2 · 1 tests" in text
+    assert text.index("**A task**") < text.index("**B task**") < text.index("**Hard**")
+    assert "Read \\*this\\*" in text and "x \\| y" in text
+    shown = text.split("\n\n", 1)[1]  # past the generator's comment
+    assert ".py" not in shown
+
+
+def test_a_cell_runs_single_worker_and_provisions_in_its_own_block():
+    """A cell's port block holds one pytest worker; the logbook provisioning project
+    builds in the same block, never on the default one a host's deployment holds."""
+    runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+    pytest_call = runner[runner.index('"$PY" -m pytest tests/e2e/') :].split("--junitxml", 1)[0]
+    assert " -n " not in pytest_call and "--numprocesses" not in pytest_call
+    provisioning = runner[runner.index('init "$PROV_DIR/prov"') :].split("then", 1)[0]
+    assert '--set "port_base=${OSPREY_E2E_PORT_BASE:-25000}"' in provisioning
+    gate = _load("check_e2e_coverage")
+    assert "-n" not in gate.run_args({})

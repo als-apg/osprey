@@ -33,7 +33,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.simulation import STILL_SCENARIO
+from osprey_connectors.simulation.state import STILL_SCENARIO
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,

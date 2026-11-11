@@ -44,7 +44,7 @@ from osprey.stores.artifact_inventory import listed_rows
 from osprey.stores.artifact_scope import read_ledger, scope_for
 from osprey.stores.artifact_store import RUN_RECORD_KEY, WATCHDOG_ORIGIN, ArtifactStore
 from osprey.templates.claude_code.claude.hooks.osprey_turn_state import write_cli_pointer
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 from tests.agent_record.fakes import FakeRecordClient
 from tests.mcp_server.conftest import get_tool_fn
 
@@ -223,7 +223,7 @@ def world(tmp_path, monkeypatch) -> World:
         ],
     )
     assert len(rows) == 6
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     root = tmp_path / "data"
     store = ArtifactStore(workspace_root=root, auto_launch=False)
@@ -299,7 +299,7 @@ def world(tmp_path, monkeypatch) -> World:
         page=TestClient(page_app),
         ids=ids,
     )
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 # ---- the legs ---------------------------------------------------------------

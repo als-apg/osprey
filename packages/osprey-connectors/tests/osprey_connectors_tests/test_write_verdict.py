@@ -249,7 +249,7 @@ def test_foreign_schema_host_record_is_record_unavailable(root):
 
 
 def test_unresolvable_host_root_is_record_unavailable(monkeypatch):
-    monkeypatch.setattr(posture_store, "agent_data_root", lambda: None)
+    monkeypatch.setattr(posture_store, "_agent_data_root", lambda: None)
     monkeypatch.setattr(control_context, "record_path", lambda: None)
     _refused(write_verdict(LIVE, "live"), "record_unavailable")
 

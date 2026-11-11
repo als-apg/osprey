@@ -26,7 +26,8 @@ import pytest
 
 from osprey.deployment import container_lifecycle
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
-from osprey.services.facility_knowledge.seeder import graph_seeder, prompt_snapshot
+from osprey.services.graph_store import prompt_snapshot
+from osprey.services.graph_store import seeder as graph_seeder
 
 TTL_TEXT = "@prefix ex: <http://example.org/> .\nex:beam a ex:Device .\n"
 

@@ -2024,7 +2024,8 @@ def drives_target_write_posture(services, control_system):
     over ``control_system.writes``), not the service's target: the tier is a
     ceiling, not a selection, so an ``asked`` or ``allowed`` render arms every
     such service — each one binds the limits database and the control-context
-    tree its writes are judged against — and a ``never`` render arms none. Which
+    tree its writes are judged against — and a ``never`` render arms none (an
+    application container binds the tree on every render: its reads need it). Which
     machine a write actually reaches is the session's switch to decide at
     runtime, never the render's. The answer is computed here, once, and read off
     each service's own ``services.<key>`` block, because a template makes no
@@ -3258,9 +3259,6 @@ APP_RUNTIME_CONTEXT: Mapping[str, str] = {
     ),
     "osprey_container_guarded_run_dir": "the guarded-run directory inside the project image",
     "services.<k>.state_mounts": "the declared state directories, `[{source, target}]`",
-    "services.<k>.writes_enabled": (
-        "the render's `control_system.writes` tier arms writes (`asked` or `allowed`)"
-    ),
     "services.<k>.stop_grace_period": "the grace compose gives the container to stop",
     "services.<k>.ca_env": "the Channel Access addressing block",
 }

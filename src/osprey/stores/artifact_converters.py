@@ -1,7 +1,9 @@
-"""Artifact-to-attachment converters for ARIEL logbook entries.
+"""Artifact-to-attachment converters for stored artifacts.
 
-Maps MIME types to async converter functions that produce logbook-friendly
-formats (PNG for rendered content, passthrough for images/PDFs).
+Maps MIME types to async converter functions that produce attachment-friendly
+formats (PNG for rendered content, passthrough for images/PDFs). Two callers use
+the registry: dispatch delivery of a run's artifacts and logbook attachments,
+both through ``osprey.agent_runner.artifact_resolve``.
 
 Each converter is ``async (source_path, output_dir) -> Path``:
   - Passthrough converters return *source_path* unchanged.
@@ -16,7 +18,7 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("osprey.mcp_server.ariel.converters")
+logger = logging.getLogger("osprey.stores.artifact_converters")
 
 ConverterFn = Callable[[Path, Path], Coroutine[Any, Any, Path]]
 

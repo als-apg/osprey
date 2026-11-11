@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.audit import posture
+from osprey_connectors import control_context
 from osprey_connectors.refusals import refusal_phrase, refusal_text
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST, write_control_context
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
@@ -63,13 +64,12 @@ def _no_ambient_deployment(control_context_root, monkeypatch):
     is on the simulator with the switch on, so a readwrite call reaches the
     gates behind the clamp unless a test says otherwise.
     """
-    from osprey_connectors import posture_store
 
     monkeypatch.delenv("OSPREY_CONTROL_TARGET", raising=False)
     monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
     arm_switch(monkeypatch, control_context_root, ARMED_TARGET, stamp=False)
     yield control_context_root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -351,16 +351,15 @@ def switched_off(control_context_root, monkeypatch):
     make the process read-only. The session key is still stamped because audit
     entries join on it.
     """
-    from osprey_connectors import control_context, posture_store
+    from osprey_connectors import control_context
 
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
     write_control_context(control_context_root, target=ARMED_TARGET, owned_by=None, switch={})
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
     yield control_context_root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 #: The phrase each source refuses with, and the one it must NOT borrow.
@@ -579,7 +578,7 @@ def control_target(control_context_root):
     ``None`` removes the record: no record is every switch off, and the run
     would launch on the baseline.
     """
-    from osprey_connectors import control_context, posture_store
+    from osprey_connectors import control_context
 
     def _select(target, generation=1):
         if target is None:
@@ -594,7 +593,6 @@ def control_target(control_context_root):
                 owned_by=None,
                 switch={"va": "on"},
             )
-        posture_store.invalidate_cache()
         control_context.invalidate_cache()
 
     return _select

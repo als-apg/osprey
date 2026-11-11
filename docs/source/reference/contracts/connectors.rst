@@ -701,11 +701,6 @@ applied independently to each channel's own samples:
   grid of its own is the documented exception -- the Archiver Appliance's
   operators are epoch-anchored, and the window merely clips them.
 
-The shared helpers in ``osprey_connectors.archiver`` (``to_utc``,
-``require_datetime``, ``resolve_processing``, ``long_frame``, ``decimate_raw``,
-``aggregate_series``, ``reject_non_numeric``) implement all of the above --
-every in-tree connector builds on them rather than reimplementing binning.
-
 **The dtype rule for** ``value``\ **.** Enum/status channels carry string
 values, and ``get_data`` never coerces them: a channel's own dtype flows
 through, and only mixing non-numeric with numeric channels in one query promotes
@@ -717,4 +712,4 @@ string.)
 
 Query windows must be normalized to UTC before touching the wire: a naive
 ``start_date``/``end_date`` is facility-local and must be converted -- not
-relabeled -- to your backend's UTC wire format; ``to_utc()`` does this.
+relabeled -- to your backend's UTC wire format.

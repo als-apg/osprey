@@ -39,7 +39,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 )
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import posture_store
+from osprey_connectors import control_context
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.ipc._verification import derive_endpoints
 
@@ -136,9 +136,9 @@ def store_root(tmp_path, monkeypatch):
     """
     isolate_verdict_environment(monkeypatch, tmp_path)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield tmp_path
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------

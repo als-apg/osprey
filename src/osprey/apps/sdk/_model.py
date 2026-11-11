@@ -1,7 +1,7 @@
 """A render's closed-orbit models, their monitors and correctors, and their orbit response.
 
-Membership, plane and role come from each model's wiring in the render's
-simulator view (``role`` monitor or setpoint, ``plane`` x or y), never from
+Membership, plane and engine role come from each model's wiring in the render's
+simulator view (``engine_role`` monitor or setpoint, ``plane`` x or y), never from
 group names or engine-private keys. Ring order is by lattice index, which the
 model's engine plug-in states through its optional ``element_index``; the
 ring length through its optional ``deck_length``. Golden signals and

@@ -15,7 +15,7 @@ import json
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as _TWIN
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import baseline_target
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -195,7 +195,7 @@ def test_the_hook_decides_as_the_package_verdict(
     config = make_config({"control_system": section})
     if target is not None:
         _switch(stamped_root, target, on=on)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     expected = posture_store.write_verdict(section, target or baseline_target(section))
 
     result = _channel_write(tmp_path, hook_runner, config)

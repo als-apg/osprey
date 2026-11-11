@@ -11217,7 +11217,6 @@ def test_the_on_main_check_refuses_a_commit_main_cannot_reach(tmp_path: Path) ->
 STUB_DISTRIBUTIONS = {
     "types-PyYAML": "yaml",
     "types-Markdown": "markdown",
-    "types-aiofiles": "aiofiles",
 }
 
 
@@ -11247,8 +11246,8 @@ def test_the_type_check_declares_a_stub_for_every_stubless_import(
 
 @pytest.mark.parametrize("distribution", sorted(STUB_DISTRIBUTIONS))
 def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -> None:
-    """Dropping any one of the three must fail: one absent stub is refused by
-    the gate exactly as thoroughly as three are."""
+    """Dropping either one must fail: one absent stub is refused by the gate
+    exactly as thoroughly as both are."""
     mutated = _load_pyproject()
     mutated["project"]["optional-dependencies"]["dev"] = [
         dep

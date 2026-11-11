@@ -152,7 +152,7 @@ def format_model_status(status: str) -> str:
 
 def _overlap_records(log: Path) -> list[dict[str, Any]]:
     """The overlap records a model log holds, in file order; none when it is absent."""
-    from osprey_connectors.simulation import OVERLAP_EVENT
+    from osprey_connectors.simulation.state import OVERLAP_EVENT
 
     try:
         text = log.read_text(encoding="utf-8")
@@ -295,7 +295,7 @@ def status_command(repo: Path | None, target: str | None) -> None:
 def _report_logs(logs: Path, models: list[str], standin: bool) -> None:
     """Print each model's log path and the overlap records it holds."""
     from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
-    from osprey_connectors.simulation import format_overlap_record
+    from osprey_connectors.simulation.state import format_overlap_record
 
     # The stand-in appends its model logs in its own subdirectory of the simulator
     # log directory, so the line and the records name the file its server writes.

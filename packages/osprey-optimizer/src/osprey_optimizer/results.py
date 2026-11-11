@@ -8,7 +8,6 @@ import io
 import json
 import logging
 import os
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -98,16 +97,6 @@ def _read_json_or_warn(path: Path, label: str) -> dict[str, Any] | None:
         return None
 
 
-@dataclass
-class ResultMetadata:
-    """Optional metadata bundled with saved optimization results."""
-
-    initial_point: dict[str, float] | None = None
-    job_id: str | None = None
-    model: Any | None = None
-    model_variables: list[str] | None = None
-
-
 def initialize_results_dir(
     config: OptimizationConfig,
     job_id: str | None = None,
@@ -195,7 +184,11 @@ def save_optimization_results(
     best_point: BestPoint,
     config: OptimizationConfig,
     output_dir: Path | None = None,
-    metadata: ResultMetadata | None = None,
+    *,
+    initial_point: dict[str, float] | None = None,
+    job_id: str | None = None,
+    model: Any | None = None,
+    model_variables: list[str] | None = None,
 ) -> Path:
     """Save optimization results to disk.
 
@@ -204,19 +197,21 @@ def save_optimization_results(
         best_point: Best point dictionary
         config: Optimization configuration used
         output_dir: Base output directory (default: :func:`results_root`). If this is a specific run dir, it's used directly.
-        metadata: Optional metadata (initial point, job ID).
+        initial_point: The setpoints the run started from, if known.
+        job_id: The job that produced the results, if any.
+        model: A trained surrogate to save next to the results.
+        model_variables: The model's input variables; required with ``model``.
 
     Returns:
         Path to the created results directory
     """
-    meta = metadata or ResultMetadata()
     if output_dir is not None and (
         (output_dir / "metadata.json").exists() or (output_dir / "config.json").exists()
     ):
         run_dir = output_dir
         logger.info("\nSaving results to existing directory: %s", run_dir)
     else:
-        run_dir = initialize_results_dir(config, meta.job_id, output_dir)
+        run_dir = initialize_results_dir(config, job_id, output_dir)
         logger.info("\nSaving results to: %s", run_dir)
 
     results_path = run_dir / "results.parquet"
@@ -227,16 +222,16 @@ def save_optimization_results(
     _write_json(best_point_path, best_point)
     logger.info("  - Best point: %s", best_point_path)
 
-    if meta.initial_point:
-        _write_json_if_absent(run_dir / "initial_point.json", meta.initial_point, "Initial point")
+    if initial_point:
+        _write_json_if_absent(run_dir / "initial_point.json", initial_point, "Initial point")
 
     _write_json_if_absent(run_dir / "config.json", config.model_dump(), "Configuration")
 
-    if meta.job_id:
-        _write_json_if_absent(run_dir / "metadata.json", {"job_id": meta.job_id}, "Metadata")
+    if job_id:
+        _write_json_if_absent(run_dir / "metadata.json", {"job_id": job_id}, "Metadata")
 
-    if meta.model is not None:
-        if meta.model_variables is None:
+    if model is not None:
+        if model_variables is None:
             raise ValueError("model_variables is required to save a trained model bundle")
         try:
             import joblib
@@ -244,7 +239,7 @@ def save_optimization_results(
             from .optimization.surrogate.constructor import pack_model_bundle, write_model_metadata
 
             model_path = run_dir / "model.joblib"
-            bundle = pack_model_bundle(meta.model, meta.model_variables)
+            bundle = pack_model_bundle(model, model_variables)
             joblib.dump(bundle, model_path)
             # Sidecar first-class, not an optimization afterthought: the models
             # listing reads it instead of unpickling this estimator (#120).

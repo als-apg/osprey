@@ -12,6 +12,7 @@ and spawns one isolated worker process per (model, seed) cell.
     scripts/benchmark/matrix.py --config m.yaml      # alternate config
     scripts/benchmark/matrix.py --only deepseek-v4   # substring-filter models
     scripts/benchmark/matrix.py --dry-run            # print the plan, run nothing
+    scripts/benchmark/matrix.py --select vacuum      # only the tests -k selects
 
 Design seam: this module owns every *decision* (which provider, which key, proxy
 or direct, judge endpoint, budget scale, grid order, resume); the worker
@@ -31,8 +32,10 @@ travelling on as a URL.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -241,6 +244,25 @@ def expand_grid(
 # ---------------------------------------------------------------------------
 
 
+#: The port blocks running cells build their projects in, one per cell at a time.
+#: Each lies inside the test harness's booked ranges
+#: (``osprey_connectors_tests._harness._ports.BOOKED_BLOCKS``), so a port reservation
+#: in one cell (the machine-switch tests' IOCs) never lands in another cell's
+#: block, and none is a block a board test pins (21800, 22800).
+CELL_PORT_BLOCKS = (24000, 25000, 29000, 30000, 31000)
+MAX_PARALLEL = len(CELL_PORT_BLOCKS)
+
+
+def cell_is_done(summary: Path) -> bool:
+    """Whether a cell has a result. A cell its provider refused has none, so it runs again."""
+    if not summary.exists():
+        return False
+    try:
+        return not json.loads(summary.read_text()).get("setup_error")
+    except ValueError:
+        return True
+
+
 def cell_env(cell: Cell) -> dict[str, str]:
     """Compute the worker env for one cell.
 
@@ -254,6 +276,8 @@ def cell_env(cell: Cell) -> dict[str, str]:
     # --- model-under-test routing -----------------------------------------
     env["OSPREY_E2E_FORCE_PROVIDER"] = cell.provider
     env["OSPREY_E2E_FORCE_MODEL"] = cell.model
+    env["OSPREY_BENCH_SUT_BASE_URL"] = cell.base_url
+    env["OSPREY_BENCH_SUT_KEY"] = cell.key
     if cell.route == "proxy":
         # open / OpenAI-protocol model: the session fixture starts the
         # translation proxy and points it at this upstream.
@@ -376,6 +400,7 @@ def run_cell(cell: Cell, results_dir: Path, log_path: Path, extra_env: dict[str,
     env = os.environ.copy()
     env.update(extra_env)
     env.update(cell_env(cell))
+    env["OSPREY_BENCH_RESULTS_DIR"] = str(results_dir.resolve())
     run_log = results_dir / f"{cell.safe}__seed{cell.seed}.run.log"
     _log(log_path, start_marker(cell, time.strftime("%H:%M:%S")))
     with open(run_log, "w") as out:
@@ -421,7 +446,7 @@ def drive(
 
     todo, skipped = [], 0
     for cell in cells:
-        if (results_dir / cell.summary_json).exists():
+        if cell_is_done(results_dir / cell.summary_json):
             skipped += 1
         else:
             todo.append(cell)
@@ -435,18 +460,43 @@ def drive(
     rcs: dict[str, int] = {}
     lock = threading.Lock()
 
+    # Each running cell builds its projects in a port block of its own: cells are
+    # separate pytest runs, and two on one block share an artifact gallery, so one
+    # cell's tool calls reach the other's gallery and are refused (HTTP 401).
+    if parallel > MAX_PARALLEL:
+        raise SystemExit(f"--parallel {parallel}: at most {MAX_PARALLEL} cells have a port block")
+    free_blocks: queue.SimpleQueue[int] = queue.SimpleQueue()
+    for block in CELL_PORT_BLOCKS[: max(1, parallel)]:
+        free_blocks.put(block)
+
     def _work(cell: Cell) -> None:
-        rc = run_cell(cell, results_dir, log_path, extra_env)
+        block = free_blocks.get()
+        try:
+            rc = run_cell(
+                cell, results_dir, log_path, {**extra_env, "OSPREY_E2E_PORT_BASE": str(block)}
+            )
+        finally:
+            free_blocks.put(block)
         with lock:
             rcs[f"{cell.safe}__seed{cell.seed}"] = rc
 
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
         list(pool.map(_work, todo))
 
+    # A refused cell (its provider, or a missing prerequisite, stopped it at the
+    # start) has no result, so the matrix is not complete: say so, and resume runs
+    # those cells again. Test failures are a per-test signal in the json, not this.
+    refused = [cell for cell in todo if not cell_is_done(results_dir / cell.summary_json)]
+    if refused:
+        _log(
+            log_path,
+            f"=== matrix incomplete: {len(refused)} of {len(todo)} cell(s) did not run "
+            f"({', '.join(f'{c.model} seed{c.seed}' for c in refused)}); resume runs them ===",
+        )
+        _log(log_path, "MATRIX_EXIT_1")
+        return 1
     _log(log_path, f"=== matrix complete cells_run={len(todo)} ===")
     _log(log_path, "MATRIX_EXIT_0")
-    # non-zero only if a worker itself failed to launch (pytest failures are a
-    # per-test signal captured in the json, not a driver error).
     return 0
 
 
@@ -475,6 +525,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="comma-separated provider filter (e.g. 'cborg' or 'als-apg')",
     )
+    ap.add_argument(
+        "--select",
+        default=None,
+        help="pytest -k expression: run only the tests it selects in each cell (a smoke run)",
+    )
     ap.add_argument("--dry-run", action="store_true", help="print the plan and exit")
     args = ap.parse_args(argv)
 
@@ -486,7 +541,8 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
         return 0
 
-    extra_env: dict[str, str] = {}
+    # Always set, so a selection exported in the shell cannot narrow a full run.
+    extra_env: dict[str, str] = {"OSPREY_BENCH_SELECT": args.select or ""}
     if "timeout_s" in cfg.defaults:
         extra_env["E2E_TEST_TIMEOUT"] = str(cfg.defaults["timeout_s"])
 

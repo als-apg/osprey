@@ -36,8 +36,6 @@ from osprey_connectors.simulation.view import READBACK, SETPOINT
 
 __all__ = [
     "CHANNEL_FAULTS",
-    "DISCONNECTED",
-    "FROZEN",
     "STUCK",
     "ChannelFault",
 ]
@@ -46,10 +44,10 @@ __all__ = [
 STUCK = "stuck"
 
 #: Holds a reading at the value it served when the fault became active.
-FROZEN = "frozen"
+_FROZEN = "frozen"
 
 #: Reads not-a-number, or the activation value, with the ``udf`` condition.
-DISCONNECTED = "disconnected"
+_DISCONNECTED = "disconnected"
 
 _NONE = "none"
 _FLOAT = "float"
@@ -89,10 +87,10 @@ class ChannelFault:
 CHANNEL_FAULTS: Mapping[str, ChannelFault] = MappingProxyType(
     {
         STUCK: ChannelFault(roles=frozenset({SETPOINT}), write=True, read=None, severity=None),
-        FROZEN: ChannelFault(
+        _FROZEN: ChannelFault(
             roles=frozenset({READBACK, _NONE}), write=False, read=_snapshot, severity=None
         ),
-        DISCONNECTED: ChannelFault(
+        _DISCONNECTED: ChannelFault(
             roles=frozenset({SETPOINT, READBACK, _NONE}),
             write=True,
             read=_not_a_number,

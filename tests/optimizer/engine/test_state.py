@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from osprey_optimizer.api.job_control import cancel_with_reread
 from osprey_optimizer.api.job_tracker import ACTIVE_JOB_KEY, JobTracker
-from osprey_optimizer.models.enums import JobStatus, JobType
+from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.protocols import JobStateReader, JobStateWriter
 from osprey_optimizer.models.types import Direction
 from osprey_optimizer.optimization.state import (
@@ -546,7 +546,7 @@ class TestStatusCas:
         writer.set_status(JobStatus.RUNNING)
         token = get_cancellation_token(_CAS_JOB_ID)
         tracker = JobTracker()
-        tracker.claim_active_job(_CAS_JOB_ID, 0, job_type=JobType.OPTIMIZATION)
+        tracker.claim_active_job(_CAS_JOB_ID, 0)
 
         cancel_with_reread(_CAS_JOB_ID, writer, token, tracker)
 
@@ -579,7 +579,7 @@ class TestStatusCas:
         writer.set_status(JobStatus.COMPLETED)
         token = get_cancellation_token(_CAS_JOB_ID)
         tracker = JobTracker()
-        tracker.claim_active_job(_CAS_JOB_ID, 0, job_type=JobType.OPTIMIZATION)
+        tracker.claim_active_job(_CAS_JOB_ID, 0)
 
         with pytest.raises(HTTPException) as exc_info:
             cancel_with_reread(_CAS_JOB_ID, writer, token, tracker)

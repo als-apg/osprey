@@ -1295,11 +1295,11 @@ _WAVE_T0 = datetime(2024, 1, 15, 10, 0, tzinfo=UTC)
 
 def _sek_traces(count: int, spacing: timedelta = timedelta(minutes=1)):
     """``count`` realistic 500-point SEK traces, one per ``spacing``."""
-    from osprey_connectors.simulation.pulse import TRACE_POINTS, trace
+    from osprey_connectors.simulation.pulse import trace
 
     stamps = [_WAVE_T0 + i * spacing for i in range(count)]
     values = [[float(x) for x in trace(_SEK, ts.timestamp(), 1.0, True)] for ts in stamps]
-    assert all(len(v) == TRACE_POINTS for v in values)
+    assert all(len(v) == 500 for v in values)
     return pd.DatetimeIndex(stamps), values
 
 
