@@ -33,6 +33,8 @@ from typing import Any, Literal
 
 from osprey_connectors.pv_directory._transport import ReadOnlyTransport
 from osprey_connectors.pv_directory.contract import (
+    DEFAULT_DESCRIPTION_PROPERTY,
+    ROW_FIELD_PROPERTIES,
     BackendSpec,
     DirectoryPage,
     DirectoryRecord,
@@ -49,16 +51,8 @@ _PROPERTIES = "/resources/properties"
 
 _MALFORMED = Unavailable("malformed response")
 
-_STATUS = "pvStatus"
-_LAST_ANNOUNCED = "time"
-_IOC = "iocName"
-_HOST = "hostName"
-_RECORD_TYPE = "recordType"
-
-#: The description RecSync records and the properties with a known set of values,
-#: for a deployment whose section does not name its own.
-_DEFAULT_DESCRIPTION_PROPERTY = "recordDesc"
-_DEFAULT_EXACT_PROPERTIES = (_STATUS, _RECORD_TYPE)
+#: The properties with a known set of values, for a deployment whose section names none.
+_DEFAULT_EXACT_PROPERTIES = (ROW_FIELD_PROPERTIES["status"], ROW_FIELD_PROPERTIES["record_type"])
 
 #: Rows asked for when only an exact name is wanted: a term with a wildcard in it
 #: can match more than the one name it is checked against.
@@ -187,7 +181,7 @@ class ChannelFinderDirectory(PVDirectory):
         self._description_property = (
             description
             if isinstance(description, str) and description.strip()
-            else _DEFAULT_DESCRIPTION_PROPERTY
+            else DEFAULT_DESCRIPTION_PROPERTY
         )
         exact = spec.settings.get("exact_properties")
         self._exact_properties = frozenset(
@@ -206,11 +200,11 @@ class ChannelFinderDirectory(PVDirectory):
                 else (key, _pattern(text))
             )
         if query.status:
-            params.append((_STATUS, _one_value(query.status)))
+            params.append((ROW_FIELD_PROPERTIES["status"], _one_value(query.status)))
         if query.ioc:
-            params.append((_IOC, _any_of(query.ioc)))
+            params.append((ROW_FIELD_PROPERTIES["ioc"], _any_of(query.ioc)))
         if query.record_type:
-            params.append((_RECORD_TYPE, _any_of(query.record_type)))
+            params.append((ROW_FIELD_PROPERTIES["record_type"], _any_of(query.record_type)))
         return params
 
     def _searches(self, query: SearchQuery) -> list[_Params]:
@@ -229,16 +223,16 @@ class ChannelFinderDirectory(PVDirectory):
 
     def _record(self, channel: Mapping[str, Any]) -> DirectoryRecord:
         properties = _properties_of(channel)
-        status = properties.pop(_STATUS, None)
+        status = properties.pop(ROW_FIELD_PROPERTIES["status"], None)
         return DirectoryRecord(
             row=DirectoryRow(
                 name=channel["name"],
                 status=status if status in ("Active", "Inactive") else None,  # type: ignore[arg-type]
                 description=properties.pop(self._description_property, None),
-                record_type=properties.pop(_RECORD_TYPE, None),
-                ioc=properties.pop(_IOC, None),
-                host=properties.pop(_HOST, None),
-                last_announced=properties.pop(_LAST_ANNOUNCED, None),
+                record_type=properties.pop(ROW_FIELD_PROPERTIES["record_type"], None),
+                ioc=properties.pop(ROW_FIELD_PROPERTIES["ioc"], None),
+                host=properties.pop(ROW_FIELD_PROPERTIES["host"], None),
+                last_announced=properties.pop(ROW_FIELD_PROPERTIES["last_announced"], None),
             ),
             properties=properties,
             tags=_names_of(channel.get("tags")),
@@ -350,7 +344,10 @@ class ChannelFinderDirectory(PVDirectory):
         channels = _channels(sample)
         if isinstance(channels, Unavailable):
             return f"{answered}; no PVs read: {channels.reason}"
-        times = [_properties_of(channel).get(_LAST_ANNOUNCED) for channel in channels]
+        times = [
+            _properties_of(channel).get(ROW_FIELD_PROPERTIES["last_announced"])
+            for channel in channels
+        ]
         newest = max((stamp for stamp in times if stamp), default=None)
         if newest is None:
             return f"{answered}; {len(channels)} PVs read, none with an announcement time"

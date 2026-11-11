@@ -14,6 +14,7 @@ import pytest
 from osprey_connectors.pv_directory._channelfinder import ChannelFinderDirectory
 from osprey_connectors.pv_directory._transport import ReadOnlyTransport
 from osprey_connectors.pv_directory.contract import (
+    ROW_FIELD_PROPERTIES,
     BackendSpec,
     DirectoryRecord,
     Outcome,
@@ -504,6 +505,19 @@ class TestDescribe:
         for mapped in ("pvStatus", "time", "iocName", "hostName", "recordType", "recordDesc"):
             assert mapped not in record.properties
         assert ("~name", "DEMO:RF1:CAV:Temp-I") in replay.params_to(CHANNELS)[0]
+
+    async def test_each_mapped_property_fills_its_row_field(self):
+        directory, _ = backend(always())
+        fixture = recorded("channels")[0]
+        values = {prop["name"]: prop["value"] for prop in fixture["properties"]}
+
+        record = await directory.describe(fixture["name"], DEADLINE)
+
+        assert isinstance(record, DirectoryRecord)
+        for field, prop in ROW_FIELD_PROPERTIES.items():
+            assert getattr(record.row, field) == values[prop]
+            assert prop not in record.properties
+        assert record.row.description == values["recordDesc"]
 
     async def test_a_record_carries_its_tag_names(self):
         directory, _ = backend(always())
