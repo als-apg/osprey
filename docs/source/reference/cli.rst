@@ -89,7 +89,7 @@ forge is filled in.
 The directory's name is proposed as the deployment's name: ``osprey init``
 normalizes it to a valid compose project name and records it in
 ``profile.yml`` as ``project_name:``, beside the display ``name:``. That
-tracked value names the compose project, volumes, images and tier and app renders
+tracked value names the compose project, volumes, images and login renders
 on every host from then on; the folder a later clone sits in plays no part. Change
 it in ``profile.yml``, or with ``osprey set project_name=NAME``, before the
 first ``osprey up`` if the folder name is not the name you want
@@ -247,7 +247,7 @@ problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
 
 A profile ``osprey init`` wrote is also compared with the preset it came from,
-tier and app files included, and the two kinds of difference are treated
+login files included, and the two kinds of difference are treated
 differently.
 
 **Structural** differences are refused: a key or list member the preset has and
@@ -364,7 +364,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    Print the composition card ``osprey init`` prints, for a repo that already
    exists: who can sign in and with what rights, what the agent runs on, what
    machine it talks to, and what runs beside it. It reads ``profile.yml`` and
-   the tier and app files beside it; nothing is built, started or probed.
+   the login files beside it; nothing is built, started or probed.
    ``--json`` prints the rows as one JSON array of ``{group, label, value}``
    objects on stdout and every warning on stderr.
 
@@ -443,7 +443,7 @@ has changed since the build, ``up`` refuses and says what moved, because
 starting would deploy something other than what the profile now describes.
 
 One exception, by design: a deployment with web terminals re-renders that stack
-at every start — its compose file, nginx config, landing page, and any tier or app
+at every start — its compose file, nginx config, landing page, and any login
 whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.
 
@@ -1683,7 +1683,7 @@ All subcommands accept a common flag:
 
 ``osprey scaffold web-terminals lint [--repo DIRECTORY]``
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
-   allocation, reserved service names, duplicate users, tier and app references).
+   allocation, reserved service names, duplicate users, login references).
    Exits non-zero on error-severity findings; warnings do not fail the check,
    so it is safe to wire into a CI gate. The retired ``--config`` is refused,
    as under ``render`` below.

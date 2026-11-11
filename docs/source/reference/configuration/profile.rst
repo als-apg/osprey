@@ -30,7 +30,7 @@ Profile YAML reference
      - *required*
      - The deployment's name on a host. It names the compose project, its
        volumes (``<project_name>_<volume>``), the ``:local`` images, the web
-       containers and the tier and app renders (``<project_name>-<name>``).
+       containers and the login renders (``<project_name>-<name>``).
        ``osprey init`` writes it from the folder name, normalized to a valid
        compose project name; after that it is a tracked value, and the folder
        the repository is checked out into plays no part. It must already be a
@@ -61,7 +61,7 @@ Profile YAML reference
      - ``None``
      - A bundled preset name, or a path relative to this file, to inherit from.
        The parent is deep-merged under this file, recursively; a cycle is
-       refused. A tier or app file may not spell it, and an override that would
+       refused. A login file may not spell it, and an override that would
        give a materialized profile a parent is refused (see
        :doc:`/how-to/build-profiles`).
    * - ``provider``
