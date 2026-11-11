@@ -8,6 +8,7 @@ import { test, expect, describe } from 'vitest';
 import {
   FACET_KEYS,
   allPvsHash,
+  familyOf,
   formatRoute,
   parseRoute,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/route.js';
@@ -166,5 +167,17 @@ describe('allPvsHash', () => {
   test('trimmed words become q, blank words no params', () => {
     expect(allPvsHash(' BPM01 ')).toBe('#/allpvs?q=BPM01');
     expect(allPvsHash('  ')).toBe('#/allpvs');
+  });
+});
+
+describe('familyOf', () => {
+  test.each([
+    ['pv', 'allpvs'],
+    ['ioc', 'allpvs'],
+    ['allpvs', 'allpvs'],
+    ['explore', 'explore'],
+    ['feedback', 'feedback'],
+  ])('%s belongs to %s', (view, family) => {
+    expect(familyOf(view)).toBe(family);
   });
 });
