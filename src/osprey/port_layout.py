@@ -207,6 +207,8 @@ LAYOUT: tuple[PortSlot, ...] = (
     # ``services.bluesky.port`` moves both lanes.
     PortSlot("bluesky_second_lane", 81, "services", "services.bluesky.port"),
     PortSlot("optimizer", 82, "services", "services.optimizer.port"),
+    # The OPTIMIZER panel's sidecar, beside the service it relays to.
+    PortSlot("optimizer_web", 83, "services", "services.optimizer_web.port"),
     # Virtual-accelerator instance n >= 2, at index n - 2. Instance 1 is the
     # Channel Access exception and is not in the block at all.
     PortSlot("va_standin", 90, "services", "services.live_standin.port"),

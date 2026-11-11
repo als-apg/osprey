@@ -38,9 +38,9 @@ child could be brought up).
 Invariants:
 
 * Callers hand over the error; the policy decides where it came from. An error
-  the connector-host child sent is :attr:`Origin.CHILD`, one the link to the
-  child made (a missed deadline, a closed pipe) is :attr:`Origin.LINK`, and
-  anything from a connector in this process is :attr:`Origin.IN_PROCESS`.
+  the connector-host child sent is :attr:`_Origin.CHILD`, one the link to the
+  child made (a missed deadline, a closed pipe) is :attr:`_Origin.LINK`, and
+  anything from a connector in this process is :attr:`_Origin.IN_PROCESS`.
 * Recovery happens at most once per incarnation. Every failure of one
   incarnation awaits the one act the first started, and an incarnation that has
   been replaced or dropped is answered with that record and never acted on
@@ -71,7 +71,6 @@ from osprey_connectors.errors import (
 )
 
 __all__ = [
-    "Origin",
     "Recovery",
     "RecoveryAction",
     "RecoveryPolicy",
@@ -83,7 +82,7 @@ __all__ = [
 _RAISED_BY_CHILD = "_osprey_raised_by_child"
 
 
-class Origin(StrEnum):
+class _Origin(StrEnum):
     """Where a failure was raised."""
 
     #: In the connector-host child, which answered with it.
@@ -169,7 +168,7 @@ class _Failure(Enum):
 @dataclass(frozen=True)
 class _Row:
     failure: type[BaseException]
-    origin: Origin | None
+    origin: _Origin | None
     step: _Step
     #: ``True``: only a write whose timeout the policy replaces for; ``False``: only any
     #: other call; ``None``: either.
@@ -187,8 +186,8 @@ _STEPS: tuple[_Row, ...] = (
     _Row(ChannelError, None, _Step.NONE),
     _Row(ChannelReadFailedError, None, _Step.NONE),
     _Row(ClientLibraryRefusedError, None, _Step.NONE),
-    _Row(TimeoutError, Origin.LINK, _Step.REPLACE, write_timeout=True),
-    _Row(TimeoutError, Origin.LINK, _Step.PROBE, write_timeout=False),
+    _Row(TimeoutError, _Origin.LINK, _Step.REPLACE, write_timeout=True),
+    _Row(TimeoutError, _Origin.LINK, _Step.PROBE, write_timeout=False),
     _Row(ConnectorUnavailableError, None, _Step.REPLACE),
     _Row(ConnectionError, None, _Step.REPLACE),
     _Row(BaseException, None, _Step.NONE),
@@ -228,13 +227,13 @@ _SENTENCES: dict[tuple[RecoveryAction, Timing, _Failure], str] = {
 }
 
 
-def _origin(exc: BaseException, target: Supervised) -> Origin:
+def _origin(exc: BaseException, target: Supervised) -> _Origin:
     if not target.in_child:
-        return Origin.IN_PROCESS
-    return Origin.CHILD if getattr(exc, _RAISED_BY_CHILD, False) else Origin.LINK
+        return _Origin.IN_PROCESS
+    return _Origin.CHILD if getattr(exc, _RAISED_BY_CHILD, False) else _Origin.LINK
 
 
-def _matches(row: _Row, exc: BaseException, origin: Origin, *, write_timeout: bool) -> bool:
+def _matches(row: _Row, exc: BaseException, origin: _Origin, *, write_timeout: bool) -> bool:
     if not isinstance(exc, row.failure):
         return False
     if row.origin is not None and row.origin is not origin:
@@ -248,7 +247,7 @@ def _matches(row: _Row, exc: BaseException, origin: Origin, *, write_timeout: bo
     return root is None or issubclass(row.failure, root)
 
 
-def _step_of(exc: BaseException, origin: Origin, *, write_timeout: bool) -> _Step:
+def _step_of(exc: BaseException, origin: _Origin, *, write_timeout: bool) -> _Step:
     return next(
         row.step for row in _STEPS if _matches(row, exc, origin, write_timeout=write_timeout)
     )

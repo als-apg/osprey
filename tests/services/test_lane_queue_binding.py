@@ -304,7 +304,7 @@ def _session_on(target: str, generation: int = 0) -> None:
     to the host: :func:`target_banner.resolve_control_target` reads this file
     and nothing else.
     """
-    root = posture_store.agent_data_root()
+    root = posture_store.stamped_agent_data_root()
     assert root is not None, "the deployment fixture stamps OSPREY_AGENT_DATA_ROOT"
     write_control_context(root, target=target, generation=generation)
 

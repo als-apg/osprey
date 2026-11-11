@@ -767,7 +767,8 @@ class OspreyPVConnector:
         """The report's ``reachable``: ``no`` since the transport went stale, else ``yes``.
 
         A channel that does not answer is that channel's failure and never
-        makes the machine unreachable (:data:`~osprey_connectors.control_context.REACHABLE_STATES`).
+        makes the machine unreachable: ``yes`` and ``no`` are the only states the
+        reader takes.
         """
         if self._stale_since is None:
             return _reach(REACH_YES)

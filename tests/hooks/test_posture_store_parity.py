@@ -33,6 +33,7 @@ from pathlib import Path
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey_connectors import control_context, posture_env, posture_store
 from osprey_connectors.types import switch_capable
 from osprey_connectors_tests._harness import (
@@ -76,9 +77,9 @@ def stamped_root(tmp_path, monkeypatch):
     monkeypatch.delenv(reader.POSTURE_SESSION_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     state_dir_under(root).mkdir(parents=True)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def write_record(root, posture, switch=None):
@@ -92,7 +93,7 @@ def write_record(root, posture, switch=None):
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["posture"] = posture
     write_payload(path, payload)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return path
 
 
@@ -159,7 +160,7 @@ def test_a_corrupt_record_is_unreadable_on_both_sides(stamped_root):
     # Arrange
     path = control_context._record_path_under(stamped_root)
     path.write_text('{"schema": 1, "target": "live"', encoding="utf-8")  # truncated
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     # Act / Assert
     assert reader.read_record({}) is None
@@ -170,7 +171,7 @@ def test_a_corrupt_record_is_unreadable_on_both_sides(stamped_root):
 def test_a_non_string_target_is_dropped_by_both_parsers():
     """JSON cannot spell one, but both parsers also take decoded objects."""
     raw = {"live": "sandbox", 7: "sandbox"}
-    assert reader.parse_posture(raw) == control_context.parse_posture(raw)
+    assert reader.parse_posture(raw) == posture_store.parse_posture_value(raw)
     assert reader.parse_posture(raw) == {"live": "sandbox"}
 
 
@@ -206,7 +207,7 @@ def test_the_posture_parsers_agree_shape_for_shape(raw):
     reasons; this pins the surviving structure, which is what a future target
     name or a future posture value would change.
     """
-    assert reader.parse_posture(raw) == control_context.parse_posture(raw)
+    assert reader.parse_posture(raw) == posture_store.parse_posture_value(raw)
 
 
 def test_legacy_bare_sandbox_covers_the_whole_target_vocabulary():
@@ -218,7 +219,7 @@ def test_legacy_bare_sandbox_covers_the_whole_target_vocabulary():
     rule.
     """
     parsed = reader.parse_posture("sandbox")
-    assert parsed == control_context.parse_posture("sandbox")
+    assert parsed == posture_store.parse_posture_value("sandbox")
     assert set(parsed) == set(reader.CONTROL_TARGETS)
 
 
@@ -242,7 +243,7 @@ def test_the_stamped_record_path_is_one_path(tmp_path, monkeypatch):
     # Arrange
     root = tmp_path / "elsewhere" / "agent_data"
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     # Act / Assert
     assert reader.record_path({}) == str(control_context.record_path())
@@ -269,7 +270,7 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
     reset_config_cache()
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     # Act
     hook_answer = reader.record_path({})
@@ -281,7 +282,7 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
         assert os.path.realpath(hook_answer) == os.path.realpath(str(canonical))
     finally:
         reset_config_cache()
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
 
 
 def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatch):
@@ -310,7 +311,7 @@ def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatc
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
     reset_config_cache()
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     # Act
     hook_record = reader.record_path({})
@@ -326,7 +327,7 @@ def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatc
         assert os.path.realpath(hook_dir).startswith(os.path.realpath(str(tmp_path)))
     finally:
         reset_config_cache()
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
 
 
 def test_the_record_sits_beside_the_server_reports(tmp_path, monkeypatch):
@@ -348,10 +349,10 @@ def test_the_record_sits_beside_the_server_reports(tmp_path, monkeypatch):
     assert reader.RECORD_FILENAME == control_context.RECORD_FILENAME
     assert reader.REPORT_FILE_PREFIX == control_context.REPORT_FILE_PREFIX
     assert reader.REPORT_FILE_SUFFIX == control_context.REPORT_FILE_SUFFIX
-    assert reader.AGENT_DATA_ROOT_ENV_VAR == posture_store.AGENT_DATA_ROOT_ENV_VAR
+    assert reader.AGENT_DATA_ROOT_ENV_VAR == OSPREY_AGENT_DATA_ROOT
     assert reader.POSTURE_SANDBOX == posture_store.POSTURE_SANDBOX
     assert reader.POSTURE_WRITES == posture_store.POSTURE_WRITES
-    assert set(reader.VALID_POSTURES) == set(posture_store.VALID_POSTURES)
+    assert set(reader.VALID_POSTURES) == set(posture_store._VALID_POSTURES)
 
 
 def test_the_container_bind_is_the_whole_directory_on_all_four_resolvers(tmp_path, monkeypatch):
@@ -374,11 +375,11 @@ def test_the_container_bind_is_the_whole_directory_on_all_four_resolvers(tmp_pat
     monkeypatch.setenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, str(bind))
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "not-this-root"))
     pin_identity(monkeypatch)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     # Act / Assert
     assert posture_store.state_dir() == bind
-    assert control_context.state_dir() == bind
+    assert posture_store.state_dir() == bind
     assert target_state.state_dir() == bind
     assert reader.resolve_state_dir({}) == str(bind)
     assert control_context.record_path() == bind / control_context.RECORD_FILENAME
@@ -386,7 +387,7 @@ def test_the_container_bind_is_the_whole_directory_on_all_four_resolvers(tmp_pat
 
 
 def test_the_stamped_path_and_the_explicit_root_path_are_one_path(tmp_path, monkeypatch):
-    """``record_path()`` and ``_record_path_under(agent_data_root())`` coincide.
+    """``record_path()`` and ``_record_path_under(_agent_data_root())`` coincide.
 
     The two spellings serve different callers — one reads the environment, the
     other is handed a root by a test fixture or by a writer preparing a
@@ -402,15 +403,15 @@ def test_the_stamped_path_and_the_explicit_root_path_are_one_path(tmp_path, monk
     monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     pin_identity(monkeypatch)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     # Act
-    root = posture_store.agent_data_root()
+    root = posture_store._agent_data_root()
 
     # Assert
     assert root == tmp_path
     assert control_context.record_path() == control_context._record_path_under(root)
-    assert control_context.state_dir() == state_dir_under(root)
+    assert posture_store.state_dir() == state_dir_under(root)
     assert reader.record_path({}) == str(control_context._record_path_under(root))
 
 
@@ -440,7 +441,7 @@ def test_a_stored_on_reads_as_asked_on_both_sides(stamped_root):
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["switch"] = {"live": "on", "va": "allowed", "standin": "ON"}
     write_payload(path, payload)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     record, status = reader.read_record_status({})
     assert status == "ok"
@@ -611,7 +612,7 @@ def test_an_unstamped_process_with_no_record_is_fail_closed(tmp_path, monkeypatc
         assert reader.posture_unknown({}) is True
     finally:
         reset_config_cache()
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
 
 
 def test_an_unstamped_hook_and_the_store_derive_one_root_under_a_relocated_base_dir(
@@ -631,17 +632,17 @@ def test_an_unstamped_hook_and_the_store_derive_one_root_under_a_relocated_base_
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
     reset_config_cache()
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     try:
         hook_root = Path(reader.agent_data_root({})).resolve()
         expected = (tmp_path / "relocated/agent_data").resolve()
 
-        assert hook_root == posture_store.agent_data_root().resolve() == expected
+        assert hook_root == posture_store._agent_data_root().resolve() == expected
         assert Path(reader.resolve_state_dir({})).resolve().is_relative_to(expected)
     finally:
         reset_config_cache()
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
 
 
 def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path, monkeypatch):
@@ -670,7 +671,7 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
         assert record["switch"] == {"va": "asked"}
     finally:
         reset_config_cache()
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
 
 
 def test_a_stamped_process_is_never_posture_unknown(stamped_root):
@@ -701,7 +702,7 @@ def test_an_unreadable_record_is_unreadable_on_both_sides(stamped_root):
     # Arrange
     path = write_record(stamped_root, {}, ALL_ON)
     path.chmod(0o000)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     # Act / Assert
     try:
@@ -711,7 +712,7 @@ def test_an_unreadable_record_is_unreadable_on_both_sides(stamped_root):
         assert control_context.read_record_status(path=path)[1] == "unreadable"
     finally:
         path.chmod(0o600)
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
 
 
 def test_an_undecodable_record_is_unreadable_on_both_sides(tmp_path, monkeypatch):
@@ -739,14 +740,14 @@ def test_an_undecodable_record_is_unreadable_on_both_sides(tmp_path, monkeypatch
     monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     state_dir_under(root).mkdir(parents=True)
     control_context._record_path_under(root).write_bytes(b"\xff\xfe{\x00schema\x00: 1}")
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     # Act / Assert — both answer, and both refuse
     assert reader.read_record({}) is None
     assert reader.read_record_status({}) == (None, "unreadable")
     path = control_context._record_path_under(root)
     assert control_context.read_record_status(path=path)[1] == "unreadable"
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def test_the_degradation_hatch_writes_a_record_neither_side_honours(stamped_root):

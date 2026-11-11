@@ -308,6 +308,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
         "watchdogs",
         "bluesky_web",
         "optimizer",
+        "optimizer_web",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",

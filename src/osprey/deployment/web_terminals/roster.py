@@ -303,6 +303,9 @@ EVENTS_PANEL_ID = "events"
 #: declaration IS the entitlement, exactly as for :data:`EVENTS_PANEL_ID`.
 BLUESKY_PANEL_ID = "bluesky"
 
+#: The optimizer-web sidecar's tab, granted the same way as :data:`BLUESKY_PANEL_ID`.
+OPTIMIZER_PANEL_ID = "optimizer"
+
 
 def config_declares_panel(config: Any, panel_id: str) -> bool:
     """True if ``config`` declares ``web.panels.<panel_id>`` and hasn't disabled it.
@@ -1056,6 +1059,7 @@ class PanelGrant(TypedDict):
 #: The rows no application projects: panel id → the service holding its grant.
 BUILTIN_PANEL_ROSTER_GRANTS: Mapping[str, PanelRosterGrant] = {
     BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
+    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web"),
 }
 
 
@@ -1210,7 +1214,8 @@ def service_panel_grant(
             continue
         web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
         # Switched-off per-user terminals hold no secret: only the one terminal is left.
-        has_roster = web_terminals.get("enabled") is not False and roster_people(web_terminals)
+        # A roster of shared cards alone is a roster: each card holds its own secret.
+        has_roster = web_terminals.get("enabled") is not False and roster_entries(web_terminals)
         if not row.single_user_alias or has_roster:
             grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
             return {

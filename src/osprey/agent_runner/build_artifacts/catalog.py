@@ -643,6 +643,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/optimizer_web",
+            template_path="optimizer_web",
+            output_path="services/optimizer_web",
+            description="Optimizer operator-facing web sidecar compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/graphdb",
             template_path="graphdb",
             output_path="services/graphdb",

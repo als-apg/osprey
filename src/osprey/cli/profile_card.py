@@ -573,6 +573,11 @@ def _services_group(profile: BuildProfile) -> CardGroup | None:
             [[("bluesky web", Styles.DIM)], [(f":{profile.bluesky_web.port}", Styles.ACCENT)]]
         )
 
+    if profile.optimizer_web is not None:
+        rows.append(
+            [[("optimizer web", Styles.DIM)], [(f":{profile.optimizer_web.port}", Styles.ACCENT)]]
+        )
+
     if profile.dispatch is not None:
         dispatch = profile.dispatch
         noun = "worker" if dispatch.worker_count == 1 else "workers"

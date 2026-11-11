@@ -14,8 +14,9 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 from pydantic import ValidationError
 
-from osprey_optimizer.api.job_tracker import JobMeta, JobTracker, create_job_state
+from osprey_optimizer.api.job_tracker import JobMeta, JobTracker
 from osprey_optimizer.models.api import JobResponse
+from osprey_optimizer.optimization.state import get_optimization_reader
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,8 @@ logger = logging.getLogger(__name__)
 def load_job_meta(tracker: JobTracker, job_id: str) -> JobMeta:
     """Fetch a job's metadata, raising 404 if missing (Redis expiry), 500 if corrupt.
 
-    The single read seam for job metadata: every caller that needs a job's type
-    or creation time goes through here, so the HTTP mapping of a vanished or
+    The single read seam for job metadata: every caller that needs a job's
+    creation time goes through here, so the HTTP mapping of a vanished or
     unparsable record is defined in exactly one place.
     """
     try:
@@ -52,13 +53,12 @@ def read_job_status(tracker: JobTracker, job_id: str) -> JobResponse:
     ``GET /jobs`` reads.
     """
     meta = load_job_meta(tracker, job_id)
-    reader = create_job_state(meta.job_type, job_id)
+    reader = get_optimization_reader(job_id)
     created_at_iso = datetime.fromtimestamp(meta.created_at, tz=UTC).isoformat()
     # Whether a run is waiting on an approval is part of its status, so the
     # plain read carries it too, not only the ``detail=`` builders.
     return JobResponse(
         job_id=job_id,
-        job_type=meta.job_type,
         status=reader.get_status(),
         logs=reader.get_logs(),
         error_message=reader.get_error_message(),

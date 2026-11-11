@@ -18,7 +18,6 @@ from osprey_optimizer.models.config import OptimizationConfig
 from osprey_optimizer.models.types import Direction
 from osprey_optimizer.optimization.surrogate.constructor import unpack_model_bundle
 from osprey_optimizer.results import (
-    ResultMetadata,
     _load_model_metadata,
     _read_config_metadata,
     initialize_results_dir,
@@ -56,7 +55,7 @@ def _write_model(path: Path, variables: list[str] | None = None) -> None:
 
 def _save(output_dir: Path, **overrides: Any) -> Path:
     """save_optimization_results over a standard one-row run; override only what
-    the test varies (data, best_point, config, metadata)."""
+    the test varies (data, best_point, config, and the keyword-only extras)."""
     defaults: dict[str, Any] = {
         "data": pl.DataFrame({"x": [1.0]}),
         "best_point": {"x": 1.0},
@@ -201,7 +200,7 @@ class TestSaveOptimizationResults:
             tmp_path / "results",
             data=sample_df,
             config=config,
-            metadata=ResultMetadata(initial_point={"var1": 0.5}),
+            initial_point={"var1": 0.5},
         )
         ip_path = run_dir / "initial_point.json"
         assert ip_path.exists()
@@ -225,7 +224,7 @@ class TestSaveOptimizationResults:
             tmp_path / "results",
             data=sample_df,
             config=config,
-            metadata=ResultMetadata(job_id="job-456"),
+            job_id="job-456",
         )
         with (run_dir / "metadata.json").open() as f:
             assert json.load(f)["job_id"] == "job-456"
@@ -237,7 +236,7 @@ class TestSaveOptimizationResults:
         (run_dir / "metadata.json").write_text("{}")  # marks pre-initialized
         (run_dir / "initial_point.json").write_text(json.dumps({"existing": 9.0}))
 
-        _save(run_dir, metadata=ResultMetadata(initial_point={"x": 0.5}))
+        _save(run_dir, initial_point={"x": 0.5})
         with (run_dir / "initial_point.json").open() as f:
             assert json.load(f) == {"existing": 9.0}
 
@@ -248,7 +247,7 @@ class TestSaveOptimizationResults:
         run_dir.mkdir(parents=True)
         (run_dir / "config.json").write_text("{}")
 
-        _save(run_dir, metadata=ResultMetadata(job_id="job-xyz"))
+        _save(run_dir, job_id="job-xyz")
         # config.json left as-is; metadata written.
         with (run_dir / "metadata.json").open() as f:
             assert json.load(f) == {"job_id": "job-xyz"}
@@ -276,7 +275,7 @@ class TestSaveOptimizationResults:
 
         # A distinguishable, picklable "model" so we can prove the RIGHT object landed.
         model = {"weights": [1.0, 2.0, 3.0]}
-        run = _save(run_dir, metadata=ResultMetadata(model=model, model_variables=["x", "y"]))
+        run = _save(run_dir, model=model, model_variables=["x", "y"])
 
         # The artifact lands at the pinned path and is a real, loadable bundle.
         model_path = run / "model.joblib"
@@ -308,7 +307,7 @@ class TestSaveOptimizationResults:
             patch("joblib.dump", side_effect=RuntimeError("disk full")),
             caplog.at_level("WARNING"),
         ):
-            run = _save(run_dir, metadata=ResultMetadata(model=object(), model_variables=["x"]))
+            run = _save(run_dir, model=object(), model_variables=["x"])
         assert not (run / "model.joblib").exists()
         [record] = [r for r in caplog.records if r.getMessage() == "Failed to save trained model"]
         assert record.exc_info is not None
@@ -368,7 +367,7 @@ class TestLoadResults:
         run_dir = _save(
             tmp_path / "results",
             config=config,
-            metadata=ResultMetadata(initial_point={"var1": 0.5, "var2": 1.0}),
+            initial_point={"var1": 0.5, "var2": 1.0},
         )
         _, _, config_dict = load_results(str(run_dir))
         assert config_dict["snapshots"]["initial"] == {"var1": 0.5, "var2": 1.0}
