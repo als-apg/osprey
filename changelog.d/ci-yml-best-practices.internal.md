@@ -29,3 +29,16 @@ and a comment on what it proves; `canopy-contract` stays inline so its credentia
 one place. `visual-baselines-push` now skips its commit, with a notice, when the branch has moved
 past the commit that rendered the baselines; the check is pure git and reads that sha through
 `env:`.
+
+The skip-gated lanes no longer run a separate "Fail the lane on any skipped test" step over junit
+reports. Their pytest steps load `scripts/ci/pytest_plugins/no_skips.py` instead (`-p no_skips`,
+with that directory on `PYTHONPATH`), which fails the session on any skipped test, xfail or module
+skipped at collection, under xdist too, and says why in an `::error::` annotation; a session that
+collects nothing still exits 5. `--no-skips-message` prints the lane's message when nothing
+skipped, and `--no-skips-allow-partial` keeps `privilege-split-e2e`'s module-wide rule. The gate
+now also holds `agentic-per-preset`, `dispatch-stack-e2e`, `nextcloud-talk-bridge-e2e` and every
+`stack-e2e` cell, so every model-spending lane but `e2e-tests`, whose skips are by design (opt-in
+provider matrices, backends no runner provisions), fails on a skip.
+`scripts/ci/junit_no_skips.py` is gone. The capture-diagnostics action's `name` input now defaults
+to the job id, so a plain job's capture step is one shared YAML anchor, and only matrix jobs, whose
+cells need distinct artifact names, pass a name.
