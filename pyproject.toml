@@ -58,7 +58,7 @@ dependencies = [
     # JupyterLab and the server it runs on, launched by the notebook sidecar via
     # ServerApp traits and a ContentsManager subclass. Capped below the next major
     # so adopting it is a reviewed change, not a lock-refresh surprise.
-    "jupyterlab>=4.6,<5",
+    "jupyterlab>=4.6.6,<5",
     "jupyter-server>=2.21,<3",
     "ipykernel",
     # AI/ML provider integrations
