@@ -222,6 +222,31 @@ def test_known_root_entries_derive_from_the_profile():
     ]
 
 
+def test_a_local_path_dependency_exempts_its_root_directory_and_nothing_else(tmp_path: Path):
+    """A package source the profile's ``dependencies`` points into is no typo; a stray is."""
+    from osprey.cli.build_persistence import _profile_known_root_entries
+    from osprey.cli.build_profile_model import BuildProfile
+    from osprey.cli.profile_conventions import unknown_root_entries
+
+    (tmp_path / "kinds" / "fixture_kind").mkdir(parents=True)
+    (tmp_path / "vendored").mkdir()
+    (tmp_path / "strayed").mkdir()
+    profile = BuildProfile(
+        name="p",
+        dependencies=[
+            "./kinds/fixture_kind",
+            f"vendored-pkg @ file://{tmp_path / 'vendored'}",
+            "numpy>=2",
+            "../outside",
+        ],
+    )
+
+    known = _profile_known_root_entries(profile, tmp_path / "profile.yml")
+
+    assert known == ["profile.yml", "kinds", "vendored"]
+    assert unknown_root_entries(tmp_path, known) == ["strayed"]
+
+
 def test_known_root_entries_skip_paths_above_the_profile():
     from osprey.cli.build_persistence import _profile_known_root_entries
     from osprey.cli.build_profile_model import BuildProfile
