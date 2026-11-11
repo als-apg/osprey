@@ -11,7 +11,10 @@ any more: the values arrive through `env:`, and the wiring tests hold both rules
 and action. Job timeouts that used to sit at a generic 60 minutes now sit at about three times the
 90th-percentile duration of recent green runs on main. The two proxy-probe base images are pinned by
 tag and digest, podman-compose's dependencies are pinned, and Dependabot pull requests are
-recognised by their author rather than by whoever triggered the run.
+recognised by their author rather than by whoever triggered the run. As a result, a maintainer
+adding the `full-ci` label to a Dependabot pull request no longer starts the model-spending lanes;
+the secret-lane revalidation dispatch (`gh workflow run ci.yml --ref <branch> -f
+revalidate_secret_lanes=true`) is the way to run them.
 
 `dockerfile-e2e` no longer holds `ALS_APG_API_KEY`. Its one model call, the agent turn through the
 generated image, moved to `tests/e2e/test_dockerfile_agent_e2e.py` and runs in the new
