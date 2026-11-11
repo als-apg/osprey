@@ -2,7 +2,7 @@
 
 ``config_derived_context`` writes ``pv_directory_tools``: the ``pv-directory``
 registry entry's allowed tools minus those the section's predicates withhold,
-in registry order. The main agent's CLAUDE.md, the channel-finder app's
+in registry order. The main agent's CLAUDE.md, the channel-finder login's
 CLAUDE.md and the channel-finder subagent read that one key, and every arm is
 gated on the server being among the render's enabled servers.
 """
