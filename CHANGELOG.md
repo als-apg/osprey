@@ -198,7 +198,7 @@ Write switch and write posture:
 osprey-connectors:
 
 - **Breaking change:** `osprey-connectors` is released on its own
-  `osprey-connectors-vYYYY.M.P` tags, separately from the framework. Twelve
+  `osprey-connectors-vYYYY.M.P` tags, separately from the framework. Thirteen
   releases since 2026.9.0b3: 2026.10.0 (the first on its own stream, with its
   public API declared, #2144), 2026.10.1 (three-position switch, #2199),
   2026.10.2 (Live wording, #2220), 2026.11.0 (session hold, #2257), 2026.11.1
@@ -210,12 +210,12 @@ osprey-connectors:
   shared channel compose within a scenario set, #2465), 2026.11.5 (the
   simulator view names its record roles and the `PERIODIC` refresh, #2489),
   2026.11.6 (`burst` and `loss` archiver event shapes, #2510), 2026.11.7 (the
-  archive seed accepts a model with no deck, #2525) and 2026.11.8
+  archive seed accepts a model with no deck, #2525), 2026.11.8
   (`engine_role` in the simulator view, now schema
   `osprey.facility.simulator/3`, `ipc.declared_gateways`, and
-  write-authorization ceilings; notes in #2618). 2026.11.9 (engines with a
+  write-authorization ceilings; notes in #2618) and 2026.11.9 (engines with a
   time contract, and public names nothing used made private or removed; notes
-  in #2645) is tagged and not yet on PyPI. 2026.10.0 and later do not support
+  in #2645). 2026.10.0 and later do not support
   framework 2026.9.0b1 to b3. This release requires
   `osprey-connectors>=2026.11.8` (raised in #2638), because the virtual
   accelerator, target eligibility and the shared-directory writers read names
