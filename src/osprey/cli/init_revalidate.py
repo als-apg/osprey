@@ -15,10 +15,9 @@ in place, with the round-trip writer so every comment the operator kept survives
    and ``image`` it carried move to the top of the login file they name.
 3. A file made from a retired preset and never edited (its data and its text
    below ``name:``, comments included, hash to what the previous release
-   emitted) is re-emitted from the bundled source: a tier as
-   ``tiers/<n>.yml``, the logbook and knowledge cards as the bundled app in
-   ``apps/``. The users that pinned such an app leave the roster and the app
-   joins ``shared:``. An edited file stays where it is, and the step left to
+   emitted) is re-emitted from the bundled login as ``tiers/<n>.yml``; the
+   users that pinned the logbook or knowledge login leave the roster and that
+   login joins ``shared:``. An edited file stays where it is, and the step left to
    do by hand is printed, as it is for every catalog field, role or pin the
    rewrite cannot carry over.
 4. The retired write-posture keys (``control_system.writes_enabled`` and every

@@ -9,8 +9,8 @@ verb a CI pipeline runs first and an operator runs after every profile edit.
 Zero-argument is the normal spelling: the repo enclosing the working directory
 is the thing being validated, found by the same walk every repo-scoped command
 uses. The optional path argument stays for the one profile that is not a repo
-root — a tier under ``tiers/`` or an app under ``apps/``, each a profile in its
-own right with its own way to be wrong.
+root — a login file under ``tiers/``, a profile in its own right with its own
+way to be wrong.
 
 ``osprey profile validate`` is the same verb spelled as part of the ``profile``
 noun group, and both spellings are documented surface. Only the INTERFACE
@@ -300,8 +300,8 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
     """Check the deployment profile without building.
 
     With no argument, validates the deployment repo enclosing the working
-    directory. TARGET names a different profile to check instead — a tier
-    under tiers/, an app under apps/, or a directory holding a profile.yml.
+    directory. TARGET names a different profile to check instead — a login file
+    under tiers/, or a directory holding a profile.yml.
 
     Resolves extends: chains and runs the full consistency check — convention
     directories, the data: tree, service templates, lifecycle steps, env vars —
@@ -325,7 +325,7 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
 
     \b
       $ osprey validate
-      $ osprey validate apps/logbook.yml
+      $ osprey validate tiers/readonly.yml
       $ osprey validate --repo ~/my-assistant
     """
     if target is not None and repo is not None:
