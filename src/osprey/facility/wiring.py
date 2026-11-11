@@ -122,7 +122,7 @@ def _mark_commands(document: dict[str, Any]) -> list[FacilityBuildError]:
     unmarked: dict[str, Mapping[str, Any]] = {}
     for model in document.get("models", []):
         for record in model.get("wiring", []):
-            if "role" not in record:
+            if "engine_role" not in record:
                 continue
             if command in (record.get(_MARKS_KEY) or []):
                 marked.add(str(record["address"]))
