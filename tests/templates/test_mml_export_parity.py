@@ -235,24 +235,50 @@ def committed(case: Case) -> Path:
     return _committed_file(case, ".ao.json")
 
 
+def once_per_case(root: Path, export_case: Callable[[Case, Path], Path]) -> Callable[[Case], Path]:
+    """Run *export_case* at most once per sub-machine, whatever its outcome.
+
+    A failed export is kept like a finished one and raised again to every later
+    test of that sub-machine, so each of them reports the failure itself rather
+    than a second attempt on the working directory the first one left behind,
+    and a failing sub-machine costs one MATLAB session, not one per test.
+    """
+    outcomes: dict[str, Path | Exception] = {}
+
+    def run(case: Case) -> Path:
+        if case.key not in outcomes:
+            workdir = root / case.key
+            workdir.mkdir()
+            try:
+                outcomes[case.key] = export_case(case, workdir)
+            except Exception as failure:
+                outcomes[case.key] = failure
+        outcome = outcomes[case.key]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    return run
+
+
 @pytest.fixture(scope="module")
 def export(tmp_path_factory: pytest.TempPathFactory) -> Callable[[Case], Path]:
     """Export a sub-machine once per module and hand back its AO path.
 
-    The checkouts are resolved on the first export rather than up front, so a
+    The checkouts are resolved on each request rather than up front, so a
     sub-machine whose fixture is not committed says so instead of asking for
-    two environment variables it has no use for.
+    two environment variables it has no use for, and a missing checkout skips
+    every test that needs one.
     """
-    produced: dict[str, Path] = {}
     # Made now, not on the first export, so it goes when the module ends.
     root = tmp_path_factory.mktemp("mml-export")
+    exported = once_per_case(root, lambda case, workdir: _run_export(case, workdir, *_checkouts()))
 
     def run(case: Case) -> Path:
-        if case.key not in produced:
-            workdir = root / case.key
-            workdir.mkdir()
-            produced[case.key] = _run_export(case, workdir, *_checkouts())
-        return produced[case.key]
+        # A skip is not an outcome to keep: it is raised before a working
+        # directory exists, again for every test.
+        _checkouts()
+        return exported(case)
 
     return run
 
