@@ -62,14 +62,15 @@ export function runningBest(values, direction) {
  * objective value so far.
  *
  * @param {LiveJob} job
+ * @param {number|null} [plannedTotal]  the total to show when the job reports none
  * @returns {{ done: number, total: number|null, best: number|null, percent: number|null }}
  */
-export function progress(job) {
+export function progress(job, plannedTotal = null) {
   const data = job.data || [];
   const values = job.objective_name ? data.map((r) => num(r[job.objective_name || ''])) : [];
   const bests = runningBest(values, job.objective_direction);
   const best = bests && bests.length ? bests[bests.length - 1] : null;
-  const total = num(job.total_evaluations);
+  const total = num(job.total_evaluations) ?? plannedTotal;
   const done = data.length;
   return {
     done,

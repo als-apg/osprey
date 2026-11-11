@@ -140,6 +140,17 @@ Dialer = Callable[[Mapping[str, Any]], "Dial | None"]
 HostDir = Callable[[Mapping[str, Any], "str | Path | None"], "Path | None"]
 
 
+def _dotted_present(config: Mapping[str, Any] | None, dotted_key: str) -> bool:
+    """Whether *dotted_key* is spelled in a nested config, ``null`` included."""
+    *parents, leaf = dotted_key.split(".")
+    node: Any = config
+    for part in parents:
+        if not isinstance(node, Mapping):
+            return False
+        node = node.get(part)
+    return isinstance(node, Mapping) and leaf in node
+
+
 def dotted_get(config: Mapping[str, Any] | None, dotted_key: str) -> Any:
     """The value at *dotted_key* in a nested config, or ``None`` when any
     segment is missing or not a mapping."""
@@ -220,11 +231,17 @@ class ProjectedKey:
             and is projected only for a render whose profile selects the
             panel (``web_panels:``), which the rendered config alone cannot
             tell: custom panels reach it through ``config:`` only.
+        host_setting: The key is a setting of the host's that rides along,
+            not an address a client dials. An explicit ``null`` in the host
+            render is projected too (it is the host's choice, not an
+            absence), and a refusal for a consumer with nothing to dial
+            never names it (setting it gives the consumer nothing to dial).
     """
 
     key: str
     gate: Predicate | None = None
     panel: str | None = None
+    host_setting: bool = False
 
 
 @dataclass(frozen=True)
@@ -286,6 +303,14 @@ class ReachContract:
     names_external: Predicate | None = None
     render_local: tuple[str, ...] = ()
     note: str = ""
+
+    def dial_keys(self) -> tuple[str, ...]:
+        """The projected keys that give a consumer something to dial.
+
+        What a "nothing to dial" refusal tells the user to name: every
+        projected key but a :attr:`ProjectedKey.host_setting`.
+        """
+        return tuple(key.key for key in self.projected if not key.host_setting)
 
 
 @dataclass(frozen=True)
@@ -1083,9 +1108,23 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
                 dial=_panel_dial(OPTIMIZER_PANEL_ID),
             ),
         ),
-        projected=tuple(
-            ProjectedKey(f"web.panels.{OPTIMIZER_PANEL_ID}.{leaf}", panel=OPTIMIZER_PANEL_ID)
-            for leaf in ("url", "path", "label", "health_endpoint")
+        projected=(
+            *(
+                ProjectedKey(f"web.panels.{OPTIMIZER_PANEL_ID}.{leaf}", panel=OPTIMIZER_PANEL_ID)
+                for leaf in ("url", "path", "label", "health_endpoint")
+            ),
+            # ``read_timeout_s`` rides along as the HOST's setting: the
+            # sidecar's relay budget is the host's, so a render's panel proxy
+            # must wait as long as the host's does, or a slow Start reaches the
+            # browser as the proxy's 502. A host's explicit ``null``
+            # (unbounded) is projected as such, and a render may not set its
+            # own: a disagreeing ``config:`` spelling is refused
+            # (``reach_override_errors``).
+            ProjectedKey(
+                f"web.panels.{OPTIMIZER_PANEL_ID}.read_timeout_s",
+                panel=OPTIMIZER_PANEL_ID,
+                host_setting=True,
+            ),
         ),
         names_external=_panel_url_resolves(OPTIMIZER_PANEL_ID),
         note=(
@@ -1340,6 +1379,8 @@ def project_attached_overrides(
     render means absent here: a host that dropped its qmd block projects no
     ``services.qmd.port``, and the attached render's own refusal
     (:func:`reach_errors`) then names the consumer left without it.
+    A :attr:`ProjectedKey.host_setting` the host spells as ``null`` is
+    projected as ``None``: there the null is the host's choice.
 
     Args:
         host_config: The hosting deployment's rendered ``config.yml``, or
@@ -1358,7 +1399,9 @@ def project_attached_overrides(
     for contract in REACH_CONTRACTS.values():
         for projected in contract.projected:
             value = dotted_get(host_config, projected.key)
-            if value is None:
+            if value is None and not (
+                projected.host_setting and _dotted_present(host_config, projected.key)
+            ):
                 continue
             if projected.panel is not None:
                 if projected.panel not in panels:
@@ -1453,9 +1496,7 @@ def reach_errors(config: Mapping[str, Any], *, repo_root: str | Path | None = No
         if not consumer.refuse:
             continue
         if not consumer.resolves(config):
-            keys = ", ".join(projected.key for projected in contract.projected) or (
-                f"services.{contract.service}"
-            )
+            keys = ", ".join(contract.dial_keys()) or f"services.{contract.service}"
             errors.append(
                 f"{consumer.name} is switched on ({consumer.switch_key}) but this render "
                 f"carries nothing for it to dial: no {keys}. An attached render "

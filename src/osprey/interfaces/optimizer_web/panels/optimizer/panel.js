@@ -10,7 +10,9 @@
  * sends. The Start button carries the job and revision it was rendered for,
  * and a click refuses when the state has moved on since; it never fetches a
  * revision of its own. The approval card reads the draft's own environment
- * (not the form's pickers) and holds Start until it has. At load it asks
+ * (not the form's pickers) and holds Start until it has; while the draft
+ * waits, the poll refreshes that card's readbacks in place (approval-env.js),
+ * never its review state or revision. At load it asks
  * `relay/session` which account this session's writes carry, and warns
  * before Start when it names none.
  *
@@ -29,10 +31,11 @@ import {
   approvalInit,
   emptyApprovalEnv,
   isDraftChangedConflict,
+  plannedEvaluations,
   reduceApproval,
-  startGate,
 } from './approval-model.js';
-import { renderApproval } from './approval-view.js';
+import { approvalGateFor, fetchApprovalEnv, readApprovalReadbacks } from './approval-env.js';
+import { renderApproval, updateApprovalReadbacks } from './approval-view.js';
 import { renderDraftForm } from './draft-form.js';
 import { buildConfig, formFromConfig, formFromEnv, savedMessage } from './draft-model.js';
 import { renderLivePlot, rethemeLivePlot } from './live-plot.js';
@@ -55,9 +58,9 @@ function byId(doc, id) {
 }
 
 /**
- * @param {{ api: import('./api-client.js').Api, doc?: Document, setTimer?: any, clearTimer?: any }} options
+ * @param {{ api: import('./api-client.js').Api, doc?: Document, setTimer?: any, clearTimer?: any, now?: () => number }} options
  */
-export function createPanel({ api, doc = document, setTimer, clearTimer }) {
+export function createPanel({ api, doc = document, setTimer, clearTimer, now = Date.now }) {
   const els = {
     target: /** @type {HTMLSelectElement} */ (byId(doc, 'target-select')),
     env: /** @type {HTMLSelectElement} */ (byId(doc, 'env-select')),
@@ -102,6 +105,10 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
     runKey: '',
     /** The approval card's own read of the draft's environment. */
     approvalEnv: emptyApprovalEnv(''),
+    /** When the approval card's readbacks were last read (ms). */
+    approvalReadAt: 0,
+    /** Whether a readback read is in flight: at most one at a time. */
+    approvalReading: false,
     /** The account `relay/session` named; `ownerKnown` is null until it answers. */
     owner: /** @type {string|null} */ (null),
     ownerKnown: /** @type {boolean|null} */ (null),
@@ -285,40 +292,27 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
     if (key === state.approvalEnv.key && !state.approvalEnv.error) return;
     state.approvalEnv = emptyApprovalEnv(key);
     if (!config || !key) return;
-    const name = /** @type {string} */ (config.environment_name);
-    const names = config.variables || [];
-    const [details, models, readings] = await Promise.all([
-      api.get(`environments/${seg(name)}`),
-      api.get('models'),
-      config.control_target && names.length
-        ? api.get(`environments/${seg(name)}/variables`, { names, target: config.control_target })
-        : null,
-    ]);
+    state.approvalReadAt = now();
+    const loaded = await fetchApprovalEnv(api, config, key);
     if (state.approvalEnv.key !== key) return; // the draft moved on meanwhile
-    state.approvalEnv = {
-      key,
-      details: details.ok ? details.data : null,
-      models: models.ok ? models.data || [] : null,
-      readbacks: readings?.ok ? readbackValues(readings.data) : {},
-      error: details.ok ? null : details.error || 'environment unavailable',
-    };
+    state.approvalEnv = loaded;
     renderApprovalCard();
   }
 
-  function approvalGate() {
-    const loaded =
-      !!state.approvalEnv.details &&
-      state.approvalEnv.key === approvalEnvKey(state.approval.config);
-    const gate = startGate(state.approval, state.job, {
-      starting: state.starting,
-      envLoaded: loaded,
-      ownerKnown: state.ownerKnown,
-    });
-    const failed = !loaded && state.approvalEnv.error && gate.reason?.startsWith('Direction');
-    return failed
-      ? { ...gate, enabled: false, reason: `Direction unverified: ${state.approvalEnv.error}` }
-      : gate;
+  /**
+   * Re-read the waiting draft's readbacks and write them into the card in
+   * place: no re-render, so the review state and revision stay as they are.
+   * One read at a time; a reply for an environment the card no longer shows
+   * (the draft moved on, or the environment was re-read) is dropped.
+   */
+  async function refreshApprovalReadbacks() {
+    const readbacks = await readApprovalReadbacks(api, state, now);
+    if (!readbacks) return; // not due, failed, or moved on
+    state.approvalEnv = { ...state.approvalEnv, readbacks };
+    updateApprovalReadbacks(els.approval, readbacks);
   }
+
+  const approvalGate = () => approvalGateFor(state);
 
   /**
    * Start the draft the clicked card was rendered for, and only that one.
@@ -465,13 +459,20 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
       job.error_message,
       state.cancelArmed,
       state.runError,
+      state.approval.jobId,
     ]);
     if (runKey === state.runKey) return;
     state.runKey = runKey;
+    // The total before the first data arrives, from the job's own stored config.
+    const planned = state.approval.jobId === job.job_id ? state.approval.config : null;
     renderRunStatus(
       byId(doc, 'run-status'),
       job,
-      { cancelArmed: state.cancelArmed, runError: state.runError },
+      {
+        cancelArmed: state.cancelArmed,
+        runError: state.runError,
+        plannedTotal: plannedEvaluations(planned),
+      },
       { onControl: (action) => void control(action) }
     );
     const plotKey = `${job.job_id}:${job.data_version}`;
@@ -524,6 +525,7 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
     }
     if (!state.approval.config) void loadApprovalEnv();
     renderPolled();
+    void refreshApprovalReadbacks();
     return { status: state.job?.status ?? null };
   }
 

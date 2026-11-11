@@ -49,6 +49,7 @@ from osprey.deployment.host_binding import (
     LISTENS_KEY,
     osprey_owns_binding,
 )
+from osprey.optimizer_connection import OPTIMIZER_PANEL_READ_TIMEOUT_S
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
@@ -1924,8 +1925,10 @@ def _inject_optimizer_web(optimizer_web: OptimizerWebConfig, project_path: Path)
     ``templates/services/optimizer_web/`` compose template, write
     ``services.optimizer_web`` and register it in ``deployed_services``, register
     the ``web.panels.optimizer`` entry at the sidecar root with ``path``
-    selecting the panel's static mount (an explicit ``url``, ``path`` or
-    ``label`` from a config override wins), and print a post-build hint.
+    selecting the panel's static mount and ``read_timeout_s`` lifting the panel
+    proxy's 30 s bound above the sidecar's own relay budget (an explicit
+    ``url``, ``path``, ``label`` or ``read_timeout_s`` from a config override
+    wins), and print a post-build hint.
 
     Args:
         optimizer_web: Validated optimizer-web configuration from the build profile.
@@ -1976,10 +1979,20 @@ def _inject_optimizer_web(optimizer_web: OptimizerWebConfig, project_path: Path)
     panel_cfg = panels.get("optimizer")
     if panel_cfg is None:
         anchored_put(
-            panels, "optimizer", {"url": default_url, "path": "/optimizer/", "label": "OPTIMIZER"}
+            panels,
+            "optimizer",
+            {
+                "url": default_url,
+                "path": "/optimizer/",
+                "label": "OPTIMIZER",
+                "read_timeout_s": OPTIMIZER_PANEL_READ_TIMEOUT_S,
+            },
         )
     else:
         _fill_panel_defaults(panel_cfg, default_url, "/optimizer/", "OPTIMIZER")
+        # ``null`` is an explicit choice (unbounded), so only an absent key is filled.
+        if "read_timeout_s" not in panel_cfg:
+            anchored_put(panel_cfg, "read_timeout_s", OPTIMIZER_PANEL_READ_TIMEOUT_S)
 
     save_config_document(config_path, config)
 

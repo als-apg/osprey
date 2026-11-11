@@ -16,6 +16,7 @@ from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _inject_optimizer_web
 from osprey.cli.build_profile import OptimizerWebConfig
+from osprey.optimizer_connection import OPTIMIZER_PANEL_READ_TIMEOUT_S, OPTIMIZER_TIMEOUT_S
 from osprey.port_layout import default_port
 
 _WEB_PORT = default_port("optimizer_web")
@@ -74,7 +75,38 @@ def test_the_optimizer_panel_is_registered_at_the_sidecar_root(project_path: Pat
         "url": f"${{OPTIMIZER_WEB_URL:-http://localhost:{_WEB_PORT}}}",
         "path": "/optimizer/",
         "label": "OPTIMIZER",
+        "read_timeout_s": OPTIMIZER_PANEL_READ_TIMEOUT_S,
     }
+
+
+def test_the_panel_proxy_outwaits_the_sidecars_relay_budget() -> None:
+    """The web terminal's proxy cuts a request at 30 s unless the panel says
+    otherwise; the sidecar waits up to OPTIMIZER_TIMEOUT_S on a Start, so the
+    panel's bound is longer, and its own answer reaches the browser first."""
+    assert OPTIMIZER_PANEL_READ_TIMEOUT_S > OPTIMIZER_TIMEOUT_S > 30
+
+
+@pytest.mark.parametrize("explicit", [300, None], ids=["seconds", "null-unbounded"])
+def test_an_explicit_read_timeout_wins(project_path: Path, explicit: int | None) -> None:
+    _write_config(
+        project_path,
+        extra={"web": {"panels": {"optimizer": {"read_timeout_s": explicit}}}},
+    )
+
+    _inject_optimizer_web(OptimizerWebConfig(port=_WEB_PORT), project_path=project_path)
+
+    panel = dict(_read_config(project_path)["web"]["panels"]["optimizer"])
+    assert panel["read_timeout_s"] == explicit
+    assert panel["label"] == "OPTIMIZER"
+
+
+def test_a_partial_override_still_gets_the_read_timeout(project_path: Path) -> None:
+    _write_config(project_path, extra={"web": {"panels": {"optimizer": {"label": "TUNE"}}}})
+
+    _inject_optimizer_web(OptimizerWebConfig(port=_WEB_PORT), project_path=project_path)
+
+    panel = dict(_read_config(project_path)["web"]["panels"]["optimizer"])
+    assert panel["read_timeout_s"] == OPTIMIZER_PANEL_READ_TIMEOUT_S
 
 
 def test_an_explicit_panel_override_wins(project_path: Path) -> None:

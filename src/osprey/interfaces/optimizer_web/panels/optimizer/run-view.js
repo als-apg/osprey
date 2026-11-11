@@ -4,8 +4,9 @@
  * authorization the run is waiting on, and iteration progress.
  *
  * There is no Restore here and nothing restores by itself: a cancelled or
- * failed run holds the machine at its last evaluated point, and the cancel
- * confirmation says so.
+ * failed run holds the machine at the last point it wrote, which may not have
+ * been evaluated yet (a cancel can land while the service waits for the
+ * machine to settle on a new candidate), and the cancel confirmation says so.
  *
  * @module run-view
  */
@@ -15,7 +16,8 @@ import { authorizationNote, runControls } from './approval-model.js';
 import { progress } from './live-plot.js';
 
 export const CANCEL_NOTE =
-  'Cancelling leaves the machine at the last point evaluated. ' +
+  'Cancelling stops the run where it is: the machine keeps the last point written, ' +
+  'which may not have been evaluated yet. ' +
   'Restoring the starting setpoints is a separate, manual step.';
 
 /**
@@ -42,11 +44,13 @@ function button(id, text, onclick, cls = 'osprey-btn') {
 /**
  * @param {HTMLElement} root
  * @param {any} job  a JobResponse (detail=full while running)
- * @param {{ cancelArmed: boolean, runError: string|null }} view
+ * @param {{ cancelArmed: boolean, runError: string|null, plannedTotal?: number|null }} view
+ *   `plannedTotal` is the evaluation count the job's stored config plans, shown
+ *   while the job summary carries no total of its own
  * @param {{ onControl: (action: 'pause'|'resume'|'cancel') => void }} handlers
  */
 export function renderRunStatus(root, job, view, handlers) {
-  const p = progress(job);
+  const p = progress(job, view.plannedTotal ?? null);
   const allowed = runControls(job.status);
   const auth = authorizationNote(job.write_authorization);
   replaceChildren(

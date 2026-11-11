@@ -197,6 +197,20 @@ export function variableRows(config, env) {
 }
 
 /**
+ * How many evaluations a start of `config` plans, as the service counts them:
+ * the iterations plus the initial samples ({@link initialSamples}). `null`
+ * when the initial-sample count cannot be told from the config alone.
+ *
+ * @param {OptimizationConfig|null} config
+ * @returns {number|null}
+ */
+export function plannedEvaluations(config) {
+  if (!config) return null;
+  const { count } = initialSamples(config);
+  return count == null ? null : (config.n_iterations ?? 20) + count;
+}
+
+/**
  * What the approval card's environment read depends on: the stored draft's
  * environment, target and tuned variables. Empty when there is nothing to read.
  *

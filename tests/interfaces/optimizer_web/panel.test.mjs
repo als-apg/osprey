@@ -32,6 +32,9 @@ function sidecar() {
     session: undefined,
     /** The service's clamp on a created draft's bounds: its ceiling for every max. */
     clampMax: Infinity,
+    /** What `environments/injector/variables` reads off the machine. */
+    /** @type {Record<string, { value: number, connected: boolean }>} */
+    readings: { phase_a: { value: 1, connected: true } },
   };
   /** @type {{ method: string, url: string }[]} */
   const calls = [];
@@ -47,7 +50,7 @@ function sidecar() {
     'GET /environments/injector/presets': () => ({}),
     'GET /environments/linac/presets': () => ({}),
     'GET /environments/injector/status': () => ({ name: 'injector', connected: true }),
-    'GET /environments/injector/variables': () => ({ phase_a: { value: 1, connected: true } }),
+    'GET /environments/injector/variables': () => world.readings,
     'GET /environments/injector/initial-bounds': () => ({ bounds: {}, current_values: {} }),
     'GET /models': () => [],
     'GET /jobs/current': () => ({ job_id: world.current }),
@@ -132,12 +135,14 @@ beforeEach(() => {
     .replace(/<script[^>]*><\/script>/g, '');
 });
 
-async function bootPanel() {
+/** @param {{ now?: () => number }} [options] */
+async function bootPanel({ now } = {}) {
   const stub = sidecar();
   const timers = { setTimer: vi.fn(() => 1), clearTimer: vi.fn() };
   const panel = createPanel({
     api: createApi({ prefix: '', fetchImpl: stub.fetchImpl }),
     ...timers,
+    ...(now ? { now } : {}),
   });
   const led = await panel.boot();
   clearInterval(led);
@@ -443,5 +448,130 @@ describe('an update a poll overtakes', () => {
     );
     expect(max.value).toBe('7');
     expect(panel.state.job.job_id).toBe('j3');
+  });
+});
+
+describe("the approval card's readbacks while a draft waits", () => {
+  const readback = (/** @type {string} */ name) =>
+    document.querySelector(`#approval-card td[data-readback="${name}"]`)?.textContent;
+
+  test('are re-read on the poll, at most every 5 s', async () => {
+    let t = 0;
+    const { world, panel, calls } = await bootPanel({ now: () => t });
+    await vi.waitFor(() => expect(readback('phase_a')).toBe('1'));
+    const reads = () =>
+      calls.filter((c) => c.url.startsWith('/environments/injector/variables')).length;
+    world.readings = {
+      phase_a: { value: 4.7, connected: true },
+      sol_b: { value: 1.7, connected: true },
+    };
+    const before = reads();
+    t = 1000;
+    await panel.poller.now();
+    expect(reads()).toBe(before);
+    expect(readback('phase_a')).toBe('1');
+    t = 6000;
+    await panel.poller.now();
+    await vi.waitFor(() => expect(readback('phase_a')).toBe('4.7'));
+    expect(readback('sol_b')).toBe('1.7');
+  });
+
+  const VARIABLES = '/environments/injector/variables';
+  const readsOf = (/** @type {{ url: string }[]} */ calls) =>
+    calls.filter((c) => c.url.startsWith(VARIABLES)).length;
+
+  test('a read still in flight holds the next one back', async () => {
+    let t = 0;
+    const { world, panel, calls } = await bootPanel({ now: () => t });
+    await vi.waitFor(() => expect(readback('phase_a')).toBe('1'));
+    const held = gate();
+    world.held[VARIABLES] = held.promise;
+    const before = readsOf(calls);
+    t = 6000;
+    await panel.poller.now();
+    expect(readsOf(calls)).toBe(before + 1);
+    // A slow machine read: later ticks skip rather than pile reads up.
+    t = 12000;
+    await panel.poller.now();
+    t = 18000;
+    await panel.poller.now();
+    expect(readsOf(calls)).toBe(before + 1);
+    world.readings = { phase_a: { value: 5, connected: true } };
+    held.open();
+    await vi.waitFor(() => expect(readback('phase_a')).toBe('5'));
+  });
+
+  test('nothing is re-read while a Start is pending', async () => {
+    let t = 0;
+    const { world, panel, calls, start } = await bootPanel({ now: () => t });
+    const held = gate();
+    world.held['/relay/jobs/j1/start'] = held.promise;
+    start()?.click();
+    await vi.waitFor(() => expect(panel.state.starting).toBe(true));
+    const before = readsOf(calls);
+    t = 6000;
+    await panel.poller.now();
+    expect(readsOf(calls)).toBe(before);
+    held.open();
+    await vi.waitFor(() => expect(panel.state.starting).toBe(false));
+  });
+
+  test("a late reply for the card's previous environment is dropped", async () => {
+    let t = 0;
+    const { world, panel, calls } = await bootPanel({ now: () => t });
+    await vi.waitFor(() => expect(readback('phase_a')).toBe('1'));
+    const held = gate();
+    world.held[VARIABLES] = held.promise;
+    const before = readsOf(calls);
+    t = 6000;
+    await panel.poller.now();
+    expect(readsOf(calls)).toBe(before + 1);
+    delete world.held[VARIABLES]; // only the refresh already sent is held
+    // The draft moves to another variable set: a new environment key.
+    world.jobs.j1.revision = 'rev-2';
+    world.jobs.j1.config = storedConfig({ variables: ['phase_a'] });
+    world.readings = { phase_a: { value: 2, connected: true } };
+    await panel.poller.now();
+    await vi.waitFor(() => expect(readback('phase_a')).toBe('2'));
+    const key = panel.state.approvalEnv.key;
+    expect(key).toBe('injector|va|phase_a');
+    // The old read answers last, with a reading the card must not show.
+    world.readings = { phase_a: { value: 99, connected: true } };
+    held.open();
+    await vi.waitFor(() => expect(panel.state.approvalReading).toBe(false));
+    expect(readback('phase_a')).toBe('2');
+    expect(panel.state.approvalEnv.key).toBe(key);
+    expect(panel.state.approvalEnv.readbacks.phase_a).not.toBe(99);
+  });
+
+  test('a refresh leaves the review state, the revision and Start as they were', async () => {
+    let t = 0;
+    const { world, panel, start } = await bootPanel({ now: () => t });
+    world.jobs.j1.revision = 'rev-2';
+    await panel.poller.now();
+    await vi.waitFor(() => expect(start()?.disabled).toBe(true));
+    expect(panel.state.approval).toMatchObject({ revision: 'rev-2', needsReview: true });
+
+    // Still unreviewed after a refresh: new readings are no reason to skip a review.
+    world.readings = { phase_a: { value: 2, connected: true } };
+    t = 6000;
+    await panel.poller.now();
+    await vi.waitFor(() => expect(readback('phase_a')).toBe('2'));
+    expect(panel.state.approval).toMatchObject({ revision: 'rev-2', needsReview: true });
+    expect(start()?.disabled).toBe(true);
+
+    // Reviewed, then refreshed: it stays reviewed, and Start is the same button.
+    /** @type {HTMLButtonElement} */ (document.querySelector('#reviewed-btn')).click();
+    t = 7000;
+    await panel.poller.now(); // the poll that adopts the reviewed card; no read is due
+    const button = start();
+    expect(button?.disabled).toBe(false);
+    world.readings = { phase_a: { value: 3, connected: true } };
+    t = 12000;
+    await panel.poller.now();
+    await vi.waitFor(() => expect(readback('phase_a')).toBe('3'));
+    expect(panel.state.approval).toMatchObject({ revision: 'rev-2', needsReview: false });
+    expect(start()).toBe(button);
+    expect(button?.disabled).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ import {
   authorizationNote,
   fixedFeatureChannels,
   initialSamples,
+  plannedEvaluations,
   isDraftChangedConflict,
   objectiveDirection,
   rangePercent,
@@ -26,6 +27,14 @@ import {
   startGate,
   variableRows,
 } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/approval-model.js';
+
+test('plannedEvaluations: iterations plus initial samples, as the runner totals them', () => {
+  expect(plannedEvaluations(storedConfig())).toBe(33);
+  expect(plannedEvaluations(storedConfig({ n_iterations: undefined }))).toBe(23);
+  expect(plannedEvaluations(storedConfig({ algorithm: 'random', n_iterations: 5 }))).toBe(6);
+  expect(plannedEvaluations(storedConfig({ variables: undefined }))).toBeNull();
+  expect(plannedEvaluations(null)).toBeNull();
+});
 
 describe('initialSamples (mirrors the service _resolve_n_initial)', () => {
   test('Bayesian with null count: max(2, n_vars + 1)', () => {

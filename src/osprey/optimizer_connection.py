@@ -36,6 +36,17 @@ OPTIMIZER_LAUNCH_TOKEN_ENV_VAR = "OPTIMIZER_LAUNCH_TOKEN"  # noqa: S105 -- names
 #: the client gives up. Shared by the MCP server and the panel's sidecar.
 OPTIMIZER_TIMEOUT_S = 80.0
 
+#: Seconds the web terminal's panel proxy gives the OPTIMIZER tab beyond
+#: :data:`OPTIMIZER_TIMEOUT_S`: the sidecar relays with that budget, so the
+#: proxy waits a little longer and the sidecar's own typed answer (or its
+#: timeout error) reaches the browser instead of the proxy's 502.
+OPTIMIZER_PANEL_PROXY_MARGIN_S = 10.0
+
+#: The ``web.panels.optimizer.read_timeout_s`` the build writes (an explicit
+#: one in the profile's ``config:`` wins). The proxy's shared 30 s bound would
+#: cut a Start that waits on machine reads.
+OPTIMIZER_PANEL_READ_TIMEOUT_S = OPTIMIZER_TIMEOUT_S + OPTIMIZER_PANEL_PROXY_MARGIN_S
+
 
 def optimizer_url(config: Mapping[str, Any] | None) -> str:
     """The optimizer base URL, trailing slash stripped.

@@ -174,12 +174,27 @@ export function approvalVariables(config, env, readbacks = {}) {
           h('td', { class: 'num', text: fmt(r.max) }),
           h('td', { class: 'num', text: fmt(r.step) }),
           h('td', { class: 'num', text: fmt(r.maxStep) }),
-          h('td', { class: 'num', text: fmt(readbacks[r.name]) }),
+          h('td', { class: 'num', 'data-readback': r.name, text: fmt(readbacks[r.name]) }),
           h('td', { class: 'num', text: r.rangePct == null ? '—' : `${r.rangePct.toFixed(1)}%` })
         )
       )
     )
   );
+}
+
+/**
+ * Write fresh readbacks into the card's Readback cells in place. Readbacks are
+ * not part of the approved config: nothing else on the card is touched, so a
+ * refresh neither moves Start nor asks for another review.
+ *
+ * @param {HTMLElement} root
+ * @param {Record<string, number|null>} readbacks
+ */
+export function updateApprovalReadbacks(root, readbacks) {
+  for (const cell of root.querySelectorAll('td[data-readback]')) {
+    const name = cell.getAttribute('data-readback') || '';
+    cell.textContent = fmt(readbacks[name]);
+  }
 }
 
 /**
