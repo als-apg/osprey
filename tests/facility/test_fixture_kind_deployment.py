@@ -65,8 +65,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: Packages the registry refuses, each a site of its own beside the deployment package.
 REFUSED = PACKAGE_DIR / "refused"
 
-#: The built-in kinds, in their distribution's order.
-BUILT_INS = ("orm", "dispersion", "trm", "crm", "chromaticity_monitor")
+#: The built-in kinds, sorted by name: the order the registry keeps them in.
+BUILT_INS = ("chromaticity_monitor", "crm", "dispersion", "orm", "trm")
 
 #: What the kind's settings transform asks of the engine: the trigger sample plus its window.
 PATCHED = {ENGINE: {"turns": 12 + 64}}
