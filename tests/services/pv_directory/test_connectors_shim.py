@@ -126,7 +126,6 @@ def test_as_payload_of_a_contract_record() -> None:
         "rows": [],
         "truncated": False,
         "retention_known": False,
-        "caveats": [],
         "reason": "login page",
     }
 

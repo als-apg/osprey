@@ -237,7 +237,12 @@ class Facts:
         if _is_unavailable(answer):
             return _section(backend, "unavailable", rows=[], reason=answer.reason)
         page = as_payload(answer)
-        return {key: value for key, value in page.items() if key != "reason" or value}
+        fields = {
+            key: value
+            for key, value in page.items()
+            if key not in ("outcome", "source") and (key != "reason" or value)
+        }
+        return _section(backend, page["outcome"], **fields)
 
     async def _finished(
         self, answer: dict[str, Any] | _NoSource, target: str | None = None

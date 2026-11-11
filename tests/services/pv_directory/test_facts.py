@@ -565,6 +565,7 @@ async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_pat
     assert sections["directory"]["caveats"] == ["names only, no values"]
     assert sections["alarm_state"]["caveats"] == ["covers the SR tree only"]
     assert sections["alarm_config"]["caveats"] == ["covers the SR tree only"]
+    assert sections["alarm_history"]["caveats"] == ["the logger keeps 30 days"]
     assert sections["put_history"]["caveats"] == []
     assert (await page.alarm_state("SR:BPM1"))["caveats"] == ["covers the SR tree only"]
     assert (await page.alarm_config("SR:BPM1"))["caveats"] == ["covers the SR tree only"]
@@ -619,6 +620,59 @@ async def test_a_history_that_did_not_answer_carries_its_source_caveats(tmp_path
 
     assert history["outcome"] == "unavailable"
     assert history["caveats"] == ["the logger keeps 30 days"]
+
+
+@pytest.mark.parametrize("outcome", ["found", "no_match"])
+async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
+    tmp_path: Path, outcome: str
+) -> None:
+    if outcome == "no_match":
+        FakePutLog.page = contract.HistoryPage(
+            outcome=contract.Outcome.NO_MATCH,
+            source=contract.Source(
+                target="live", service="caputlog", label="caputlog", rehearsal=False
+            ),
+            reason="no logged puts",
+        )
+    section = {
+        **FACILITY,
+        "alarm_log": {**ALARM_LOG, "caveats": ["the logger keeps 30 days"]},
+        "put_log": {**PUT_LOG, "caveats": ["puts through the gateway only"]},
+    }
+    page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    sections = _sections(await page.pv_facts("SR:BPM1"))
+
+    assert sections["alarm_history"]["caveats"] == ["the logger keeps 30 days"]
+    puts = sections["put_history"]
+    assert puts["caveats"] == ["puts through the gateway only"]
+    assert puts["outcome"] == outcome
+    if outcome == "no_match":
+        assert puts["reason"] == "no logged puts"
+    history = await page.history("put_log", "SR:BPM1")
+    assert history["caveats"] == ["puts through the gateway only"]
+
+
+async def test_an_answered_history_names_its_configured_source(tmp_path: Path) -> None:
+    FakePutLog.page = contract.HistoryPage(
+        outcome=contract.Outcome.FOUND,
+        source=contract.Source(target="live", service="caputlog", label="x", rehearsal=False),
+    )
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG}), tmp_path)
+
+    history = _sections(await page.pv_facts("SR:BPM1"))["put_history"]
+
+    assert history["source"]["service"] == "caputlog"
+    assert history["source"]["label"] == "caputlog"
+    assert set(history) == {
+        "section",
+        "outcome",
+        "source",
+        "caveats",
+        "rows",
+        "truncated",
+        "retention_known",
+    }
 
 
 # -- the page outcome -----------------------------------------------------------

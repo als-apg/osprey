@@ -162,7 +162,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
         (PutRow, ["at", "pv", "field", "old", "new", "user", "client"]),
         (
             HistoryPage,
-            ["outcome", "source", "rows", "truncated", "retention_known", "caveats", "reason"],
+            ["outcome", "source", "rows", "truncated", "retention_known", "reason"],
         ),
         (
             AlarmStateRecord,
@@ -225,7 +225,6 @@ def test_pages_do_not_share_their_default_lists():
     second = HistoryPage(outcome=Outcome.FOUND, source=SOURCE)
 
     assert first.rows is not second.rows
-    assert first.caveats is not second.caveats
 
 
 def test_a_record_converts_to_the_json_shape():
