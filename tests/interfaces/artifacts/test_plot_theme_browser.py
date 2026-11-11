@@ -41,6 +41,7 @@ from tests.interfaces.artifacts.test_opaque_origin_browser import (
     GALLERY,
     artifact_frame,
     hub_with_gallery,
+    needs_gallery_vendor_files,
     open_gallery,
     select_artifact,
     set_gallery_theme,
@@ -133,7 +134,7 @@ def _launch(tmp_path, monkeypatch, *, web_theme: str | None = None) -> Iterator[
     Yields ``(base_url, file_path)``: the hub's address and the artifact's
     proxied ``/panel/artifacts/files/...`` route. The hub serves the Plotly
     bundle offline, from the artifacts app's vendor tree through the proxy
-    (``osprey vendor fetch`` has run on the gate host).
+    (a checkout where ``osprey vendor fetch`` has not run skips).
     """
 
     def seed(workspace):
@@ -176,6 +177,7 @@ def _assert_follows_tokens(probe: dict, expected_theme: str) -> None:
     assert probe["b"]["hasCartesianAxis"] is False
 
 
+@needs_gallery_vendor_files
 def test_standalone_page_follows_query_theme_outside_main_family(
     tmp_path, monkeypatch, chromium_browser
 ):
@@ -187,6 +189,7 @@ def test_standalone_page_follows_query_theme_outside_main_family(
         _assert_follows_tokens(_probe(page), "high-contrast-light")
 
 
+@needs_gallery_vendor_files
 def test_standalone_page_follows_os_light_preference(tmp_path, monkeypatch, chromium_browser):
     """Nothing stored, nothing requested, OS prefers light: the plot is light."""
     with _launch(tmp_path, monkeypatch) as (base_url, path):
@@ -196,6 +199,7 @@ def test_standalone_page_follows_os_light_preference(tmp_path, monkeypatch, chro
         _assert_follows_tokens(_probe(page), "light")
 
 
+@needs_gallery_vendor_files
 def test_standalone_page_honors_pinned_web_theme(tmp_path, monkeypatch, chromium_browser):
     """A deployment pin (``web.theme: light``) wins over a dark OS preference
     on a first visit, exactly as it does for the terminal itself."""
@@ -256,6 +260,7 @@ def test_unstyled_html_artifact_gets_themed_defaults(tmp_path, monkeypatch, chro
         assert probe["bodyColor"] == _rgb(probe["textToken"])
 
 
+@needs_gallery_vendor_files
 def test_embedded_page_retheme_on_hub_broadcast(tmp_path, monkeypatch, chromium_browser):
     """Inside the gallery the plot is an opaque frame. A theme change in the
     gallery is relayed to it (target ``"*"``: an opaque frame cannot be named),
