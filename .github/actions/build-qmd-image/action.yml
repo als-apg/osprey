@@ -40,6 +40,8 @@ runs:
     - name: Derive the qmd layer-cache key
       id: key
       shell: bash
+      env:
+        CONTEXT_HASH: ${{ hashFiles('src/osprey/templates/services/qmd/Dockerfile', 'src/osprey/templates/services/qmd/entrypoint.sh', 'src/osprey/templates/services/qmd/patches/**') }}
       # The three GGUFs are fetched INSIDE the image build, so what is cached
       # is the buildx layer cache rather than the files themselves. Keying it
       # on the SHA256 pins is what makes "fetch once per pin bump" true: bump a
@@ -79,14 +81,14 @@ runs:
         digest="$(printf '%s' "$pins" | sha256sum | cut -d' ' -f1)"
         prefix="qmd-buildx-${RUNNER_OS}-${digest}-"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-        echo "key=${prefix}${{ hashFiles('src/osprey/templates/services/qmd/Dockerfile', 'src/osprey/templates/services/qmd/entrypoint.sh', 'src/osprey/templates/services/qmd/patches/**') }}-${base_digest#sha256:}" >> "$GITHUB_OUTPUT"
+        echo "key=${prefix}${CONTEXT_HASH}-${base_digest#sha256:}" >> "$GITHUB_OUTPUT"
 
     - name: Look the qmd layer cache up
       id: lookup
       if: inputs.warm == 'true'
       # Metadata only: a hit downloads nothing, so a push that changes nothing
       # the image is built from costs this job a few seconds.
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: /tmp/qmd-buildx-cache
         key: ${{ steps.key.outputs.key }}
@@ -104,7 +106,7 @@ runs:
       # restore the previous entry anyway. buildx revalidates every layer
       # against the current instructions, so at worst the model layers miss and
       # refetch — a stale model can never be served as a fresh one.
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: /tmp/qmd-buildx-cache
         key: ${{ steps.key.outputs.key }}
@@ -116,7 +118,7 @@ runs:
       if: inputs.warm != 'true' || steps.lookup.outputs.cache-hit != 'true'
       # `type=local` layer caching is what needs this: the plain docker
       # builder cannot import or export one.
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
     - name: Build the qmd sidecar image
       if: inputs.warm != 'true'
@@ -139,9 +141,11 @@ runs:
       shell: bash
       # The image is in the job's image store now; neither of these is read
       # again. Removing the current builder hands the job back the default one.
+      env:
+        BUILDER: ${{ steps.buildx.outputs.name }}
       run: |
         set -euo pipefail
-        docker buildx rm "${{ steps.buildx.outputs.name }}"
+        docker buildx rm "$BUILDER"
         rm -rf /tmp/qmd-buildx-cache
 
     - name: Build the qmd layer cache
@@ -163,7 +167,7 @@ runs:
 
     - name: Save the qmd layer cache in main's scope
       if: inputs.warm == 'true' && steps.lookup.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v6
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: /tmp/qmd-buildx-cache
         key: ${{ steps.key.outputs.key }}

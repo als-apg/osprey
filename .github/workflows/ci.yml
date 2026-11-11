@@ -50,7 +50,14 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)) || (github.event_name == 'push' && github.ref) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
+# Read-only by default. A job `permissions:` block replaces this one, so a job that needs more restates
+# `contents: read` beside it.
+permissions:
+  contents: read
+
 # Every `uv sync` carries `--locked` and every `uv run` follows one; test_ci_workflow_wiring.py holds this.
+# Every external action is pinned by commit SHA, and no `run:` holds `${{ }}` (values go through `env:`);
+# test_ci_workflow_wiring.py holds both.
 
 env:
   # No literal default: a fork points at its own gateway through the repository variable.
@@ -62,6 +69,8 @@ env:
   OSPREY_CI_DIAG_DIR: ci-diag
 
 # Repeated steps are YAML anchors (`- &name`) reused as aliases (`- *name`): editing one edits every lane.
+# A job cap without a reason beside it is about 3x the p90 of green main runs (Nov 2026), never under
+# 10 minutes, and a capped step sits below it; a job with no such data keeps 60.
 jobs:
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} (${{ matrix.shard }})
@@ -79,18 +88,20 @@ jobs:
         # macOS is one job running only _MACOS_RUNS (repo_checks.py): the account's macOS ceiling is 5 jobs.
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.12","os":"macos-latest","shard":"macos"}]' || '[{"python-version":"3.11","os":"macos-latest","shard":"macos"},{"python-version":"3.12","os":"macos-latest","shard":"macos"}]') }}
         # PRs run 3.12 only, except `full-ci` and Dependabot PRs; serial-suites carries the same exclude.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
 
     steps:
+    # No job but visual-baselines-push pushes, so no other checkout leaves the token in the git config.
     - &checkout-full-history
       name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
+        persist-credentials: false
 
     - &install-uv-matrix-python
       name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
       with:
         enable-cache: true
         python-version: ${{ matrix.python-version }}
@@ -110,10 +121,13 @@ jobs:
         COVERAGE_CORE: sysmon
         # Not /tmp: on Ubuntu 26.04 it is a ~6.3 GB tmpfs quota (runner-images#14777) the suite's venvs overflow.
         TMPDIR: ${{ runner.temp }}
+        PYTHON_VERSION: ${{ matrix.python-version }}
+        MATRIX_OS: ${{ matrix.os }}
+        SHARD: ${{ matrix.shard }}
       # Coverage on 3.12/ubuntu only (sys.monitoring makes it ~free); this guard and the Codecov `if:` must
       # match (test_ci_workflow_wiring.py). --dist loadgroup relies on FileOrGroupScheduling in tests/conftest.py.
       run: |
-        if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+        if [ "$PYTHON_VERSION" = "3.12" ] && [ "$MATRIX_OS" = "ubuntu-latest" ]; then
           COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml"
         else
           COV_ARGS=""
@@ -125,7 +139,7 @@ jobs:
         set -o pipefail
         # $COV_ARGS is empty or several flags: split on purpose.
         # shellcheck disable=SC2086
-        uv run python scripts/check.py run pytest --shard "${{ matrix.shard }}" -- --durations=50 --timeout=600 --timeout-method=signal -n 4 $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run python scripts/check.py run pytest --shard "$SHARD" -- --durations=50 --timeout=600 --timeout-method=signal -n 4 $COV_ARGS 2>&1 | tee ci-diag/pytest.log
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
           grep -m1 '^CANOPY contract not exercised here' ci-diag/pytest.log >> "$GITHUB_STEP_SUMMARY" || true
         fi
@@ -143,7 +157,7 @@ jobs:
 
     - name: Upload lane diagnostics
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: ci-diag-unit-${{ matrix.python-version }}-${{ matrix.os }}-${{ matrix.shard }}
         path: ci-diag/
@@ -151,7 +165,7 @@ jobs:
         if-no-files-found: warn
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v7
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
       if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
       with:
         files: ./coverage.xml
@@ -171,7 +185,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.14']
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
 
     steps:
     - *checkout-full-history
@@ -200,16 +214,18 @@ jobs:
   dependency-floor:
     name: Archiver suite at the declared dependency floor
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     steps:
     - &checkout
       name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
 
     # `python-version` sets UV_PYTHON for every later step of the job.
     - &install-uv
       name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
       with:
         enable-cache: true
         python-version: '3.11'
@@ -264,14 +280,13 @@ jobs:
         --timeout=600 --timeout-method=signal
         --cov=packages/osprey-optimizer/src/osprey_optimizer --cov-report=xml --cov-report=term
 
-    - name: Capture failure diagnostics
+    - &capture-diagnostics
+      name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: optimizer
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v7
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
       with:
         files: ./coverage.xml
         flags: unittests
@@ -305,11 +320,7 @@ jobs:
         packages/osprey-connectors/tests -n 4 --dist loadgroup
         --timeout=600 --timeout-method=signal
 
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: connectors-standalone
+    - *capture-diagnostics
 
   # Lane A holds HEAD connectors to every supported framework release; Lane B holds HEAD framework to
   # its connectors floor. Both stand down until data lifts them (scripts/ci/connectors_compat_matrix.py).
@@ -349,14 +360,15 @@ jobs:
 
     - name: Checkout repository
       if: matrix.framework != ''
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # Tags: the wheel's version comes from the git tag.
       with:
         fetch-depth: 0
+        persist-credentials: false
 
     - name: Install uv
       if: matrix.framework != ''
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
       with:
         enable-cache: true
         python-version: '3.11'
@@ -395,13 +407,14 @@ jobs:
 
     - name: Checkout repository
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
+        persist-credentials: false
 
     - name: Install uv
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
       with:
         enable-cache: true
         python-version: '3.11'
@@ -437,7 +450,7 @@ jobs:
   lint:
     name: Lint and Code Quality
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
 
     steps:
     - *checkout-full-history
@@ -489,7 +502,7 @@ jobs:
   docs:
     name: Documentation Build (Check Only)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     outputs:
       build-failed: ${{ steps.build-failed.outputs.value }}
 
@@ -508,7 +521,7 @@ jobs:
       run: python3 scripts/check.py run docs
 
     - name: Upload documentation artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       if: github.event_name == 'pull_request'
       with:
         name: documentation-preview
@@ -527,7 +540,7 @@ jobs:
   package:
     name: Package Build (framework + lean connectors wheel)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
 
     steps:
     - *checkout-full-history
@@ -538,7 +551,7 @@ jobs:
       run: python3 scripts/check.py run package
 
     - name: Upload package artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: package
         path: dist/osprey_framework-*
@@ -561,7 +574,7 @@ jobs:
       run: uv run pytest tests/integration/test_preset_static.py tests/integration/test_preset_build.py -v --tb=short
 
     - name: Set up Node
-      uses: actions/setup-node@v7
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
       with:
         node-version: '22'
 
@@ -575,111 +588,22 @@ jobs:
 
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # `podman compose` would otherwise find the runner's docker-compose plugin first and certify nothing.
-      # `podman ps` pays rootless storage init before the probe's 5 s timeout. Degrades without podman:
-      # this job gates every PR, and two-shape-boot-e2e still reds if podman is gone.
-      run: |
-        if ! command -v podman >/dev/null 2>&1; then
-          echo "⏭️  podman is not on this runner image — the podman-compose parse"
-          echo "    coverage below will skip. The two-shape-boot-e2e lane is NOT"
-          echo "    guarded this way and will red if podman is genuinely gone."
-          echo "OSPREY_PARSE_SKIP=1" >> "$GITHUB_ENV"
-          exit 0
-        fi
-        pip install --user podman-compose==1.0.6
-        PODMAN_COMPOSE_BIN="$(command -v podman-compose || true)"
-        if [ -z "$PODMAN_COMPOSE_BIN" ]; then
-          echo "❌ podman-compose is not on PATH after install"
-          exit 1
-        fi
-        mkdir -p ~/.config/containers
-        cat > ~/.config/containers/containers.conf <<EOF
-        [engine]
-        compose_providers = ["$PODMAN_COMPOSE_BIN"]
-        EOF
-        # Also via env: a user-level containers.conf.d drop-in would outrank the file above.
-        echo "PODMAN_COMPOSE_PROVIDER=$PODMAN_COMPOSE_BIN" >> "$GITHUB_ENV"
-        podman --version
-        podman ps >/dev/null
+      # `--optional`: this job gates every PR, so a runner without podman skips the parse below;
+      # two-shape-boot-e2e pins without it and still reds if podman is gone.
+      run: python3 scripts/ci/podman_compose.py pin --optional
 
     - name: Parse the merged podman topology (podman-compose config, no containers)
+      # OSPREY's own argv runs `config`: the merged document must parse, with .env outranking .env.shared.
       env:
         # Without it the probe finds the runner's docker daemon first.
         CONTAINER_RUNTIME: podman
-      run: |
-        if [ "${OSPREY_PARSE_SKIP:-}" = "1" ]; then
-          echo "⏭️  skipped: podman is absent from this runner (see the pin step above)."
-          exit 0
-        fi
-        uv run osprey init parse-check --preset hello-world --no-git \
-          --set dispatch.triggers=tutorial_triggers.yml \
-          --set dispatch.worker_count=1 \
-          --set dispatch.workspace_mode=isolated \
-          --set dispatch.network=bridge \
-          --set 'config.deployed_services=[]'
-        cd parse-check
-        # Same key, different values: the result shows local-wins precedence, not just that the file was read.
-        printf '\nDISPATCH_WORKER_TOKEN=shared-loses\n' >> .env.shared
-        printf 'EVENT_DISPATCHER_TOKEN=local-wins\nDISPATCH_WORKER_TOKEN=local-wins\n' > .env
-        uv run osprey build --skip-deps --skip-lifecycle
-        uv run python - <<'PY'
-        import os
-        import subprocess
-        import sys
-        from pathlib import Path
+      run: uv run python scripts/ci/podman_compose.py parse-check
 
-        from osprey.deployment.compose_generator import (
-            compose_base_cmd,
-            compose_provider_env,
-            resolve_repo_root,
-        )
-        from osprey.deployment.container_lifecycle import _env_file_args, as_built_compose_files
-        from osprey.deployment.runtime_helper import (
-            ComposeProvider,
-            detect_compose_provider,
-            get_runtime_command,
-        )
-        from osprey_connectors.config import load_config
-
-        config = load_config("build/config.yml")
-        root = Path(resolve_repo_root(config)).resolve()
-        runtime_cmd = get_runtime_command(config)
-
-        info = detect_compose_provider(runtime_cmd, config)
-        print("provider banner:", info.banner)
-        assert info.provider is ComposeProvider.PODMAN_COMPOSE, info
-        assert info.version == (1, 0, 6), info
-
-        # Building the argv is what writes .osprey-compose.yml and build/.env.merged.
-        argv = compose_base_cmd(
-            runtime_cmd,
-            as_built_compose_files(config, root),
-            root,
-            _env_file_args(root, info.provider),
-            info.provider,
-        )
-        print("argv:", " ".join(argv))
-        assert "--project-directory" not in argv, "podman-compose does not parse that flag"
-
-        env = {**os.environ, **compose_provider_env(info.provider, root)}
-        parsed = subprocess.run(
-            [*argv, "config"], capture_output=True, text=True, env=env, cwd=root, check=False
-        )
-        sys.stdout.write(parsed.stdout)
-        sys.stderr.write(parsed.stderr)
-        assert parsed.returncode == 0, "podman-compose could not parse the merged topology"
-
-        for service in ("event-dispatcher", "dispatch-worker-1"):
-            assert f"{service}:" in parsed.stdout, f"{service} missing from the merged document"
-        assert "local-wins" in parsed.stdout, "build/.env.merged did not interpolate the topology"
-        assert "shared-loses" not in parsed.stdout, ".env.shared outranked .env in the merge"
-        print("✅ merged topology parses under podman-compose 1.0.6, .env.merged interpolates it")
-        PY
-
-    - name: Capture failure diagnostics
+    - &capture-diagnostics-podman
+      name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
-        name: static-checks
         engine: podman
 
   visual-theming:
@@ -702,7 +626,8 @@ jobs:
       run: uv run osprey vendor fetch --quiet
 
     # Azure's apt mirror some days serves the ~140 MB of debs at 30-100 kB/s, so the debs and browsers
-    # are cached, apt prefers archive.ubuntu.com, and each install has a short timeout.
+    # are cached, apt prefers archive.ubuntu.com, and each install has a short timeout
+    # (scripts/ci/configure_playwright_apt.sh).
     - &playwright-cache-key
       name: Resolve Playwright browser cache key
       id: playwright-key
@@ -714,27 +639,12 @@ jobs:
 
     - &playwright-apt
       name: Configure apt for the Playwright system deps
-      # The snippet name must sort after the image's `zz-retries`.
-      run: |
-        sudo sed -i -E \
-          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
-          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
-          /etc/apt/apt-mirrors.txt
-        cat /etc/apt/apt-mirrors.txt
-        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
-          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
-        mkdir -p "$HOME/apt-archives/partial"
-        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
-        Dir::Cache::Archives "$HOME/apt-archives";
-        APT::Keep-Downloaded-Packages "true";
-        Acquire::http::Timeout "15";
-        Acquire::Retries "3";
-        EOF
+      run: scripts/ci/configure_playwright_apt.sh
 
     - &playwright-cache-restore
       name: Restore Playwright browsers and apt debs
       id: playwright-cache
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: |
           ~/.cache/ms-playwright
@@ -762,7 +672,7 @@ jobs:
     - name: Save Playwright browsers and apt debs
       # Saved here, not in a post step, so a later test failure still warms the cache.
       if: steps.playwright-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v6
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: |
           ~/.cache/ms-playwright
@@ -783,12 +693,11 @@ jobs:
   visual-theming-agent:
     name: Watchdog Browser + Visual Regression (Playwright)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    # contents: write for this job alone: the last step pushes regenerated baselines to the PR branch.
-    permissions:
-      contents: write
+    timeout-minutes: 30
     env:
       OSPREY_OFFLINE: "1"
+    outputs:
+      rendered: ${{ steps.rendered.outputs.rendered }}
 
     steps:
     - *checkout-full-history
@@ -813,15 +722,11 @@ jobs:
 
     - name: Run the watchdog browser suite
       timeout-minutes: 20
+      env:
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/interfaces/test_watchdog_e2e.py -m browser -v --tb=short \
-          --junitxml=junit-watchdog-browser.xml
-
-    - name: Fail the lane on any skipped watchdog browser test
-      run: |
-        # pytest exits 0 when every test skips, so the junit report is checked instead.
-        uv run python scripts/ci/junit_no_skips.py junit-watchdog-browser.xml \
-          --message "every watchdog browser test ran; none skipped"
+          -p no_skips --no-skips-message "every watchdog browser test ran; none skipped"
 
     # Serial, in this job: container start/stop changes the host network, and every Chromium then fails
     # in-flight requests (ERR_NETWORK_CHANGED).
@@ -835,18 +740,87 @@ jobs:
     - name: Run visual regression suite
       run: uv run pytest tests/interfaces/design_system/test_visual.py -v --tb=short
 
+    - name: Stage the baselines the suite wrote
+      # Only the PNGs the suite added or changed: the checkout is the merge commit, so the rest of
+      # the tree is main's and would overwrite the PR branch's. Staged at their repo-relative paths.
+      id: rendered
+      env:
+        STAGE: ${{ runner.temp }}/rendered-baselines
+      run: |
+        rm -rf "$STAGE"
+        mkdir -p "$STAGE"
+        git ls-files --others --modified --exclude-standard -- 'tests/interfaces/design_system/baselines/*.png' |
+          while IFS= read -r png; do
+            if [ -f "$png" ]; then
+              mkdir -p "$STAGE/$(dirname "$png")"
+              cp -- "$png" "$STAGE/$png"
+              echo "::notice::rendered $png"
+            fi
+          done
+        if [ -n "$(find "$STAGE" -type f -name '*.png' -print -quit)" ]; then
+          echo "rendered=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "rendered=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Upload Linux-rendered baselines artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: visual-baselines-linux
-        path: tests/interfaces/design_system/baselines/*.png
+        path: ${{ runner.temp }}/rendered-baselines/
+        # Nothing rendered, nothing uploaded, and visual-baselines-push skips.
+        if-no-files-found: ignore
         retention-days: 14
 
+  # The one job holding a write token, split from the suites above so no code under test runs beside it:
+  # it checks out the PR branch, lays the baselines the suite added or changed over it and pushes.
+  # Dependabot's token cannot push, and a run that rendered nothing has nothing to push.
+  visual-baselines-push:
+    name: Push Linux-rendered visual baselines to the PR branch
+    needs: visual-theming-agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      needs.visual-theming-agent.outputs.rendered == 'true'
+    permissions:
+      contents: write
+
+    steps:
+    - name: Check out the PR branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # The token stays in the git config: the commit step pushes with it.
+      with:
+        ref: ${{ github.head_ref }}
+
+    - name: Skip the commit if the branch moved past the rendered commit
+      # Pure git, no repo code: the branch head can be newer than the sha that rendered the
+      # baselines, and committing them there would overwrite a newer push with stale renders.
+      id: head
+      env:
+        RENDERED_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        head="$(git rev-parse HEAD)"
+        if [ "$head" = "$RENDERED_SHA" ]; then
+          echo "current=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::the branch is at $head, not the rendered $RENDERED_SHA; its own run pushes the baselines"
+          echo "current=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Download Linux-rendered baselines artifact
+      if: steps.head.outputs.current == 'true'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+      with:
+        name: visual-baselines-linux
+        # The artifact holds repo-relative paths, so the root lays each PNG where it was rendered.
+        path: .
+
     - name: Commit new/updated Linux baselines back to the PR branch
-      if: >-
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      uses: stefanzweifel/git-auto-commit-action@v7
+      if: steps.head.outputs.current == 'true'
+      uses: stefanzweifel/git-auto-commit-action@d0b01107b5db882071f96de5dd4b54961ea93f4c  # v7.2.1
       with:
         commit_message: "chore(visual): update Linux-rendered theming baseline(s) [skip ci]"
         file_pattern: 'tests/interfaces/design_system/baselines/*.png'
@@ -856,13 +830,13 @@ jobs:
   frontend-js:
     name: Frontend JS (typecheck + lint + vitest)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
 
     steps:
     - *checkout-full-history
 
     - name: Set up Node
-      uses: actions/setup-node@v7
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
       with:
         node-version: '22'
         cache: 'npm'
@@ -931,7 +905,7 @@ jobs:
   build-boot-smoke:
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -949,17 +923,17 @@ jobs:
         PRESET: ${{ matrix.preset }}
         # Over /tmp's tmpfs quota otherwise; see "Run unit tests".
         TMPDIR: ${{ runner.temp }}
-      run: |
-        uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
+      run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 
   agentic-per-preset:
     name: Tier 3 — Agentic flow (${{ matrix.preset }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Above the 3x-p90 rule: ten runs of data, and the gateway's latency is not ours to bound.
+    timeout-minutes: 25
     if: &full-ci-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request'
         && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
+        && github.event.pull_request.user.login != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     strategy:
@@ -978,41 +952,21 @@ jobs:
       name: Pre-flight LLM endpoint reachability check
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          echo "   (Check repo secrets; every LLM-calling lane needs it.)"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          echo "   Body (first 500 chars):"
-          head -c 500 /tmp/probe.txt; echo
-          echo "   If 401/403: rotate ALS_APG_API_KEY or check IP allowlist."
-          echo "   If 5xx: ALS-APG outage — retry, or contact the proxy admin."
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+      run: scripts/ci/llm_preflight_probe.sh
 
     - *install-pinned-cli
 
     - name: Run Tier 3 agentic test for preset
-      timeout-minutes: 55
+      timeout-minutes: 20
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         PRESET: ${{ matrix.preset }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         # -k matches the snake_case test names (test_hello_world_*).
         PRESET_K="${PRESET//-/_}"
-        uv run pytest tests/e2e/test_preset_agentic.py -v --tb=short -k "$PRESET_K"
+        uv run pytest tests/e2e/test_preset_agentic.py -v --tb=short -k "$PRESET_K" \
+          -p no_skips --no-skips-message "✅ every agentic test of the preset ran; none skipped"
 
     - name: Capture failure diagnostics
       if: failure()
@@ -1026,7 +980,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request'
         && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]'
+        && github.event.pull_request.user.login != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
       || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
     timeout-minutes: 50
@@ -1042,113 +996,53 @@ jobs:
 
     - *install-pinned-cli
 
+    # --no-skips-allow-partial: the rest of tests/e2e/ skips by design on CI (opt-in provider
+    # matrix, upstreams with no key, no ARIEL logbook backend), so only a session that skipped
+    # everything reds.
     - name: Run E2E tests
       timeout-minutes: 45
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         E2E_FILTER: ${{ inputs.e2e_filter }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         if [ -n "$E2E_FILTER" ]; then
           echo "Running scoped E2E filter: $E2E_FILTER"
           # $E2E_FILTER may hold several paths or pytest args: split on purpose.
           # shellcheck disable=SC2086
-          uv run pytest $E2E_FILTER -v --tb=short
+          uv run pytest $E2E_FILTER -v --tb=short \
+            -p no_skips --no-skips-message "✅ the scoped E2E filter ran" --no-skips-allow-partial
         else
-          # Every --ignore runs in another job (or is opt-in / dispatch-only); none is untested.
+          # Every module another lane hosts (or no CI job runs) is left out; the LANES tables
+          # in scripts/repo_checks.py are the one list, and the step prints what it derived.
+          python3 scripts/ci/e2e_shared_lane.py ignores > "$RUNNER_TEMP/e2e-ignores"
+          mapfile -t ignores < "$RUNNER_TEMP/e2e-ignores"
+          # No list would run every dedicated lane's modules here too.
+          [ "${#ignores[@]}" -gt 0 ] || { echo "::error::derived no --ignore list"; exit 1; }
           # -n 4 --dist loadfile: real-LLM round-trips at near-zero CPU.
           uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
-            --ignore=tests/e2e/test_preset_agentic.py \
-            --ignore=tests/e2e/test_plan_stack_agentic.py \
-            --ignore=tests/e2e/test_dispatch_deploy.py \
-            --ignore=tests/e2e/test_single_user_narrowing_e2e.py \
-            --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
-            --ignore=tests/e2e/test_bluesky_deploy.py \
-            --ignore=tests/e2e/test_optimizer_deploy.py \
-            --ignore=tests/e2e/test_bluesky_queue_e2e.py \
-            --ignore=tests/e2e/test_dockerfile_e2e.py \
-            --ignore=tests/e2e/test_privilege_split.py \
-            --ignore=tests/e2e/test_audit_two_container.py \
-            --ignore=tests/e2e/test_execution_environment_parity.py \
-            --ignore=tests/e2e/test_tiled_roundtrip.py \
-            --ignore=tests/e2e/test_va_substrate_equivalence.py \
-            --ignore=tests/e2e/test_target_switch_agentic.py \
-            --ignore=tests/e2e/test_orm_roundtrip.py \
-            --ignore=tests/e2e/test_grid_scan_roundtrip.py \
-            --ignore=tests/e2e/test_bump_roundtrip.py \
-            --ignore=tests/e2e/test_preflight_probe.py \
-            --ignore=tests/e2e/test_archiver_world_e2e.py \
-            --ignore=tests/e2e/test_graph_reseed_stamp.py \
-            --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
-            --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
-            --ignore=tests/e2e/test_bluesky_web_deploy.py \
-            --ignore=tests/e2e/test_deploy_lifecycle.py \
-            --ignore=tests/e2e/test_two_shape_boot.py \
-            --ignore=tests/e2e/test_deploy_writeback_e2e.py \
-            --ignore=tests/e2e/test_nextcloud_talk_bridge_e2e.py \
-            --ignore=tests/e2e/test_gchat_bridge_e2e.py \
-            --ignore=tests/e2e/fixtures/test_gchat_fixture_smoke.py \
-            --ignore=tests/e2e/test_teams_bridge_e2e.py \
-            --ignore=tests/e2e/fixtures/test_teams_fixture_smoke.py \
-            --ignore=tests/e2e/test_slack_bridge_e2e.py \
-            --ignore=tests/e2e/fixtures/test_slack_fixture_smoke.py \
-            --ignore=tests/e2e/web_terminals/test_auth_perimeter.py \
-            --ignore=tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py \
-            --ignore=tests/e2e/test_full_chain_auth.py \
-            --ignore=tests/e2e/test_jupyter_panel_lifecycle.py \
-            --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
-            --ignore=tests/e2e/test_agent_record_e2e.py \
-            --ignore=tests/e2e/test_host_record_e2e.py \
-            --ignore=tests/e2e/test_scripted_model.py \
-            --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
-            --ignore=tests/e2e/test_dispatch_deploy_render.py \
-            --ignore=tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
-            --ignore=tests/e2e/web_terminals/test_skills_overlay_discovery.py \
-            --ignore=tests/e2e/web_terminals/test_loopback_chokepoint.py \
-            --ignore=tests/e2e/web_terminals/test_session_restart_e2e.py \
-            --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-            --ignore=tests/e2e/web_terminals/test_render_permissions_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
-            --ignore=tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
-            --ignore=tests/e2e/test_watchdog_agent_scripted.py \
-            --ignore=tests/e2e/test_watchdog_hold_scripted.py \
-            --ignore=tests/e2e/test_watchdog_live.py \
-            --ignore=tests/e2e/tier2
+            -p no_skips --no-skips-message "✅ the E2E suite ran" --no-skips-allow-partial \
+            "${ignores[@]}"
         fi
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: e2e-tests
+    - *capture-diagnostics
     # The deploy's own teardown does not run when the job is killed, and a reused runner keeps the
     # stack. Exact names, never a prune.
     - name: Clean up any stranded stack resources
       if: always()
+      env:
+        E2E_FILTER: ${{ inputs.e2e_filter }}
       run: |
-        scripts/ci/cleanup_stacks.sh \
-          queue-e2e \
-          osprey-e2e-bluesky-deploy \
-          osprey-e2e-catalog \
-          osprey-e2e-tiled \
-          panels-proj \
-          plan-agentic \
-          orm-roundtrip \
-          grid-scan-roundtrip \
-          bump-roundtrip \
-          preflight-probe \
-          sandbox-escape \
-          osprey-e2e-dispatch \
-          osprey-e2e-overlay \
-          suproj \
-          osprey-e2e-va-substrate \
-          lane-e2e \
-          osprey-e2e-agent-record \
-          osprey-e2e-host-record
+        # The compose project of each module the run selected; $E2E_FILTER can name any lane's.
+        projects=$(python3 scripts/ci/e2e_shared_lane.py stacks)
+        echo "Removing what these projects left, if anything: ${projects:-none}"
+        # shellcheck disable=SC2086 # one project per word
+        [ -z "$projects" ] || scripts/ci/cleanup_stacks.sh $projects
 
   e2e-no-model:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)
     runs-on: ubuntu-latest
-    if: >-
+    # Any PR, forks included: no secret, no image push.
+    if: &any-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request')
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     timeout-minutes: 30
@@ -1170,6 +1064,8 @@ jobs:
 
     - name: Run the model-free E2E files
       timeout-minutes: 25
+      env:
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         # Named by path, not marker: a vanished path reds (exit 4), a marker matching nothing greens.
         # The wiring test holds this list equal to the model_free tests.
@@ -1189,24 +1085,14 @@ jobs:
           tests/e2e/test_watchdog_agent_scripted.py \
           tests/e2e/test_watchdog_hold_scripted.py \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
-          --junitxml=junit-e2e-no-model.xml
+          -p no_skips --no-skips-message "✅ every model-free E2E test ran; none skipped"
 
-    - name: Fail the lane on any skipped test
-      run: |
-        uv run python scripts/ci/junit_no_skips.py junit-e2e-no-model.xml \
-          --message "✅ every model-free E2E test ran; none skipped"
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: e2e-no-model
+    - *capture-diagnostics
 
   agent-record-e2e:
     name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
     runs-on: ubuntu-latest
-    if: >-
-      (github.event_name == 'pull_request')
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *any-pr-or-secret-revalidation
     # One case per runner: cases share a per-host project name and port block. The wiring test holds the cells.
     strategy:
       fail-fast: false
@@ -1230,17 +1116,16 @@ jobs:
 
     - name: Run the agent record replay
       timeout-minutes: 120
+      env:
+        CASE: ${{ matrix.case }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest \
           tests/e2e/test_agent_record_e2e.py \
-          -k "${{ matrix.case }}" \
+          -k "$CASE" \
           -v --tb=short --durations=15 \
-          --junitxml=junit-agent-record-e2e.xml
+          -p no_skips --no-skips-message "✅ every agent record replay test ran; none skipped"
 
-    - name: Fail the lane on any skipped test
-      run: |
-        uv run python scripts/ci/junit_no_skips.py junit-agent-record-e2e.xml \
-          --message "✅ every agent record replay test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -1248,8 +1133,7 @@ jobs:
         name: agent-record-e2e-${{ matrix.backend }}
     - name: Clean up any stranded stack resources
       if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh osprey-e2e-agent-record
+      run: scripts/ci/cleanup_stacks.sh osprey-e2e-agent-record
 
   benchmarks:
     name: On-Demand Benchmarks (channel-finder MCP + Tier 2 model)
@@ -1271,20 +1155,13 @@ jobs:
 
     - name: Fetch the pinned neosemantics (n10s) jar for the graph benchmark lane
       # Fetched here: a failed download in the fixture would SKIP the graph paradigm.
-      run: |
-        set -euo pipefail
-        url="$(uv run python -c 'from tests._graphdb_container import N10S_JAR_URL; print(N10S_JAR_URL)')"
-        jar="${{ runner.temp }}/$(basename "$url")"
-        curl -fsSL --retry 3 --retry-all-errors --max-time 300 -o "$jar" "$url"
-        ls -l "$jar"
-        echo "OSPREY_TEST_N10S_JAR=$jar" >> "$GITHUB_ENV"
+      run: scripts/ci/fetch_n10s_jar.sh
 
     - name: Run channel-finder MCP benchmarks
       timeout-minutes: 30
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        uv run pytest tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py -v --tb=short
+      run: uv run pytest tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py -v --tb=short
 
     - name: Run Tier 2 model benchmarks
       if: ${{ !cancelled() }}
@@ -1299,13 +1176,18 @@ jobs:
   deploy-e2e:
     name: Deploy E2E Test (build + deploy pipeline)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    # Needs ALS_APG_API_KEY: the same-repo check alone does not exclude Dependabot, which gets no secrets.
-    if: >-
+    timeout-minutes: 20
+    # Same-repo only even without secrets: house policy for every image build-and-deploy job. No base
+    # clause: the trigger admits only main and epic/** (test_same_repo_gate_matches_the_trigger_bases),
+    # so a safety lane also runs on epic phase PRs, not first after the epic merged.
+    if: &same-repo-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && github.actor != 'dependabot[bot]')
+      && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    env:
+      # Not a secret: `osprey up`'s .env preflight refuses an empty provider key, and nothing here calls a
+      # model, so any non-empty value passes. Holding no secret, the lane also runs on Dependabot PRs.
+      ALS_APG_API_KEY: placeholder-deploy-e2e-calls-no-model
 
     steps:
     - *checkout-full-history
@@ -1315,29 +1197,21 @@ jobs:
     - *sync-dev-deps
 
     - name: Create hello_world deployment repo
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         # The model is the gateway's id: the build refuses an alias such as haiku.
         uv run osprey init hello-world-test --preset hello-world \
-          --set provider=als-apg --set model=claude-haiku-5-5
+          --set provider=als-apg --set model="$OSPREY_E2E_FORCE_MODEL"
         cd hello-world-test
         uv run osprey build --skip-deps --skip-lifecycle
         ls -la
 
     - name: osprey up (hello-world)
-      env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
         uv run osprey up -d --dev
 
     # Before the teardown below, which deletes the containers whose logs matter.
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: deploy-e2e
+    - *capture-diagnostics
 
     - name: osprey down
       if: always()
@@ -1348,30 +1222,66 @@ jobs:
 
     - name: Clean up any stranded hello-world resources
       if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh hello-world-test
+      run: scripts/ci/cleanup_stacks.sh hello-world-test
 
   dispatch-stack-e2e:
-    name: Dispatch Stack E2E (${{ matrix.what }})
+    name: Dispatch Stack E2E — ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.timeout }}
     if: *full-ci-pr-or-secret-revalidation
+    # One cell per model-spending stack module. Each cell is its own lane (`lane:`), named by its own
+    # rendered-name prefix in LANES, so the release gate and full_ci_on_main require every cell.
+    # `cli` installs the pinned Claude Code CLI on the host, `qmd_image` builds the qmd sidecar image the
+    # stack runs, `dispatch_tokens` exports the dispatcher's dev tokens, `cleanup` names the stranded
+    # resources. A cell's timeout sits above its fixture's own caps, so a timeout report is not cut off.
     strategy:
       fail-fast: false
       matrix:
         include:
+        # Deploy: full Docker stack + real agent runs + multi-user web tier.
         - lane: dispatch-deploy-e2e
-          what: deploy, full Docker stack + real agent runs + multi-user web tier
+          name: Deploy
           module: tests/e2e/test_dispatch_deploy.py
-          project: osprey-e2e-dispatch
+          cleanup: osprey-e2e-dispatch
+          qmd_image: osprey-qmd:ci
+          dispatch_tokens: true
+          timeout: 60
+          step_timeout: 55
+        # Owner-narrowed dispatch run on a single-user stack.
         - lane: single-user-narrowing-e2e
-          what: single-user narrowing, owner-narrowed dispatch run
+          name: Single-User Narrowing
           module: tests/e2e/test_single_user_narrowing_e2e.py
-          project: suproj
+          cleanup: suproj
+          qmd_image: osprey-qmd:ci
+          dispatch_tokens: true
+          timeout: 60
+          step_timeout: 55
+        # Overlay skill/data/trigger visibility.
         - lane: dispatch-overlay-e2e
-          what: overlay skill/data/trigger visibility
+          name: Overlay Visibility
           module: tests/e2e/test_dispatch_overlay_visibility.py
-          project: osprey-e2e-overlay
+          cleanup: osprey-e2e-overlay
+          qmd_image: osprey-qmd:ci
+          dispatch_tokens: true
+          timeout: 60
+          step_timeout: 55
+        # Host sessions record without a container; the stack takes the record over.
+        - lane: host-record-e2e
+          name: Host Record
+          module: tests/e2e/test_host_record_e2e.py
+          cleanup: osprey-e2e-host-record
+          cli: true
+          timeout: 25
+          step_timeout: 20
+        # Agent-driven ORM + grid scans on the deployed queue stack; the deploy alone may take 56 min.
+        - lane: scan-agentic-e2e
+          name: Scan Stack Agentic
+          module: tests/e2e/test_plan_stack_agentic.py
+          cleanup: plan-agentic
+          cli: true
+          qmd_image: osprey-qmd:ci
+          timeout: 75
+          step_timeout: 70
 
     steps:
     - *checkout-full-history
@@ -1382,77 +1292,47 @@ jobs:
 
     - *llm-preflight-probe
 
-    - &build-qmd-image
-      name: Build the qmd sidecar image
+    - name: Install the pinned Claude Code CLI
+      if: matrix.cli
+      uses: ./.github/actions/install-pinned-claude-code
+
+    - name: Build the qmd sidecar image
+      if: matrix.qmd_image
       uses: ./.github/actions/build-qmd-image
 
     - name: Run the dispatch stack E2E module
-      timeout-minutes: 55
+      timeout-minutes: ${{ matrix.step_timeout }}
       env:
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
+        # Empty in a cell that builds no image: the stack then falls back to its own default.
+        OSPREY_QMD_IMAGE: ${{ matrix.qmd_image }}
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        EVENT_DISPATCHER_TOKEN: dev-token
-        DISPATCH_WORKER_TOKEN: dev-token
+        DISPATCH_TOKENS: ${{ matrix.dispatch_tokens }}
+        MODULE: ${{ matrix.module }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
-        uv run pytest ${{ matrix.module }} -v --tb=short
-    - name: Capture failure diagnostics
+        # Only the dispatch cells' shells carry the tokens: compose reads the shell over a project's .env.
+        if [ "$DISPATCH_TOKENS" = true ]; then
+          export EVENT_DISPATCHER_TOKEN=dev-token DISPATCH_WORKER_TOKEN=dev-token
+        fi
+        uv run pytest "$MODULE" -v --tb=short \
+          -p no_skips --no-skips-message "✅ every test of $MODULE ran; none skipped"
+    - &capture-diagnostics-per-lane
+      name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: ${{ matrix.lane }}
     - name: Clean up any stranded stack resources
       if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh ${{ matrix.project }}
-
-  host-record-e2e:
-    name: Host Record E2E (host sessions record without a container; the stack takes the record over)
-    runs-on: ubuntu-latest
-    if: *full-ci-pr-or-secret-revalidation
-    timeout-minutes: 60
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - *llm-preflight-probe
-
-    - *install-pinned-cli
-
-    - name: Run host record E2E
-      timeout-minutes: 55
       env:
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        uv run pytest tests/e2e/test_host_record_e2e.py -v --tb=short \
-          --junitxml=junit-host-record.xml
-
-    - name: Fail the lane on any skipped test
-      run: |
-        uv run python scripts/ci/junit_no_skips.py junit-host-record.xml \
-          --message "✅ every host record test ran; none skipped"
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: host-record-e2e
-    - name: Clean up any stranded stack resources
-      if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh osprey-e2e-host-record
+        CLEANUP: ${{ matrix.cleanup }}
+      run: scripts/ci/cleanup_stacks.sh "$CLEANUP"
 
   stack-e2e:
     name: Stack E2E — ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
-    # Same-repo only even without secrets: house policy for every image build-and-deploy job.
-    if: &same-repo-pr-or-secret-revalidation >-
-      (github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # One cell per stack module, none with a model secret (test_secret_free_lane_has_no_llm_secret).
     # `lane` names its diagnostics, `cleanup` the stranded resources it removes.
     strategy:
@@ -1538,6 +1418,23 @@ jobs:
           n10s: true
           timeout: 30
           step_timeout: 25
+        - lane: auth-perimeter-e2e
+          name: Auth Perimeter
+          module: tests/e2e/web_terminals/test_auth_perimeter.py
+          cleanup: >-
+            --image osprey-e2e-auth-perimeter-auth:local --image osprey-e2e-auth-perimeter-readonly:local
+            osprey-e2e-auth-perimeter
+          timeout: 35
+          step_timeout: 30
+        # Must stay under full-chain-auth-e2e's caps (test_full_chain_auth_lane_outbudgets_the_single_build_lanes).
+        - lane: terminal-auth-multiuser-e2e
+          name: Terminal Auth Multi-User
+          module: tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py
+          cleanup: >-
+            --image osprey-e2e-token-multiuser-readonly:local --image osprey-e2e-open-multiuser-readonly:local
+            osprey-e2e-token-multiuser osprey-e2e-open-multiuser
+          timeout: 70
+          step_timeout: 65
 
     steps:
     - *checkout-full-history
@@ -1549,26 +1446,29 @@ jobs:
     - name: Fetch the pinned neosemantics (n10s) jar
       # As in the benchmarks job: a fixture download failure would skip.
       if: matrix.n10s
-      run: |
-        set -euo pipefail
-        url="$(uv run python -c 'from tests._graphdb_container import N10S_JAR_URL; print(N10S_JAR_URL)')"
-        jar="${{ runner.temp }}/$(basename "$url")"
-        curl -fsSL --retry 3 --retry-all-errors --max-time 300 -o "$jar" "$url"
-        echo "OSPREY_TEST_N10S_JAR=$jar" >> "$GITHUB_ENV"
+      run: scripts/ci/fetch_n10s_jar.sh
 
     - name: Run the stack E2E module
       timeout-minutes: ${{ matrix.step_timeout }}
+      env:
+        MODULE: ${{ matrix.module }}
+        PYTEST_ARGS: ${{ matrix.pytest_args }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
+      # The gate also reds a graph cell whose n10s jar went missing: the fixture would skip.
       run: |
-        uv run pytest ${{ matrix.module }} -v ${{ matrix.pytest_args }} --tb=short
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: ${{ matrix.lane }}
+        # The cell's pytest_args are empty or several flags: split on purpose.
+        # shellcheck disable=SC2086
+        uv run pytest "$MODULE" -v $PYTEST_ARGS --tb=short \
+          -p no_skips --no-skips-message "✅ every test of the stack module ran; none skipped"
+    - *capture-diagnostics-per-lane
     - name: Clean up any stranded stack resources
       if: always() && matrix.cleanup
+      env:
+        CLEANUP: ${{ matrix.cleanup }}
       run: |
-        scripts/ci/cleanup_stacks.sh ${{ matrix.cleanup }}
+        # The cell's cleanup is several names and flags: split on purpose.
+        # shellcheck disable=SC2086
+        scripts/ci/cleanup_stacks.sh $CLEANUP
 
   orm-roundtrip-e2e:
     name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
@@ -1600,28 +1500,20 @@ jobs:
 
     - name: Run ORM roundtrip E2E
       timeout-minutes: 45
-      run: |
-        uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
+      run: uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
 
     - name: Run grid scan roundtrip E2E
       timeout-minutes: 40
-      run: |
-        uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
+      run: uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
 
     - name: Run orbit bump sweep roundtrip E2E
       timeout-minutes: 45
-      run: |
-        uv run pytest tests/e2e/test_bump_roundtrip.py -v --tb=short
+      run: uv run pytest tests/e2e/test_bump_roundtrip.py -v --tb=short
 
     - name: Run preflight probe E2E
       timeout-minutes: 45
-      run: |
-        uv run pytest tests/e2e/test_preflight_probe.py -v --tb=short
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: orm-roundtrip-e2e
+      run: uv run pytest tests/e2e/test_preflight_probe.py -v --tb=short
+    - *capture-diagnostics
     - name: Clean up any stranded stack resources
       if: always()
       run: |
@@ -1630,50 +1522,6 @@ jobs:
           grid-scan-roundtrip \
           bump-roundtrip \
           preflight-probe
-
-  scan-agentic-e2e:
-    name: Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)
-    runs-on: ubuntu-latest
-    if: *full-ci-pr-or-secret-revalidation
-    # Above the fixture's own caps (the deploy alone may take 56 min), so its timeout report is not cut off.
-    timeout-minutes: 75
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - *llm-preflight-probe
-
-    - *install-pinned-cli
-
-    - *build-qmd-image
-
-    - name: Run scan stack agentic E2E
-      timeout-minutes: 70
-      env:
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        uv run pytest tests/e2e/test_plan_stack_agentic.py -v --tb=short \
-          --junitxml=junit-scan-agentic-e2e.xml
-
-    - name: Fail the lane on any skipped test
-      run: |
-        # A flake absorbed by `flaky(reruns=2)` skips nothing: reruns are not testcases.
-        uv run python scripts/ci/junit_no_skips.py junit-scan-agentic-e2e.xml \
-          --message "✅ every scan-stack agentic test ran; none skipped"
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: scan-agentic-e2e
-    - name: Clean up any stranded stack resources
-      if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh plan-agentic
 
   nextcloud-talk-bridge-e2e:
     name: Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)
@@ -1689,7 +1537,7 @@ jobs:
     - *checkout-full-history
 
     - name: Log in to ghcr (Nextcloud Talk fixture)
-      uses: docker/login-action@v4
+      uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -1714,20 +1562,16 @@ jobs:
       timeout-minutes: 40
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
-        uv run pytest tests/e2e/test_nextcloud_talk_bridge_e2e.py -v --tb=short
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: nextcloud-talk-bridge-e2e
+        uv run pytest tests/e2e/test_nextcloud_talk_bridge_e2e.py -v --tb=short \
+          -p no_skips --no-skips-message "✅ every Nextcloud Talk test ran; none skipped"
+    - *capture-diagnostics
 
   gchat-bridge-e2e:
     name: Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)
     runs-on: ubuntu-latest
     if: *full-ci-pr-or-secret-revalidation
-    permissions:
-      contents: read
     timeout-minutes: 45
     env:
       OSPREY_E2E_RUNTIME: docker
@@ -1753,32 +1597,25 @@ jobs:
 
     # Separate steps, no xdist: both files use one fixed-name emulator container.
     - name: Run Google Chat fixture smoke tests
+      env:
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/fixtures/test_gchat_fixture_smoke.py -v --tb=short \
-          --junitxml=junit-gchat-fixture-smoke.xml
+          -p no_skips --no-skips-message "✅ every Google Chat test ran; none skipped"
 
     - name: Run Google Chat bridge E2E
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_gchat_bridge_e2e.py -v --tb=short \
-          --junitxml=junit-gchat-bridge-e2e.xml
+          -p no_skips --no-skips-message "✅ every Google Chat test ran; none skipped"
 
-    - name: Fail the lane on any skipped test
-      run: |
-        uv run python scripts/ci/junit_no_skips.py junit-gchat-fixture-smoke.xml junit-gchat-bridge-e2e.xml \
-          --message "✅ every Google Chat test ran; none skipped"
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: gchat-bridge-e2e
+    - *capture-diagnostics
 
   teams-slack-bridge-e2e:
     name: Microsoft Teams + Slack Bridge E2E (loopback fakes, no container)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     timeout-minutes: 25
 
     steps:
@@ -1793,6 +1630,8 @@ jobs:
 
     - name: Run Microsoft Teams and Slack bridge E2E
       timeout-minutes: 16
+      env:
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         # `--no-sync`: a bare `uv run` re-syncs and strips the `teams` extra back out.
         uv run --no-sync pytest \
@@ -1801,17 +1640,9 @@ jobs:
           tests/e2e/fixtures/test_slack_fixture_smoke.py \
           tests/e2e/test_slack_bridge_e2e.py \
           -v --tb=short \
-          --junitxml=junit-teams-slack-bridge-e2e.xml
+          -p no_skips --no-skips-message "✅ every Microsoft Teams and Slack test ran; none skipped"
 
-    - name: Fail the lane on any skipped test
-      run: |
-        uv run --no-sync python scripts/ci/junit_no_skips.py junit-teams-slack-bridge-e2e.xml \
-          --message "✅ every Microsoft Teams and Slack test ran; none skipped"
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: teams-slack-bridge-e2e
+    - *capture-diagnostics
 
   privilege-split-e2e:
     name: Privilege Split E2E (built images, stat-level ownership proof)
@@ -1827,32 +1658,26 @@ jobs:
 
     - *sync-dev-deps
 
+    # --no-skips-allow-partial: the audit module has documented per-test guards, so only a module-wide skip reds.
     - name: Run privilege split E2E
       timeout-minutes: 85
+      env:
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_privilege_split.py -v --tb=short \
-          --junitxml=junit-privilege-split.xml
+          -p no_skips --no-skips-message "✅ the privilege split module ran" --no-skips-allow-partial
 
     - name: Run audit two-container mechanism E2E
       # `success() || failure()`: a red step above must not hide this, and `always()` would run after a cancel.
       if: success() || failure()
       timeout-minutes: 35
+      env:
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_audit_two_container.py -v --tb=short \
-          --junitxml=junit-audit-two-container.xml
+          -p no_skips --no-skips-message "✅ the audit two-container module ran" --no-skips-allow-partial
 
-    - name: Fail the lane on a lane-wide skip
-      if: success() || failure()
-      run: |
-        # --allow-partial-skips: the audit module has documented per-test guards.
-        uv run python scripts/ci/junit_no_skips.py junit-privilege-split.xml junit-audit-two-container.xml --allow-partial-skips \
-          --message "✅ both privilege-split modules ran"
-
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: privilege-split-e2e
+    - *capture-diagnostics
 
     - name: Clean up any stranded resources from either module
       if: always()
@@ -1864,10 +1689,41 @@ jobs:
           osprey-e2e-privsplit \
           osprey-e2e-audit2c
 
+  # The one Dockerfile test that spends model tokens, apart from dockerfile-e2e below, which holds no key.
+  dockerfile-agent-e2e:
+    name: Dockerfile Agent E2E (one agent turn through the generated image)
+    runs-on: ubuntu-latest
+    # No runs to measure yet: dockerfile-e2e's caps, which cover the same image build.
+    timeout-minutes: 40
+    if: *full-ci-pr-or-secret-revalidation
+
+    steps:
+    - *checkout-full-history
+
+    - *install-uv
+
+    - *sync-dev-deps
+
+    - *llm-preflight-probe
+
+    - name: Run Dockerfile agent E2E
+      timeout-minutes: 25
+      env:
+        OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha || github.sha }}
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
+      run: |
+        uv run pytest tests/e2e/test_dockerfile_agent_e2e.py -v --tb=short \
+          -p no_skips --no-skips-message "✅ the Dockerfile agent turn ran; nothing skipped"
+
+    - *capture-diagnostics
+
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Above the 25 + 15 of the step caps, with room for setup and the proxy steps.
+    timeout-minutes: 50
+    # No model key: the agent turn through the image is dockerfile-agent-e2e's.
     if: *same-repo-pr-or-secret-revalidation
 
     steps:
@@ -1878,164 +1734,45 @@ jobs:
     - *sync-dev-deps
 
     - name: Run Dockerfile E2E
-      timeout-minutes: 55
+      timeout-minutes: 25
       env:
         OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha || github.sha }}
-        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: uv run pytest tests/e2e/test_dockerfile_e2e.py -v --tb=short
 
     # The proxied build is proven from the proxy's access log, not the build's exit status: this
     # runner has open egress.
     - name: Start a logging forward proxy (tinyproxy)
-      # `LogLevel Info` is load-bearing: the request line the assertion reads is logged at Info.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/osprey-proxy
-        mkdir -p /tmp/osprey-proxy
-        cat > /tmp/osprey-proxy/tinyproxy.conf <<'CONF'
-        Port 8888
-        Timeout 600
-        MaxClients 100
-        LogLevel Info
-        LogFile "/proxy/access.log"
-        CONF
-        : > /tmp/osprey-proxy/access.log
-        chmod 666 /tmp/osprey-proxy/access.log
-        docker run -d --name osprey-ci-proxy --network host \
-          -v /tmp/osprey-proxy:/proxy debian:bookworm-slim \
-          sh -c 'apt-get update -qq \
-                 && apt-get install -y -qq --no-install-recommends tinyproxy \
-                 && exec tinyproxy -d -c /proxy/tinyproxy.conf'
-        # A bare TCP connect: a probe that fetched through the proxy would write the access log under test.
-        for _ in $(seq 60); do
-          if (exec 3<>/dev/tcp/127.0.0.1/8888) 2>/dev/null; then
-            echo "✅ tinyproxy is listening on 127.0.0.1:8888"
-            exit 0
-          fi
-          sleep 2
-        done
-        echo "❌ tinyproxy never came up on 127.0.0.1:8888"
-        docker logs osprey-ci-proxy || true
-        exit 1
+      env:
+        # Tag for the reader, digest for the pull.
+        PROXY_BASE_IMAGE: docker.io/library/debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
+      run: scripts/ci/proxied_build.sh start
 
     - name: Assert the uppercase-only proxy contract reaches the build
       # BuildKit copies HTTP_PROXY into http_proxy inside RUN, which would pass the assertion with the
       # bridge deleted, so the build uses podman. This probe fails the lane if podman ever does the same.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/osprey-proxy-probe
-        mkdir -p /tmp/osprey-proxy-probe
-        cat > /tmp/osprey-proxy-probe/Dockerfile <<'PROBE'
-        FROM docker.io/library/busybox
-        RUN env | sort | grep -i proxy || echo "NO-PROXY-ENV"
-        PROBE
-        # Retry only the base-image pull: the measured build runs once from local storage, so the
-        # property under test is never retried into passing.
-        pulled=
-        for attempt in 1 2 3; do
-          if podman pull docker.io/library/busybox; then
-            pulled=yes
-            break
-          fi
-          echo "pull attempt $attempt of 3 failed; retrying in $((attempt * 5))s"
-          sleep "$((attempt * 5))"
-        done
-        if [ -z "$pulled" ]; then
-          echo "❌ could not fetch the probe base image in 3 attempts — a registry"
-          echo "   failure, which says nothing about the proxy contract below"
-          exit 1
-        fi
-        # `|| rc=$?`: under `set -e` a bare assignment would abort before the output below is printed.
-        rc=0
-        out="$(podman build --no-cache --pull=never --http-proxy=false \
-          --build-arg HTTP_PROXY=http://127.0.0.1:8888 \
-          --build-arg HTTPS_PROXY=http://127.0.0.1:8888 \
-          /tmp/osprey-proxy-probe 2>&1)" || rc=$?
-        printf '%s\n' "$out"
-        if [ "$rc" -ne 0 ]; then
-          echo "❌ the probe build failed (podman exit $rc); its output is above"
-          exit 1
-        fi
-        if ! grep -q 'HTTP_PROXY=http://127.0.0.1:8888' <<<"$out"; then
-          echo "❌ the uppercase HTTP_PROXY build-arg never reached the RUN environment"
-          exit 1
-        fi
-        if grep -q 'http_proxy=' <<<"$out"; then
-          echo "❌ this build runtime injects a lowercase proxy variable of its own —"
-          echo "   the access-log assertion would then pass with the Dockerfile's"
-          echo "   lowercase bridge deleted, i.e. it would prove nothing."
-          exit 1
-        fi
-        echo "✅ uppercase in, uppercase only — the bridge is the sole path to apt"
+      env:
+        PROBE_BASE_IMAGE: docker.io/library/busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+      run: scripts/ci/proxied_build.sh probe
 
     - name: Build the web-terminal auth sidecar through the proxy
-      # `--http-proxy=false` drops buildah's copy of the host's proxy variables, so the build-args are
-      # the only ones.
+      # Uppercase proxy build-args only: the Dockerfile's lowercase bridge is the one path to apt.
       timeout-minutes: 15
-      run: |
-        set -euo pipefail
-        version="$(uv run --no-sync python -c 'import osprey; print(osprey.__version__)')"
-        echo "OSPREY_VERSION=$version"
-        rm -rf /tmp/osprey-sidecar-ctx
-        mkdir -p /tmp/osprey-sidecar-ctx
-        cp -a src/osprey/templates/modules/web_terminals/auth_sidecar/. /tmp/osprey-sidecar-ctx/
-        : > /tmp/osprey-sidecar-ctx/osprey-local-requirements.txt
-        podman build --no-cache --network=host --http-proxy=false \
-          --build-arg HTTP_PROXY=http://127.0.0.1:8888 \
-          --build-arg HTTPS_PROXY=http://127.0.0.1:8888 \
-          --build-arg OSPREY_VERSION="$version" \
-          --build-arg OSPREY_DEV=1 \
-          --tag osprey-auth-sidecar:proxied-ci \
-          /tmp/osprey-sidecar-ctx
+      run: scripts/ci/proxied_build.sh build
 
     - name: Assert apt and pip traffic went through the proxy
-      run: |
-        set -euo pipefail
-        log=/tmp/osprey-proxy/access.log
-        if [ ! -s "$log" ]; then
-          echo "❌ proxy access log missing or empty at $log — nothing was proxied at all"
-          docker logs osprey-ci-proxy || true
-          exit 1
-        fi
-        apt_hits="$(grep -F 'deb.debian.org' "$log" || true)"
-        pip_hits="$(grep -E 'pypi\.org|files\.pythonhosted\.org' "$log" || true)"
-        echo "── apt traffic seen by the proxy ──────────────────────────────"
-        head -n 20 <<<"${apt_hits:-<none>}"
-        echo "── pip traffic seen by the proxy ──────────────────────────────"
-        head -n 20 <<<"${pip_hits:-<none>}"
-        if [ -z "$apt_hits" ]; then
-          echo "❌ no deb.debian.org request reached the proxy: the lowercase-proxy"
-          echo "   bridge in the auth-sidecar Dockerfile is not doing its job."
-          exit 1
-        fi
-        if [ -z "$pip_hits" ]; then
-          echo "❌ no pypi.org / files.pythonhosted.org request reached the proxy:"
-          echo "   the framework install bypassed it."
-          exit 1
-        fi
-        echo "✅ both apt and pip traffic went through the proxy"
+      run: scripts/ci/proxied_build.sh assert
 
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: dockerfile-e2e
+    - *capture-diagnostics
 
     - name: Stop the forward proxy
       # Last: the capture step needs the container's logs.
       if: always()
-      run: |
-        set -euo pipefail
-        if [ -f /tmp/osprey-proxy/access.log ]; then
-          echo "── last 40 proxy access-log lines ─────────────────────────────"
-          tail -n 40 /tmp/osprey-proxy/access.log || true
-        fi
-        docker rm -f osprey-ci-proxy > /dev/null 2>&1 || true
+      run: scripts/ci/proxied_build.sh stop
 
   multi-user-deploy-lifecycle-e2e:
     name: Multi-User Deploy Lifecycle E2E (${{ matrix.runtime }} runtime)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     # PRs into main only (not epic phases): it runs real destructive lifecycle verbs.
     if: >-
       (github.event_name == 'pull_request'
@@ -2070,14 +1807,13 @@ jobs:
 
     - name: Run multi-user deploy lifecycle E2E
       if: matrix.runtime == 'docker'
-      timeout-minutes: 55
+      timeout-minutes: 15
       # `-m 'not qmd'`: that test refuses to skip without a qmd image; qmd-sidecar-e2e runs it.
-      run: |
-        uv run pytest tests/e2e/test_deploy_lifecycle.py -m 'not qmd' -v --tb=short
+      run: uv run pytest tests/e2e/test_deploy_lifecycle.py -m 'not qmd' -v --tb=short
 
     - name: Run multi-user deploy lifecycle E2E (podman)
       if: matrix.runtime == 'podman'
-      timeout-minutes: 55
+      timeout-minutes: 15
       env:
         OSPREY_E2E_RUNTIME: podman
         CONTAINER_RUNTIME: podman
@@ -2100,81 +1836,9 @@ jobs:
     # --sweep: the test's own stub registry belongs to no compose project.
     - name: Clean up any stranded lifecycle-e2e resources
       if: always()
-      run: |
-        ENGINE=${{ matrix.runtime }} scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
-
-  auth-perimeter-e2e:
-    name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    # PRs into main and epic/*: a safety lane run only after the epic merged could go red behind a green gate.
-    if: &main-or-epic-pr-or-secret-revalidation >-
-      (github.event_name == 'pull_request'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && (github.event.pull_request.base.ref == 'main'
-        || startsWith(github.event.pull_request.base.ref, 'epic/')))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Run auth perimeter E2E
-      timeout-minutes: 55
-      run: |
-        uv run pytest tests/e2e/web_terminals/test_auth_perimeter.py -v --tb=short
-
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: auth-perimeter-e2e
-
-    - name: Clean up any stranded auth-perimeter resources
-      if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh \
-          --image osprey-e2e-auth-perimeter-auth:local \
-          --image osprey-e2e-auth-perimeter-readonly:local \
-          osprey-e2e-auth-perimeter
-
-  terminal-auth-multiuser-e2e:
-    name: Terminal Auth Multi-User E2E (auth.method token + none, real render image)
-    runs-on: ubuntu-latest
-    # Must stay under full-chain-auth-e2e's caps
-    # (test_full_chain_auth_lane_outbudgets_the_single_build_lanes).
-    timeout-minutes: 70
-    if: *main-or-epic-pr-or-secret-revalidation
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Run terminal auth multi-user E2E
-      timeout-minutes: 65
-      run: |
-        uv run pytest tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py -v --tb=short
-
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: terminal-auth-multiuser-e2e
-
-    - name: Clean up any stranded terminal-auth-multiuser resources
-      if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh \
-          --image osprey-e2e-token-multiuser-readonly:local \
-          --image osprey-e2e-open-multiuser-readonly:local \
-          osprey-e2e-token-multiuser \
-          osprey-e2e-open-multiuser
+      env:
+        RUNTIME: ${{ matrix.runtime }}
+      run: ENGINE="$RUNTIME" scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
   full-chain-auth-e2e:
     name: Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)
@@ -2182,7 +1846,7 @@ jobs:
     # Above the single-build auth lanes: test_full_chain_auth_lane_outbudgets_the_single_build_lanes
     # pins the relation and test_full_chain_auth_lane_caps_are_the_measured_ones the numbers.
     timeout-minutes: 85
-    if: *main-or-epic-pr-or-secret-revalidation
+    if: *same-repo-pr-or-secret-revalidation
 
     steps:
     - *checkout-full-history
@@ -2201,20 +1865,13 @@ jobs:
 
     - name: Run full-chain auth E2E
       timeout-minutes: 75
+      env:
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_full_chain_auth.py -v --tb=short \
-          --junitxml=junit-full-chain-auth.xml
+          -p no_skips --no-skips-message "✅ every full-chain auth test ran; none skipped"
 
-    - name: Fail the lane on any skipped test
-      run: |
-        uv run python scripts/ci/junit_no_skips.py junit-full-chain-auth.xml \
-          --message "✅ every full-chain auth test ran; none skipped"
-
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: full-chain-auth-e2e
+    - *capture-diagnostics
 
     - name: Clean up any stranded full-chain-auth resources
       if: always()
@@ -2230,7 +1887,7 @@ jobs:
     name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    if: *main-or-epic-pr-or-secret-revalidation
+    if: *same-repo-pr-or-secret-revalidation
 
     steps:
     # Out of disk, podman-compose 1.0.6 answers `up -d` with 0 and creates no container; the capture logs `df -h /`.
@@ -2241,46 +1898,14 @@ jobs:
     - *sync-dev-deps
 
     - name: Pin podman-compose 1.0.6 as podman's compose provider
-      run: |
-        pip install --user podman-compose==1.0.6
-        PODMAN_COMPOSE_BIN="$(command -v podman-compose || true)"
-        if [ -z "$PODMAN_COMPOSE_BIN" ]; then
-          echo "❌ podman-compose is not on PATH after install"
-          exit 1
-        fi
-        mkdir -p ~/.config/containers
-        cat > ~/.config/containers/containers.conf <<EOF
-        [engine]
-        compose_providers = ["$PODMAN_COMPOSE_BIN"]
-        EOF
-        echo "PODMAN_COMPOSE_PROVIDER=$PODMAN_COMPOSE_BIN" >> "$GITHUB_ENV"
-        podman --version
-        podman ps >/dev/null
+      # No `--optional`: a runner that lost podman reds here.
+      run: python3 scripts/ci/podman_compose.py pin
 
     - name: Step 0 — assert the compose provider is podman-compose 1.0.6
+      # Before the boot, so a wrong engine is caught before the image build is spent under it.
       env:
         CONTAINER_RUNTIME: podman
-      run: |
-        podman compose version
-        uv run python - <<'PY'
-        from osprey.deployment.runtime_helper import (
-            ComposeProvider,
-            detect_compose_provider,
-            get_runtime_command,
-        )
-
-        runtime_cmd = get_runtime_command()
-        info = detect_compose_provider(runtime_cmd)
-        print("runtime command:", " ".join(runtime_cmd))
-        print("provider banner:", info.banner)
-        assert info.provider is ComposeProvider.PODMAN_COMPOSE, (
-            f"this lane must run podman-compose; probed {info.provider} instead"
-        )
-        assert info.version == (1, 0, 6), (
-            f"this lane pins podman-compose 1.0.6; probed {info.version_text}"
-        )
-        print("✅ compose provider is podman-compose 1.0.6")
-        PY
+      run: uv run python scripts/ci/podman_compose.py assert-provider
 
     - name: Run two-shape boot E2E (podman)
       timeout-minutes: 70
@@ -2289,15 +1914,9 @@ jobs:
         CONTAINER_RUNTIME: podman
       # No `podman system service` / DOCKER_HOST, unlike the podman lifecycle lane: podman-compose reads
       # no socket, and the variable would be the only difference between step 0 and this step.
-      run: |
-        uv run pytest tests/e2e/test_two_shape_boot.py -v --tb=short
+      run: uv run pytest tests/e2e/test_two_shape_boot.py -v --tb=short
 
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: two-shape-boot-e2e
-        engine: podman
+    - *capture-diagnostics-podman
 
     - name: Clean up any stranded two-shape resources
       if: always()
@@ -2318,6 +1937,8 @@ jobs:
     if: *same-repo-pr-or-secret-revalidation
     # Covers the step caps plus the image build; tests/integration/test_qmd_sidecar_time_budget.py checks it.
     timeout-minutes: 240
+    env:
+      OSPREY_QMD_IMAGE: osprey-qmd:ci
 
     steps:
     - *checkout-full-history
@@ -2337,22 +1958,16 @@ jobs:
       # Outlasts SIDECAR_ARIEL_TEST_TIMEOUT + SIDECAR_OKF_TEST_TIMEOUT (7041 s) rounded up, plus 5 min;
       # test_qmd_sidecar_time_budget.py checks it.
       timeout-minutes: 125
-      env:
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: uv run pytest tests/integration/ -m "dockerbuild and not wallclock" -k qmd -v --tb=short
 
     - name: Run the wall-clock budgets serially
       timeout-minutes: 15
-      env:
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: uv run python scripts/check.py run pytest-wallclock
 
     - name: Run the multi-user shared-bundle sidecar E2E
       # The `qmd` half of test_deploy_lifecycle.py, which the lifecycle lanes deselect. Outlasts
       # DEPLOY_LIFECYCLE_QMD_TIMEOUT (2802 s); test_qmd_sidecar_time_budget.py checks it.
       timeout-minutes: 55
-      env:
-        OSPREY_QMD_IMAGE: osprey-qmd:ci
       run: uv run pytest tests/e2e/test_deploy_lifecycle.py -m qmd -v --tb=short
 
     - name: Build the sidecar image with the model fetches skipped
@@ -2371,17 +1986,12 @@ jobs:
         OSPREY_QMD_MOUNTED_IMAGE: osprey-qmd:ci-mounted
       run: uv run pytest tests/integration/test_qmd_models_mount.py -v --tb=short
 
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: qmd-sidecar-e2e
+    - *capture-diagnostics
 
     # Before the image cleanup: a surviving container pins its image.
     - name: Clean up any stranded shared-bundle e2e resources
       if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
+      run: scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
     - name: Clean up the sidecar images
       if: always()
@@ -2435,19 +2045,12 @@ jobs:
       timeout-minutes: 35
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_target_switch_agentic.py -v --tb=short \
-          --junitxml=junit-target-switch-agentic-e2e.xml
+          -p no_skips --no-skips-message "✅ every control-target switch agentic test ran; none skipped"
 
-    - name: Fail the lane on any skipped test
-      run: |
-        uv run python scripts/ci/junit_no_skips.py junit-target-switch-agentic-e2e.xml \
-          --message "✅ every control-target switch agentic test ran; none skipped"
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: target-switch-agentic-e2e
+    - *capture-diagnostics
 
     - name: Clean up the target images
       if: always()
@@ -2528,28 +2131,26 @@ jobs:
       timeout-minutes: ${{ matrix.step_timeout }}
       env:
         OSPREY_VA_E2E_ENABLE: "1"
+        SUITES: ${{ matrix.suites }}
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       # No xdist: the conftest keeps ONE session container per process.
       run: |
-        uv run pytest ${{ matrix.suites }} \
-          -v --tb=short --junitxml=junit-va-live-e2e.xml
+        # The cell's suites are several paths: split on purpose.
+        # shellcheck disable=SC2086
+        uv run pytest $SUITES \
+          -v --tb=short \
+          -p no_skips --no-skips-message "✅ every live virtual accelerator test ran; none skipped"
 
     - name: Run the real-facility lane on the NSLS-II stand-in
       if: matrix.als_lane
       timeout-minutes: 10
       env:
         OSPREY_ALS_LANE_STAND_IN: tests/fixtures/mml/nsls2
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
-        uv run pytest tests/cli/test_als_lane.py -v --tb=short --junitxml=junit-als-lane.xml
+        uv run pytest tests/cli/test_als_lane.py -v --tb=short \
+          -p no_skips --no-skips-message "✅ the real-facility lane ran; none skipped"
 
-    - name: Fail the lane on any skipped test
-      env:
-        ALS_LANE: ${{ matrix.als_lane }}
-      run: |
-        # Read from the matrix, not from whether the file exists, so a cell that skipped the step reds.
-        reports=(junit-va-live-e2e.xml)
-        if [[ "$ALS_LANE" == "true" ]]; then reports+=(junit-als-lane.xml); fi
-        uv run python scripts/ci/junit_no_skips.py "${reports[@]}" \
-          --message "✅ every live virtual accelerator test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -2557,8 +2158,9 @@ jobs:
         name: va-live-e2e-${{ matrix.group }}
     - name: Clean up any stranded stack resources
       if: always() && matrix.stack
-      run: |
-        scripts/ci/cleanup_stacks.sh ${{ matrix.stack }}
+      env:
+        STACK: ${{ matrix.stack }}
+      run: scripts/ci/cleanup_stacks.sh "$STACK"
 
     - name: Clean up the target images
       if: always()
@@ -2577,13 +2179,13 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         # Later steps run the change's code: leave no token in the git config.
         persist-credentials: false
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
       with:
         enable-cache: false
 
@@ -2712,9 +2314,9 @@ jobs:
   all-checks-passed:
     name: All CI Checks Passed
     # qmd-cache-warmup stays out: it runs on main pushes only, whose own run it already turns red.
-    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, host-record-e2e, stack-e2e, orm-roundtrip-e2e, scan-agentic-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
+    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, visual-baselines-push, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, stack-e2e, orm-roundtrip-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     # Not on cancel: a superseded run must not leave a red gate on the same sha.
     if: ${{ !cancelled() }}
 
@@ -2723,7 +2325,7 @@ jobs:
       # Every input goes through `env:`, never `${{ }}` in `run:` (script injection).
       env:
         NEEDS: ${{ toJSON(needs) }}
-        ACTOR: ${{ github.actor }}
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         HEAD_BRANCH: ${{ github.head_ref }}
         EVENT_NAME: ${{ github.event_name }}
         REVALIDATE: ${{ inputs.revalidate_secret_lanes }}
@@ -2740,7 +2342,7 @@ jobs:
           jq -nr --argjson needs "$NEEDS" '$needs | to_entries[] | "| \(.key) | \(.value.result) |"'
         } >> "$summary"
 
-        if [[ "$ACTOR" == "dependabot[bot]" ]]; then
+        if [[ "$PR_AUTHOR" == "dependabot[bot]" ]]; then
           hint="Dependabot runs get no secrets, so the API-key lanes skipped. After reviewing the diff, revalidate: \`gh workflow run ci.yml --ref $HEAD_BRANCH -f revalidate_secret_lanes=true\`"
         elif [[ "$EVENT_NAME" == "pull_request" && "$HAS_FULL_CI" != "true" ]]; then
           hint="The model-spending lanes run only under the full-ci label: \`gh pr edit $PR_NUMBER --add-label full-ci\`"
@@ -2750,8 +2352,11 @@ jobs:
           printf '\n%s\n' "$hint" >> "$summary"
         fi
 
-        bad=$(jq -nr --argjson needs "$NEEDS" --argjson ok "$passing" \
-          '$needs | to_entries[] | select(.value.result | IN($ok[]) | not) | "❌ \(.key): \(.value.result)"')
+        # The baseline push runs only when a same-repo PR rendered a baseline, never on a dispatch,
+        # so its skip always passes; its failure fails like any other.
+        bad=$(jq -nr --argjson needs "$NEEDS" --argjson ok "$passing" --arg push visual-baselines-push \
+          '$needs | to_entries[] | select(.value.result | IN($ok[]) | not)
+            | select(.key != $push or .value.result != "skipped") | "❌ \(.key): \(.value.result)"')
         if [[ -n "$bad" ]]; then
           echo "$bad"
           exit 1

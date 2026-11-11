@@ -18,7 +18,7 @@ check itself. A module names its checks in ``CHECKS``, built from the records in
 ``scripts/check_kit.py``; each record carries everything this command does with
 it -- its command, its scope or how a range selects its tests, its tiers, what
 it needs, its bound, its report, its hooks. A module may also name ``LANES`` (CI
-jobs this command never runs), ``CALLER_JOBS`` (CI jobs that call it),
+jobs, or matrix cells, this command never runs), ``CALLER_JOBS`` (CI jobs that call it),
 ``NEEDS`` and ``VENUES`` (the probes its checks' needs and venues name), and
 ``LISTED`` (what ``list --json`` prints beside the checks).
 
@@ -198,7 +198,7 @@ def _merged(kind: str, owned: Iterable[tuple[str, Mapping[str, object]]]) -> dic
 def collect(paths: Sequence[str], root: Path) -> Declaration:
     """Load each checks module at *paths* under *root* and merge what they declare.
 
-    A check id, a lane, a need or a venue declared by two modules is refused:
+    A check id, a lane id, a need or a venue declared by two modules is refused:
     each has one owner.
     """
     modules = {
@@ -217,7 +217,7 @@ def collect(paths: Sequence[str], root: Path) -> Declaration:
     checks = each("CHECKS")
     owners = _merged("check", [(path, {c.id: path}) for path, c in checks])
     lanes = each("LANES")
-    _merged("lane", [(path, {lane.job: path}) for path, lane in lanes])
+    _merged("lane", [(path, {lane.id: path}) for path, lane in lanes])
     return Declaration(
         checks=tuple(c for _path, c in checks),
         lanes=tuple(lane for _path, lane in lanes),
@@ -424,7 +424,7 @@ def select(
     routed = _route_named(named)
     if paths is None:
         whole = {check.id: Selection(WHOLE) for check in tier_checks(tier)}
-        lanes = tuple(lane.job for lane in LANES) if tier == "full" else ()
+        lanes = tuple(lane.id for lane in LANES) if tier == "full" else ()
         return Plan(tier, whole, lanes, scoped=False)
     if files is None:
         files = repository_files()
@@ -445,7 +445,7 @@ def select(
         if extra and chosen.state != WHOLE:
             chosen = _paths([*chosen.paths, *extra])
         selections[check.id] = chosen
-    lanes = tuple(lane.job for lane in LANES if touches(reach, lane.scope))
+    lanes = tuple(lane.id for lane in LANES if touches(reach, lane.scope))
     return Plan(tier, selections, lanes, scoped=True)
 
 
@@ -643,9 +643,12 @@ def unmet_needs(
 
 
 def _hosts_over(paths: Sequence[str]) -> list[str]:
-    """The checks with a derived scope and the CI lanes whose scope holds one of
-    *paths*, a file or a directory, or lies beneath one of the directories: what
-    runs the tests the sweep deselects. A node id is read as its file."""
+    """The checks with a derived scope and the CI lanes whose scope (a lane's
+    ``modules``, where it names them) holds one of *paths*, a file or a
+    directory, or lies beneath one of the directories: what runs the tests the
+    sweep deselects. A node id is read as its file. The shared e2e lane hosts
+    only the ``tests/e2e`` modules no other lane claims (``e2e_hosts``), so it is
+    named only where *paths* reach one of those."""
     paths = [path.partition("::")[0] for path in paths]
     inside = [candidate for path in paths for candidate in (path, path.rstrip("/") + "/")]
     above = tuple(path.rstrip("/") + "/" for path in paths)
@@ -654,9 +657,20 @@ def _hosts_over(paths: Sequence[str]) -> list[str]:
         return touches(inside, scope) or any(pattern.startswith(above) for pattern in scope)
 
     derived = [check for check in CHECKS if check.derive_scope]
-    files = repository_files() if derived else []
+    files = repository_files()
     checks = [c.id for c in derived if c.derive_scope and hosts(c.derive_scope(files))]
-    lanes = [lane.job for lane in LANES if hosts(lane.scope)]
+    reached = [path for path in files if path in paths or path.startswith(above)]
+    e2e = {host for hosted in FRAMEWORK.e2e_hosts(LANES, reached).values() for host in hosted}
+    # A lane's ``modules`` are the tests it runs where its scope names more.
+    lanes = [
+        lane.id
+        for lane in LANES
+        if lane.id in e2e
+        or (
+            lane.id != FRAMEWORK.SHARED_E2E_LANE
+            and hosts(lane.scope if lane.modules is None else lane.modules)
+        )
+    ]
     return list(dict.fromkeys([*checks, *lanes]))
 
 

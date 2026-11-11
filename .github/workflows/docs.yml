@@ -57,8 +57,9 @@ on:
         required: false
         type: string
 
+# Read-only by default; the one job that pushes to gh-pages asks for write below.
 permissions:
-  contents: write   # Required to push to gh-pages branch
+  contents: read
 
 concurrency:
   group: "docs-${{ github.event_name == 'pull_request' && github.run_id || 'deploy' }}"
@@ -67,6 +68,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The "Deploy to GitHub Pages" step pushes the staged site to gh-pages; nothing else writes.
+    permissions:
+      contents: write
 
     # The three docs_publish.py invocations must all describe the same build.
     # Hoisting their inputs here makes the three command lines textually
@@ -77,22 +81,26 @@ jobs:
       DOCS_INPUT_TAG: ${{ github.event.inputs.tag || '' }}
 
     steps:
+    # Neither checkout keeps the token in the git config: the site fetch below and the deploy action
+    # each authenticate on their own.
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0  # Fetch full history including all tags
+        persist-credentials: false
         ref: ${{ github.event.inputs.tag || github.ref }}
 
     # Second, sparse checkout of the default branch: the tree checked out above
     # may be an old tag that predates the publishing helper, so the helper is
     # taken from the default branch in preference to the build's own tree.
     - name: Checkout publishing helper
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         ref: ${{ github.event.repository.default_branch }}
         path: .docs-ci
         sparse-checkout: scripts/ci
         sparse-checkout-cone-mode: true
+        persist-credentials: false
 
     # Prefer the default-branch copy, so a fix to the helper applies to every
     # build including a rebuild of an old tag. Fall back to the build's own tree
@@ -117,14 +125,16 @@ jobs:
     # why this step (and the two below) never set `working-directory`.
     - name: Plan the deploy
       id: plan
+      env:
+        HELPER: ${{ steps.helper.outputs.path }}
       run: |
-        python3 "${{ steps.helper.outputs.path }}" plan \
+        python3 "$HELPER" plan \
           --ref "$DOCS_REF" \
           --event "$DOCS_EVENT" \
           --input-tag "$DOCS_INPUT_TAG" >> "$GITHUB_OUTPUT"
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
       with:
         enable-cache: true
 
@@ -176,8 +186,10 @@ jobs:
     - name: Fetch published site
       id: pages
       if: github.repository == 'als-apg/osprey' && steps.plan.outputs.deploy == 'true'
+      env:
+        TOKEN: ${{ github.token }}
       run: |
-        URL="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+        URL="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
         set +e
         git ls-remote --exit-code --heads "$URL" gh-pages >/dev/null
         rc=$?
@@ -200,14 +212,19 @@ jobs:
 
     - name: Stage deployment tree
       if: github.repository == 'als-apg/osprey' && steps.plan.outputs.deploy == 'true'
+      env:
+        HELPER: ${{ steps.helper.outputs.path }}
+        FIRST_DEPLOY: ${{ steps.pages.outputs.first_deploy }}
       run: |
-        python3 "${{ steps.helper.outputs.path }}" stage \
+        allow_empty=()
+        if [ "$FIRST_DEPLOY" = "true" ]; then allow_empty=(--allow-empty-site); fi
+        python3 "$HELPER" stage \
           --ref "$DOCS_REF" \
           --event "$DOCS_EVENT" \
           --input-tag "$DOCS_INPUT_TAG" \
           --build docs/build/html \
           --existing gh-pages-existing \
-          --deployment deployment ${{ steps.pages.outputs.first_deploy == 'true' && '--allow-empty-site' || '' }}
+          --deployment deployment "${allow_empty[@]}"
 
     # Must follow the stage step: a release build's root refresh clears the root
     # `_static/` before copying the build in, which would delete a versions.json
@@ -215,13 +232,15 @@ jobs:
     # cwd, as noted at the plan step, so it sets no `working-directory` either.
     - name: Write version switcher index
       if: github.repository == 'als-apg/osprey' && steps.plan.outputs.deploy == 'true'
+      env:
+        HELPER: ${{ steps.helper.outputs.path }}
       run: |
-        python3 "${{ steps.helper.outputs.path }}" versions \
+        python3 "$HELPER" versions \
           --deployment deployment
 
     - name: Deploy to GitHub Pages
       if: github.repository == 'als-apg/osprey' && steps.plan.outputs.deploy == 'true'
-      uses: peaceiris/actions-gh-pages@v4
+      uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453  # v4.1.0
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./deployment

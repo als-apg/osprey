@@ -48,9 +48,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0  # the tree comparison walks the tag's parents
+        persist-credentials: false
 
     - name: Require the tagged commit on main
       # Releases are cut from main (the release skill). The lane gate
@@ -109,12 +110,13 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0  # the version is the describe of this package's own tags
+        persist-credentials: false
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
 
     - name: Set up Python
       run: uv python install 3.11
@@ -185,7 +187,7 @@ jobs:
       run: uvx twine check dist/*
 
     - name: Upload distribution artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: connectors-distributions
         path: dist/
@@ -201,17 +203,20 @@ jobs:
     # ci.yml's `package` job runs: every module imports, and nothing of the
     # framework or the agent stack is loaded.
     steps:
+    # For scripts/ci/connectors_lean_import_walk.py.
     - name: Checkout repository
-      uses: actions/checkout@v7  # for scripts/ci/connectors_lean_import_walk.py
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
 
     - name: Download distribution artifacts
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
         name: connectors-distributions
         path: dist/
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
 
     - name: Install the wheel with deps from PyPI and import-walk it
       env:
@@ -241,14 +246,14 @@ jobs:
 
     steps:
     - name: Download distribution artifacts
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
         name: connectors-distributions
         path: dist/
 
     # skip-existing lets a re-pushed tag complete a publish that stopped halfway.
     - name: Publish osprey-connectors to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+      uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
       with:
         packages-dir: dist/
         skip-existing: true
@@ -264,7 +269,9 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
 
     - name: Extract release notes from the connectors CHANGELOG
       # The package's own changelog, folded from packages/osprey-connectors/
@@ -279,7 +286,7 @@ jobs:
         cat release_notes.md
 
     - name: Create Release
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3  # v3.0.4
       with:
         name: osprey-connectors v${{ needs.build.outputs.version }}
         body_path: release_notes.md
