@@ -98,7 +98,7 @@ def pv_directory_targets(
 
     display = _mapping(section.get("display"))
     directory_fold = {
-        **_present(description_property=section.get("description_property")),
+        **_present(description_property=_text(section.get("description_property"))),
         **_present(exact_properties=display.get("exact_properties")),
         **_caveats(section),
     }

@@ -289,6 +289,12 @@ class TestFold:
         settings = _table({"type": "channelfinder"})["pv_directory"][TARGET_LIVE].settings
         assert settings == {}
 
+    @pytest.mark.parametrize("value", ["", "  ", 7])
+    def test_a_blank_description_property_is_not_folded(self, value):
+        table = _table({"type": "channelfinder", "description_property": value})
+        assert "description_property" not in table["pv_directory"][TARGET_LIVE].settings
+        assert "description_property" not in table["pv_directory"][TARGET_VA].settings
+
     def test_display_not_a_mapping_folds_nothing(self):
         section = {"type": "channelfinder", "display": "wide"}
         assert _table(section)["pv_directory"][TARGET_LIVE].settings == {}

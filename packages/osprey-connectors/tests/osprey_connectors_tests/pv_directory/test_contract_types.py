@@ -13,6 +13,8 @@ import osprey_connectors
 from osprey_connectors.pv_directory import contract
 from osprey_connectors.pv_directory.contract import (
     ALARM_STALE_WINDOW_S,
+    DEFAULT_DESCRIPTION_PROPERTY,
+    ROW_FIELD_PROPERTIES,
     AlarmConfigRecord,
     AlarmHistoryRow,
     AlarmLog,
@@ -195,6 +197,26 @@ def test_a_row_starts_with_an_unknown_origin():
 
 def test_the_stale_window_is_a_minute():
     assert ALARM_STALE_WINDOW_S == 60
+
+
+def test_row_field_properties_name_the_recsync_property_of_each_row_field():
+    assert dict(ROW_FIELD_PROPERTIES) == {
+        "status": "pvStatus",
+        "record_type": "recordType",
+        "ioc": "iocName",
+        "host": "hostName",
+        "last_announced": "time",
+    }
+    fields = [field.name for field in dataclasses.fields(DirectoryRow)]
+    assert list(ROW_FIELD_PROPERTIES) == [name for name in fields if name in ROW_FIELD_PROPERTIES]
+    assert "description" not in ROW_FIELD_PROPERTIES
+    assert "name" not in ROW_FIELD_PROPERTIES
+    with pytest.raises(TypeError):
+        ROW_FIELD_PROPERTIES["status"] = "STATUS"  # type: ignore[index]
+
+
+def test_the_default_description_property_is_record_desc():
+    assert DEFAULT_DESCRIPTION_PROPERTY == "recordDesc"
 
 
 @pytest.mark.parametrize(

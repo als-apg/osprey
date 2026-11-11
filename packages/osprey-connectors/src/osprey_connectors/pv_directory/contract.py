@@ -23,10 +23,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal
 
 __all__ = [
     "ALARM_STALE_WINDOW_S",
+    "DEFAULT_DESCRIPTION_PROPERTY",
+    "ROW_FIELD_PROPERTIES",
     "AlarmConfigRecord",
     "AlarmHistoryRow",
     "AlarmLog",
@@ -48,6 +51,21 @@ __all__ = [
 
 #: Seconds after which a Kafka alarm feed that has been silent reads as stale.
 ALARM_STALE_WINDOW_S: float = 60.0
+
+#: The RecSync property that fills each ``DirectoryRow`` field, by field, in field order.
+#: ``description`` is not here: its property is the section's ``description_property``.
+ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
+    {
+        "status": "pvStatus",
+        "record_type": "recordType",
+        "ioc": "iocName",
+        "host": "hostName",
+        "last_announced": "time",
+    }
+)
+
+#: The description property RecSync records, for a section that names none.
+DEFAULT_DESCRIPTION_PROPERTY: str = "recordDesc"
 
 _Origin = Literal["curated", "directory", "unknown"]
 
