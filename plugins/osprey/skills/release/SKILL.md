@@ -221,7 +221,8 @@ found afterwards costs another full run.
 most of a day. A laptop that is also running agent sessions does not finish:
 the unit sweep hits its 90-minute bound with no failure reported. Use a
 workstation or a build host, in a fresh clone, and tell the maintainer which
-host before starting.
+host before starting. On a host other runs share, give every service the
+release run starts a port and a name of its own.
 
 **Then provision everything in this table, and prove each line**, before the
 unit sweep:
@@ -229,12 +230,17 @@ unit sweep:
 | Prerequisite | Tests it unlocks | Provision | Prove |
 | --- | --- | --- | --- |
 | Vendored front-end files | browser tests, every stack capture in Step 3 | `uv run osprey vendor fetch` | `uv run osprey vendor verify` |
-| Playwright browsers | browser tests, including the WebKit cases | `uv run playwright install chromium webkit` | the browser tests run instead of skipping |
+| Playwright browsers | browser tests, including the WebKit cases | `uv run playwright install chromium webkit`; on macOS WebKit needs a logged-in desktop session, so run those cases there or in a Linux container | the browser tests run instead of skipping |
 | QMD sidecar images | QMD sidecar and models-mount tests | both builds of the `qmd-sidecar-e2e` job in `ci.yml` | `docker image inspect` on both tags |
 | VA live containers | `tests/va/e2e` | the image builds and `OSPREY_VA_E2E_ENABLE=1` of the `va-live-e2e` job | the directory collects and runs |
-| Ollama with the models the tests name | Ollama-backed tests | install Ollama, `ollama pull` each model | `curl -s localhost:11434/api/tags` lists them |
+| Ollama with the models the tests name | Ollama-backed unit tests, the proxy e2e modules | install Ollama, `ollama pull` each model a skip or failure names, `OSPREY_E2E_OLLAMA=1` for the e2e lane | `curl -s localhost:11434/api/tags` lists them |
 | ALS lane stand-in | `tests/cli/test_als_lane.py` | `OSPREY_ALS_LANE_STAND_IN=tests/fixtures/mml/nsls2` | the module runs |
-| MML checkout, `als-ontology` checkout | `tests/facility`, the TTL seeder tests | clone them where the tests look (each skip reason names the place) | the modules run |
+| MML checkout, `als-ontology` checkout | `tests/facility`, the TTL seeder tests | clone them; `OSPREY_MML_MACHINE_ROOT=<MML>/machine/<facility>` | the modules run |
+| Open-file limit | the whole sweep: one worker holds about 500 descriptors once everything is provisioned | `ulimit -n 8192` in the shell that runs the tests (macOS gives 256) | `ulimit -n` |
+| pvAccess client | the pvAccess connector tests | run those modules as an overlay, `uv run --frozen --with pvapy pytest ...`; installed into the venv it fails the shipped-library review test | the modules run |
+| `psql` client | the role tests in `tests/e2e/test_ariel_search.py` | any PostgreSQL client on `PATH` | `psql --version` |
+| ARIEL Postgres, seeded | the ARIEL scenario tests, the retrieval half of the logbook delegation test | a pgvector Postgres on a port of its own, `OSPREY_ARIEL_DB_URI`, then `osprey sim apply nominal --yes` in a demo project pointed at it. Never the default port on a shared host: the tests purge and reseed whatever they reach | `psql "$OSPREY_ARIEL_DB_URI" -c 'select count(*) from enhanced_entries'` |
+| A Linux container | the Linux-only tests, on a macOS host | run their modules in a `python:3.13` container with the tree mounted | they run instead of skipping |
 | JS toolchain check | `app-check-js` | `uv run python scripts/check.py run app-check-js` | it reports `ran` |
 | MATLAB with the AT toolbox | MML export parity | a licensed MATLAB on `PATH` | `matlab -batch "disp(1)"` |
 | Keys a docs video names in `needs_env` | the video takes in Step 3 | export each one on the host | `python -m docs.screenshots list`, then check each named key is set |
