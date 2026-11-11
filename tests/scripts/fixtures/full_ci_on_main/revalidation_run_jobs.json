@@ -55,12 +55,12 @@
   "conclusion": "success"
  },
  {
-  "name": "Dispatch Stack E2E (deploy, full Docker stack + real agent runs + multi-user web tier)",
+  "name": "Dispatch Stack E2E — Deploy",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Dispatch Stack E2E (overlay skill/data/trigger visibility)",
+  "name": "Dispatch Stack E2E — Overlay Visibility",
   "status": "completed",
   "conclusion": "success"
  },
@@ -110,7 +110,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)",
+  "name": "Dispatch Stack E2E — Scan Stack Agentic",
   "status": "completed",
   "conclusion": "success"
  },
@@ -120,12 +120,12 @@
   "conclusion": "success"
  },
  {
-  "name": "Dispatch Stack E2E (single-user narrowing, owner-narrowed dispatch run)",
+  "name": "Dispatch Stack E2E — Single-User Narrowing",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Host Record E2E (host sessions record without a container; the stack takes the record over)",
+  "name": "Dispatch Stack E2E — Host Record",
   "status": "completed",
   "conclusion": "success"
  },
@@ -170,7 +170,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Terminal Auth Multi-User E2E (auth.method token + none, real render image)",
+  "name": "Stack E2E — Terminal Auth Multi-User",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -185,7 +185,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Auth Perimeter E2E (real sidecar image + nginx auth_request)",
+  "name": "Stack E2E — Auth Perimeter",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -268,6 +268,11 @@
   "name": "Dockerfile E2E (generated container image)",
   "status": "completed",
   "conclusion": "skipped"
+ },
+ {
+  "name": "Dockerfile Agent E2E (one agent turn through the generated image)",
+  "status": "completed",
+  "conclusion": "success"
  },
  {
   "name": "Archiver World E2E (VA + mongodb store + recorder, full Docker stack)",

@@ -122,6 +122,20 @@ class TestMissingLanes:
     def test_an_absent_lane_is_named(self):
         assert gate.missing_lanes([], {"lint": "Lint"}) == {"lint": "no such job in the run"}
 
+    def test_lanes_sharing_a_matrix_job_are_judged_cell_by_cell(self):
+        jobs = [job("Stack — Host Record", "success"), job("Stack — Deploy", "failure")]
+        lanes = {"host-record": "Stack — Host Record", "deploy": "Stack — Deploy"}
+        assert gate.missing_lanes(jobs, lanes) == {"deploy": "failure"}
+
+    def test_a_skipped_matrix_job_satisfies_none_of_its_cell_lanes(self):
+        """GitHub renders a skipped matrix job once, its name template unexpanded."""
+        jobs = [job("Stack — ${{ matrix.name }}", "skipped")]
+        lanes = {"host-record": "Stack — Host Record", "deploy": "Stack — Deploy"}
+        assert gate.missing_lanes(jobs, lanes) == {
+            "host-record": "no such job in the run",
+            "deploy": "no such job in the run",
+        }
+
 
 class TestMain:
     def test_a_green_run_on_the_tag_passes(self, capsys):

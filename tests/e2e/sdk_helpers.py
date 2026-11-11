@@ -257,14 +257,14 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
     except Exception as exc:  # any failure means "not ready"
         return (
             f"ARIEL Postgres at {where} not reachable ({exc.__class__.__name__}) — scenario "
-            "tests need a live, seeded ARIEL logbook DB. Bring it up with "
-            "`osprey up && osprey ariel migrate && osprey ariel quickstart`."
+            "tests need a live, seeded ARIEL logbook DB. From a demo project, bring it "
+            "up and seed it with `osprey up && osprey sim apply nominal --yes`."
         )
     count = row[0] if row else 0
     if count == 0:
         return (
-            f"ARIEL Postgres at {where} is reachable but empty — seed it with "
-            "`osprey ariel quickstart`."
+            f"ARIEL Postgres at {where} is reachable but empty — seed it from a demo "
+            "project with `osprey sim apply nominal --yes`."
         )
     return None
 
