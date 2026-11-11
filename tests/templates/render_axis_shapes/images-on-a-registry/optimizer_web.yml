@@ -1,0 +1,100 @@
+# The optimizer-web service owns the browser-facing FastAPI sidecar (see
+# src/osprey/interfaces/optimizer_web/) that serves the OPTIMIZER panel and
+# same-origin relays to the optimizer service: the panel where a person starts
+# the run an agent drafted.
+# Its image is built from the Dockerfile beside this file unless
+# services.optimizer_web.image names a different image, which this file then
+# runs as named with no build. OSPREY_OPTIMIZER_WEB_IMAGE names one for a single
+# shell, and a start that reads it builds nothing for this service.
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+
+services:
+  optimizer-web:
+    image: ${OSPREY_OPTIMIZER_WEB_IMAGE:-registry.example.org/physics/osprey/golden-project-optimizer-web:v1.2.3}
+    build:
+      # Relative paths resolve against the compose project directory, the
+      # deployment repo root, never this file's own subdir.
+      context: ./build/services/optimizer_web
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
+
+    # Only when the optimizer is co-deployed: start after its healthcheck, so
+    # the first relayed read does not race the service's own startup. Compose
+    # errors on a depends_on naming a service no document defines.
+    depends_on:
+      optimizer:
+        condition: service_healthy
+
+    # container_name is a HOST-GLOBAL docker identifier: namespaced per project.
+    # In-network consumers reach this service by its compose key `optimizer-web`.
+    container_name: golden-project-optimizer-web
+    command:
+      [
+        "uvicorn",
+        "osprey.interfaces.optimizer_web.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "10083",
+      ]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:10083:10083"
+    environment:
+      # The mounted config, named twice for its two kinds of reader (the
+      # connectors read CONFIG_FILE, the framework's config loader
+      # OSPREY_CONFIG), as on the Bluesky sidecar.
+      CONFIG_FILE: /app/project/config.yml
+      OSPREY_CONFIG: /app/project/config.yml
+      TZ: UTC
+      # Reach the co-deployed optimizer by its in-network compose service key
+      # `optimizer` — never the host-published port.
+      OPTIMIZER_URL: http://optimizer:10082
+      # No :-default — an unset token must stay EMPTY rather than arm the
+      # service with a guessable secret. The sidecar attaches it to the two
+      # relayed routes the service gates on it, start and resume, and to
+      # nothing else; an empty value omits the header and the service refuses
+      # those routes. `osprey up` mints it into the project .env when unset
+      # (container_lifecycle's per-service token-mint map), the same value the
+      # optimizer container reads. This container is the only holder besides
+      # the service: no agent container is handed it.
+      OPTIMIZER_LAUNCH_TOKEN: ${OPTIMIZER_LAUNCH_TOKEN}
+      # The operator credential for this sidecar's own web gate
+      # (WebAuthMiddleware). No :-default for the same reason as the launch
+      # token; `osprey up` mints it. In a multi-user deployment each per-user
+      # terminal proxies its OPTIMIZER tab here with ITS OWN secret — see the
+      # roster grant just below.
+      OSPREY_TERMINAL_SECRET: ${OSPREY_TERMINAL_SECRET}
+      # Marks the container shape for web_auth: an empty secret then refuses
+      # startup naming the variable.
+      OSPREY_TERMINAL_BIND_HOST: "0.0.0.0"
+      # WHO this sidecar's audit records are written as: its compose service
+      # key (compose_generator.FIXED_SERVICE_AUDIT_IDENTITIES). It records
+      # every refused request and every admitted relay write, starts included.
+      OSPREY_AUDIT_IDENTITY: optimizer-web
+      # Where this sidecar appends its agent-record events and keeps its own
+      # state: its directories in the two zones, bound below.
+      OSPREY_SPOOL_DIR: /app/project/var/spool/optimizer-web
+      OSPREY_STATE_DIR: /app/project/var/state/optimizer-web
+    volumes:
+      - ./build/services/optimizer_web/config.yml:/app/project/config.yml:ro
+      # Its spool and state directories, and only its own, provisioned
+      # host-side before the mount is created.
+      - ./var/spool/optimizer-web:/app/project/var/spool/optimizer-web
+      - ./var/state/optimizer-web:/app/project/var/state/optimizer-web
+    networks:
+      - osprey-network
+    healthcheck:
+      # curl isn't in the python:3.11-slim image — probe in-image with python.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10083/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+networks:
+  osprey-network:

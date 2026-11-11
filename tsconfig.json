@@ -26,6 +26,7 @@
     "src/osprey/apps/scaffold-app/panel/**/*.js",
     "src/osprey/apps/scaffold-app/tests/**/*.js",
     "src/osprey/apps/scaffold-app/tests/**/*.mjs",
+    "src/osprey/interfaces/optimizer_web/panels/**/*.js",
     "tests/**/*.js",
     "tests/**/*.mjs"
   ],

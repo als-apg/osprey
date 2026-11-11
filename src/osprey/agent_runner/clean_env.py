@@ -85,6 +85,13 @@ server-side, inside the web server whose ``os.environ`` still holds it. In the
 ``osprey chat`` shape that relay is not running at all — chat hosts only the
 companion panel servers — so there the disarm is total: no path in that session
 launches a queue.
+
+The optimizer's ``OPTIMIZER_LAUNCH_TOKEN`` is in the same family and is
+stripped the same way, by design rather than as a side effect: the agent drafts
+a run through the optimizer MCP server, which is never handed the token, and a
+person starts it from the OPTIMIZER panel, whose sidecar
+(:mod:`osprey.interfaces.optimizer_web.relay`) is the one process outside the
+service that holds it.
 """
 
 from __future__ import annotations

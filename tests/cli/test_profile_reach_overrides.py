@@ -30,7 +30,7 @@ from osprey.cli.build_profile_reach import (
     selected_panel_errors,
 )
 from osprey.cli.build_profile_schema import BlueskyConfig
-from osprey.deployment.reach import REACH_CONTRACTS, project_attached_overrides
+from osprey.deployment.reach import REACH_CONTRACTS, project_attached_overrides, reach_errors
 
 HOST = {
     "services": {
@@ -194,6 +194,54 @@ def test_panel_keys_follow_the_profiles_panel_selection():
     }
 
 
+def test_the_optimizer_tab_is_told_its_hosts_proxy_read_bound():
+    """The sidecar relays with the host's budget, so a render's panel proxy must
+    wait as long as the host's: ``read_timeout_s`` rides along with the url, or
+    a slow Start reaches that render's browser as the proxy's 30 s 502."""
+    host = copy.deepcopy(HOST)
+    host["web"]["panels"]["optimizer"] = {
+        "url": "${OPTIMIZER_WEB_URL:-http://localhost:18183}",
+        "path": "/optimizer/",
+        "label": "OPTIMIZER",
+        "read_timeout_s": 90.0,
+    }
+    projected = project_attached_overrides(host, ALL_ON, selected_panels=("optimizer",))
+    assert {k: v for k, v in projected.items() if k.startswith("web.panels.")} == {
+        "web.panels.optimizer.url": "${OPTIMIZER_WEB_URL:-http://localhost:18183}",
+        "web.panels.optimizer.path": "/optimizer/",
+        "web.panels.optimizer.label": "OPTIMIZER",
+        "web.panels.optimizer.read_timeout_s": 90.0,
+    }
+
+
+def test_a_hosts_unbounded_optimizer_read_bound_is_projected_as_null():
+    """A host's explicit ``read_timeout_s: null`` is its choice (unbounded), not
+    an absence: a render told nothing would fall back to the proxy's 30 s."""
+    host = copy.deepcopy(HOST)
+    host["web"]["panels"]["optimizer"] = {
+        "url": "${OPTIMIZER_WEB_URL:-http://localhost:18183}",
+        "read_timeout_s": None,
+    }
+    projected = project_attached_overrides(host, ALL_ON, selected_panels=("optimizer",))
+    assert "web.panels.optimizer.read_timeout_s" in projected
+    assert projected["web.panels.optimizer.read_timeout_s"] is None
+    # An absent key still projects nothing; so does an absent url, as before.
+    del host["web"]["panels"]["optimizer"]["read_timeout_s"]
+    host["web"]["panels"]["optimizer"]["label"] = None
+    projected = project_attached_overrides(host, ALL_ON, selected_panels=("optimizer",))
+    assert "web.panels.optimizer.read_timeout_s" not in projected
+    assert "web.panels.optimizer.label" not in projected
+
+
+def test_the_optimizer_tabs_refusal_names_only_what_makes_it_dialable():
+    """The read bound is the host's and gives the tab nothing to dial, so the
+    "nothing to dial" refusal never tells a user to set it."""
+    errors = reach_errors({"web": {"panels": {"optimizer": {"path": "/optimizer/"}}}})
+    (error,) = [e for e in errors if e.startswith("OPTIMIZER panel")]
+    assert "web.panels.optimizer.url" in error
+    assert "read_timeout_s" not in error
+
+
 def test_a_host_that_dropped_a_service_projects_nothing_for_it():
     host = {"services": {"postgresql": {"port_host": 5432}}}
     projected = project_attached_overrides(host, ALL_ON, selected_panels=("events",))
@@ -227,6 +275,7 @@ def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
             "mongodb",
             "history",
             "optimizer",
+            "optimizer-web",
         ):
             continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a page only nginx dials, a service with no client yet
         assert key in projected, (

@@ -1714,6 +1714,7 @@ _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
     "bluesky_bridge": "-bluesky-bridge",
     "bluesky_web": "-bluesky-web",
     "optimizer": "-optimizer",
+    "optimizer_web": "-optimizer-web",
     "gchat_bridge": "-gchat-bridge",
     "nextcloud_bridge": "-nextcloud-bridge",
     "teams_bridge": "-teams-bridge",
@@ -4790,7 +4791,11 @@ def dispatch_worker_audit_identities(config):
 #: (``web_terminals.provision``) alongside the roster's own identities. A
 #: projected service's identity comes from its block's ``audit_identity``
 #: (:func:`service_audit_identities`), not from this mapping.
-FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web", "optimizer": "optimizer"}
+FIXED_SERVICE_AUDIT_IDENTITIES = {
+    "bluesky_web": "bluesky-web",
+    "optimizer": "optimizer",
+    "optimizer_web": "optimizer-web",
+}
 
 
 def lane_queueserver_audit_identities(config):

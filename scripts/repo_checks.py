@@ -116,6 +116,7 @@ TSC_SCOPE = (
     f"{SCAFFOLD_APP_ROOT}panel/**/*.js",
     f"{SCAFFOLD_APP_ROOT}tests/**/*.js",
     f"{SCAFFOLD_APP_ROOT}tests/**/*.mjs",
+    "src/osprey/interfaces/optimizer_web/panels/**/*.js",
     "tests/**/*.js",
     "tests/**/*.mjs",
     "tsconfig.json",
