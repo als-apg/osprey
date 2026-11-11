@@ -9,7 +9,6 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 import types
@@ -37,6 +36,7 @@ from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
 )
 from tests import _litellm_callbacks
 from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests._session_database import dev_server_url, own_database
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 if TYPE_CHECKING:
@@ -274,70 +274,6 @@ def _reset_ariel_service_singleton():
         capability.reset_ariel_service()
 
 
-# Dev database servers - try port 5432 (ariel-postgres), then 5433 (ariel-dev-db).
-# Each URL names the server's maintenance database; a test session never writes
-# there, it creates a database of its own beside it (``_own_database``).
-DEV_SERVER_URL_5432 = "postgresql://ariel:ariel@localhost:5432/ariel"
-DEV_SERVER_URL_5433 = "postgresql://ariel:ariel@localhost:5433/ariel"
-
-
-def dev_server_url() -> str | None:
-    """The first running dev database server (5432, then 5433), or ``None``."""
-    try:
-        import psycopg
-    except ImportError:
-        logger.debug("psycopg not available (libpq missing?), skipping dev database check")
-        return None
-
-    for url in (DEV_SERVER_URL_5432, DEV_SERVER_URL_5433):
-        try:
-            with psycopg.connect(url, autocommit=True) as conn:
-                conn.execute("SELECT 1")
-            return url
-        except Exception as e:
-            logger.debug(f"Dev database server at {url.split('@')[-1]} not available: {e}")
-    return None
-
-
-def _own_database(request: pytest.FixtureRequest, server_url: str) -> str:
-    """Create a database for this test session on *server_url*'s server.
-
-    A server the session did not start is shared with whatever else reaches it
-    (another session, another worktree, a stopped run's leftovers), so the
-    session writes only to a database it created, named for it alone, and
-    drops it at session end. ``vector`` is created when the server has
-    pgvector; the migrations skip the vector tables otherwise.
-
-    Returns:
-        The new database's URL (*server_url* with its database replaced).
-    """
-    import uuid
-    from urllib.parse import urlsplit, urlunsplit
-
-    import psycopg
-    from psycopg import sql
-
-    worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
-    name = f"ariel_test_{worker}_{uuid.uuid4().hex[:12]}"
-    with psycopg.connect(server_url, autocommit=True) as conn:
-        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-
-    def _drop() -> None:
-        with psycopg.connect(server_url, autocommit=True) as conn:
-            conn.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
-            )
-
-    request.addfinalizer(_drop)
-    url = urlunsplit(urlsplit(server_url)._replace(path=f"/{name}"))
-    with psycopg.connect(url, autocommit=True) as conn:
-        # no pgvector on this server; the vector migrations skip
-        with contextlib.suppress(psycopg.Error):
-            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    logger.info(f"Session database {name} on {server_url.split('@')[-1].rsplit('/', 1)[0]}")
-    return url
-
-
 # ============================================================================
 # Integration test fixtures (require Docker)
 # ============================================================================
@@ -370,7 +306,7 @@ def database_url(request: pytest.FixtureRequest) -> str:
 
     The session owns the database it writes to. The first two exits reach a
     server the session did not start, so the session works in a database of its
-    own on that server (``_own_database``), created here and dropped at session
+    own on that server (``own_database``), created here and dropped at session
     end; the third owns the whole container. Under xdist each worker is a
     session of its own, with its own database, as it has its own container.
 
@@ -393,12 +329,12 @@ def database_url(request: pytest.FixtureRequest) -> str:
     env_url = os.environ.get("ARIEL_TEST_DATABASE_URL")
     if env_url:
         logger.info(f"Using the server ARIEL_TEST_DATABASE_URL names: {env_url.split('@')[-1]}")
-        return _own_database(request, env_url)
+        return own_database(request, env_url, "ariel_test")
 
     # 2. Try an existing docker-compose dev database server (fastest)
     server_url = dev_server_url()
     if server_url is not None:
-        return _own_database(request, server_url)
+        return own_database(request, server_url, "ariel_test")
 
     # 3. Fall back to testcontainers
     if not is_docker_available():
