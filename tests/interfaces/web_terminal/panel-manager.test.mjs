@@ -121,6 +121,7 @@ function settleBootLayout() {
 // import next to the dock-iframe one below for the same freshness reason.
 const JS_DIR = '../../../src/osprey/interfaces/web_terminal/static/js';
 const TERMINAL_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
+const DOCK_SYNC_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/dock-sync.js';
 const SESSIONS_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sessions.js';
 const { restartTerminal, startTerminal, focusTerminal, startNewSession } = vi.hoisted(() => ({
   restartTerminal: vi.fn(async () => {}),
@@ -308,7 +309,7 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (testWatchdog) clearTimeout(testWatchdog);
   testWatchdog = null;
   const elapsed = performance.now() - testStarted;
@@ -318,6 +319,9 @@ afterEach(() => {
     );
   }
 
+  // A layout change in the test armed dock-sync's settle window; with the fetch
+  // stub gone, that report would reach the next test as an unstubbed request.
+  (await import(DOCK_SYNC_PATH)).cancelLayoutReport();
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute('data-panel-labels');
   document.body.innerHTML = '';
