@@ -408,6 +408,10 @@ def test_drawer_open_reaches_scaffold_gallery_and_close_resets_it(
 # ---------------------------------------------------------------------------
 
 
+def _is_memory_listing(request) -> bool:
+    return "/api/claude-memory" in request.url
+
+
 def test_tab_activate_and_close_reach_memory_gallery(tmp_path, monkeypatch, chromium_browser):
     """Switching to Memory fires memory-gallery's load; close resets it too."""
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
@@ -417,7 +421,8 @@ def test_tab_activate_and_close_reach_memory_gallery(tmp_path, monkeypatch, chro
         _goto(page, base_url)
 
         _open_settings_drawer(page)
-        page.click('.drawer-tab[data-tab="tab-memory"]')
+        with page.expect_request(_is_memory_listing):
+            page.click('.drawer-tab[data-tab="tab-memory"]')
         expect(page.locator("#tab-memory")).to_have_class("drawer-tab-panel active")
         first_count = sum("/api/claude-memory" in u for u in requests)
         assert first_count >= 1, (
@@ -431,7 +436,8 @@ def test_tab_activate_and_close_reach_memory_gallery(tmp_path, monkeypatch, chro
         # Reopening leaves Memory as the still-active tab (tab state itself
         # isn't reset by close, only gallery-internal .loaded/cache state is),
         # so it re-fires drawer:tab-activate on the same panel without another click.
-        _open_settings_drawer(page)
+        with page.expect_request(_is_memory_listing):
+            _open_settings_drawer(page)
         expect(page.locator("#tab-memory")).to_have_class("drawer-tab-panel active")
         second_count = sum("/api/claude-memory" in u for u in requests)
         assert second_count > first_count, (
@@ -439,6 +445,37 @@ def test_tab_activate_and_close_reach_memory_gallery(tmp_path, monkeypatch, chro
             "cache, so reopening refetches /api/claude-memory instead of reusing "
             "stale (loaded=true, cached-promise) state"
         )
+        page.close()
+
+
+def test_a_listing_that_lands_after_close_leaves_the_gallery_unloaded(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """A close while the Memory listing is still in flight resets the gallery;
+    the listing landing afterwards must not mark the reset gallery loaded, or
+    reopening shows that stale listing and never fetches again."""
+    with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        held: list = []
+        page.route(
+            "**/api/claude-memory",
+            lambda route: held.append(route) if not held else route.continue_(),
+        )
+        _goto(page, base_url)
+
+        _open_settings_drawer(page)
+        with page.expect_request(_is_memory_listing):
+            page.click('.drawer-tab[data-tab="tab-memory"]')
+        page.click(CLOSE_BTN_SELECTOR)
+        expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=5_000)
+
+        # The first listing lands only now, after the reset.
+        assert held, "the first listing was never intercepted"
+        held[0].continue_()
+        expect(page.locator("#tab-memory .memory-loading")).to_be_hidden()
+
+        with page.expect_request(_is_memory_listing):
+            _open_settings_drawer(page)
         page.close()
 
 
