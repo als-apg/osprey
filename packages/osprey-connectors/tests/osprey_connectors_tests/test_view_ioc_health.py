@@ -11,8 +11,14 @@ import pytest
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
+    ENGINEER,
+    HEARTBEAT,
+    IOC_HEALTH_SIGNALS,
+    PERIODIC_IOC_HEALTH,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
+    STATUS_SIGNAL,
+    UPTIME,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
     SimulatorView,
@@ -21,7 +27,7 @@ from osprey_connectors.simulation.view import (
 
 
 def _health(model: str) -> list[str]:
-    return [f"T:SIM:{model}:{suffix}" for suffix in ("HEARTBEAT", "UPTIME", "ENGINEER")]
+    return [f"T:SIM:{model}:{signal}" for signal in (HEARTBEAT, UPTIME, ENGINEER)]
 
 
 def _view(tmp_path: Path, addresses: dict[str, Any], schema: str = ADDRESSES_SCHEMA) -> Path:
@@ -66,25 +72,37 @@ def test_every_listed_model_yields_its_addresses_including_texture(tmp_path: Pat
     listed = _health("SR") + _health("texture")
     view = SimulatorView.open(_view(tmp_path, {"status": [], "ioc_health": listed}))
 
-    assert view.ioc_health_by_model() == {
-        "SR": (
-            "T:SIM:SR:HEARTBEAT",
-            "T:SIM:SR:UPTIME",
-            "T:SIM:SR:ENGINEER",
-        ),
-        "texture": (
-            "T:SIM:texture:HEARTBEAT",
-            "T:SIM:texture:UPTIME",
-            "T:SIM:texture:ENGINEER",
-        ),
+    by_model = view.ioc_health_by_model()
+
+    assert by_model == {
+        "SR": {
+            "HEARTBEAT": "T:SIM:SR:HEARTBEAT",
+            "UPTIME": "T:SIM:SR:UPTIME",
+            "ENGINEER": "T:SIM:SR:ENGINEER",
+        },
+        "texture": {
+            "HEARTBEAT": "T:SIM:texture:HEARTBEAT",
+            "UPTIME": "T:SIM:texture:UPTIME",
+            "ENGINEER": "T:SIM:texture:ENGINEER",
+        },
     }
+    assert list(by_model["SR"]) == ["HEARTBEAT", "UPTIME", "ENGINEER"]
+
+
+def test_the_signals_are_the_views_vocabulary() -> None:
+    assert IOC_HEALTH_SIGNALS == (HEARTBEAT, UPTIME, ENGINEER)
+    assert set(PERIODIC_IOC_HEALTH) < set(IOC_HEALTH_SIGNALS)
+    assert ENGINEER not in PERIODIC_IOC_HEALTH
+    assert STATUS_SIGNAL not in IOC_HEALTH_SIGNALS
 
 
 def test_the_mapping_is_read_only(tmp_path: Path) -> None:
     view = SimulatorView.open(_view(tmp_path, {"status": [], "ioc_health": _health("SR")}))
 
     with pytest.raises(TypeError):
-        view.ioc_health_by_model()["texture"] = ()  # type: ignore[index]
+        view.ioc_health_by_model()["texture"] = {}  # type: ignore[index]
+    with pytest.raises(TypeError):
+        view.ioc_health_by_model()["SR"][HEARTBEAT] = "T:SIM:SR:OTHER"  # type: ignore[index]
 
 
 @pytest.mark.parametrize(
@@ -100,8 +118,8 @@ def test_status_addresses_ignore_the_field(tmp_path: Path, addresses: dict[str, 
 
 @pytest.mark.parametrize(
     "listed",
-    ["T:SIM:SR:HEARTBEAT", ["SR:RF:TEMP"], ["T:SIM:HEARTBEAT"], [1.0]],
-    ids=["word", "other-address", "no-model", "number"],
+    ["T:SIM:SR:HEARTBEAT", ["SR:RF:TEMP"], ["T:SIM:HEARTBEAT"], [1.0], ["T:SIM:SR:TEMPERATURE"]],
+    ids=["word", "other-address", "no-model", "number", "unknown-signal"],
 )
 def test_a_field_other_than_health_addresses_is_refused(tmp_path: Path, listed: Any) -> None:
     view = SimulatorView.open(_view(tmp_path, {"status": [], "ioc_health": listed}))

@@ -26,7 +26,7 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     setting_records,
 )
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import SCHEMAS, SimulatorView
+from osprey_connectors.simulation.view import PERIODIC_IOC_HEALTH, SCHEMAS, SimulatorView
 from tests._simulator_view import view_channel
 
 TOKEN = "s3cret"
@@ -116,6 +116,15 @@ def _served(surface: ModelSurface) -> list[str]:
 
 def test_heartbeat_and_uptime_are_periodic_and_engineer_is_not(tmp_path: Path) -> None:
     assert periodic_addresses(_view(tmp_path)) == {HEARTBEAT, UPTIME}
+
+
+def test_periodic_health_is_the_views_periodic_signals(tmp_path: Path) -> None:
+    view = _view(tmp_path)
+    by_model = view.ioc_health_by_model()
+
+    assert periodic_addresses(view) == {
+        by_model[model][signal] for model in by_model for signal in PERIODIC_IOC_HEALTH
+    }
 
 
 def test_a_view_without_the_accessor_names_no_periodic_health_address(tmp_path: Path) -> None:

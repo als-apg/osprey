@@ -33,11 +33,15 @@ __all__ = [
     "ADDRESSES_SCHEMA",
     "COMMAND_MARK",
     "DECKS_DIR",
+    "ENGINEER",
     "ENGINE_ROLES",
+    "HEARTBEAT",
+    "IOC_HEALTH_SIGNALS",
     "MARKS",
     "MONITOR",
     "OUTPUT",
     "PERIODIC",
+    "PERIODIC_IOC_HEALTH",
     "PLANES",
     "READBACK",
     "REFRESH",
@@ -50,6 +54,8 @@ __all__ = [
     "SERVED_MODELS_FILE",
     "SERVED_MODELS_SCHEMA",
     "SETPOINT",
+    "STATUS_SIGNAL",
+    "UPTIME",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
     "VIEW_RELPATH",
@@ -113,6 +119,17 @@ REFRESH = ("pass", PERIODIC, "fast", "event")
 COMMAND_MARK = "command"
 #: The marks a wiring record's description may set.
 MARKS = (COMMAND_MARK,)
+
+#: The signal of a physics model's status address, ``<code>:SIM:<model>:STATUS``.
+STATUS_SIGNAL = "STATUS"
+HEARTBEAT = "HEARTBEAT"
+UPTIME = "UPTIME"
+ENGINEER = "ENGINEER"
+#: The signals of a model's IOC health addresses, ``<code>:SIM:<model>:<signal>``,
+#: in the order a view lists them.
+IOC_HEALTH_SIGNALS = (HEARTBEAT, UPTIME, ENGINEER)
+#: The IOC health signals each periodic pass publishes.
+PERIODIC_IOC_HEALTH = (HEARTBEAT, UPTIME)
 
 #: The text a missing view reports.
 _NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
@@ -454,13 +471,15 @@ class SimulatorView:
             {
                 model.name: address
                 for model in self.physics_models()
-                if (address := f"{self.code}:SIM:{model.name}:STATUS") in listed
+                if (address := f"{self.code}:SIM:{model.name}:{STATUS_SIGNAL}") in listed
             }
         )
 
-    def ioc_health_by_model(self) -> Mapping[str, tuple[str, ...]]:
-        """Each listed model's IOC health addresses, ``<code>:SIM:<model>:<suffix>``.
+    def ioc_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
+        """Each listed model's IOC health addresses by signal, ``{model: {signal: address}}``.
 
+        An address is ``<code>:SIM:<model>:<signal>`` with ``<signal>`` one of
+        :data:`IOC_HEALTH_SIGNALS`; each model's signals keep the list's order.
         ``ioc_health`` is optional under :data:`ADDRESSES_SCHEMA`: a view from
         a build without it yields an empty mapping. Unlike the status
         addresses, it lists the ``texture`` model too.
@@ -472,16 +491,19 @@ class SimulatorView:
         if not listed:
             return MappingProxyType({})
         prefix = f"{self.code}:SIM:"
-        by_model: dict[str, tuple[str, ...]] = {}
+        by_model: dict[str, dict[str, str]] = {}
         for address in listed:
-            model = str(address).removeprefix(prefix).rpartition(":")[0]
-            if not model or not str(address).startswith(prefix):
+            model, _, signal = str(address).removeprefix(prefix).rpartition(":")
+            if not model or not str(address).startswith(prefix) or signal not in IOC_HEALTH_SIGNALS:
                 raise ViewSchemaError(
                     f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
-                    f"which is not {prefix}<model>:<suffix>: rebuild with osprey build"
+                    f"which is not {prefix}<model>:<signal> with <signal> one of "
+                    f"{', '.join(IOC_HEALTH_SIGNALS)}: rebuild with osprey build"
                 )
-            by_model[model] = (*by_model.get(model, ()), address)
-        return MappingProxyType(by_model)
+            by_model.setdefault(model, {})[signal] = str(address)
+        return MappingProxyType(
+            {model: MappingProxyType(signals) for model, signals in by_model.items()}
+        )
 
     def _channels(self) -> Mapping[str, Channel]:
         if self._channel_records is None:

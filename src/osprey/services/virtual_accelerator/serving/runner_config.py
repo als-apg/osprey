@@ -52,6 +52,13 @@ from typing import TYPE_CHECKING, Any
 
 from osprey_connectors.simulation.view import PERIODIC, REFRESH, SETPOINT
 
+try:
+    from osprey_connectors.simulation.view import PERIODIC_IOC_HEALTH
+except ImportError:  # a connectors release whose view names no IOC health signals
+    from osprey_connectors.simulation.view import PERIODIC as _FLOOR_STAND_IN  # noqa: F401
+
+    PERIODIC_IOC_HEALTH = ()  # type: ignore[assignment]
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
@@ -89,7 +96,6 @@ HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 FLOAT_PRECISION = 4
 
 _FLOAT = "float"
-_PERIODIC_IOC_HEALTH = (":HEARTBEAT", ":UPTIME")
 # The refresh words of the view's vocabulary, taken from it, never restated.
 _, _, _FAST, _EVENT = REFRESH
 
@@ -144,7 +150,10 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
         ``UPTIME`` IOC health addresses.
     """
     return _refreshing(view, PERIODIC) | {
-        address for address in ioc_health_addresses(view) if address.endswith(_PERIODIC_IOC_HEALTH)
+        address
+        for signals in _ioc_health_by_model(view).values()
+        for signal, address in signals.items()
+        if signal in PERIODIC_IOC_HEALTH
     }
 
 
@@ -167,10 +176,15 @@ def ioc_health_addresses(view: SimulatorView) -> frozenset[str]:
     Returns:
         The ``ioc_health`` addresses the view lists.
     """
+    return frozenset(
+        address for signals in _ioc_health_by_model(view).values() for address in signals.values()
+    )
+
+
+def _ioc_health_by_model(view: SimulatorView) -> Mapping[str, Mapping[str, str]]:
+    """The view's IOC health addresses, ``{model: {signal: address}}``; none from an older view."""
     ioc_health = getattr(view, "ioc_health_by_model", None)
-    if ioc_health is None:
-        return frozenset()
-    return frozenset(address for addresses in ioc_health().values() for address in addresses)
+    return ioc_health() if ioc_health is not None else {}
 
 
 def fast_addresses(view: SimulatorView) -> frozenset[str]:

@@ -131,9 +131,12 @@ from osprey_connectors.simulation.texture import (
     is_float_channel,
 )
 from osprey_connectors.simulation.view import (
+    ENGINEER,
+    HEARTBEAT,
     MONITOR,
     SEEDS_FILE,
     SETPOINT,
+    UPTIME,
     VARIABLES_FILE,
     Model,
     SimulatorView,
@@ -164,10 +167,7 @@ _LOG_RECORD_MAX_BYTES = 4096
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
 _UDF = "udf"
 
-#: The signals of an IOC health address, and the value ``ENGINEER`` serves.
-_HEARTBEAT = "HEARTBEAT"
-_UPTIME = "UPTIME"
-_ENGINEER = "ENGINEER"
+#: The value ``ENGINEER`` serves.
 _DEMO_ENGINEER = "demo engineer"
 
 _ELLIPSIS = "…"
@@ -239,11 +239,11 @@ def _ioc_health_variable(address: str, signal: str) -> Variable:
     Raises:
         ViewSchemaError: ``signal`` is not an IOC health signal.
     """
-    if signal == _HEARTBEAT:
+    if signal == HEARTBEAT:
         return IntVariable(name=address, default_value=0, read_only=True)
-    if signal == _UPTIME:
+    if signal == UPTIME:
         return ScalarVariable(name=address, default_value=0.0, unit="s", read_only=True)
-    if signal == _ENGINEER:
+    if signal == ENGINEER:
         return StrVariable(name=address, default_value=_DEMO_ENGINEER, read_only=True)
     raise ViewSchemaError(f"{address} is not an IOC health address: rebuild with osprey build")
 
@@ -355,9 +355,9 @@ class Composite(LUMEModel):
             address: name for name, address in view.status_addresses().items()
         }
         self._ioc_health: dict[str, str] = {
-            address: address.rpartition(":")[2]
-            for addresses in view.ioc_health_by_model().values()
-            for address in addresses
+            address: signal
+            for signals in view.ioc_health_by_model().values()
+            for signal, address in signals.items()
         }
 
         self._variables: dict[str, Variable] = {}
@@ -810,10 +810,10 @@ class Composite(LUMEModel):
 
     def _ioc_health_value(self, signal: str) -> Any:
         """The value an IOC health signal serves at this instant."""
-        if signal == _ENGINEER:
+        if signal == ENGINEER:
             return _DEMO_ENGINEER
         uptime = max(float(self._clock()) - self._started_s, 0.0)
-        return int(uptime) if signal == _HEARTBEAT else uptime
+        return int(uptime) if signal == HEARTBEAT else uptime
 
     def _get(self, names: list[str]) -> dict[str, Any]:
         self._refresh()

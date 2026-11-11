@@ -400,17 +400,16 @@ async def test_a_view_from_a_build_without_ioc_health_still_answers(tmp_path: Pa
     assert await directory.describe("T:SIM:SR:HEARTBEAT", DEADLINE) is Outcome.NOT_LISTED
 
 
-async def test_a_health_address_this_version_has_no_words_for_is_still_listed(
+async def test_a_view_listing_an_unknown_health_signal_is_unavailable_and_says_rebuild(
     tmp_path: Path,
 ) -> None:
     _write_view(tmp_path, ioc_health=["T:SIM:SR:CPU_LOAD"])
     directory = SimulatorDirectory(_spec(), project_dir=tmp_path)
 
-    record = await directory.describe("T:SIM:SR:CPU_LOAD", DEADLINE)
+    page = await directory.search(SearchQuery(), DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.description == "CPU_LOAD of IOC sim-SR"
-    assert record.row.record_type is None
+    assert page.outcome is Outcome.UNAVAILABLE
+    assert "rebuild" in (page.reason or "")
 
 
 async def test_the_request_is_the_search_in_words_and_never_a_url(
