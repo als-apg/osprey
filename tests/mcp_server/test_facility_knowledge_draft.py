@@ -19,6 +19,7 @@ import ast
 import inspect
 import json
 import os
+import stat
 from datetime import datetime
 from pathlib import Path
 
@@ -151,6 +152,33 @@ class TestDraftConceptWrite:
 
         assert result["status"] == "written"
         assert (fixture_bundle / "tables" / "beam_params.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_a_nested_concept_directory_is_group_shared(self, fixture_bundle: Path):
+        # Setgid is inherited from the bundle root, but the permission bits come
+        # from the umask unless the writer sets them: under umask 077 another
+        # terminal's uid could not reach the 0o640 concept inside.
+        from osprey.mcp_server.facility_knowledge.server import draft_concept
+
+        os.chmod(fixture_bundle, 0o2770)
+        previous = os.umask(0o077)
+        try:
+            result = json.loads(
+                await get_tool_fn(draft_concept)(
+                    concept_id="tables/beam/params",
+                    doc_type="data_table",
+                    title="Beam Parameters",
+                    description="Live beam parameter PVs.",
+                    body="Contains PV names for all beam parameters.\n",
+                )
+            )
+        finally:
+            os.umask(previous)
+
+        assert result["status"] == "written"
+        for level in (fixture_bundle / "tables", fixture_bundle / "tables" / "beam"):
+            assert stat.S_IMODE(level.stat().st_mode) == 0o2770
+            assert level.stat().st_gid == fixture_bundle.stat().st_gid
 
     @pytest.mark.asyncio
     async def test_second_sequential_write_overwrites(self, fixture_bundle: Path):

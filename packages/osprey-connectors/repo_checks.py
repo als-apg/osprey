@@ -66,10 +66,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.ipc.READONLY": "a caller asks the pool for a readonly child by this value",
     "osprey_connectors.recovery.Recovery": "a recovery answers what it did in this type",
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
-    "osprey_connectors.safety_file.SHARED_DIR_MODE": (
-        "transitional: its framework users land with the connectors floor bump to "
-        ">=2026.11.8 (#2571)"
-    ),
     "osprey_connectors.simulation.DEFAULT_FAST_TICK_S": (
         "transitional: its framework users land with the connectors floor bump to "
         ">=2026.11.9 (#2634)"

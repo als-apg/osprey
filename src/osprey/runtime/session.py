@@ -121,7 +121,7 @@ from osprey.runtime.session_outcomes import (
 )
 from osprey.runtime.write_steps import PinVerdict, checked_write, pin_verdict
 from osprey_connectors.logger import get_logger
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system import (
@@ -1152,7 +1152,7 @@ class ControlSession:
         from osprey.mcp_server.control_system import target_eligibility, target_state
 
         directory = target_state.state_dir()
-        directory.mkdir(parents=True, exist_ok=True)
+        ensure_shared_dir(directory)
         path = directory / (
             f"{target_state.INFLIGHT_FILE_PREFIX}{os.getpid()}_{uuid.uuid4().hex}"
             f"{target_state.INFLIGHT_FILE_SUFFIX}"
@@ -1168,7 +1168,9 @@ class ControlSession:
         }
         # A reader must never meet half a marker, so it is replaced whole
         # through atomic_replace, as the notebook kernel's cell marker is.
-        atomic_replace(path, json.dumps(marker).encode("utf-8"), mode=0o640, sync="best_effort")
+        atomic_replace(
+            path, json.dumps(marker).encode("utf-8"), mode=SHARED_FILE_MODE, sync="best_effort"
+        )
         return path
 
     # -- audit ----------------------------------------------------------------
