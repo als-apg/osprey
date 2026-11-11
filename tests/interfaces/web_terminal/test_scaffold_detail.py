@@ -54,7 +54,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
-from tests.interfaces._browser import wait_for_hub_ready
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -154,7 +154,7 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
 def _goto(page: Page, base_url: str) -> None:
     """Navigate to the hub and wait for its ready mark, before any test acts."""
     page.goto(base_url, wait_until="domcontentloaded")
-    wait_for_hub_ready(page)
+    wait_for_page_ready(page)
 
 
 def _open_settings_drawer(page: Page) -> None:

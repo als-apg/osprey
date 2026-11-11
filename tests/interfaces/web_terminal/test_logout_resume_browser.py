@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from osprey.interfaces._serving import authorize_browser_context
-from tests.interfaces._browser import wait_for_hub_ready
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 from tests.interfaces.web_terminal._user_terminal import launch_landing, launch_terminal
 
@@ -92,7 +92,7 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         with page.expect_websocket() as first_ws:
             page.goto(base_url, wait_until="load")
         assert "mode=resume" not in first_ws.value.url
-        wait_for_hub_ready(page)
+        wait_for_page_ready(page)
 
         logout = page.locator("#logout-btn")
         expect(logout).to_have_count(1)
