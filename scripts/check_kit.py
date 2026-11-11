@@ -201,7 +201,7 @@ class Check:
 
 @dataclass(frozen=True)
 class Lane:
-    """A CI job this command never runs and always names."""
+    """A CI job, or one cell of a matrix job, this command never runs and always names."""
 
     job: str
     why: str
@@ -214,11 +214,17 @@ class Lane:
     #: files too (another lane's tests through a glob, a whole tree); ``None``
     #: means the scope's test modules are exactly the ones it runs.
     modules: tuple[str, ...] | None = None
+    #: The lane's own handle, unique across every lane: ``job`` for a lane that
+    #: is a whole job, the cell's ``lane:`` value for one cell of a matrix job
+    #: that hosts several lanes. Its ``prefix`` then names that cell alone.
+    id: str = ""
 
     def __post_init__(self) -> None:
+        if not self.id:
+            object.__setattr__(self, "id", self.job)
         if (self.why == SPENDS) != (self.prefix is not None):
             raise ValueError(
-                f"lane {self.job}: a lane whose why is {SPENDS!r} names its job-name"
+                f"lane {self.id}: a lane whose why is {SPENDS!r} names its job-name"
                 " prefix, and only such a lane does"
             )
 
@@ -229,8 +235,8 @@ SPENDS = "models"
 
 
 def spending(lanes: Iterable[Lane]) -> dict[str, str]:
-    """Each spending lane's job to its rendered-name prefix, in declaration order."""
-    return {lane.job: lane.prefix for lane in lanes if lane.prefix is not None}
+    """Each spending lane's id to its rendered-name prefix, in declaration order."""
+    return {lane.id: lane.prefix for lane in lanes if lane.prefix is not None}
 
 
 # ---------------------------------------------------------------------------

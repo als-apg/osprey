@@ -2370,9 +2370,9 @@ def e2e_hosts(lanes: Iterable[Lane], files: Iterable[str]) -> dict[str, tuple[st
     each runs in exactly one place.
     """
     claims = [
-        (lane.job, lane.scope if lane.modules is None else lane.modules)
+        (lane.id, lane.scope if lane.modules is None else lane.modules)
         for lane in lanes
-        if lane.job != SHARED_E2E_LANE
+        if lane.id != SHARED_E2E_LANE
     ]
     hosts = {}
     for path in sorted(filter(is_e2e_module, files)):
