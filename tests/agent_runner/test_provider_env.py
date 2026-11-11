@@ -1073,14 +1073,34 @@ class TestGatewayToolSearch:
         assert "ANTHROPIC_BASE_URL" not in spec.env_block
         assert "ENABLE_TOOL_SEARCH" not in spec.env_block
 
-    def test_anthropic_named_by_its_own_host_is_first_party(self):
+    @pytest.mark.parametrize(
+        "base_url", ["https://api.anthropic.com", "https://api.anthropic.com/v1"]
+    )
+    def test_anthropic_named_by_its_own_host_is_first_party(self, base_url):
+        """What a rendered project carries: the shipped providers file names the host."""
         spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "anthropic"},
-            {"anthropic": {"base_url": "https://api.anthropic.com/v1"}},
+            {"provider": "anthropic"}, {"anthropic": {"base_url": base_url}}
         )
 
         assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
         assert "ENABLE_TOOL_SEARCH" not in spec.env_block
+
+    def test_the_shipped_anthropic_entry_is_first_party(self):
+        entry = dict(load_provider_catalog(None).entries["anthropic"])
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"}, {"anthropic": entry})
+
+        assert entry["base_url"] == "https://api.anthropic.com"
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
+
+        assert "ENABLE_TOOL_SEARCH" not in spec.env_block
+
+    def test_anthropics_host_on_another_port_is_a_gateway(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "anthropic"},
+            {"anthropic": {"base_url": "https://api.anthropic.com:8443"}},
+        )
+
+        assert spec.env_block["ENABLE_TOOL_SEARCH"] == "false"
 
     def test_gateway_value_wins_over_the_operators_own(self):
         """Same rule as every key in the block: the launch value replaces the shell's."""

@@ -218,7 +218,7 @@ MANAGED_ENV_VARS = frozenset(
     }
 )
 
-#: Anthropic's own API host: a base URL naming it is not a gateway.
+#: Anthropic's own API host: a base URL naming it, with no port, is not a gateway.
 _ANTHROPIC_API_HOST = "api.anthropic.com"
 
 #: Laid beside ``ANTHROPIC_BASE_URL`` whenever it names a gateway (any host but
@@ -247,7 +247,7 @@ def base_url_env(base_url: str) -> dict[str, str]:
         base_url: The value for ``ANTHROPIC_BASE_URL``, as Claude Code reads it.
     """
     env = {"ANTHROPIC_BASE_URL": base_url}
-    if urlsplit(base_url).hostname != _ANTHROPIC_API_HOST:
+    if urlsplit(base_url).netloc != _ANTHROPIC_API_HOST:
         env.update(GATEWAY_TOOL_SEARCH_ENV)
     return env
 
