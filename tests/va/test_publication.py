@@ -10,15 +10,22 @@ the changes leaves every client holding what a full post would have given it.
 
 from __future__ import annotations
 
+import ast
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
+from osprey.services.virtual_accelerator.serving import publication
 from osprey.services.virtual_accelerator.serving.publication import (
     changed_outputs,
+    forced_names,
+    next_wake,
     same_value,
+    timed_pass_names,
+    untimed_outputs,
 )
 from osprey.services.virtual_accelerator.serving.runner_config import periodic_addresses
 from tests._builds import BuiltProject
@@ -105,6 +112,176 @@ def test_an_unchanged_name_is_left_out_and_order_is_kept() -> None:
 def test_a_none_value_passes_through() -> None:
     posted = changed_outputs({"A": None}, {"A": None}, frozenset(), frozenset(), frozenset())
     assert posted == {"A": None}
+
+
+# -- timed passes --------------------------------------------------------------
+
+FAST = frozenset({"I:CURRENT:FAST"})
+EVENT = frozenset({"I:COUNT", "I:CHARGE"})
+TIMED = FAST | EVENT
+NONE: frozenset[str] = frozenset()
+
+
+def test_a_timed_pass_reads_the_fast_names_and_the_emitted_ones() -> None:
+    assert timed_pass_names(FAST, {"I:COUNT"}) == {"I:CURRENT:FAST", "I:COUNT"}
+
+
+def test_a_timed_pass_with_nothing_emitted_reads_the_fast_names_alone() -> None:
+    assert timed_pass_names(FAST, NONE) == FAST
+
+
+def test_a_view_with_neither_class_reads_nothing_on_a_timed_pass() -> None:
+    assert timed_pass_names(NONE, NONE) == frozenset()
+    assert forced_names(NONE, NONE, NONE) == frozenset()
+
+
+def test_a_timed_pass_forces_the_fast_and_emitted_names() -> None:
+    assert forced_names(FAST, {"I:COUNT"}, NONE) == {"I:CURRENT:FAST", "I:COUNT"}
+
+
+@pytest.mark.parametrize("faulted", ["I:CURRENT:FAST", "I:COUNT"], ids=["fast", "emitted"])
+def test_a_read_faulted_name_is_never_forced(faulted: str) -> None:
+    forced = forced_names(FAST, {"I:COUNT"}, {faulted})
+
+    assert faulted not in forced
+    assert forced == {"I:CURRENT:FAST", "I:COUNT"} - {faulted}
+
+
+def test_a_pass_that_is_not_timed_forces_only_what_it_drained() -> None:
+    assert forced_names(NONE, {"I:CHARGE"}, NONE) == {"I:CHARGE"}
+    assert forced_names(NONE, NONE, NONE) == frozenset()
+
+
+def test_a_global_tick_posts_no_unchanged_fast_or_event_name() -> None:
+    out = {"I:CURRENT:FAST": 5.0, "I:COUNT": 3, "I:CURRENT": 5.0}
+    served = dict(out)
+
+    posted = untimed_outputs(out, served, TIMED, NONE, NONE, NONE)
+
+    assert posted == {"I:CURRENT": 5.0}
+
+
+def test_a_global_tick_posts_a_changed_fast_or_event_name() -> None:
+    out = {"I:CURRENT:FAST": 6.0, "I:COUNT": 4, "I:CURRENT": 5.0}
+    served = {"I:CURRENT:FAST": 5.0, "I:COUNT": 3, "I:CURRENT": 5.0}
+
+    posted = untimed_outputs(out, served, TIMED, NONE, NONE, NONE)
+
+    assert list(posted) == ["I:CURRENT:FAST", "I:COUNT", "I:CURRENT"]
+
+
+def test_a_fault_transition_of_an_event_name_is_posted_on_a_global_tick() -> None:
+    out = {"I:CHARGE": 1.0}
+
+    posted = untimed_outputs(out, {"I:CHARGE": 1.0}, TIMED, NONE, {"I:CHARGE"}, NONE)
+
+    assert posted == {"I:CHARGE": 1.0}
+
+
+def test_the_start_up_pass_posts_every_name_never_served() -> None:
+    out = {"I:CURRENT:FAST": 5.0, "I:COUNT": 0, "I:CURRENT": 5.0}
+
+    assert untimed_outputs(out, {}, TIMED, NONE, NONE, NONE) == out
+
+
+def test_a_view_with_neither_class_posts_everything_on_a_global_tick() -> None:
+    out = {"M:BPM:X": 1.0, "M:TUNE:X": 0.25}
+
+    assert untimed_outputs(out, dict(out), NONE, NONE, NONE, NONE) == out
+
+
+def test_a_write_pass_without_timed_names_posts_what_changed_outputs_posts() -> None:
+    # The write pass's roster already leaves the periodic names out; the rule
+    # posts nothing beyond it and narrows it as the write pass always has.
+    periodic = {"M:CHROM:X"}
+    roster = {"M:HCM:SP": 1.0, "M:BPM:X": 2.0, "M:TUNE:X": 0.25}
+    served = {"M:HCM:SP": 1.0, "M:BPM:X": 2.0, "M:TUNE:X": 0.2, "M:CHROM:X": 1.5}
+    written = {"M:HCM:SP"}
+
+    posted = untimed_outputs(roster, served, NONE, NONE, NONE, NONE, written)
+
+    assert posted == changed_outputs(roster, served, written, NONE, NONE)
+    assert posted == {"M:HCM:SP": 1.0, "M:TUNE:X": 0.25}
+    assert periodic.isdisjoint(posted)
+
+
+def test_a_write_pass_posts_fast_and_event_names_only_when_changed() -> None:
+    roster = {"I:REQUEST:SP": 1, "I:CURRENT:FAST": 5.0, "I:COUNT": 3, "I:CURRENT": 5.0}
+    served = {"I:REQUEST:SP": 1, "I:CURRENT:FAST": 5.0, "I:COUNT": 3, "I:CURRENT": 4.0}
+
+    posted = untimed_outputs(roster, served, TIMED, NONE, NONE, NONE, {"I:REQUEST:SP"})
+
+    assert posted == {"I:REQUEST:SP": 1, "I:CURRENT": 5.0}
+
+
+def test_an_emitted_name_on_a_pass_that_is_not_timed_is_posted_and_forced_once() -> None:
+    # A step falls due during a global tick at a repeated value: that tick
+    # publishes it, and the next timed pass, with the emitted set drained,
+    # neither reads nor forces it again.
+    out = {"I:CURRENT:FAST": 5.0, "I:COUNT": 3, "I:CURRENT": 5.0}
+    served = dict(out)
+    emitted = {"I:COUNT"}
+
+    posted = untimed_outputs(out, served, TIMED, emitted, NONE, NONE)
+    forced = forced_names(NONE, emitted, NONE)
+
+    assert posted == {"I:COUNT": 3, "I:CURRENT": 5.0}
+    assert forced == {"I:COUNT"}
+
+    next_read = timed_pass_names(FAST, NONE)
+    assert "I:COUNT" not in next_read
+    assert "I:COUNT" not in forced_names(FAST, NONE, NONE)
+
+
+def test_an_emitted_name_on_a_write_pass_is_posted_unchanged() -> None:
+    roster = {"I:REQUEST:SP": 1, "I:COUNT": 3}
+    served = dict(roster)
+
+    posted = untimed_outputs(roster, served, TIMED, {"I:COUNT"}, NONE, NONE, {"I:REQUEST:SP"})
+
+    assert posted == roster
+
+
+def test_an_emitted_name_the_pass_did_not_read_is_not_invented() -> None:
+    posted = untimed_outputs({"I:CURRENT": 5.0}, {}, TIMED, {"I:COUNT"}, NONE, NONE)
+
+    assert posted == {"I:CURRENT": 5.0}
+
+
+def test_the_next_wake_is_a_fast_period_on_without_a_deadline() -> None:
+    assert next_wake(100.0, 0.1) == pytest.approx(100.1)
+    assert next_wake(100.0, 0.1, None) == pytest.approx(100.1)
+
+
+def test_the_next_wake_is_an_earlier_deadline() -> None:
+    assert next_wake(100.0, 0.1, 100.05) == 100.05
+
+
+def test_a_later_deadline_waits_for_the_fast_period() -> None:
+    assert next_wake(100.0, 0.1, 100.5) == pytest.approx(100.1)
+
+
+def test_a_past_deadline_is_due_at_once() -> None:
+    assert next_wake(100.0, 0.1, 99.0) == 99.0
+
+
+@pytest.mark.parametrize("period", [0.0, -0.1, math.nan], ids=["zero", "negative", "nan"])
+def test_a_fast_period_not_above_zero_is_refused(period: float) -> None:
+    with pytest.raises(ValueError, match="greater than zero"):
+        next_wake(100.0, period)
+
+
+def test_the_module_imports_no_server_library() -> None:
+    tree = ast.parse(Path(publication.__file__).read_text(encoding="utf-8"))
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+
+    roots = {name.split(".")[0] for name in imported}
+    assert roots.isdisjoint({"lume_pva_apg", "pcaspy", "p4p"})
 
 
 # -- the built composite -------------------------------------------------------

@@ -1238,6 +1238,13 @@ keys:
     evidence: 'resolve_tick_s\('
     note: seconds between the simulator's ticks; a value at or below 0 stops the build
     default: 1.0
+  simulation.fast_tick_s:
+    rendered: false
+    evidence: 'resolve_fast_tick_s\('
+    note: >-
+      seconds between the served composite's timed passes; no preset states it,
+      the resolver holds the default; a value at or below 0 stops the build
+    default: 0.1
   simulation.default_scenarios:
     evidence: '\.get\("default_scenarios"\)'
     facility-fact: true

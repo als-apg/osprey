@@ -34,7 +34,7 @@ place that contradicts its span, a stated position that contradicts the deck
 or lies outside a single-pass deck (``place-conflict``), a device or address
 wired by two models or a wired element repeated in its deck
 (``wiring-conflict``), a declared ``texture`` model or a channel on a status
-address (``model-conflict``), a nominal outside its limits band
+address (``model-conflict``), a nominal or a wired start value outside its limits band
 (``seed-invalid``), an unseeded setpoint whose limits band excludes 0
 (``seed-missing``), and a scenario fault keyed by a name that is neither a
 channel nor a variable of the model's engine (``engine-invalid``); a wired

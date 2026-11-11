@@ -1,14 +1,16 @@
-"""A write pass of physics settings reads back only what its write can change.
+"""A write pass reads back only what its write can change.
 
 An apply writes one setting per corrector, and every write is a pass of its
 own, so a pass that read the whole roster back would put one full publishing
 pass per corrector behind the apply. A physics setting reaches its own model
 alone, and there moves itself, its readback and what the model computes from
-its settings. The first test checks that on the built example's composite in
-process, through the helpers the runner uses: every value a corrector or a
-quadrupole write changes is one of the setting's records. The last checks that
-the runner reads back exactly that for a pass of settings, and the usual roster
-for any other; it needs the serving package but no transport.
+its settings; a texture setpoint moves itself, its echo and the texture
+channels derived from either. The first tests check that on the built example's
+composite in process, through the helpers the runner uses: every value a
+corrector, a quadrupole or a texture setpoint write changes is one of the
+setpoint's records. The last checks that the runner reads back exactly that for
+a pass of setpoints, and the usual roster for a pass that writes nothing; it
+needs the serving package but no transport.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     pass_readback,
     periodic_addresses,
     setting_records,
+    write_records,
 )
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SimulatorView
@@ -93,8 +96,48 @@ def test_every_value_a_setting_write_changes_is_one_of_its_setting_records(
     assert changed <= pass_readback(setting_records(view), [setting])
 
 
+def _texture_setpoints(composite: Composite, view: SimulatorView) -> list[str]:
+    """The writable setpoints no physics model binds, in address order."""
+    bound = setting_records(view)
+    return sorted(
+        address
+        for address, variable in composite.supported_variables.items()
+        if not variable.read_only and address not in bound
+    )
+
+
+def test_every_setpoint_has_write_records(composite: Composite, view: SimulatorView) -> None:
+    records = write_records(view, composite.texture_reach())
+
+    assert _texture_setpoints(composite, view)
+    assert {
+        address
+        for address, variable in composite.supported_variables.items()
+        if not variable.read_only
+    } <= records.keys()
+
+
+def test_every_value_a_texture_write_changes_is_one_of_its_write_records(
+    composite: Composite, view: SimulatorView
+) -> None:
+    roster = _roster(composite, view)
+    records = write_records(view, composite.texture_reach())
+
+    for setpoint in _texture_setpoints(composite, view)[:25]:
+        level = composite.get(setpoint)
+        if not isinstance(level, float):
+            continue
+        low, high = composite.supported_variables[setpoint].value_range or (None, None)
+        target = level + 0.5 if high is None or level + 0.5 <= high else level - 0.5
+
+        changed = _changed_by(composite, roster, {setpoint: target})
+
+        assert setpoint in changed
+        assert changed <= pass_readback(records, [setpoint]), setpoint
+
+
 def test_each_write_pass_reads_back_what_its_write_can_change(
-    view: SimulatorView, monkeypatch: pytest.MonkeyPatch
+    composite: Composite, view: SimulatorView, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip(
         "lume_pva_apg", reason="the served VA runs on lume-pva-apg, which ships for Linux only"
@@ -103,11 +146,7 @@ def test_each_write_pass_reads_back_what_its_write_can_change(
 
     from osprey.services.virtual_accelerator.serving.runner import ModelRunner
 
-    texture = sorted(
-        address
-        for address in view.channels()
-        if view.channel(address).role == "setpoint" and address not in setting_records(view)
-    )[0]
+    texture = _texture_setpoints(composite, view)[0]
     other = view.status_addresses()["BTS"]
     roster = sorted({CORRECTOR, "SR:DIAG:TUNE:X", texture, other})
     read: list[list[str]] = []
@@ -117,13 +156,13 @@ def test_each_write_pass_reads_back_what_its_write_can_change(
     )
     runner = object.__new__(ModelRunner)
     runner._periodic = periodic_addresses(view)
-    runner._setting_records = setting_records(view)
+    runner._setting_records = write_records(view, composite.texture_reach())
 
     for values in ({CORRECTOR: 0.5}, {texture: 1.0}, {CORRECTOR: 0.5, texture: 1.0}, {}):
         ModelRunner._run_cycle(runner, {"values": values, "done": []})
 
     setting_pass, texture_pass, mixed_pass, empty_pass = read
     assert setting_pass == ["SR:DIAG:TUNE:X", CORRECTOR]
-    assert texture_pass == roster
-    assert mixed_pass == roster
+    assert texture_pass == [texture]
+    assert mixed_pass == sorted({"SR:DIAG:TUNE:X", CORRECTOR, texture})
     assert empty_pass == roster
