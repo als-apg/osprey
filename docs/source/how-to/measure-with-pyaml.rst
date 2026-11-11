@@ -29,7 +29,8 @@ A render with at least one such view registers three things: both tools, the
 ``pyaml-tools`` skill, and the prompt section that teaches them. A render with
 no view registers none of the three.
 
-The measurement file decides which kinds a model takes:
+The measurement file decides which kinds a model takes. OSPREY ships these,
+and a deployment registers its own (:doc:`/reference/contracts/facility-kinds`):
 
 .. list-table::
    :header-rows: 1
@@ -62,7 +63,8 @@ an approver:
 - If the model has every group and instrument but the file does not list the
   kind, the refusal names the kinds the file does list.
 
-A model solved in a single pass takes ``orm`` alone.
+A model solved in a single pass takes only the kinds that run single pass;
+of the shipped ones, ``orm`` alone.
 
 Ask for a measurement
 =====================

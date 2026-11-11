@@ -520,9 +520,10 @@ of groups taken together, that plays each part (``bpm``, ``hcor``, ``vcor``,
 ``instruments`` the channel each instrument is read or stepped on (``tune``,
 ``rf``). A registered kind may declare roles of its own, each named in
 ``groups`` or ``instruments`` as the kind sorts it; the build stops on a role
-no listed kind declares. What is a kind's own (a trigger, settings, a chain of
-steps) goes in ``kind_blocks.<kind>``, which the build checks against the
-schema the kind declares. Each kind needs its own members and step keys, and the build stops
+neither shipped nor declared by a listed kind. What is a kind's own (a trigger,
+settings, a chain of steps) goes in ``kind_blocks.<kind>``, which the build
+checks against the schema the kind declares
+(:doc:`/reference/contracts/facility-kinds`). Each kind needs its own members and step keys, and the build stops
 when the file allows a kind without them, names a member its model does
 not wire, or names a ``tune`` reading of one plane that no single reading of
 the other plane pairs with:
@@ -551,7 +552,8 @@ the other plane pairs with:
      - ``n_step``, ``n_avg_meas``, ``fit_order``, ``sleep_between_step``,
        ``sleep_between_meas``
 
-A model solved in a single pass allows ``orm`` alone. A group plays one role;
+A model solved in a single pass allows only the kinds that run single pass;
+of the shipped ones, ``orm`` alone. A group plays one role;
 only ``hcor`` and ``vcor`` may name the same group. A role naming several
 groups is one pyAML array named after the role. The tools
 that run these measurements are in :doc:`measure-with-pyaml`.
