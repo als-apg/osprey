@@ -453,7 +453,7 @@ def _capture_static_page(browser: Browser, shot: DocShot) -> list[Path]:
 def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     """Boot the contact sheet's hermetic web terminal and capture a recipe from it.
 
-    One stack serves every theme. Each theme boots on ``shot.hub_agent`` and is
+    One stack serves every theme. Each theme boots on the operator chat and is
     driven into ``shot.stage`` before the shot, through the same routine the
     contact sheet uses, so the doc image and the review card cannot drift apart.
     """
@@ -466,9 +466,7 @@ def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
         for theme in shot.themes:
             dest = dest_dir / _output_filename(shot.name, theme, len(shot.themes))
             element = shot.element_selector if shot.capture_mode == "element" else None
-            capture_hub_view(
-                browser, hub, theme, shot.hub_agent, dest, stage=shot.stage, element=element
-            )
+            capture_hub_view(browser, hub, theme, "chat", dest, stage=shot.stage, element=element)
             paths.append(dest)
     return paths
 
@@ -895,7 +893,8 @@ def _reap_web_server(pid: int) -> None:
 
 #: Opens the hub's Agent tile on the terminal rather than the chat: the per-tab
 #: choice the tile's ⋯ menu stores, seeded before the page loads. The popover
-#: capture answers the CLI trust prompt in the PTY, so it needs the terminal.
+#: capture answers the CLI trust prompt in the PTY, so it needs the terminal,
+#: and crops the popover alone, so the terminal is never in the image.
 TERMINAL_SURFACE_INIT = (
     "if (window === window.top) sessionStorage.setItem('osprey-agent-surface', 'terminal');"
 )
@@ -1139,10 +1138,16 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
     CLI's controls server has published its state record, so the popover will
     render real rows rather than a warning banner. It then opens the popover
     by clicking the chip and crops the recipe's ``element_selector`` at 2x,
-    once per theme.
+    once per theme. Docs media never show the terminal, so a recipe that is
+    not an element crop is refused.
     """
     from playwright.sync_api import expect
 
+    if shot.capture_mode != "element" or not shot.element_selector:
+        raise ValueError(
+            f"{shot.name}: this capture runs behind the Claude Code terminal, "
+            "so it must crop an element_selector"
+        )
     with web_terminal(project_dir) as web:
         base_url = web.base_url
         operator_secret = web.operator_secret

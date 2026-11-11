@@ -124,9 +124,9 @@ VIDEOS: tuple[DocVideo, ...] = (
         name="landing",
         stem="osprey-demo",
         storyboard=LANDING,
-        # What the landing take has always shown: the Claude Code terminal
-        # beside the Artifacts tile, which has no sidebar entry of its own.
-        layout=Layout(surface="terminal", active=None, tiles=("artifacts",)),
+        # The operator chat beside the Artifacts tile, which has no sidebar
+        # entry of its own.
+        layout=Layout(surface="chat", active=None, tiles=("artifacts",)),
         pages=("index.rst",),
         poster_step="rotate",
         window_s=(50.0, 80.0),
@@ -196,8 +196,6 @@ def validate_videos(videos: Sequence[DocVideo] = VIDEOS) -> None:
             raise ValueError(
                 f"video {video.name!r}: poster_step {video.poster_step!r} is not a beat"
             )
-        if video.history and video.layout.surface != "chat":
-            raise ValueError(f"video {video.name!r}: history needs the chat")
         for pair in video.init_sets:
             if "=" not in pair:
                 raise ValueError(f"video {video.name!r}: init_sets value {pair!r} is not KEY=VALUE")

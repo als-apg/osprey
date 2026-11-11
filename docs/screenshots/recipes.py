@@ -100,8 +100,6 @@ class DocShot:
     holding several diagrams."""
 
     # hermetic_hub
-    hub_agent: Literal["chat", "terminal"] = "chat"
-    """The Agent tile's surface a ``hermetic_hub`` capture boots on."""
     stage: str | None = None
     """A key of :data:`docs.screenshots.contact_sheet.STAGES`: the UI state the
     page is driven into before the shot (``hermetic_hub`` environment only)."""
@@ -254,9 +252,11 @@ REGISTRY: list[DocShot] = [
     # The shot shows the full shape — the active machine's card with its writes
     # switch and a row per other machine — real roster, real states, nothing
     # staged. The
-    # popover only exists open, and only renders banner-free once the terminal
+    # popover only exists open, and only renders banner-free once the session
     # holds the deployment's control-context record, so the flow lives in
-    # capture._capture_web_terminal_static rather than in a subview click.
+    # capture._capture_web_terminal_static rather than in a subview click. That
+    # flow starts the session from the Claude Code terminal, off camera: the
+    # shot must stay an element crop of the popover.
     DocShot(
         name="control_target_popover",
         environment="tutorial_stack",

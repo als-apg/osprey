@@ -63,6 +63,7 @@ def test_video_named_finds_a_video_and_names_the_known_ones_otherwise() -> None:
         ({"init_sets": ("x.enabled",)}, "KEY=VALUE"),
         ({"layout": None}, "has no layout"),
         ({"layout": Layout(surface="tui", active="okf", tiles=())}, "layout surface"),
+        ({"layout": Layout(surface="terminal", active="okf", tiles=())}, "layout surface"),
         ({"layout": Layout(surface="chat", active="", tiles=())}, "no active sidebar entry"),
     ],
 )
@@ -239,15 +240,10 @@ def test_the_watchdog_starts_in_the_chat_with_knowledge_open() -> None:
     assert watchdog.layout == Layout(surface="chat", active="okf", tiles=("okf",))
 
 
-def test_the_landing_layout_is_what_its_take_has_always_shown() -> None:
+def test_the_landing_starts_in_the_chat_beside_the_artifacts_tile() -> None:
     """The Artifacts tile has no sidebar entry, so the layout names none as active."""
-    assert LANDING.layout == Layout(surface="terminal", active=None, tiles=("artifacts",))
+    assert LANDING.layout == Layout(surface="chat", active=None, tiles=("artifacts",))
     validate_videos([LANDING])
-
-
-def test_history_is_refused_on_the_terminal() -> None:
-    with pytest.raises(ValueError, match="history needs the chat"):
-        validate_videos([dataclasses.replace(LANDING, history=("p",))])
 
 
 def test_the_code_review_video_shows_the_rule_before_the_mark_and_the_prompt() -> None:

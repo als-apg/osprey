@@ -1,8 +1,9 @@
 """The screen a docs video starts on, declared per video and applied before recording.
 
 Every :class:`~docs.screenshots.videos.DocVideo` names its :class:`Layout`: the
-Agent surface (``terminal``, the Claude Code terminal; ``chat``, the operator chat), the
-left-sidebar entry that is active (or none), and the tiles open beside the console. The
+Agent surface, the left-sidebar entry that is active (or none), and the tiles open
+beside the console. The only surface a registered video may name is ``chat``, the
+operator chat: docs media never show the Claude Code terminal. The
 layout is part of what a video is agreed to show, so the take's setup applies
 it (:func:`apply`) and fails the take when the page will not take it; no beat
 ever implies it.
@@ -21,7 +22,10 @@ from typing import Any, Literal
 
 from docs.screenshots.video_probes import POLL_MS, ProbeFailed
 
-SURFACES = ("terminal", "chat")
+# The surfaces a registered video may start on. The take engine can still drive
+# the Claude Code terminal, but docs media show the operator chat only, so
+# :func:`validate` refuses a layout that names it.
+SURFACES = ("chat",)
 
 APPLY_BUDGET_MS = 30_000
 TILE_BUDGET_MS = 30_000
