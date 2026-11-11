@@ -23,9 +23,6 @@ everyday terms rather than exact channel names.
       The database JSON schemas, the ``config.yml`` keys, and how the active
       pipeline is served to the agent.
 
-   :doc:`use-pv-directory`
-      All PVs, the panel's view of every PV the control system announces.
-
 
 Choosing a Pipeline
 ===================
@@ -340,3 +337,6 @@ into the snapshot the panels use.
 
 The ``config.yml`` keys for every pipeline, and how the active one is served to
 the agent, are in :doc:`/reference/contracts/channel-finder`.
+
+A PV the curated channels do not hold is in the All PVs view, which lists every
+PV the control system announces: see :doc:`use-pv-directory`.

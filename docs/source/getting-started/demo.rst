@@ -151,7 +151,7 @@ same safety hooks, then adds production capabilities. The most visible additions
    * - **Web terminal**
      - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
-       The CHANNELS panel's **All PVs** view lists every PV the simulator
+       The Channels panel's **All PVs** view lists every PV the simulator
        serves (:doc:`../how-to/use-pv-directory`).
 
 The **safety model is unchanged**: limits checking, the pre-write check, and the

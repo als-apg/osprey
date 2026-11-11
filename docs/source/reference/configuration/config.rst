@@ -1183,7 +1183,7 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
      - What it does
    * - ``pv_directory.type``
      - The facility's directory service; ``channelfinder`` is built in.
-       Absent, the section is VA-only (below).
+       Absent, the section is simulator-only (below).
    * - ``pv_directory.settings.url``
      - The service URL. The build refuses a ``type`` without it.
    * - ``pv_directory.settings.timeout_s``
@@ -1231,7 +1231,7 @@ the directory. The Kafka client is the ``alarm-state`` extra
 is unavailable. A container gets it by setting ``OSPREY_PIP_SPEC`` to that
 requirement (:doc:`/how-to/deploy-project/project-image`).
 
-**VA-only form.** A section without ``type`` lists the simulator's channels
+**Simulator-only form.** A section without ``type`` lists the simulator's channels
 and IOC health PVs on ``va``. A build with no simulator has nothing to list:
 it warns, and every section answers "not available for this target".
 

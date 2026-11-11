@@ -123,8 +123,8 @@ Facility services
       :link: use-pv-directory
       :link-type: doc
 
-      All PVs: every PV the control system announces, with read-only PV and
-      IOC pages for alarms, put history and logbook mentions.
+      Find a PV the curated channels do not hold, with a page per PV and IOC
+      for its alarms, recorded writes and logbook mentions.
 
    .. grid-item-card:: Facility Knowledge
       :link: facility-knowledge/index

@@ -9,8 +9,8 @@ with every tool each one can register. The **10 core servers** are the ones a
 deployment normally renders: ``control_system``, the four channel-finder
 variants, ``workspace``, ``python_executor``, ``ariel``,
 ``osprey_facility_knowledge`` and ``graph``. ``pv-directory`` renders only
-when the config has a ``pv_directory`` section. Four more ship in-tree but are off
-by default: ``phoebus``, ``optimizer``, ``bluesky`` and ``health``. A profile
+when the config has a ``pv_directory`` section. Four more ship in-tree but are
+off by default: ``phoebus``, ``optimizer``, ``bluesky`` and ``health``. A profile
 enables one with ``claude_code.servers.<name>.enabled: true``. The
 ``demo`` preset enables ``bluesky`` and ``health``; ``phoebus`` and
 ``optimizer`` stay off in every preset. Build profiles can inject additional servers beyond
@@ -22,7 +22,7 @@ these.
 The four channel-finder variants count as four of the ten, but a deployment
 serves exactly one of them — whichever ``channel_finder.pipeline_mode`` names —
 under the single ``channel-finder`` name. The map shows those seven running
-processes and ``pv-directory``.
+processes, and ``pv-directory`` where it renders.
 
 
 Control System

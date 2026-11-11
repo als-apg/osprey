@@ -4,18 +4,17 @@
 How to Look Up Any PV
 =======================
 
-**All PVs** is a view of the Channels panel. It lists every PV the control
-system announces, not only the curated channels the facility tree declares.
-Each PV and IOC has its own page.
+The curated :doc:`channel finder <use-channel-finder>` knows the channels the
+facility tree declares. A PV name met elsewhere, in an alarm, a script or a
+logbook entry, is often not one of them. **All PVs**, a view of the Channels
+panel, lists every PV the control system announces, and gives each PV and IOC
+a page with its alarms, recorded writes and logbook mentions.
 
-All PVs is not curated. Names, descriptions and properties are what the
-control system's own directory records, as it records them. All PVs is also
-read-only: neither the view, its pages nor its agent tools can write.
+Names, descriptions and properties in All PVs are the control system
+directory's own, as it records them; nothing in All PVs is curated. The view,
+its pages and its agent tools only read.
 
 .. seealso::
-
-   :doc:`use-channel-finder`
-      The curated channels, and the panel All PVs is part of.
 
    :doc:`/reference/connectors-api/pv-directory`
       The record shapes and the per-target source table.
@@ -24,12 +23,12 @@ read-only: neither the view, its pages nor its agent tools can write.
 Turn it on
 ==========
 
-All PVs exists only when ``config.yml`` has a ``pv_directory`` section. The
-``demo`` preset ships one. Without the section, the panel, the agent and the
-rendered files are unchanged. The keys are in :ref:`config-pv-directory`.
+All PVs exists only when ``config.yml`` has a ``pv_directory`` section; the
+``demo`` preset ships one. Without it the panel has no All PVs view and the
+agent no ``pv-directory`` tools. The keys are in :ref:`config-pv-directory`.
 
 - **Simulator only.** A section with no ``type`` lists the virtual
-  accelerator's channels and IOC health PVs. This is what ``demo`` ships.
+  accelerator's PVs. This is what ``demo`` ships.
 - **Facility services.** ``type`` names the directory service, such as
   ``channelfinder``. The ``alarm_state``, ``alarm_log`` and ``put_log``
   sub-blocks each add their service.
@@ -37,8 +36,8 @@ rendered files are unchanged. The keys are in :ref:`config-pv-directory`.
   under ``config:`` in a profile that extends ``demo``, removes the section.
 
 On a multi-user host, the ``channel-finder`` shared login carries the
-``pv-directory`` server. The ``logbook`` and ``knowledge`` logins switch the
-server off (:doc:`web-terminal/multi-user/tiers`).
+``pv-directory`` server; the ``logbook`` and ``knowledge`` logins switch it off
+(:doc:`web-terminal/multi-user/tiers`).
 
 
 Search All PVs
@@ -49,9 +48,15 @@ Search All PVs
    **Curated**, **All PVs** and **Feedback**.
 3. Type words into the toolbar's search box and press Enter.
 
-The search words carry across views in both directions. Under curated
-results, a ``Not here? Search All PVs`` line leads here. A curated search with
-no hits offers ``Search all N PVs for "<words>" →`` instead.
+In the ``demo`` preset, search ``cavity temperature``. The rows are the
+cavities' temperature readbacks, each marked ◆ because the facility tree
+declares it. Click ``SR:RF:CAVITY:01:TEMPERATURE:RB`` to open its page: its
+**Alarm state** shows a latched alarm from the demo's replayed alarm feed, and
+**Alarm configuration** the guidance that goes with it.
+
+The words carry across views in both directions. Under curated results, a
+``Not here? Search All PVs`` line leads here. A curated search with no hits
+offers ``Search all N PVs for "<words>" →`` instead.
 
 A search works the way ChannelFinder searches:
 
@@ -61,16 +66,16 @@ A search works the way ChannelFinder searches:
 - A word holding ``*`` or ``?`` matches names as a glob. A leading ``=`` asks
   for the exact name.
 
-The line above the rows says in plain words what was searched, with the hit
-count. **show request** reveals the literal request that ran, with a copy
-button. The sidebar filters the whole result by **Origin**, **IOC** and
-**Record type**.
+The line above the rows says what was searched, with the hit count. **show
+request** reveals the literal request that ran. The sidebar filters the whole
+result by **Origin**, **IOC** and **Record type**.
 
 Each row carries one of two marks:
 
 - ◆ **Curated**: the facility tree declares the PV.
 - ◇ **Control system only**: the control system announces it, and the facility
-  tree does not declare it.
+  tree does not declare it. In the demo these are the simulator's own status
+  and IOC health PVs, such as ``<code>:SIM:<model>:HEARTBEAT``.
 
 A row also shows the description, current value, record type, IOC and status.
 An inactive PV is dimmed. A value reads ``no answer`` when the PV did not
@@ -127,9 +132,8 @@ twice, 2 s apart; a value that advanced means alive.
 The control target decides the source
 ======================================
 
-Every section answers only from the machine the session is on, as the
-control-target chip shows it. No section shows another machine's data under
-this machine's PV.
+Every section answers only from the machine the control-target chip shows. No
+section shows another machine's data under this machine's PV.
 
 .. list-table::
    :header-rows: 1
@@ -139,7 +143,7 @@ this machine's PV.
      - *Simulator*
      - *Live* and *Rehearsal*
    * - Directory
-     - the build's simulator view
+     - the simulator's PVs
      - the ``type`` service, such as ChannelFinder
    * - Alarm state and configuration
      - the replay file
@@ -152,25 +156,9 @@ this machine's PV.
 that machine. A section with no source for the current target reads ``Not
 available for this target``.
 
-Current values go through a separate read-only process on the control
-target's read gateway. A connector block with only a write gateway has nothing
-to read through, so every value reads unavailable.
-
-
-The demo
-========
-
-The ``demo`` preset runs All PVs on the virtual accelerator:
-
-- The directory is the simulator view: every channel, plus the read-only
-  ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER`` health PVs of
-  each simulated IOC.
-- The alarm feed is a packaged replay, ``demo:example-alarms``. It holds one
-  latched, one acknowledged and one cleared alarm, each with its alarm
-  configuration.
-
-``SR:RF:CAVITY:01:TEMPERATURE:RB`` and ``SR:VAC:GAUGE:SR03:PRESSURE:RB`` carry
-replayed alarms.
+Current values are read through the control target's read gateway, by a
+process that cannot write. A connector block with only a write gateway has
+nothing to read through, so every value reads unavailable.
 
 
 Agent tools
@@ -184,9 +172,8 @@ a read and runs without an approval prompt:
 - ``alarm_state``, ``alarm_config``, ``alarm_history`` and ``put_history``
   are present only when their source is configured.
 
-Each PV or IOC result carries ``links.panel``, its page in this panel. The
-agent passes it to ``open_panel``. By default this opens the page in a new
-split tile, or focuses it when it is already on screen.
+Each PV or IOC answer carries a link to its page in this panel, which the agent
+can open beside the chat with ``open_panel``.
 
 The prompts tell the agent to check the curated channels first and to say
 when a name is the control system's own. That is guidance, not a setting.

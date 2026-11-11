@@ -395,10 +395,8 @@ shape.
 
 **A failed model does not take the machine down.** Each served physics model
 has a status channel, ``<code>:SIM:<model>:STATUS``, which exists in no other
-view. Every served model also has read-only IOC health channels,
-``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``. A model whose
-engine raises while building or reading it (over a deck that does not load,
-say) is left failed: its status channel carries the
+view. A model whose engine raises while building or reading it (over a deck
+that does not load, say) is left failed: its status channel carries the
 engine's error text, and every other model and every texture channel is still
 served. ``osprey sim status`` prints one ``<model>: <status>`` line per served
 model, ``ok`` or ``FAILED:`` and that text, exits 1 when a model failed, and
@@ -410,6 +408,10 @@ category, since the container itself keeps serving and stays healthy.
 A model that names no deck and wires no channel is not a failure: nothing is
 built for it, its status is ``no deck``, and every channel of that machine is
 the texture's.
+
+Every served model, ``texture`` included, also has read-only IOC health
+channels, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``, which
+the IOC pages of All PVs read (:doc:`/how-to/use-pv-directory`).
 
 How the composite serves the models over Channel Access and PVAccess is in
 :doc:`virtual-accelerator`.
