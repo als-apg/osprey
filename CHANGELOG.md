@@ -20,18 +20,16 @@ the `[Unreleased]` section below when a release is cut.
 TODO(release-notes PR, remove before the tag): the version and date above are
 placeholders the owner fills at tag time.
 
-Final fold on main 365de5a0a8 (2026-11-10): every fragment on main is folded
+Final fold on main c25b1301a9 (2026-11-10): every fragment on main is folded
 into the sections below and changelog.d/ is empty. Still open before the tag:
 - The condensation pass (release skill, Step 4) has not run: the sections
   below the migration guide are the raw fold of every fragment since
   v2026.9.0b3.
 - The Highlights and Breaking changes above them cover the release-bound list
-  only. The apps contract train (#2109) is folded below without headline
-  treatment (owner ruling 2026-11-06), and so are the other merges since
-  2026-11-03 that are not on that list. Their **Breaking change:** entries
-  are in the sections below and not yet in the migration guide: the agent's
-  artifact tools (#2470), the LATTICE panel retired (#2456) and CANOPY's
-  `formula-engine` rebase (#2350).
+  and the apps contract train (#2109; owner ruling 2026-11-10). **Breaking
+  change:** entries of other merges stay in the sections below and out of the
+  migration guide by the same ruling: the agent's artifact tools (#2470), the
+  LATTICE panel retired (#2456) and CANOPY's `formula-engine` rebase (#2350).
 - #2397 (deny path for a waiting write-authorization request) is still open
   and needs another connectors release. If it lands, drop its Known gaps line
   and add that connectors release.
@@ -69,10 +67,30 @@ naming the fix, and `osprey init --revalidate` rewrites a repo for many of them.
 - **A labelled sidebar and one web terminal.** The sidebar replaces the panel
   rail, header and status bar; the Expert and Simple views are gone, and the
   terminal is an opt-in tab beside the Agent pane. (#2185, #2249)
-- **Tiers and apps.** A deployment's web terminals are access tiers
-  (`readonly`, `readwrite`, `admin`) and apps that share its services. A shared
-  app can say who may open it, and `osprey users list` shows who can open which
-  card. (#2224, #2246)
+- **Apps: a facility's own tools, for the operator and the agent.** An app
+  lives in the deployment repository as `apps/<name>/`, described by one
+  manifest, `app.yml`: a backend container, and over it a panel under **Apps**
+  in the sidebar, a tool server for the agent and skills that tell the agent
+  how to use it. The panel and the tools are two front ends to one backend, so
+  the agent reads what the operator sees and the operator sees what the agent
+  computed. An app adds no new way to write: a tool listed under
+  `tools.approval` meets the login's tier and the write switch, its approval
+  card is bound to the state the operator saw, and the connector judges and
+  records the write. `osprey app new <name>` copies a working scaffold,
+  `osprey app check` checks the manifest, the imports (app code reaches OSPREY
+  through `osprey.apps.sdk`) and the panel's JavaScript without building, and
+  the `apps:` block of `profile.yml` turns an app on. Each login's file picks
+  the apps its card shows. An orbit bump app ships as the worked example, off
+  until `apps: {orbit-bump: {}}` names it. See "Build Your Own OSPREY Apps" in
+  the docs. (#2109, #2628, #2642)
+- **Logins are tier files.** Every card on the landing page opens a login,
+  one file in `tiers/` laid over `profile.yml`. The `demo` preset ships three
+  access tiers (`readonly`, `readwrite`, `admin`) and three shared logins
+  (`logbook`, `knowledge`, `channel-finder`). A login named by
+  `modules.web_terminals.shared` is sealed read-only, can say who may open it
+  (`access:`), and with `lists: own` carries only what its file names.
+  `osprey users list` shows who can open which card. (#2224, #2245, #2246,
+  #2109)
 - **One facility description drives the build.** `data/facility/` is the
   single source for channel limits, the channel-finder indexes, the knowledge
   graph, the simulator view and the agent's facility facts.
@@ -178,7 +196,7 @@ Write switch and write posture:
 osprey-connectors:
 
 - **Breaking change:** `osprey-connectors` is released on its own
-  `osprey-connectors-vYYYY.M.P` tags, separately from the framework. Thirteen
+  `osprey-connectors-vYYYY.M.P` tags, separately from the framework. Twelve
   releases since 2026.9.0b3: 2026.10.0 (the first on its own stream, with its
   public API declared, #2144), 2026.10.1 (three-position switch, #2199),
   2026.10.2 (Live wording, #2220), 2026.11.0 (session hold, #2257), 2026.11.1
@@ -190,11 +208,12 @@ osprey-connectors:
   shared channel compose within a scenario set, #2465), 2026.11.5 (the
   simulator view names its record roles and the `PERIODIC` refresh, #2489),
   2026.11.6 (`burst` and `loss` archiver event shapes, #2510), 2026.11.7 (the
-  archive seed accepts a model with no deck, #2525), 2026.11.8 (`engine_role`
-  in the simulator view, now schema `osprey.facility.simulator/3`,
-  `ipc.declared_gateways`, and write-authorization ceilings; notes in #2618)
-  and 2026.11.9 (engines with a time contract, and public names nothing used
-  made private or removed; notes in #2645). 2026.10.0 and later do not support
+  archive seed accepts a model with no deck, #2525) and 2026.11.8
+  (`engine_role` in the simulator view, now schema
+  `osprey.facility.simulator/3`, `ipc.declared_gateways`, and
+  write-authorization ceilings; notes in #2618). 2026.11.9 (engines with a
+  time contract, and public names nothing used made private or removed; notes
+  in #2645) is tagged and not yet on PyPI. 2026.10.0 and later do not support
   framework 2026.9.0b1 to b3. This release requires
   `osprey-connectors>=2026.11.8` (raised in #2638), because the virtual
   accelerator, target eligibility and the shared-directory writers read names
@@ -232,11 +251,16 @@ Web terminal:
   the operator chat for everyone. (#2249)
   Migration: rename `web.expert_view` to `web.terminal` (a build refuses the
     old key) and drop `web.ui_mode` (a build warns and drops it).
-- **Breaking change:** web terminals need a `modules.web_terminals.renders`
-  catalog with a `default_tier` in registry mode too.
-  Migration: a registry deployment adds one whose default tier names the
-    project its image was built from, for example `default_tier: main` with
-    `renders: {main: {project: <that project>}}`, which keeps saved sessions.
+- **Breaking change:** every web terminal is a login file in `tiers/`, and
+  the build derives the render of each from that file and `project_name`. A
+  `modules.web_terminals.renders` or `personas` catalog in `profile.yml` is
+  refused, and web terminals with no tier file or no `default_tier` are refused
+  in registry mode too (`web_terminals.requires_catalog`). A terminal runs in
+  `/app/<project>`.
+  Migration: `osprey init --revalidate` retires the catalog and writes its
+    `extra_mounts`, `seed_base` and `image` at the top of each login file. A
+    login whose image is built elsewhere states its `project` in its own file,
+    which keeps saved sessions.
 - **Breaking change:** the web tier is named after `project_name`:
   `<project>-nginx`, `<project>-auth` and `<project>-web-<user>`.
   Migration: update scripts and monitoring that address containers by name.
@@ -276,7 +300,7 @@ Facility description and build:
     and rebuild. Saved paths and queries on the old levels or `demo_` IRIs no
     longer resolve.
 - **Breaking change:** a deployment's own skills, agents, rules and output
-  styles render only where a list in `profile.yml`, a tier or an app names
+  styles render only where a list in `profile.yml` or in a login file names
   their path.
   Migration: `osprey init --revalidate` names every existing one, so renders
     stay as they are.

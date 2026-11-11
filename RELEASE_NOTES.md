@@ -12,8 +12,8 @@ It requires `osprey-connectors>=2026.11.8`, which now ships on its own version
 stream; a deployment that pins versions pins both.
 
 **A three-position write switch over every write surface, safety watchdogs
-and code review, a labelled sidebar, and one facility description that drives
-the build.**
+and code review, apps a facility writes itself, a labelled sidebar, and one
+facility description that drives the build.**
 
 ## Highlights
 
@@ -26,8 +26,12 @@ the build.**
   approve it.
 - A labelled sidebar replaces the rail, header and status bar, and the Expert
   and Simple views are merged into one UI.
-- Web terminals are tiers and apps; a shared app can say who may open it, and
-  `osprey users list` shows who can open which card.
+- Apps: a facility adds its own tools as `apps/<name>/` with one manifest. A
+  backend container carries a panel in the sidebar, tools for the agent and
+  skills, and its writes pass the same tier, switch and approval as every
+  other write. `osprey app new` and `osprey app check` make and check one.
+- Every web terminal is a login file in `tiers/`; a shared login can say who
+  may open it, and `osprey users list` shows who can open which card.
 - `data/facility/` drives the limits, channel-finder indexes, knowledge graph,
   simulator and facility facts; `osprey facility import mml` brings a Middle
   Layer export in.
