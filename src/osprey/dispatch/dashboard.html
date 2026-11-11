@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-page-ready="pending">
 <head>
 <meta charset="utf-8">
 <script src="/design-system/js/theme-boot.js"></script>
@@ -994,7 +994,13 @@ function setPollInterval(ms) {
   pollTimer = setInterval(fetchState, pollMs);
 }
 function startPolling() {
-  fetchState();
+  // The page is ready once the first run list is drawn, or its failure is
+  // (<html> declares the mark pending until then). The writer is a module, so
+  // this classic script reaches it through a dynamic import().
+  fetchState()
+    .catch(() => {})
+    .then(() => import('/design-system/js/page-ready.js'))
+    .then((ready) => ready.markPageReady());
   setPollInterval(pollMs);
 }
 
