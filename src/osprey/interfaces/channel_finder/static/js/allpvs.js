@@ -17,8 +17,9 @@
  * `state.scopeQuery`, shared with the curated view. Current values are read for
  * the rows shown, once per page and on Refresh, through the panel's values
  * route. The selection is a basket: it survives new words, filter changes and
- * paging until "clear" or unmount, and Plot and Send hand it to the host, in
- * the order it was selected, only inside one.
+ * paging until "clear" or until the panel leaves All PVs and its PV and IOC
+ * pages; it lives on `state`. Plot and Send hand it to the host, in the order
+ * it was selected, only inside one.
  */
 
 import { renderState, clearState } from '/design-system/js/panel-state.js';
@@ -67,7 +68,6 @@ const SIDEBAR_KEY = 'cf-allpvs-filters';
  *   answer: DirectoryPage|null,
  *   values: Map<string, ValueRow>|null,
  *   valuesReason: string,
- *   selected: Set<string>,
  *   searchSeq: number,
  *   valuesSeq: number,
  *   canPlot: boolean,
@@ -114,7 +114,6 @@ export function mountAllPvs(container, params = {}) {
     answer: null,
     values: null,
     valuesReason: '',
-    selected: new Set(),
     searchSeq: 0,
     valuesSeq: 0,
     canPlot: false,
@@ -338,7 +337,8 @@ function renderFacets() {
 /** The rows of the current page. */
 function renderTable() {
   if (!view?.answer?.rows.length || view.answer.outcome === 'unavailable') return;
-  const { answer, selected, values, valuesReason } = view;
+  const { answer, values, valuesReason } = view;
+  const selected = state.selection;
   const host = body();
   clearState(host);
   host.innerHTML = tableHtml(answer, selected, values, valuesReason);
@@ -348,13 +348,14 @@ function renderTable() {
 
 /** The selected names, in selection order. */
 function selectedNames() {
-  return [.../** @type {View} */ (view).selected];
+  return [...state.selection];
 }
 
 /** The pager, the selection and the actions on it. */
 function renderActions() {
   if (!view) return;
-  const { answer, page, selected, canPlot, csvStatus } = view;
+  const { answer, page, canPlot, csvStatus } = view;
+  const selected = state.selection;
   part('.allpvs-actions').innerHTML = actionsHtml({
     answer,
     page,
@@ -405,7 +406,7 @@ function onClick(event) {
       void runSearch();
       return;
     case 'clear':
-      view.selected.clear();
+      state.selection.clear();
       renderTable();
       renderActions();
       return;
@@ -434,8 +435,8 @@ function onChange(event) {
   if (!box) return;
   if (box.dataset.action === 'select-page') {
     for (const row of view.answer.rows) {
-      if (box.checked) view.selected.add(row.name);
-      else view.selected.delete(row.name);
+      if (box.checked) state.selection.add(row.name);
+      else state.selection.delete(row.name);
     }
     renderTable();
     renderActions();
@@ -452,11 +453,11 @@ function onChange(event) {
  */
 function toggleRow(name) {
   if (!view?.answer) return;
-  if (view.selected.has(name)) {
-    view.selected.delete(name);
+  if (state.selection.has(name)) {
+    state.selection.delete(name);
   } else {
     if (!view.answer.rows.some((row) => row.name === name)) return;
-    view.selected.add(name);
+    state.selection.add(name);
   }
   view.csvStatus = '';
   renderTable();
@@ -480,7 +481,7 @@ function toggleFacet(key, value) {
  * @param {{ type: string, [key: string]: unknown }} message
  */
 function handOff(message) {
-  if (!view?.selected.size || !handoffAllowed()) return;
+  if (!view || !state.selection.size || !handoffAllowed()) return;
   if (message.type === 'osprey:navigate' && !message.url) return;
   window.parent.postMessage(message, window.location.origin);
 }
