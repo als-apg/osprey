@@ -5,6 +5,8 @@
  */
 
 import { test, expect, describe } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   FACET_KEYS,
   allPvsHash,
@@ -97,23 +99,13 @@ describe('parseRoute', () => {
   });
 });
 
-/** @type {[import('../../../src/osprey/interfaces/channel_finder/static/js/route.js').Route, string][]} */
-const FORMATS = [
-  [{ view: 'pv', params: { name: 'SR01:X' } }, '#/pv/SR01%3AX'],
-  [{ view: 'ioc', params: { name: 'ioc-sr01' } }, '#/ioc/ioc-sr01'],
-  [{ view: 'allpvs', params: {} }, '#/allpvs'],
-  [{ view: 'allpvs', params: { q: '' } }, '#/allpvs?q='],
-  [{ view: 'allpvs', params: { q: 'beam current' } }, '#/allpvs?q=beam%20current'],
-  [{ view: 'allpvs', params: { ioc: ['demo-ioc-bpm'] } }, '#/allpvs?ioc=demo-ioc-bpm'],
-  [
-    {
-      view: 'allpvs',
-      params: { q: 'a', origin: ['curated'], ioc: ['I1', 'I2'], record_type: ['ai'] },
-    },
-    '#/allpvs?q=a&origin=curated&ioc=I1&ioc=I2&record_type=ai',
-  ],
-  [{ view: 'feedback', params: {} }, '#/feedback'],
-];
+/**
+ * The shared example links, also read by test_panel_routes.py against the server's link builder.
+ * @type {[import('../../../src/osprey/interfaces/channel_finder/static/js/route.js').Route, string][]}
+ */
+const FORMATS = JSON.parse(
+  readFileSync(join(import.meta.dirname, 'fixtures/panel_routes.json'), 'utf8')
+).map((/** @type {{ route: any, hash: string }} */ entry) => [entry.route, entry.hash]);
 
 describe('formatRoute', () => {
   test.each(FORMATS)('%j is %s', (route, hash) => {
