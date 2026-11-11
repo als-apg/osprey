@@ -1,1 +1,0 @@
-The Agent pane's bar is the session title ▾, + and the tile's ⋯, Open in new window and ×, the same buttons as every other pane: Export conversation and Desktop notifications are ⋯ rows, and the status dot is gone; Jupyter's own rows sit under This panel in its ⋯.

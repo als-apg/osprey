@@ -1,1 +1,0 @@
-The controls server's switch progress words (`SWITCH_APPLYING`, `SWITCH_APPLIED`, `SWITCH_FAILED` in `target_state`) are taken from `osprey_connectors.control_context.REPORT_*`, the reader's words, instead of being spelled a second time; the framework imports the active-scenario state names from `osprey_connectors.simulation.state` rather than the package root.

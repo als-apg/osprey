@@ -1,1 +1,0 @@
-Web terminal: the hub lays a deploy's seeded scenario sessions (transcripts, ledger rows, titles, artifacts) into its own stores at startup, filling only what is absent, and deletes the seed file once every session is complete.

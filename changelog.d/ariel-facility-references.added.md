@@ -1,1 +1,0 @@
-ARIEL entries carry the channel addresses and device ids they quote as facility references; the entry view and the agent's logbook tools show them with the records they name, and the stored text is unchanged.

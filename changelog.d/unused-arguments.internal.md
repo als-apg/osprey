@@ -1,1 +1,0 @@
-The linter now reports a function or method argument that nothing reads. An argument a framework, a protocol or a route path requires says so at the site, so a reader can tell a fixed signature from a dead parameter without tracing the call graph.

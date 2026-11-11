@@ -1,1 +1,0 @@
-Any pane, the Agent included, opens in a new window and leaves the workspace. The window carries the tile's bar with Reattach, the sidebar row's icon reattaches, closing the window closes the pane, and after a hub reload detached panes are back in place.

@@ -1,1 +1,0 @@
-The Run the Web Terminal page quotes the switch-off refusal with the machine words the code appends ("the live machine", not "the real machine"), says a switch nobody answered within 30 seconds reads "✗ no answer" rather than `request_expired`, and places *reading values…* after **Review** is clicked, where the panel shows it.

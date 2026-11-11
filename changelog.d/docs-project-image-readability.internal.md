@@ -1,1 +1,0 @@
-The project-image how-to reads in short sentences: build arguments, proxy and site-CA setup, staged search-sidecar models and the privilege split are split into lists and steps without changing what they state.
