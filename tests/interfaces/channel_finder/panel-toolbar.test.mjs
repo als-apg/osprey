@@ -70,6 +70,14 @@ describe('the view switch', () => {
     state.setActiveView('feedback');
     expect(views()).toEqual(['explore:false', 'feedback:true']);
   });
+
+  test('a press on the active view leaves the hash as the view wrote it', () => {
+    initToolbar();
+    state.setActiveView('feedback');
+    location.hash = '#/feedback?kept';
+    /** @type {HTMLElement} */ (document.querySelector('[data-view="feedback"]')).click();
+    expect(location.hash).toBe('#/feedback?kept');
+  });
 });
 
 describe('controls a view does not use', () => {

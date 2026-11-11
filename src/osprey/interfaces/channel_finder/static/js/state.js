@@ -74,7 +74,9 @@ class ChannelFinderState {
     this.directory = null;
 
     // Events: `curatedResults` (CuratedResults) after every curated search,
-    // `directoryLabel` (string) after each All PVs page. Registered first, so
+    // `directoryLabel` (string) after each All PVs page, `replaceRoute` (Route)
+    // when a mounted view states the route it now shows; the router writes it
+    // with history.replaceState and adds no history entry. Registered first, so
     // every other listener of `directoryLabel` reads the new label here.
     this.on('directoryLabel', (label) => {
       if (this.directory) this.directory = { ...this.directory, label };

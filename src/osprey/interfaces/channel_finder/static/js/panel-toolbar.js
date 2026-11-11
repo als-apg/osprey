@@ -123,7 +123,8 @@ export function initToolbar() {
   byId(TOOLBAR_IDS.views)?.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const view = target?.closest('button[data-view]')?.getAttribute('data-view');
-    if (view) location.hash = formatRoute({ view, params: {} });
+    // The active view's own button keeps the route that view wrote.
+    if (view && view !== state.activeView) location.hash = formatRoute({ view, params: {} });
   });
   searchInput()?.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || !searchRedirects()) return;

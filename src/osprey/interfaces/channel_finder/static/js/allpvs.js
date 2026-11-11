@@ -4,7 +4,8 @@
  *
  * The view of `#/allpvs?q=<words>&ioc=<name>` (Panel view contract): a search
  * of the current target's PV directory, one page of rows at a time. The route's
- * words and filters seed the search and the facets on mount.
+ * words and filters seed the search and the facets on mount, and the view writes
+ * them back to the address bar (replace, not push) on every new search.
  *
  *   toolbar   [sidebar toggle] [Curated | <directory> | Feedback] …… [N PVs] [search]
  *   sidebar   Origin · IOC · Record type, each value with its count
@@ -135,6 +136,7 @@ export function mountAllPvs(container, params = {}) {
     renderActions();
   });
 
+  writeRoute();
   void runSearch();
 }
 
@@ -170,7 +172,20 @@ function onWords(words) {
 function restart() {
   if (!view) return;
   view.page = 0;
+  writeRoute();
   void runSearch();
+}
+
+/** State the words and filters searched now as the route (the router writes it). */
+function writeRoute() {
+  if (!view) return;
+  const { filters } = view;
+  /** @type {RouteParams} */
+  const params = { q: state.scopeQuery.trim() };
+  for (const key of FACET_KEYS) {
+    if (filters[key].size) params[key] = [...filters[key]];
+  }
+  state.emit('replaceRoute', { view: 'allpvs', params });
 }
 
 /**
