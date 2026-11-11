@@ -8,7 +8,7 @@ machine.** Install with
 
     uv tool install osprey-framework
 
-It requires `osprey-connectors>=2026.11.3`, which now ships on its own version
+It requires `osprey-connectors>=2026.11.8`, which now ships on its own version
 stream; a deployment that pins versions pins both.
 
 **A three-position write switch over every write surface, safety watchdogs
@@ -34,6 +34,8 @@ the build.**
 - The optimizer ships as its own package, `osprey-optimizer`, and every run
   writes under one bounded write authorization a person approves.
 - The `mock` type is retired: one virtual accelerator, served or in process.
+- A Slack bridge joins the Nextcloud Talk, Google Chat and Microsoft Teams
+  ones, and `images.base_registry` points every image at a registry mirror.
 - Known gaps: the write switch does not yet govern PVAccess puts or
   external-worker Bluesky lanes; see Known gaps in the CHANGELOG.
 

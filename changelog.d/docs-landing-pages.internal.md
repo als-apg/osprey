@@ -1,1 +1,0 @@
-The agent-interfaces, chat-bridges, control-systems, architecture and contributing landing pages lead with what the section is for: shorter intros and cards, qmd, OKF and BM25 defined at first use, a remedy for the plugin-marketplace warning, and dated verification notes moved into source comments.

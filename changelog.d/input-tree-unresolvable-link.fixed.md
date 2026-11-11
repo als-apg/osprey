@@ -1,1 +1,0 @@
-A link inside a profile input that does not resolve (missing target, a link to itself, two links to each other) is now refused before anything is installed, instead of failing the image copy after the install.

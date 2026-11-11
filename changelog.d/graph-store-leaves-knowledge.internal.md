@@ -1,1 +1,0 @@
-The Neo4j graph-store seeding primitives and the seed-time schema snapshot moved from `osprey.services.facility_knowledge.seeder` to the new core package `osprey.services.graph_store`, shared by Knowledge and Channel finder.

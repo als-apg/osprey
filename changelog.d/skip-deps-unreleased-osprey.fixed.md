@@ -1,1 +1,0 @@
-A `--skip-deps` build and `osprey facility validate` no longer refuse an unreleased, non-editable osprey (a deployment that pins osprey through committed wheels): the osprey spec is resolved only for a build that creates the project venv.

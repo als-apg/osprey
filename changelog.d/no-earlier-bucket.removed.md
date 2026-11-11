@@ -1,1 +1,0 @@
-The session tree no longer has an **Earlier** row: every row it shows is an agent session's, and `session-list`/`session-summary` drop `earlier`. Artifacts no session owns stay in the command palette and the Artifacts panel.

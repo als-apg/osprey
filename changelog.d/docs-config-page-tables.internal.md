@@ -1,1 +1,0 @@
-The configuration reference's probe table, its stated defaults and its image-axes examples are now checked against the probe modules, the config-key manifest and the image resolver. Every YAML example on the page names its file on its first line, and the axes section no longer gives the service-image table a wrong row count.

@@ -1,1 +1,0 @@
-Every file `osprey init` copies from a bundled facility says so on its first line; `osprey facility import`, in every format, replaces a bundled facility in one step and refuses only hand-written records of the kinds that format writes, naming them.

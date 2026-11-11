@@ -1,1 +1,0 @@
-The build derives the simulator's probe channel, the archive's freshness check and the start set from the facility file; a stated value is checked against the file at build; a repo with no facility tree builds.
