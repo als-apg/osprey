@@ -1191,6 +1191,21 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
                 chip.click()
                 target = page.locator(shot.element_selector)
                 expect(target).to_be_attached(timeout=10_000)
+                # The stand-in's row is named from the configuration at once but
+                # takes its kind from the controls server's report, which can land
+                # a few seconds later; until then the row carries the live
+                # machine's mark under the rehearsal's name.
+                standin = target.locator('.ctc-row[data-target="standin"]')
+                if standin.count():
+                    try:
+                        expect(standin).to_have_attribute(
+                            "data-target-kind", "rehearsal", timeout=45_000
+                        )
+                    except AssertionError as exc:
+                        raise ScreenshotSkip(
+                            f"{shot.name} ({theme}): the stand-in row never took the "
+                            "rehearsal kind"
+                        ) from exc
                 # Let the open animation and the first re-render settle.
                 page.wait_for_timeout(600)
                 reject_error_state(page, f"{shot.name} ({theme})")
