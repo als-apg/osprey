@@ -92,7 +92,9 @@ _NOT_LISTED = "This entry is not shown in the list."
 
 #: Installed in every frame before any page script. ``__flashed`` lists the
 #: entry id of every row the moment it gains ``agent-flash``; ``__navReady``
-#: counts the ``canopy-host-navigate-ready`` messages the hub window received.
+#: counts the ``canopy-host-navigate-ready`` messages the hub window received
+#: since a panel iframe last loaded, the rule the hub itself applies: a ready
+#: from the document an iframe is leaving does not count for the next one.
 _PROBES = """
 (function () {
   window.__flashed = [];
@@ -100,6 +102,10 @@ _PROBES = """
   window.addEventListener('message', function (ev) {
     if (ev.data && ev.data.type === 'canopy-host-navigate-ready') { window.__navReady += 1; }
   });
+  document.addEventListener('load', function (ev) {
+    const t = ev.target;
+    if (t && t.matches && t.matches('iframe.panel-iframe')) { window.__navReady = 0; }
+  }, true);
   function attach(el) {
     new MutationObserver(function (muts) {
       // flashElement removes then re-adds the class in one task, so one flash
@@ -124,6 +130,22 @@ _PROBES = """
     }).observe(document, { childList: true, subtree: true });
   }
 })();
+"""
+
+#: True once the iframe *sel* holds, fully loaded, the document its ``src``
+#: names (path and query; the router rewrites only the hash): no load of
+#: another document is pending behind the one on screen.
+_IFRAME_AT_ITS_SRC = """
+(sel) => {
+  const f = document.querySelector(sel);
+  if (!f || !f.getAttribute('src')) return false;
+  let doc = null;
+  try { doc = f.contentDocument; } catch (e) { return false; }
+  if (!doc || doc.readyState !== 'complete') return false;
+  const want = new URL(f.src, location.href);
+  const have = new URL(doc.URL);
+  return want.pathname === have.pathname && want.search === have.search;
+}
 """
 
 
@@ -422,10 +444,15 @@ def _ariel_stack(
                         entries=entries,
                     )
                     _open_panel(f"/panel/ariel/{initial_hash}")
-                    stack.wait_settled()
+                    # The hub may already show ARIEL at its default page when
+                    # the open lands; the open then loads its url as a new
+                    # document. Until that one has loaded, the old document's
+                    # list and ready look like the opened ARIEL's.
+                    page.wait_for_function(_IFRAME_AT_ITS_SRC, arg=_ARIEL_IFRAME, timeout=20_000)
                     # ARIEL's router announces itself only after the delayed
                     # capabilities answer; the hub navigates in place from then on.
                     page.wait_for_function("() => window.__navReady > 0", timeout=20_000)
+                    stack.wait_settled()
                     assert ariel_app.state.capabilities_delayed >= 1
                     yield stack
                     page.close()
