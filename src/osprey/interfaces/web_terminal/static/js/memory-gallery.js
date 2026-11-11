@@ -59,6 +59,8 @@ class MemoryGallery {
     this.currentView = 'gallery';
     this.editDirty = false;
     this.loaded = false;
+    // Bumped by reset(); a listing that lands under an older generation is dropped.
+    this.generation = 0;
     this.searchQuery = '';
     // Set from the list response; gauges are drawn only after it arrives.
     /** @type {number} */
@@ -148,11 +150,18 @@ class MemoryGallery {
   // ---- Data Loading ---- //
 
   async load() {
+    const generation = this.generation;
     /** @type {HTMLElement} */ (this.loadingEl).style.display = 'flex';
     /** @type {HTMLElement} */ (this.errorEl).style.display = 'none';
 
     try {
       const data = await fetchMemoryFilesShared();
+      // A reset while the listing was in flight discarded it: the next
+      // activation lists afresh.
+      if (generation !== this.generation) {
+        /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
+        return;
+      }
       this.files = data.files || [];
       this.lineLimit = data.line_limit;
       this.lineWarning = data.line_warning;
@@ -161,6 +170,7 @@ class MemoryGallery {
       this.loaded = true;
     } catch (e) {
       /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
+      if (generation !== this.generation) return;
       /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
       /** @type {HTMLElement} */ (this.errorEl).textContent =
         `Failed to load memory files: ${/** @type {Error} */ (e).message}`;
@@ -535,6 +545,7 @@ class MemoryGallery {
   // ---- State Reset ---- //
 
   reset() {
+    this.generation += 1;
     this.files = [];
     this.selectedFile = null;
     this.currentView = 'gallery';
