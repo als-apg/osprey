@@ -18,18 +18,34 @@ from osprey.apps.sdk.testing._facility import (
     sr_deck,
     write_tree,
 )
+from osprey.apps.sdk.testing._measured import (
+    LINE_GROUPS,
+    SR_GROUPS,
+    calibrated_setting,
+    measured_sr_deck,
+    measured_tree,
+    with_correctors,
+    with_rf,
+)
 
 __all__ = [
     "BPM",
+    "LINE_GROUPS",
     "LINE_TWISS",
     "QUAD",
     "READING",
     "SETTING",
+    "SR_GROUPS",
     "Deck",
+    "calibrated_setting",
     "deck_tree",
     "line_deck",
+    "measured_sr_deck",
+    "measured_tree",
     "model",
     "plain_tree",
     "sr_deck",
+    "with_correctors",
+    "with_rf",
     "write_tree",
 ]
