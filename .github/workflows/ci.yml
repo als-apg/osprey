@@ -626,7 +626,8 @@ jobs:
       run: uv run osprey vendor fetch --quiet
 
     # Azure's apt mirror some days serves the ~140 MB of debs at 30-100 kB/s, so the debs and browsers
-    # are cached, apt prefers archive.ubuntu.com, and each install has a short timeout.
+    # are cached, apt prefers archive.ubuntu.com, and each install has a short timeout
+    # (scripts/ci/configure_playwright_apt.sh).
     - &playwright-cache-key
       name: Resolve Playwright browser cache key
       id: playwright-key
@@ -638,22 +639,7 @@ jobs:
 
     - &playwright-apt
       name: Configure apt for the Playwright system deps
-      # The snippet name must sort after the image's `zz-retries`.
-      run: |
-        sudo sed -i -E \
-          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
-          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
-          /etc/apt/apt-mirrors.txt
-        cat /etc/apt/apt-mirrors.txt
-        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
-          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
-        mkdir -p "$HOME/apt-archives/partial"
-        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
-        Dir::Cache::Archives "$HOME/apt-archives";
-        APT::Keep-Downloaded-Packages "true";
-        Acquire::http::Timeout "15";
-        Acquire::Retries "3";
-        EOF
+      run: scripts/ci/configure_playwright_apt.sh
 
     - &playwright-cache-restore
       name: Restore Playwright browsers and apt debs
@@ -761,6 +747,7 @@ jobs:
       env:
         STAGE: ${{ runner.temp }}/rendered-baselines
       run: |
+        rm -rf "$STAGE"
         mkdir -p "$STAGE"
         git ls-files --others --modified --exclude-standard -- 'tests/interfaces/design_system/baselines/*.png' |
           while IFS= read -r png; do
@@ -936,8 +923,7 @@ jobs:
         PRESET: ${{ matrix.preset }}
         # Over /tmp's tmpfs quota otherwise; see "Run unit tests".
         TMPDIR: ${{ runner.temp }}
-      run: |
-        uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
+      run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 
   agentic-per-preset:
     name: Tier 3 — Agentic flow (${{ matrix.preset }})
@@ -966,29 +952,7 @@ jobs:
       name: Pre-flight LLM endpoint reachability check
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        if [ -z "${ALS_APG_API_KEY:-}" ]; then
-          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
-          echo "   (Check repo secrets; every LLM-calling lane needs it.)"
-          exit 1
-        fi
-        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
-        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
-        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
-          -H "Content-Type: application/json" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d "{\"model\":\"$OSPREY_E2E_FORCE_MODEL\",\"max_tokens\":4,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}")
-        if [ "$HTTP_CODE" != "200" ]; then
-          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
-          echo "   Body (first 500 chars):"
-          head -c 500 /tmp/probe.txt; echo
-          echo "   If 401/403: rotate ALS_APG_API_KEY or check IP allowlist."
-          echo "   If 5xx: ALS-APG outage — retry, or contact the proxy admin."
-          exit 1
-        fi
-        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+      run: scripts/ci/llm_preflight_probe.sh
 
     - *install-pinned-cli
 
@@ -1169,8 +1133,7 @@ jobs:
         name: agent-record-e2e-${{ matrix.backend }}
     - name: Clean up any stranded stack resources
       if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh osprey-e2e-agent-record
+      run: scripts/ci/cleanup_stacks.sh osprey-e2e-agent-record
 
   benchmarks:
     name: On-Demand Benchmarks (channel-finder MCP + Tier 2 model)
@@ -1198,8 +1161,7 @@ jobs:
       timeout-minutes: 30
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-      run: |
-        uv run pytest tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py -v --tb=short
+      run: uv run pytest tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py -v --tb=short
 
     - name: Run Tier 2 model benchmarks
       if: ${{ !cancelled() }}
@@ -1215,10 +1177,12 @@ jobs:
     name: Deploy E2E Test (build + deploy pipeline)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # stack-e2e's gate, spelled out: its anchor is defined further down.
-    if: >-
+    # Same-repo only even without secrets: house policy for every image build-and-deploy job. No base
+    # clause: the trigger admits only main and epic/** (test_same_repo_gate_matches_the_trigger_bases),
+    # so a safety lane also runs on epic phase PRs, not first after the epic merged.
+    if: &same-repo-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request'
-        && github.event.pull_request.head.repo.full_name == github.repository)
+      && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     env:
       # Not a secret: `osprey up`'s .env preflight refuses an empty provider key, and nothing here calls a
@@ -1258,8 +1222,7 @@ jobs:
 
     - name: Clean up any stranded hello-world resources
       if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh hello-world-test
+      run: scripts/ci/cleanup_stacks.sh hello-world-test
 
   dispatch-stack-e2e:
     name: Dispatch Stack E2E — ${{ matrix.name }}
@@ -1363,20 +1326,13 @@ jobs:
       if: always()
       env:
         CLEANUP: ${{ matrix.cleanup }}
-      run: |
-        scripts/ci/cleanup_stacks.sh "$CLEANUP"
+      run: scripts/ci/cleanup_stacks.sh "$CLEANUP"
 
   stack-e2e:
     name: Stack E2E — ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
-    # Same-repo only even without secrets: house policy for every image build-and-deploy job. No base
-    # clause: the trigger admits only main and epic/** (test_same_repo_gate_matches_the_trigger_bases),
-    # so a safety lane also runs on epic phase PRs, not first after the epic merged.
-    if: &same-repo-pr-or-secret-revalidation >-
-      (github.event_name == 'pull_request'
-      && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *same-repo-pr-or-secret-revalidation
     # One cell per stack module, none with a model secret (test_secret_free_lane_has_no_llm_secret).
     # `lane` names its diagnostics, `cleanup` the stranded resources it removes.
     strategy:
@@ -1544,23 +1500,19 @@ jobs:
 
     - name: Run ORM roundtrip E2E
       timeout-minutes: 45
-      run: |
-        uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
+      run: uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
 
     - name: Run grid scan roundtrip E2E
       timeout-minutes: 40
-      run: |
-        uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
+      run: uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
 
     - name: Run orbit bump sweep roundtrip E2E
       timeout-minutes: 45
-      run: |
-        uv run pytest tests/e2e/test_bump_roundtrip.py -v --tb=short
+      run: uv run pytest tests/e2e/test_bump_roundtrip.py -v --tb=short
 
     - name: Run preflight probe E2E
       timeout-minutes: 45
-      run: |
-        uv run pytest tests/e2e/test_preflight_probe.py -v --tb=short
+      run: uv run pytest tests/e2e/test_preflight_probe.py -v --tb=short
     - *capture-diagnostics
     - name: Clean up any stranded stack resources
       if: always()
@@ -1857,8 +1809,7 @@ jobs:
       if: matrix.runtime == 'docker'
       timeout-minutes: 15
       # `-m 'not qmd'`: that test refuses to skip without a qmd image; qmd-sidecar-e2e runs it.
-      run: |
-        uv run pytest tests/e2e/test_deploy_lifecycle.py -m 'not qmd' -v --tb=short
+      run: uv run pytest tests/e2e/test_deploy_lifecycle.py -m 'not qmd' -v --tb=short
 
     - name: Run multi-user deploy lifecycle E2E (podman)
       if: matrix.runtime == 'podman'
@@ -1887,8 +1838,7 @@ jobs:
       if: always()
       env:
         RUNTIME: ${{ matrix.runtime }}
-      run: |
-        ENGINE="$RUNTIME" scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
+      run: ENGINE="$RUNTIME" scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
   full-chain-auth-e2e:
     name: Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)
@@ -1964,8 +1914,7 @@ jobs:
         CONTAINER_RUNTIME: podman
       # No `podman system service` / DOCKER_HOST, unlike the podman lifecycle lane: podman-compose reads
       # no socket, and the variable would be the only difference between step 0 and this step.
-      run: |
-        uv run pytest tests/e2e/test_two_shape_boot.py -v --tb=short
+      run: uv run pytest tests/e2e/test_two_shape_boot.py -v --tb=short
 
     - *capture-diagnostics-podman
 
@@ -2042,8 +1991,7 @@ jobs:
     # Before the image cleanup: a surviving container pins its image.
     - name: Clean up any stranded shared-bundle e2e resources
       if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
+      run: scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
     - name: Clean up the sidecar images
       if: always()
@@ -2212,8 +2160,7 @@ jobs:
       if: always() && matrix.stack
       env:
         STACK: ${{ matrix.stack }}
-      run: |
-        scripts/ci/cleanup_stacks.sh "$STACK"
+      run: scripts/ci/cleanup_stacks.sh "$STACK"
 
     - name: Clean up the target images
       if: always()

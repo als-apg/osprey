@@ -222,14 +222,13 @@ SAME_REPO_CLAUSE = "github.event.pull_request.head.repo.full_name == github.repo
 
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
 E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
-PROBE_BASE_VAR = "ALS_APG_PROBE_BASE"
 PROBE_KEY_ENV = "ALS_APG_API_KEY"
 PROBE_TARGET_PATH = "/v1/messages"
-# `ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://…}"` — the `:-default` is optional.
-PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_ENV}(:-[^}}]*)?\}}"')
-# Guards against silent under-discovery: if probe steps are renamed or reshaped
-# so the finder stops matching them, the count check fails loudly instead of
-# passing over an empty list. Raise this when probe lanes are added.
+#: The one gateway probe; its base-URL handling is tested in tests/scripts/test_llm_preflight_probe.py.
+PROBE_SCRIPT = "scripts/ci/llm_preflight_probe.sh"
+# Guards against silent under-discovery: if probe steps stop calling the script
+# the count check fails loudly instead of passing over an empty list. Raise this
+# when probe lanes are added.
 EXPECTED_MIN_ALS_APG_PROBES = 8
 
 #: Where the scheduler override is defined. Both conftests import it by name
@@ -4367,14 +4366,9 @@ def test_record_lane_runs_on_every_pull_request_without_a_key__mutation_adds_a_l
 
 
 def _als_apg_probe_steps(wf: dict[str, Any]) -> list[tuple[str, str, str]]:
-    """Every step that preflight-probes the als-apg gateway, as
-    ``(job, step name, run text)``.
-
-    Discovery keys on what a probe *does* — POST an authenticated request to
-    ``/v1/messages`` — not on whether it happens to define
-    ``ALS_APG_PROBE_BASE``. That distinction is the whole point: a newly added
-    probe that hardcodes its URL defines no such variable, so keying on the
-    variable would skip exactly the step the guard exists to catch.
+    """Every step that probes the als-apg gateway inline, as ``(job, step name,
+    run text)``: keyed on what a probe *does*, POST an authenticated request to
+    ``/v1/messages``, so a hand-rolled probe is found whatever it is named.
     """
     found: list[tuple[str, str, str]] = []
     for job_name, job in _jobs(wf).items():
@@ -4481,62 +4475,37 @@ def test_the_workflow_names_the_end_to_end_provider__mutation_overrides_it_in_a_
         test_the_workflow_names_the_end_to_end_provider(mutated)
 
 
-def test_every_als_apg_probe_honors_the_base_url_override(workflow: dict[str, Any]) -> None:
-    """Each probe must derive its base from ``$ALS_APG_BASE_URL`` (a baked-in
-    default after ``:-`` is fine) and must aim curl at that derived variable.
-
-    Both halves are load-bearing and fail independently: a probe can read the
-    override into ``ALS_APG_PROBE_BASE`` and then still curl a literal URL,
-    which is how a hardcoded endpoint survived review once already. Such a
-    lane fails against a perfectly healthy gateway, and reads as an outage."""
-    probes = _als_apg_probe_steps(workflow)
+def test_every_als_apg_probe_runs_the_shared_script(workflow: dict[str, Any]) -> None:
+    """Every gateway probe is the one script, which derives its base from
+    ``$ALS_APG_BASE_URL`` (tests/scripts/test_llm_preflight_probe.py). An inline
+    probe could curl a literal URL, which is how a hardcoded endpoint survived
+    review once already: such a lane fails against a healthy gateway and reads
+    as an outage."""
+    inline = [f"{job} / {step}" for job, step, _ in _als_apg_probe_steps(workflow)]
+    assert inline == [], f"inline als-apg probes; call {PROBE_SCRIPT} instead: {inline}"
+    probes = [
+        job
+        for job, spec in _jobs(workflow).items()
+        for step in spec.get("steps") or []
+        if str(step.get("run", "")).strip() == PROBE_SCRIPT
+    ]
     assert len(probes) >= EXPECTED_MIN_ALS_APG_PROBES, (
-        f"expected at least {EXPECTED_MIN_ALS_APG_PROBES} als-apg probe steps in ci.yml, "
+        f"expected at least {EXPECTED_MIN_ALS_APG_PROBES} steps running {PROBE_SCRIPT}, "
         f"found {len(probes)} — discovery has drifted and this guard is now vacuous"
     )
-    for job_name, step_name, run in probes:
-        where = f"{job_name} / {step_name}"
-        assert PROBE_BASE_ASSIGNMENT.search(run), (
-            f"{where}: als-apg probe must derive its base from "
-            f'${{{ALS_APG_BASE_URL_ENV}}} (e.g. ALS_APG_PROBE_BASE="${{{ALS_APG_BASE_URL_ENV}'
-            ':-https://default}"), so the repository variable can retarget it'
-        )
-        target_lines = [line for line in run.splitlines() if PROBE_TARGET_PATH in line]
-        assert target_lines, f"{where}: probe target line vanished"
-        for line in target_lines:
-            assert f"${PROBE_BASE_VAR}" in line, (
-                f"{where}: probe must curl $"
-                + PROBE_BASE_VAR
-                + f", not a literal URL: {line.strip()}"
-            )
 
 
-def test_every_als_apg_probe_honors_the_base_url_override__mutation_hardcodes_base() -> None:
-    """The original bug's exact shape: the assignment stops reading the
-    override and pins a URL instead."""
+def test_every_als_apg_probe_runs_the_shared_script__mutation_inlines_a_probe() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    job_name, step_name, _ = _als_apg_probe_steps(mutated)[0]
-    step = _find_named_step(mutated, job_name, step_name)
-    step["run"] = PROBE_BASE_ASSIGNMENT.sub(
-        f'{PROBE_BASE_VAR}="https://hardcoded.example"', step["run"], count=1
+    _jobs(mutated)[E2E_TESTS_JOB]["steps"].append(
+        {
+            "name": "hand-rolled probe",
+            "run": f'curl -X POST "https://hardcoded.example{PROBE_TARGET_PATH}" '
+            f'-H "Authorization: Bearer ${PROBE_KEY_ENV}"',
+        }
     )
-    with pytest.raises(AssertionError, match="must derive its base"):
-        test_every_als_apg_probe_honors_the_base_url_override(mutated)
-
-
-def test_every_als_apg_probe_honors_the_base_url_override__mutation_curls_literal_url() -> None:
-    """The subtler half: the override is still read into the variable — so a
-    reader skimming the assignment sees the right thing — while curl ignores
-    it and hits a literal endpoint."""
-    mutated = copy.deepcopy(_load_workflow())
-    job_name, step_name, _ = _als_apg_probe_steps(mutated)[0]
-    step = _find_named_step(mutated, job_name, step_name)
-    step["run"] = step["run"].replace(
-        f'"${PROBE_BASE_VAR}{PROBE_TARGET_PATH}"', f'"https://hardcoded.example{PROBE_TARGET_PATH}"'
-    )
-    assert PROBE_BASE_ASSIGNMENT.search(step["run"]), "the assignment must survive this mutation"
-    with pytest.raises(AssertionError, match="not a literal URL"):
-        test_every_als_apg_probe_honors_the_base_url_override(mutated)
+    with pytest.raises(AssertionError, match="inline als-apg probes"):
+        test_every_als_apg_probe_runs_the_shared_script(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -5096,6 +5065,16 @@ def test_every_engine_is_installed__mutation_drops_the_webkit_install() -> None:
 _PLAYWRIGHT_INSTALL_STEPS = ("Install Playwright chromium", "Install Playwright webkit")
 _PLAYWRIGHT_INSTALL_CAP_MINUTES = 10
 _APT_ARCHIVES_SETTING = re.compile(r'Dir::Cache::Archives\s+"\$HOME/([^"]+)"')
+#: Writes the apt.conf snippet that names the debs directory.
+_PLAYWRIGHT_APT_SCRIPT = "scripts/ci/configure_playwright_apt.sh"
+
+
+def _run_with_apt_script(step: dict[str, Any]) -> str:
+    """A step's ``run`` text, with the apt script's own text where it calls it."""
+    run = str(step.get("run", ""))
+    if _PLAYWRIGHT_APT_SCRIPT in run:
+        run += (CI_YML.parents[2] / _PLAYWRIGHT_APT_SCRIPT).read_text(encoding="utf-8")
+    return run
 
 
 def _browser_cache_problems(wf: dict[str, Any]) -> list[str]:
@@ -5119,7 +5098,7 @@ def _browser_cache_problems(wf: dict[str, Any]) -> list[str]:
     installs = where(lambda s: s.get("name") in _PLAYWRIGHT_INSTALL_STEPS)
     suites = where(lambda s: _BROWSER_PYTEST_INVOCATION in s.get("run", ""))
     archives = [
-        m.group(1) for s in steps for m in _APT_ARCHIVES_SETTING.finditer(str(s.get("run", "")))
+        m.group(1) for s in steps for m in _APT_ARCHIVES_SETTING.finditer(_run_with_apt_script(s))
     ]
     if len(restores) != 1 or len(saves) != 1 or len(archives) != 1:
         return [f"restores={restores} saves={saves} apt archive dirs={archives}"]
@@ -12314,7 +12293,7 @@ def test_no_run_script_absorbs_a_step_key(workflow: dict[str, Any]) -> None:
 def test_no_run_script_absorbs_a_step_key__mutation_splices_a_key() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP)
-    step["run"] += "engine: docker\n"
+    step["run"] = step["run"].rstrip("\n") + "\nengine: docker\n"
     with pytest.raises(AssertionError, match="engine: docker"):
         test_no_run_script_absorbs_a_step_key(mutated)
 
