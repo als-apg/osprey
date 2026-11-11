@@ -216,9 +216,12 @@ def test_a_port_already_bound_is_never_yielded(monkeypatch, kind):
             pass
 
 
-def test_the_lock_is_released_when_the_block_ends():
+def test_the_lock_is_released_when_the_block_ends(monkeypatch, tmp_path):
+    # The lock namespace is this test's own, so only this block could hold the lock.
+    monkeypatch.setattr(_ports, "LOCK_DIR", tmp_path / "locks")
     with reserved_port() as port:
         pass
+    assert lock_path(port).parent == tmp_path / "locks"
     fd = os.open(lock_path(port), os.O_RDONLY)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

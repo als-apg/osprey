@@ -534,15 +534,15 @@ class TestStop:
         assert child.starts == 1
 
     def test_stop_during_a_backoff_cancels_the_respawn(self, harness: Harness) -> None:
-        child = harness.supervise("exit", 1, backoff_s=(1.0,))
+        child = harness.supervise("exit", 1, backoff_s=(3600.0,))
         child.start()
         wait_until(lambda: child.exit_status == 1 and child.pid is None)
+        watcher = child._watcher
+        assert watcher is not None
 
-        began = time.monotonic()
         child.stop()
-        assert time.monotonic() - began < 0.9, "stop does not wait the backoff out"
+        wait_until(lambda: not watcher.is_alive(), what="the backoff's wait to end on stop")
 
-        time.sleep(1.5)
         assert child.starts == 1
         assert harness.give_ups == 0
         assert not child.running
