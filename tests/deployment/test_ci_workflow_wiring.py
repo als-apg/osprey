@@ -4110,6 +4110,24 @@ def test_model_free_lane_runs_on_fork_pull_requests__mutation_re_adds_the_same_r
         test_model_free_lane_runs_on_fork_pull_requests(mutated)
 
 
+def test_record_lane_shares_the_model_free_gate(workflow: dict[str, Any]) -> None:
+    """The record replay is model-free too and pulls only public images: it runs on
+    the same pull requests as the model-free lane, forks included (one anchor)."""
+    jobs = _jobs(workflow)
+    assert jobs[RECORD_E2E_JOB]["if"] == jobs[NO_MODEL_JOB]["if"], (
+        f"'{RECORD_E2E_JOB}' gates differently from '{NO_MODEL_JOB}': "
+        f"{jobs[RECORD_E2E_JOB]['if']!r}"
+    )
+
+
+def test_record_lane_shares_the_model_free_gate__mutation_same_repo_only() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[RECORD_E2E_JOB]
+    job["if"] = job["if"] + f" && {SAME_REPO_CLAUSE}"
+    with pytest.raises(AssertionError, match="gates differently"):
+        test_record_lane_shares_the_model_free_gate(mutated)
+
+
 def test_model_free_lane_names_every_file_it_owns(workflow: dict[str, Any]) -> None:
     """Named by path rather than by marker because a path that stops existing
     exits pytest non-zero and reds the step, while a marker that stops matching

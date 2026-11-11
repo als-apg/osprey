@@ -1077,7 +1077,8 @@ jobs:
   e2e-no-model:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)
     runs-on: ubuntu-latest
-    if: >-
+    # Any PR, forks included: no secret, no image push.
+    if: &any-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request')
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     timeout-minutes: 30
@@ -1127,9 +1128,7 @@ jobs:
   agent-record-e2e:
     name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
     runs-on: ubuntu-latest
-    if: >-
-      (github.event_name == 'pull_request')
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    if: *any-pr-or-secret-revalidation
     # One case per runner: cases share a per-host project name and port block. The wiring test holds the cells.
     strategy:
       fail-fast: false
