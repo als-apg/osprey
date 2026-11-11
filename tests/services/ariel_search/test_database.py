@@ -407,6 +407,65 @@ class TestCoreMigration:
         assert isinstance(migration, BaseMigration)
 
 
+class _Connection:
+    """What the pool keeps of a connection: its idle state and its close."""
+
+    def __init__(self) -> None:
+        import psycopg
+
+        self.pgconn = type(
+            "PGconn", (), {"transaction_status": psycopg.pq.TransactionStatus.IDLE}
+        )()
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class TestCreateConnectionPoolOpen:
+    """The open keeps no clock of its own; a refused store fails at once."""
+
+    async def test_a_store_slower_to_accept_than_five_seconds_still_opens(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+
+        import psycopg
+
+        from osprey.services.ariel_search.database.connection import create_connection_pool
+
+        made: list[_Connection] = []
+
+        async def connect(conninfo: str, **_kwargs: object) -> _Connection:  # noqa: ARG001
+            # The store accepts its first connection only after the five
+            # seconds the open used to give it.
+            if not made:
+                await asyncio.sleep(5.5)
+            made.append(_Connection())
+            return made[-1]
+
+        monkeypatch.setattr(psycopg.AsyncConnection, "connect", connect)
+        pool = await create_connection_pool(DatabaseConfig(uri="postgresql://slow/ariel"))
+        try:
+            # Returned with its first connection in it, ready for the first client.
+            assert pool.get_stats().get("pool_available") == 1
+            assert len(made) == 1
+        finally:
+            await pool.close()
+
+    async def test_a_refused_connection_raises_its_own_error_at_once(self) -> None:
+        import psycopg
+
+        from osprey.services.ariel_search.database.connection import create_connection_pool
+        from osprey_connectors_tests._harness._ports import reserved_port
+
+        # A reserved port nothing binds: the connection is refused, not slow.
+        with reserved_port() as port:
+            uri = f"postgresql://ariel@127.0.0.1:{port}/ariel"
+            with pytest.raises(psycopg.OperationalError, match="refused"):
+                await create_connection_pool(DatabaseConfig(uri=uri))
+
+
 class TestDatabaseExports:
     """Tests for database module exports."""
 
