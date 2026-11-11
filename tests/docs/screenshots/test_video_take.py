@@ -1727,7 +1727,7 @@ def test_bootstrap_applies_the_layout_before_the_console_takes_focus(env) -> Non
     start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
     layout = _index(env.log, "layout")
     applied = env.log[layout]
-    assert applied[1]["active"] == "artifacts" and applied[1]["tiles"] == ["artifacts"]
+    assert applied[1]["active"] is None and applied[1]["tiles"] == ["artifacts"]
     assert _index(env.log, "widen") < layout < _index(env.log, "click")
 
 

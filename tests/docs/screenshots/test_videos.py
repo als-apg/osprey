@@ -240,7 +240,9 @@ def test_the_watchdog_starts_in_the_chat_with_knowledge_open() -> None:
 
 
 def test_the_landing_layout_is_what_its_take_has_always_shown() -> None:
-    assert LANDING.layout == Layout(surface="terminal", active="artifacts", tiles=("artifacts",))
+    """The Artifacts tile has no sidebar entry, so the layout names none as active."""
+    assert LANDING.layout == Layout(surface="terminal", active=None, tiles=("artifacts",))
+    validate_videos([LANDING])
 
 
 def test_history_is_refused_on_the_terminal() -> None:

@@ -125,8 +125,8 @@ VIDEOS: tuple[DocVideo, ...] = (
         stem="osprey-demo",
         storyboard=LANDING,
         # What the landing take has always shown: the Claude Code terminal
-        # beside the Artifacts tile.
-        layout=Layout(surface="terminal", active="artifacts", tiles=("artifacts",)),
+        # beside the Artifacts tile, which has no sidebar entry of its own.
+        layout=Layout(surface="terminal", active=None, tiles=("artifacts",)),
         pages=("index.rst",),
         poster_step="rotate",
         window_s=(50.0, 80.0),
