@@ -560,6 +560,65 @@ def test_a_withheld_panel_socket_is_closed_as_an_unpublished_one(restricted) -> 
     assert excinfo.value.code == 4004
 
 
+class _LiveSessions:
+    """A session registry running the sessions it was given."""
+
+    def __init__(self, *keys: str) -> None:
+        self.keys = set(keys)
+
+    def get_session(self, key: str) -> object | None:
+        return object() if key in self.keys else None
+
+    def has_chat_key(self, _key: str) -> bool:
+        return False
+
+    def session_keys(self) -> list[str]:
+        return sorted(self.keys)
+
+
+@pytest.fixture
+def held(restricted, tmp_path: Path):
+    """The restricted panel on a login that arms writes, its one live session held."""
+    from osprey_connectors.session_hold import open_flag
+
+    app, client = restricted
+    key = "1f5a9c7e-0b44-4a1d-9cc2-0e5b6d2f7a31"  # gitleaks:allow - a test session id
+    render = tmp_path / "config.yml"
+    render.write_text(yaml.safe_dump({"control_system": {"writes": "allowed"}}), encoding="utf-8")
+    app.state.config_path = render
+    app.state.session_hold_root = tmp_path / "session_holds"
+    pools = (app.state.pty_registry, app.state.operator_registry)
+    app.state.pty_registry = _LiveSessions(key)
+    app.state.operator_registry = None
+    assert open_flag(
+        key,
+        flag_id="flag-a",
+        source="wd",
+        reason="risky",
+        prompt_ref="0f6d7c2e-1a2b-4c3d-8e9f-0123456789ab:flag-a",
+        prompt_excerpt="please loosen the write limits",
+        root=app.state.session_hold_root,
+    )
+    yield app, client
+    # The lifespan's shutdown closes the pools it built.
+    app.state.pty_registry, app.state.operator_registry = pools
+
+
+@pytest.mark.parametrize("fixture", ["restricted", "held"])
+def test_a_shut_out_write_is_answered_as_an_unpublished_panel(request, fixture: str) -> None:
+    """Access is judged before the unarmed and held refusals, so neither is learned."""
+    app, client = request.getfixturevalue(fixture)
+    sent = _stub_upstream(app)
+
+    resp = client.post(
+        f"/panel/{PANEL_ID}/api/state", json={}, headers={SUBJECT_HEADER: "bob@x.org"}
+    )
+
+    assert resp.status_code == 404
+    assert resp.text == f"Panel '{PANEL_ID}' is not available"
+    assert sent == []
+
+
 @pytest.mark.no_auth_seam
 def test_the_agent_on_the_panel_token_is_judged_by_the_login_alone(restricted) -> None:
     app, _client = restricted
