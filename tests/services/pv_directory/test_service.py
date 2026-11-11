@@ -9,6 +9,7 @@ deployment's baseline when there is none.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import importlib
 import json
 import sys
@@ -36,6 +37,7 @@ _NEW_MODULES = (
 VA_BUILD = {"type": "virtual_accelerator"}
 LIVE_BUILD = {"type": "epics"}
 FACILITY = {"type": "channelfinder", "settings": {"url": "http://cf.example", "timeout_s": 0.3}}
+_ROUTES = Path(__file__).parents[2] / "interfaces/channel_finder/fixtures/directory_routes.json"
 
 
 # -- fakes --------------------------------------------------------------------
@@ -610,14 +612,65 @@ async def test_no_source_form_at_standin(tmp_path: Path, built: list[Any], recor
 
     expected = _connectors.unavailable_payload(_connectors.NO_SOURCE_REASON, target="standin")
 
-    assert await directory.search(words="SR") == expected
-    assert await directory.count() == expected
+    assert await directory.search(words="SR") == _no_source_page(expected)
+    assert await directory.count() == {**expected, "total": None}
     described = await directory.describe("SR:BPM1")
     assert {key: described[key] for key in expected} == expected
     assert expected["source"]["rehearsal"] is True
     assert await directory.snapshot() is None
     assert built == []
     await directory.aclose()
+
+
+def _no_source_page(form: dict[str, Any]) -> dict[str, Any]:
+    """The whole ``DirectoryPage`` a search answers around the No-source *form*."""
+    return {
+        **form,
+        "searched": "",
+        "request": "",
+        "total": None,
+        "rows": [],
+        "truncated": False,
+        "partial": [],
+        "facets": None,
+        "facets_reason": None,
+    }
+
+
+async def test_a_search_with_no_source_on_live_is_the_shared_fixture_page(
+    tmp_path: Path, record: _Record
+) -> None:
+    record.move("live", 1)
+    section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
+    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+
+    shared = json.loads(_ROUTES.read_text(encoding="utf-8"))["search no source"]
+
+    assert await directory.search(words="SR") == shared
+    await directory.aclose()
+
+
+async def test_every_search_outcome_carries_the_page_fields(
+    tmp_path: Path, record: _Record
+) -> None:
+    page_keys = {field.name for field in dataclasses.fields(contract.DirectoryPage)}
+    FakeDirectory.rows = [_row("SR:BPM1")]
+    record.move("live", 1)
+    found = await _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path).search(words="SR")
+    FakeDirectory.search_delay = 1.0
+    late = await _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path).search(words="SR")
+    no_source = await _service(_config(tmp_path, LIVE_BUILD, {"display": {}}), tmp_path).search(
+        words="SR"
+    )
+
+    assert found["outcome"] == "found"
+    assert (late["outcome"], late["reason"]) == ("unavailable", "no answer within 0.3 s")
+    assert (no_source["outcome"], no_source["reason"]) == (
+        "unavailable",
+        _connectors.NO_SOURCE_REASON,
+    )
+    for answer in (found, late, no_source):
+        assert set(answer) == page_keys, answer["outcome"]
 
 
 @pytest.mark.parametrize(
@@ -756,8 +809,8 @@ async def test_modules_blocked_every_read_answers_the_floor(
     )
     expected = _connectors.unavailable_payload(_connectors.FLOOR_REASON, target="live")
 
-    assert await directory.search(words="SR") == expected
-    assert await directory.count() == expected
+    assert await directory.search(words="SR") == _no_source_page(expected)
+    assert await directory.count() == {**expected, "total": None}
     described = await directory.describe("SR:BPM1")
     assert {key: described[key] for key in expected} == expected
     assert await directory.backend("pv_directory") == (None, None, _connectors.FLOOR_REASON)

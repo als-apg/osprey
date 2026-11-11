@@ -262,7 +262,7 @@ class TestExport:
     def test_an_unavailable_search_answers_its_reason(self):
         class Unavailable(FakeService):
             async def search(self, **fields: Any) -> dict[str, Any]:
-                return {"outcome": "unavailable", "reason": "not available for this target"}
+                return copy.deepcopy(_FIXTURE["search no source"])
 
         resp = _client(Unavailable(count=_UNAVAILABLE)).get("/api/directory/export.csv")
 
