@@ -378,6 +378,14 @@ class TestReport:
         assert fake.writes() == []
 
 
-def test_the_spending_lane_map_has_the_eleven_lanes() -> None:
-    """Seven spending jobs; dispatch-stack-e2e hosts five lanes, one per cell."""
-    assert len(full_ci_on_main.SPENDING_LANES) == 11
+def test_every_spending_lane_names_a_job_of_the_recorded_run() -> None:
+    """Each lane's prefix (one per cell where a job hosts several lanes) matches a
+    recorded job, so the fixture keeps up with the names the workflow renders."""
+    names = [job["name"] for job in REVALIDATION_JOBS]
+    unmatched = {
+        lane: prefix
+        for lane, prefix in full_ci_on_main.SPENDING_LANES.items()
+        if not any(name.startswith(prefix) for name in names)
+    }
+    assert full_ci_on_main.SPENDING_LANES
+    assert unmatched == {}

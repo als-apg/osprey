@@ -646,7 +646,9 @@ def _hosts_over(paths: Sequence[str]) -> list[str]:
     """The checks with a derived scope and the CI lanes whose scope (a lane's
     ``modules``, where it names them) holds one of *paths*, a file or a
     directory, or lies beneath one of the directories: what runs the tests the
-    sweep deselects. A node id is read as its file."""
+    sweep deselects. A node id is read as its file. The shared e2e lane hosts
+    only the ``tests/e2e`` modules no other lane claims (``e2e_hosts``), so it is
+    named only where *paths* reach one of those."""
     paths = [path.partition("::")[0] for path in paths]
     inside = [candidate for path in paths for candidate in (path, path.rstrip("/") + "/")]
     above = tuple(path.rstrip("/") + "/" for path in paths)
@@ -655,11 +657,19 @@ def _hosts_over(paths: Sequence[str]) -> list[str]:
         return touches(inside, scope) or any(pattern.startswith(above) for pattern in scope)
 
     derived = [check for check in CHECKS if check.derive_scope]
-    files = repository_files() if derived else []
+    files = repository_files()
     checks = [c.id for c in derived if c.derive_scope and hosts(c.derive_scope(files))]
+    reached = [path for path in files if path in paths or path.startswith(above)]
+    e2e = {host for hosted in FRAMEWORK.e2e_hosts(LANES, reached).values() for host in hosted}
     # A lane's ``modules`` are the tests it runs where its scope names more.
     lanes = [
-        lane.id for lane in LANES if hosts(lane.scope if lane.modules is None else lane.modules)
+        lane.id
+        for lane in LANES
+        if lane.id in e2e
+        or (
+            lane.id != FRAMEWORK.SHARED_E2E_LANE
+            and hosts(lane.scope if lane.modules is None else lane.modules)
+        )
     ]
     return list(dict.fromkeys([*checks, *lanes]))
 

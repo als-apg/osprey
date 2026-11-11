@@ -141,7 +141,7 @@ def malformed(checks: tuple[Any, ...]) -> list[str]:
 
 def unhosted(unit: Any, checks: tuple[Any, ...], lanes: tuple[Any, ...]) -> list[str]:
     """The paths the sweep ignores that no check or lane has in its scope."""
-    scopes = {c.id: c.scope for c in checks} | {lane.job: lane.scope for lane in lanes}
+    scopes = {c.id: c.scope for c in checks} | {lane.id: lane.scope for lane in lanes}
     return [
         path
         for path, host in unit.ignores
@@ -813,6 +813,20 @@ def test_an_ignore_whose_host_is_gone_is_reported() -> None:
 def test_an_ignore_outside_its_hosts_scope_is_reported() -> None:
     moved = dataclasses.replace(fw.UNIT_SELECTION, ignores=(("tests/cli/test_main.py", "live-ca"),))
     assert unhosted(moved, check.CHECKS, check.LANES) == ["tests/cli/test_main.py"]
+
+
+def test_an_ignore_is_hosted_by_a_lane_id_not_by_the_job_its_cell_shares() -> None:
+    """Five lanes share ``dispatch-stack-e2e``; each hosts only its own module."""
+    ignores = (
+        ("tests/e2e/test_dispatch_deploy.py", "dispatch-deploy-e2e"),
+        ("tests/e2e/test_host_record_e2e.py", "dispatch-deploy-e2e"),
+        ("tests/e2e/test_plan_stack_agentic.py", "dispatch-stack-e2e"),
+    )
+    shared = dataclasses.replace(fw.UNIT_SELECTION, ignores=ignores)
+    assert unhosted(shared, check.CHECKS, check.LANES) == [
+        "tests/e2e/test_host_record_e2e.py",
+        "tests/e2e/test_plan_stack_agentic.py",
+    ]
 
 
 def workflow() -> dict[str, Any]:
@@ -2324,6 +2338,18 @@ def test_a_lane_naming_modules_hosts_only_those() -> None:
     assert "stack-e2e" in hosts
     assert "orm-roundtrip-e2e" not in hosts
     assert "benchmarks" in check._hosts_over(["tests/e2e/tier2/test_ariel_picture_run_id.py"])
+
+
+def test_the_shared_e2e_lane_hosts_only_the_modules_no_lane_claims() -> None:
+    """``e2e-tests`` leaves every claimed module to its lane, so it is named for
+    an unclaimed one and not for a claimed or off-CI one."""
+    claimed, unclaimed = "tests/e2e/test_tiled_roundtrip.py", "tests/e2e/test_ariel_search.py"
+    hosts = fw.e2e_hosts(check.LANES, [claimed, unclaimed])
+    assert hosts == {claimed: ("stack-e2e",), unclaimed: (fw.SHARED_E2E_LANE,)}
+    assert check._hosts_over([claimed]) == ["stack-e2e"]
+    assert check._hosts_over([unclaimed]) == [fw.SHARED_E2E_LANE]
+    assert fw.SHARED_E2E_LANE not in check._hosts_over([next(iter(fw.E2E_OFF_CI))])
+    assert {fw.SHARED_E2E_LANE, "stack-e2e"} <= set(check._hosts_over(["tests/e2e"]))
 
 
 def test_the_pytest_line_carries_a_named_node_id() -> None:
