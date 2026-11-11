@@ -25,6 +25,8 @@ _NEW_MODULES = (
 
 _CONTRACT_NAMES = (
     "ALARM_STALE_WINDOW_S",
+    "DEFAULT_DESCRIPTION_PROPERTY",
+    "ROW_FIELD_PROPERTIES",
     "AlarmConfigRecord",
     "AlarmHistoryRow",
     "AlarmLog",
@@ -102,6 +104,7 @@ def test_with_the_modules_every_name_is_bound() -> None:
 
     assert _connectors.DIRECTORY_CONNECTORS_AVAILABLE is True
     assert _connectors.Source is contract.Source
+    assert _connectors.ROW_FIELD_PROPERTIES is contract.ROW_FIELD_PROPERTIES
     assert _connectors.has_simulator is targets.has_simulator
     assert all(getattr(_connectors, name) is not None for name in _CONTRACT_NAMES)
 

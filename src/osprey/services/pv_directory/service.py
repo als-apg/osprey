@@ -31,9 +31,11 @@ from pathlib import Path
 from typing import Any
 
 from osprey.services.pv_directory._connectors import (
+    DEFAULT_DESCRIPTION_PROPERTY,
     DIRECTORY_CONNECTORS_AVAILABLE,
     FLOOR_REASON,
     NO_SOURCE_REASON,
+    ROW_FIELD_PROPERTIES,
     DirectoryPage,
     Outcome,
     SearchQuery,
@@ -63,15 +65,6 @@ _CACHE_SIZE = 32
 #: How far past its deadline an alarm-feed probe may run before it is cut off.
 _PROBE_GRACE_S = 1.0
 
-#: The row fields the directory fills from a property, by that property's name.
-_ROW_PROPERTIES = {
-    "status": "pvStatus",
-    "record_type": "recordType",
-    "ioc": "iocName",
-    "host": "hostName",
-    "last_announced": "time",
-}
-_DEFAULT_DESCRIPTION_PROPERTY = "recordDesc"
 _FACETS = ("origin", "ioc", "record_type")
 
 
@@ -148,7 +141,7 @@ class DirectoryService:
         facets_reason: str | None = None
         marked: list[Any] | None = None
         if isinstance(fetched, _FullSet):
-            marked = self._marked(fetched.rows)
+            marked = self._marked(backend, fetched.rows)
             facets = _facets(marked, query.origin)
         else:
             facets_reason = fetched.reason
@@ -159,7 +152,7 @@ class DirectoryService:
         if query.origin:
             fields_out = self._origin_page(query, marked, fetched)
         else:
-            fields_out = self._server_page(_result(page, late), total, partial)
+            fields_out = self._server_page(backend, _result(page, late), total, partial)
             if fields_out.get("total") is None:
                 fields_out["total"] = total
         payload: dict[str, Any] = as_payload(
@@ -193,7 +186,9 @@ class DirectoryService:
             )
             await _cancel([count])
             if isinstance(answer, _FullSet):
-                answer = sum(row.origin in query.origin for row in self._marked(answer.rows))
+                answer = sum(
+                    row.origin in query.origin for row in self._marked(backend, answer.rows)
+                )
         else:
             answer = await self._bounded(self._count(at, backend, server, deadline), deadline)
         if not isinstance(answer, int):
@@ -230,7 +225,7 @@ class DirectoryService:
         hidden = self._hidden()
         record = dataclasses.replace(
             answer,
-            row=self._hide_row(dataclasses.replace(answer.row, origin=origin), hidden),
+            row=self._hide_row(backend, dataclasses.replace(answer.row, origin=origin), hidden),
             properties={k: v for k, v in answer.properties.items() if k not in hidden},
         )
         inactive = record.row.status == "Inactive"
@@ -421,7 +416,7 @@ class DirectoryService:
         }
 
     def _server_page(
-        self, page: Any, total: int | None, partial: list[Mapping[str, str]]
+        self, backend: Any, page: Any, total: int | None, partial: list[Mapping[str, str]]
     ) -> dict[str, Any]:
         """The page the server answered, its rows marked."""
         if isinstance(page, Unavailable):
@@ -437,18 +432,19 @@ class DirectoryService:
             "outcome": page.outcome,
             "request": page.request,
             "total": page.total if total is None else total,
-            "rows": self._marked(page.rows),
+            "rows": self._marked(backend, page.rows),
             "truncated": page.truncated,
             "reason": page.reason,
         }
 
-    def _marked(self, rows: Iterable[Any]) -> list[Any]:
+    def _marked(self, backend: Any, rows: Iterable[Any]) -> list[Any]:
         """*rows* with their origin marks and without hidden properties."""
         rows = list(rows)
         marks = mark([row.name for row in rows], dict(self._config))
         hidden = self._hidden()
         return [
-            self._hide_row(dataclasses.replace(row, origin=marks[row.name]), hidden) for row in rows
+            self._hide_row(backend, dataclasses.replace(row, origin=marks[row.name]), hidden)
+            for row in rows
         ]
 
     def _hidden(self) -> frozenset[str]:
@@ -457,11 +453,17 @@ class DirectoryService:
             return frozenset()
         return frozenset(name for name in names if isinstance(name, str))
 
-    def _hide_row(self, row: Any, hidden: frozenset[str]) -> Any:
+    def _hide_row(self, backend: Any, row: Any, hidden: frozenset[str]) -> Any:
+        """*row* with the fields filled from a hidden property cleared.
+
+        The description's property is the one *backend* was built with.
+        """
         if not hidden:
             return row
-        description = self._section.get("description_property") or _DEFAULT_DESCRIPTION_PROPERTY
-        by_property = {**_ROW_PROPERTIES, "description": description}
+        description = (
+            backend.spec.settings.get("description_property") or DEFAULT_DESCRIPTION_PROPERTY
+        )
+        by_property = {**ROW_FIELD_PROPERTIES, "description": description}
         cleared = {field: None for field, name in by_property.items() if name in hidden}
         return dataclasses.replace(row, **cleared) if cleared else row
 

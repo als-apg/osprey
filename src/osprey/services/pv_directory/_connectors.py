@@ -20,6 +20,8 @@ from typing import Any
 try:
     from osprey_connectors.pv_directory.contract import (
         ALARM_STALE_WINDOW_S,
+        DEFAULT_DESCRIPTION_PROPERTY,
+        ROW_FIELD_PROPERTIES,
         AlarmConfigRecord,
         AlarmHistoryRow,
         AlarmLog,
@@ -46,6 +48,8 @@ except ImportError:
 
     DIRECTORY_CONNECTORS_AVAILABLE = False
     ALARM_STALE_WINDOW_S = None  # type: ignore[assignment]
+    DEFAULT_DESCRIPTION_PROPERTY = None  # type: ignore[assignment]
+    ROW_FIELD_PROPERTIES = None  # type: ignore[assignment]
     AlarmConfigRecord = None  # type: ignore[assignment,misc]
     AlarmHistoryRow = None  # type: ignore[assignment,misc]
     AlarmLog = None  # type: ignore[assignment,misc]
@@ -68,9 +72,11 @@ except ImportError:
 
 __all__ = [
     "ALARM_STALE_WINDOW_S",
+    "DEFAULT_DESCRIPTION_PROPERTY",
     "DIRECTORY_CONNECTORS_AVAILABLE",
     "FLOOR_REASON",
     "NO_SOURCE_REASON",
+    "ROW_FIELD_PROPERTIES",
     "AlarmConfigRecord",
     "AlarmHistoryRow",
     "AlarmLog",
