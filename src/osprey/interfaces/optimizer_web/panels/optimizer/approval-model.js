@@ -12,7 +12,11 @@
  * rendered the approval surface; a different revision, or a different draft
  * replacing one already on screen, re-renders the surface and holds Start
  * until the operator has looked again. It also warns, without holding, when
- * the session names no account (`relay/session`): an owner-less start falls
+ * the session names no account (`relay/session`). A single-user deployment
+ * names its operator here (the sidecar's single-user alias), so this is the
+ * fallback for what that cannot cover: a roster deployment reached from a host
+ * `osprey web`, a sidecar published off loopback, a build with no usable
+ * account name. An owner-less start falls
  * back to the service's own account, unless the service is bound to a
  * control-context tree (then it is refused `owner_unknown`); even the
  * fallback is refused when a `login_tiers` map exists that does not list that
@@ -279,7 +283,9 @@ export const CONFLICT_NOTICE =
 export const REVIEWED_NOTICE = 'Reviewed. Start runs exactly what is shown below.';
 export const OWNER_UNKNOWN_NOTICE =
   "This session names no account, so the run's writes may be refused (owner_unknown). " +
-  'Open the panel from a roster login.';
+  'On a multi-user deployment, open the panel from your own web terminal. ' +
+  'On a single-user one, keep deployment.bind_address on loopback, give ' +
+  'deployment.host_identity a lowercase name, and rebuild.';
 
 /** Statuses a job never leaves (the service's `JobStatus.is_terminal`). */
 export const TERMINAL_STATUSES = Object.freeze(['completed', 'error', 'cancelled']);

@@ -494,7 +494,12 @@ The panel's own address is neither of those doors: a login there mints no name a
 :ref:`service door, not a terminal <web-terminal-service-door>` for what that costs the person
 using it. In the single-user containerised shape, where one sidecar is reached with the
 deployment-wide secret, requests name nobody by design --- that secret says a request is
-allowed, not who sent it.
+allowed, not who sent it. The OPTIMIZER panel's sidecar, and an application panel that asks
+for it (``panel.roster_grant.single_user_alias``), is the exception, and only while the sidecar
+publishes on loopback. There the secret the terminal's proxy sends names the deployment's one
+operator, ``deployment.host_identity``. That is no new door: on a single-user host the same
+secret already signs in to ``osprey web`` as that operator, whose chip approves the run's
+writes. A browser login at the sidecar's own address still names nobody.
 
 A job the OSPREY agent fires goes out through the terminal's own panel proxy. The agent never
 holds the dispatcher's key; the proxy holds it, adds it on the way out and stamps the same name
