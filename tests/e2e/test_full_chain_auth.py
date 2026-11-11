@@ -149,9 +149,9 @@ Code CLI) — in one job, cold, every run. Neighbouring lanes measure a single
 such build at roughly 7–11 minutes on a runner; the deploy, the five container
 starts and the assertions add a handful more, so the expected wall time is
 ~30–35 minutes — but the worst legal path is roughly twice that, which is why
-the lane's step ceiling is 75 minutes rather than the 55 ``auth-perimeter-e2e``
-and ``terminal-auth-multiuser-e2e`` carry: they build one image each, this one
-builds both. ``test_ci_workflow_wiring.py`` pins that RELATION (strictly more
+the lane's step ceiling is 75 minutes, above the ``auth-perimeter-e2e`` and
+``terminal-auth-multiuser-e2e`` cells of ``stack-e2e``: they build one image each,
+this one builds both. ``test_ci_workflow_wiring.py`` pins that RELATION (strictly more
 budget than either sibling) rather than the numbers. The stack is
 built ONCE for the module and every assertion below runs against it.
 
