@@ -340,7 +340,8 @@ What a plug-in is given and asked for:
   module states them. Its docstring lists the optional functions ---
   ``error_text``, ``fault_variables``, ``polynomial_kicks``,
   ``response_matrix``, ``scenario_stops`` --- and what a model whose engine
-  lacks each gets.
+  lacks each gets. ``fault_variables`` is called as
+  ``fault_variables(wiring, settings)``, with the model's ``settings`` second.
 
 What the container keeps the same for every engine:
 

@@ -2107,7 +2107,7 @@ class _Records:
             return
         if isinstance(value, dict):
             roster = self._roster(model)
-            if roster is not None:
+            if roster is not None and roster.refusal is None:
                 yield from map_fault_errors(name, files, model, address, value, roster)
             return
         refused = list(self._value("scenario", name, files, slot, address, value))
