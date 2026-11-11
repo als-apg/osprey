@@ -57,8 +57,9 @@ on:
         required: false
         type: string
 
+# Read-only by default; the one job that pushes to gh-pages asks for write below.
 permissions:
-  contents: write   # Required to push to gh-pages branch
+  contents: read
 
 concurrency:
   group: "docs-${{ github.event_name == 'pull_request' && github.run_id || 'deploy' }}"
@@ -67,6 +68,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The "Deploy to GitHub Pages" step pushes the staged site to gh-pages; nothing else writes.
+    permissions:
+      contents: write
 
     # The three docs_publish.py invocations must all describe the same build.
     # Hoisting their inputs here makes the three command lines textually

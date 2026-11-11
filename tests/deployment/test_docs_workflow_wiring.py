@@ -1032,3 +1032,52 @@ def test_workflow_only_reads_plan_outputs_the_helper_writes__mutation_reads_unkn
     _find_named_step(mutated, DEPLOY_STEP)["if"] = "steps.plan.outputs.should_deploy == 'true'"
     with pytest.raises(AssertionError):
         _assert_referenced_outputs_exist(mutated, _plan_output_keys())
+
+
+# ---------------------------------------------------------------------------
+# Least privilege: only the job that publishes to gh-pages can write
+# ---------------------------------------------------------------------------
+
+
+def _write_scopes(wf: dict[str, Any]) -> dict[str, set[str]]:
+    """``{job: write scopes}`` for each job of *wf* that holds any."""
+    return {
+        name: scopes
+        for name, job in wf["jobs"].items()
+        if (scopes := {s for s, v in (job.get("permissions") or {}).items() if v == "write"})
+    }
+
+
+def _publishing_jobs(wf: dict[str, Any]) -> set[str]:
+    return {
+        name
+        for name, job in wf["jobs"].items()
+        if any(str(step.get("uses", "")).startswith(DEPLOY_ACTION) for step in job["steps"])
+    }
+
+
+def test_only_the_publishing_job_can_write(workflow: dict[str, Any]) -> None:
+    """The workflow token is read-only; the job that pushes the site to gh-pages
+    holds ``contents: write`` and nothing more, and no other job writes."""
+    assert workflow.get("permissions") == {"contents": "read"}, (
+        f"docs.yml grants {workflow.get('permissions')} at workflow level"
+    )
+    publishing = _publishing_jobs(workflow)
+    assert publishing, "no job runs the gh-pages deploy action; this check is stale"
+    assert _write_scopes(workflow) == dict.fromkeys(publishing, {"contents"}), (
+        f"write scopes: {_write_scopes(workflow)}"
+    )
+
+
+def test_only_the_publishing_job_can_write__mutation_workflow_level_write() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["permissions"] = {"contents": "write"}
+    with pytest.raises(AssertionError, match="at workflow level"):
+        test_only_the_publishing_job_can_write(mutated)
+
+
+def test_only_the_publishing_job_can_write__mutation_a_second_job_writes() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"]["lint"] = {"permissions": {"contents": "write"}, "steps": []}
+    with pytest.raises(AssertionError, match="write scopes"):
+        test_only_the_publishing_job_can_write(mutated)
