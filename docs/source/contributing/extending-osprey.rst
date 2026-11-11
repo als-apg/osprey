@@ -288,8 +288,8 @@ different physics backend is a different plug-in, never a different
 entrypoint. A different pyAT deck needs no code at all (see "Bringing your own
 model" on :doc:`/architecture/virtual-accelerator`). The shipped pyat plug-in,
 ``osprey.simulation.engines.pyat``, is the reference implementation; the
-shipped injection plug-in, ``src/osprey/simulation/engines/injection.py``, is
-the reference for a deckless, time-driven one.
+shipped injection plug-in, ``osprey.simulation.engines.injection``, is the
+reference for one that reads no deck and is time-driven.
 
 What a plug-in is given and asked for:
 
@@ -345,20 +345,20 @@ What a plug-in is given and asked for:
   module states them. ``osprey.simulation.engines.OPTIONAL_NAMES`` lists
   every optional name, and the protocol's docstring says what each gives and
   what a model whose engine lacks it gets.
-- **The time contract.** ``osprey.simulation.engines.TIME_CONTRACT`` names
-  the four optional functions that make an engine time-driven:
+- **The time contract.** A model that changes between solves, as an
+  injection chain does during a shot, is *time-driven*: its engine states the
+  four optional functions ``osprey.simulation.engines.TIME_CONTRACT`` names.
   ``advance(model, t_s)`` applies every step due by epoch second ``t_s``;
   ``next_deadline(model)`` gives the next due step's epoch second, or
   ``None``; ``emitted(model)`` gives the ``event`` addresses fired since the
   last call, cleared; ``client_write(model, values, t_s)`` tells the engine a
-  client wrote these setpoints. The model is a state machine with no thread
-  or clock of its own, and the same calls with the same clock readings
-  always yield the same values. Its ``set`` only stores values and starts
-  nothing, because restore, rollback, journal replay and scenario writes all
-  reach it; what a client write triggers lives behind ``client_write`` alone.
-  ``build`` receives no clock, so the composite calls ``advance`` right after
-  a build, a rebuild or a reset. Only the served venue drives the contract;
-  in process a time-driven model serves its start values.
+  client wrote these setpoints. The model has no thread or clock of its own,
+  and the same calls with the same clock readings always yield the same
+  values. Its ``set`` only stores values, because restores and scenario
+  writes reach it too; what a client write triggers lives behind
+  ``client_write`` alone. ``build`` receives no clock, so the composite calls
+  ``advance`` right after a build, a rebuild or a reset. Only the served
+  venue drives the contract; in process the model serves its start values.
 
 What the container keeps the same for every engine:
 

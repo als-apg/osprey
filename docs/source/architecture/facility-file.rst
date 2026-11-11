@@ -369,11 +369,11 @@ Simulation models
 A facility file's ``models`` are what stands behind the channels when the
 deployment runs against a simulator. Each model record names an ``engine``, a
 ``deck`` and the ``wiring`` that ties channel addresses to elements of the
-deck.
+deck; a model of the ``injection`` engine names no deck.
 
 **Engines are plug-ins.** An engine is a module registered in the
 ``osprey.simulation.engines`` entry-point group under the name a model's
-``engine`` gives. OSPREY ships ``pyat``. The build reaches the engine to read
+``engine`` gives. OSPREY ships ``pyat`` and ``injection``. The build reaches the engine to read
 the deck (where each element sits, each wired channel's operating point, what
 each wiring record is) without building a model, and stops with
 ``engine-missing`` when no installed package registers the name. The contract

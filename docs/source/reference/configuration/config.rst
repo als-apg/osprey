@@ -57,8 +57,9 @@ the dotted form; the reason is under "Configuration overrides" in
        shipped preset sets ``1.0``. A value of ``0`` or less stops the build
        with a ``profile-invalid`` line naming the key.
    * - ``simulation.fast_tick_s``
-     - Seconds between the served simulator's timed passes, which advance
-       its evolving state between ticks. Absent means ``0.1``; no shipped
+     - The served simulator's fast period: seconds between publications of
+       the readings a model serves faster than the tick, such as an
+       injection chain's fast current. Absent means ``0.1``; no shipped
        preset sets it. A value of ``0`` or less stops the build with a
        ``profile-invalid`` line naming the key.
    * - ``simulation.default_scenarios``

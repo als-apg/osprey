@@ -63,12 +63,12 @@ exactly as it does a real machine; only the backend changes.
 The physics behind the channels comes from the profile's ``simulation.models``.
 The container builds each served physics model through the engine its record
 names. It serves those models together with the texture model as one composite.
-The shipped engine is pyAT, built on the facility-agnostic ``lume-pyat``
+The shipped lattice engine is pyAT, built on the facility-agnostic ``lume-pyat``
 package, over the deck your facility tree stages. A render that serves
 ``texture`` alone serves the same channels with no physics behind them: a
-setpoint holds the value written to it and a readback follows its seed. A
-physics engine other than pyAT is an engine plug-in, covered in
-:ref:`va-serving-your-own-model`.
+setpoint holds the value written to it and a readback follows its seed. The
+second shipped engine models an injection chain, and any other engine is a
+plug-in; both are covered in :ref:`va-serving-your-own-model`.
 
 What channels it serves
 =======================
@@ -330,12 +330,11 @@ standing in for, or of who may alter it, rather than of OSPREY:
        into the compose file; a project ``.env`` value is not read. Lower it
        for a demo that should look live; raise it on a very large namespace.
    * - ``VA_FAST_INTERVAL_S``
-     - Seconds between the timed passes that publish ``fast`` channels and
-       advance a time-driven model between the served model's passes. Set
-       by ``simulation.fast_tick_s`` (default ``0.1``), which ``osprey
-       build`` renders into the compose file; a project ``.env`` value is
-       not read. A facility with no ``fast`` or ``event`` channel runs no
-       timed pass.
+     - The fast period: seconds between publications of the readings a model
+       serves faster than the passes above, such as an injection chain's
+       fast current (:ref:`va-injection-chain`). Set by
+       ``simulation.fast_tick_s`` (default ``0.1``) in the same way. A
+       facility with no such reading publishes nothing at this period.
    * - ``VA_MODEL_WRITE_TOKEN``
      - The credential a write to the model's own variables must present over
        the model RPC (see :doc:`/architecture/virtual-accelerator`). Unset, the
@@ -377,50 +376,18 @@ A pyAT lattice
 ``decks/<model>.json``, and the container builds the model from that copy when
 ``simulation.models`` serves it. No code and no image are involved.
 
-Another backend
----------------
-
-A physics engine other than pyAT is an engine plug-in. The container looks up
-the ``engine`` each model record names in the ``osprey.simulation.engines``
-entry-point group. It calls the registered module's ``build``, which returns
-the ``LUMEModel`` serving that model's wiring over its deck. ``osprey build``
-reaches the same module through the same group when it checks the facility
-tree. The shipped ``osprey.simulation.engines.pyat`` is the reference
-implementation of the contract.
-
-1. Write the engine module to the contract
-   ``osprey.simulation.engines.EnginePlugin`` states;
-   ``osprey.simulation.engines.pyat`` implements it.
-2. Register it under the entry-point group in your package's metadata, and
-   install the package where ``osprey build`` runs:
-
-   .. code-block:: toml
-
-      [project.entry-points."osprey.simulation.engines"]
-      my_engine = "my_facility.engine"
-
-3. Build an image that carries OSPREY's virtual-accelerator install and your
-   package. The usual shape is a Dockerfile ``FROM`` the image OSPREY builds
-   for the project, adding your package.
-4. Name it as the service's image with ``services.virtual_accelerator.image``,
-   or ``OSPREY_VA_IMAGE`` for one shell (:ref:`deployment-image-overrides`).
-5. Name the engine in the model's record: ``engine: my_engine``.
-
-Naming the image in ``services.virtual_accelerator.image`` renders the service
-without a build, so no deploy rebuilds it from OSPREY's recipe.
-``OSPREY_VA_IMAGE`` keeps it out of every build a start makes. Either way the
-image has to be on the host or pullable where it is named;
-:ref:`deployment-image-builds` says when each start builds.
-
 .. _va-injection-chain:
 
 An injection chain
 ------------------
 
-The shipped ``injection`` engine serves a shot-based injection chain with no
-deck: the model record's ``settings`` and ``wiring`` are the whole chain. Each
-wiring record's ``engine`` block names a ``signal``, and each address is a
-channel the facility declares. With invented addresses:
+A lattice answers a corrector write, but nothing in it injects. Software that
+fills the machine --- a fill script, or a facility's own bucket-loading IOC
+run unmodified beside the simulator --- asks for a shot and then watches
+counters, charges and the stored current step. The shipped ``injection``
+engine gives it an injector to ask. It models no beam dynamics and needs no
+deck: the model record's ``settings`` and ``wiring`` are the whole chain, and
+each address is a channel the facility declares. With invented addresses:
 
 .. code-block:: yaml
 
@@ -457,29 +424,66 @@ channel the facility declares. With invented addresses:
        - address: INJ:CYCLE
          engine: {signal: busy}
 
-The signals:
+A client write of ``INJ:REQ`` starts one shot; a request while a shot is in
+flight is ignored. Each wiring record's ``signal`` says what the shot does to
+its channel:
 
-- ``request``: the setpoint whose client write starts one shot.
-- ``parameter``: a setpoint of the chain. Its ``quantity`` is ``charge``,
-  the source charge per shot; ``efficiency``, the efficiency of the stage at
-  index ``stage`` of ``stages``; or ``current``, the stored current. Its
-  ``start`` is the value it starts at.
-- ``counter``, ``charge`` and ``efficiency``: readings a shot changes
-  ``offset_s`` seconds after its request, the last two for the stage at
-  index ``stage``.
-- ``current``: the stored current, raised by the shot at ``offset_s`` by the
-  final charge times ``current_per_charge``. Nothing saturates or decays it.
-- ``current_fast``: the stored current again, read at the fast period.
-  A ``current`` or ``current_fast`` may state a ``scale``, the factor from
-  the stored current's unit to its own: ``{signal: current_fast, scale:
-  0.001}`` reads a stored current in mA as A.
-- ``busy``: the free-running cycle signal, ``width_s`` high every
-  ``period_s``.
+- ``parameter``: a setpoint of the chain, starting at ``start``. Its
+  ``quantity`` is ``charge``, the source charge per shot; ``efficiency``, that
+  of the stage at index ``stage`` of ``stages``; or ``current``, the stored
+  current.
+- ``counter``, ``charge`` and ``efficiency``: readings the shot steps
+  ``offset_s`` seconds after its request. A counter adds one. A charge shows
+  the charge after the stage at index ``stage``, the source charge times
+  every efficiency up to that stage's, and an efficiency shows that stage's.
+- ``current``: the stored current, which the shot raises at ``offset_s`` by
+  the final charge times ``current_per_charge``. Nothing saturates or decays
+  it.
+- ``current_fast``: the stored current again, published at the fast period
+  (`What the IOC serves, and how often`_). Either current reading may state a
+  ``scale``: ``{signal: current_fast, scale: 0.001}`` reads a stored current
+  in mA as A.
+- ``busy``: the cycle signal, high for ``width_s`` every ``period_s`` whether
+  or not a shot runs.
 
-A write of ``INJ:REQ`` while a shot is in flight is ignored. In process the
-chain serves its start values and a request starts no shot; shots run only
-in the container. How the engine fits the composite is in
-:doc:`/architecture/virtual-accelerator`.
+Shots run only in the container: in process the chain serves its start
+values and a request starts nothing. What scenarios and channel faults do to
+a chain is in :doc:`/how-to/run-scenarios`.
+
+Another backend
+---------------
+
+An engine OSPREY does not ship is an engine plug-in. The container looks up
+the ``engine`` each model record names in the ``osprey.simulation.engines``
+entry-point group. It calls the registered module's ``build``, which returns
+the ``LUMEModel`` serving that model's wiring over its deck. ``osprey build``
+reaches the same module through the same group when it checks the facility
+tree. The shipped ``osprey.simulation.engines.pyat`` is the reference
+implementation of the contract.
+
+1. Write the engine module to the contract
+   ``osprey.simulation.engines.EnginePlugin`` states;
+   ``osprey.simulation.engines.pyat`` implements it.
+2. Register it under the entry-point group in your package's metadata, and
+   install the package where ``osprey build`` runs:
+
+   .. code-block:: toml
+
+      [project.entry-points."osprey.simulation.engines"]
+      my_engine = "my_facility.engine"
+
+3. Build an image that carries OSPREY's virtual-accelerator install and your
+   package. The usual shape is a Dockerfile ``FROM`` the image OSPREY builds
+   for the project, adding your package.
+4. Name it as the service's image with ``services.virtual_accelerator.image``,
+   or ``OSPREY_VA_IMAGE`` for one shell (:ref:`deployment-image-overrides`).
+5. Name the engine in the model's record: ``engine: my_engine``.
+
+Naming the image in ``services.virtual_accelerator.image`` renders the service
+without a build, so no deploy rebuilds it from OSPREY's recipe.
+``OSPREY_VA_IMAGE`` keeps it out of every build a start makes. Either way the
+image has to be on the host or pullable where it is named;
+:ref:`deployment-image-builds` says when each start builds.
 
 Scenarios
 =========
@@ -490,9 +494,7 @@ file; the in-container engine polls it and, within about a second, composed
 channel values reflect the new scenario. There is one behavioral difference
 between the venues. Served, a scenario switch only refreshes the engine-composed
 channels: setpoints you wrote during the session live in the IOC's own records
-and **survive** the switch. (In process, written values are reset.) A
-scenario change or reset abandons a shot in flight: an injection chain
-restarts at the scenario's start state with no step pending. ``osprey sim
+and **survive** the switch. (In process, written values are reset.) ``osprey sim
 apply still`` serves every reading without drift, couplings or noise.
 
 The served simulator's container mounts two directories:
