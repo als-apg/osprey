@@ -546,6 +546,51 @@ An app needs neither a skill nor a subagent. Use a skill when the main agent
 should do the task itself and needs to know how; use a subagent when the task
 is better done out of the main conversation; an app may carry both.
 
+Test your app
+=============
+
+The app's own tests build a deployment the way ``osprey build`` does and run
+the backend against one login's render. Installing the framework gives them
+two pytest fixtures from ``osprey.apps.sdk.testing``: ``synthetic_deployment``
+makes a deployment, ``rendered_tree`` makes one and builds it. Both take:
+
+- ``apps`` — each app's name and its source directory;
+- ``facility`` — the ``data/facility`` tree. The default, ``plain_tree()``, is
+  one quadrupole and one BPM; ``measured_tree()`` is two models wired for the
+  built-in measurement kinds, for a test to extend with its own kind's records;
+- ``logins`` — each login and its ``control_system.writes`` ceiling, one
+  ``tiers/`` file each (default: ``operator`` at ``asked``);
+- ``profile`` — profile keys laid over the generated ``profile.yml``, such as
+  the app's ``config:``.
+
+Every login runs on the simulator served in process. ``serve(login)`` gives
+the app container's environment on that login's render; build the backend
+inside it and call it with the header the terminal sends:
+
+.. code-block:: python
+
+   from pathlib import Path
+
+   from corrector_trim.server import create_app
+   from fastapi.testclient import TestClient
+
+   APP_DIR = Path(__file__).resolve().parents[1]
+
+
+   def test_state_reads_the_configured_channel(synthetic_deployment):
+       deployment = synthetic_deployment(
+           apps={"corrector-trim": APP_DIR},
+           profile={"apps": {"corrector-trim": {"config": {"channel": "Q1:RB"}}}},
+       )
+       served = deployment.serve("operator")
+       with served.environment(), TestClient(create_app()) as client:
+           state = client.get("/api/state", headers=served.headers()).json()
+       assert (state["channel"], state["target"]) == ("Q1:RB", "va")
+
+The build behind ``serve`` is real, so what ``osprey build`` refuses fails the
+test with the build's own message. A test that needs an owner on another
+machine writes that owner's record into ``served.control_tree``.
+
 Dependencies
 ============
 
