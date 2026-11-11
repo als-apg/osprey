@@ -187,6 +187,11 @@ route the tools call must be in `panel.agent_routes`; a tool must be under
 - Plain HTML, CSS and ES modules. Addresses are relative (`api/state`), since
   the page is served under `/panel/<id>/`; the panel's files are served from
   `static/`.
+- The page says when it can be driven: `index.html` carries
+  `<html data-page-ready="pending">`, and the script imports `markPageReady`
+  from `/design-system/js/page-ready.js` and calls it once the first refresh
+  has drawn, error or not. `osprey app check` refuses a panel that never
+  imports it; whatever drives the panel waits for that mark.
 - Primitives first; `panel.css` holds only the app's own layout, on design
   tokens (`var(--space-2)`), with a rule for every class you introduce.
 - Export the functions that render state and test them in
