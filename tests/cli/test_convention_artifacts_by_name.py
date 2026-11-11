@@ -47,6 +47,15 @@ _HOOK = "#!/usr/bin/env python3\nimport sys\n\nsys.exit(0)\n"
 HOUSE_SAFETY = "# Safety\n\nHOUSE SAFETY: the deployment's own words.\n"
 
 
+def _own_logins(repo: Path) -> list[Path]:
+    """The repo's ``lists: own`` login files, which select their artifacts by name."""
+    return [
+        path
+        for path in sorted((repo / "tiers").glob("*.yml"))
+        if (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("lists") == "own"
+    ]
+
+
 def _insert_after(path: Path, anchor: str, line: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert anchor in text, f"{anchor!r} not in {path.name}"
@@ -101,7 +110,7 @@ def _named_repo(dest: Path) -> Path:
     _insert_before_config(
         admin, "", "  claude_code.hooks.PreToolUse:\n    - hooks/house_guard.py\n"
     )
-    logbook = repo / "apps" / "logbook.yml"
+    logbook = repo / "tiers" / "logbook.yml"
     _insert_after(logbook, "skills:", "  - skills/house-diag")
     _insert_after(logbook, "agents:", "  - agents/house-search")
     # The deployment's own safety rule, named by its path in the logbook app
@@ -327,6 +336,18 @@ _EVERYTHING = {
 }
 
 
+def spell_before_by_name(repo: Path) -> Path:
+    """*repo*'s lists as ``osprey init`` wrote them before the by-name rule.
+
+    The seeded facility description is selected by its bare name, in
+    ``profile.yml`` and every login, so no list names an artifact by its path.
+    """
+    for path in (repo / "profile.yml", *sorted((repo / "tiers").glob("*.yml"))):
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace("  - rules/facility ", "  - facility "), encoding="utf-8")
+    return repo
+
+
 def _revalidate(repo: Path) -> Result:
     from osprey.cli.init_cmd import init
 
@@ -343,7 +364,7 @@ def migrated(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, 
     rule every render carried the file, so every render ran it.
     """
     outside = tmp_path_factory.mktemp("migrated")
-    repo = build_exemplar_repo(outside / PROJECT)
+    repo = spell_before_by_name(build_exemplar_repo(outside / PROJECT))
     write_house_artifacts(repo)
     # A shadow of the library `safety` rule, which profile.yml and every app
     # select by its bare name: before, it replaced the library rule everywhere.
@@ -355,7 +376,7 @@ def migrated(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, 
     assert first.exit_code == 0, first.output
     after_first = {
         rel: (repo / rel).read_text(encoding="utf-8")
-        for rel in ("profile.yml", *(f"apps/{p.name}" for p in (repo / "apps").glob("*.yml")))
+        for rel in ("profile.yml", *(f"tiers/{p.name}" for p in _own_logins(repo)))
     }
     result = run_build(repo, outside)
     assert result.exit_code == 0, result.output
@@ -372,7 +393,7 @@ def test_revalidate_keeps_every_render_carrying_what_it_carried(
     assert "HOUSE SAFETY" in (root / ".claude" / "rules" / "safety.md").read_text("utf-8")
 
 
-def test_revalidate_names_them_in_profile_and_apps_but_not_tiers(
+def test_revalidate_names_them_in_profile_and_own_list_logins_but_not_tiers(
     migrated: tuple[Path, dict[str, str]],
 ) -> None:
     repo, _ = migrated
@@ -380,6 +401,8 @@ def test_revalidate_names_them_in_profile_and_apps_but_not_tiers(
     assert {"skills/house-report", "skills/house-diag"} <= set(profile["skills"])
     assert "output-styles/house-terse" in profile["output_styles"]
     for tier in (repo / "tiers").glob("*.yml"):
+        if tier in _own_logins(repo):
+            continue
         assert "house" not in tier.read_text(encoding="utf-8"), tier.name
 
 
@@ -387,7 +410,7 @@ def test_revalidate_lists_no_facility_hook_its_declaration_wires(
     migrated: tuple[Path, dict[str, str]],
 ) -> None:
     repo, _ = migrated
-    for rel in ("profile.yml", *(f"apps/{p.name}" for p in (repo / "apps").glob("*.yml"))):
+    for rel in ("profile.yml", *(f"tiers/{p.name}" for p in _own_logins(repo))):
         hooks = yaml.safe_load((repo / rel).read_text(encoding="utf-8")).get("hooks") or []
         assert not [h for h in hooks if "house" in h], rel
 
@@ -396,7 +419,7 @@ def test_revalidate_names_a_shipped_shadow_by_its_path_instead_of_the_bare_name(
     migrated: tuple[Path, dict[str, str]],
 ) -> None:
     repo, _ = migrated
-    for rel in ("profile.yml", *(f"apps/{p.name}" for p in (repo / "apps").glob("*.yml"))):
+    for rel in ("profile.yml", *(f"tiers/{p.name}" for p in _own_logins(repo))):
         rules = yaml.safe_load((repo / rel).read_text(encoding="utf-8"))["rules"]
         assert "rules/safety" in rules and "safety" not in rules, rel
 
@@ -408,6 +431,41 @@ def test_a_second_revalidate_changes_nothing(migrated: tuple[Path, dict[str, str
         assert (repo / rel).read_text(encoding="utf-8") == text, rel
 
 
+def _selections(repo: Path) -> dict[str, dict]:
+    """Every list and hook declaration of profile.yml and each ``lists: own`` login."""
+    kept = {}
+    for rel in ("profile.yml", *(f"tiers/{p.name}" for p in _own_logins(repo))):
+        data = yaml.safe_load((repo / rel).read_text(encoding="utf-8"))
+        config = data.get("config") or {}
+        kept[rel] = {
+            **{key: data.get(key) for key in ("skills", "agents", "rules", "output_styles")},
+            "hooks": data.get("hooks"),
+            "declared": {k: v for k, v in config.items() if k.startswith("claude_code.hooks")},
+        }
+    return kept
+
+
+def test_revalidate_leaves_a_repo_already_under_the_by_name_rule_selecting_what_it_did(
+    tmp_path: Path,
+) -> None:
+    # A fresh repo names its facility description by path; this one also names
+    # one skill of its own for the deployment and another for one app, and
+    # leaves the rest unnamed, so they reach no render. Naming them now would
+    # widen every render, and every app would gain the host's session hook.
+    repo = build_exemplar_repo(tmp_path / PROJECT)
+    write_house_artifacts(repo)
+    _write(repo / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
+    _insert_after(repo / "profile.yml", "skills:", "  - skills/house-report")
+    _insert_after(repo / "tiers" / "logbook.yml", "skills:", "  - skills/house-diag")
+    _insert_before_config(
+        repo / "profile.yml", "", f"  claude_code.hooks.SessionStart:\n    - hooks/{_NOTE_HOOK}\n"
+    )
+    before = _selections(repo)
+
+    assert _revalidate(repo).exit_code == 0
+    assert _selections(repo) == before
+
+
 # ── a fresh repo ─────────────────────────────────────────────────────────────
 
 
@@ -417,10 +475,10 @@ def test_init_names_the_facility_description_it_seeds_by_its_path(tmp_path: Path
 
     repo = tmp_path / "fresh"
     with preserved_environ():
-        made = CliRunner().invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+        made = CliRunner().invoke(init, [str(repo), "--preset", "demo", "--no-git"])
     assert made.exit_code == 0, made.output
     assert (repo / "rules" / "facility.md").is_file()
-    for rel in ("profile.yml", *(f"apps/{p.name}" for p in (repo / "apps").glob("*.yml"))):
+    for rel in ("profile.yml", *(f"tiers/{p.name}" for p in _own_logins(repo))):
         rules = yaml.safe_load((repo / rel).read_text(encoding="utf-8")).get("rules") or []
         assert "facility" not in rules, rel
     assert "rules/facility" in yaml.safe_load((repo / "profile.yml").read_text("utf-8"))["rules"]
@@ -505,7 +563,7 @@ def test_a_host_library_guard_reaches_an_app_whose_list_omits_it(
     # It gates a controls tool, so it is wired on the host and ships inert in an
     # app that has no controls server: present, ready the moment one is added.
     root = render_dir(host_hook[0], render)
-    listed = yaml.safe_load((host_hook[0] / "apps" / f"{render}.yml").read_text("utf-8"))
+    listed = yaml.safe_load((host_hook[0] / "tiers" / f"{render}.yml").read_text("utf-8"))
     assert "limits" not in listed["hooks"]
     assert _wired(render_dir(host_hook[0], None), "osprey_limits.py")
     assert (root / ".claude" / "hooks" / "osprey_limits.py").is_file()
@@ -549,19 +607,19 @@ def test_revalidate_keeps_a_host_session_hook_in_each_app_by_its_own_declaration
     tmp_path: Path,
 ) -> None:
     """Before by-name selection an app inherited every host declaration; revalidate keeps it."""
-    repo = build_exemplar_repo(tmp_path / PROJECT)
+    repo = spell_before_by_name(build_exemplar_repo(tmp_path / PROJECT))
     _write(repo / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
     _insert_before_config(
         repo / "profile.yml", "", f"  claude_code.hooks.SessionStart:\n    - hooks/{_NOTE_HOOK}\n"
     )
     assert _revalidate(repo).exit_code == 0
-    for app in (repo / "apps").glob("*.yml"):
+    for app in _own_logins(repo):
         config = yaml.safe_load(app.read_text(encoding="utf-8"))["config"]
         assert config["claude_code.hooks.SessionStart"] == [f"hooks/{_NOTE_HOOK}"], app.name
         assert "hooks/" not in "".join(yaml.safe_load(app.read_text("utf-8"))["hooks"])
-    once = {p.name: p.read_text(encoding="utf-8") for p in (repo / "apps").glob("*.yml")}
+    once = {p.name: p.read_text(encoding="utf-8") for p in _own_logins(repo)}
     assert _revalidate(repo).exit_code == 0
-    assert {p.name: p.read_text(encoding="utf-8") for p in (repo / "apps").glob("*.yml")} == once
+    assert {p.name: p.read_text(encoding="utf-8") for p in _own_logins(repo)} == once
 
     built = run_build(repo, tmp_path)
     assert built.exit_code == 0, built.output
@@ -572,16 +630,15 @@ def test_revalidate_keeps_a_host_session_hook_in_each_app_by_its_own_declaration
 
 
 def test_a_claimed_library_artifact_is_named_by_its_path_where_it_was_selected(
-    tmp_path: Path,
+    built_lifecycle_repo: Path, tmp_path: Path
 ) -> None:
     from osprey.cli.scaffold_cmd import claim_into_profile
 
-    repo = build_exemplar_repo(tmp_path / PROJECT)
-    assert run_build(repo, tmp_path).exit_code == 0
+    repo = built_lifecycle_repo
     claimed = claim_into_profile(repo / "build", "rules/safety")
     claimed.profile_path.write_text(HOUSE_SAFETY, encoding="utf-8")
 
-    for rel in ("profile.yml", *(f"apps/{p.name}" for p in (repo / "apps").glob("*.yml"))):
+    for rel in ("profile.yml", *(f"tiers/{p.name}" for p in _own_logins(repo))):
         rules = yaml.safe_load((repo / rel).read_text(encoding="utf-8"))["rules"]
         assert "rules/safety" in rules and "safety" not in rules, rel
     rebuilt = run_build(repo, tmp_path)
@@ -596,7 +653,10 @@ def test_revalidate_appends_to_an_app_file_and_changes_no_other_byte(tmp_path: P
 
     repo = build_exemplar_repo(tmp_path / PROJECT)
     write_house_artifacts(repo)
-    app = repo / "apps" / "logbook.yml"
+    # A profile from before the by-name rule; the app keeps the path entry a
+    # newer OSPREY scaffolds, which the rewrite leaves as it is.
+    _swap_entry(repo / "profile.yml", "rules/facility", "facility")
+    app = repo / "tiers" / "logbook.yml"
     text = app.read_text(encoding="utf-8")
     # Spellings a re-dump does not keep: quoting, an explicit null, an empty
     # value, a flow list with a comment, and comments around the lists.
@@ -675,7 +735,7 @@ def _assert_shadow_wired(repo: Path, wiring: dict[str | None, str], renders) -> 
 def test_a_migrated_shadow_of_the_kill_switch_is_wired_where_the_library_one_was(
     tmp_path: Path, library_wiring: dict[str | None, str]
 ) -> None:
-    repo = build_exemplar_repo(tmp_path / PROJECT)
+    repo = spell_before_by_name(build_exemplar_repo(tmp_path / PROJECT))
     _ship_writes_check(repo)
 
     assert _revalidate(repo).exit_code == 0
@@ -718,19 +778,20 @@ def test_a_fresh_profile_naming_the_kill_switch_by_path_wires_it(
         _assert_shadow_wired(repo, library_wiring, [None, "readonly"])
 
 
-def test_the_guard_floor_carries_the_hosts_spelling_and_pins_the_kill_switch() -> None:
+def test_the_guard_floor_carries_the_hosts_spelling_and_never_adds_the_kill_switch() -> None:
     from osprey.cli.build_profile_merge import GuardFloor, _guard_floor
 
     host = GuardFloor.of(
         {"hooks": ["approval", "hooks/osprey_limits.py", "memory-guard", "error-guidance"]}
     )
+    # The floor is the host's guards alone: only a shared login's seal pins the switch.
     assert _guard_floor(host, ["approval", "turn-state"]) == [
         "approval",
         "turn-state",
         "hooks/osprey_limits.py",
         "memory-guard",
-        "writes-check",
     ]
+    assert _guard_floor(GuardFloor.of({"hooks": ["writes-check"]}), []) == ["writes-check"]
     # Selected already, in either spelling: nothing is added twice.
     assert _guard_floor(host, ["limits", f"hooks/{_WRITES_CHECK_FILE}", "memory-guard"]) == [
         "limits",

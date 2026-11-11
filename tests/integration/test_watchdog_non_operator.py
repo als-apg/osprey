@@ -41,7 +41,7 @@ from osprey.agent_record.client import URL_ENV
 from osprey.agent_record.contract import KIND_AUDIT
 from osprey.agent_runner import runner
 from osprey.agent_runner.runner import WATCHDOG_SKIP_ENV_VAR
-from osprey.cli.init_cmd import init
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.cli.query_cmd import query
 from osprey.dispatch import server as dispatch_server
 from osprey.dispatch.sources.webhook import WebhookSource
@@ -49,10 +49,10 @@ from osprey.mcp_server.dispatch_worker import dispatch_api, sdk_runner
 from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.services.watchdog.engines.decision import QUESTION_ID
 from osprey.services.watchdog.verdict import SURFACE_SAFETY_WATCHDOG
-from osprey_connectors.posture_store import AGENT_DATA_ROOT_ENV_VAR, DISPATCH_RUN_ENV_VAR
+from osprey_connectors.posture_store import DISPATCH_RUN_ENV_VAR
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR, ensure_session, open_flags
+from tests._builds import copy_build
 from tests._live import wait_until
-from tests.cli._lifecycle_build import invoke_build
 from tests.conftest import dispatcher_route_registry
 from tests.dispatch._fakes import FakeEntryPoint
 from tests.dispatch_worker.record_double import worker_record  # noqa: F401 - a fixture
@@ -67,6 +67,12 @@ WORKER_TOKEN = "worker-token"
 
 #: All mass on the first flag option; the preset lists its one clear option first.
 _FLAGGING_ANSWER = {"type": "choice", "choice": "k002", "probabilities": {"k002": 1.0}}
+
+#: The detached judge's whole time from the prompt to Jev's answer: a cold process,
+#: the record read and a loopback round trip into this worker's stub. The shipped
+#: three seconds are sized for a live judge, not a loaded CI runner; it answers as
+#: soon as the stub does, and the bound stays under the entry's own lifetime.
+_JUDGE_BUDGET = {"timeout_s": 60, "max_retries": 1, "total_s": 60}
 
 #: What would make a run of this file's watchdog machinery look like someone else's.
 _AMBIENT = (
@@ -107,7 +113,9 @@ class _HttpStub:
                 pass
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        ).start()
 
     @property
     def port(self) -> int:
@@ -137,20 +145,14 @@ class _Deployment:
 
 
 @pytest.fixture(scope="module")
-def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Deployment]:
-    """A real ``osprey init`` + ``osprey build`` with the preset's watchdog turned on."""
-    repo = tmp_path_factory.mktemp("watchdog-non-operator") / "repo"
-    done = CliRunner().invoke(
-        init, [str(repo), "--preset", "control-assistant", "--no-git"], catch_exceptions=False
-    )
-    assert done.exit_code == 0, done.output
-    profile = repo / "profile.yml"
-    text = profile.read_text(encoding="utf-8")
-    off = f"  {NAME}:\n    engine: decision\n    enabled: false\n"
-    assert text.count(off) == 1
-    profile.write_text(text.replace(off, off.replace("false", "true")), encoding="utf-8")
-    built = invoke_build(repo)
-    assert built.exit_code == 0, built.output
+def deployment(
+    tmp_path_factory: pytest.TempPathFactory, built_demo_watchdog_on: Path
+) -> Iterator[_Deployment]:
+    """A real ``osprey init`` + ``osprey build`` with the preset's watchdog turned on.
+
+    A copy of the run's shared one, because the jev route is written into its render.
+    """
+    repo = copy_build(built_demo_watchdog_on, tmp_path_factory.mktemp("watchdog-non-operator"))
 
     jev = _HttpStub(_fake_jev_reply(FakeJev({QUESTION_ID: _FLAGGING_ANSWER})))
     build = repo / "build"
@@ -159,6 +161,7 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Deployment
     config.setdefault("api", {})["jev"] = {
         "route": "typesafe",
         "routes": {"typesafe": {"api_key": "test-key", "base_url": f"http://127.0.0.1:{jev.port}"}},
+        "budgets": {"interactive": _JUDGE_BUDGET},
     }
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
     yield _Deployment(repo=repo, build=build, jev=jev)
@@ -173,7 +176,7 @@ def _environment(
     saved = dict(os.environ)
     for name in _AMBIENT:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "agent_data"))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path / "agent_data"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     deployment.jev.calls = 0
     yield

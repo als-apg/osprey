@@ -212,8 +212,11 @@ PY
 # and state subdirs) and, where
 # they are mounted, OSPREY_FACILITY_BUNDLE_DIR (the knowledge bundle),
 # OSPREY_ARIEL_MIRROR_DIR (the ARIEL qmd mirror this container's own exporter
-# writes), OSPREY_SIMULATOR_LOG_DIR (the simulator's model logs) and
-# OSPREY_GUARDED_RUN_DIR (guarded runs' locks). Iterating what
+# writes), OSPREY_SIMULATOR_LOG_DIR (the simulator's model logs),
+# OSPREY_GUARDED_RUN_DIR (guarded runs' locks), OSPREY_WRITE_REQUESTS_DIR
+# (programs' write-authorization requests, read-only) and
+# OSPREY_WRITE_LEDGER_VIEW_DIR (the programs' write ledger, read-only).
+# Iterating what
 # those name and skipping any that is unset or not a
 # directory is what lets one script serve a web terminal, a dispatch worker
 # with no bundle mount, and a bare `docker run` with none, without a single
@@ -231,6 +234,14 @@ JOINED_GIDS=''
 #: namespace. One line, `0 0 4294967295`, is the identity: container root is
 #: the host's root. Anything else is a user namespace of the container's own.
 UID_MAP=/proc/self/uid_map
+
+#: Where the kernel reports whether SELinux is enforcing: `1` when it is. A
+#: runtime may mask selinuxfs inside the container, so its absence says nothing.
+SELINUX_ENFORCE=/sys/fs/selinux/enforce
+
+#: Where the kernel reports this process's security context. Under SELinux it
+#: is a `user:role:type:level` label; unconfined it is a bare word.
+PROC_ATTR=/proc/self/attr/current
 
 # Whether this container's root is an unprivileged host user rather than the
 # host's root — the rootless shape (rootless podman, rootless docker), where
@@ -385,6 +396,37 @@ join_mounted_group() {
     fi
 }
 
+# The SELinux line a failed access probe appends, printed only when this
+# container can see that SELinux confines it. A readable enforce file decides:
+# `1` names SELinux, anything else names nothing. The process label speaks only
+# when that file is masked (absent or unreadable), and only for a confining
+# container type: a privileged (`spc_t`) or unconfined process is not confined
+# by SELinux. The hint is a cause to check, not a diagnosis: the probe's outcome and exit code never depend on it. Every
+# read sits inside an `if`, so an unreadable or empty file cannot abort the
+# boot under `set -e`. Both files end without a newline (selinuxfs writes
+# none, the attribute ends in a NUL), so a `read` that hits end-of-file still
+# keeps the value it read. Its own `_sx_` names, for the probe's reason.
+log_selinux_hint() {
+    _sx_lead=''
+    _sx_v=''
+    if [ -r "$SELINUX_ENFORCE" ]; then
+        if { read -r _sx_v < "$SELINUX_ENFORCE" || [ -n "$_sx_v" ]; } \
+            && [ "$_sx_v" = 1 ]; then
+            _sx_lead='SELinux is enforcing'
+        fi
+    elif [ -r "$PROC_ATTR" ] \
+        && { read -r _sx_v < "$PROC_ATTR" || [ -n "$_sx_v" ]; }; then
+        case "$_sx_v" in
+            *:*:container_runtime_t:*) ;;
+            *:*:container_t:*|*:*:container_*_t:*) _sx_lead='SELinux labels this container' ;;
+        esac
+    fi
+    [ -n "$_sx_lead" ] || return 0
+    log "         $_sx_lead: the host directory needs the container_file_t type"
+    log "         (check with ls -Zd <dir> on the host); ausearch -m avc -ts recent on the host"
+    log "         names the denial."
+}
+
 # ── access probe ────────────────────────────────────────────────────
 # Membership is the mechanism; access is the property the deployment actually
 # depends on, and the two are not the same thing — a 2700 directory, a
@@ -443,6 +485,7 @@ probe_mounted_dir() {
             log "         nobody/nogroup and 32-bit overflow gids, which pass that floor"
             log "         and are refused by groupadd instead. Fix the host directory's"
             log "         group and mode (2770) rather than granting this container more."
+            log_selinux_hint
             ;;
         write)
             # Both bits, for the same reason the read arm checks two: creating
@@ -463,6 +506,7 @@ probe_mounted_dir() {
             log "         this) is one way a bind arrives unwritable: it reaches this"
             log "         container as gid 0, refused above as the root group, or as the"
             log "         nobody/nogroup and 32-bit overflow gids, which groupadd refuses."
+            log_selinux_hint
             ;;
         *)
             # Unreachable from the dispatcher below, whose modes are literals.
@@ -503,6 +547,12 @@ join_mounted_groups() {
     join_mounted_group OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}"
     probe_mounted_dir OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}" write
 
+    join_mounted_group OSPREY_WRITE_REQUESTS_DIR "${OSPREY_WRITE_REQUESTS_DIR:-}"
+    probe_mounted_dir OSPREY_WRITE_REQUESTS_DIR "${OSPREY_WRITE_REQUESTS_DIR:-}" read
+
+    join_mounted_group OSPREY_WRITE_LEDGER_VIEW_DIR "${OSPREY_WRITE_LEDGER_VIEW_DIR:-}"
+    probe_mounted_dir OSPREY_WRITE_LEDGER_VIEW_DIR "${OSPREY_WRITE_LEDGER_VIEW_DIR:-}" read
+
     join_mounted_group OSPREY_AGENT_RECORD_SPOOL_ROOT "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}"
     probe_mounted_dir OSPREY_AGENT_RECORD_SPOOL_ROOT "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}" write
 
@@ -517,6 +567,21 @@ join_mounted_groups() {
 
     join_mounted_group OSPREY_STATE_DIR "${OSPREY_STATE_DIR:-}"
     probe_mounted_dir OSPREY_STATE_DIR "${OSPREY_STATE_DIR:-}" write
+
+    # An application container's declared state directories: one LIST,
+    # colon-separated, each entry joined and probed under the list's name.
+    # Split by parameter expansion rather than IFS, so neither the helpers'
+    # own reads nor a glob character in a path see a changed shell.
+    _app_rest="${OSPREY_APP_STATE_DIRS:-}"
+    while [ -n "$_app_rest" ]; do
+        _app_dir=${_app_rest%%:*}
+        case "$_app_rest" in
+            *:*) _app_rest=${_app_rest#*:} ;;
+            *) _app_rest='' ;;
+        esac
+        join_mounted_group OSPREY_APP_STATE_DIRS "$_app_dir"
+        probe_mounted_dir OSPREY_APP_STATE_DIRS "$_app_dir" write
+    done
 }
 
 # ── state-zone hand-back ─────────────────────────────────────────────────────
@@ -543,7 +608,7 @@ join_mounted_groups() {
 # a container that will not start is worse than one whose state needs a
 # manual chown.
 #
-# NINE deliberate exceptions, pruned by name — every bind whose contents the
+# TEN deliberate exceptions, pruned by name — every bind whose contents the
 # dropped process reaches through GROUP MEMBERSHIP (the join above) and never
 # through ownership, so there is nothing to hand back:
 #
@@ -578,6 +643,9 @@ join_mounted_groups() {
 #                                 deletes under its own uid.
 #   * OSPREY_STATE_DIR            `var/state/<identity>/`: this container's own
 #                                 state, which the host reads.
+#   * OSPREY_APP_STATE_DIRS       `var/state/<identity>/<service>/`, a list: an
+#                                 application container's declared state
+#                                 directories, each pruned like the rest.
 #
 # Chowning any of them rewrites a host directory the operator owns and drops
 # the setgid group that the whole shared-group design rests on; the next
@@ -608,6 +676,17 @@ hand_back_state_zone() {
         # shape, and it gets no clause either: `-path` is an fnmatch PATTERN,
         # so a prune built from a missing path is dead weight in the predicate
         # that reads exactly like a working exclusion.
+        [ -n "$_hb_dir" ] || continue
+        [ -d "$_hb_dir" ] || continue
+        set -- "$@" -path "$_hb_dir" -prune -o
+    done
+    _hb_rest="${OSPREY_APP_STATE_DIRS:-}"
+    while [ -n "$_hb_rest" ]; do
+        _hb_dir=${_hb_rest%%:*}
+        case "$_hb_rest" in
+            *:*) _hb_rest=${_hb_rest#*:} ;;
+            *) _hb_rest='' ;;
+        esac
         [ -n "$_hb_dir" ] || continue
         [ -d "$_hb_dir" ] || continue
         set -- "$@" -path "$_hb_dir" -prune -o

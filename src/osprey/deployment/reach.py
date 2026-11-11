@@ -48,7 +48,9 @@ enforcement reads the same declaration:
   consumer's endpoint from inside any container and knocks on it.
 
 The registry is a mapping keyed by the ``services.<name>`` key, collected
-here like :data:`osprey.registry.mcp.FRAMEWORK_SERVERS`. Predicates are the
+here like :data:`osprey.registry.mcp.FRAMEWORK_SERVERS`; a service an application
+projects is the deployment's to name, so :func:`reach_contracts` derives its
+contract from the render. Predicates are the
 ones the web-terminal render already grants credentials by
 (:mod:`osprey.deployment.web_terminals.roster`), imported rather than
 restated, so the registry and the render cannot disagree about who is
@@ -94,6 +96,7 @@ from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.web_terminals.roster import (
     BLUESKY_PANEL_ID,
     EVENTS_PANEL_ID,
+    OPTIMIZER_PANEL_ID,
     as_dict,
     bluesky_server_enabled,
     config_declares_panel,
@@ -104,7 +107,9 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
 )
+from osprey.optimizer_connection import DEFAULT_OPTIMIZER_PORT, optimizer_url
 from osprey.port_layout import resolve_port_base
+from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 __all__ = [
     "Consumer",
@@ -113,6 +118,7 @@ __all__ = [
     "ReachContract",
     "SharedPath",
     "REACH_CONTRACTS",
+    "reach_contracts",
     "SHARED_PATHS",
     "BLUESKY_PANEL_ID",
     "Dial",
@@ -132,6 +138,17 @@ Dialer = Callable[[Mapping[str, Any]], "Dial | None"]
 #: The host directory a shared path binds, anchored on the deployment repo
 #: root (``None`` resolves it from the config), or ``None`` when unconfigured.
 HostDir = Callable[[Mapping[str, Any], "str | Path | None"], "Path | None"]
+
+
+def _dotted_present(config: Mapping[str, Any] | None, dotted_key: str) -> bool:
+    """Whether *dotted_key* is spelled in a nested config, ``null`` included."""
+    *parents, leaf = dotted_key.split(".")
+    node: Any = config
+    for part in parents:
+        if not isinstance(node, Mapping):
+            return False
+        node = node.get(part)
+    return isinstance(node, Mapping) and leaf in node
 
 
 def dotted_get(config: Mapping[str, Any] | None, dotted_key: str) -> Any:
@@ -214,11 +231,17 @@ class ProjectedKey:
             and is projected only for a render whose profile selects the
             panel (``web_panels:``), which the rendered config alone cannot
             tell: custom panels reach it through ``config:`` only.
+        host_setting: The key is a setting of the host's that rides along,
+            not an address a client dials. An explicit ``null`` in the host
+            render is projected too (it is the host's choice, not an
+            absence), and a refusal for a consumer with nothing to dial
+            never names it (setting it gives the consumer nothing to dial).
     """
 
     key: str
     gate: Predicate | None = None
     panel: str | None = None
+    host_setting: bool = False
 
 
 @dataclass(frozen=True)
@@ -280,6 +303,14 @@ class ReachContract:
     names_external: Predicate | None = None
     render_local: tuple[str, ...] = ()
     note: str = ""
+
+    def dial_keys(self) -> tuple[str, ...]:
+        """The projected keys that give a consumer something to dial.
+
+        What a "nothing to dial" refusal tells the user to name: every
+        projected key but a :attr:`ProjectedKey.host_setting`.
+        """
+        return tuple(key.key for key in self.projected if not key.host_setting)
 
 
 @dataclass(frozen=True)
@@ -423,6 +454,16 @@ def _bluesky_server_on(config: Mapping[str, Any]) -> bool:
     return bluesky_server_enabled(config)
 
 
+def _optimizer_server_on(config: Mapping[str, Any]) -> bool:
+    return _servers_enabled(
+        config, "optimizer", default=FRAMEWORK_SERVERS["optimizer"].default_enabled
+    )
+
+
+def _optimizer_port_set(config: Mapping[str, Any]) -> bool:
+    return bool(dotted_get(config, "services.optimizer.port"))
+
+
 def _launch_token_needed(lane: str) -> Predicate:
     # A lane is bound at render time to ONE control target, so the token that
     # arms a queue start there is granted on that target's write posture and no
@@ -560,6 +601,10 @@ def _bluesky_panel_on(config: Mapping[str, Any]) -> bool:
     return config_declares_panel(config, BLUESKY_PANEL_ID)
 
 
+def _optimizer_panel_on(config: Mapping[str, Any]) -> bool:
+    return config_declares_panel(config, OPTIMIZER_PANEL_ID)
+
+
 def _panel_url_resolves(panel_id: str) -> Predicate:
     def _resolves(config: Mapping[str, Any]) -> bool:
         return bool(dotted_get(config, f"web.panels.{panel_id}.url"))
@@ -692,6 +737,10 @@ def _bridge_dial(config: Mapping[str, Any]) -> Dial | None:
     # order, on the config the caller holds rather than the loaded one.
     url = os.environ.get(BRIDGE_URL_ENV_VAR) or bridge_url_from_config(config)
     return _host_port(url, DEFAULT_BRIDGE_PORT)
+
+
+def _optimizer_dial(config: Mapping[str, Any]) -> Dial | None:
+    return _host_port(optimizer_url(config), DEFAULT_OPTIMIZER_PORT)
 
 
 def _second_lane_dial(lane: str) -> Dialer:
@@ -951,8 +1000,8 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),
             # The SELECT-only role the agent's raw-SQL path connects as. Same
             # entitlement as the owner password: a container that derives an
-            # ARIEL DSN derives both rungs of it, and without this one the SQL
-            # tool falls back to the ingestion connection with a warning.
+            # ARIEL DSN derives both logins, and without this one the read-only
+            # login is refused and the SQL tool refuses every query.
             CredentialGrant("ARIEL_DB_READONLY_PASSWORD", config_needs_ariel_password),
         ),
         names_external=_ariel_database_named,
@@ -964,6 +1013,15 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         note=(
             "browsers reach the history page on its own origin; "
             "nothing in a render container dials it"
+        ),
+    ),
+    "app_runtime": ReachContract(
+        service="app_runtime",
+        no_client_reach=True,
+        note=(
+            "the template every application container renders through; a "
+            "terminal reaches an application's panel through the panel proxy, "
+            "at the loopback URL projected onto its own services row"
         ),
     ),
     "agent_record": ReachContract(
@@ -1028,11 +1086,51 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # The reverse grant — the sidecar is handed each entitled user's own
         # secret — is in the sidecar's OWN compose file (services/bluesky_web,
         # rendered in the services stack), keyed on the same panel declaration
-        # (renders.bluesky_panel_secret_env_vars).
+        # (panel_grant).
         # The url IS the endpoint: a profile that pins one for a sidecar it
         # does not deploy has named it.
         names_external=_panel_url_resolves(BLUESKY_PANEL_ID),
         note="the panel proxy dials the sidecar at web.panels.bluesky.url with the user's own secret",
+    ),
+    # The OPTIMIZER tab's sidecar, contracted exactly like the BLUESKY tab's:
+    # the panel proxy dials it at the projected url with the user's own secret,
+    # and the sidecar's own compose (services/optimizer_web) carries the
+    # reverse roster grant. The sidecar dials services.optimizer.port itself,
+    # in-network, so nothing about the optimizer is projected for it here.
+    "optimizer_web": ReachContract(
+        service="optimizer_web",
+        consumers=(
+            Consumer(
+                name="OPTIMIZER panel",
+                switch_key=f"web.panels.{OPTIMIZER_PANEL_ID}",
+                is_on=_optimizer_panel_on,
+                resolves=_panel_url_resolves(OPTIMIZER_PANEL_ID),
+                dial=_panel_dial(OPTIMIZER_PANEL_ID),
+            ),
+        ),
+        projected=(
+            *(
+                ProjectedKey(f"web.panels.{OPTIMIZER_PANEL_ID}.{leaf}", panel=OPTIMIZER_PANEL_ID)
+                for leaf in ("url", "path", "label", "health_endpoint")
+            ),
+            # ``read_timeout_s`` rides along as the HOST's setting: the
+            # sidecar's relay budget is the host's, so a render's panel proxy
+            # must wait as long as the host's does, or a slow Start reaches the
+            # browser as the proxy's 502. A host's explicit ``null``
+            # (unbounded) is projected as such, and a render may not set its
+            # own: a disagreeing ``config:`` spelling is refused
+            # (``reach_override_errors``).
+            ProjectedKey(
+                f"web.panels.{OPTIMIZER_PANEL_ID}.read_timeout_s",
+                panel=OPTIMIZER_PANEL_ID,
+                host_setting=True,
+            ),
+        ),
+        names_external=_panel_url_resolves(OPTIMIZER_PANEL_ID),
+        note=(
+            "the panel proxy dials the sidecar at web.panels.optimizer.url with the "
+            "user's own secret"
+        ),
     ),
     "event_dispatcher": ReachContract(
         service="event_dispatcher",
@@ -1123,8 +1221,109 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         no_client_reach=True,
         note="the worker dials the render's project, never the reverse",
     ),
+    "optimizer": ReachContract(
+        service="optimizer",
+        consumers=(
+            Consumer(
+                name="optimizer MCP server",
+                switch_key="claude_code.servers.optimizer.enabled",
+                is_on=_optimizer_server_on,
+                # The build writes services.optimizer.port wherever it deploys
+                # the optimizer, and projects it into an attached render; a
+                # render without it would dial the layout slot on a guess.
+                resolves=_optimizer_port_set,
+                dial=_optimizer_dial,
+            ),
+        ),
+        projected=(ProjectedKey("services.optimizer.port", gate=_optimizer_server_on),),
+        note="optimizer_url dials the published port on loopback",
+    ),
     **_outbound_only_contracts(),
 }
+
+
+def _panels_by_container(config: Mapping[str, Any]) -> dict[str, tuple[str, Mapping[str, Any]]]:
+    """Each projected service's panel on this render, as ``{service: (id, block)}``.
+
+    An application's panel is served from one of its containers, and the build
+    addresses the block at that container's URL. A panel whose container this
+    render carries no row for keys on the application's name: an attached render
+    is told the panel and not the service block.
+    """
+    services = as_dict(config.get("services"))
+    panels = as_dict(as_dict(config.get("web")).get("panels"))
+    found: dict[str, tuple[str, Mapping[str, Any]]] = {}
+    for panel_id, block in panels.items():
+        block = as_dict(block)
+        application = block.get("app")
+        if not application:
+            continue
+        key = next(
+            (
+                str(name)
+                for name, row in services.items()
+                if as_dict(row).get("app") == application
+                and as_dict(row).get("url") == block.get("url")
+            ),
+            str(application),
+        )
+        found[key] = (str(panel_id), block)
+    return found
+
+
+def _panel_contract(service: str, panel_id: str, block: Mapping[str, Any]) -> ReachContract:
+    """The contract of a service an application's panel is served from."""
+    token_env = block.get("launch_token_env")
+
+    def _holds_token(config: Mapping[str, Any]) -> bool:
+        return bool(dotted_get(config, f"web.panels.{panel_id}.launch_token_env") == token_env)
+
+    def _on(config: Mapping[str, Any]) -> bool:
+        return config_declares_panel(config, panel_id)
+
+    return ReachContract(
+        service=service,
+        consumers=(
+            Consumer(
+                name=f"The {panel_id} panel",
+                switch_key=f"web.panels.{panel_id}",
+                is_on=_on,
+                resolves=_panel_url_resolves(panel_id),
+                dial=_panel_dial(panel_id),
+            ),
+        ),
+        credentials=(CredentialGrant(str(token_env), _holds_token),) if token_env else (),
+        derived_by="osprey.apps.projection.project_login",
+        note=f"an application's container, reached through the {panel_id} panel's proxy hop",
+    )
+
+
+def _projected_contracts(config: Mapping[str, Any]) -> dict[str, ReachContract]:
+    """A contract for every service an application's manifest projected onto *config*."""
+    panels = _panels_by_container(config)
+    contracts = {
+        service: _panel_contract(service, panel_id, block)
+        for service, (panel_id, block) in panels.items()
+    }
+    for name, row in as_dict(config.get("services")).items():
+        row = as_dict(row)
+        if row.get("app") and str(name) not in contracts:
+            contracts[str(name)] = ReachContract(
+                service=str(name),
+                no_client_reach=True,
+                note=f"a container of the {row['app']} application, serving no panel here",
+            )
+    return contracts
+
+
+def reach_contracts(config: Mapping[str, Any]) -> dict[str, ReachContract]:
+    """:data:`REACH_CONTRACTS` with the contracts *config*'s applications project.
+
+    A projected service has no static entry: its name is the deployment's, so
+    its contract is derived from the rendered ``web.panels`` and ``services``.
+    The static table keeps every key it declares.
+    """
+    return {**_projected_contracts(config), **REACH_CONTRACTS}
 
 
 def _bundle_host_dir(config: Mapping[str, Any], repo_root: str | Path | None) -> Path | None:
@@ -1180,6 +1379,8 @@ def project_attached_overrides(
     render means absent here: a host that dropped its qmd block projects no
     ``services.qmd.port``, and the attached render's own refusal
     (:func:`reach_errors`) then names the consumer left without it.
+    A :attr:`ProjectedKey.host_setting` the host spells as ``null`` is
+    projected as ``None``: there the null is the host's choice.
 
     Args:
         host_config: The hosting deployment's rendered ``config.yml``, or
@@ -1198,7 +1399,9 @@ def project_attached_overrides(
     for contract in REACH_CONTRACTS.values():
         for projected in contract.projected:
             value = dotted_get(host_config, projected.key)
-            if value is None:
+            if value is None and not (
+                projected.host_setting and _dotted_present(host_config, projected.key)
+            ):
                 continue
             if projected.panel is not None:
                 if projected.panel not in panels:
@@ -1228,7 +1431,7 @@ def live_consumers(config: Mapping[str, Any]) -> list[tuple[ReachContract, Consu
     """Every consumer *config* switches on, with its contract."""
     return [
         (contract, consumer)
-        for contract in REACH_CONTRACTS.values()
+        for contract in reach_contracts(config).values()
         for consumer in contract.consumers
         if consumer.is_on(config)
     ]
@@ -1293,9 +1496,7 @@ def reach_errors(config: Mapping[str, Any], *, repo_root: str | Path | None = No
         if not consumer.refuse:
             continue
         if not consumer.resolves(config):
-            keys = ", ".join(projected.key for projected in contract.projected) or (
-                f"services.{contract.service}"
-            )
+            keys = ", ".join(contract.dial_keys()) or f"services.{contract.service}"
             errors.append(
                 f"{consumer.name} is switched on ({consumer.switch_key}) but this render "
                 f"carries nothing for it to dial: no {keys}. An attached render "

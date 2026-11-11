@@ -29,19 +29,20 @@ ASKED_FOR = {
 
 
 def _inputs(doc: dict[str, Any]) -> Any:
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.views import ViewInputs
 
-    return ViewInputs(doc=doc, rendered_config={}, facility_dir=Path("."), served=[])
+    return ViewInputs(
+        records=FacilityRecords(doc), rendered_config={}, facility_dir=Path("."), served=[]
+    )
 
 
 @pytest.fixture(scope="module")
-def graph_index_path(
-    built_control_assistant: BuiltProject, tmp_path_factory: pytest.TempPathFactory
-) -> Path:
+def graph_index_path(built_demo: BuiltProject, tmp_path_factory: pytest.TempPathFactory) -> Path:
     from osprey.services.channel_finder.graph_index.builder import parse_corpus
     from tests.services.channel_finder.graph_index.test_search import _write
 
-    view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+    view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
     parsed = parse_corpus(view.read_text(encoding="utf-8"))
     return _write(parsed, tmp_path_factory.mktemp("findability") / "graph.duckdb")
 
@@ -67,16 +68,14 @@ def test_the_graph_search_finds_the_record_by_its_words_and_its_address(
 
 @pytest.mark.slow
 def test_the_hierarchical_view_holds_each_record_as_a_leaf(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     from osprey.facility.views.channel_finder import write_hierarchical
     from osprey.services.channel_finder.databases.hierarchical import (
         HierarchicalChannelDatabase,
     )
 
-    (target,) = write_hierarchical(
-        tmp_path / "channel_finder", _inputs(built_control_assistant.facility)
-    )
+    (target,) = write_hierarchical(tmp_path / "channel_finder", _inputs(built_demo.facility))
     database = HierarchicalChannelDatabase(str(target))
 
     for address in ASKED_FOR:
@@ -87,15 +86,14 @@ def test_the_hierarchical_view_holds_each_record_as_a_leaf(
 
 @pytest.mark.slow
 def test_the_in_context_view_holds_each_record_with_its_description(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     from osprey.facility.views.channel_finder import write_in_context
 
-    (target,) = write_in_context(tmp_path, _inputs(built_control_assistant.facility))
+    (target,) = write_in_context(tmp_path, _inputs(built_demo.facility))
     rows = {row["address"]: row for row in json.loads(target.read_bytes())["channels"]}
     described = {
-        str(channel["id"]): channel["description"]
-        for channel in built_control_assistant.facility["channels"]
+        str(channel["id"]): channel["description"] for channel in built_demo.facility["channels"]
     }
 
     for address in ASKED_FOR:

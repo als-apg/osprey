@@ -10,12 +10,17 @@ without importing the profile parser in :mod:`osprey.cli.build_profile_load`.
 from __future__ import annotations
 
 import importlib.resources
+import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
+from osprey.deployment.compose_generator import TEMPLATE_FILENAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 from .build_profile_document import _read_profile_document
 from .profile_root import ProfileKind
@@ -32,7 +37,7 @@ _PRESETS_PACKAGE = "osprey.profiles.presets"
 PRESET_DATA_BUNDLE_KEY = "app_template"
 
 #: The bundle used when no preset is in play, or when the preset names none.
-DEFAULT_DATA_BUNDLE = "control_assistant"
+DEFAULT_DATA_BUNDLE = "demo"
 
 #: The preset-side key naming the bundled facility a preset's ``data/facility/``
 #: tree comes from (``templates/facilities/<name>/``). Preset-side ONLY, handled
@@ -41,17 +46,36 @@ DEFAULT_DATA_BUNDLE = "control_assistant"
 #: owned by no app template and no preset; a preset only names which one it shows.
 PRESET_FACILITY_KEY = "facility"
 
-#: Every key a preset spells for ``osprey init`` and never for the profile it emits.
-PRESET_ONLY_KEYS: tuple[str, ...] = (PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY)
+#: The preset-side key listing the applications ``osprey init`` copies from beside
+#: the preset and writes into the profile it emits. Like the two names above,
+#: resolution consumes it and ``extends:`` never carries it: an application is
+#: code a deployment holds, so a profile runs exactly what it lists and holds. A
+#: login file's ``apps:`` is a different fact (what its card shows) and stays.
+PRESET_APPS_KEY = "apps"
+
+#: Every key a preset spells for ``osprey init`` and never as a layer of a resolved profile.
+PRESET_ONLY_KEYS: tuple[str, ...] = (
+    PRESET_DATA_BUNDLE_KEY,
+    PRESET_FACILITY_KEY,
+    PRESET_APPS_KEY,
+)
+
+
+#: Former preset names that still resolve, mapped to the preset they became.
+#: A repo made from one records it in ``provenance.preset``, in ``extends:`` and
+#: in its ``Made from …`` comment, so the old name has to keep answering.
+PRESET_ALIASES: dict[str, str] = {"control-assistant": "demo"}
 
 
 def _normalize_preset_name(name: str) -> str:
     """Normalize CLI preset spelling to the on-disk filename form.
 
-    CLI accepts both ``control-assistant`` and ``control_assistant``;
-    bundled YAML files are hyphenated.
+    The CLI accepts ``hello_world`` as well as ``hello-world`` (bundled YAML
+    files are hyphenated), and a former name in :data:`PRESET_ALIASES` as the
+    preset it became.
     """
-    return name.replace("_", "-")
+    normalized = name.replace("_", "-")
+    return PRESET_ALIASES.get(normalized, normalized)
 
 
 def _presets_dir() -> Path:
@@ -127,6 +151,119 @@ def resolve_triggers_path(profile_dir: Path, triggers: str) -> TriggersSource | 
     return None
 
 
+def bundled_services_dir() -> Path:
+    """Locate the OSPREY package's bundled ``templates/services`` directory.
+
+    Prefers the installed ``osprey.templates`` package's location; falls back to
+    a path relative to this module for source/editable checkouts where the
+    package metadata is unavailable. Callers check ``.is_dir()`` on the result,
+    since the directory may be absent in a stripped-down install.
+    """
+    try:
+        import osprey.templates
+
+        return Path(osprey.templates.__file__).parent / "services"
+    except (ImportError, AttributeError):
+        return Path(__file__).parent.parent / "templates" / "services"
+
+
+#: The second instance of the virtual accelerator: an instance, rendered off
+#: another service's shipped template under a service key of its own. Its
+#: block keeps its own manifest rows (``services.live_standin.*``).
+LIVE_STANDIN_SERVICE = LIVE_STANDIN_PORT_KEY.split(".")[1]
+
+#: Every service key that is an instance, rendered off another service's
+#: shipped template: the plan lanes beyond lane one and the live stand-in.
+SERVICE_INSTANCE_KEYS: frozenset[str] = frozenset(SECOND_LANE_KEYS.values()) | {
+    LIVE_STANDIN_SERVICE
+}
+
+
+def bundled_service_template(template: str) -> str | None:
+    """The framework template a service ``template:`` selects, or ``None``.
+
+    ``osprey.<name>`` names the template the framework ships as ``<name>``,
+    which holds only letters, digits, underscores and hyphens; every other
+    spelling is a directory relative to the profile root.
+    """
+    match = re.fullmatch(r"osprey\.([A-Za-z0-9_-]+)", template)
+    return match.group(1) if match else None
+
+
+@dataclass(frozen=True)
+class ServiceTemplateSource:
+    """The directory a service ``template:`` value resolves to.
+
+    Attributes:
+        template: The ``template:`` value this source was resolved from.
+        path: The template directory on disk.
+        bundled: True when the value names a template the framework ships
+            rather than a directory beside the profile.
+    """
+
+    template: str
+    path: Path
+    bundled: bool
+
+    @property
+    def exists(self) -> bool:
+        """Whether ``path`` is a service template: a directory holding its compose template."""
+        return self.path.is_dir() and (self.path / TEMPLATE_FILENAME).is_file()
+
+    def refusal(self, service: str) -> str | None:
+        """The sentence refusing *service* for this source, or ``None`` when it exists."""
+        if self.exists:
+            return None
+        if self.bundled:
+            return f"Service '{service}' template '{self.template}' names no template OSPREY ships"
+        if not self.path.is_dir():
+            return f"Service '{service}' template dir not found: {self.path}"
+        return f"Service '{service}' template dir missing {TEMPLATE_FILENAME}"
+
+
+@lru_cache(maxsize=1)
+def bundled_service_names() -> frozenset[str]:
+    """Every service key whose block OSPREY's own template reads.
+
+    The template directories shipped under ``osprey/templates/services``, plus
+    the instances rendered off one of them (:data:`SERVICE_INSTANCE_KEYS`): the
+    second plan lanes and the live stand-in. A custom service is not here — its
+    template is the facility's own, so its block stays open.
+    """
+    root = bundled_services_dir()
+    if not root.is_dir():
+        return frozenset()
+    templates = {
+        entry.name
+        for entry in root.iterdir()
+        if ServiceTemplateSource(template=f"osprey.{entry.name}", path=entry, bundled=True).exists
+    }
+    return frozenset(templates) | SERVICE_INSTANCE_KEYS
+
+
+def resolve_service_template(profile_dir: Path, template: str) -> ServiceTemplateSource:
+    """Resolve a service ``template:`` value to its source directory.
+
+    ``osprey.<name>`` resolves into :func:`bundled_services_dir`; every other
+    value is a directory relative to ``profile_dir``. The result says where the
+    source is, not whether it is there: :attr:`ServiceTemplateSource.exists`
+    answers that, by one rule for both kinds.
+
+    Args:
+        profile_dir: Directory holding the profile.
+        template: The service's ``template:`` value.
+
+    Returns:
+        The resolved source.
+    """
+    bundled = bundled_service_template(template)
+    if bundled is not None:
+        return ServiceTemplateSource(
+            template=template, path=bundled_services_dir() / bundled, bundled=True
+        )
+    return ServiceTemplateSource(template=template, path=profile_dir / template, bundled=False)
+
+
 def _preset_exists(name: str) -> Path | None:
     """Return the resolved preset path if ``name`` matches a bundled preset, else None.
 
@@ -155,8 +292,8 @@ def _yaml_stems(directory: Path) -> list[str]:
 def list_presets() -> list[str]:
     """Return the sorted list of bundled deployment preset names (hyphenated).
 
-    Deployments only: the bundled tiers and apps live one directory down and
-    are listed by :func:`list_tiers` and :func:`list_apps`.
+    Deployments only: the bundled logins live one directory down and are
+    listed by :func:`list_tiers`.
     """
     return _yaml_stems(_presets_dir())
 
@@ -164,7 +301,6 @@ def list_presets() -> list[str]:
 #: The packaged subdirectory each layer kind's bundled files live in.
 _LAYER_PRESET_DIRNAMES: dict[ProfileKind, str] = {
     ProfileKind.TIER: TIERS_DIRNAME,
-    ProfileKind.APP: APPS_DIRNAME,
 }
 
 
@@ -174,17 +310,12 @@ def _layer_presets_dir(kind: ProfileKind) -> Path:
 
 
 def list_tiers() -> list[str]:
-    """Return the sorted list of bundled tier names (``presets/tiers/``)."""
+    """Return the sorted list of bundled login names (``presets/tiers/``)."""
     return _yaml_stems(_layer_presets_dir(ProfileKind.TIER))
 
 
-def list_apps() -> list[str]:
-    """Return the sorted list of bundled app names (``presets/apps/``)."""
-    return _yaml_stems(_layer_presets_dir(ProfileKind.APP))
-
-
 def layer_preset_kind(name: str) -> ProfileKind | None:
-    """The layer kind a bundled tier or app called *name* has, or ``None``.
+    """The layer kind a bundled login called *name* has, or ``None``.
 
     ``None`` for a deployment preset and for a name nothing bundles. Accepts
     either CLI spelling, like every preset lookup.
@@ -197,11 +328,11 @@ def layer_preset_kind(name: str) -> ProfileKind | None:
 
 
 def _layer_refusal(subject: str, name: str, kind: ProfileKind) -> str:
-    """The one sentence a tier or app gets where a deployment was expected."""
+    """The one sentence a login gets where a deployment was expected."""
     folder = _LAYER_PRESET_DIRNAMES[kind]
     return (
         f"{subject} is a {kind.value}, not a deployment. It renders inside a repo: "
-        f"`osprey init <dir> --preset control-assistant` writes {folder}/{name}.yml, "
+        f"`osprey init <dir> --preset demo` writes {folder}/{name}.yml, "
         f"and `osprey build` there renders build/<project>-{name}"
     )
 
@@ -210,7 +341,7 @@ def layer_preset_refusal(name: str) -> str | None:
     """Why *name* cannot stand where a deployment preset is expected, or ``None``.
 
     The refusal ``osprey init --preset``, ``osprey build --preset``,
-    ``osprey validate`` and ``osprey set`` share for a bundled tier or app:
+    ``osprey validate`` and ``osprey set`` share for a bundled login:
     the name is a real file in the package, just not a deployment, so
     "unknown preset" would send the operator looking for a typo.
     """
@@ -222,10 +353,10 @@ def layer_preset_refusal(name: str) -> str | None:
 
 
 def bundled_layer_file_refusal(path: Path) -> str | None:
-    """The kind refusal for *path* when it is a bundled tier or app file, else ``None``.
+    """The kind refusal for *path* when it is a bundled login file, else ``None``.
 
-    A bundled tier or app file is a template for a repo's ``tiers/`` or
-    ``apps/``; it has no root profile beside it, so no verb acts on it in place.
+    A bundled login file is a template for a repo's ``tiers/``; it has no root
+    profile beside it, so no verb acts on it in place.
     """
     resolved = path.resolve()
     for kind in _LAYER_PRESET_DIRNAMES:
@@ -236,16 +367,16 @@ def bundled_layer_file_refusal(path: Path) -> str | None:
 
 
 def bundled_layer_dir_refusal(path: Path) -> str | None:
-    """The kind refusal for *path* when it lies in a bundled tier or app directory.
+    """The kind refusal for *path* when it lies in the bundled login directory.
 
     For a verb that takes a directory, such as ``osprey set --repo``: standing
-    in ``presets/tiers/`` or ``presets/apps/`` names every file there at once.
+    in ``presets/tiers/`` names every file there at once.
     """
     resolved = path.resolve()
     for kind in _LAYER_PRESET_DIRNAMES:
         layer_dir = _layer_presets_dir(kind).resolve()
         if resolved == layer_dir or layer_dir in resolved.parents:
-            names = list_tiers() if kind is ProfileKind.TIER else list_apps()
+            names = list_tiers()
             listed = ", ".join(f"`{n}`" for n in names) or f"`{layer_dir.name}`"
             subject = f"{layer_dir} holds bundled {kind.value}s; each of {listed}"
             return _layer_refusal(subject, "<name>", kind)
@@ -256,8 +387,8 @@ def _read_preset_document(name: str) -> tuple[dict[str, Any], Path]:
     """Read a bundled preset YAML verbatim; return (raw_dict, preset_file_path).
 
     Keeps every preset-side key, including :data:`PRESET_ONLY_KEYS`. Only
-    :func:`preset_data_bundle` and :func:`preset_facility` read those keys, and
-    only from here — every other caller goes through :func:`_load_preset_raw`,
+    :func:`preset_data_bundle`, :func:`preset_facility` and :func:`preset_apps`
+    read those keys, and only from here — every other caller goes through :func:`_load_preset_raw`,
     which consumes them.
 
     Raises ``BuildProfileError`` if the preset is unknown or invalid YAML.
@@ -279,17 +410,20 @@ def _read_preset_document(name: str) -> tuple[dict[str, Any], Path]:
 def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     """Read a bundled preset YAML as a profile layer; return (raw_dict, path).
 
-    ``app_template:`` and ``facility:`` are popped here, exactly the way
-    ``extends:`` is consumed during resolution: they select the packaged data
-    tree ``osprey init`` copies, and are not part of what the resolved profile
-    says. Popping them at the single read point is what lets them stay out of
-    ``_KNOWN_PROFILE_KEYS`` while the presets keep spelling them.
+    :data:`PRESET_ONLY_KEYS` are popped here, exactly the way ``extends:`` is
+    consumed during resolution: they select the packaged material ``osprey init``
+    copies, and are not part of what the resolved profile says. Popping them at
+    the single read point is what keeps the names out of ``_KNOWN_PROFILE_KEYS``
+    while the presets keep spelling them; a login file (a kind-qualified name)
+    keeps its ``apps:``, which is its card's selection.
 
     Raises ``BuildProfileError`` if the preset is unknown or invalid YAML.
     """
     raw, target = _read_preset_document(name)
+    is_login = target.parent != _presets_dir()
     for key in PRESET_ONLY_KEYS:
-        raw.pop(key, None)
+        if not (is_login and key == PRESET_APPS_KEY):
+            raw.pop(key, None)
     return raw, target
 
 
@@ -328,13 +462,13 @@ def preset_data_bundle(name: str | None) -> str:
         name is ``None``, names no bundled preset, or the chain names none.
 
     Raises:
-        BuildProfileError: When *name* is a bundled app. An app has no data
-            bundle of its own; its render uses its deployment's, so asking an
-            app for one is a caller that lost track of the deployment.
+        BuildProfileError: When *name* is a bundled login. A login has no data
+            bundle of its own; its render uses its deployment's, so asking a
+            login for one is a caller that lost track of the deployment.
     """
     if not name:
         return DEFAULT_DATA_BUNDLE
-    if layer_preset_kind(name) is ProfileKind.APP:
+    if layer_preset_kind(name) is not None:
         raise BuildProfileError(
             f"{layer_preset_refusal(name)}. Its data bundle is its deployment's; "
             "ask the deployment preset instead."
@@ -359,3 +493,17 @@ def preset_facility(name: str | None) -> str | None:
     if not name:
         return None
     return _nearest_preset_value(name, PRESET_FACILITY_KEY)
+
+
+def preset_apps(name: str) -> dict[str, Any]:
+    """The applications preset *name* itself lists, for ``osprey init``.
+
+    The preset's own block, not the nearest on its chain as for
+    :func:`preset_data_bundle`: a preset runs the applications it lists, whatever
+    it extends.
+
+    Raises:
+        BuildProfileError: If the preset is unknown or is not a YAML mapping.
+    """
+    listed = _read_preset_document(name)[0].get(PRESET_APPS_KEY)
+    return dict(listed) if isinstance(listed, dict) else {}

@@ -4,6 +4,11 @@ The view holds one physics model, ``SR``, served by the ``stub`` engine this
 module registers, plus the texture. ``SR`` fails to build when an active
 scenario seeds its ``poison`` fault, with :data:`SR_ERROR` as its error text.
 No real engine runs, so a test reads model status without a lattice.
+
+:func:`add_deck_models` adds two more stub models the way a facility states
+them: ``AR``, which wires a readback over a deck the view no longer holds (so
+it fails, as a model whose deck was taken away does), and ``BR``, which names
+no deck and wires nothing (so it is not built, by design).
 """
 
 from __future__ import annotations
@@ -19,8 +24,8 @@ import pytest
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
+from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey_connectors.simulation import composite as composite_module
-from osprey_connectors.simulation.composite import ENGINE_GROUP
 from osprey_connectors.simulation.view import SCHEMAS
 from tests._simulator_view import view_channel, write_scenarios_view
 
@@ -75,7 +80,9 @@ class _StubModel(LUMEModel):
 
 
 def _build(model: str, wiring: Any, deck: Any, settings: Any, active: Any = None) -> Any:
-    del model, wiring, deck, settings
+    del model, wiring, settings
+    if deck is not None:
+        Path(deck).read_bytes()
     if (active or {}).get("poison"):
         raise RuntimeError(SR_ERROR)
     return _StubModel()
@@ -89,7 +96,7 @@ def register_stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     real = importlib.metadata.entry_points
 
     def entry_points(**selection: Any) -> Any:
-        if selection == {"group": ENGINE_GROUP, "name": "stub"}:
+        if selection == {"group": ENTRY_POINT_GROUP, "name": "stub"}:
             return [SimpleNamespace(load=lambda: _STUB)]
         return real(**selection)
 
@@ -129,7 +136,7 @@ def write_simulator_view(
                             "id": "0",
                             "address": _BPM,
                             "direction": "read",
-                            "role": "monitor",
+                            "engine_role": "monitor",
                             "plane": "x",
                             "refresh": "pass",
                         }
@@ -158,3 +165,52 @@ def write_simulator_view(
         build, {str(s["name"]): {k: v for k, v in s.items() if k != "name"} for s in scenarios}
     )
     return view
+
+
+#: The readback ``AR`` wires, over its deck.
+AR_READBACK = "AR:DIAG:BPM:01:POSITION:X"
+
+
+def add_deck_models(view: Path) -> None:
+    """Add ``AR``, whose deck is missing, and ``BR``, which names no deck, to ``view``."""
+    variables = json.loads((view / "variables.json").read_text(encoding="utf-8"))
+    variables["channels"] = sorted(
+        [*variables["channels"], view_channel(AR_READBACK, "AR")],
+        key=lambda channel: channel["address"],
+    )
+    variables["models"] = [
+        {
+            "name": "AR",
+            "engine": "stub",
+            "served": True,
+            "settings": {},
+            "deck": "decks/AR.json",
+            "wiring": [
+                {
+                    "id": "1",
+                    "address": AR_READBACK,
+                    "direction": "read",
+                    "engine_role": "monitor",
+                    "plane": "x",
+                    "refresh": "pass",
+                }
+            ],
+        },
+        {
+            "name": "BR",
+            "engine": "stub",
+            "served": True,
+            "settings": {},
+            "deck": None,
+            "wiring": [],
+        },
+        *variables["models"],
+    ]
+    (view / "variables.json").write_text(json.dumps(variables), encoding="utf-8")
+    addresses = json.loads((view / "addresses.json").read_text(encoding="utf-8"))
+    addresses["channels"] = sorted([*addresses["channels"], AR_READBACK])
+    addresses["status"] = ["ca:SIM:AR:STATUS", "ca:SIM:BR:STATUS", *addresses["status"]]
+    (view / "addresses.json").write_text(json.dumps(addresses), encoding="utf-8")
+    served = json.loads((view / "served_models.json").read_text(encoding="utf-8"))
+    served["models"] = ["AR", "BR", *served["models"]]
+    (view / "served_models.json").write_text(json.dumps(served), encoding="utf-8")

@@ -5,11 +5,11 @@
 # tests) so we can confirm the vacuum_burst gate without the full ~30 min suite.
 #
 # Usage (on the box, from repo root):
-#   MODEL=claude-opus-4-6 bash scripts/benchmark/run_focus.sh \
+#   MODEL=claude-opus-5-5 bash scripts/benchmark/run_focus.sh \
 #       tests/e2e/test_vacuum_burst_scenario.py
 #
 # Env:
-#   MODEL   forced model id (als-apg ids: claude-{haiku-4-5-20251001,sonnet-4-6,opus-4-6})
+#   MODEL   forced model id (als-apg ids: claude-{haiku,sonnet,opus}-5-5)
 #   TAG     label for output files (default: derived from MODEL)
 set -uo pipefail
 REPO="${OSPREY_BENCH_REMOTE_REPO:-$HOME/projects/osprey}"
@@ -23,13 +23,13 @@ NODES=("$@"); [ "${#NODES[@]}" -gt 0 ] || { echo "FATAL: pass test node(s)" >&2;
 export ALS_APG_API_KEY
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$ALS_APG_API_KEY}"
 export ALS_APG_BASE_URL="${ALS_APG_BASE_URL:?set this to your als-apg gateway}"
-export OSPREY_E2E_JUDGE_MODEL="${OSPREY_E2E_JUDGE_MODEL:-claude-haiku-4-5-20251001}"
+export OSPREY_E2E_JUDGE_MODEL="${OSPREY_E2E_JUDGE_MODEL:-claude-haiku-5-5}"
 export OSPREY_E2E_FORCE_PROVIDER=als-apg
 export OSPREY_E2E_FORCE_MODEL="$MODEL"
 unset OSPREY_E2E_PROXY_UPSTREAM
 case "$MODEL" in
-  *opus*)   export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-6}" ;;
-  *sonnet*) export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-3}" ;;
+  *opus*)   export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-40}" ;;
+  *sonnet*) export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-20}" ;;
   *)        export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-1}" ;;
 esac
 

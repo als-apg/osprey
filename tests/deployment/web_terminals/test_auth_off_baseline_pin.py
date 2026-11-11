@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly eleven
+byte-for-byte what it rendered before this feature, with exactly twelve
 exceptions:
 
   1. **the identity emitter** — ``OSPREY_AUDIT_IDENTITY``, which names the
@@ -85,6 +85,12 @@ exceptions:
      the ``./var/guarded_run`` bind on every per-user container. A guarded run keeps its per-target lock
      there, shared with every other container that runs the agent; nothing
      about it depends on a login.
+  8a. **the write-authorization binds** — ``OSPREY_WRITE_REQUESTS_DIR`` with the
+     read-only ``./var/write_ledger/requests`` bind, and
+     ``OSPREY_WRITE_LEDGER_VIEW_DIR`` with the read-only ``./var/write_ledger``
+     bind, on every per-user container. The approve card reads programs'
+     requests, and the chip their self-issued grants and ledgers; nothing about
+     it depends on a login.
   9. **the render badge** — every user card names the render it runs, here
      the default tier every roster states. It names the image's project
      tier, carries no account, role or claim, and renders the same under
@@ -101,6 +107,10 @@ exceptions:
       nginx and every per-user container, so no process in them gains a
       privilege through a setuid binary. It renders the same under every
       method and carries no account, role or claim.
+  12. **the tab icon** — one ``<link rel="icon">`` in the landing page's head,
+      the OSPREY mark inlined as a data URI, so the page's tab is not blank.
+      It renders the same under every method and carries no account, role or
+      claim.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -208,10 +218,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.deployment.web_terminals.render import (
-    _DEFAULT_NGINX_IMAGE,
-    render_web_terminals,
-)
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
+from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.interfaces.design_system.favicon import favicon_data_uri
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
@@ -414,7 +423,6 @@ _RENDERED_FAMILIES = (
     "web",
     "artifact",
     "ariel",
-    "lattice",
     "channel_finder",
     "okf",
     "system_health",
@@ -529,6 +537,14 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # reaped, whatever the method; it carries no account, role or claim.
         # Count 2 = alice + bob (nginx runs no browser).
         "    init: true": 2,
+        # A program's write authorization — the SIXTEENTH exception to SC6.
+        # Every terminal reads the holders' requests and their whole write
+        # ledger read-only, whatever the method: grants, ledgers and requests,
+        # no account, role or claim. Count 2 = alice + bob.
+        "      - OSPREY_WRITE_REQUESTS_DIR=/opt/osprey/write_authorization/requests": 2,
+        "      - OSPREY_WRITE_LEDGER_VIEW_DIR=/opt/osprey/write_authorization/ledger_view": 2,
+        "      - ./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro": 2,
+        "      - ./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro": 2,
     }
 )
 
@@ -558,6 +574,11 @@ _RETIRED_COMPOSE_LINES = frozenset(
         "      - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}",
     }
 )
+
+#: The retired LATTICE panel's per-user port line, port-masked as the edit
+#: script sees it. The panel and its port family are gone, so the line is
+#: deleted from the `token` render, not replaced.
+_RETIRED_PANEL_COMPOSE_LINES = frozenset({"      - OSPREY_LATTICE_DASHBOARD_PORT=<port>"})
 
 #: The per-user healthcheck comment as the pre-feature render worded it, when
 #: `osprey web`'s bare default was the fixed constant 8087. The port-block
@@ -695,6 +716,8 @@ _ALLOWED_LANDING_LINES: Counter[str] = Counter(
         # The render badge — exception 9: one per user card, naming the
         # default tier EXAMPLE_CONFIG's roster runs.
         '            <span class="landing-card-sublabel">assistant</span>': 2,
+        # The tab icon — exception 12: the page's one icon link.
+        f'  <link rel="icon" type="image/svg+xml" href="{favicon_data_uri()}">': 1,
     }
 )
 
@@ -823,6 +846,10 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
         assert line in compose, (
             f"the frozen baseline lacks the retired store line it is said to carry: {line!r}"
         )
+    for line in _RETIRED_PANEL_COMPOSE_LINES:
+        assert line in _masked(compose), (
+            f"the frozen baseline lacks the retired panel line it is said to carry: {line!r}"
+        )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
     for line in _REPLACED_NGINX_LINES:
@@ -907,9 +934,9 @@ def _assert_the_frozen_image_tag_predates_the_current_default() -> None:
     """
     live = _image_tag_in(_token_render()["docker-compose.web.yml"])
     assert live, "today's render spells no front-proxy image tag — the mask has stopped matching"
-    assert live == _DEFAULT_NGINX_IMAGE.split(":", 1)[1], (
+    assert live == UPSTREAM_IMAGES["nginx"].split(":", 1)[1], (
         f"today's `token` render spells front-proxy tag {live!r}, which is not the "
-        f"renderer's default {_DEFAULT_NGINX_IMAGE!r} — the mask is watching a line "
+        f"renderer's default {UPSTREAM_IMAGES['nginx']!r} — the mask is watching a line "
         f"the renderer no longer owns."
     )
 
@@ -967,7 +994,10 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
     for name in _ARTIFACTS:
         old, new, opcodes = _opcodes(name)
         replaceable = (
-            _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES | _RETIRED_COMPOSE_LINES
+            _REPLACED_COMPOSE_LINES
+            | _REWORDED_COMPOSE_LINES
+            | _RETIRED_COMPOSE_LINES
+            | _RETIRED_PANEL_COMPOSE_LINES
             if name == "docker-compose.web.yml"
             else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES
             if name == "nginx.conf"

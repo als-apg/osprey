@@ -177,16 +177,16 @@ def _stub_host_interface_addresses():
 def reset_rendered_config_memo():
     """Isolate every test from the process-wide parsed-render memo.
 
-    ``routes.websocket`` parses the rendered ``config.yml`` once and memoizes
+    ``config_view`` parses the rendered ``config.yml`` once and memoizes
     it on ``(path, stat signature)``. Two tests that write a render at the same
     path within one mtime tick share a signature, so the second would be
     answered the first one's parse — its posture, its targets, its labels.
     """
-    from osprey.interfaces.web_terminal.routes import websocket
+    from osprey.interfaces.web_terminal import config_view
 
-    websocket.reset_rendered_config_memo()
+    config_view.reset_rendered_config_memo()
     yield
-    websocket.reset_rendered_config_memo()
+    config_view.reset_rendered_config_memo()
 
 
 @pytest.fixture(autouse=True)
@@ -278,7 +278,7 @@ def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
     — is cleared, so each case states the one it means. Both caches are
     dropped on the way in and out.
     """
-    from osprey_connectors import control_context, posture_store
+    from osprey_connectors import control_context
     from osprey_connectors_tests._harness import VERDICT_ENV_VARS, state_dir_under
 
     root = tmp_path / "agent_data"
@@ -286,10 +286,8 @@ def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
     for name in VERDICT_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
 
 
@@ -328,6 +326,33 @@ def readable_process_table(monkeypatch):
     from tests.interfaces.web_terminal._pty_child import readable_rows
 
     monkeypatch.setattr(process_table, "snapshot", readable_rows)
+
+
+@pytest.fixture
+def short_process_waits() -> Iterator[None]:
+    """Shorten the production waits a process-tree test would otherwise sit out.
+
+    ``process_tree.READ_WAIT_S`` (5 s: how long an unreadable table is retried),
+    ``process_tree.END_TERM_WAIT_S`` (3 s: SIGTERM before SIGKILL) and
+    ``subprocess_capture._KILL_WAIT_S`` (5 s: a killed group's disappearance)
+    are windows these tests reach the far end of, never measure: a table kept
+    unreadable or a member that ignores SIGTERM runs each window to its end
+    whatever its length. Shorter windows take the same branches. The retry
+    window keeps room for a second read at ``process_table._READ_RETRY_S``
+    however slowly a loaded runner takes the first (no test here keeps a table
+    retryably unreadable without its own, shorter window, so its length costs
+    nothing), and the two signal waits keep a second of margin for a member that does
+    exit. Patched on its own ``MonkeyPatch``, so a test's ``monkeypatch.undo()``
+    keeps them short through its cleanup.
+    """
+    from osprey.deployment import subprocess_capture
+    from osprey.interfaces.web_terminal import process_tree
+
+    with pytest.MonkeyPatch.context() as patch_waits:
+        patch_waits.setattr(process_tree, "READ_WAIT_S", 1.0)
+        patch_waits.setattr(process_tree, "END_TERM_WAIT_S", 1.0)
+        patch_waits.setattr(subprocess_capture, "_KILL_WAIT_S", 1.0)
+        yield
 
 
 @pytest.fixture

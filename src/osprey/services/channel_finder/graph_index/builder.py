@@ -628,7 +628,7 @@ def build_graph_index(ttl_path: Path, index_path: Path) -> IndexBuildReport:
     two reads produce an index whose digest names a file it does not hold, and
     the digest is exactly what the build hook memoises on.
 
-    :func:`~osprey.services.facility_knowledge.seeder.graph_seeder.ttl_sha256`
+    :func:`~osprey.services.graph_store.seeder.ttl_sha256`
     is that digest, not a second spelling of it: the seed marker in the store
     and the ``corpus_sha256`` column here have to be the same number, or a
     deployment whose store and index were filled from one corpus would look to
@@ -658,7 +658,7 @@ def build_graph_index(ttl_path: Path, index_path: Path) -> IndexBuildReport:
         GraphIndexBuildError: When the corpus is not valid Turtle, or when the
             index cannot be written (see :func:`build_from_rows`).
     """
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     started = time.perf_counter()
     ttl_path = Path(ttl_path)

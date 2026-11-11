@@ -22,6 +22,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.facility.records import FacilityRecords
 from tests.facility._synthetic_trees import Deck, write_tree
 
 __all__ = [
@@ -240,10 +241,10 @@ def view_inputs(root: Path, tree: Mapping[str, Any], served: list[str] | None = 
     document, facility = built_document(root, tree)
     config: dict[str, Any] = {} if served is None else {"simulation": {"models": served}}
     return ViewInputs(
-        doc=document,
+        records=FacilityRecords(document),
         rendered_config=config,
         facility_dir=facility,
-        served=resolve_served(config, document),
+        served=resolve_served(config, FacilityRecords(document)),
     )
 
 

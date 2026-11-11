@@ -43,6 +43,7 @@ from osprey.services.ariel_search.search.qmd import (
     get_parameter_descriptors,
     get_tool_descriptor,
     hybrid_search,
+    qmd_lanes,
 )
 from osprey.services.qmd import QMDSearchResult, QMDUnavailableError
 
@@ -391,6 +392,29 @@ class TestSettings:
     def test_candidate_limit_none_defers_to_qmd(self):
         settings = HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": None}))
         assert settings.candidate_limit is None
+
+    @pytest.mark.parametrize(
+        ("settings", "lanes"),
+        [
+            pytest.param({}, ("lex", "vec"), id="strategy-unset"),
+            pytest.param({"strategy": "qmd"}, ("lex", "vec"), id="qmd"),
+            pytest.param({"strategy": "rrf"}, ("lex",), id="rrf"),
+        ],
+    )
+    def test_qmd_lanes_follow_the_strategy(self, settings, lanes):
+        module = SearchModuleConfig(enabled=True, settings=settings)
+        assert HybridSearchSettings.from_module(module).qmd_lanes == lanes
+        assert qmd_lanes(module) == lanes
+
+    def test_qmd_lanes_are_empty_without_hybrid_search(self):
+        assert qmd_lanes(None) == ()
+        disabled = SearchModuleConfig(enabled=False, settings={"strategy": "RRF"})
+        assert qmd_lanes(disabled) == ()
+
+    def test_qmd_lanes_refuse_a_malformed_strategy(self):
+        module = SearchModuleConfig(enabled=True, settings={"strategy": "other"})
+        with pytest.raises(ValueError, match="search_modules.hybrid.settings.strategy"):
+            qmd_lanes(module)
 
 
 # --------------------------------------------------------------------------
@@ -754,6 +778,83 @@ class TestRankingAndHydration:
     @pytest.mark.asyncio
     async def test_snippet_is_carried_as_the_highlight(self, search_calls):
         client = StubClient([make_hit("1", snippet="7: water leak")])
+        repo = StubRepository([{**make_entry("1"), "raw_text": "Cooling\n\nwater leak"}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["water leak"]
+
+    @pytest.mark.asyncio
+    async def test_highlight_is_entry_text_without_the_mirror_scaffolding(self, search_calls):
+        """qmd quotes the mirror document: a diff-style hunk header, line numbers,
+        the ``# Entry`` heading and the provenance lines the writer adds. The
+        highlight keeps only what the entry itself says, minus its subject line
+        (the row already shows it)."""
+        snippet = (
+            "5: @@ -4,6 @@ (3 before, 3 after)\n"
+            "6: Source: Example eLog.\n"
+            "7: title: Linac gun cathode replacement.\n"
+            "8: \n"
+            "9: Linac gun cathode replacement\n"
+            "10: \n"
+            "11: Replaced the thermionic cathode after 12,000 hours."
+        )
+        raw = "Linac gun cathode replacement\n\nReplaced the thermionic cathode after 12,000 hours."
+        client = StubClient([make_hit("1", snippet=snippet)])
+        repo = StubRepository([{**make_entry("1"), "raw_text": raw}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["Replaced the thermionic cathode after 12,000 hours."]
+
+    @pytest.mark.asyncio
+    async def test_an_excerpt_of_only_the_subject_yields_no_highlight(self, search_calls):
+        """The row already shows the subject; it previews the body instead."""
+        snippet = "8: \n9: Linac gun cathode replacement\n10: "
+        raw = "Linac gun cathode replacement\n\nReplaced the thermionic cathode."
+        client = StubClient([make_hit("1", snippet=snippet)])
+        repo = StubRepository([{**make_entry("1"), "raw_text": raw}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == []
+
+    @pytest.mark.asyncio
+    async def test_a_one_line_entry_keeps_its_only_line(self, search_calls):
+        client = StubClient([make_hit("1", snippet="9: water leak in sector 3")])
+        repo = StubRepository([{**make_entry("1"), "raw_text": "water leak in sector 3"}])
+
+        _, _, highlights = (
+            await hybrid_search(
+                "beam", repo, make_config(), client=client, search_calls=search_calls
+            )
+        )[0]
+
+        assert highlights == ["water leak in sector 3"]
+
+    @pytest.mark.asyncio
+    async def test_a_snippet_of_scaffolding_only_yields_no_highlight(self, search_calls):
+        """A hit centred on the heading carries no entry text; the row then falls
+        back to the entry's own text rather than showing the heading."""
+        snippet = (
+            "1: @@ -1,3 @@ (0 before, 7 after)\n"
+            "2: # Entry 1\n"
+            "3: \n"
+            "4: Logged by operator on 2024-06-01T12:00:00+00:00."
+        )
+        client = StubClient([make_hit("1", snippet=snippet)])
         repo = StubRepository([make_entry("1")])
 
         _, _, highlights = (
@@ -762,7 +863,7 @@ class TestRankingAndHydration:
             )
         )[0]
 
-        assert highlights == ["7: water leak"]
+        assert highlights == []
 
     @pytest.mark.asyncio
     async def test_missing_snippet_yields_no_highlights(self, search_calls):
@@ -1281,6 +1382,135 @@ class TestReciprocalRankFusion:
         assert diagnostic.source == "hybrid"
         assert diagnostic.category == "semantic_search"
         assert diagnostic.message == SEMANTIC_UNAVAILABLE_MESSAGE
+
+
+class UnreachableEmbedder(StubEmbedder):
+    """An embedding provider that refuses the connection, as a stopped Ollama does."""
+
+    def execute_embedding(self, **kwargs: Any) -> list[list[float]]:
+        raise ConnectionError("[Errno 61] Connection refused")
+
+
+class TestRRFLaneOutage:
+    """One lost RRF lane is reported and the other lane answers (GH #2453)."""
+
+    @staticmethod
+    def _rrf_fixture() -> tuple[list[dict[str, Any]], SemanticRepository]:
+        entries = [make_entry(entry_id) for entry_id in ("first", "second", "third")]
+        by_id = {entry["entry_id"]: entry for entry in entries}
+        return entries, SemanticRepository(entries, [(by_id["third"], 0.9), (by_id["first"], 0.6)])
+
+    @pytest.mark.asyncio
+    async def test_an_unreachable_embedder_keeps_the_keyword_hits_and_says_so(self, search_calls):
+        """A refused connection is not a timeout, and must not read as "no matches"."""
+        _entries, repository = self._rrf_fixture()
+        client = StubClient([make_hit("first"), make_hit("second")])
+
+        output = await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf"}),
+            UnreachableEmbedder(),
+            client=client,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(output, ModuleOutput)
+        assert [entry["entry_id"] for entry, _score, _snippet in output.entries] == [
+            "first",
+            "second",
+        ]
+        (diagnostic,) = output.diagnostics
+        assert diagnostic.level is DiagnosticLevel.WARNING
+        assert diagnostic.category == "semantic_search"
+        assert diagnostic.message.startswith("Semantic ranking unavailable")
+        assert "Connection refused" in diagnostic.message
+        assert "keywords only" in diagnostic.message
+
+    @pytest.mark.asyncio
+    async def test_a_down_sidecar_keeps_the_semantic_hits_and_says_so(self, search_calls):
+        _entries, repository = self._rrf_fixture()
+        client = StubClient(available=False)
+
+        output = await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf"}),
+            StubEmbedder(),
+            client=client,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(output, ModuleOutput)
+        assert [entry["entry_id"] for entry, _score, _snippet in output.entries] == [
+            "third",
+            "first",
+        ]
+        assert client.calls == []
+        (diagnostic,) = output.diagnostics
+        assert diagnostic.level is DiagnosticLevel.WARNING
+        assert diagnostic.category == "text_ranking"
+        assert diagnostic.message.startswith("Keyword ranking unavailable")
+        assert "127.0.0.1:8180" in diagnostic.message
+        assert "meaning only" in diagnostic.message
+
+    @pytest.mark.asyncio
+    async def test_a_failed_sidecar_query_keeps_the_semantic_hits(self, search_calls):
+        from osprey.services.qmd import QMDClientError
+
+        _entries, repository = self._rrf_fixture()
+        client = StubClient(error=QMDClientError("qmd tool 'query' failed: index missing"))
+
+        output = await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf"}),
+            StubEmbedder(),
+            client=client,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(output, ModuleOutput)
+        assert [entry["entry_id"] for entry, _score, _snippet in output.entries] == [
+            "third",
+            "first",
+        ]
+        (diagnostic,) = output.diagnostics
+        assert diagnostic.category == "text_ranking"
+        assert "index missing" in diagnostic.message
+
+    @pytest.mark.asyncio
+    async def test_both_lanes_down_is_an_error_naming_both(self, search_calls):
+        _entries, repository = self._rrf_fixture()
+
+        with pytest.raises(QMDUnavailableError) as raised:
+            await hybrid_search(
+                "beam problem",
+                repository,
+                make_semantic_config({"strategy": "rrf"}),
+                UnreachableEmbedder(),
+                client=StubClient(available=False),
+                search_calls=search_calls,
+            )
+
+        message = str(raised.value)
+        assert "127.0.0.1:8180" in message
+        assert "Connection refused" in message
+
+    @pytest.mark.asyncio
+    async def test_the_qmd_strategy_still_raises_on_a_down_sidecar(self, search_calls):
+        """Only RRF has a second text lane; the qmd strategy keeps its error."""
+        _entries, repository = self._rrf_fixture()
+
+        with pytest.raises(QMDUnavailableError):
+            await hybrid_search(
+                "beam problem",
+                repository,
+                make_semantic_config(),
+                StubEmbedder(),
+                client=StubClient(available=False),
+                search_calls=search_calls,
+            )
 
 
 class TestRerankFallback:
@@ -2639,3 +2869,165 @@ class TestPictureLaneAgainstAServer:
         assert all("_matched_via" not in e for e, _, _ in _entries(result))
         assert attachments_capability(config)["picture_search_unavailable"] == "model"
         assert stub.embeddings == []
+
+
+# --------------------------------------------------------------------------
+# Dimension filter (C-FILTER through hydration, C-MODOUT return shape)
+# --------------------------------------------------------------------------
+
+
+def _alice_filter():
+    from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+    return EntryFilter.parse({"author": ["alice"]}, BUILTIN_DIMENSIONS)
+
+
+def _with_facts(repo):
+    """Give a stub repository the ``schema_facts`` the filter's context reads."""
+    from osprey.services.ariel_search.database.repository import SchemaFacts
+
+    async def _facts():
+        return SchemaFacts(has_v2_fts=True, has_copy_state=True, has_subject=True)
+
+    repo.schema_facts = _facts
+    return repo
+
+
+@pytest.fixture
+def _no_enhancement_registry(_mock_ariel_registry):
+    # Nested inside the conftest's patch so the two unwind in order; a
+    # monkeypatch here would restore the conftest's mock after it exits.
+    from unittest.mock import MagicMock, patch
+
+    registry = MagicMock()
+    registry.list_ariel_enhancement_modules.return_value = []
+    with patch("osprey.registry.get_registry", return_value=registry):
+        yield
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_no_enhancement_registry")
+class TestEntryFilter:
+    async def test_text_hits_outside_the_filter_are_dropped(self, search_calls):
+        repo = _with_facts(
+            StubRepository([make_entry("A", author="Alice"), make_entry("B", author="Bob")])
+        )
+
+        result = await hybrid_search(
+            "beam",
+            repo,
+            make_config(),
+            client=StubClient([make_hit("B"), make_hit("A")]),
+            include_images=False,
+            entry_filter=_alice_filter(),
+            search_calls=search_calls,
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert result.filter_applied is True
+        assert _ids(result) == ["A"]
+
+    async def test_the_filter_applies_alongside_the_legacy_author(self, search_calls):
+        repo = _with_facts(
+            StubRepository(
+                [make_entry("A", author="Alice"), make_entry("AL", author="Alice Liddell")]
+            )
+        )
+
+        result = await hybrid_search(
+            "beam",
+            repo,
+            make_config(),
+            client=StubClient([make_hit("A"), make_hit("AL")]),
+            author="lid",
+            include_images=False,
+            entry_filter=_alice_filter(),
+            search_calls=search_calls,
+        )
+
+        # legacy substring "lid" keeps only AL; the exact filter keeps only A
+        assert _ids(result) == []
+
+    async def test_a_filter_widens_the_fetch(self, search_calls):
+        client = StubClient([make_hit("A")])
+        repo = _with_facts(StubRepository([make_entry("A", author="Alice")]))
+
+        await hybrid_search(
+            "beam",
+            repo,
+            make_config(),
+            client=client,
+            max_results=10,
+            include_images=False,
+            entry_filter=_alice_filter(),
+            search_calls=search_calls,
+        )
+
+        assert client.calls[0]["limit"] == 40
+
+    async def test_image_lane_hits_pass_the_filter(self, fake_lane, search_calls):
+        fake_lane({"MINE": ImageHit("a1", 0.8), "THEIRS": ImageHit("a2", 0.8)})
+        repo = _with_facts(
+            LaneRepository(
+                [
+                    make_entry("T1", author="Alice"),
+                    make_entry("MINE", author="alice"),
+                    make_entry("THEIRS", author="Bob"),
+                ]
+            )
+        )
+
+        ids = _ids(
+            await hybrid_search(
+                "q",
+                repo,
+                lane_config(),
+                client=StubClient([make_hit("T1")]),
+                include_images=True,
+                entry_filter=_alice_filter(),
+                search_calls=search_calls,
+            )
+        )
+
+        assert "MINE" in ids
+        assert "THEIRS" not in ids
+
+    async def test_rrf_semantic_lane_receives_the_filter(self, search_calls):
+        entries = [make_entry("A", author="Alice")]
+        repository = _with_facts(SemanticRepository(entries, [(entries[0], 0.9)]))
+        flt = _alice_filter()
+
+        await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf", "candidate_limit": 40}),
+            StubEmbedder(),
+            client=StubClient([make_hit("A")]),
+            entry_filter=flt,
+            search_calls=search_calls,
+        )
+
+        assert repository.semantic_calls[0]["entry_filter"] is flt
+
+    async def test_offset_alone_returns_module_output(self, search_calls):
+        repo = StubRepository([make_entry("A")])
+
+        result = await hybrid_search(
+            "beam",
+            repo,
+            make_config(),
+            client=StubClient([make_hit("A")]),
+            include_images=False,
+            offset=0,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert result.filter_applied is False
+        assert _ids(result) == ["A"]
+
+
+def test_descriptor_accepts_filter_and_offset():
+    descriptor = get_tool_descriptor()
+    assert descriptor.accepts_entry_filter is True
+    assert descriptor.accepts_offset is True

@@ -215,7 +215,7 @@ class TestRunReembed:
     ):
         pool = fake_pool_factory(
             rows_for={
-                _PGVECTOR_PROBE: [(True,)],
+                _PGVECTOR_PROBE: [("0.8.0", "0.8.0")],
                 _SELECT_ENTRIES: [("E1", "first text")],
                 f"SELECT 1 FROM {_TABLE}": [],
             }
@@ -502,7 +502,7 @@ class TestRunReembedInputKey:
     ):
         pool = fake_pool_factory(
             rows_for={
-                _PGVECTOR_PROBE: [(True,)],
+                _PGVECTOR_PROBE: [("0.8.0", "0.8.0")],
                 _SELECT_ENTRIES: [("E1", "first text")],
                 f"SELECT 1 FROM {_TABLE}": [],
             }

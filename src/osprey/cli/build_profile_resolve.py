@@ -28,6 +28,7 @@ Two things reach a profile, and they mean different things:
 from __future__ import annotations
 
 import copy
+import dataclasses
 import io
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -56,9 +57,11 @@ from .build_profile_load import (
     _parse_profile,
 )
 from .build_profile_merge import (
+    _refuse_root_lists,
     _resolve_extends,
+    refuse_inputs_outside_repository,
     resolve_profile_document,
-    seal_app_render,
+    seal_login_render,
 )
 from .build_profile_model import BuildProfile
 from .build_profile_presets import _load_preset_raw
@@ -612,7 +615,7 @@ def resolve_build_document(
         # the file's own parent, would build a hollow project from the delta
         # alone and read its data tree from `tiers/`. The host variant is
         # handed over rather than merged here: it overlays that root, so a
-        # tier or app sees it through the deployment it merges over and is
+        # login sees it through the deployment it merges over and is
         # never refused for a key only the variant spells.
         document = resolve_profile_document(
             raw, profile_path.resolve(), root_overlays=read_overlays
@@ -626,11 +629,17 @@ def resolve_build_document(
         # merged — because only here does the whole picture an edit outranks
         # exist: every literal dotted key any layer contributes.
         raw = apply_cli_edits(raw, set_pairs)
-        # The edit lands after the app composer pinned the render, so an app
-        # is sealed again: no edit arms it, opens a deployment-edit door or
-        # drops a host guard.
-        if document.app_rel is not None and set_pairs:
-            raw = seal_app_render(raw, document.app_rel, document.guard_floor)
+        if set_pairs and not is_layer:
+            # An edit may not spell on the root what the file may not.
+            _refuse_root_lists(raw, str(profile_path))
+        # The edit lands after the login's render was sealed, so it is sealed
+        # again: no edit drops a host guard, and none arms a shared login or
+        # opens a deployment-edit door on it.
+        if document.seal is not None and set_pairs:
+            raw = seal_login_render(raw, document.seal)
+        # Checked on the edited document, so a `--set` edit cannot name an
+        # input the repository does not hold.
+        refuse_inputs_outside_repository(dataclasses.replace(document, raw=raw))
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset
@@ -659,7 +668,7 @@ def preset_authored_config(preset: str) -> dict[str, Any]:
 
     Args:
         preset: A bundled preset name, in either spelling
-            (``control-assistant`` / ``control_assistant``).
+            (``hello-world`` / ``hello_world``).
 
     Returns:
         The preset's own ``config:`` mapping, empty when it declares none.

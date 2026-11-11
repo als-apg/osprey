@@ -1,0 +1,17 @@
+# A read-only controls-admin shaped application: every deployment fact it needs
+# comes through the application fragment context. Assembled under a deployment
+# as apps/controls-admin-like/.
+name: controls-admin-like
+containers:
+  controls-admin:
+    image: ghcr.io/example/controls-admin:1.0
+    fragment: compose/controls-admin/
+    health: /health
+    env: [CONTROLS_ADMIN_SITE]
+panel:
+  id: controls-admin
+  label: Controls admin
+  container: controls-admin
+  entry: /admin/
+  roster_grant:
+    single_user_alias: true

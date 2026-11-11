@@ -71,6 +71,7 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.view import (
+    SETPOINT,
     VARIABLES_FILE,
     VIEW_RELPATH,
     NoSimulatorView,
@@ -207,6 +208,10 @@ def active_set_sha256(active: Sequence[str]) -> str:
     return hashlib.sha256("\n".join(active).encode("utf-8")).hexdigest()
 
 
+#: Read back only by the in-process connector that wrote it, in the same process.
+_JOURNAL_FILE_MODE = 0o600
+
+
 class _Journal:
     """The session-writes journal: read whole, replaced atomically under its lock."""
 
@@ -247,7 +252,7 @@ class _Journal:
         atomic_replace(
             self.path,
             json.dumps(document, sort_keys=True).encode("utf-8"),
-            mode=0o600,
+            mode=_JOURNAL_FILE_MODE,
             sync="best_effort",
         )
 
@@ -468,7 +473,7 @@ class VAInProcessConnector(ControlSystemConnector):
             record = self._records.get(address)
             if record is None or address not in self._channels:
                 return address, NOT_A_CHANNEL
-            if record.get("role") != "setpoint":
+            if record.get("role") != SETPOINT:
                 return address, "not a setpoint"
             if record.get("writable") is not True:
                 return address, NOT_WRITABLE

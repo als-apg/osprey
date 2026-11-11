@@ -1,0 +1,12 @@
+archiver:
+  type: mongodb_archiver
+  settings:
+    url: mongodb+srv://your-cluster.example.com/?tls=true
+    name: archiver_db
+    collection: pv_data
+    auth:                # optional with a url
+      source: admin
+      username: readonly
+      password_env: MONGODB_READONLY_PASSWORD
+    tls:                 # only for a CA the image does not trust
+      ca_bundle: /etc/ssl/certs/site-ca.pem

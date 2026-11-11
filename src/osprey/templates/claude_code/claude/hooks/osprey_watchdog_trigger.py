@@ -90,6 +90,9 @@ _CHILD_FLAG = "--child"
 #: The prefix of a submission file, for anyone reading the temp directory.
 _SUBMISSION_PREFIX = "osprey_watchdog_"
 
+#: Read only by the detached child this hook spawns, under the hook's own uid.
+_SUBMISSION_FILE_MODE = 0o600
+
 _INTAKE_ROUTE = "/api/watchdog/prompt"
 
 #: Seconds the POST may take. Long enough for a loopback call to a busy server;
@@ -125,7 +128,7 @@ def _read_prompt():
 
 
 def _write_submission(prompt, record_session_id):
-    """Write one submission to a fresh 0600 file and return its path."""
+    """Write one submission to a fresh :data:`_SUBMISSION_FILE_MODE` file; return its path."""
     import tempfile
     import uuid
 
@@ -137,6 +140,7 @@ def _write_submission(prompt, record_session_id):
     }
     descriptor, path = tempfile.mkstemp(prefix=_SUBMISSION_PREFIX, suffix=".json")
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), _SUBMISSION_FILE_MODE)
         json.dump(submission, stream)
     return path
 

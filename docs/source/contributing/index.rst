@@ -38,7 +38,7 @@ Thank you for your interest in contributing to the Osprey Framework. This guide 
       :link-type: doc
       :shadow: md
 
-      One plugin, ``osprey``, carrying ten skills that teach a coding agent
+      One plugin, ``osprey``, carrying eleven skills that teach a coding agent
       Osprey's own playbooks. How to install it, what each ``/osprey:<name>``
       skill does, and where the deployer-facing ones are documented.
 
@@ -47,7 +47,11 @@ Thank you for your interest in contributing to the Osprey Framework. This guide 
 Community Guidelines
 --------------------
 
-**Code of Conduct**: We are committed to a welcoming and inclusive environment. Be respectful, welcome newcomers, accept constructive criticism, and show empathy. Harassment, personal attacks, trolling, or publishing private information are unacceptable. Report issues to the maintainers; all reports are handled confidentially.
+**Code of Conduct**: We are committed to a welcoming and inclusive environment.
+
+- Be respectful, welcome newcomers, accept constructive criticism, and show empathy.
+- Harassment, personal attacks, trolling, or publishing private information are unacceptable.
+- Report issues to the maintainers; all reports are handled confidentially.
 
 **Communication Channels:**
 

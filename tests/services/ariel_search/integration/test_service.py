@@ -224,3 +224,72 @@ class TestServiceSearchModes:
         assert hasattr(result, "entries")
 
         await pool.close()
+
+
+#: The rows the follow-up read-back probe writes.
+FOLLOWS_UP_PREFIX = "follows-up-integ-"
+
+
+class TestCreateEntryFollowsUpReadback:
+    """A facility read-back without ``follows_up`` keeps the one ARIEL wrote (Decision 4)."""
+
+    async def test_create_entry_keeps_follows_up_across_readback(
+        self, integration_ariel_config, repository, seed_entry_factory, seeded_prefixes
+    ):
+        from datetime import UTC, datetime
+        from unittest.mock import patch
+
+        from osprey.services.ariel_search.database.connection import create_connection_pool
+        from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+        from osprey.services.ariel_search.models import FacilityEntryCreateRequest, SyncStatus
+        from osprey.services.ariel_search.service import ARIELSearchService
+
+        seeded_prefixes.add(FOLLOWS_UP_PREFIX)
+        parent_id = f"{FOLLOWS_UP_PREFIX}parent"
+        child_id = f"{FOLLOWS_UP_PREFIX}child"
+        await repository.upsert_entry(seed_entry_factory(entry_id=parent_id))
+
+        # An adapter like the reference one: it takes the entry but its record has no
+        # follows_up.
+        adapter = AsyncMock(spec=FacilityAdapter)
+        adapter.supports_write = True
+        adapter.supports_attachments = False
+        adapter.source_system_name = "Example eLog"
+        adapter.writes_local_only = False
+        adapter.create_entry = AsyncMock(return_value=child_id)
+
+        async def read_back(**kwargs):
+            yield seed_entry_factory(
+                entry_id=child_id,
+                source_system="Example eLog",
+                timestamp=datetime.now(UTC),
+                raw_text="Follow-up\n\nDetails",
+                metadata={"logbook": "Operations"},
+            )
+
+        adapter.fetch_entries = read_back
+
+        pool = await create_connection_pool(integration_ariel_config.database)
+        try:
+            service = ARIELSearchService(
+                config=integration_ariel_config, pool=pool, repository=repository
+            )
+            request = FacilityEntryCreateRequest(
+                subject="Follow-up",
+                details="Details",
+                metadata={"follows_up": parent_id},
+            )
+            with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
+                result = await service.create_entry(
+                    request, local_metadata={"follows_up": parent_id}
+                )
+        finally:
+            await pool.close()
+
+        assert result.sync_status == SyncStatus.SYNCED
+        stored = await repository.get_entry(child_id)
+        assert stored["metadata"]["follows_up"] == parent_id
+        # the read-back is otherwise the authority: its keys replace the local copy's,
+        # and it records that the facility now holds the entry
+        assert stored["metadata"]["logbook"] == "Operations"
+        assert stored["metadata"]["sync_status"] == SyncStatus.SYNCED.value

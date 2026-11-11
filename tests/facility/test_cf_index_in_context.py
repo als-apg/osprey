@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.channel_finder import (
     CHANNEL_FINDER_SCHEMA,
     IN_CONTEXT_FILE,
@@ -35,7 +36,7 @@ def _inputs(doc: dict[str, Any], rendered_config: dict[str, Any] | None = None) 
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc=doc,
+        records=FacilityRecords(doc),
         rendered_config=rendered_config or {},
         facility_dir=Path("."),
         served=[],
@@ -51,20 +52,22 @@ def _channel(id_: str, **fields: Any) -> dict[str, Any]:
 
 def test_a_tagged_subset_narrows_the_index_and_a_label_names_its_row() -> None:
     document = in_context_document(
-        {
-            "channels": [
-                _channel(
-                    "B:RB",
-                    label="Beta",
-                    names=["B2", "Bb"],
-                    description="beta",
-                    tags=["in_context", "x"],
-                ),
-                _channel("A:RB", names=["Alpha"], description="alpha", tags=["in_context"]),
-                _channel("C:RB", label="Gamma", tags=["other"]),
-                _channel("D:RB"),
-            ]
-        }
+        FacilityRecords(
+            {
+                "channels": [
+                    _channel(
+                        "B:RB",
+                        label="Beta",
+                        names=["B2", "Bb"],
+                        description="beta",
+                        tags=["in_context", "x"],
+                    ),
+                    _channel("A:RB", names=["Alpha"], description="alpha", tags=["in_context"]),
+                    _channel("C:RB", label="Gamma", tags=["other"]),
+                    _channel("D:RB"),
+                ]
+            }
+        )
     )
 
     assert document == {
@@ -78,19 +81,23 @@ def test_a_tagged_subset_narrows_the_index_and_a_label_names_its_row() -> None:
 
 
 def test_the_count_is_the_number_of_rows_written() -> None:
-    document = in_context_document({"channels": [_channel("B:RB"), _channel("A:RB")]})
+    document = in_context_document(
+        FacilityRecords({"channels": [_channel("B:RB"), _channel("A:RB")]})
+    )
 
     assert document["count"] == 2 == len(document["channels"])
 
 
 def test_an_untagged_facility_indexes_every_channel() -> None:
     document = in_context_document(
-        {
-            "channels": [
-                _channel("B:RB", label="Beta", tags=["other"]),
-                _channel("A:RB", description="alpha"),
-            ]
-        }
+        FacilityRecords(
+            {
+                "channels": [
+                    _channel("B:RB", label="Beta", tags=["other"]),
+                    _channel("A:RB", description="alpha"),
+                ]
+            }
+        )
     )
 
     assert document["channels"] == [
@@ -103,7 +110,9 @@ def test_hello_world_builds_an_in_context_index_of_its_five_labelled_channels() 
     from osprey.facility.build import build_facility
     from tests.facility.test_standalone_sources import HELLO_WORLD, HELLO_WORLD_ADDRESSES
 
-    document = in_context_document(build_facility(HELLO_WORLD, project_name="hello"))
+    document = in_context_document(
+        FacilityRecords(build_facility(HELLO_WORLD, project_name="hello"))
+    )
 
     rows = document["channels"]
     assert [row["address"] for row in rows] == HELLO_WORLD_ADDRESSES
@@ -112,7 +121,9 @@ def test_hello_world_builds_an_in_context_index_of_its_five_labelled_channels() 
 
 
 def test_a_channel_without_a_description_carries_none() -> None:
-    document = in_context_document({"channels": [_channel("A:RB", tags=["in_context"])]})
+    document = in_context_document(
+        FacilityRecords({"channels": [_channel("A:RB", tags=["in_context"])]})
+    )
     (row,) = document["channels"]
     assert row == {"channel": "A:RB", "address": "A:RB", "description": None}
 
@@ -201,10 +212,10 @@ def test_a_facility_with_no_channel_stops_with_view_unsupported(tmp_path: Path) 
 
 @pytest.mark.slow
 def test_the_demo_index_holds_the_569_golden_rows_and_the_declared_additions(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     golden = load_golden("in_context_size.json")
-    (target,) = write_in_context(tmp_path, _inputs(built_control_assistant.facility))
+    (target,) = write_in_context(tmp_path, _inputs(built_demo.facility))
 
     document = json.loads(target.read_bytes())
     rows = document["channels"]
@@ -220,14 +231,12 @@ def test_the_demo_index_holds_the_569_golden_rows_and_the_declared_additions(
 
 
 @pytest.mark.slow
-def test_an_in_context_build_writes_the_index(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
+def test_an_in_context_build_writes_the_index(built_demo: BuiltProject, tmp_path: Path) -> None:
     """The shared build's deployment rendered selecting in_context: that index, no other."""
     from osprey.facility.views.channel_finder import HIERARCHICAL_FILE, MIDDLE_LAYER_FILE
     from tests.facility._built_render import render_built
 
-    written = render_built(built_control_assistant, tmp_path / "render", "in_context")
+    written = render_built(built_demo, tmp_path / "render", "in_context")
 
     indexes = tmp_path / "render" / "data" / "channel_finder"
     assert indexes / IN_CONTEXT_FILE in written

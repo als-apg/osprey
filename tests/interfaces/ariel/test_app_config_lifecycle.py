@@ -23,7 +23,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+from osprey.interfaces.web_terminal.config_view import unreadable_config_refusal
 
 DSN = "postgresql://user:pass@localhost:5432/ariel"
 
@@ -479,7 +479,7 @@ def test_the_config_panel_gate_matches_the_web_terminal(
 ):
     """The panel and the terminal answer the gate out of one file with one reader."""
     from osprey.interfaces.ariel.app import _resolve_privilege_gates
-    from osprey.interfaces.web_terminal.app import resolve_privilege_gates
+    from osprey.interfaces.web_terminal.config_view import resolve_privilege_gates
 
     if variable is None:
         monkeypatch.delenv("OSPREY_TEST_CONFIG_PANEL", raising=False)

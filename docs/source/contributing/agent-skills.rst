@@ -4,13 +4,13 @@
 Agent Skills
 ============
 
-Osprey ships ten **agent skills** --- packaged, step-by-step instructions that a
+Osprey ships eleven **agent skills** --- packaged, step-by-step instructions that a
 coding agent picks up automatically when a task matches their description.
 Instead of re-explaining the contribution workflow or the release process in
 every session, you install them once and the agent follows the project's own
 playbooks.
 
-All ten travel together in one plugin, ``osprey``, published from the root of
+All eleven travel together in one plugin, ``osprey``, published from the root of
 the ``als-apg/osprey`` repository. Claude Code and Codex install it from there
 with two commands each.
 
@@ -36,7 +36,9 @@ Invoke a skill by its namespaced name, for example ``/osprey:contribute``.
 .. warning::
 
    Registering a marketplace named ``osprey`` from a second source --- a local
-   clone, say --- silently repoints the name to that source.
+   clone, say --- silently repoints the name to that source. To restore it, run
+   the first command above again to re-add the marketplace from
+   ``als-apg/osprey``.
 
 Inside a deployment repository
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -48,10 +50,11 @@ Install the plugin a second time at project scope:
    claude plugin install osprey@osprey --scope project
 
 Sessions launched by ``osprey chat`` and by the web terminal run with
-``--setting-sources project``. Those sessions cannot see user-scope plugins
-(verified 2026-09-01), so without the project-scope install the skills never
-load there. The install writes ``enabledPlugins`` into the repository's
-``.claude/settings.json``.
+``--setting-sources project``. Those sessions cannot see user-scope plugins,
+so without the project-scope install the skills never load there. The install
+writes ``enabledPlugins`` into the repository's ``.claude/settings.json``.
+
+.. Verified 2026-09-01: --setting-sources project hides user-scope plugins.
 
 Updating
 ^^^^^^^^
@@ -89,14 +92,13 @@ Install in Codex
 Codex invokes a skill with a leading ``$``, for example ``$contribute``. The
 skills themselves are the same files the Claude Code plugin serves.
 
-.. note::
+Command syntax: `learn.chatgpt.com/docs/developer-commands
+<https://learn.chatgpt.com/docs/developer-commands>`_.
 
-   Command syntax per `learn.chatgpt.com/docs/developer-commands
-   <https://learn.chatgpt.com/docs/developer-commands>`_, retrieved 2026-09-01,
-   and verified against codex-cli 0.149 on 2026-09-02.
+.. Retrieved 2026-09-01, and verified against codex-cli 0.149 on 2026-09-02.
 
-The ten skills
-----------------
+The eleven skills
+-----------------
 
 .. list-table::
    :header-rows: 1
@@ -129,6 +131,11 @@ The ten skills
        from. ``/osprey:setup`` runs it in the background.
    * - ``/osprey:panel``
      - Authors a themed web-terminal panel that passes the panel validator.
+   * - ``/osprey:build-app``
+     - Builds an app --- panel, backend and agent tools under one ``app.yml``
+       --- from ``osprey app new`` to a passing ``osprey app check``. Opens by
+       comparing itself with the installed app contract and printing that
+       contract from source.
    * - ``/osprey:housekeeping``
      - Finds where the generated project, the shipped prompts, the runtime
        messages, or a pinned version say something the code no longer does,
@@ -144,9 +151,9 @@ The ten skills
        production seams alive. A campaign mode prunes one subsystem's whole
        test surface.
 
-In Codex the same ten are ``$design-philosophy``, ``$contribute``,
+In Codex the same eleven are ``$design-philosophy``, ``$contribute``,
 ``$pre-commit``, ``$release``, ``$setup``, ``$upstream-scout``, ``$panel``,
-``$housekeeping``, ``$doc-sync``, and ``$test-audit``.
+``$build-app``, ``$housekeeping``, ``$doc-sync``, and ``$test-audit``.
 
 The skills route to each other: ``/osprey:contribute`` hands a standalone
 validation run to ``/osprey:pre-commit`` and a release to ``/osprey:release``;
@@ -165,3 +172,5 @@ The workflow behind each one is documented on its own page:
   written for someone standing up a deployment.
 - :doc:`/how-to/web-terminal/panels` --- the panel contract, with the
   extension seam on :doc:`extending-osprey`.
+- :doc:`/how-to/apps/build-your-own-app` --- the app contract
+  ``/osprey:build-app`` builds to.

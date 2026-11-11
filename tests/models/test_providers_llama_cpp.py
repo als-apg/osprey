@@ -89,7 +89,9 @@ def stub() -> Iterator[StubServer]:
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     state = StubServer(url=f"http://127.0.0.1:{httpd.server_address[1]}", embed=_vector_of)
     server_state["s"] = state
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=httpd.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield state
@@ -122,7 +124,6 @@ class TestLlamaCppMetadata:
         assert cls.description
         assert cls.requires_api_key is False
         assert cls.requires_base_url is True
-        assert cls.requires_model_id is True
         assert cls.supports_proxy is False
         assert cls.default_base_url == "http://localhost:8080"
         assert cls.base_url_env_var is None

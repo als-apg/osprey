@@ -272,12 +272,12 @@ def test_a_non_positive_cadence_is_not_reported_twice() -> None:
     assert _cadence_mismatch_errors(errors) == []
 
 
-def test_the_control_assistant_presets_block_validates() -> None:
+def test_the_demo_presets_block_validates() -> None:
     """The shipped preset leaves the recorder tail at its default, which is the
     seed's cadence, so the guard leaves its block untouched."""
     from osprey.cli.build_profile import resolve_build_profile
 
-    profile, _ = resolve_build_profile(None, "control-assistant")
+    profile, _ = resolve_build_profile(None, "demo")
 
     assert profile.va_archiver is not None
     assert profile.va_archiver.recorder_tail_cadence_sec == profile.va_archiver.tail_cadence_sec
@@ -318,6 +318,14 @@ def test_password_env_must_name_a_variable_not_hold_one() -> None:
 
     assert any("must be an environment variable NAME" in error for error in errors)
     assert any("never in the profile" in error for error in errors)
+
+
+def test_a_password_env_starting_with_a_digit_is_refused_with_that_rule() -> None:
+    """The refusal states every rule the name check enforces, so a facility
+    whose name breaks the leading-digit rule learns which rule it broke."""
+    errors = _errors(password_env="1MONGO_PASSWORD")
+
+    assert any("not starting with a digit" in error for error in errors)
 
 
 def test_the_defaults_validate() -> None:
@@ -899,24 +907,11 @@ def test_an_unrelated_health_category_is_left_alone() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_control_assistant_preset_names_a_canary() -> None:
-    """The tutorial deployment gets the freshness check, not just the machinery
-    to derive one. A preset that shipped the store and opted out of checking it
-    would under-deliver the feature it exists to demonstrate."""
-    from osprey.cli.build_profile import resolve_build_profile
-
-    profile, _ = resolve_build_profile(None, "control-assistant")
-
-    assert profile.va_archiver is not None
-    assert profile.va_archiver.freshness_channel
-
-
 @pytest.mark.slow
-def test_the_presets_canary_is_a_channel_the_virtual_accelerator_serves(
-    built_control_assistant: BuiltProject,
+def test_the_derived_canary_is_a_channel_the_virtual_accelerator_serves(
+    built_demo: BuiltProject,
 ) -> None:
-    """Same standard the L0 e2e holds its own canary to, applied where the
-    choice is actually made.
+    """Same standard the L0 e2e holds its own canary to, applied to the derived one.
 
     A canary the IOC does not serve is never recorded, so the check would report
     "no samples" forever — a permanently yellow health row that says nothing
@@ -924,15 +919,12 @@ def test_the_presets_canary_is_a_channel_the_virtual_accelerator_serves(
     address list the VA serves, so a facility change that drops this channel
     fails here rather than in a deployed operator's face.
     """
-    from osprey.cli.build_profile import resolve_build_profile
+    config = yaml.safe_load((built_demo.repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    (check,) = config["health"]["categories"]["archiver"]["checks"]
+    canary = check["channel"]
 
-    profile, _ = resolve_build_profile(None, "control-assistant")
-    assert profile.va_archiver is not None
-    canary = profile.va_archiver.freshness_channel
-
-    served = set(json.loads(built_control_assistant.outputs[0].files[SERVED_ADDRESSES])["channels"])
+    served = set(json.loads(built_demo.outputs[0].files[SERVED_ADDRESSES])["channels"])
     assert canary in served, (
-        f"the control-assistant preset's freshness_channel {canary!r} is not served by the "
-        f"built facility, so the derived check could never see a sample. Pick a channel "
-        f"the simulator view lists."
+        f"the derived freshness channel {canary!r} is not served by the built facility, "
+        f"so the check could never see a sample."
     )

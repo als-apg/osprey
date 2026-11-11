@@ -78,6 +78,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
 from osprey.deployment.compose_generator import (
@@ -101,7 +102,7 @@ from tests._approval_stamp_fixture import ApprovalStamps
 from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._orm_stack import VA_PVA_PORT, seed_repo_env
 from tests.e2e._queue_drive import wait_for_worker_environment
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.sdk_helpers import set_switch_in_record
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va._collection import assert_module_collected
@@ -386,8 +387,9 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
         "init",
         str(repo),
         "--preset",
-        "control-assistant",
+        "demo",
         "--no-git",
+        *e2e_scenario_pin(),
         *set_pairs(_profile_edits()),
         "--set",
         f"virtual_accelerator.port={VA_CA_PORT}",
@@ -608,7 +610,7 @@ def session_state(tmp_path, monkeypatch):
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     control_context.invalidate_cache()
 
     def switch_session_to(target: str, *, generation: int = 0) -> None:

@@ -23,6 +23,7 @@ from __future__ import annotations
 import atexit
 import errno
 import fcntl
+import functools
 import os
 import random
 import socket
@@ -40,13 +41,18 @@ PORT_FLOOR = 20000
 #: deployment derives a port from every slot of its block and binds them without
 #: taking a lock, and refuses a pinned port that lands on one, so a reservation
 #: inside a block can collide with that stack or fail its build.
-#: ``tests/infrastructure/test_ports.py`` fails when a test pins a block these
-#: ranges do not cover.
+#: The e2e stacks' store host ports (Mongo, qmd) are booked with them: a stack
+#: publishes one at a literal, so a reservation on it collides with that stack
+#: or fails its build. ``tests/infrastructure/test_ports.py`` fails when a test
+#: pins a block or a store port these ranges do not cover.
 BOOKED_BLOCKS: tuple[range, ...] = (
     range(20000, 26700),
+    range(27100, 27300),
+    range(28180, 28181),
     range(29000, 32000),
     range(40000, 41000),
     range(42000, 43000),
+    range(47000, 48000),
 )
 
 #: The one directory every test process on the host locks ports in, shared by
@@ -60,12 +66,19 @@ atexit.register(_HELD.close)
 _LINUX_RANGE = Path("/proc/sys/net/ipv4/ip_local_port_range")
 _MACOS_RANGE_KEY = "net.inet.ip.portrange.first"
 
+#: Where macOS starts the range unless configured otherwise, for a probe that fails.
+_MACOS_DEFAULT_RANGE_START = 49152
 
+
+@functools.cache
 def ephemeral_range_start() -> int:
-    """The first port of the kernel's ephemeral range.
+    """The first port of the kernel's ephemeral range, read once per process.
+
+    A failed macOS probe answers the platform default, so a host too busy to run
+    ``sysctl`` in time neither fails a collection nor drops a test.
 
     Raises:
-        RuntimeError: The range cannot be read on this platform.
+        RuntimeError: The range cannot be read on Linux, or the platform is unknown.
     """
     try:
         if sys.platform.startswith("linux"):
@@ -80,6 +93,13 @@ def ephemeral_range_start() -> int:
             ).stdout
             return int(out.strip())
     except (OSError, ValueError, IndexError, subprocess.SubprocessError) as exc:
+        if sys.platform == "darwin":
+            print(
+                f"cannot read the ephemeral port range ({exc!r}); "
+                f"using the macOS default {_MACOS_DEFAULT_RANGE_START}",
+                file=sys.stderr,
+            )
+            return _MACOS_DEFAULT_RANGE_START
         raise RuntimeError(f"cannot read the ephemeral port range: {exc!r}") from exc
     raise RuntimeError(f"cannot read the ephemeral port range on {sys.platform}")
 

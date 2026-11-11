@@ -25,17 +25,8 @@ from the subset the facility tags ``in_context``: one row per channel, sorted by
 address, loaded by the flat ``ChannelDatabase``. A row's ``channel`` is the
 channel's ``label``, else its address:
 
-.. code-block:: json
-
-   {
-     "schema": "osprey.facility.channel_finder/1",
-     "count": 1,
-     "channels": [
-       {"channel": "TerminalVoltageReadBack",
-        "address": "TerminalVoltageReadBack",
-        "description": "Actual value of the terminal potential"}
-     ]
-   }
+.. literalinclude:: examples/channel-finder-in-context.json
+   :language: json
 
 ``count`` is the number of rows.
 
@@ -47,21 +38,12 @@ Hierarchical
 Declares the levels the pipeline navigates and the naming pattern the
 addresses follow, with the tree itself underneath:
 
-.. code-block:: json
+.. literalinclude:: examples/channel-finder-hierarchical.json
+   :language: json
 
-   {
-     "hierarchy": {
-       "levels": [
-         {"name": "system", "type": "tree"},
-         {"name": "family", "type": "tree"},
-         {"name": "device", "type": "instances"},
-         {"name": "field", "type": "tree"},
-         {"name": "subfield", "type": "tree"}
-       ],
-       "naming_pattern": "{system}:{family}[{device}]:{field}:{subfield}"
-     },
-     "tree": { }
-   }
+An ``instances`` level is a node named after the level in capitals (``DEVICE``
+here), whose ``_expansion`` lists the instances. This tree holds two channels,
+``SR:BPM[01]:X:RB`` and ``SR:BPM[02]:X:RB``.
 
 .. _channel-finder-db-middle-layer:
 
@@ -73,27 +55,8 @@ hierarchy — system, family, field, optional subfield — rather than by naming
 pattern, with the addresses listed under a channel key and the family's device
 roster in its ``setup`` block:
 
-.. code-block:: json
-
-   {
-     "_provenance": "exporter=1.2.0 ao_sha256=1f4b… mapping_sha256=9c07…",
-     "SR": {
-       "BPM": {
-         "Monitor": {
-           "ChannelNames": ["SR01C:BPM1:X", "SR01C:BPM1:Y"],
-           "TangoNames": ["sr/bpm/1/X", "sr/bpm/1/Y"]
-         },
-         "Setpoint": {
-           "X": {"ChannelNames": ["SR01C:BPM1:XSet"]},
-           "Y": {"ChannelNames": ["SR01C:BPM1:YSet"]}
-         },
-         "setup": {
-           "CommonNames": ["BPM 1", "BPM 2"],
-           "DeviceList": [[1, 1], [1, 2]]
-         }
-       }
-     }
-   }
+.. literalinclude:: examples/channel-finder-middle-layer.json
+   :language: json
 
 ``DeviceList`` holds ``[place index, ordinal]`` pairs: the device's place
 numbered among its sibling places at the same level, by beam position, and the
@@ -174,6 +137,8 @@ Key ``config.yml`` settings:
            duckdb_path: data/channel_finder/middle_layer.duckdb
        # graph has no entry: it is configured by the `services.graphdb` block.
      benchmark:
+       # Stated by the build when the facility ships benchmark query sources;
+       # the benchmarks view writes the mode's query file here.
        dataset_path: data/benchmarks/queries.json
        # Concurrency and output dir are set per run via CLI flags
        # (osprey channel-finder benchmark --concurrency / --output-dir);
@@ -204,8 +169,3 @@ language via the agent, or invoke the CLI directly:
 
    osprey channel-finder validate     # check the configured database
    osprey channel-finder benchmark    # evaluate on a query dataset
-
-.. tip::
-
-   Use ``osprey eject service channel_finder`` to copy the channel finder
-   service source into your project for custom modifications.

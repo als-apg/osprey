@@ -42,7 +42,7 @@ Header line, then one box per group in this order, then the question.
  │ drift <n> unmarked differences (measured with OSPREY <version>)      │
  │ artifacts framework-managed ×<n> · claimed ×<n|? (never built here)> │
  └──────────────────────────────────────────────────────────────────────┘
- ┌ CONTROL ── <type> · writes <ON|OFF> · archiver <type> ───────────────┐
+ ┌ CONTROL ── <type> · writes <never|asked|allowed> · archiver <type> ──┐
  │ limits     <n> records in data/facility/limits.yaml                  │
  │ archiver   <endpoint or ?>                                           │
  └──────────────────────────────────────────────────────────────────────┘
@@ -52,10 +52,11 @@ Header line, then one box per group in this order, then the question.
  │ custom     <list, each `custom (shadows <name>)` where it shadows>   │
  │ models     main <id> · pinned <agent> <id> · … | none pinned         │
  └──────────────────────────────────────────────────────────────────────┘
- ┌ WEB ── <n> panels · <n> users · <n> tiers · <n> apps · auth <method> ┐
+ ┌ WEB ── <n> panels · <n> users · <n> tiers · auth <method> ───────────┐
  │ panels     <native list> · configured: <list>                        │
  │ tiers      <list> · default <tier>                                   │
- │ apps       <list under shared:>                                      │
+ │ shared     <logins under shared:>                                    │
+ │ apps       <applications under apps:>                                │
  │ mcp        osprey-native ×<n> · own: <keys>                          │
  └──────────────────────────────────────────────────────────────────────┘
  ┌ DATA ── <mode> finder ───────────────────────────────────────────────┐
@@ -258,7 +259,7 @@ what an adopted area lands; `leaves` lists what a `later` or `never` area leaves
  FEATURES — what the reference example offers, decided per area
 
  ┌ LOGBOOK ── adopt ── <reason from DISCOVER> ──────────────────────────┐
- │ brings     ARIEL service + postgres · logbook agent · logbook app    │
+ │ brings     ARIEL service + postgres · logbook agent · logbook login  │
  │            ingest via <adapter> (<native | Generic JSON + candidate>)│
  └──────────────────────────────────────────────────────────────────────┘
  ┌ KNOWLEDGE ── adopt ── <reason> ──────────────────────────────────────┐

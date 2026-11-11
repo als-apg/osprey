@@ -87,7 +87,11 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
 )
 from osprey_connectors.errors import ConnectorInternalError
-from osprey_connectors.ipc._exceptions import exception_fields, reconstruct_exception
+from osprey_connectors.ipc._exceptions import (
+    _registered_tag,
+    exception_fields,
+    reconstruct_exception,
+)
 
 __all__ = [
     "MAGIC",
@@ -111,7 +115,9 @@ __all__ = [
 MAGIC = b"OSPF"
 
 #: Bumped only for an incompatible envelope change; decode refuses anything else.
-PROTOCOL_VERSION = 1
+#: 2: a write result carries ``verdict_reason`` and a blocked write's error
+#: frame its typed reason, which a version-1 peer would drop.
+PROTOCOL_VERSION = 2
 
 #: Refuse absurd lengths rather than trying to allocate them. Generous enough
 #: for a detector image, small enough that a corrupt length cannot exhaust RAM.
@@ -324,16 +330,18 @@ def encode_result(request_id: str, value: Any) -> bytes:
 def encode_error(request_id: str, exc: BaseException) -> bytes:
     """Encode a failure reply, keeping the exception's structured fields.
 
-    An exception with no registered class in its MRO is still encoded under
-    its own class name with an empty field set, so the far side can report what it was
-    rather than pretending the call succeeded: it decodes as a
-    ``ConnectorInternalError`` naming that class.
+    The class tag is that of the nearest registered class in the exception's
+    MRO, the class its fields are read by, so a subclass of a vocabulary class
+    decodes as that class. An exception with no registered class in its MRO is
+    still encoded under its own class name with an empty field set, so the far
+    side can report what it was rather than pretending the call succeeded: it
+    decodes as a ``ConnectorInternalError`` naming that class.
     """
     blobs: list[bytes] = []
     header = {
         "kind": "error",
         "request_id": request_id,
-        "class_tag": type(exc).__name__,
+        "class_tag": _registered_tag(exc) or type(exc).__name__,
         "message": str(exc),
         "fields": _encode_value(exception_fields(exc), blobs),
     }

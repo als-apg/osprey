@@ -20,7 +20,8 @@ from unittest.mock import patch
 
 import yaml
 
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey.interfaces.web_terminal import config_view
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.write_target import KIND_BANNERS
@@ -265,7 +266,7 @@ def chip_hub(
     The companion-backend patches are the ones every hub browser suite uses.
     What is specific to this feature is the environment rather than a patch:
 
-    * ``posture_store.AGENT_DATA_ROOT_ENV_VAR`` — the ONE stamp both the
+    * ``OSPREY_AGENT_DATA_ROOT`` — the ONE stamp both the
       control-context record reader and ``posture_store`` resolve through, and
       the stamp this feature puts in every session child's environment. Pinning
       it to *tmp_path* keeps every write off the real agent-data tree. Patching
@@ -315,7 +316,7 @@ def chip_hub(
     (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
     config = write_config(tmp_path / "config.yml", writes=writes, login_tiers=login_tiers)
 
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     reset_process_memos()
@@ -352,9 +353,8 @@ def reset_process_memos() -> None:
     reused across tests could otherwise serve one test's record, render or
     narrowing to the next.
     """
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
-    websocket_routes.reset_rendered_config_memo()
+    config_view.reset_rendered_config_memo()
 
 
 #: A sweep in which every configured target answered. The switch gate refuses
@@ -434,7 +434,6 @@ def write_verdict_for(
     is a fact about a run already going). *login* defaults to the signed-in
     one, which is this process's acting identity — no test here pins another.
     """
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
     return posture_store.write_verdict(
         render_section(app),

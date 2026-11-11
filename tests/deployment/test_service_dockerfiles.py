@@ -35,6 +35,7 @@ non-self-excluding ``.dockerignore`` beside every service recipe.
 import dataclasses
 import pathlib
 import re
+import shlex
 import subprocess
 
 import pytest
@@ -44,11 +45,15 @@ from tests.deployment._cache_mounts import assert_build_caches_mounted
 from tests.deployment._pip_probe import (
     APT_NOOP,
     UV_TO_PIP,
+    deps_pip_calls,
     deps_sandbox,
+    lock_path_install_calls,
+    must_be_held_to_the_lock,
     primer_pip_argv,
     probe_wheel_body,
     run_body,
     stubbed_env,
+    wheel_pip_calls,
 )
 from tests.deployment._proxy_idiom import (
     assert_apt_runs_carry_proxy_idiom,
@@ -115,7 +120,10 @@ SITE_BUILD_SHAPE = {
     "services/event_dispatcher": SiteBuildShape(_NODE_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/gchat_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/nextcloud_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/optimizer": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/optimizer_web": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/teams_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/slack_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
     "services/qmd": SiteBuildShape(
         _NODE_TRUST_VARS, ("PIP_NO_PROXY",), "npm install", bootstrap_fetches=1
     ),
@@ -129,17 +137,24 @@ SITE_BUILD_SHAPE = {
 # carries an extra.
 PRIMER_SPEC = {
     "event_dispatcher": "osprey-framework==$OSPREY_VERSION",
-    "virtual_accelerator": "osprey-framework[virtual-accelerator]==$OSPREY_VERSION",
+    "virtual_accelerator": "osprey-framework==$OSPREY_VERSION",
     "bluesky": "osprey-framework==$OSPREY_VERSION",
     "bluesky_web": "osprey-framework==$OSPREY_VERSION",
 }
 SERVICES = sorted(PRIMER_SPEC)
 
-# The dev-staged local-dependency manifest: COPYed next to .osprey-layer-anchor
-# (the guaranteed sibling keeps the glob matching when absent) and installed
-# inside the deps RUN while the C toolchain is still available.
-MANIFEST_COPY = "COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/"
+# The dev-staged local-dependency manifest and lock constraints: COPYed next to
+# .osprey-layer-anchor (the guaranteed sibling keeps the glob matching when
+# absent) and installed inside the deps RUN while the C toolchain is still
+# available.
+MANIFEST_COPY = (
+    "COPY .osprey-layer-anchor osprey-local-requirements.tx[t] "
+    "osprey-lock-constraints.tx[t] /tmp/deps-ctx/"
+)
 MANIFEST_INSTALL = "pip install -r /tmp/deps-ctx/osprey-local-requirements.txt"
+
+#: Where the lock-driven deps layer keeps the lock for the layers after it.
+LOCK_IN_IMAGE = "/opt/osprey/lock-constraints.txt"
 
 
 def _dockerfile(service: str) -> str:
@@ -200,9 +215,9 @@ class TestLayerSplit:
         if service == "virtual_accelerator":
             # VA's first (deps-resolving) install carries the extra so a dev
             # wheel that changes the extra's deps picks them up.
-            assert 'pip install "${whl}[virtual-accelerator]"' in wheel
+            assert 'pip install $lock "${whl}[virtual-accelerator]"' in wheel
         else:
-            assert "pip install /tmp/ctx/*.whl" in wheel
+            assert "pip install $lock /tmp/ctx/*.whl" in wheel
         assert "pip install --no-deps --force-reinstall /tmp/ctx/*.whl" in wheel
         assert "pip check" in wheel
         # Always clean up the staged context regardless of whether a wheel was
@@ -300,10 +315,12 @@ class TestLayerSplit:
             f"{service}: manifest install missing or not &&-chained in the deps RUN"
         )
         assert MANIFEST_INSTALL in deps, f"{service}: deps RUN does not install the manifest"
-        assert deps.index(MANIFEST_INSTALL) > deps.index("WARNING: pin unreleased"), (
+        # Twice: once alone on the lock-driven path, once after the primer on
+        # the release path.
+        assert deps.rindex(MANIFEST_INSTALL) > deps.index("WARNING: pin unreleased"), (
             f"{service}: manifest install must follow the primer's dev-fallback construct"
         )
-        assert deps.index(MANIFEST_INSTALL) < deps.index("apt-get purge -y build-essential"), (
+        assert deps.rindex(MANIFEST_INSTALL) < deps.index("apt-get purge -y build-essential"), (
             f"{service}: manifest install must precede the toolchain purge"
         )
         assert "rm -rf /tmp/deps-ctx" in deps, f"{service}: deps RUN must clean up /tmp/deps-ctx"
@@ -328,6 +345,91 @@ class TestLayerSplit:
         )
         assert not ctx.exists(), f"{service}: staged context not cleaned up on the no-manifest path"
 
+    def test_lock_path_primes_no_framework(self, service, tmp_path):
+        """With the lock constraints staged the deps layer installs the staged
+        manifest alone — nothing named osprey-framework reaches the index — and
+        keeps the lock for the layers after it, appended to the setuptools
+        constraint every installer here reads."""
+        lock = "fwdep==1.0 ; python_version >= '3.11'\n"
+        calls = deps_pip_calls(
+            _deps_body(service),
+            tmp_path,
+            {"OSPREY_VERSION": "0.0.0", "OSPREY_DEV": "1"},
+            staged={
+                "osprey-local-requirements.txt": "fwdep\n",
+                "osprey-lock-constraints.txt": lock,
+            },
+        )
+        installs = [c for c in calls if c[:1] == ["install"]]
+        assert not [c for c in installs if any("osprey-framework" in a for a in c)], calls
+        assert ["install", "-r", str(tmp_path / "deps-ctx/osprey-local-requirements.txt")] in (
+            installs
+        ), calls
+        assert (tmp_path / "opt-osprey/lock-constraints.txt").read_text() == lock
+
+    def test_lock_path_constrains_the_wheel_install(self, service, tmp_path):
+        calls = wheel_pip_calls(_wheel_body(service), tmp_path, lock=True)
+        first = calls[0]
+        assert first[:3] == ["install", "-c", str(tmp_path / "opt-osprey/lock-constraints.txt")]
+
+    def test_release_path_wheel_install_is_unconstrained(self, service, tmp_path):
+        calls = wheel_pip_calls(_wheel_body(service), tmp_path, lock=False)
+        assert "-c" not in calls[0]
+
+
+# ── Offline vendoring ────────────────────────────────────────────────────────
+#
+# An image that serves vendored web assets fetches them at build time when the
+# deployment is offline, and records the mode so the serving check agrees.
+
+OFFLINE_ARG = 'ARG OSPREY_OFFLINE="0"'
+OFFLINE_FETCH = 'if [ "$OSPREY_OFFLINE" = "1" ]; then osprey vendor fetch; fi'
+OFFLINE_ENV = "ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}"
+
+
+def test_bluesky_web_vendors_its_assets_when_offline():
+    """The plans panel's assets are fetched between the wheel layer and the project label."""
+    text = _dockerfile("bluesky_web")
+    lines = [line for _, line in _instructions(text)]
+    wheel_body = _wheel_body("bluesky_web")
+
+    assert lines.count(OFFLINE_ARG) == 1
+    assert [b for b in _run_bodies(text) if "vendor fetch" in b] == [OFFLINE_FETCH]
+    arg = lines.index(OFFLINE_ARG)
+    fetch = lines.index(f"RUN {OFFLINE_FETCH}")
+    env = lines.index(OFFLINE_ENV)
+    wheel = next(i for i, line in enumerate(lines) if line.startswith("RUN") and wheel_body in line)
+    project = lines.index('ARG OSPREY_PROJECT_NAME=""')
+    assert wheel < arg < fetch < env < project
+
+
+@pytest.mark.parametrize(
+    ("offline", "expected"), [("1", ["vendor fetch"]), ("0", [])], ids=["offline", "online"]
+)
+def test_offline_vendor_run_fetches_only_when_offline(tmp_path, offline, expected):
+    """The fetch RUN calls ``osprey vendor fetch`` for ``1`` only, and succeeds either way."""
+    log = tmp_path / "osprey-calls.log"
+    log.touch()
+    osprey_stub = f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(log))}\nexit 0\n'
+    env = stubbed_env(tmp_path, {"osprey": osprey_stub}, OSPREY_OFFLINE=offline)
+
+    result = run_body(OFFLINE_FETCH, env)
+
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert log.read_text().splitlines() == expected
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_a_recipe_that_declares_offline_vendors_and_records_it(dockerfile):
+    """An image can never serve a mode it was not built for."""
+    text = dockerfile.read_text(encoding="utf-8")
+    if "ARG OSPREY_OFFLINE" not in text:
+        return
+    lines = [line for _, line in _instructions(text)]
+
+    assert OFFLINE_FETCH in _run_bodies(text)
+    assert OFFLINE_ENV in lines
+
 
 # ── Pre-release pins ─────────────────────────────────────────────────────────
 #
@@ -348,12 +450,25 @@ FRAMEWORK_PINNED_IDS = [
 ]
 
 
-def _version_pinned_deps_body(dockerfile: pathlib.Path) -> str:
-    """The deps-layer RUN body: the one installing ``osprey-framework`` by version."""
+#: The distributions a deps layer primes by version: the framework, or the
+#: workspace package a service image installs in its place (the optimizer).
+_PRIMED_DISTRIBUTIONS = ("osprey-framework", "osprey-optimizer")
+
+
+def _version_pinned_bodies(dockerfile: pathlib.Path) -> list[str]:
+    """Every RUN body installing a primed distribution by version.
+
+    The deps layer, and in the VA the layer adding its extra on top of it:
+    both resolve against the same pin, so both must admit a pre-release pin.
+    """
     text = dockerfile.read_text(encoding="utf-8")
-    bodies = [b for b in _run_bodies(text) if "osprey-framework" in b and "$OSPREY_VERSION" in b]
-    assert len(bodies) == 1, f"{dockerfile}: expected exactly one deps RUN, got {len(bodies)}"
-    return bodies[0]
+    bodies = [
+        b
+        for b in _run_bodies(text)
+        if any(d in b for d in _PRIMED_DISTRIBUTIONS) and "$OSPREY_VERSION" in b
+    ]
+    assert bodies, f"{dockerfile}: no RUN installs a primed distribution by version"
+    return bodies
 
 
 @pytest.mark.parametrize("dockerfile", FRAMEWORK_PINNED_DOCKERFILES, ids=FRAMEWORK_PINNED_IDS)
@@ -374,21 +489,23 @@ class TestPrereleasePin:
         )
 
     def test_primer_admits_prereleases_when_the_pin_is_one(self, dockerfile, tmp_path):
-        argv = primer_pip_argv(
-            _version_pinned_deps_body(dockerfile),
-            tmp_path,
-            {"OSPREY_VERSION": "2026.9.0b2", "OSPREY_PIP_PRE": "1"},
-        )
-        assert "--prerelease=allow" in argv, argv
-        assert any(a.endswith("==2026.9.0b2") for a in argv), argv
+        for i, body in enumerate(_version_pinned_bodies(dockerfile)):
+            sandbox = tmp_path / str(i)
+            sandbox.mkdir()
+            argv = primer_pip_argv(
+                body, sandbox, {"OSPREY_VERSION": "2026.9.0b2", "OSPREY_PIP_PRE": "1"}
+            )
+            assert "--prerelease=allow" in argv, argv
+            assert any(a.endswith("==2026.9.0b2") for a in argv), argv
 
     def test_primer_stays_strict_for_a_stable_pin(self, dockerfile, tmp_path):
-        argv = primer_pip_argv(
-            _version_pinned_deps_body(dockerfile),
-            tmp_path,
-            {"OSPREY_VERSION": "2026.9.0", "OSPREY_PIP_PRE": ""},
-        )
-        assert "--prerelease=allow" not in argv, argv
+        for i, body in enumerate(_version_pinned_bodies(dockerfile)):
+            sandbox = tmp_path / str(i)
+            sandbox.mkdir()
+            argv = primer_pip_argv(
+                body, sandbox, {"OSPREY_VERSION": "2026.9.0", "OSPREY_PIP_PRE": ""}
+            )
+            assert "--prerelease=allow" not in argv, argv
 
 
 def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
@@ -471,15 +588,33 @@ def test_event_dispatcher_keeps_npm_in_the_final_image():
     assert "nodejs and npm stay in the final image" in text
 
 
+def _va_extra_body() -> str:
+    """The VA's virtual-accelerator layer: the RUN adding the extra on top of the deps layer."""
+    spec = "osprey-framework[virtual-accelerator]==$OSPREY_VERSION"
+    bodies = [b for b in _run_bodies(_dockerfile("virtual_accelerator")) if spec in b]
+    assert len(bodies) == 1, f"expected exactly one RUN adding the extra, got {len(bodies)}"
+    return bodies[0]
+
+
 def test_virtual_accelerator_wheel_extra_placement():
-    """The VA extra is primed in the deps layer and re-resolved on the wheel
-    layer's FIRST install (so a dev wheel that adds/bumps a dep inside the extra
-    gets it — `pip check` cannot detect missing extras), while the second
-    `--no-deps --force-reinstall` install stays plain."""
+    """The VA extra is added in its own layer after the shared deps layer and
+    re-resolved on the wheel layer's FIRST install (so a dev wheel that
+    adds/bumps a dep inside the extra gets it — `pip check` cannot detect
+    missing extras), while the second `--no-deps --force-reinstall` install
+    stays plain."""
     deps = _deps_body("virtual_accelerator")
+    extra = _va_extra_body()
     wheel = _wheel_body("virtual_accelerator")
-    assert "[virtual-accelerator]" in deps
-    assert 'pip install "${whl}[virtual-accelerator]"' in wheel
+    assert "[virtual-accelerator]" not in deps, "the extra is back in the shared deps layer"
+    assert "--only-binary pcaspy" in extra
+    assert '[ "$OSPREY_DEV" = "1" ]' in extra and "exit 1" in extra, (
+        "the extra layer lost the dev-gated fallback for an unreleased pin"
+    )
+    joined = re.sub(r"\\\n", " ", _dockerfile("virtual_accelerator"))
+    assert joined.index(deps) < joined.index(extra) < joined.index(wheel), (
+        "the layers must run deps, then the extra, then the wheel overlay"
+    )
+    assert 'pip install $lock "${whl}[virtual-accelerator]"' in wheel
     first_install, _, after_force_reinstall = wheel.partition("--force-reinstall")
     assert "[virtual-accelerator]" in first_install
     assert "[virtual-accelerator]" not in after_force_reinstall
@@ -514,21 +649,77 @@ def test_every_service_ships_non_self_excluding_dockerignore():
 LAYER_ANCHOR = ".osprey-layer-anchor"
 
 #: Python service recipes that legitimately diverge before the deps layer. The
-#: virtual accelerator pins its base to linux/amd64 and refuses any other
-#: architecture ahead of the install, because no pcaspy wheel exists elsewhere.
-_OWN_DEPS_LAYER = {"services/virtual_accelerator"}
+#: optimizer installs its own workspace package, with torch from the PyTorch
+#: index, in place of the framework, so its deps layer is its own by design.
+_OWN_DEPS_LAYER = {"services/optimizer"}
 
 SHARED_DEPS_IDS = [
     label
     for label, path in zip(SHIPPED_DOCKERFILE_IDS, SHIPPED_DOCKERFILES, strict=True)
-    if "FROM python:" in path.read_text(encoding="utf-8") and label not in _OWN_DEPS_LAYER
+    if re.search(
+        r"^FROM \$\{OSPREY_BASE_REGISTRY\}/library/python:", path.read_text(encoding="utf-8"), re.M
+    )
+    and label not in _OWN_DEPS_LAYER
 ]
 
 
+def _final_stage_chain(text: str) -> list[str]:
+    """The final image's layer chain as BuildKit keys it, base stage first.
+
+    A stage that starts ``FROM <earlier stage>`` continues that stage's
+    layers, so its chain is the earlier stage's followed by its own.
+    ``AS <name>`` only names a stage and keys nothing, so it is dropped, and
+    global ARGs before the first FROM are not part of any stage.
+
+    An ARG creates no layer, but every ARG in scope is in the environment of
+    each RUN after it, and so in that RUN's cache key. ARGs do NOT cross a
+    FROM: a stage built on an earlier one inherits its layers and none of its
+    ARGs. So ARG lines are not entries of their own; each RUN carries the ARG
+    names in scope at that point, which is what makes two recipes with the
+    same RUN text but different ARGs in scope compare unequal.
+
+    A stage built on an earlier stage also leaves a boundary entry, so such a
+    chain never equals a single-stage one. That is conservative on purpose:
+    BuildKit keys a RUN after ``FROM <stage>`` differently from the same RUN
+    in a single-stage recipe once the earlier stage sets an ENV, and nothing in
+    the instruction text shows it (measured on BuildKit 0.34: the deps RUN of a
+    ``FROM va-base`` final stage never reused the bridge image's).
+    """
+    stages: dict[str, list[str]] = {}
+    chains: list[list[str]] = []
+    current: list[str] | None = None
+    scope: list[str] = []
+    for keyword, line in _instructions(text):
+        if keyword == "FROM":
+            words = line.split()
+            base = words[1]
+            name = words[3] if len(words) > 3 and words[2].upper() == "AS" else None
+            if base in stages:
+                current = [*stages[base], f"(stage boundary: FROM {base})"]
+            else:
+                current = [f"FROM {base}"]
+            chains.append(current)
+            scope = []
+            if name:
+                stages[name] = current
+        elif current is None:
+            continue
+        elif keyword == "ARG":
+            arg = line.split(maxsplit=1)[1].split("=", 1)[0]
+            if arg not in scope:
+                scope.append(arg)
+        elif keyword == "RUN":
+            current.append(f"{line}  [ARGs in scope: {', '.join(scope)}]")
+        else:
+            current.append(line)
+    assert chains, "no FROM in the recipe"
+    return chains[-1]
+
+
 def _shared_prefix(dockerfile: pathlib.Path) -> list[str]:
-    """The instructions from FROM through the deps RUN, as Docker reads them."""
+    """The final image's instructions from FROM through the deps RUN."""
     prefix: list[str] = []
-    for _keyword, line in _instructions(dockerfile.read_text(encoding="utf-8")):
+    for line in _final_stage_chain(dockerfile.read_text(encoding="utf-8")):
         prefix.append(line)
         if line.startswith("RUN ") and MANIFEST_INSTALL in line:
             return prefix
@@ -587,7 +778,122 @@ def test_shared_deps_layer_covers_the_compose_built_services():
         "services/bluesky",
         "services/bluesky_web",
         "services/event_dispatcher",
+        "services/virtual_accelerator",
     } <= set(SHARED_DEPS_IDS)
+
+
+def test_python_services_share_one_deps_layer__mutation_extra_in_the_deps_layer():
+    """The extra moved back into the VA's deps RUN gives it its own install again."""
+    path = TEMPLATES_DIR / "services" / "virtual_accelerator" / "Dockerfile"
+    text = path.read_text(encoding="utf-8")
+    deps_spec = '"osprey-framework==$OSPREY_VERSION"'
+    assert text.count(deps_spec) == 1, "mutation is stale"
+    mutated = text.replace(deps_spec, '"osprey-framework[virtual-accelerator]==$OSPREY_VERSION"')
+    reference = TEMPLATES_DIR / "services" / "bluesky_web" / "Dockerfile"
+    chain = _final_stage_chain(mutated)
+    deps = next(i for i, line in enumerate(chain) if MANIFEST_INSTALL in line)
+    assert chain[: deps + 1] != _shared_prefix(reference)
+
+
+def test_final_stage_chain_follows_the_parent_stage():
+    """A final stage built FROM an earlier stage continues that stage's layers."""
+    chain = _final_stage_chain(
+        "ARG TARGETARCH\n"
+        "FROM python:3.11-slim AS base\nWORKDIR /app\n"
+        "FROM base AS other\nRUN echo other\n"
+        "FROM base\nRUN echo final\n"
+    )
+    assert chain == [
+        "FROM python:3.11-slim",
+        "WORKDIR /app",
+        "(stage boundary: FROM base)",
+        "RUN echo final  [ARGs in scope: ]",
+    ]
+
+
+def test_final_stage_chain_drops_args_at_a_from():
+    """An ARG declared in the parent stage is not in scope after FROM <parent>."""
+    inherited = _final_stage_chain(
+        'FROM python:3.11-slim AS base\nARG A=""\nFROM base\nRUN echo deps\n'
+    )
+    redeclared = _final_stage_chain(
+        'FROM python:3.11-slim AS base\nARG A=""\nFROM base\nARG A=""\nRUN echo deps\n'
+    )
+    assert inherited[-1] == "RUN echo deps  [ARGs in scope: ]"
+    assert redeclared[-1] == "RUN echo deps  [ARGs in scope: A]"
+
+
+def test_python_services_share_one_deps_layer__mutation_va_final_stage_from_va_base():
+    """A VA final stage built FROM va-base no longer counts as sharing the deps layer."""
+    path = TEMPLATES_DIR / "services" / "virtual_accelerator" / "Dockerfile"
+    text = path.read_text(encoding="utf-8")
+    final = text.rindex("\nFROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim\n")
+    deps = text.index('ARG OSPREY_VERSION=""', final)
+    mutated = text[:final] + "\nFROM va-base\n" + text[deps:]
+    reference = TEMPLATES_DIR / "services" / "bluesky_web" / "Dockerfile"
+    chain = _final_stage_chain(mutated)
+    end = next(i for i, line in enumerate(chain) if MANIFEST_INSTALL in line)
+    assert chain[: end + 1] != _shared_prefix(reference)
+
+
+BASE_REGISTRY_ARG = 'ARG OSPREY_BASE_REGISTRY="docker.io"'
+
+
+def _base_registry_violations(text: str) -> list[str]:
+    """Why a recipe does not pull its base image through ``OSPREY_BASE_REGISTRY``.
+
+    The recipe declares the ARG exactly once, ahead of its first ``FROM`` (the
+    one scope every ``FROM`` line reads), and every ``FROM`` that names an image
+    rather than an earlier stage begins with the ARG and names a Docker Hub
+    namespace after it (``${OSPREY_BASE_REGISTRY}/library/python:3.11-slim``):
+    the ARG names the registry standing in for docker.io, which keeps Docker
+    Hub's paths, so a base without its namespace names an image no mirror
+    serves. ``native-wheels-*`` is a stage selected by architecture, not an
+    image.
+    """
+    lines = text.splitlines()
+    problems = []
+    declarations = [i for i, line in enumerate(lines) if line == BASE_REGISTRY_ARG]
+    first_from = next((i for i, line in enumerate(lines) if line.startswith("FROM ")), None)
+    if len(declarations) != 1:
+        problems.append(f"{len(declarations)} declarations of {BASE_REGISTRY_ARG}")
+    elif first_from is None or declarations[0] > first_from:
+        problems.append(f"{BASE_REGISTRY_ARG} does not precede the first FROM")
+    stages: set[str] = set()
+    for line in lines:
+        if not line.startswith("FROM "):
+            continue
+        words = line.split()
+        base_words = [w for w in words[1:] if not w.startswith("--")]
+        base = base_words[0]
+        if len(base_words) >= 3 and base_words[1].upper() == "AS":
+            stages.add(base_words[2])
+        if base in stages or base.startswith("native-wheels-"):
+            continue
+        prefix = "${OSPREY_BASE_REGISTRY}/"
+        if not base.startswith(prefix):
+            problems.append(f"{line!r} names its base without the base registry")
+        elif "/" not in base[len(prefix) :]:
+            problems.append(f"{line!r} names its base without its Docker Hub namespace")
+    return problems
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_every_shipped_recipe_pulls_its_base_through_the_base_registry(dockerfile):
+    """``images.base_registry`` reaches every base image a shipped recipe pulls."""
+    assert _base_registry_violations(dockerfile.read_text(encoding="utf-8")) == []
+
+
+def test_base_registry_guard_catches_a_bare_base():
+    """A base named without the registry ARG fails the check."""
+    assert _base_registry_violations(f"{BASE_REGISTRY_ARG}\nFROM python:3.11-slim\n")
+
+
+def test_base_registry_guard_catches_a_base_without_its_namespace():
+    """A base named under the registry ARG without ``library/`` fails the check."""
+    assert _base_registry_violations(
+        f"{BASE_REGISTRY_ARG}\nFROM ${{OSPREY_BASE_REGISTRY}}/python:3.11-slim\n"
+    )
 
 
 #: Shipped recipes that install with pip, and so fetch through the build caches.
@@ -672,12 +978,49 @@ def test_every_shipped_recipe_carries_the_site_ca_layer(dockerfile):
     """
     label = str(dockerfile.parent.relative_to(TEMPLATES_DIR))
     recipe = SITE_BUILD_SHAPE[label]
-    assert_site_ca_idiom(
-        dockerfile.read_text(),
-        label,
-        recipe.trust_vars,
-        bootstrap_fetches=recipe.bootstrap_fetches,
+    for i, tree in enumerate(_stage_trees(dockerfile.read_text())):
+        assert_site_ca_idiom(
+            tree,
+            f"{label} (stage tree {i + 1})",
+            recipe.trust_vars,
+            bootstrap_fetches=recipe.bootstrap_fetches,
+        )
+
+
+def _stage_trees(text: str) -> list[str]:
+    """The recipe split where a stage starts from an external image.
+
+    A stage built ``FROM`` an earlier stage (by name, or through a
+    ``${...}``-selected name) inherits that stage's trust store, so it belongs
+    to the same tree; a stage that starts from a registry image begins a new
+    tree, which has to install the site CA itself. A stage name holds no ``/``,
+    so a base that does (``${OSPREY_BASE_REGISTRY}/library/python:…``) is an image. A
+    single-stage recipe is one tree.
+    """
+    named: set[str] = set()
+    starts: list[int] = []
+    for match in re.finditer(r"^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$", text, flags=re.M | re.I):
+        base, name = match.group(1), match.group(2)
+        if base not in named and ("${" not in base or "/" in base):
+            starts.append(match.start())
+        if name:
+            named.add(name)
+    starts = starts or [0]
+    head = text[: starts[0]]
+    ends = [*starts[1:], len(text)]
+    return [head + text[a:b] for a, b in zip(starts, ends, strict=True)]
+
+
+def test_stage_trees_split_at_an_external_base():
+    """A stage on an earlier stage stays in its tree; a new registry base starts one."""
+    trees = _stage_trees(
+        "ARG T\nFROM python:3.11-slim AS base\nRUN a\nFROM base AS b\nRUN b\n"
+        "FROM b-${T} AS c\nFROM python:3.11-slim\nRUN d\nFROM ${R}/python:3.11-slim\nRUN e\n"
     )
+    assert len(trees) == 3
+    assert "RUN b" in trees[0] and "RUN d" not in trees[0]
+    assert "RUN d" in trees[1] and "RUN a" not in trees[1]
+    assert "RUN e" in trees[2] and "RUN d" not in trees[2]
 
 
 @pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
@@ -806,3 +1149,112 @@ def test_cli_pin_regex_reads_both_spellings():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ── Source builds are held to the lock in every layer ───────────────────────
+#
+# A `--dev` build stages osprey-lock-constraints.txt, the checkout's uv.lock
+# exported as constraints, and every layer that installs a Python package must
+# then install it at the lock's version: the deps layer, the extras layers, the
+# queueserver layer, every wheel layer. Each RUN that installs anything is run
+# here, under stubs, as a source build would run it, and every installer call
+# that resolves packages has to have read the lock. Nothing may name an osprey
+# distribution as a requirement either: on that path the only osprey code is
+# the staged wheels, and a name would be resolved from the index.
+
+_LOCK_PATH_ENV = {
+    "OSPREY_VERSION": "0.0.0",
+    "OSPREY_DEV": "1",
+    "OSPREY_PIP_PRE": "",
+    "BLUESKY_QUEUESERVER_VERSION": "0.0.25",
+    "OPTIMIZER_TORCH_INDEX_URL": "https://download.pytorch.org/whl/cpu",
+    "PIP_NO_PROXY": "",
+    "PIP_INDEX_URL": "",
+    "PIP_EXTRA_INDEX_URL": "",
+}
+
+#: Recipes whose RUNs install Python packages (qmd installs with npm alone).
+_PIP_RECIPES = [p for p in SHIPPED_DOCKERFILES if "pip install" in p.read_text(encoding="utf-8")]
+
+
+def _installing_bodies(dockerfile: pathlib.Path) -> list[str]:
+    """Each RUN that installs a Python package, minus the arm64 native-wheels
+    builder stage, which compiles pcaspy at its hash-pinned version and ships
+    nothing but that wheel."""
+    return [
+        instruction.removeprefix("RUN ")
+        for instruction in run_instructions(dockerfile.read_text(encoding="utf-8"))
+        if "pip install" in instruction and "pip wheel" not in instruction
+    ]
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    _PIP_RECIPES,
+    ids=[str(p.parent.relative_to(TEMPLATES_DIR)) for p in _PIP_RECIPES],
+)
+def test_every_install_on_a_source_build_is_held_to_the_lock(dockerfile, tmp_path):
+    bodies = _installing_bodies(dockerfile)
+    assert bodies, f"{dockerfile}: no installing RUN found"
+    for i, body in enumerate(bodies):
+        sandbox = tmp_path / str(i)
+        sandbox.mkdir()
+        calls = lock_path_install_calls(body, sandbox, _LOCK_PATH_ENV)
+        for held, argv in calls:
+            if must_be_held_to_the_lock(argv):
+                assert held, f"{dockerfile}: an install not held to the lock: {argv}\n{body}"
+            named = [a for a in argv if re.match(r"osprey[-_](framework|optimizer)\b", a)]
+            assert not named, f"{dockerfile}: names an osprey distribution on the index: {argv}"
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    _PIP_RECIPES,
+    ids=[str(p.parent.relative_to(TEMPLATES_DIR)) for p in _PIP_RECIPES],
+)
+def test_a_release_build_reads_no_lock(dockerfile, tmp_path):
+    """The other side of the switch: with nothing staged no layer reads a lock,
+    so a release build installs exactly what it did before the lock existed."""
+    for i, body in enumerate(_installing_bodies(dockerfile)):
+        sandbox = tmp_path / str(i)
+        sandbox.mkdir()
+        calls = lock_path_install_calls(
+            body, sandbox, {**_LOCK_PATH_ENV, "OSPREY_DEV": ""}, source_build=False
+        )
+        assert not [argv for held, argv in calls if held], f"{dockerfile}: {calls}"
+
+
+def test_the_extras_manifest_mapping_matches_the_recipes():
+    """``_DEV_WHEEL_EXTRAS`` and the recipes that COPY the extras manifest name
+    the same contexts, and each mapped extra is the one that recipe installs."""
+    from osprey.deployment.compose_generator import _DEV_WHEEL_EXTRAS
+
+    copying = {
+        p.parent.name
+        for p in SHIPPED_DOCKERFILES
+        if "osprey-extra-requirements.tx[t]" in p.read_text(encoding="utf-8")
+    }
+    assert copying == set(_DEV_WHEEL_EXTRAS)
+    for context, extras in _DEV_WHEEL_EXTRAS.items():
+        text = (SERVICES_DIR / context / "Dockerfile").read_text(encoding="utf-8")
+        for extra in extras:
+            assert f"[{extra}]" in text, f"{context}: does not install the {extra!r} extra"
+
+
+def test_the_arm64_pcaspy_wheel_is_the_version_the_lock_holds():
+    """The VA's native-wheels stage builds pcaspy at PCASPY_VERSION and the
+    virtual-accelerator layer takes it from find-links. On a source build that
+    resolve is held to uv.lock, so a pin the lock moved and this ARG did not
+    would leave the constrained install no candidate on arm64."""
+    import tomllib
+
+    va = _dockerfile("virtual_accelerator")
+    pinned = re.search(r"^ARG PCASPY_VERSION=(\S+)$", va, flags=re.MULTILINE)
+    assert pinned, "the VA recipe no longer pins PCASPY_VERSION"
+    lock = tomllib.loads(
+        (pathlib.Path(__file__).resolve().parents[2] / "uv.lock").read_text(encoding="utf-8")
+    )
+    locked = {p["version"] for p in lock["package"] if p["name"] == "pcaspy"}
+    assert locked == {pinned.group(1)}, (
+        f"PCASPY_VERSION={pinned.group(1)} but uv.lock resolves pcaspy {locked}"
+    )

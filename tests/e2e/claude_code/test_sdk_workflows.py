@@ -105,7 +105,12 @@ class TestClaudeCodeSDKIntegration:
     # where it stops after an intermediate sub-agent result. The deterministic
     # assertions below are correct (a real regression fails all reruns); the
     # rerun only absorbs that rare LLM nondeterminism.
-    @pytest.mark.agentic_benchmark
+    @pytest.mark.agentic(
+        tier=1,
+        title="Read, plot, save",
+        asks="Read three BPMs from the archiver over 24 hours, plot them and save a PNG.",
+        passes_if="the read comes before the plot and the PNG is saved",
+    )
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
@@ -204,7 +209,15 @@ class TestClaudeCodeSDKIntegration:
     # the weakest model. 15/15 local passes; one CI miss where the orchestrator
     # stopped after channel-finder without calling archiver_read. Rerun absorbs
     # that stochastic miss without weakening the strict assertions below.
-    @pytest.mark.agentic_benchmark
+    @pytest.mark.agentic(
+        tier=1,
+        title="Find, read, correlate",
+        asks=(
+            "Give me a timeseries and a correlation plot of all horizontal BPMs over the last 24 "
+            "hours."
+        ),
+        passes_if="the BPMs are found, their data read, and both plots saved",
+    )
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
@@ -320,7 +333,14 @@ class TestClaudeCodeSDKIntegration:
     # Multi-step agentic pipeline (archiver -> data-visualizer subagent). Same
     # stochastic-miss class as the other pipeline tests; rerun absorbs the rare
     # LLM nondeterminism while the strict viz/3D-code assertions still gate.
-    @pytest.mark.agentic_benchmark
+    @pytest.mark.agentic(
+        tier=1,
+        title="3D scatter plot",
+        asks=(
+            "Read three channels from the archiver and plot them as a 3D scatter, coloured by time."
+        ),
+        passes_if="the data visualizer writes the 3D plot",
+    )
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api

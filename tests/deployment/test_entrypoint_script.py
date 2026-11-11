@@ -45,6 +45,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.control_identity import validate_identity
+
 #: The shipped template, which is what a build copies into the render.
 TEMPLATE = (
     Path(__file__).resolve().parents[2]
@@ -68,6 +70,12 @@ SIMULATOR_LOG_VAR = "OSPREY_SIMULATOR_LOG_DIR"
 #: Guarded runs' per-target locks, shared by every container that
 #: runs the agent, each under its own uid.
 GUARDED_RUN_VAR = "OSPREY_GUARDED_RUN_DIR"
+#: Programs' write-authorization requests, bound READ-ONLY into every web
+#: terminal, which shows them on the approve card. Outside ``var/``.
+WRITE_REQUESTS_VAR = "OSPREY_WRITE_REQUESTS_DIR"
+#: The programs' whole write ledger, bound READ-ONLY into every web terminal for
+#: their self-issued grants. Outside ``var/``.
+WRITE_LEDGER_VIEW_VAR = "OSPREY_WRITE_LEDGER_VIEW_DIR"
 #: The control-target bind this container WRITES: one owner directory, the
 #: account this service acts for.
 CONTROL_DIR_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
@@ -93,6 +101,8 @@ RENDER_NAMED_VARS = frozenset(
         MIRROR_VAR,
         SIMULATOR_LOG_VAR,
         GUARDED_RUN_VAR,
+        WRITE_REQUESTS_VAR,
+        WRITE_LEDGER_VIEW_VAR,
         AGENT_RECORD_SPOOL_VAR,
         AGENT_RECORD_DIR_VAR,
         AGENT_RECORD_ARCHIVE_VAR,
@@ -100,6 +110,10 @@ RENDER_NAMED_VARS = frozenset(
         STATE_VAR,
     }
 )
+#: The one LIST the render names: every state directory an application
+#: container declares, colon-separated, each joined, probed and pruned exactly
+#: as a single-directory variable is.
+APP_STATE_VAR = "OSPREY_APP_STATE_DIRS"
 
 #: Who this container acts as, and the staged module that makes uid 1000 say so.
 IDENTITY_VAR = "OSPREY_CONTROL_IDENTITY"
@@ -124,6 +138,14 @@ GID_MAP_SEP = "\t"
 #: points the script's copy at a fabricated file, because no test host is a
 #: rootless container and macOS has no ``/proc`` at all.
 UID_MAP_PATH = "/proc/self/uid_map"
+
+#: Where the script reads whether SELinux is enforcing. Re-pointed in every
+#: sandbox run, so a test host with a real selinuxfs never answers for the case.
+SELINUX_ENFORCE_PATH = "/sys/fs/selinux/enforce"
+
+#: Where the script reads this process's security context. Re-pointed in every
+#: sandbox run for the same reason: a Linux runner's real file is readable.
+PROC_ATTR_PATH = "/proc/self/attr/current"
 
 #: The kernel's spelling of "no user namespace": container root is host root.
 IDENTITY_UID_MAP = "         0          0 4294967295\n"
@@ -202,8 +224,9 @@ class TestScriptShape:
         assert "join_mounted_groups() {" in section, "the slice lost the dispatcher"
         code = "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
         read = set(re.findall(r"\bOSPREY_[A-Z_]+\b", code))
-        assert RENDER_NAMED_VARS <= read, f"a render-named mount is never joined: {read}"
-        others = read - RENDER_NAMED_VARS
+        named = RENDER_NAMED_VARS | {APP_STATE_VAR}
+        assert named <= read, f"a render-named mount is never joined: {read}"
+        others = read - named
         assert not others, f"the join reads variables the render does not name: {others}"
 
     def test_every_render_named_variable_is_joined_and_probed(self, text: str):
@@ -226,14 +249,31 @@ class TestScriptShape:
                 flags=re.MULTILINE,
             ), var
 
-    def test_the_read_only_tree_is_the_only_read_probe(self, text: str):
-        """The mode is per VARIABLE, not per container: the tree is bound
-        read-only, so a write probe on it would report today's "records will be
-        dropped" warning for a directory nothing in this container writes —
-        which is the false alarm that made the probe a separate helper."""
+    def test_every_app_state_entry_is_joined_and_probed(self, text: str):
+        """The list variable keeps the join-without-probe invariant per ENTRY:
+        the dispatcher splits it and hands each entry, under the list's name,
+        to the same two helpers every other variable goes through — the same
+        entry to both, and a write probe, because the app writes its state."""
         body = _dispatcher_body(text)
-        assert f'probe_mounted_dir {CONTROL_TREE_VAR} "${{{CONTROL_TREE_VAR}:-}}" read' in body
-        for var in sorted(RENDER_NAMED_VARS - {CONTROL_TREE_VAR}):
+        join = re.search(rf'^\s*join_mounted_group {APP_STATE_VAR} "\$(_\w+)"$', body, re.MULTILINE)
+        assert join, body
+        entry = join.group(1)
+        assert re.search(
+            rf'^\s*probe_mounted_dir {APP_STATE_VAR} "\${entry}" write$', body, re.MULTILINE
+        ), body
+        assert f'"${{{APP_STATE_VAR}:-}}"' in body, "the list is not read with a default"
+
+    def test_the_read_only_binds_are_the_only_read_probes(self, text: str):
+        """The mode is per VARIABLE, not per container: the tree and the
+        programs' requests are bound read-only, so a write probe on either would
+        report today's "records will be dropped" warning for a directory nothing
+        in this container writes — which is the false alarm that made the probe
+        a separate helper."""
+        body = _dispatcher_body(text)
+        read_only = {CONTROL_TREE_VAR, WRITE_REQUESTS_VAR, WRITE_LEDGER_VIEW_VAR}
+        for var in sorted(read_only):
+            assert f'probe_mounted_dir {var} "${{{var}:-}}" read' in body, var
+        for var in sorted(RENDER_NAMED_VARS - read_only):
             assert f'probe_mounted_dir {var} "${{{var}:-}}" write' in body, var
 
     def test_the_probe_is_not_nested_in_the_join(self, text: str):
@@ -256,6 +296,13 @@ class TestScriptShape:
         only, and not guessed from the runtime."""
         assert f"UID_MAP={UID_MAP_PATH}\n" in text
         assert not re.search(r"OSPREY_[A-Z_]*UID_MAP", text), "the map path is taken from the env"
+
+    def test_the_selinux_state_is_the_kernels(self, text: str):
+        """Read from the paths the kernel states it at, never from the env."""
+        assert f"SELINUX_ENFORCE={SELINUX_ENFORCE_PATH}\n" in text
+        assert f"PROC_ATTR={PROC_ATTR_PATH}\n" in text
+        assert not re.search(r"OSPREY_[A-Z_]*SELINUX", text), "the enforce path is from the env"
+        assert not re.search(r"OSPREY_[A-Z_]*PROC_ATTR", text), "the context path is from the env"
 
     def test_the_gid_is_stat_ed_off_the_mount(self, text: str):
         """Not passed in. A gid rendered into the compose file is the host's
@@ -284,6 +331,7 @@ class TestScriptShape:
             AGENT_RECORD_ARCHIVE_VAR,
             SPOOL_VAR,
             STATE_VAR,
+            APP_STATE_VAR,
         ):
             assert f'"${{{var}:-}}"' in body, var
 
@@ -310,6 +358,7 @@ class TestScriptShape:
             AGENT_RECORD_ARCHIVE_VAR,
             SPOOL_VAR,
             STATE_VAR,
+            APP_STATE_VAR,
         ):
             assert var in comment, var
         assert "membership" in comment.lower()
@@ -406,6 +455,12 @@ class Sandbox:
         state zone, setgid and group-shared like the record directory."""
         return self._mount(self.state / "archive", gid)
 
+    def app_state_mount(self, gid: int, service: str, identity: str = "knob-demo") -> Path:
+        """One application container's declared state directory, where compose
+        binds it: inside its identity's state zone, provisioned setgid and
+        group-shared like the zone itself."""
+        return self._mount(self.state / "state" / identity / service, gid)
+
     def _mount(self, path: Path, gid: int) -> Path:
         path.mkdir(parents=True, exist_ok=True)
         with self.gid_map.open("a") as handle:
@@ -428,6 +483,7 @@ class Sandbox:
         bundle_dir: Path | str | None = None,
         mirror_dir: Path | str | None = None,
         archive_dir: Path | str | None = None,
+        app_state_dirs: str | None = None,
         groupadd_rc: int = 0,
         usermod_rc: int = 0,
         stat_rc: int | None = None,
@@ -436,6 +492,8 @@ class Sandbox:
         read_probe_rc: int | None = None,
         traverse_probe_rc: int | None = None,
         uid_map: str | None = None,
+        selinux_enforce: str | None = None,
+        proc_attr: str | None = None,
         identity: str | None = None,
         module: str | None = "present",
         apply_rc: int = 0,
@@ -455,6 +513,9 @@ class Sandbox:
             uid_map_file.write_text(uid_map)
             assert UID_MAP_PATH in script_text
             script_text = script_text.replace(UID_MAP_PATH, str(uid_map_file))
+        # The SELinux state is re-pointed on every run, and the file written
+        # only when the case names one: `None` is "no selinuxfs" on every host.
+        script_text = self._repoint_selinux(script_text, selinux_enforce, proc_attr)
         self.script.write_text(script_text)
         bindir = self._stubs(
             uid=uid,
@@ -511,6 +572,8 @@ class Sandbox:
             env[MIRROR_VAR] = str(mirror_dir)
         if archive_dir is not None:
             env[AGENT_RECORD_ARCHIVE_VAR] = str(archive_dir)
+        if app_state_dirs is not None:
+            env[APP_STATE_VAR] = app_state_dirs
 
         command = [
             "/bin/sh",
@@ -554,6 +617,20 @@ class Sandbox:
             assert state == "present", state
         return path
 
+    def _repoint_selinux(
+        self, script_text: str, selinux_enforce: str | None, proc_attr: str | None
+    ) -> str:
+        for path, name, content in (
+            (SELINUX_ENFORCE_PATH, "selinux-enforce", selinux_enforce),
+            (PROC_ATTR_PATH, "proc-attr-current", proc_attr),
+        ):
+            target = self.tmp / name
+            if content is not None:
+                target.write_text(content)
+            assert path in script_text
+            script_text = script_text.replace(path, str(target))
+        return script_text
+
     def call_probe(
         self, var: str, directory: Path | str, mode: str | None = None
     ) -> subprocess.CompletedProcess[str]:
@@ -571,7 +648,7 @@ class Sandbox:
         sourced = self.tmp / "sourced-entrypoint.sh"
         text = TEMPLATE.read_text().rstrip()
         assert text.endswith(MAIN_INVOCATION), "the script no longer ends in its own call"
-        sourced.write_text(text[: -len(MAIN_INVOCATION)])
+        sourced.write_text(self._repoint_selinux(text[: -len(MAIN_INVOCATION)], None, None))
         bindir = self._stubs(
             uid=0,
             groupadd_rc=0,
@@ -1216,6 +1293,150 @@ class TestTheControlContextProbes:
         ], "a probe saw a truncated path"
 
 
+LABELLED = "system_u:system_r:container_t:s0:c123,c456\0"
+
+
+class TestTheSelinuxHint:
+    """A failed access probe names the SELinux label as a cause to check,
+    on a host that confines this container with SELinux, and only there."""
+
+    HINT = "container_file_t"
+
+    # The kernel's shape: selinuxfs writes the mode with no newline, and the
+    # process attribute ends in a NUL, not a newline.
+
+    def test_an_enforcing_host_adds_the_hint_to_the_write_warning(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce="1")
+
+        assert run.returncode == 0, run.stderr
+        assert self.HINT in run.stderr, run.stderr
+        assert "ls -Zd" in run.stderr, run.stderr
+        assert "ausearch -m avc -ts recent" in run.stderr, run.stderr
+        assert len(_warnings(run)) == 1, run.stderr
+        assert "gosu" in run.order, "the hint blocked the container's boot"
+
+    def test_an_enforcing_host_adds_the_hint_to_the_enter_failure(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, traverse_probe_rc=1, selinux_enforce="1")
+
+        assert run.returncode == 0, run.stderr
+        assert self.HINT in run.stderr, run.stderr
+
+    def test_an_enforcing_host_adds_the_hint_to_the_read_warning(self, sandbox: Sandbox):
+        tree = sandbox.control_tree_mount(gid=3000)
+
+        run = sandbox.run(control_tree=tree, read_probe_rc=1, selinux_enforce="1")
+
+        assert run.returncode == 0, run.stderr
+        assert self.HINT in run.stderr, run.stderr
+        assert len(_warnings(run)) == 1, run.stderr
+
+    def test_a_labelled_container_adds_the_hint_when_the_enforce_file_is_masked(
+        self, sandbox: Sandbox
+    ):
+        """Rootless podman can mask selinuxfs inside the container; the
+        process's own label still says SELinux confines it."""
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr=LABELLED,
+        )
+
+        assert run.returncode == 0, run.stderr
+        assert self.HINT in run.stderr, run.stderr
+        assert "SELinux labels this container" in run.stderr, run.stderr
+        assert len(_warnings(run)) == 1, run.stderr
+
+    def test_an_unconfined_container_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool, probe_rc=1, selinux_enforce=None, proc_attr="unconfined\0"
+        )
+
+        assert self.HINT not in run.stderr, run.stderr
+
+    def test_a_super_privileged_container_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="system_u:system_r:spc_t:s0\0",
+        )
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+    def test_an_unconfined_label_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="unconfined_u:unconfined_r:unconfined_t:s0\0",
+        )
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+    def test_a_container_family_label_adds_the_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="system_u:system_r:container_init_t:s0:c1,c2\0",
+        )
+
+        assert self.HINT in run.stderr, run.stderr
+        assert "SELinux labels this container" in run.stderr, run.stderr
+
+    def test_a_permissive_host_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce="0")
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert self.HINT not in run.stderr, run.stderr
+
+    def test_a_permissive_host_silences_a_labelled_container(self, sandbox: Sandbox):
+        """A readable enforce file reading 0 means SELinux denies nothing, so
+        no SELinux cause is named, whatever the process's label says."""
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce="0", proc_attr=LABELLED)
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert self.HINT not in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+    def test_a_host_without_selinuxfs_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce=None, proc_attr=None)
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert self.HINT not in run.stderr, run.stderr
+
+    def test_a_passing_probe_says_nothing_about_selinux(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(spool_dir=spool, probe_rc=0, selinux_enforce="1")
+
+        assert run.returncode == 0, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+
 class TestTheProbeSurvivesItsOwnMisuse:
     """A probe called wrongly logs and returns; it never stops the boot.
 
@@ -1761,6 +1982,81 @@ def _non_root_branch(text: str) -> str:
 _EXEC_FORM = re.compile(r'^[ \t]*exec gosu osprey "\$@"$', re.MULTILINE)
 
 
+class TestTheAppStateDirs:
+    """``OSPREY_APP_STATE_DIRS`` names a LIST, and every entry gets what a
+    single-directory variable gets: the join, the write probe and the prune."""
+
+    def test_every_entry_is_joined(self, sandbox: Sandbox):
+        first = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        second = sandbox.app_state_mount(gid=3001, service="knob-cache")
+
+        run = sandbox.run(app_state_dirs=f"{first}:{second}")
+
+        assert run.returncode == 0, run.stderr
+        assert _groupadds(run) == [
+            "groupadd 3000 osprey-mount-3000",
+            "groupadd 3001 osprey-mount-3001",
+        ]
+
+    def test_every_entry_is_write_probed_even_on_a_shared_gid(self, sandbox: Sandbox):
+        """The second entry's gid is already joined, so its join returns early;
+        the probe must still ask about it."""
+        first = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        second = sandbox.app_state_mount(gid=3000, service="knob-cache")
+
+        run = sandbox.run(app_state_dirs=f"{first}:{second}")
+
+        assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
+        probes = _probes(run)
+        for path in (first, second):
+            assert f"probe osprey -w {path}" in probes, probes
+            assert f"probe osprey -x {path}" in probes, probes
+
+    def test_an_entry_with_a_space_is_one_directory(self, sandbox: Sandbox):
+        spaced = sandbox.app_state_mount(gid=3000, service="knob demo")
+
+        run = sandbox.run(app_state_dirs=str(spaced))
+
+        assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
+        assert f"probe osprey -w {spaced}" in _probes(run)
+
+    def test_empty_and_missing_entries_are_skipped_not_fatal(self, sandbox: Sandbox):
+        present = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        missing = sandbox.state / "state" / "knob-demo" / "gone"
+
+        run = sandbox.run(app_state_dirs=f":{present}::{missing}:")
+
+        assert run.returncode == 0, run.stderr
+        assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
+        assert f"{APP_STATE_VAR}={missing} is not a directory" in run.stderr
+        assert f"-path {missing} " not in run.find_args, run.find_args
+
+    def test_every_entry_is_pruned_and_never_traversed(self, sandbox: Sandbox):
+        first = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        second = sandbox.app_state_mount(gid=3001, service="knob-cache")
+        kept = first / "state.json"
+        kept.write_text("{}")
+        elsewhere = sandbox.state / "elsewhere.json"
+        elsewhere.write_text("{}")
+
+        run = sandbox.run(app_state_dirs=f"{first}:{second}")
+
+        for path in (first, second):
+            assert f"-path {path} -prune -o" in run.find_args, run.find_args
+        assert str(elsewhere) in run.visited, run.visited
+        assert str(kept) not in run.visited, "the sweep walked into an app state dir"
+
+    def test_without_the_list_the_sweep_would_reach_it(self, sandbox: Sandbox):
+        """Non-vacuity for the prune above."""
+        first = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        kept = first / "state.json"
+        kept.write_text("{}")
+
+        run = sandbox.run()
+
+        assert str(kept) in run.visited, run.visited
+
+
 class TestTheIdentityStepShape:
     """Where the step sits is part of what it guarantees."""
 
@@ -1994,3 +2290,59 @@ class TestTheIdentityOnANonRootStart:
         run = sandbox.run(uid=1000, identity="osprey-dispatch-1")
 
         assert run.apply_calls == []
+
+
+def _admits(name: str, *, allow_service: bool) -> bool:
+    try:
+        validate_identity(name, allow_service=allow_service)
+    except ValueError:
+        return False
+    return True
+
+
+#: One name per class the two predicates could split on.
+_IDENTITY_NAMES = [
+    "alice",
+    "j.doe",
+    "_svc",
+    "osprey-sidecar",
+    "osprey-dispatch-worker-1",
+    "osprey-",
+    "osprey.x",
+    "osprey",
+    "root",
+    "daemon",
+    "osprey-Upper",
+    "osprey-a$b",
+    "osprey-" + "a" * 26,
+]
+
+_ADMITTED = [n for n in _IDENTITY_NAMES if _admits(n, allow_service=True)]
+_REFUSED_SERVICE_SHAPED = [
+    n for n in _IDENTITY_NAMES if n.startswith("osprey-") and not _admits(n, allow_service=True)
+]
+
+
+class TestTheServiceRuleIsOneRule:
+    """The shell restates the module's service predicate because it decides exactly
+    when the module cannot run; this pins the two as one rule."""
+
+    @pytest.mark.parametrize("name", _ADMITTED)
+    def test_the_shell_warns_exactly_on_the_modules_service_names(
+        self, sandbox: Sandbox, name: str
+    ):
+        service = not _admits(name, allow_service=False)
+        run = sandbox.run(identity=name, with_python=False)
+
+        assert (run.returncode == 0 and run.skipped == "apply-failed") == service, run.stderr
+
+    @pytest.mark.parametrize("name", _REFUSED_SERVICE_SHAPED)
+    def test_a_service_shaped_name_the_module_refuses_runs_as_osprey(
+        self, sandbox: Sandbox, name: str
+    ):
+        run = sandbox.run(identity=name, apply_rc=1)
+
+        assert run.returncode == 0, run.stderr
+        assert run.skipped == "apply-failed"
+        assert run.order[-3:] == ["gosu", "osprey", "cmd"], run.order
+        assert "control identity: uid 1000 is" not in run.stderr, run.stderr

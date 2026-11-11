@@ -6,7 +6,7 @@ Request and response models for the ARIEL search interface.
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SerializerFunctionWrapHandler, model_serializer
 
 from osprey.services.ariel_search.models import (
     END_BOUND_DESCRIPTION,
@@ -42,6 +42,22 @@ class AttachmentResponse(BaseModel):
     skip_reason_text: str | None = None
 
 
+class FacilityReferenceResponse(BaseModel):
+    """One channel address or device id an entry quotes, with the records it names.
+
+    ``start`` and ``end`` are code-point offsets into the entry's ``raw_text``.
+    ``records`` is empty when the facility file does not hold ``target`` and null
+    when no facility file was read.
+    """
+
+    start: int
+    end: int
+    target: str
+    kinds: list[str]
+    label: str | None = None
+    records: list[dict[str, Any]] | None = None
+
+
 class EntryResponse(BaseModel):
     """Single logbook entry in response."""
 
@@ -67,6 +83,48 @@ class EntryResponse(BaseModel):
     # How a search found the entry, and which of its attachments it matched.
     matched_via: list[str] = []
     matched_attachment_ids: list[str] = []
+    # The stored subject line (``enhanced_entries.subject``), derived from the
+    # entry when the store predates the column.
+    subject: str | None = None
+    # The canonical facility logbook URL, or null for an ARIEL-only entry or a
+    # deployment with no ``ariel.entry_url_template``.
+    entry_url: str | None = None
+    # The stored ``enhancement_status`` object; every enabled module's object
+    # also carries its computed ``state`` (not_run, pending, stale, failed, complete, n/a).
+    enhancement_status: dict[str, Any] = {}
+    # Null when the entry was never checked against a facility file.
+    facility_references: list[FacilityReferenceResponse] | None = None
+
+
+class RowResponse(BaseModel):
+    """One entry as a list row: what the list pane renders, and nothing more.
+
+    It carries no ``raw_text`` and no attachment summaries. ``snippet`` is the
+    first search highlight, else the first 300 characters of the entry's text
+    after its subject line. ``facets`` holds the entry's value of each builtin
+    and declared filter dimension (a list for ``tags``). ``enhancements`` is the
+    state of every enabled enhancement module.
+    """
+
+    entry_id: str
+    timestamp: str | None
+    author: str
+    source_system: str
+    subject: str | None = None
+    snippet: str = ""
+    facets: dict[str, Any] = {}
+    attachment_count: int = 0
+    has_images: bool = False
+    enhancements: dict[str, str] = {}
+    entry_url: str | None = None
+    score: float | None = None
+    highlights: list[str] = []
+    keywords: list[str] = []
+    matched_via: list[str] = []
+
+
+#: The two shapes an entry page comes in: ``full`` entries, or list ``row`` s (C-ROW).
+EntryView = Literal["full", "row"]
 
 
 class SearchRequest(BaseModel):
@@ -87,6 +145,11 @@ class SearchRequest(BaseModel):
     advanced_params: dict[str, Any] = Field(
         default_factory=dict, description="Mode-specific advanced parameters"
     )
+    # The C-FILTER object, or its JSON text; ANDed with the legacy fields above.
+    filters: dict[str, Any] | str | None = Field(None, description="Filter object (C-FILTER)")
+    # max_results is the page size; offset is where the page starts (C-PAGE).
+    offset: int = Field(0, ge=0, description="Results to skip before this page")
+    view: EntryView = Field("full", description="Entry shape: full entries or list rows")
 
 
 class DiagnosticResponse(BaseModel):
@@ -113,25 +176,143 @@ class ExpandedTermResponse(BaseModel):
 class SearchResponse(BaseModel):
     """Search response payload."""
 
-    entries: list[EntryResponse]
+    entries: list[EntryResponse | RowResponse]
     answer: str | None = None
     sources: list[str] = []
     search_modes_used: list[str] = []
     reasoning: str = ""
+    # Equal to ``total``; kept for older callers.
     total_results: int = 0
+    # Every match the module counted, capped (C-PAGE); ``total_exact`` is false
+    # for a capped or approximate count. Load more reads ``has_more``.
+    total: int = 0
+    total_exact: bool = False
+    has_more: bool = False
     execution_time_ms: int = 0
     diagnostics: list[DiagnosticResponse] = []
     expanded_terms: list[ExpandedTermResponse] = []
 
 
 class EntriesListResponse(BaseModel):
-    """Response for entry listing."""
+    """Response for entry listing.
 
-    entries: list[EntryResponse]
+    Cursor paging (C-PAGE) carries ``next_cursor``, null on the last page, and a
+    null ``page``; the legacy ``page`` parameter echoes its page and returns no
+    cursor.
+    """
+
+    entries: list[EntryResponse | RowResponse]
     total: int
-    page: int
+    page: int | None = None
     page_size: int
     total_pages: int
+    next_cursor: str | None = None
+
+
+class ThreadResponse(BaseModel):
+    """The thread around one entry (C-THREAD).
+
+    ``parent`` is the row the entry follows up, null when it follows nothing or
+    the parent is not held; ``parent_id`` stays set in the latter case.
+    ``children`` are the entry's follow-ups as list rows, oldest first: the
+    newest ``FOLLOW_UPS_LIMIT`` of them. ``truncated`` is true when older
+    follow-ups were left out (A17); it is omitted from the body when false.
+    """
+
+    parent_id: str | None = None
+    parent: RowResponse | None = None
+    children: list[RowResponse] = []
+    truncated: bool = False
+
+    @model_serializer(mode="wrap")
+    def _omit_untruncated(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not data.get("truncated"):
+            data.pop("truncated", None)
+        return data
+
+
+class RelatedResponse(BaseModel):
+    """The nearest entries to one entry by its stored text embedding (A9).
+
+    ``state`` is ``ok`` when the search ran (``entries`` may still be empty),
+    ``no_embedding`` when the entry has no row in the current text-embedding
+    table, and ``disabled`` when text embedding (or semantic search) is off.
+    ``entries`` never include the entry itself.
+    """
+
+    state: Literal["ok", "no_embedding", "disabled"]
+    entries: list[RowResponse] = []
+
+
+class ModuleCard(BaseModel):
+    """One enabled enhancement module's card for one entry (A8).
+
+    ``state`` is the entry's view state (``complete``, ``pending``, ``stale``,
+    ``failed`` or ``n/a``); ``completed_at`` through ``attempts`` are the stored
+    status fields; ``command`` is the re-run command for a failed or stale
+    module; ``detail`` is the module's own ``inspect()`` output, null for a
+    status-only card.
+    """
+
+    module: str
+    label: str
+    order: int
+    feeds: list[str] = []
+    state: str
+    completed_at: str | None = None
+    failed_at: str | None = None
+    marker: str | None = None
+    error: str | None = None
+    attempts: int | None = None
+    command: str | None = None
+    detail: dict[str, Any] | None = None
+
+
+class EnhancementsResponse(BaseModel):
+    """The inspector cards of one entry, in execution order (A8)."""
+
+    entry_id: str
+    modules: list[ModuleCard] = []
+
+
+class FacetValueResponse(BaseModel):
+    """One value of a facet dimension and how many entries it selects."""
+
+    value: str
+    count: int
+
+
+class FacetDimensionResponse(BaseModel):
+    """One filter dimension's counts, under the filter minus its own selection."""
+
+    name: str
+    label: str
+    kind: str
+    values: list[FacetValueResponse] = []
+
+
+class FacetDayResponse(BaseModel):
+    """Entries on one facility-local day (``YYYY-MM-DD``)."""
+
+    day: str
+    count: int
+
+
+class FacetsResponse(BaseModel):
+    """Facet counts and the day histogram for one list (C-FACETS).
+
+    ``available`` is false, with no dimensions and no histogram, when the
+    service cannot count; the panel then shows no counts. ``exact`` is false
+    when the counts cover a capped or approximate matched set, and ``tier`` is
+    the keyword tier the counted set came from.
+    """
+
+    available: bool = True
+    dimensions: list[FacetDimensionResponse] = []
+    histogram: list[FacetDayResponse] = []
+    exact: bool = True
+    tier: str | None = None
 
 
 class EntryCreateRequest(BaseModel):
@@ -157,6 +338,9 @@ class EntryCreateResponse(BaseModel):
     sync_status: str | None = None
     source_system: str | None = None
     attachment_count: int = 0
+    #: ``None`` when the entry carries no attachments; otherwise whether the
+    #: facility logbook took them (``False``: they were kept in ARIEL only).
+    attachments_published: bool | None = None
 
 
 class EmbeddingTableStatus(BaseModel):
@@ -208,3 +392,7 @@ class StatusResponse(BaseModel):
     enabled_enhancement_modules: list[str] = []
     last_ingestion: datetime | None = None
     errors: list[str] = []
+    #: Per enabled module, in execution order: ``label`` and the count of
+    #: entries in each badge-strip state (``n/a``, ``not_run``, ``pending``, ``stale``,
+    #: ``failed``, ``complete``). A plain dict because ``n/a`` is no identifier.
+    enhancement_coverage: dict[str, dict[str, Any]] = {}

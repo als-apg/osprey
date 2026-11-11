@@ -91,7 +91,7 @@ answer by :func:`~osprey_connectors.posture_store.write_verdict`. The
 connector child takes that same verdict on every write and on its own gateway
 selection, so a parent that derived from config alone would derive
 ``write_access`` for a target the child has just connected to on ``read_only``
-— and :func:`~osprey_connectors.ipc.verify_child_report`, doing its job, would
+— and :func:`~osprey_connectors.ipc.verify_host_report`, doing its job, would
 abort the switch on a disagreement that is nobody's misconfiguration.
 
 :func:`target_write_verdict` is therefore what every caller in this stack
@@ -119,10 +119,13 @@ from osprey_connectors.honesty import (
     target_section,
 )
 from osprey_connectors.ipc import (
+    GATEWAYS_MISSING,
+    GATEWAYS_NONE_DECLARED,
     Endpoint,
     TargetDerivation,
     config_section,
     connector_block,
+    declared_gateways,
     derive_endpoints,
     live_collision,
     subsection,
@@ -133,6 +136,7 @@ from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
 from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
+    resolve_target,
     speaks_channel_access,
 )
 
@@ -562,7 +566,15 @@ def evaluate_eligibility(
                 "— what it cannot do is move a session onto it.",
             )
 
-        if not subsection(raw_block, "gateways"):
+        if derivation.gateways_declared == GATEWAYS_NONE_DECLARED:
+            return Eligibility(
+                False,
+                REASON_GATEWAYS_MISSING,
+                f"Target {target!r} declares no endpoints ('{block_key}.gateways: []'), "
+                "so a switch has no gateway to point a connector at. Only a return to "
+                "the deployment baseline accepts a target with nothing to probe.",
+            )
+        if derivation.gateways_declared == GATEWAYS_MISSING:
             return Eligibility(
                 False,
                 REASON_GATEWAYS_MISSING,
@@ -756,7 +768,7 @@ def target_availability(
 # session its client belongs to, the reader names its own, and two equal
 # non-empty keys are one session. A pid walk answered the same question only
 # for clients that happened to descend from the reader, which a notebook kernel
-# and a popped-out window never do.
+# and a pane in its own window never does.
 
 
 #: How much of a session key a refusal prints. Long enough to tell two live
@@ -1119,6 +1131,25 @@ def target_reachability(reports: Iterable[Any], target: str) -> tuple[str, str, 
     return REACHABILITY_NOT_PROBED, "", {}
 
 
+def _declared_gateways(config: Any, target: str) -> tuple[str | None, str]:
+    """How *target*'s Channel Access block spells its gateways, and its connector type.
+
+    The shape is ``None`` for a target that does not resolve, or whose connector does not
+    speak Channel Access: the gateways table is that protocol's shape, and the
+    rung asks nothing of a block it cannot apply to. Otherwise it is
+    :func:`~osprey_connectors.ipc.declared_gateways` of the block, the one
+    reader of that fact, so a forgotten table never reads as "direct".
+    """
+    control_system = config_section(config, "control_system")
+    try:
+        connector_type = resolve_target(control_system, target)
+    except ValueError:
+        return None, ""
+    if not speaks_channel_access(control_system, connector_type):
+        return None, connector_type
+    return declared_gateways(connector_block(config, connector_type)), connector_type
+
+
 def _gateway_of(row: Mapping[str, Any]) -> str:
     """How a refusal names the gateway a row describes, or a plain fallback."""
     gateway = row.get("gateway")
@@ -1257,7 +1288,22 @@ def evaluate_switch(
             details=availability.as_dict(),
         )
 
-    # (4) Reachability, as the live fleet last measured it.
+    # (4) Reachability, as the live fleet last measured it. A target that
+    # declares no endpoints has nothing a prober could measure, so the rung is
+    # skipped and says so; eligibility has already refused it on any leg but
+    # the return to the baseline.
+    declared, connector_type = _declared_gateways(config, wanted)
+    if declared == GATEWAYS_NONE_DECLARED:
+        return GateVerdict(
+            allowed=True,
+            detail=(
+                f"target {wanted!r} declares no endpoints (`gateways: []`), so there is "
+                "nothing to probe and no reachability is claimed."
+            ),
+            details={"target": wanted, "reachability": REACHABILITY_NOT_APPLICABLE},
+            reachability=REACHABILITY_NOT_APPLICABLE,
+        )
+
     state, role, row = target_reachability(reports, wanted)
 
     if state == REACHABILITY_DOWN:
@@ -1286,6 +1332,28 @@ def evaluate_switch(
         )
 
     live = list(reports)
+    if state == REACHABILITY_NOT_PROBED and live and declared == GATEWAYS_MISSING:
+        block_key = f"control_system.connector.{connector_type}"
+        return GateVerdict(
+            allowed=False,
+            reason=REASON_GATEWAYS_MISSING,
+            detail=(
+                f"target {wanted!r} has no '{block_key}.gateways' table, so the controls "
+                f"server on pid {_server_pids(live)} has nothing to probe for it. A missing "
+                "table is never read as a direct connection."
+            ),
+            suggestions=[
+                f"Name the target's gateways under '{block_key}.gateways', or write "
+                "`gateways: []` if it truly has none to probe.",
+            ],
+            details={
+                "target": wanted,
+                "reason": REASON_GATEWAYS_MISSING,
+                "reachability": REACHABILITY_NOT_PROBED,
+                "server_pids": [getattr(report, "server_pid", None) for report in live],
+            },
+            reachability=REACHABILITY_NOT_PROBED,
+        )
     if state == REACHABILITY_NOT_PROBED and live:
         return GateVerdict(
             allowed=False,

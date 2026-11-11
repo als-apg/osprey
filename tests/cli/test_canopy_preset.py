@@ -1,19 +1,19 @@
-"""CANOPY in the control-assistant preset family, as the presets resolve.
+"""CANOPY in the demo preset family, as the presets resolve.
 
-CANOPY is the control assistant's operator GUI: the root preset shows it as
+CANOPY is the demo's operator GUI: the root preset shows it as
 the landing tab (``web_panels`` plus ``default_panel``; a built-in tab each web
 terminal serves from its own sidecar, so the preset states its settings and no
 url) and stages its payload before a build (``lifecycle.pre_build``). The
 agent's screen server is not the preset's to state: the panel declares it in
 the registry, with its tools, and a build renders it wherever the panel is
-shown. So the apps (channel finder, knowledge, logbook), which never inherit
-the panel, carry no server either and say nothing about it, and no tier denies
-an authoring tool:
+shown. So the narrow logins (channel finder, knowledge, logbook), which own
+their lists and never inherit the panel, carry no server either and say nothing
+about it, and no login denies an authoring tool:
 every one of them writes into the user's own store and asks first.
 
 The ``canopy-panel-builder`` skill goes with the panel in the same way, though
-a skill is a list entry and not derived: the root selects it, the tiers
-inherit it, and the apps, which inherit nothing, never carry it.
+a skill is a list entry and not derived: the root selects it, the merged
+logins inherit it, and the narrow logins, which own their lists, never carry it.
 
 Asserted on the resolved presets, so the facts here are the ones every build
 starts from. What a build renders from them is pinned elsewhere (the explicit-
@@ -33,7 +33,7 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 SHIPPED_COLLECTION = (
     Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/canopy/collections/control-assistant.json"
+    / "src/osprey/templates/apps/demo/data/canopy/collections/demo.json"
 )
 
 #: Tools run without a prompt: the reads, then the workspace tools.
@@ -72,10 +72,10 @@ DENY_KEY = "claude_code.permissions.deny"
 #: The skill that teaches the agent the screen tools; CANOPY's own name for it.
 SKILL = "canopy-panel-builder"
 
-#: The tiers, which inherit CANOPY from the deployment's profile, and the apps,
-#: which inherit nothing from it.
+#: The merged logins, which inherit CANOPY from the deployment's profile, and the
+#: narrow ones (``lists: own``), which own their lists and inherit none of it.
 KEEPING = ("tiers/admin", "tiers/readonly", "tiers/readwrite")
-EXCLUDING = ("apps/channel-finder", "apps/knowledge", "apps/logbook")
+EXCLUDING = ("tiers/channel-finder", "tiers/knowledge", "tiers/logbook")
 
 
 def resolve(name: str) -> BuildProfile:
@@ -86,7 +86,7 @@ def resolve(name: str) -> BuildProfile:
 
 @pytest.fixture(scope="module")
 def root() -> BuildProfile:
-    return resolve("control-assistant")
+    return resolve("demo")
 
 
 class TestRootPreset:
@@ -187,43 +187,37 @@ class TestRootPreset:
 
 @pytest.fixture(scope="module")
 def layers(tmp_path_factory) -> dict[str, BuildProfile]:
-    """Every bundled tier and app, loaded over the materialized deployment.
+    """Every bundled login, loaded over the materialized deployment.
 
-    A tier is a delta over the deployment's own profile; an app is a complete
-    agent definition that inherits nothing from it. Both load as a build loads
-    them, from the deployment repo's ``tiers/`` and ``apps/``.
+    A merged login is a delta over the deployment's own profile; a narrow one
+    owns its lists. Both load as a build loads them, from the deployment repo's
+    ``tiers/``.
     """
     from osprey.cli.build_profile_load import load_profile
-    from osprey.cli.build_profile_presets import list_apps, list_tiers
+    from osprey.cli.build_profile_presets import list_tiers
     from tests.cli.test_tier_app_presets import _layered_repo
 
     repo = _layered_repo(tmp_path_factory.mktemp("canopy-layers") / "my-facility")
-    return {
-        f"{kind}/{name}": load_profile(repo / kind / f"{name}.yml")
-        for kind, names in (("tiers", list_tiers()), ("apps", list_apps()))
-        for name in names
-    }
+    return {f"tiers/{name}": load_profile(repo / "tiers" / f"{name}.yml") for name in list_tiers()}
 
 
-class TestTiersAndApps:
-    def test_the_tiers_and_apps_are_the_ones_classified_here(
-        self, layers: dict[str, BuildProfile]
-    ) -> None:
+class TestLogins:
+    def test_the_logins_are_the_ones_classified_here(self, layers: dict[str, BuildProfile]) -> None:
         assert sorted(layers) == sorted(KEEPING + EXCLUDING)
 
     @pytest.mark.parametrize("name", EXCLUDING)
-    def test_apps_carry_neither_panel_nor_server(
+    def test_narrow_logins_carry_neither_panel_nor_server(
         self, layers: dict[str, BuildProfile], name: str
     ) -> None:
-        app = layers[name]
-        assert "canopy" not in app.web_panels
+        login = layers[name]
+        assert "canopy" not in login.web_panels
         # Nothing switches the server off: it is the panel's, and goes with it.
-        assert not [key for key in app.config if key.startswith("claude_code.servers.canopy")]
-        assert "canopy" not in app.mcp_servers
-        assert app.default_panel != "canopy"
+        assert not [key for key in login.config if key.startswith("claude_code.servers.canopy")]
+        assert "canopy" not in login.mcp_servers
+        assert login.default_panel != "canopy"
 
     @pytest.mark.parametrize("name", KEEPING)
-    def test_tiers_inherit_panel_and_server(
+    def test_merged_logins_inherit_panel_and_server(
         self, layers: dict[str, BuildProfile], name: str
     ) -> None:
         tier = layers[name]
@@ -233,13 +227,15 @@ class TestTiersAndApps:
         assert not [key for key in tier.config if key.startswith("claude_code.servers.canopy")]
 
     @pytest.mark.parametrize("name", EXCLUDING)
-    def test_apps_carry_no_skill_without_the_panel(
+    def test_narrow_logins_carry_no_skill_without_the_panel(
         self, layers: dict[str, BuildProfile], name: str
     ) -> None:
         assert SKILL not in layers[name].skills
 
     @pytest.mark.parametrize("name", KEEPING)
-    def test_tiers_inherit_the_skill(self, layers: dict[str, BuildProfile], name: str) -> None:
+    def test_merged_logins_inherit_the_skill(
+        self, layers: dict[str, BuildProfile], name: str
+    ) -> None:
         assert layers[name].skills.count(SKILL) == 1
 
     def test_a_preset_without_the_panel_does_not_select_the_skill(self) -> None:
@@ -272,12 +268,12 @@ class TestTiersAndApps:
         assert not [entry for entry in deny if entry.startswith("mcp__canopy__")]
 
     @pytest.mark.parametrize("name", EXCLUDING)
-    def test_apps_get_neither_workspace_tool(
+    def test_narrow_logins_get_neither_workspace_tool(
         self, layers: dict[str, BuildProfile], name: str
     ) -> None:
         """Without the panel there is no CANOPY server, so no workspace tool at all."""
-        app = layers[name]
-        assert "canopy" not in app.web_panels
-        assert "canopy" not in app.mcp_servers
-        stated = [str(value) for value in app.config.values()]
+        login = layers[name]
+        assert "canopy" not in login.web_panels
+        assert "canopy" not in login.mcp_servers
+        stated = [str(value) for value in login.config.values()]
         assert not [text for text in stated for tool in WORKSPACE if tool in text]

@@ -4,7 +4,7 @@
 facility file onto the simulator's wiring entry shape: the authored keys
 (``id``, ``address``, ``element`` or ``slices``, ``engine``, ``calibration``)
 plus the slots the build fills from the channel, its limits record and the
-model's engine (``direction``, ``unit``, ``default``, ``value_range``, ``role``,
+model's engine (``direction``, ``unit``, ``default``, ``value_range``, ``engine_role``,
 ``plane``, ``refresh``). A key the record does not carry is absent from its
 entry; ``provenance`` never appears.
 """
@@ -19,6 +19,7 @@ import pytest
 
 import osprey.facility.views.simulator as simulator
 from osprey.facility.build import FacilityDocument, build_facility
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 
 DEMO_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
@@ -34,11 +35,20 @@ ENTRY_KEYS = {
     "unit",
     "default",
     "value_range",
-    "role",
+    "engine_role",
     "plane",
     "refresh",
 }
-ALWAYS = {"id", "address", "engine", "direction", "default", "role", "plane", "refresh"}
+ALWAYS = {
+    "id",
+    "address",
+    "engine",
+    "direction",
+    "default",
+    "engine_role",
+    "plane",
+    "refresh",
+}
 UNWIRED_ELEMENT = {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
 
 
@@ -49,7 +59,7 @@ def demo() -> FacilityDocument:
 
 @pytest.fixture(scope="module")
 def sr(demo: FacilityDocument) -> list[dict[str, Any]]:
-    return simulator_wiring(demo, "SR")
+    return simulator_wiring(FacilityRecords(demo), "SR")
 
 
 def _records(doc: FacilityDocument, model: str) -> list[dict[str, Any]]:
@@ -103,7 +113,7 @@ def test_value_range_appears_exactly_where_the_limits_record_bounds_the_channel(
     }
     ranged = {entry["address"]: entry["value_range"] for entry in sr if "value_range" in entry}
     assert ranged == {address: span for address, span in bounded.items() if address in ranged}
-    assert len(ranged) == 2
+    assert len(ranged) == 145  # the 144 SR correctors and the RF cavity
     assert all(entry["address"] not in bounded for entry in sr if "value_range" not in entry)
 
 
@@ -118,12 +128,12 @@ def test_the_entries_serialise_and_leave_the_facility_file_untouched(
 
 
 def test_a_model_without_wiring_has_no_entries(demo: FacilityDocument) -> None:
-    assert simulator_wiring(demo, "texture") == []
+    assert simulator_wiring(FacilityRecords(demo), "texture") == []
 
 
 def test_an_unknown_model_is_refused(demo: FacilityDocument) -> None:
     with pytest.raises(KeyError, match="NOPE"):
-        simulator_wiring(demo, "NOPE")
+        simulator_wiring(FacilityRecords(demo), "NOPE")
 
 
 def test_a_waveform_channel_s_entry_carries_its_value_type_and_shape(
@@ -132,7 +142,7 @@ def test_a_waveform_channel_s_entry_carries_its_value_type_and_shape(
     doc = json.loads(json.dumps(demo))
     (channel,) = [c for c in doc["channels"] if c["id"] == "SR:DIAG:TUNE:X"]
     channel.update(value_type="waveform", shape=[3])
-    entries = {entry["address"]: entry for entry in simulator_wiring(doc, "SR")}
+    entries = {entry["address"]: entry for entry in simulator_wiring(FacilityRecords(doc), "SR")}
     assert (entries["SR:DIAG:TUNE:X"]["value_type"], entries["SR:DIAG:TUNE:X"]["shape"]) == (
         "waveform",
         [3],
@@ -151,9 +161,9 @@ def test_simulator_wiring_loads_no_engine(
     monkeypatch.setattr(metadata, "entry_points", no_registry)
     monkeypatch.setattr(simulator, "_wired", [])
 
-    entries = simulator_wiring(demo, "SR")
+    entries = simulator_wiring(FacilityRecords(demo), "SR")
 
     for entry, record in zip(entries, _records(demo, "SR"), strict=True):
-        assert {key: entry[key] for key in ("role", "plane", "refresh")} == {
-            key: record[key] for key in ("role", "plane", "refresh")
+        assert {key: entry[key] for key in ("engine_role", "plane", "refresh")} == {
+            key: record[key] for key in ("engine_role", "plane", "refresh")
         }, entry["id"]

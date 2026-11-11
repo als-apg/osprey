@@ -29,7 +29,9 @@ row stages the same way for either side:
 The loader fails on a row whose reason is not a member of
 :data:`~osprey_connectors.refusals.REASONS`, and on a member no row expects —
 except ``stopped_since`` and ``switching``, which the verdict never answers
-(their callers hold the record's lock and test them there).
+(their callers hold the record's lock and test them there), and the ``auth_*``
+reasons, which only a program's write authorization answers
+(:mod:`osprey_connectors.write_authorization`, with its own case table).
 
 This is a helper module, not a conftest: test modules import the fixture and
 the rows by name. It lives in the connectors suite's harness because both the
@@ -50,6 +52,7 @@ import pytest
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.posture_store import NO_OWNER
 from osprey_connectors.refusals import REASONS
+from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._harness import (
     VERDICT_ENV_VARS,
     isolate_verdict_environment,
@@ -66,7 +69,10 @@ LOGIN_TIERS_SHAPE_PATH = FIXTURES / "login_tiers_shape.json"
 EXECUTION_MODE_ENV_VAR = "OSPREY_EXECUTION_MODE"
 
 #: The reasons no row expects: the verdict never answers them.
-UNCOVERED_REASONS = frozenset({"session_held", "stopped_since", "switching"})
+UNCOVERED_REASONS = frozenset(
+    {"session_held", "stopped_since", "switching"}
+    | {reason for reason in REASONS if reason.startswith("auth_")}
+)
 
 #: Which sides a row can drive.
 SIDES = frozenset({"package", "twin"})
@@ -377,7 +383,12 @@ def _stage_host_record(root: Path, record: Mapping[str, Any]) -> None:
     # none of them.
     switch = dict(record.get("switch") or {})
     payload["switch"] = switch
-    payload["posture"] = control_context.posture_mirror(switch)
+    # The mirror the writer derives: ``sandbox`` for every machine the switch
+    # leaves off (a legacy ``on`` arms as ``asked``).
+    armed = ("on", "asked", "allowed")
+    payload["posture"] = {
+        target: "sandbox" for target in CONTROL_TARGETS if switch.get(target) not in armed
+    }
     if record["status"] == "foreign_schema":
         payload["schema"] = 2
     if "posture" in record:

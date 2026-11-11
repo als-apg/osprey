@@ -29,6 +29,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal.chat_session_pool import (
     ChatSessionPool,
     ChatSessionTerminatedError,
@@ -40,7 +41,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import posture_store
+from osprey_connectors import control_context
 from tests.interfaces.web_terminal._fakes import PoolChatSession, created_first
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -58,7 +59,7 @@ OPERATOR_KEY = "operator-dddddddd"
 def shared_root(tmp_path, monkeypatch):
     """Stand in for the deployment's shared agent-data root.
 
-    Stamped, not patched. ``posture_store.agent_data_root()`` reads
+    Stamped, not patched. The posture store's root resolution reads
     ``OSPREY_AGENT_DATA_ROOT`` FIRST and only falls back to
     ``resolve_shared_data_root``, so patching the resolver is inert for any
     developer whose shell carries the stamp — which is exactly the environment
@@ -69,11 +70,11 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 # ``shared_root`` stamps the agent-data root the app under test reads.

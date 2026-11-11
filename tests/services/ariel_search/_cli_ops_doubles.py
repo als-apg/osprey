@@ -67,6 +67,9 @@ class _Adapter:
         unreadable: What the adapter reports as ``unreadable_entries``.
     """
 
+    #: A facility source: what it yields is stored ``synced``.
+    writes_local_only = False
+
     def __init__(
         self,
         entries: Iterable[dict[str, Any]] = (),

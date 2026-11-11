@@ -26,9 +26,12 @@ never mount.
 
 **Scope.** The plugin directory is session-scoped (fixture
 ``graphdb_plugin_dir`` in ``tests/conftest.py``) because it is the expensive
-half and its content does not depend on the lane. The *store* is deliberately
-not shared: the lanes that wipe it between corpora start their own
-module-scoped container from this same recipe.
+half and its content does not depend on the lane. So is one store (fixture
+``graphdb_session_store``): starting a container is most of what a lane that
+seeds its own corpus costs, so those lanes take that one store through
+:func:`wiped_graphdb_store`, which empties it to the state a fresh deploy
+starts from before the lane seeds. A lane whose claim is about a store nothing
+has touched yet starts its own container from this same recipe.
 
 **A store that stops answering.** A started store can stall mid-module, most
 often because the host is saturated, and come back. The driver then raises
@@ -354,7 +357,7 @@ STORE_PROBE_INTERVAL_S = 1.0
 #: there is no progress signal to extend on: this is a plain window that ends
 #: early only on an answer or an exited container. The window, the lost read
 #: before it (up to the driver's 60 s acquisition deadline) and one liveness
-#: read that a stalled daemon can hold for its client's default minute must
+#: read (two daemon calls, each bounded by ``CONTAINER_STATE_TIMEOUT``) must
 #: all fit together inside a 300 s per-test cap.
 STORE_RECOVERY_S = 120.0
 
@@ -654,3 +657,53 @@ def watched_graphdb_store(
         )
     finally:
         stop_quietly(container)
+
+
+def wiped_graphdb_store(shared: WatchedStore, *, label: str) -> WatchedStore:
+    """Empty the started store *shared* and return it watched under *label*.
+
+    For a module that seeds a corpus of its own into the session's store
+    (fixture ``graphdb_session_store``) rather than into a container of its own.
+    The wipe is :func:`~osprey.services.graph_store.seeder.wipe`,
+    the first step of every re-seed ``osprey up`` does: it takes the data, the
+    n10s graph config, the namespace prefixes and the seed marker, so the
+    module bootstraps and seeds from the state a fresh deploy starts from. The
+    one thing it leaves is the ``Resource(uri)`` constraint, which
+    :func:`~osprey.services.graph_store.seeder.bootstrap`
+    creates ``IF NOT EXISTS``. It runs when a module starts rather than when
+    one ends, so a module that died halfway through its seed leaves nothing
+    behind for the next.
+
+    The store returned is the same container under the module's own label and
+    with a count of losses of its own, so a failure names the module's store
+    and counts only the module's losses.
+
+    Args:
+        shared: The session's started store.
+        label: Human-readable name for the module's store, used in the failure.
+
+    Returns:
+        The emptied store, watched.
+
+    Raises:
+        GraphStoreUnavailable: When the store does not answer the wipe.
+    """
+    from osprey.services.graph_store import seeder as graph_seeder
+
+    store = WatchedStore(
+        shared.uri,
+        label=label,
+        inspect=shared._inspect,
+        wait_for_store=shared._wait_for_store,
+    )
+    with (
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
+        graph_seeder.wipe(session)
+    return store

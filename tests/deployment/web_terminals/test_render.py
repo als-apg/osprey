@@ -147,7 +147,7 @@ def _render_reuses_parsed_templates_and_tokens():
 _OVERRIDE_PORT_BASE = 20000
 _CONFIGURED_BASE_PORTS = {
     family: default_port(family, 0, base=_OVERRIDE_PORT_BASE)
-    for family in ("web", "artifact", "ariel", "lattice")
+    for family in ("web", "artifact", "ariel")
 }
 # No test config in this module sets `deployment.port_base`, so the render
 # resolves the layout's default base and the unconfigured families land on their
@@ -184,7 +184,6 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
         "web_base_port": _CONFIGURED_BASE_PORTS["web"],
         "artifact_base_port": _CONFIGURED_BASE_PORTS["artifact"],
         "ariel_base_port": _CONFIGURED_BASE_PORTS["ariel"],
-        "lattice_base_port": _CONFIGURED_BASE_PORTS["lattice"],
         "users": users,
         "default_tier": "assistant",
         "renders": {"assistant": tier_render("assistant", "dls_controls-assistant")},
@@ -250,6 +249,36 @@ def test_render_in_local_mode_needs_no_registry_url() -> None:
     del config["registry"]
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["image_source"] = "local"
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert "image: dls_controls-assistant:local" in artifacts["docker-compose.web.yml"]
+
+
+def test_render_refuses_registry_mode_with_an_unset_image_tag_variable(monkeypatch) -> None:
+    """Registry mode bakes the tag into every pulled ref, so a tag whose
+    variable is unset is refused before anything is rendered."""
+    # Arrange
+    monkeypatch.delenv("OSPREY_IMAGE_TAG", raising=False)
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["image_tag"] = "${OSPREY_IMAGE_TAG}"
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=r"OSPREY_IMAGE_TAG is not set"):
+        render_web_terminals(config)
+
+
+def test_render_in_local_mode_ignores_an_unset_image_tag_variable(monkeypatch) -> None:
+    """Local mode builds `:local` images and never reads image_tag."""
+    # Arrange
+    monkeypatch.delenv("OSPREY_IMAGE_TAG", raising=False)
+    config = _config(["alice"])
+    del config["registry"]
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["image_source"] = "local"
+    web_terminals["image_tag"] = "${OSPREY_IMAGE_TAG}"
 
     # Act
     artifacts = render_web_terminals(config)
@@ -335,6 +364,34 @@ def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
 
     # Assert
     assert compose["services"]["nginx"]["image"] == custom
+
+
+def test_the_default_nginx_image_comes_from_the_base_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deployment that mirrors Docker Hub pulls the front door from the mirror."""
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["images"] = {"base_registry": "mirror.example.org/dockerhub"}
+
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    assert compose["services"]["nginx"]["image"] == (
+        "mirror.example.org/dockerhub/library/nginx:1.31-alpine"
+    )
+
+
+def test_a_named_nginx_image_ignores_the_base_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["images"] = {"base_registry": "mirror.example.org/dockerhub"}
+    config["modules"]["web_terminals"]["nginx_image"] = "pinned.example.org/nginx:1"
+
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    assert compose["services"]["nginx"]["image"] == "pinned.example.org/nginx:1"
 
 
 def test_compose_service_env_has_terminal_user_and_web_slot_commentary_per_service() -> None:
@@ -1198,30 +1255,30 @@ def test_render_missing_companion_base_port_uses_layout_default() -> None:
     panel existed) must render with the layout default, not fail."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
-    del config["modules"]["web_terminals"]["lattice_base_port"]
+    del config["modules"]["web_terminals"]["ariel_base_port"]
 
     # Act
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — lattice family renders from its layout band for every user.
-    default_base = framework_web_port_default("lattice_dashboard", base=DEFAULT_PORT_BASE)
+    # Assert — the ariel family renders from its layout band for every user.
+    default_base = framework_web_port_default("ariel", base=DEFAULT_PORT_BASE)
     for index, user in enumerate(["alice", "bob", "carol"]):
         env = compose["services"][f"web-{user}"]["environment"]
-        assert f"OSPREY_LATTICE_DASHBOARD_PORT={default_base + index}" in env
+        assert f"OSPREY_ARIEL_PORT={default_base + index}" in env
 
 
 def test_render_derives_every_family_from_port_base_20000() -> None:
     """The pin: with `deployment.port_base: 20000` and a stanza naming no port at
-    all, user 0's seven families land on the 20000 block — 20100 (terminal),
-    20200 (gallery), 20300 (ARIEL), 20400 (lattice), 20500 (channel finder),
+    all, user 0's six families land on the 20000 block — 20100 (terminal),
+    20200 (gallery), 20300 (ARIEL), 20500 (channel finder),
     20600 (OKF), 20700 (system health). This is the whole feature in one
     assertion: one knob moves the deployment, and nothing here reads a default
     base."""
     # Arrange — strip every base-port key, then set the block's base.
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
-    for family in ("web", "artifact", "ariel", "lattice"):
+    for family in ("web", "artifact", "ariel"):
         web_terminals.pop(f"{family}_base_port", None)
     config["deployment"] = {"port_base": 20000}
 
@@ -1235,7 +1292,6 @@ def test_render_derives_every_family_from_port_base_20000() -> None:
     assert int(env_map["OSPREY_WEB_PORT"]) == 20100
     assert int(env_map[PANEL_ENV_VARS["artifact"]]) == 20200
     assert int(env_map[PANEL_ENV_VARS["ariel"]]) == 20300
-    assert int(env_map[PANEL_ENV_VARS["lattice"]]) == 20400
     assert int(env_map[PANEL_ENV_VARS["channel_finder"]]) == 20500
     assert int(env_map[PANEL_ENV_VARS["okf"]]) == 20600
     assert int(env_map[PANEL_ENV_VARS["system_health"]]) == 20700
@@ -1708,6 +1764,8 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
         "./var/simulator:/app/dls-gui/var/simulator",
         "./var/guarded_run:/app/dls-gui/var/guarded_run",
+        "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+        "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
@@ -1725,16 +1783,18 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         ),
         "./var/simulator:/app/dls_controls-assistant/var/simulator",
         "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
+        "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+        "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A render with no `extra_mounts` emits exactly the eight
+    """A render with no `extra_mounts` emits exactly the
     framework per-user volume lines — claude-config, the transcripts volume
     nested in it, agent-data, this user's own
     spool and state subdirectories, its own control-context record directory, the simulator
-    logs of its mock target and the guarded-run directory — and the extra_mounts
-    loop adds nothing."""
+    logs of its mock target, the guarded-run directory, and the programs' write
+    requests and write ledger — and the extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1756,6 +1816,8 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
             ),
             "./var/simulator:/app/dls_controls-assistant/var/simulator",
             "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
+            "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+            "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
         ]
 
 
@@ -4898,7 +4960,7 @@ _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 #
 # `osprey up` mints the archiver store's password into the deploy `.env` under
 # the name the connector block reads (`archiver.<type>.auth.password_env`, which the
-# control-assistant preset spells MONGO_ROOT_PASSWORD); an archiver behind a
+# demo preset spells MONGO_ROOT_PASSWORD); an archiver behind a
 # bearer token names its variable under `auth.token_env`. The agent inside a web
 # terminal authenticates with exactly those variables, and `.env.users` excludes
 # service tokens by design -- so a container that is not handed them per-user
@@ -6486,6 +6548,7 @@ def test_compose_ctx_hands_the_template_the_control_identity_container_paths() -
         pytest.param("", id="empty"),
         pytest.param("root", id="reserved-root"),
         pytest.param("osprey-dispatch-0", id="reserved-service"),
+        pytest.param("osprey.x", id="reserved-dotted"),
         pytest.param("backup", id="base-image-account"),
     ],
 )
@@ -6669,6 +6732,19 @@ def test_control_identity_env_lines_use_the_quoted_whole_pair_form() -> None:
     assert f'      - "OSPREY_CONTROL_IDENTITY_MODULE={CONTROL_IDENTITY_CONTAINER_PATH}"\n' in text
 
 
+def test_render_emits_a_dotted_control_identity() -> None:
+    """A `first.last` identity renders as the same quoted whole-pair env line."""
+    # Arrange
+    config = copy.deepcopy(_walled_identity_config("password"))
+    config["modules"]["web_terminals"]["users"][0]["control_identity"] = "alice.smith"
+
+    # Act
+    text = render_web_terminals(config)["docker-compose.web.yml"]
+
+    # Assert
+    assert '      - "OSPREY_CONTROL_IDENTITY=alice.smith"\n' in text
+
+
 @pytest.mark.parametrize("method", ["password", "oidc"])
 def test_walled_render_stages_the_closure_byte_equal_to_its_sources(method: str) -> None:
     """The bound directory is written by the render itself: exactly the script
@@ -6722,3 +6798,18 @@ def test_walled_roster_without_any_control_identity_emits_nothing() -> None:
     assert not any(path.startswith("control_identity/") for path in artifacts)
     assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
     assert "./build/control_identity" not in artifacts["docker-compose.web.yml"]
+
+
+def test_a_roster_name_equal_to_a_deployed_apps_audit_identity_is_refused() -> None:
+    """A user named like an application's audit identity would bind that
+    application's spool and state read-write, and write facts as it."""
+    config = _config(["alice", "knob"])
+    config["services"] = {"knob-panel": {"app": "knob", "audit_identity": "knob"}}
+    config["deployed_services"] = ["knob-panel"]
+
+    with pytest.raises(ValueError, match=r"'knob'.*application 'knob'"):
+        render_web_terminals(config)
+
+    # An application that is not deployed claims no identity.
+    config["deployed_services"] = []
+    render_web_terminals(config)

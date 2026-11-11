@@ -1,0 +1,1 @@
+A message entered in the chat while the agent is replying now waits above the composer and is sent when the turn ends. Its bubble offers Interrupt and ask now, or takes the text back into the input; Stop also returns it to the input.

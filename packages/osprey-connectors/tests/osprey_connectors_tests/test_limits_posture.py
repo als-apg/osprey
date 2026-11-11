@@ -44,7 +44,7 @@ from osprey_connectors.types import (
     type_limits_posture,
 )
 
-CUSTOM_TYPE = "mypackage.MoatConnector"
+CUSTOM_TYPE = "mypackage.SiteConnector"
 
 #: Leaf values a limits block may carry that no reader can use.
 #: ``"${X}"`` is the one that matters most: environment expansion always yields
@@ -109,7 +109,7 @@ class TestLimitsPosture:
         """A custom connector's dotted module path is one key, never a path."""
         posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=CUSTOM_TYPE)
         assert posture.key("enabled") == (
-            "control_system.connector.mypackage.MoatConnector.limits_checking.enabled"
+            "control_system.connector.mypackage.SiteConnector.limits_checking.enabled"
         )
 
     def test_key_treats_an_empty_type_as_no_type(self) -> None:
@@ -347,7 +347,7 @@ class TestTypeLimitsPosture:
         assert type_limits_posture(section, VIRTUAL_ACCELERATOR).strict is False
 
     def test_a_dotted_custom_type_is_one_key_and_not_a_path(self) -> None:
-        """``mypackage.MoatConnector`` names one block, never two nested ones.
+        """``mypackage.SiteConnector`` names one block, never two nested ones.
 
         A connector table that happens to nest the dots is not this type's
         block, so the deployment-wide posture answers rather than a mapping
@@ -356,7 +356,7 @@ class TestTypeLimitsPosture:
         section = _section(
             _block(True, "exclusive"),
             connector={
-                "mypackage": {"MoatConnector": {LIMITS_CHECKING_LEAF: _block(False, "optional")}}
+                "mypackage": {"SiteConnector": {LIMITS_CHECKING_LEAF: _block(False, "optional")}}
             },
         )
         assert type_limits_posture(section, CUSTOM_TYPE) == LimitsPosture(True, "exclusive", None)
@@ -1210,7 +1210,7 @@ class TestIncompleteBlocks:
         """The connector table's key is the type, dots and all, never a path."""
         section = _section(connector={CUSTOM_TYPE: {LIMITS_CHECKING_LEAF: _block(enabled=True)}})
         assert incomplete_limits_blocks(section) == [
-            "control_system.connector.mypackage.MoatConnector.limits_checking."
+            "control_system.connector.mypackage.SiteConnector.limits_checking."
             "mode is missing; a per-type limits block must state "
             "both enabled and mode"
         ]

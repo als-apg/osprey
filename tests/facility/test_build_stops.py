@@ -2,7 +2,7 @@
 
 ``STOP_SENTENCES`` lists each sentence of the error table once with its kind.
 Each case is a minimal tree that breaks exactly that rule. It replaces the
-``data/facility`` tree of a control-assistant repo, beside any profile edit the
+``data/facility`` tree of a demo repo, beside any profile edit the
 case makes, and runs through ``osprey build --skip-deps`` and through
 ``osprey facility validate``; both must print the case's line byte for byte on
 stderr and exit 1. A render is checked by the build alone, so a case
@@ -29,8 +29,11 @@ import osprey.facility
 from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
+from osprey.facility.records import FacilityRecords
+from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
+from osprey_connectors.simulation.state import STILL_SCENARIO
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
@@ -402,7 +405,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a scenario `noise` entry stating both terms",
     ),
-    ("value_invalid__still_shape", "value-invalid", "a `still` neither `all` nor addresses"),
+    ("value_invalid__still_shape", "value-invalid", "a `still` neither `all` nor a list"),
     ("value_invalid__still_non_float", "value-invalid", "a `still` listing a non-float"),
     (
         "value_invalid__still_with_motion",
@@ -731,9 +734,29 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a served block's `probe_channel` the facility file does not hold",
     ),
     (
+        "profile_invalid__freshness_channel",
+        "profile-invalid",
+        "a stated `va_archiver.freshness_channel` the facility file does not hold",
+    ),
+    (
+        "profile_invalid__default_scenarios",
+        "profile-invalid",
+        "a stated `simulation.default_scenarios` name the facility file does not hold",
+    ),
+    (
         "profile_invalid__approval_hook_not_selected",
         "profile-invalid",
         "a guarded tool put to a human while the profile does not select the `approval` hook",
+    ),
+    (
+        "machine_missing__no_identity",
+        "machine-missing",
+        "a `machine:` root holding no `identity.yaml`",
+    ),
+    (
+        "machine_restated__deployment_record",
+        "machine-restated",
+        "a mounted deployment's `data/facility` restating a machine file",
     ),
 )
 
@@ -1530,7 +1553,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(scenario("warm", {"still": "everything"})),
         (
             "facility: value-invalid: scenario warm — `still` is 'everything', neither `all` "
-            "nor a list of addresses; fix: write `still: all` or a list of addresses"
+            "nor a list of addresses and selections; fix: write `still: all` or a list of "
+            "addresses and selections"
         ),
     ),
     "value_invalid__still_non_float": (
@@ -2536,12 +2560,48 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility file holds, such as `BPM1:X`"
         ),
     ),
+    "profile_invalid__freshness_channel": (
+        _plain(),
+        (
+            "facility: profile-invalid: path va_archiver.freshness_channel — `NOPE:RB` is not a "
+            "channel of the facility file; fix: set it to a readback the facility file holds, "
+            "such as `BPM1:X`, or remove it"
+        ),
+    ),
+    "profile_invalid__default_scenarios": (
+        _plain(scenario("warm", {}), scenario("cold", {})),
+        (
+            "facility: profile-invalid: path simulation.default_scenarios — `rf-thermal` is not "
+            "a scenario the facility serves; fix: set `simulation.default_scenarios` to `[]` or "
+            "to scenarios it serves: `cold`, `still`, `warm`"
+        ),
+    ),
     "profile_invalid__approval_hook_not_selected": (
         _plain(),
         (
             "facility: profile-invalid: path approval.enabled — governed tool `execute` is put "
             "to a human by the write switch but the profile does not select the `approval` "
             "hook, so nothing would ask; fix: add `approval` to `hooks:` in profile.yml"
+        ),
+    ),
+    "machine_missing__no_identity": (
+        _plain(),
+        (
+            "facility: machine-missing: path machine/identity.yaml — the machine root "
+            "'machine' (resolved: <repo>/machine) holds no identity.yaml, so there is no "
+            "machine to build; fix: point `machine:` at the machine repository's facility "
+            "directory (the one holding identity.yaml); for a git submodule, run "
+            "`git submodule update --init`"
+        ),
+    ),
+    "machine_restated__deployment_record": (
+        _plain(),
+        (
+            "facility: machine-restated: path data/facility/records/channels.yaml — the "
+            "mounted machine states machine/records/channels.yaml, and a mounted "
+            "deployment's data/facility/ holds only knowledge/, ariel/, benchmarks/; fix: "
+            "remove data/facility/records/channels.yaml; edit machine/records/channels.yaml "
+            "in the machine repository instead"
         ),
     ),
 }
@@ -2622,7 +2682,7 @@ def _start_in(value: Any) -> Callable[[Path], None]:
     return edit
 
 
-#: The simulator's probe key; every case's repo points it at ``BPM1:X``, a channel both trees hold.
+#: The simulator's probe key; the build derives it, so a case states it only to stop on it.
 VA_PROBE_KEY = "control_system.connector.virtual_accelerator.probe_channel"
 
 
@@ -2631,6 +2691,16 @@ def _probe(address: str) -> Callable[[Path], None]:
         profile = repo / "profile.yml"
         data = yaml.safe_load(profile.read_text(encoding="utf-8"))
         data.setdefault("config", {})[VA_PROBE_KEY] = address
+        profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    return edit
+
+
+def _watch(address: str) -> Callable[[Path], None]:
+    def edit(repo: Path) -> None:
+        profile = repo / "profile.yml"
+        data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+        data.setdefault("va_archiver", {})["freshness_channel"] = address
         profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
     return edit
@@ -2663,15 +2733,6 @@ def _disable_approval(repo: Path) -> None:
         render.write_text(text.replace(armed, "control_system.writes: never"), encoding="utf-8")
 
 
-def _select_in_context_unprobed(repo: Path) -> None:
-    """Select in_context for a tree with no channel, which no probe can name."""
-    _select_in_context(repo)
-    profile = repo / "profile.yml"
-    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
-    del data["config"][VA_PROBE_KEY]
-    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-
-
 def _ship_limits(repo: Path) -> None:
     (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
 
@@ -2688,9 +2749,44 @@ def _render_serves_models(repo: Path) -> None:
     render.write_text("name: reader\nconfig:\n  simulation.models: [texture]\n", encoding="utf-8")
 
 
+#: The machine root a mounting case names, relative to the repo.
+MACHINE_DIR = "machine"
+
+#: A machine root's identity: what the machine-missing stop looks for.
+MACHINE_IDENTITY = "code: ca\nname: Mounted Machine\n"
+
+
+def _state_machine(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data["machine"] = MACHINE_DIR
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _mount_uninitialised(repo: Path) -> None:
+    """Name a machine root that is an empty directory, as an uninitialised submodule."""
+    (repo / MACHINE_DIR).mkdir()
+    _state_machine(repo)
+
+
+def _mount_and_restate(repo: Path) -> None:
+    """Move the machine facts into a mounted root and leave one record file behind."""
+    facility = repo / "data" / "facility"
+    machine = repo / MACHINE_DIR
+    machine.mkdir()
+    for entry in sorted(facility.iterdir()):
+        if entry.name not in {"knowledge", "ariel", "benchmarks"}:
+            shutil.move(str(entry), machine / entry.name)
+    (machine / "identity.yaml").write_text(MACHINE_IDENTITY, encoding="utf-8")
+    restated = facility / "records" / "channels.yaml"
+    restated.parent.mkdir(parents=True)
+    shutil.copy2(machine / "records" / "channels.yaml", restated)
+    _state_machine(repo)
+
+
 #: The profile edit a case makes beside a clean tree.
 PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
-    "view_unsupported__in_context_no_channel": _select_in_context_unprobed,
+    "view_unsupported__in_context_no_channel": _select_in_context,
     "view_unsupported__hierarchical_meta_key": _select_hierarchical,
     "view_unsupported__hierarchical_shared_leaf_key": _select_hierarchical,
     "view_unsupported__hierarchical_two_level_words": _select_hierarchical,
@@ -2714,12 +2810,23 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
         "control_system.connector.epics.limits_checking.database_path"
     ),
     "profile_invalid__served_probe_channel": _probe("NOPE:RB"),
+    "profile_invalid__freshness_channel": _watch("NOPE:RB"),
+    "profile_invalid__default_scenarios": _start_in(["rf-thermal"]),
     "profile_invalid__approval_hook_not_selected": _drop_approval_hook,
+    "machine_missing__no_identity": _mount_uninitialised,
+    "machine_restated__deployment_record": _mount_and_restate,
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
-#: renders are checked by the build.
-BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__render_served_models"})
+#: renders are checked by the build. ``osprey facility validate`` does not resolve a
+#: mounted machine root yet, so the ``machine:`` cases are the build's alone.
+BUILD_ONLY: frozenset[str] = frozenset(
+    {
+        "profile_invalid__render_served_models",
+        "machine_missing__no_identity",
+        "machine_restated__deployment_record",
+    }
+)
 
 #: Cases a view raises while the render writes it: the views written before it have
 #: already noted, once each, what they omit.
@@ -2728,7 +2835,9 @@ VIEW_STAGE: frozenset[str] = frozenset(
 )
 
 #: The view inputs of a render whose config sets nothing.
-_NO_CONFIG = ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
+_NO_CONFIG = ViewInputs(
+    records=FacilityRecords({}), rendered_config={}, facility_dir=Path(), served=[]
+)
 
 #: The lines a build may print before a stop in a render: the main render has
 #: written its views and noted, once each, the views it omits that no mode selects.
@@ -2758,9 +2867,9 @@ def _write(tmp_path: Path, case: str) -> Path:
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo named for the project, probing a channel every tree holds."""
-    repo = init_project(tmp_path_factory.mktemp("ca"), "control-assistant", PROJECT)
-    _probe("BPM1:X")(repo)
+    """A demo repo named for the project, stating no start set a tree must hold."""
+    repo = init_project(tmp_path_factory.mktemp("ca"), "demo", PROJECT)
+    _start_in([])(repo)
     return repo
 
 
@@ -2806,17 +2915,48 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
     result = run_build(repo)
 
     assert result.exit_code == 1, result.output
+    # A stop naming a resolved path shows it under the repo, which is a fresh
+    # temporary directory on every run.
+    stderr = result.stderr.replace(str(repo.resolve()), "<repo>")
     if case not in BUILD_ONLY | VIEW_STAGE:
-        assert result.stderr == CASES[case][1] + "\n"
+        assert stderr == CASES[case][1] + "\n"
         return
-    _assert_notes_then_stop(result.stderr, case)
+    _assert_notes_then_stop(stderr, case)
+
+
+@pytest.mark.parametrize(
+    ("case", "kind"),
+    [
+        ("profile_invalid__served_probe_channel", "channels"),
+        ("profile_invalid__freshness_channel", "channels"),
+        ("profile_invalid__default_scenarios", "scenarios"),
+    ],
+)
+def test_an_override_stop_names_what_the_tree_holds(tmp_path: Path, case: str, kind: str) -> None:
+    document = build_facility(_write(tmp_path, case), project_name=PROJECT)
+    slot = "name" if kind == "scenarios" else "id"
+    held = {str(record[slot]) for record in document[kind]}
+    if kind == "scenarios":
+        held.add(STILL_SCENARIO)
+    remedy = CASES[case][1].split("; fix: ", 1)[1]
+    named = re.findall(r"`([^`]+)`", remedy)
+    assert held & set(named)
+    assert (
+        not set(named)
+        - held
+        - {
+            "control_system.connector.virtual_accelerator.probe_channel",
+            "simulation.default_scenarios",
+            "[]",
+        }
+    )
 
 
 def _assert_notes_then_stop(stderr: str, case: str) -> None:
     """``stderr`` is render notes, each once, then the case's one line."""
     *notes, last = stderr.splitlines()
     assert last == CASES[case][1]
-    assert set(notes) <= MAIN_RENDER_NOTES
+    assert set(notes) <= MAIN_RENDER_NOTES | {NO_READBACK_WARNING}
     assert len(notes) == len(set(notes))
 
 

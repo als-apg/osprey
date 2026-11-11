@@ -171,10 +171,19 @@ class TestEnvFile:
         assert by_name["env_file"].status is Status.OK
         assert by_name["env_file"].message == ".env file found"
 
-    def test_env_file_absent_warns(self, tmp_path: Path) -> None:
+    def test_env_file_absent_warns(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("osprey.health.core.file_system.in_container", lambda: False)
         by_name = _by_name(_run({}, tmp_path))
         assert by_name["env_file"].status is Status.WARNING
         assert by_name["env_file"].message == ".env file not found"
+
+    def test_env_file_absent_in_a_container_is_not_applicable(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr("osprey.health.core.file_system.in_container", lambda: True)
+        row = _by_name(_run({}, tmp_path))["env_file"]
+        assert row.status is Status.SKIP
+        assert row.value == "n/a in container"
 
 
 # --------------------------------------------------------------------------- #

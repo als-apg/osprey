@@ -34,10 +34,10 @@ functions.
 import json
 import os
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from osprey.agent_runner.tool_names import SHELL_TOOLS
 from osprey.bluesky_bridge_connection import (
@@ -47,7 +47,7 @@ from osprey.bluesky_bridge_connection import (
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
 from osprey.deployment.control_identity import validate_identity
 from osprey.deployment.graphdb_service import resolve_graphdb_service_config
-from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP, RENDER_KIND_TIER
+from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED, RENDER_KIND_TIER
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
@@ -302,6 +302,9 @@ EVENTS_PANEL_ID = "events"
 #: secret variable (the web overlay's ``bluesky-web`` fragment) — the panel
 #: declaration IS the entitlement, exactly as for :data:`EVENTS_PANEL_ID`.
 BLUESKY_PANEL_ID = "bluesky"
+
+#: The optimizer-web sidecar's tab, granted the same way as :data:`BLUESKY_PANEL_ID`.
+OPTIMIZER_PANEL_ID = "optimizer"
 
 
 def config_declares_panel(config: Any, panel_id: str) -> bool:
@@ -734,7 +737,7 @@ def served_render_names(
     then ``default_tier``, then the roles, then the dispatch tier — each name
     once, at its first appearance. A reader that reports sorts.
 
-    The kind is ``"app"`` for a name only ``shared:`` names and ``"tier"``
+    The kind is ``"shared"`` for a name only ``shared:`` names and ``"tier"``
     for every other: a name that both a tier source and ``shared:`` name is a
     tier here, and the refusal that a card renders from one file reports the
     collision (:func:`resolve_cards`).
@@ -753,7 +756,7 @@ def served_render_names(
             that raised would hide every other one.
 
     Returns:
-        ``{render name: RENDER_KIND_TIER | RENDER_KIND_APP}``.
+        ``{render name: RENDER_KIND_TIER | RENDER_KIND_SHARED}``.
 
     Raises:
         ValueError: Only when *strict*; see above.
@@ -782,7 +785,7 @@ def served_render_names(
         serve(effective_tier(user, roles, default_tier, strict=strict), RENDER_KIND_TIER)
     for entry in roster_entries(subtree, strict=False):
         if is_app_entry(entry):
-            serve(entry.get("name"), RENDER_KIND_APP)
+            serve(entry.get("name"), RENDER_KIND_SHARED)
     serve(default_tier, RENDER_KIND_TIER)
     for tier in roles.values():
         serve(tier, RENDER_KIND_TIER)
@@ -799,10 +802,10 @@ class ServedRender:
     served render asks for, and the entry itself for the rest.
     """
 
-    #: The render's name: a tier or app file's stem.
+    #: The render's name: a login file's stem.
     name: str
-    #: ``RENDER_KIND_TIER`` or ``RENDER_KIND_APP`` — the projection entry's
-    #: own ``kind`` when it states one, else the kind the served set gave it.
+    #: ``RENDER_KIND_TIER`` or ``RENDER_KIND_SHARED`` — how the served set
+    #: uses the render: a person's tier, or a card ``shared:`` names.
     kind: str
     #: The image tag prefix the projection names, or ``None``.
     project: str | None
@@ -842,12 +845,11 @@ def served_renders(config: Any, *, strict: bool = False) -> dict[str, ServedRend
         if not isinstance(entry, Mapping):
             served[name] = None
             continue
-        entry_kind = entry.get("kind")
         project = entry.get("project")
         project_path = entry.get("project_path")
         served[name] = ServedRender(
             name=name,
-            kind=entry_kind if entry_kind in (RENDER_KIND_TIER, RENDER_KIND_APP) else kind,
+            kind=kind,
             project=project if isinstance(project, str) and project else None,
             project_path=project_path if isinstance(project_path, str) and project_path else None,
             entry=entry,
@@ -1011,45 +1013,147 @@ def renders_declaring_bluesky_panel(
         secrets the bluesky-web sidecar is handed (see
         :func:`config_declares_bluesky_panel`).
     """
-    return _renders_whose_config(config, project_root, config_declares_bluesky_panel, layer_root)
+    return renders_declaring_panel(config, project_root, BLUESKY_PANEL_ID, layer_root)
 
 
-def _bluesky_panel_roster_grants(
-    config: Any, project_root: Any, layer_root: Any = None
-) -> list[tuple[str, str]]:
-    """The roster users the bluesky-web sidecar is handed a secret for.
+@dataclass(frozen=True)
+class PanelRosterGrant:
+    """One row of the panel roster-grant table: where a panel's grant is rendered.
 
-    The one entitlement walk behind every rendered form of the grant: the
-    variable list the sidecar's compose declares
-    (:func:`bluesky_panel_secret_env_vars`) and the owner map its gate names
-    people by (:func:`bluesky_panel_roster_owners`) are two views of this same
-    answer, so a user can never be handed a key under one and be a stranger
-    under the other.
+    :ivar service: The service key (``services.<k>``) whose compose lists the
+        grant — the container each per-user terminal proxies that panel's tab
+        into with the operator secret ITS container holds.
+    :ivar single_user_alias: Whether, on a deployment with no web-terminal
+        roster, the deployment-wide secret is accepted under the build
+        account's name.
+    """
 
-    Entitlement is decided the way the web-terminal render decides every
-    per-user grant: a user with a render (their own, else
-    ``default_tier``) by that render's rendered ``config.yml``
-    (:func:`renders_declaring_bluesky_panel`). Roster order, so the rendered compose is stable across runs.
+    service: str
+    single_user_alias: bool = False
 
-    Read off the renders' rendered ``config.yml`` files, like every other
-    per-render grant. The render that carries it is ``osprey build``'s — the
-    start verbs are as-built and re-render nothing — so the build renders its
-    renders before the services compose and passes ``layer_root``, the
-    staging tree those renders sit in until the swap publishes it as
-    ``build/``. Without it the walk reads the published zone: the previous
-    build's renders, or none.
+
+class PanelCredential(TypedDict):
+    """One credential a panel's gate accepts, and whose it is."""
+
+    #: The ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` variable the compose hands the container.
+    var: str
+    #: The deploy variable its value is interpolated from.
+    source: str
+    #: The account an admitted request carrying it is recorded as.
+    owner: str
+    #: Whether *source* is read with no default: unset, it fails the render
+    #: rather than leaving the one account it names locked out.
+    required: bool
+
+
+class PanelGrant(TypedDict):
+    """The ``panel_grant`` a service render's compose template reads.
+
+    Rendered by ``services/_panel_grant.j2``, which also derives the owners map.
+    """
+
+    #: Every credential the panel's gate accepts, roster order; ``[]`` elsewhere.
+    credentials: list[PanelCredential]
+
+
+#: The rows no application projects: panel id → the service holding its grant.
+BUILTIN_PANEL_ROSTER_GRANTS: Mapping[str, PanelRosterGrant] = {
+    BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
+    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web"),
+}
+
+
+def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
+    """Panel id → the row saying which service holds that panel's roster grant.
+
+    The built-in rows, plus one per rendered ``services.<k>.roster_grant`` — the
+    row an application's projection writes onto its panel's container as
+    ``{panel_id, single_user_alias}``. Read off the rendered service block,
+    never off ``app.yml``.
+
+    :param config: The parsed deploy config.
+    :return: The table, built-in rows first, then ``services`` order.
+    :raises ValueError: A row names no panel id, or a panel id a row already
+        holds.
+    """
+    table = dict(BUILTIN_PANEL_ROSTER_GRANTS)
+    for key, block in as_dict(as_dict(config).get("services")).items():
+        row = as_dict(block).get("roster_grant") if isinstance(block, Mapping) else None
+        if not isinstance(row, Mapping):
+            continue
+        panel_id = row.get("panel_id")
+        if not isinstance(panel_id, str) or not panel_id:
+            raise ValueError(f"services.{key}.roster_grant names no panel_id")
+        if panel_id in table:
+            raise ValueError(
+                f"services.{key}.roster_grant: panel {panel_id!r} already has its grant "
+                f"on service {table[panel_id].service!r}"
+            )
+        table[panel_id] = PanelRosterGrant(
+            service=str(key), single_user_alias=row.get("single_user_alias") is True
+        )
+    return table
+
+
+def renders_declaring_panel(
+    config: Any, project_root: Any, panel_id: str, layer_root: Any = None
+) -> set[str]:
+    """Names of catalog renders whose rendered project declares ``web.panels.<panel_id>``.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
+    :param panel_id: The panel whose declaration is the entitlement.
     :param layer_root: Where a build in flight has rendered its renders;
         see :func:`_render_configs`.
-    :return: ``(username, OSPREY_TERMINAL_SECRET_<SUFFIX>)`` pairs, one per
-        entitled user, in roster order; empty when no user shows the tab.
+    :return: The subset of referenced render names declaring the panel.
+    """
+    return _renders_whose_config(
+        config, project_root, lambda c: config_declares_panel(c, panel_id), layer_root
+    )
+
+
+def _panel_roster_grants(
+    config: Any, project_root: Any, panel_id: str, layer_root: Any = None
+) -> list[tuple[str, str]]:
+    """The roster cards a panel's service is handed a secret for.
+
+    The one entitlement walk behind every rendered form of a roster grant: the
+    variable list the service's compose declares and the owner map its gate
+    names people by are two views of this same answer, so a user can never be
+    handed a key under one and be a stranger under the other.
+
+    Entitlement is decided the way the web-terminal render decides every
+    per-user grant: a user with a render (their own, else ``default_tier``)
+    by whether that render's rendered ``config.yml`` declares the panel
+    (:func:`renders_declaring_panel`). A shared login's card is walked too, by
+    its own render: its terminal proxies the panel with the secret its container
+    holds and acts as the card's name, so the grant names it by that name.
+    Roster order (people, then shared cards), so the rendered compose is stable
+    across runs.
+
+    Read off the renders' rendered ``config.yml`` files. The render that
+    carries it is ``osprey build``'s — the start verbs are as-built and
+    re-render nothing — so the build renders its renders before the services
+    compose and passes ``layer_root``, the staging tree those renders sit in
+    until the swap publishes it as ``build/``. Without it the walk reads the
+    published zone: the previous build's renders, or none.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :param panel_id: The panel whose declaration is the entitlement.
+    :param layer_root: Where a build in flight has rendered its renders;
+        see :func:`_render_configs`.
+    :return: ``(card name, OSPREY_TERMINAL_SECRET_<SUFFIX>)`` pairs, one per
+        entitled card, in roster order; empty when no card shows the panel.
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+    cards = roster_entries(web_terminals)
+    if not cards:
+        return []
     raw_users = authored_people(web_terminals)
     # A read, not a gate: an authorization block that does not parse binds no
     # role here and is lint's finding to raise, so the roster is resolved
@@ -1063,68 +1167,74 @@ def _bluesky_panel_roster_grants(
     default_tier = web_terminals.get("default_tier")
     if not isinstance(default_tier, str) or not default_tier:
         default_tier = None
-    entitled_renders = renders_declaring_bluesky_panel(config, project_root, layer_root)
+    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
 
     grants: list[tuple[str, str]] = []
-    for entry in roster_people(web_terminals):
-        tier = refs.get(entry["name"]) or default_tier
+    for entry in cards:
+        tier = entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier
         if tier in entitled_renders:
             grants.append((entry["name"], terminal_secret_var(entry["name"])))
     return grants
 
 
-def bluesky_panel_secret_env_vars(
-    config: Any, project_root: Any, layer_root: Any = None
-) -> list[str]:
-    """The per-user secret variables the bluesky-web sidecar is handed.
+def service_panel_grant(
+    config: Any,
+    project_root: Any,
+    service_key: str,
+    layer_root: Any = None,
+    *,
+    build_account: Callable[[], str | None] | None = None,
+) -> PanelGrant:
+    """The ``panel_grant`` a service render's compose template reads.
 
-    One name per roster user whose terminal shows the BLUESKY tab — and so
-    proxies into the sidecar with the operator secret ITS container holds,
-    under the fixed ``OSPREY_TERMINAL_SECRET`` name. The sidecar's own compose
-    file (``services/bluesky_web``) lists each of these variables so its web
-    gate accepts every entitled user's secret beside the deployment-wide one,
-    and no user's container is ever handed the deployment secret.
-
-    :param config: The parsed deploy config.
-    :param project_root: Deploy project root; relative ``project_path`` values
-        resolve against it.
-    :param layer_root: Where a build in flight has rendered its renders;
-        see :func:`_render_configs`.
-    :return: Variable names (``OSPREY_TERMINAL_SECRET_<SUFFIX>``), one per
-        entitled user; empty when no user shows the tab.
-    """
-    return [var for _, var in _bluesky_panel_roster_grants(config, project_root, layer_root)]
-
-
-def bluesky_panel_roster_owners(config: Any, project_root: Any, layer_root: Any = None) -> str:
-    """Whose secret each variable of the roster grant is.
-
-    Rendered beside the grant as ``OSPREY_TERMINAL_ROSTER_OWNERS`` — comma
-    separated ``SUFFIX=username`` pairs, in the grant's own order. The
-    sidecar's web gate admits any of the granted secrets, and names the
-    operator behind an admitted request by the one that matched; without this
-    map a match says only which slot the credential filled, not whose account
-    it is, and every panel action the deployment records would name nobody.
-
-    Each key is sliced off the variable name the grant itself emits rather
-    than derived from the username a second time, so a key here cannot name a
-    variable the sidecar was not handed. The render refuses a roster name that
-    is not a single ``[A-Za-z0-9][A-Za-z0-9._-]*`` component, which is what
-    makes ``,`` and ``=`` safe as this map's punctuation.
+    For the service :func:`panel_roster_grant_table` names as a panel's grant
+    holder: one credential per entitled roster user, roster order, each read
+    from its own ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` with an empty default. On a
+    deployment with no roster, a row with ``single_user_alias`` instead accepts
+    the deployment-wide secret under the build account's name: one required
+    credential, the account's variable read from ``OSPREY_TERMINAL_SECRET``.
+    No credentials for every other service.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
+    :param service_key: The service being rendered (``services.<k>``).
     :param layer_root: Where a build in flight has rendered its renders;
         see :func:`_render_configs`.
-    :return: ``"<SUFFIX>=<username>,..."``; empty when no user shows the tab.
+    :param build_account: Names the account running the build, or ``None``
+        when it cannot be one; asked only for an alias row with no roster.
+        Without it no alias is granted.
+    :return: ``{"credentials": [{var, source, owner, required}, ...]}``.
     """
-    from osprey.deployment.web_terminals.auth_credentials import TERMINAL_SECRET_VAR_PREFIX
+    from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
-    return ",".join(
-        f"{var.removeprefix(TERMINAL_SECRET_VAR_PREFIX)}={name}"
-        for name, var in _bluesky_panel_roster_grants(config, project_root, layer_root)
-    )
+    for panel_id, row in panel_roster_grant_table(config).items():
+        if row.service != service_key:
+            continue
+        web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+        # Switched-off per-user terminals hold no secret: only the one terminal is left.
+        # A roster of shared cards alone is a roster: each card holds its own secret.
+        has_roster = web_terminals.get("enabled") is not False and roster_entries(web_terminals)
+        if not row.single_user_alias or has_roster:
+            grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
+            return {
+                "credentials": [
+                    {"var": var, "source": var, "owner": name, "required": False}
+                    for name, var in grants
+                ]
+            }
+        account = build_account() if build_account is not None else None
+        if not account:
+            break
+        alias: PanelCredential = {
+            "var": terminal_secret_var(account),
+            "source": OPERATOR_SECRET_ENV,
+            "owner": account,
+            "required": True,
+        }
+        return {"credentials": [alias]}
+    return {"credentials": []}
 
 
 def renders_needing_ariel_password(config: Any, project_root: Any) -> set[str]:
@@ -1238,7 +1348,7 @@ def render_stop_grace(config: Any, project_root: Any) -> dict[str, int]:
 
     A map rather than a set because the period is a number: two renders
     showing different panels get different periods. Walks the same
-    per-render ``config.yml`` files the other grants walk, tiers and apps
+    per-render ``config.yml`` files the other grants walk, tiers and shared logins
     alike, so an unrendered or unreadable render contributes nothing rather
     than a guess.
 
@@ -2070,19 +2180,19 @@ def roster_entries(
     web_terminals: Any,
     *,
     strict: bool = True,
-    app_titles: Mapping[str, str] | None = None,
+    shared_titles: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Every card a ``modules.web_terminals`` subtree runs: people, then apps.
+    """Every card a ``modules.web_terminals`` subtree runs: people, then shared logins.
 
     The people are :func:`roster_people`, byte for byte. After them comes one
     derived entry per item in ``shared:``::
 
-        {"kind": "app", "name": <app>, "app": <app>,
+        {"kind": "app", "name": <login>, "app": <login>,
          "index": INDEX_MAX - <position in shared>,
-         "display_name": <the app's title>, "access": <the item's access>}
+         "display_name": <the login's title>, "access": <the item's access>}
 
-    An item is an app name, which opens the card to the whole roster
-    (``access: any``), or a mapping ``{name: <app>, access: <principals>}``
+    An item is a login name, which opens the card to the whole roster
+    (``access: any``), or a mapping ``{name: <login>, access: <principals>}``
     whose ``access`` is authored exactly as a person's is (see
     :func:`resolve_access_principals`) and carried through verbatim.
 
@@ -2103,9 +2213,9 @@ def roster_entries(
         web_terminals: The ``modules.web_terminals`` subtree. Anything that is
             not a mapping has no roster.
         strict: Passed to :func:`normalize_users` for the people.
-        app_titles: The app name -> title mapping (each app file's top-level
-            ``name:``; see :func:`app_titles_in`). An app it does not title is
-            shown under its name.
+        shared_titles: The login name -> title mapping (each login file's
+            top-level ``name:``; see :func:`login_titles_in`). A shared login it
+            does not title is shown under its name.
 
     Returns:
         People then app entries, each in authored order.
@@ -2115,7 +2225,7 @@ def roster_entries(
     subtree = as_dict(web_terminals)
     entries = roster_people(subtree, strict=strict)
     shared = subtree.get("shared")
-    titles = app_titles or {}
+    titles = shared_titles or {}
     for position, item in enumerate(shared if isinstance(shared, list) else []):
         name = shared_app_name(item)
         if name is None:
@@ -2219,22 +2329,23 @@ def refuse_app_card(web_terminals: Any, name: str) -> None:
         raise ValueError(app_card_refusal(name))
 
 
-def app_titles_in(apps_dir: Any) -> dict[str, str]:
-    """Each app file's title, read off the top-level ``name:`` of ``apps_dir/*.yml``.
+def login_titles_in(tiers_dir: Any) -> dict[str, str]:
+    """Each login file's title, read off the top-level ``name:`` of ``tiers_dir/*.yml``.
 
-    The mapping :func:`roster_entries` takes as ``app_titles``. A file that does
-    not parse, or names no string title, is left out (its card falls back to
-    the app name); a missing directory has no titles.
+    The mapping :func:`roster_entries` takes as ``shared_titles``: a shared
+    card is titled by its login file's own ``name:``. A file that does not
+    parse, or names no string title, is left out (its card falls back to the
+    login's name); a missing directory has no titles.
 
     Args:
-        apps_dir: A repo's ``apps/`` directory.
+        tiers_dir: A repo's ``tiers/`` directory.
 
     Returns:
-        ``{app name: title}`` keyed by file stem.
+        ``{login name: title}`` keyed by file stem.
     """
     import yaml
 
-    directory = Path(apps_dir)
+    directory = Path(tiers_dir)
     titles: dict[str, str] = {}
     if not directory.is_dir():
         return titles
@@ -2330,9 +2441,9 @@ class DeploymentEditDoor:
 
 #: Every door onto editing the deployment, in the order guard messages name
 #: them. The one list read by the shared-card rule (through
-#: :func:`tier_privileges`), the app-render composer
-#: (:func:`osprey.cli.build_profile_merge.compose_app_render`), its check
-#: (:func:`osprey.deployment.web_terminals.lint.lint_app_render`) and the
+#: :func:`tier_privileges`), the shared-login seal
+#: (:func:`osprey.cli.build_profile_merge.seal_login_render`), its check
+#: (:func:`osprey.deployment.web_terminals.lint.lint_shared_render`) and the
 #: headless refusal of a dispatch tier
 #: (:func:`osprey.cli.build_profile_schema.headless_refused_flags`).
 DEPLOYMENT_EDIT_DOORS: tuple[DeploymentEditDoor, ...] = (
@@ -2351,7 +2462,7 @@ DEPLOYMENT_EDIT_DOORS: tuple[DeploymentEditDoor, ...] = (
 ALL_PRIVILEGES: tuple[str, ...] = tuple(door.privilege for door in DEPLOYMENT_EDIT_DOORS)
 
 # The words the SERVER accepts for `web.config_panel.enabled`
-# (`osprey.interfaces.web_terminal.app.coerce_config_flag`), restated rather
+# (`osprey.interfaces.web_terminal.config_view.coerce_config_flag`), restated rather
 # than imported: this module is read by the deploy path and by lint, and
 # importing the web application to borrow two frozensets would pull the whole
 # interface package in behind them. Restated deliberately with the same
@@ -3172,8 +3283,9 @@ def resolve_image_tag(web_terminals: dict[str, Any]) -> str:
     compose-side ``${...}`` the runtime would re-interpolate at ``up`` time. A
     referenced variable that is unset expands to the empty string (unlike
     :func:`os.path.expandvars`, which would leave the reference in place and leak
-    a ``${...}`` into the output); an image_tag that resolves entirely empty is a
-    lint warning (``_check_image_tag_empty``), never a silent bad tag.
+    a ``${...}`` into the output). In registry mode a reference that expands to
+    empty is refused by :func:`image_tag_problem`, which lint, render and the
+    ``up`` preflight all call.
 
     This is the single source of that resolution — :func:`resolve_cards` and
     lint both route through it so the tag is read and expanded identically.
@@ -3182,6 +3294,41 @@ def resolve_image_tag(web_terminals: dict[str, Any]) -> str:
     if not isinstance(raw, str):
         raw = "latest"
     return _ENV_REF_RE.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), raw)
+
+
+def image_tag_problem(web_terminals: dict[str, Any]) -> str | None:
+    """The refusal for a registry-mode ``image_tag`` that expands to an empty
+    tag or tag part, else ``None``.
+
+    Registry mode bakes the resolved tag into every pulled image ref, so each
+    referenced variable that is unset or empty in the process environment is
+    named, in order of first reference. Local mode never reads ``image_tag``,
+    and an absent or non-string value resolves to ``latest``.
+    """
+    if effective_image_source(web_terminals) != "registry":
+        return None
+    raw = web_terminals.get("image_tag")
+    if not isinstance(raw, str):
+        return None
+    empty: list[str] = []
+    for match in _ENV_REF_RE.finditer(raw):
+        name = match.group(1) or match.group(2)
+        if not os.environ.get(name, "") and name not in empty:
+            empty.append(name)
+    if empty:
+        resolved = resolve_image_tag(web_terminals)
+        shown = f"'{resolved}'" if resolved else "an empty string"
+        verb, pronoun = ("is", "it") if len(empty) == 1 else ("are", "them")
+        return (
+            f"modules.web_terminals.image_tag '{raw}' resolved to {shown}: "
+            f"{', '.join(empty)} {verb} not set; export {pronoun} in the shell that runs "
+            "osprey build and osprey up"
+        )
+    if raw == "":
+        return (
+            "modules.web_terminals.image_tag is empty; set a tag, or remove the key to use latest"
+        )
+    return None
 
 
 def _render_ref_by_name(
@@ -3252,7 +3399,7 @@ def resolve_cards(
     *,
     strict: bool = True,
     project_name: str | None = None,
-    app_titles: Mapping[str, str] | None = None,
+    shared_titles: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve every card the roster runs into its image/project identity.
 
@@ -3316,9 +3463,9 @@ def resolve_cards(
             (only ``url`` is read).
         project_name: The deployment's ``project_name``, which names each
             shared app's render. ``None`` reads the render off the catalog.
-        app_titles: The app name -> title mapping (see :func:`app_titles_in`),
-            passed to :func:`roster_entries` for each app card's
-            ``display_name``.
+        shared_titles: The login name -> title mapping (see
+            :func:`login_titles_in`), passed to :func:`roster_entries` for each
+            shared card's ``display_name``.
         strict: When ``True`` (render/build/seed callers), a config with no
             ``renders`` catalog or no default tier (in any image
             source), a render reference naming a catalog entry that doesn't
@@ -3363,30 +3510,24 @@ def resolve_cards(
         ValueError: See ``strict`` above.
     """
     from osprey.deployment.web_terminals.render_naming import (
-        RENDER_KIND_APP,
         RENDER_KIND_TIER,
         render_kind_conflict,
     )
 
-    entries = roster_entries(web_terminals, strict=strict, app_titles=app_titles)
+    entries = roster_entries(web_terminals, strict=strict, shared_titles=shared_titles)
     normalized = [entry for entry in entries if not is_app_entry(entry)]
     apps = [entry for entry in entries if is_app_entry(entry)]
     app_names = frozenset(entry["name"] for entry in apps)
 
     renders_raw = web_terminals.get("renders")
     renders_catalog: dict[str, Any] = renders_raw if isinstance(renders_raw, dict) else {}
-    # A person's access level is a tier: only tier renders are a people
-    # catalog, and every app render joins the tier-or-app refusal below.
+    # Every login render is a candidate for a person's access level; a name
+    # `shared:` lists joins the tier-or-shared refusal below.
     tier_renders = {
         render_name: render
         for render_name, render in renders_catalog.items()
         if isinstance(render, dict) and render.get("kind") == RENDER_KIND_TIER
     }
-    app_names = app_names | frozenset(
-        render_name
-        for render_name, render in renders_catalog.items()
-        if isinstance(render, dict) and render.get("kind") == RENDER_KIND_APP
-    )
     candidate = web_terminals.get("default_tier")
     default_tier_name = candidate if isinstance(candidate, str) and candidate else None
 
@@ -3459,20 +3600,15 @@ def resolve_cards(
             source,
         )
 
-    # Every name the roster uses as a tier, for the app half of the
-    # tier-or-app refusal: each person's binding, the default, every role's
-    # target, and each tier the build's render projection lists.
+    # Every name the roster uses as a tier, for the shared half of the
+    # tier-or-shared refusal: each person's binding, the default and every
+    # role's target.
     tier_names: set[str] = {
         render_ref_by_name.get(entry["name"]) or default_tier_name or "" for entry in normalized
     }
     if default_tier_name is not None:
         tier_names.add(default_tier_name)
     tier_names.update(target for target in authorization_roles.values() if target)
-    tier_names.update(
-        render_name
-        for render_name, render in renders_catalog.items()
-        if isinstance(render, dict) and render.get("kind") == RENDER_KIND_TIER
-    )
     tier_names.discard("")
 
     resolved: list[dict[str, Any]] = []
@@ -3482,7 +3618,7 @@ def resolve_cards(
         render_ref = render_ref_by_name.get(name) or default_tier_name
 
         if render_ref is not None:
-            conflict = render_kind_conflict(render_ref, RENDER_KIND_TIER, apps=app_names)
+            conflict = render_kind_conflict(render_ref, RENDER_KIND_TIER, shared=app_names)
             if conflict is not None:
                 if strict:
                     raise ValueError(f"user {name!r}: {conflict}")
@@ -3613,7 +3749,7 @@ def _resolve_app_card(
             cannot be named.
     """
     from osprey.deployment.web_terminals.render_naming import (
-        RENDER_KIND_APP,
+        RENDER_KIND_SHARED,
         render_kind_conflict,
         render_project,
     )
@@ -3634,10 +3770,10 @@ def _resolve_app_card(
         "access": app_entry["access"],
     }
 
-    problem = render_kind_conflict(name, RENDER_KIND_APP, tiers=tier_names, apps=app_names)
+    problem = render_kind_conflict(name, RENDER_KIND_SHARED, tiers=tier_names, shared=app_names)
     project: str | None = None
     if problem is None and isinstance(project_name, str) and project_name:
-        project, _ = render_project(project_name, name, kind=RENDER_KIND_APP, tiers=tier_names)
+        project, _ = render_project(project_name, name, kind=RENDER_KIND_SHARED, tiers=tier_names)
     elif problem is None:
         cataloged = catalog_entry.get("project")
         if isinstance(cataloged, str) and cataloged:

@@ -73,8 +73,11 @@ assert T0 % PERIOD_S == 0.0
 
 
 @pytest.mark.parametrize("offset", [0.0, 1.0, 7.5, 15.0, 29.0])
-def test_shape_at_chosen_instants(offset):
-    assert topoff.shape(RECORD, T0 + offset) == pytest.approx(math.exp(-offset / TAU), rel=1e-12)
+def test_tau_and_period_give_the_shape_at_chosen_instants(offset):
+    tau, period = topoff.tau_period(RECORD)
+    assert (tau, period) == (TAU, PERIOD_S)
+    shape = math.exp(-((T0 + offset) % period) / tau)
+    assert shape == pytest.approx(math.exp(-offset / TAU), rel=1e-12)
 
 
 def test_the_channel_reads_the_ceiling_times_the_shape():
@@ -118,12 +121,17 @@ def test_held_level_equals_the_period_mean():
     assert float(np.mean(reads)) == pytest.approx(LEVEL, rel=1e-8)
 
 
+def test_the_shape_version_is_pinned():
+    # A change here re-seeds every deployed archive; make it on purpose.
+    assert topoff.SHAPE_VERSION == "5e78a68264884cad"
+
+
 def test_shape_version_digests_the_constants(monkeypatch):
-    assert topoff.shape_version() == topoff.SHAPE_VERSION
-    for name in topoff.SHAPE_CONSTANT_NAMES:
+    assert topoff._shape_version() == topoff.SHAPE_VERSION
+    for name in topoff._SHAPE_CONSTANT_NAMES:
         with monkeypatch.context() as patch:
             patch.setattr(topoff, name, f"{getattr(topoff, name)}-changed")
-            assert topoff.shape_version() != topoff.SHAPE_VERSION
+            assert topoff._shape_version() != topoff.SHAPE_VERSION
 
 
 # --- motion, still and envelope -------------------------------------------------------
@@ -140,9 +148,9 @@ def test_a_stilled_channel_serves_its_held_level():
     assert stilled[CURRENT] == 0.0
 
 
-def test_still_all_serves_the_held_level():
+def test_a_stilled_channel_has_no_motion():
     model = _model()
-    model.set_motion({}, {}, still_all=True)
+    model.set_motion({}, {}, still=frozenset({CURRENT}))
     assert _read(model, CURRENT, T0 + 11.0) == pytest.approx(LEVEL, rel=1e-12)
     assert not model.has_motion(CURRENT)
 

@@ -68,7 +68,7 @@ def tree(tmp_path, monkeypatch) -> Path:
     base.mkdir(parents=True)
     (base / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(base))
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return base
 
 
@@ -251,7 +251,7 @@ def _become(monkeypatch, child: dict[str, str]) -> None:
     for name, value in child.items():
         if name.startswith("OSPREY_"):
             monkeypatch.setenv(name, value)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.mark.asyncio

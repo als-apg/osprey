@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import textwrap
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -26,8 +27,10 @@ from osprey.cli.build_profile_emit import (
     _SYNTHESIS_RATIONALE,
     emit_standalone_profile_yaml,
 )
+from osprey.cli.build_profile_schema import EnvConfig
 from osprey.cli.init_cmd import init
 from tests.cli._lifecycle_build import invoke_build, rendered_config
+from tests.fixtures.lifecycle_repo import lay_preset_applications
 
 # The lines the edited-text gates below apply: the block-style snippet
 # inside each annotation, which is the part a facility copies and edits. Keyed
@@ -45,7 +48,6 @@ _ANNOTATION_FRAGMENTS: dict[str, tuple[str, ...]] = {
         "#     pinned: [ARIEL_DB_PASSWORD]",
         "#     defaults:",
         '#       OSPREY_FACILITY_NAME: "Example Facility"',
-        "#     file: env/facility.env",
     ),
 }
 
@@ -117,9 +119,9 @@ def test_web_panels_names_the_dotted_url_key() -> None:
 
 
 def test_env_names_every_env_config_member() -> None:
-    """All four EnvConfig members, so none of them is discovered by accident."""
+    """Every EnvConfig member, so none of them is discovered by accident."""
     example = yaml.safe_load(_snippet(_ANNOTATIONS["env"]))["env"]
-    assert set(example) == {"required", "pinned", "defaults", "file"}
+    assert set(example) == {member.name for member in fields(EnvConfig)}
 
 
 # ---------------------------------------------------------------------------
@@ -146,8 +148,8 @@ def test_annotation_sits_immediately_above_its_key(preset: str, field: str) -> N
 
 
 def test_annotation_lands_below_a_preset_authored_header() -> None:
-    """control-assistant heads its ``env:`` block; our block goes under it."""
-    lines = _emit("control-assistant").splitlines()
+    """demo heads its ``env:`` block; our block goes under it."""
+    lines = _emit("demo").splitlines()
     index = next(i for i, line in enumerate(lines) if line.startswith("env:"))
     above = lines[: index - len(_ANNOTATIONS["env"])]
     assert above[-1].startswith("#")
@@ -238,11 +240,13 @@ def _resolve(profile_dir: Path, lines: list[str]) -> BuildProfile:
     """Write *lines* as the profile of a bare directory and resolve them.
 
     ``osprey init`` writes ``data:`` into the profile it materializes and lays
-    the tree down beside it; the emitter alone produces neither, and validation
-    requires both. So the tree is created and the key added here, exactly as
-    the verb would have.
+    the tree and the listed applications down beside it; the emitter alone produces
+    neither, and validation requires both. So they are created and the key added
+    here, exactly as the verb would have.
     """
     (profile_dir / "data").mkdir(exist_ok=True)
+    if not (profile_dir / "apps").exists():
+        lay_preset_applications("demo", profile_dir)
     path = profile_dir / "profile.yml"
     path.write_text("data: data\n" + "\n".join(lines) + "\n")
     return resolve_build_profile(path, None)[0]
@@ -297,15 +301,15 @@ def _edit_populated_key(field: str, lines: list[str]) -> list[str]:
     return edited[: required + 1] + ["    - MY_TOKEN"] + edited[required + 1 :]
 
 
-@pytest.mark.parametrize("preset", ["hello-world", "control-assistant"])
+@pytest.mark.parametrize("preset", ["hello-world", "demo"])
 @pytest.mark.parametrize("field", sorted(_ANNOTATIONS))
 def test_edited_annotation_keeps_everything_the_key_already_resolved(
     field: str, preset: str, tmp_path: Path
 ) -> None:
     """The example is only worth shipping if editing it in is additive.
 
-    hello-world leaves both keys empty and control-assistant populates both, so
-    the two presets are the two edits a facility actually makes: uncomment the
+    hello-world leaves both keys empty and demo populates both, so
+    the presets cover the two edits a facility actually makes: uncomment the
     example over an empty key, or add one entry beside existing ones. Either
     way the key must still resolve, must still be the only one of its name, and
     must still carry everything it carried before the edit.
@@ -315,9 +319,9 @@ def test_edited_annotation_keeps_everything_the_key_already_resolved(
     _sole_key_line(lines, key)
 
     before = _resolved_entries(field, _resolve(tmp_path, lines))
-    assert bool(before) == (preset == "control-assistant"), (
+    assert bool(before) == (preset == "demo"), (
         f"{preset}: expected `{key}:` to be "
-        f"{'populated' if preset == 'control-assistant' else 'empty'} before the edit"
+        f"{'populated' if preset == 'demo' else 'empty'} before the edit"
     )
 
     if before:
@@ -340,18 +344,18 @@ def test_edited_annotation_keeps_everything_the_key_already_resolved(
 
 
 def _web_panels_edit(*added: str) -> str:
-    """The ``--set web_panels=`` pair naming control-assistant's panels plus *added*.
+    """The ``--set web_panels=`` pair naming demo's panels plus *added*.
 
     A ``--set`` pair REPLACES the value at the key it names, so a facility
     adding a panel states the whole selection — the preset's own panels
     included, or the ``default_panel`` those panels back stops resolving.
     """
-    preset, _dir = resolve_build_profile(None, "control-assistant")
+    preset, _dir = resolve_build_profile(None, "demo")
     return "web_panels=" + json.dumps([*preset.web_panels, *added])
 
 
 def _init_with_edits(runner: CliRunner, tmp_path: Path, *pairs: str):
-    """Materialize control-assistant with each of *pairs* stated as a ``--set``.
+    """Materialize demo with each of *pairs* stated as a ``--set``.
 
     The annotation teaches a fragment of profile YAML; ``--set`` is how a
     facility states it on the command line, one key per pair, each replacing
@@ -361,7 +365,7 @@ def _init_with_edits(runner: CliRunner, tmp_path: Path, *pairs: str):
     edits = [arg for pair in pairs for arg in ("--set", pair)]
     result = runner.invoke(
         init,
-        [str(target), "--preset", "control-assistant", "--no-git", *edits],
+        [str(target), "--preset", "demo", "--no-git", *edits],
     )
     return target, result
 

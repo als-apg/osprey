@@ -796,7 +796,7 @@ def with_plain_progress(cmd: list[str], *, provider: ComposeProvider | None) -> 
     Compose's default (``auto``) selects a TTY renderer on an interactive
     terminal, which repaints each frame by moving the cursor up N lines and
     rewriting them — without erasing to end of line. Long project and service names
-    (``my-control-assistant-bluesky-queueserver`` and friends) wrap on a
+    (``osprey-demo-bluesky-queueserver`` and friends) wrap on a
     normal-width terminal, the renderer's N is then wrong by the number of
     wrapped lines, and successive frames overprint each other into
     unreadable fragments. ``plain`` is append-only, so it has no frame
@@ -1369,16 +1369,10 @@ def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
 # One-time transcripts copy
 # ---------------------------------------------------------------------------
 
-#: The image the transcripts copy runs, fully qualified and pinned so the copy
-#: means the same thing on every host. Not the project image: the copy runs
-#: before that image is built. ``OSPREY_TRANSCRIPTS_COPY_IMAGE`` replaces it
-#: with a complete reference, for a host that pulls from a mirror. The
-#: ``images.registry`` axis does not apply: it names where OSPREY's own images
-#: live, not a mirror of library images.
-TRANSCRIPTS_COPY_IMAGE = "docker.io/library/alpine:3.20"
-
-#: Environment variable holding a complete image reference that replaces
-#: :data:`TRANSCRIPTS_COPY_IMAGE`.
+#: Environment variable holding a complete image reference that replaces the
+#: transcripts copy's image, the catalogue's ``transcripts_copy`` entry
+#: (:data:`~osprey.deployment.upstream_images.UPSTREAM_IMAGES`). That entry is
+#: not the project image, because the copy runs before that image is built.
 TRANSCRIPTS_COPY_IMAGE_ENV = "OSPREY_TRANSCRIPTS_COPY_IMAGE"
 
 #: Copies the parent's transcripts directory, named by ``$1``, into ``/to``
@@ -1397,15 +1391,19 @@ class TranscriptsCopyError(RuntimeError):
     """The transcripts copy could not be completed; ``up`` stops here."""
 
 
-def transcripts_copy_image(env: Mapping[str, str] | None = None) -> str:
+def transcripts_copy_image(env: Mapping[str, str] | None = None, base_registry: str = "") -> str:
     """The transcripts copy's image reference.
 
     ``OSPREY_TRANSCRIPTS_COPY_IMAGE`` in *env* (this process's environment when
-    not given), when set and not blank, else :data:`TRANSCRIPTS_COPY_IMAGE`.
+    not given), when set and not blank, else the catalogue's ``transcripts_copy``
+    entry on *base_registry*, the registry standing in for docker.io (``""`` for
+    none).
     """
+    from osprey.deployment.upstream_images import upstream_image
+
     source = os.environ if env is None else env
     override = (source.get(TRANSCRIPTS_COPY_IMAGE_ENV) or "").strip()
-    return override or TRANSCRIPTS_COPY_IMAGE
+    return override or upstream_image("transcripts_copy", base_registry)
 
 
 def copy_transcripts_once(
@@ -1442,7 +1440,11 @@ def copy_transcripts_once(
             copy fails, naming the volume. A failed copy's volume is removed
             first, so the next ``up`` copies again.
     """
-    from osprey.deployment.compose_generator import claude_projects_volumes, resolve_project_name
+    from osprey.deployment.compose_generator import (
+        claude_projects_volumes,
+        resolve_base_registry,
+        resolve_project_name,
+    )
     from osprey.deployment.container_ownership import COMPOSE_PROJECT_LABEL
 
     config = dict(config or {})
@@ -1483,7 +1485,7 @@ def copy_transcripts_once(
                     )
 
         if image is None:
-            image = transcripts_copy_image(env)
+            image = transcripts_copy_image(env, resolve_base_registry(config))
             if _call([runtime, "image", "inspect", image]).returncode != 0:
                 pulled = _call([runtime, "pull", image])
                 if pulled.returncode != 0:

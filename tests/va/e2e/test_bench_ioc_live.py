@@ -60,6 +60,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import error_handling, target_state
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import target_eligibility as te
@@ -72,7 +73,7 @@ from osprey.mcp_server.control_system.endpoint_prober import (
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 from osprey_connectors.control_system import ChannelValue, WriteOutcome, raise_for_write_result
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
@@ -336,9 +337,9 @@ def limits_database(tmp_path_factory: pytest.TempPathFactory) -> Path:
     on real terms if the limits it is judged against are the real ones. Limits
     run ``exclusive`` here, so a channel this module writes needs a record:
 
-    - the protected setpoint carries none in the facility's limits.yaml, and
-      the refusal under test is the bench IOC's, so OSPREY has to pass the
-      write -- this file grants it :data:`PROTECTED_BAND`;
+    - the refusal under test at the protected setpoint is the bench IOC's, so
+      OSPREY has to pass the write -- this file grants it
+      :data:`PROTECTED_BAND`, whatever band the facility's limits.yaml gives;
     - the alarm-limit carrier is a readback, never writable in a deployment.
       Driving a bench record into its HIHI band is not a deployment operation,
       and the bench IOC has no other record carrying alarm limits, so this file
@@ -439,7 +440,7 @@ def state_root(tmp_path, monkeypatch):
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     control_context.invalidate_cache()
     write_control_context(
         root, target="va", generation=0, owned_by=None, switch={"live": "asked", "va": "asked"}

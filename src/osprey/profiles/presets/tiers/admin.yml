@@ -26,7 +26,7 @@
 #
 # The control-system tiers are `readonly` and `readwrite`.
 
-name: Control Assistant (Admin)
+name: OSPREY Demo (Admin)
 
 # The write-oriented panels, exactly as the readwrite tier declares them: the
 # admin tier is a full operator desk plus deployment editing, never an operator

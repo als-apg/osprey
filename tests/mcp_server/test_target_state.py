@@ -19,8 +19,9 @@ import os
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import server, server_context, target_state
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
@@ -52,6 +53,14 @@ TARGETS_META = {
         "probe_channel": "STANDIN:BeamCurrent",
     },
 }
+
+
+def _statement_reports() -> list:
+    """The display-only reports on disk, read the way a view that shows the machine would."""
+    from osprey_connectors import control_context
+
+    reports = (control_context.read_report(path) for path in control_context.report_paths())
+    return [report for report in reports if report is not None and report.display_only]
 
 
 def _write_foreign(state_root, pid, *, children=None, target="live"):
@@ -231,6 +240,17 @@ class TestProbeChannel:
     def test_probe_channel_survives_a_switch(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
         target_state.publish_switch("va", 1, server_pid=1234)
+
+        assert target_state.read(1234)["targets"] == TARGETS_META
+
+    def test_probe_channel_survives_a_republish(self):
+        unprobed = {
+            name: {key: value for key, value in slot.items() if key != "probe_channel"}
+            for name, slot in TARGETS_META.items()
+        }
+        target_state.write_server_record(unprobed, server_pid=1234)
+
+        assert target_state.publish_targets(TARGETS_META, server_pid=1234) is True
 
         assert target_state.read(1234)["targets"] == TARGETS_META
 
@@ -604,7 +624,7 @@ class TestDisplayOnlyReport:
     @pytest.fixture(autouse=True)
     def _one_root_for_every_reader(self, state_root, monkeypatch):
         """Stamp the scratch root too, so the connector-side readers resolve it."""
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(state_root))
         control_context.invalidate_cache()
         yield
         control_context.invalidate_cache()
@@ -648,9 +668,11 @@ class TestDisplayOnlyReport:
     def test_a_controls_server_never_writes_a_statement(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
-        record = json.loads(target_state.report_file_path(1234).read_text(encoding="utf-8"))
+        path = target_state.report_file_path(1234)
+        record = json.loads(path.read_text(encoding="utf-8"))
         assert "statement" not in record
-        assert control_context.parse_report(record).display_only is False
+        report = control_context.read_report(path)
+        assert report is not None and report.display_only is False
 
     def test_the_shape_doc_names_the_eleventh_field(self):
         doc = target_state.__doc__
@@ -666,7 +688,7 @@ class TestDisplayOnlyReport:
         reports = websocket._live_reports()
         assert [r.server_pid for r in reports] == [os.getpid()]
         assert websocket._published_targets(reports) == TARGETS_META
-        statements = control_context.live_statement_reports(is_alive=target_state.is_process_alive)
+        statements = _statement_reports()
         assert [r.server_pid for r in statements] == [os.getppid()]
         # Even handed the DATA report directly, its empty targets name nothing.
         assert websocket._published_targets([*reports, *statements]) == TARGETS_META
@@ -677,7 +699,7 @@ class TestDisplayOnlyReport:
         self._write_display_only(state_root, os.getppid(), updated_at="2999-01-01T00:00:00+00:00")
 
         assert websocket._live_reports() == ()
-        statements = control_context.live_statement_reports(is_alive=target_state.is_process_alive)
+        statements = _statement_reports()
         rows = websocket._server_rows(statements)
         assert [row["children"] for row in rows] == [[]]
         assert rows[0]["last_switch"] is None
@@ -816,7 +838,7 @@ class TestServerStartClaimsTheRecord:
 
         assert claimed is not None
         assert claimed.switch == {"va": "asked"}
-        assert claimed.posture == control_context.posture_mirror({"va": "asked"})
+        assert claimed.posture == control_context._posture_mirror({"va": "asked"})
 
     def test_claim_moves_generation_zero_live_record_to_va(
         self, control_context_root, write_control_context
@@ -926,7 +948,7 @@ class TestServerStartClaimsTheRecord:
         assert claimed is not None
         assert (claimed.target, claimed.generation, claimed.switch) == ("live", 0, {})
         # No switch turned on: the mirror refuses every machine.
-        assert claimed.posture == control_context.posture_mirror({})
+        assert claimed.posture == control_context._posture_mirror({})
         assert claimed.owner is not None
         assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
         assert control_context._record_path_under(control_context_root).exists()
@@ -957,7 +979,7 @@ class TestServerStartClaimsTheRecord:
     def test_server_start_claim_survives_an_unresolvable_agent_data_root(self, monkeypatch):
         from osprey_connectors import posture_store
 
-        monkeypatch.setattr(posture_store, "agent_data_root", lambda: None)
+        monkeypatch.setattr(posture_store, "_agent_data_root", lambda: None)
         control_context.invalidate_cache()
 
         assert server_context.claim_control_context(baseline="live") is None

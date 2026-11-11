@@ -305,7 +305,7 @@ async def _seed_native_entry(repository: DictRepository) -> None:
     await repository.upsert_entry(
         {
             "entry_id": "ariel-abc",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "timestamp": None,
             "author": "op",
             "raw_text": "Orbit\n\nDrift",

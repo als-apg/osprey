@@ -74,7 +74,11 @@ class TestSessionReportSkillStructure:
             pytest.param("Delegate", id="phase3_delegate"),
             pytest.param("Register", id="phase4_register"),
             # The tools the phases name.
-            pytest.param("session_summary", id="references_session_summary"),
+            pytest.param(
+                'artifact_list(scope="session", last_n=200)', id="inventory_is_this_sessions_list"
+            ),
+            pytest.param("omitted > 0", id="reports_a_partial_inventory"),
+            pytest.param("`channels`", id="channels_from_rows"),
             pytest.param("archiver_downsample", id="references_archiver_downsample"),
             pytest.param("artifact_register", id="references_artifact_register"),
             pytest.param("reference.md", id="references_reference_file"),

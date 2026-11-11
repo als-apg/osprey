@@ -113,11 +113,11 @@ def examples_store_uri(graphdb_plugin_dir: Path) -> Iterator[str]:
 
 
 @pytest.fixture(scope="module")
-def demo_ttl(built_control_assistant: BuiltProject) -> str:
-    """The graph view the control-assistant build writes."""
+def demo_ttl(built_demo: BuiltProject) -> str:
+    """The graph view the demo build writes."""
     from osprey.facility.views.graph import GRAPH_FILE
 
-    path = built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
+    path = built_demo.build_dir / "data" / "graph" / GRAPH_FILE
     return path.read_text(encoding="utf-8")
 
 
@@ -133,7 +133,7 @@ def _seed(uri: str, ttl: str, label: str) -> None:
     data, so the corpus is bootstrapped into a store in the state a fresh
     deploy starts from.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     with graph_seeder.open_session(
         uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE

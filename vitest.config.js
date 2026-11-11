@@ -19,9 +19,8 @@ const dockEngineBundle = fileURLToPath(
 // One hang bound for every test and hook, sized like the Python lane's
 // per-test cap (pytest --timeout=600). It detects a hang; it is never a speed
 // budget. A JS time budget is not expressed through it: a test that needs one
-// is timed alone in a serial step, or as a ratio against a baseline measured
-// in the same run, the two shapes tests/README.md gives for Python. No test or
-// invocation lowers it.
+// is timed alone in a serial step, the shape tests/README.md gives for Python.
+// No test or invocation lowers it.
 const HANG_BOUND_MS = 600_000;
 
 export default {
@@ -48,6 +47,11 @@ export default {
     // Works around Node >= 26 shadowing happy-dom's localStorage with its own
     // undefined experimental global (see the comment in the setup file).
     setupFiles: ['./tests/vitest.setup.mjs'],
-    include: ['tests/**/*.test.{js,mjs}', 'src/osprey/interfaces/**/*.test.{js,mjs}'],
+    include: [
+      'tests/**/*.test.{js,mjs}',
+      'src/osprey/interfaces/**/*.test.{js,mjs}',
+      'src/osprey/profiles/presets/apps/*/tests/**/*.test.{js,mjs}',
+      'src/osprey/apps/scaffold-app/tests/**/*.test.{js,mjs}',
+    ],
   },
 };

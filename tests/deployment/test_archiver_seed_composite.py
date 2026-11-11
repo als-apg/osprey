@@ -51,6 +51,9 @@ def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 
+#: Samples per pulse trace, as the trace function gives them.
+TRACE_POINTS = len(pulse.trace("TRACE:LENGTH", 0.0, 1.0, True))
+
 #: An anchor on the coarse cadence, so the spike's peak is a grid timestamp.
 ANCHOR = datetime(2026, 3, 14, 9, 26, tzinfo=UTC)
 
@@ -102,10 +105,10 @@ def _activate(root: Path, config: dict[str, Any], names: list[str], anchor: date
 
 
 @pytest.fixture
-def demo_render(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
+def demo_render(built_demo: BuiltProject, tmp_path: Path) -> Path:
     """A deployment repo whose render holds the demo's simulator view."""
     render = tmp_path / "build"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith("data/simulator/"):
             target = render / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -237,7 +240,7 @@ def _pulse_view(root: Path) -> None:
     variables = json.loads((view / "variables.json").read_text())
     for record in variables["channels"]:
         if record["address"] == WAVE:
-            record["shape"] = [pulse.TRACE_POINTS]
+            record["shape"] = [TRACE_POINTS]
     (view / "variables.json").write_text(json.dumps(variables))
     seeds = json.loads((view / "seeds.json").read_text())
     seeds["seeds"][WAVE] = {"pulse": {"driver": DRIVER, "enable": ENABLE}}

@@ -72,6 +72,8 @@ __all__ = [
     "ResponseMatrix",
     "SOLVE_ERRORS",
     "build",
+    "deck_length",
+    "element_index",
     "error_text",
     "fault_variables",
     "describe",
@@ -286,6 +288,40 @@ def locate(deck: Deck, element: str, *, model: str | None = None) -> tuple[float
     loaded = _load(deck)
     index = _element_index(loaded, deck, element, _model_id(deck, model), "model")
     return loaded.s_pos[index], float(loaded.lattice[index].Length)
+
+
+def element_index(deck: Deck, element: str, *, model: str | None = None) -> int:
+    """Return an element's index in the deck's lattice, its place in ring order.
+
+    Co-located elements (a monitor and a corrector at one ``s``) differ here
+    where :func:`locate` places them together.
+
+    Args:
+        deck: The lattice file.
+        element: The element's name (``FamName``), unique in the deck.
+        model: The model name the stop names; the deck's file stem when
+            omitted.
+
+    Returns:
+        The element's index, counted from the deck's first element.
+
+    Raises:
+        ElementStop: ``engine-invalid`` when the element is absent from the
+            deck or named more than once.
+    """
+    return _element_index(_load(deck), deck, element, _model_id(deck, model), "model")
+
+
+def deck_length(deck: Deck, *, model: str | None = None) -> float:
+    """Return the length of the deck's lattice, in metres: a ring's circumference.
+
+    Args:
+        deck: The lattice file.
+        model: The model the deck serves; accepted for the plug-in contract's
+            shape, no stop names it.
+    """
+    del model
+    return _load(deck).length_m
 
 
 def _normalise_twiss(twiss: Any, deck: Deck, model_id: str) -> dict[str, np.ndarray]:
@@ -743,7 +779,7 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
 def _description(
     role: str, plane: str | None, kind: str | None, refresh: str = "pass"
 ) -> Mapping[str, Any]:
-    return {"role": role, "plane": plane, "refresh": refresh, "kind": kind}
+    return {"engine_role": role, "plane": plane, "refresh": refresh, "kind": kind}
 
 
 def _setting_kind(record: Any) -> str:

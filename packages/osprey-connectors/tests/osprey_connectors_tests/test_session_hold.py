@@ -110,7 +110,7 @@ def test_an_argument_root_wins_over_the_env(root, tmp_path, monkeypatch):
 def test_ensure_session_creates_an_empty_unheld_record(root):
     session_hold.ensure_session(KEY, root=root)
     payload = _payload(root)
-    assert payload["schema"] == session_hold.SCHEMA_VERSION
+    assert payload["schema"] == session_hold._SCHEMA_VERSION
     assert payload["session_key"] == KEY
     assert payload["flags"] == []
     assert session_hold.is_held(KEY, root=root) is False
@@ -251,7 +251,7 @@ def test_the_excerpt_is_truncated_to_200_chars(root):
         root=root,
     )
     [flag] = session_hold.open_flags(KEY, root=root)
-    assert len(flag.prompt_excerpt) <= session_hold.EXCERPT_LIMIT == 200
+    assert len(flag.prompt_excerpt) <= session_hold._EXCERPT_LIMIT == 200
 
 
 def test_open_flag_without_ensure_creates_the_record_and_holds(root):
@@ -304,7 +304,7 @@ def test_a_corrupt_record_holds_and_answering_its_synthetic_flag_rewrites_it(roo
     )
     assert released == (session_hold.UNREADABLE_FLAG_ID,)
     payload = _payload(root)
-    assert payload["schema"] == session_hold.SCHEMA_VERSION
+    assert payload["schema"] == session_hold._SCHEMA_VERSION
     assert session_hold.is_held(KEY, root=root) is False
     [entry] = payload["flags"]
     assert entry["flag_id"] == session_hold.UNREADABLE_FLAG_ID

@@ -1008,7 +1008,6 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
                     "web_base_port": 8100,
                     "artifact_base_port": 8200,
                     "ariel_base_port": 8300,
-                    "lattice_base_port": 8400,
                     "users": ["alice"],
                     "default_tier": "assistant",
                     "renders": {"assistant": tier_render("assistant", "ex-assistant")},
@@ -1421,13 +1420,13 @@ def test_minting_targets_the_repo_env_from_any_directory(lifecycle_repo, started
 
 
 @pytest.fixture(scope="module")
-def _real_build():
-    """Holds the one real build the ``built_repo`` tests share."""
-    return {}
+def _real_build(tmp_path_factory):
+    """Holds the one real build the ``built_repo`` tests share, and its parent."""
+    return {"parent": tmp_path_factory.mktemp("real-build")}
 
 
 @pytest.fixture
-def built_repo(_real_build, tmp_path_factory):
+def built_repo(_real_build):
     """A deployment repo with a REAL ``osprey build`` behind it.
 
     Slower than the stub every other test here uses, and the point: the defect
@@ -1441,8 +1440,8 @@ def built_repo(_real_build, tmp_path_factory):
 
     Built once per module, on first use: every test taking it only reads the
     tree. The build runs inside that first test, so the function-scoped autouse
-    seams apply to it as before, and under ``tmp_path_factory`` so it outlives
-    that test's ``tmp_path``.
+    seams apply to it as before, and under the module fixture's directory so
+    it lives as long as the module.
     """
     if "repo" in _real_build:
         return _real_build["repo"]
@@ -1450,13 +1449,19 @@ def built_repo(_real_build, tmp_path_factory):
     from click.testing import CliRunner as _CliRunner
 
     from osprey.cli.build_cmd import build as build_cmd
+    from osprey.deployment import wheel_build
+    from tests.deployment.test_deployment_packages_install import _fake_wheel
 
-    repo = build_exemplar_repo(tmp_path_factory.mktemp("real-build") / EXEMPLAR_DIRNAME)
-    result = _CliRunner().invoke(
-        build_cmd,
-        ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
-        catch_exceptions=False,
-    )
+    repo = build_exemplar_repo(_real_build["parent"] / EXEMPLAR_DIRNAME)
+    # The wheel builds run under this module's stand-in subprocess.run, which
+    # makes no file, so the preset's application package gets a stand-in wheel.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(wheel_build, "_build_wheel", _fake_wheel)
+        result = _CliRunner().invoke(
+            build_cmd,
+            ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+            catch_exceptions=False,
+        )
     assert result.exit_code == 0, result.output
     _real_build["repo"] = repo
     return repo
@@ -1602,7 +1607,6 @@ def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):
                     "web_base_port": 8100,
                     "artifact_base_port": 8200,
                     "ariel_base_port": 8300,
-                    "lattice_base_port": 8400,
                     # Auth on, so the sidecar renders and is covered too.
                     # allow_insecure_http because password auth otherwise
                     # refuses to render without TLS, which is not what this

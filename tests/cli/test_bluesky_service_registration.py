@@ -18,7 +18,7 @@ from ruamel.yaml import YAML
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_cmd import _inject_bluesky
 from osprey.cli.build_profile import BlueskyConfig, _parse_profile
-from osprey.deployment.compose_generator import find_service_config
+from osprey.deployment.compose_generator import find_service_config, resolve_upstream_images
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
@@ -180,6 +180,7 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
             "project_root": str(project_path),
         },
         "osprey_images": _image_defaults("p"),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "",
         "system": {"timezone": "UTC"},
         "deployment": {},
@@ -342,7 +343,17 @@ def test_inject_bluesky_device_page_size_written_to_both_lanes(tmp_path: Path) -
     assert config["services"]["bluesky_live"]["device_page_size"] == 250
 
 
-def test_plan_dir_mount_and_env_round_trip_through_compose(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("plan_dir", "source"),
+    [
+        ("/opt/facility/plans", "/opt/facility/plans"),
+        # A bare relative source would be a compose named volume.
+        ("plans/", "./plans/"),
+    ],
+)
+def test_plan_dir_mount_and_env_round_trip_through_compose(
+    tmp_path: Path, plan_dir: str, source: str
+) -> None:
     """A configured plan_dir renders both the read-only bind mount and the
     in-container BLUESKY_PLAN_DIRS env var the loader (plan_loader.py) reads
     — the host path must never leak into the container environment."""
@@ -350,15 +361,15 @@ def test_plan_dir_mount_and_env_round_trip_through_compose(tmp_path: Path) -> No
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/plans"), project_path)
+    _inject_bluesky(BlueskyConfig(plan_dir=plan_dir), project_path)
     config = _read_config(project_path)
     rendered = _render_copied_compose(project_path, config)
 
     bridge = rendered["services"]["bluesky-bridge"]
     assert bridge["environment"]["BLUESKY_PLAN_DIRS"] == "/app/project/plans"
-    assert "/opt/facility/plans:/app/project/plans:ro" in bridge["volumes"]
+    assert f"{source}:/app/project/plans:ro" in bridge["volumes"]
     # The host path never appears in the container's environment block.
-    assert "/opt/facility/plans" not in bridge["environment"].values()
+    assert source not in bridge["environment"].values()
 
 
 def test_plan_dir_absent_omits_mount_and_env(tmp_path: Path) -> None:

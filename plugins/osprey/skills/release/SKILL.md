@@ -222,7 +222,7 @@ export ALS_APG_API_KEY=... ALS_APG_BASE_URL=...
 unset CBORG_API_KEY OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY
 
 # Unit tests
-uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n 4 --dist loadgroup -q
+uv run python scripts/check.py run pytest -- -n 4 -q
 
 rm -rf .venv-release-test
 ```
@@ -232,13 +232,12 @@ same exclusions. Copy the invocation out of the `e2e-tests` job rather than
 retyping thirty-three `--ignore` flags:
 
 ```bash
-sed -n '/^  e2e-tests:/,/^  channel-finder-benchmarks:/p' .github/workflows/ci.yml \
+sed -n '/^  e2e-tests:/,/^  benchmarks:/p' .github/workflows/ci.yml \
   | grep -e 'pytest tests/e2e/' -e '--ignore='
 ```
 
 It runs `pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile` with that
-ignore list. The path, not the marker — `-m e2e` leaks registry state between
-tests.
+ignore list.
 
 **The ignored modules are not untested.** Each has a dedicated CI lane of its
 own, because each binds a fixed host port, leaves a fixed-name container
@@ -263,10 +262,11 @@ re-run.
 
 ### The full-ci run is a hard requirement
 
-Eight CI lanes drive real agent sessions against a live model endpoint, and
-they run only on a pull request carrying the `full-ci` label. They are the
-only proof the agentic paths work on the exact tree being tagged: `release.yml`
-runs no tests and never reads the tagged commit's CI status.
+The CI lanes the LANES table in `scripts/repo_checks.py` marks `why="models"`,
+which `release.yml` requires by name in `REQUIRED_LANES`, drive real agent sessions against a live model
+endpoint, and they run only on a pull request carrying the `full-ci` label.
+They are the only proof the agentic paths work on the exact tree being tagged:
+`release.yml` runs no tests and never reads the tagged commit's CI status.
 
 So the release-notes PR in Step 4 carries the label from the moment it opens:
 
@@ -274,7 +274,7 @@ So the release-notes PR in Step 4 carries the label from the moment it opens:
 gh pr edit <number> --add-label full-ci
 ```
 
-The label persists, so every refold push re-runs the eight; the run that
+The label persists, so every refold push re-runs them; the run that
 counts is the one for the commit that actually merges. If the label ever comes
 off, put it back and let the lanes run again.
 
@@ -286,11 +286,6 @@ two commands here and a deleted tag there:
 gh run list --workflow ci.yml --commit <sha> --limit 1
 gh run view <run-id> --json jobs --jq '.jobs[] | [.conclusion, .name] | @tsv'
 ```
-
-By their `ci.yml` job ids, the eight are `agentic-per-preset` (one job per
-preset), `e2e-tests`, `dispatch-deploy-e2e`, `dispatch-overlay-e2e`,
-`scan-agentic-e2e`, `nextcloud-talk-bridge-e2e`, `gchat-bridge-e2e` and
-`target-switch-agentic-e2e`.
 
 **Skipped is not passed.** `All CI Checks Passed` cannot tell a lane that ran
 and won from a lane whose `if:` never fired, so an unlabeled release PR merges
@@ -338,7 +333,7 @@ whether or not the UI looks changed, and watches every take. It is never a CI
 job and never skipped: a release whose videos were not watched does not get
 tagged. A beta is a release here too.
 
-Each take builds a fresh control-assistant stack and runs a live agent, so it
+Each take builds a fresh demo stack and runs a live agent, so it
 needs a container runtime, the provider keys the run uses (the
 `OSPREY_DOCSHOTS_PROVIDER` override when the default provider's key is over
 budget), any key a video names in `needs_env`,

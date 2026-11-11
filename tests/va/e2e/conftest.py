@@ -16,7 +16,7 @@ that is not cleanup -- it kills the peer mid-test, which then fails with a
 boot timeout or a dropped connection that reads as environmental rather than
 as a collision. The ``osprey-va-e2e`` prefix is kept so a stray container is
 still recognisable by eye. It's bind-mounted against a *scratch* data root
-rendered from the Control Assistant preset (never the repo's own copy --
+rendered from the Demo preset (never the repo's own copy --
 ``osprey sim apply`` mutates ``active_scenarios`` and this suite adds its own
 synthetic scenarios), so the fixture is free to write into it. What gets
 rendered is the layout ``osprey build`` writes for a project: the simulator
@@ -62,8 +62,10 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
+from tests._facility_file import demo_facility_document
 from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._facility_select import LaneSelection, lane_selection, second_model
 
@@ -131,8 +133,8 @@ VIEW_CONFIG: dict[str, Any] = {
 }
 
 
-def _render_view(facility: Path, root: Path) -> tuple[Any, SimulatorView]:
-    """Build ``facility`` and render its simulator view under ``root``.
+def _render_view(facility: Path, root: Path, doc: Any = None) -> tuple[Any, SimulatorView]:
+    """Build ``facility``, unless ``doc`` is its build, and render its simulator view under ``root``.
 
     The view lands where a container mounts it, ``<root>/simulator/``, rendered
     with :data:`VIEW_CONFIG`.
@@ -145,14 +147,15 @@ def _render_view(facility: Path, root: Path) -> tuple[Any, SimulatorView]:
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
 
-    doc = build_facility(facility, project_name="control_assistant")
+    if doc is None:
+        doc = build_facility(facility, project_name="demo")
     write_simulator_view(
         root / VIEW_RELPATH.name,
         ViewInputs(
-            doc=doc,
+            records=FacilityRecords(doc),
             rendered_config=VIEW_CONFIG,
             facility_dir=facility,
-            served=resolve_served(VIEW_CONFIG, doc),
+            served=resolve_served(VIEW_CONFIG, FacilityRecords(doc)),
             reported=None,
         ),
     )
@@ -166,7 +169,7 @@ def _render_preset() -> tuple[Any, SimulatorView]:
     """
     root = Path(tempfile.mkdtemp(prefix="osprey-va-e2e-preset-"))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
-    return _render_view(PRESET_FACILITY_DIR, root)
+    return _render_view(PRESET_FACILITY_DIR, root, demo_facility_document())
 
 
 def _render_limits_view(document: Any) -> Path:
@@ -181,7 +184,9 @@ def _render_limits_view(document: Any) -> Path:
     root = Path(tempfile.mkdtemp(prefix="osprey-va-e2e-limits-"))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
     target = root / LIMITS_FILE
-    target.write_text(json.dumps(limits_document(document), indent=2), encoding="utf-8")
+    target.write_text(
+        json.dumps(limits_document(FacilityRecords(document)), indent=2), encoding="utf-8"
+    )
     return target
 
 
@@ -338,8 +343,8 @@ def _monitor_addresses(facility: Path) -> list[str]:
     """
     from importlib import metadata
 
+    from osprey.facility import TEXTURE
     from osprey.simulation.engines import ENTRY_POINT_GROUP
-    from osprey_connectors.simulation.view import TEXTURE
 
     models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
     monitors: set[str] = set()
@@ -349,8 +354,8 @@ def _monitor_addresses(facility: Path) -> list[str]:
         describe = metadata.entry_points(group=ENTRY_POINT_GROUP)[str(model["engine"])].load()
         for record in model["wiring"]:
             described = describe.describe({**record, "direction": "read"})
-            if described["role"] == "monitor" or (
-                described["role"] == "output" and described["plane"] is not None
+            if described["engine_role"] == "monitor" or (
+                described["engine_role"] == "output" and described["plane"] is not None
             ):
                 monitors.add(str(record["address"]))
     return sorted(monitors)
@@ -1139,7 +1144,7 @@ def corrector_at_slot(slot: int) -> Corrector:
     model = lane_model(view)
     kicks = [
         binding.address
-        for binding in view.bindings(role="setpoint", model=model)
+        for binding in view.bindings(engine_role="setpoint", model=model)
         if binding.plane is not None
     ]
     assert len(kicks) > slot, (

@@ -29,14 +29,18 @@ at = pytest.importorskip("at")
 import numpy as np  # noqa: E402
 from fastmcp.exceptions import ToolError  # noqa: E402
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT  # noqa: E402
+from osprey.facility.records import FacilityRecords  # noqa: E402
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
 from osprey.mcp_server.errors import MISSING_KEY  # noqa: E402
 from osprey.mcp_server.python_executor import executor  # noqa: E402
 from osprey.mcp_server.python_executor.tools import (  # noqa: E402
     model_response_matrix as tool,
 )
+from osprey.simulation import model_request  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.response import RESULT_TAG, solve_and_print  # noqa: E402
+from osprey_connectors.simulation.view import VARIABLES_SCHEMA  # noqa: E402
 from tests._simulator_view import view_channel  # noqa: E402
 from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
 
@@ -66,9 +70,9 @@ SPIN_TIMEOUT_S = 60
 
 
 @pytest.fixture(scope="module")
-def sr_render(built_control_assistant: Any) -> Path:
+def sr_render(built_demo: Any) -> Path:
     """The built demo's render, read and never written."""
-    return Path(built_control_assistant.build_dir)
+    return Path(built_demo.build_dir)
 
 
 def _copy_render(source: Path, target: Path) -> Path:
@@ -117,7 +121,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
             "direction": "read",
             "element": f"BPM_{cell}",
             "engine": {"axis": axis},
-            "role": "monitor",
+            "engine_role": "monitor",
             "plane": axis,
             "refresh": "pass",
         }
@@ -132,7 +136,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
             "element": "COR_1",
             "engine": {"attribute": "KickAngle", "index": 0},
             "default": 0.0,
-            "role": "setpoint",
+            "engine_role": "setpoint",
             "plane": "x",
             "refresh": "pass",
         }
@@ -155,7 +159,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
         },
         "served_models.json": {"schema": "osprey.facility.served_models/1", "models": [LINE]},
         "variables.json": {
-            "schema": "osprey.facility.simulator/2",
+            "schema": VARIABLES_SCHEMA,
             "code": "TEST",
             "models": [
                 {
@@ -192,7 +196,6 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     collects each execution folder handed out, and ``state["seed"]`` maps file
     names to text each new folder receives first.
     """
-    from osprey_connectors import posture_store
     from osprey_connectors.workspace import reset_config_cache
 
     root = tmp_path / "deployment"
@@ -208,7 +211,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root / "var" / "agent_data"))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root / "var" / "agent_data"))
     reset_config_cache()
 
     state: dict[str, Any] = {"render": None, "folders": [], "seed": {}, "timeout": TIMEOUT_S}
@@ -259,7 +262,7 @@ class TestSolve:
         steps = {column["address"]: column["step"] for column in result["columns"]}
         expected = engine.response_matrix(
             sr_render / "data" / "simulator" / "decks" / "SR.json",
-            simulator_wiring(facility, "SR"),
+            simulator_wiring(FacilityRecords(facility), "SR"),
             record.get("settings"),
             [CORRECTOR_X, CORRECTOR_Y],
             steps,
@@ -289,7 +292,9 @@ class TestSolve:
         request = tool.resolve_model_request("SR", [CORRECTOR_X], render_root=sr_render)
         facility = json.loads((sr_render / "facility.json").read_text(encoding="utf-8"))
         (record,) = [
-            entry for entry in simulator_wiring(facility, "SR") if entry["address"] == CORRECTOR_X
+            entry
+            for entry in simulator_wiring(FacilityRecords(facility), "SR")
+            if entry["address"] == CORRECTOR_X
         ]
         curve = curve_from_record(record["calibration"]["curve"])
         width = request.steps[CORRECTOR_X]
@@ -465,7 +470,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"refusing_engine.py": REFUSING_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "refusing_engine")
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -483,7 +488,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"no_solve_engine.py": NO_SOLVE_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "no_solve_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "no_solve_engine")
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -501,7 +506,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"internal_engine.py": INTERNAL_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "internal_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "internal_engine")
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -517,7 +522,9 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"broken_facility_engine.py": BROKEN_FACILITY_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "broken_facility_engine")
+        monkeypatch.setattr(
+            model_request, "engine_module", lambda engine_name: "broken_facility_engine"
+        )
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -534,7 +541,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
         sandbox["seed"] = {"refusing_engine.py": UNDECLARED_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "refusing_engine")
 
         with assert_raises_error() as raised:
             _call(model=LINE)
@@ -582,7 +589,7 @@ class TestSolveErrors:
     ):
         sandbox["render"] = sr_render
         sandbox["seed"] = {"partial_engine.py": PARTIAL_ENGINE}
-        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "partial_engine")
+        monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "partial_engine")
 
         result = _call(model="SR", correctors=[CORRECTOR_X, CORRECTOR_Y])
 
@@ -691,7 +698,7 @@ def test_a_solve_that_never_returns_is_refused_at_the_timeout(
     sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
     sandbox["seed"] = {"spin_engine.py": SPIN_ENGINE}
     sandbox["timeout"] = SPIN_TIMEOUT_S
-    monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "spin_engine")
+    monkeypatch.setattr(model_request, "engine_module", lambda engine_name: "spin_engine")
     finished: dict[str, float] = {}
     recorded: list[executor.ExecutionResult] = []
     real_execute_code = executor.execute_code

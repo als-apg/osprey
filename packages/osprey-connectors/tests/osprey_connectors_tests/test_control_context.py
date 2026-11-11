@@ -43,7 +43,7 @@ def data_root(tmp_path, monkeypatch):
     this module to that deployment's directory and never look at the root the
     test just laid down.
     """
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     control_context.invalidate_cache()
     yield tmp_path
@@ -53,7 +53,7 @@ def data_root(tmp_path, monkeypatch):
 @pytest.fixture
 def rootless(monkeypatch):
     """No stamp, no bind and no derivable root: the record has nowhere to live."""
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(
         posture_store,
@@ -117,13 +117,12 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
         == data_root / "control_target" / identity / "control_context.json"
     )
     assert control_context.record_path() == control_context._record_path_under(data_root)
-    assert control_context.state_dir() == posture_store.state_dir()
 
 
 @pytest.mark.usefixtures("rootless")
 def test_record_path_is_none_without_a_root():
     assert control_context.record_path() is None
-    assert control_context.state_dir() is None
+    assert posture_store.state_dir() is None
 
 
 # --- writing ---------------------------------------------------------------
@@ -143,7 +142,7 @@ def test_write_then_read_round_trips():
     # A first write stamps the epoch (rule 3); every caller-set field round-trips,
     # and the posture field is the mirror of the (empty) switch.
     assert stored == replace(
-        record, switch_epoch=stored.switch_epoch, posture=control_context.posture_mirror({})
+        record, switch_epoch=stored.switch_epoch, posture=control_context._posture_mirror({})
     )
     assert isinstance(stored.switch_epoch, int) and stored.switch_epoch > 0
 
@@ -175,7 +174,7 @@ def test_a_narrowing_input_is_not_stored():
     ids=["all-off", "live-on", "all-on", "unknown-key"],
 )
 def test_the_posture_mirror_refuses_every_machine_not_turned_on(switch, mirror):
-    assert control_context.posture_mirror(switch) == mirror
+    assert control_context._posture_mirror(switch) == mirror
 
 
 @pytest.mark.usefixtures("data_root")
@@ -197,7 +196,7 @@ def test_write_creates_the_state_directory(data_root):
     assert not (data_root / "control_target").exists()
     control_context.write_record(control_context.ControlContext(target="live", generation=0))
     assert control_context.record_path().is_file()
-    assert control_context.record_path().parent == control_context.state_dir()
+    assert control_context.record_path().parent == posture_store.state_dir()
 
 
 @pytest.mark.usefixtures("data_root")
@@ -220,7 +219,7 @@ def test_write_payload_carries_exactly_the_record_contract():
         "switch",
         "switch_epoch",
     }
-    assert payload["schema"] == control_context.SCHEMA_VERSION == 1
+    assert payload["schema"] == control_context._SCHEMA_VERSION == 1
     assert payload["owner"] == {"kind": "controls_server", "pid": 4242, "port": None}
     assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
     assert payload["last_switch"] is None
@@ -237,7 +236,7 @@ def test_write_replaces_atomically_and_leaves_no_litter():
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     assert first.stat().st_ino != before
     # The record and its lock (rule 3) — no temp file left behind.
-    assert sorted(p.name for p in control_context.state_dir().iterdir()) == [
+    assert sorted(p.name for p in posture_store.state_dir().iterdir()) == [
         "control_context.json",
         "control_context.json.lock",
     ]
@@ -246,7 +245,7 @@ def test_write_replaces_atomically_and_leaves_no_litter():
 @pytest.mark.usefixtures("data_root")
 def test_a_written_record_is_group_readable_and_not_owner_only():
     """Mode 0640 exactly: the worker uid reads the record through the shared group."""
-    state = control_context.state_dir()
+    state = posture_store.state_dir()
     state.mkdir(parents=True)
     os.chmod(state, 0o2770)
 
@@ -312,7 +311,7 @@ def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with():
     identity hop and set ITS mode, so the assertion would pass on a directory
     nobody had provisioned.
     """
-    state = control_context.state_dir()
+    state = posture_store.state_dir()
     state.mkdir(parents=True)
     os.chmod(state, 0o2750)
 
@@ -354,7 +353,7 @@ def test_refusal_terminus_moves_nothing_else():
     after = control_context.read_record()
     assert after.target == applied.target
     assert after.generation == applied.generation
-    assert after.posture == control_context.posture_mirror(after.switch)
+    assert after.posture == control_context._posture_mirror(after.switch)
     assert after.owner == applied.owner
     assert after.last_switch["status"] == "refused"
     assert after.last_switch["reason"] == "target_unreachable"
@@ -781,17 +780,17 @@ def test_no_record_and_no_owner_have_no_live_owner():
 
 def test_only_a_refused_signal_says_another_users_process(monkeypatch):
     monkeypatch.setattr(os, "kill", _kill_denied_for({1}))
-    assert control_context.is_foreign_process(1) is True
-    assert control_context.is_foreign_process(4321) is False
+    assert control_context._is_foreign_process(1) is True
+    assert control_context._is_foreign_process(4321) is False
 
     monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
-    assert control_context.is_foreign_process(4321) is False
+    assert control_context._is_foreign_process(4321) is False
 
     def odd(_pid, _sig):
         raise OSError("platform oddity")
 
     monkeypatch.setattr(os, "kill", odd)
-    assert control_context.is_foreign_process(4321) is False
+    assert control_context._is_foreign_process(4321) is False
 
 
 @pytest.mark.parametrize("value", [0, -1, True, False, "4321", 4321.0, None, [4321]])
@@ -800,7 +799,7 @@ def test_nothing_but_a_positive_int_is_another_users_process(monkeypatch, value)
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
-    assert control_context.is_foreign_process(value) is False
+    assert control_context._is_foreign_process(value) is False
 
 
 # --- the claim rule --------------------------------------------------------
@@ -879,7 +878,7 @@ def _report_payload(pid, **overrides):
 
 
 def _write_report(root: Path, pid, payload=None) -> Path:
-    path = control_context.report_path_under(root, pid)
+    path = control_context._report_path_under(root, pid)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = payload if isinstance(payload, str) else json.dumps(payload)
     path.write_text(text, encoding="utf-8")
@@ -888,11 +887,11 @@ def _write_report(root: Path, pid, payload=None) -> Path:
 
 def test_reports_live_beside_the_record(data_root):
     """Every family of file in this directory moves together, identity hop included."""
-    expected = control_context.state_dir() / "server_4321.json"
+    expected = posture_store.state_dir() / "server_4321.json"
     assert control_context.REPORT_FILE_PREFIX == "server_"
     assert control_context.REPORT_FILE_GLOB == "server_*.json"
     assert control_context.report_path(4321) == expected
-    assert control_context.report_path_under(data_root, 4321) == expected
+    assert control_context._report_path_under(data_root, 4321) == expected
     assert expected.parent == control_context.record_path().parent
 
 
@@ -904,24 +903,24 @@ def test_report_path_is_none_without_a_root():
 
 def test_a_report_round_trips_through_its_payload():
     payload = _report_payload(4321)
-    report = control_context.parse_report(payload)
+    report = control_context._parse_report(payload)
     assert report is not None
     assert report.to_payload() == payload
-    assert control_context.parse_report(report.to_payload()) == report
+    assert control_context._parse_report(report.to_payload()) == report
 
 
 @pytest.mark.parametrize("value", [None, 0, -1, True, "4321", 4321.0])
 def test_a_report_without_a_server_pid_is_no_report(value):
-    assert control_context.parse_report(_report_payload(value)) is None
+    assert control_context._parse_report(_report_payload(value)) is None
 
 
 def test_a_report_that_is_not_an_object_is_no_report():
-    assert control_context.parse_report([1, 2, 3]) is None
-    assert control_context.parse_report(None) is None
+    assert control_context._parse_report([1, 2, 3]) is None
+    assert control_context._parse_report(None) is None
 
 
 def test_a_server_that_has_not_answered_yet_reports_no_applied_target():
-    report = control_context.parse_report(
+    report = control_context._parse_report(
         _report_payload(4321, applied_target=None, applied_generation=None)
     )
     assert report.applied_target is None
@@ -949,7 +948,7 @@ def test_a_server_that_has_not_answered_yet_reports_no_applied_target():
 )
 def test_a_degraded_report_field_degrades_alone(field, value, expected):
     """The identity is ``server_pid``; every annotation on it stands or falls alone."""
-    report = control_context.parse_report(_report_payload(4321, **{field: value}))
+    report = control_context._parse_report(_report_payload(4321, **{field: value}))
     assert report is not None
     assert report.server_pid == 4321
     assert getattr(report, field) == expected
@@ -1008,15 +1007,7 @@ def test_live_reports_ask_the_liveness_predicate_they_are_given(data_root):
     assert len(control_context.live_reports(is_alive=lambda pid: True)) == 1
 
 
-def test_live_report_payloads_keep_the_keys_this_version_does_not_know(data_root):
-    _write_report(data_root, os.getpid(), _report_payload(os.getpid(), owner_ppid=os.getppid()))
-
-    payloads = control_context.live_report_payloads(control_context.report_paths())
-
-    assert [p["owner_ppid"] for p in payloads] == [os.getppid()]
-
-
-def test_live_report_payloads_drop_a_report_whose_server_pid_is_a_bool(data_root, monkeypatch):
+def test_live_reports_drop_a_report_whose_server_pid_is_a_bool(data_root, monkeypatch):
     """``True`` would reach ``os.kill(1, 0)`` and read as alive forever."""
     _write_report(data_root, 4321, _report_payload(True))
 
@@ -1024,7 +1015,7 @@ def test_live_report_payloads_drop_a_report_whose_server_pid_is_a_bool(data_root
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
-    assert control_context.live_report_payloads(control_context.report_paths()) == []
+    assert control_context.live_reports() == []
 
 
 # --- display-only reports --------------------------------------------------
@@ -1057,17 +1048,17 @@ def _display_payload(pid, **overrides):
 
 def test_a_display_only_report_round_trips_eleven_fields():
     payload = _display_payload(4321)
-    report = control_context.parse_report(payload)
+    report = control_context._parse_report(payload)
 
     assert report.display_only is True
     assert report.statement == _STATEMENT
     assert report.to_payload() == payload
     assert len(report.to_payload()) == 11
-    assert control_context.parse_report(report.to_payload()) == report
+    assert control_context._parse_report(report.to_payload()) == report
 
 
 def test_a_controls_server_report_stays_ten_fields_and_not_display_only():
-    report = control_context.parse_report(_report_payload(4321))
+    report = control_context._parse_report(_report_payload(4321))
 
     assert report.display_only is False
     assert report.statement is None
@@ -1097,30 +1088,30 @@ def test_a_controls_server_report_stays_ten_fields_and_not_display_only():
 )
 def test_a_statement_of_another_shape_states_nothing(statement):
     """A malformed statement never marks a report display-only (it reads as a controls server's)."""
-    report = control_context.parse_report(_display_payload(4321, statement=statement))
+    report = control_context._parse_report(_display_payload(4321, statement=statement))
 
     assert report is not None
     assert report.statement is None
     assert report.display_only is False
     assert "statement" not in report.to_payload()
-    assert control_context.parse_report(report.to_payload()).display_only is False
+    assert control_context._parse_report(report.to_payload()).display_only is False
 
 
 def test_a_statement_not_yet_stated_on_either_axis_is_well_formed():
-    report = control_context.parse_report(
+    report = control_context._parse_report(
         _display_payload(4321, statement={"reachable": None, "writes": None})
     )
     assert report.statement == {"reachable": None, "writes": None}
     assert report.display_only is True
 
 
-@pytest.mark.parametrize("state", control_context.REACHABLE_STATES)
+@pytest.mark.parametrize("state", control_context._REACHABLE_STATES)
 def test_reachable_is_stated_as_one_of_the_two_roots(state):
     statement = {
         "reachable": {"state": state, "since": "2026-01-01T00:00:00+00:00"},
         "writes": None,
     }
-    report = control_context.parse_report(_display_payload(4321, statement=statement))
+    report = control_context._parse_report(_display_payload(4321, statement=statement))
     assert report.statement["reachable"] == {
         "state": state,
         "since": "2026-01-01T00:00:00+00:00",
@@ -1139,14 +1130,14 @@ def test_write_statement_carries_the_verdicts_terms_and_nothing_else():
     )
     writes = control_context.write_statement(verdict)
 
-    assert tuple(writes) == control_context.WRITES_STATEMENT_KEYS
+    assert tuple(writes) == control_context._WRITES_STATEMENT_KEYS
     assert writes == {
         "allowed": False,
         "position": None,
         "reason": "session_held",
         "kind": "simulator",
     }
-    report = control_context.parse_report(
+    report = control_context._parse_report(
         _display_payload(4321, statement={"reachable": None, "writes": writes})
     )
     assert report.statement["writes"] == writes
@@ -1168,11 +1159,9 @@ def test_fleet_readers_leave_out_a_display_only_report(data_root):
     alive = {"is_alive": lambda pid: True}
 
     assert [r.server_pid for r in control_context.live_reports(**alive)] == [4321]
-    payloads = control_context.live_report_payloads(control_context.report_paths(), **alive)
-    assert [p["server_pid"] for p in payloads] == [4321]
-    statements = control_context.live_statement_reports(**alive)
+    reports = [control_context.read_report(path) for path in control_context.report_paths()]
+    statements = [r for r in reports if r is not None and r.display_only]
     assert [r.server_pid for r in statements] == [4322]
-    assert statements[0].display_only is True
 
 
 def test_a_report_with_a_malformed_statement_is_read_as_a_controls_server(data_root):
@@ -1180,20 +1169,8 @@ def test_a_report_with_a_malformed_statement_is_read_as_a_controls_server(data_r
     alive = {"is_alive": lambda pid: True}
 
     assert [r.server_pid for r in control_context.live_reports(**alive)] == [4322]
-    payloads = control_context.live_report_payloads(control_context.report_paths(), **alive)
-    assert [p["server_pid"] for p in payloads] == [4322]
-    assert control_context.live_statement_reports(**alive) == []
-
-
-def test_live_statement_reports_skip_dead_display_processes(data_root):
-    _write_report(data_root, 4322, _display_payload(4322))
-    assert control_context.live_statement_reports(is_alive=lambda pid: False) == []
-    paths = control_context.report_paths()
-    assert len(control_context.live_statement_reports(paths, is_alive=lambda pid: True)) == 1
-
-
-def test_live_statement_reports_is_exported():
-    assert "live_statement_reports" in control_context.__all__
+    [report] = [control_context.read_report(path) for path in control_context.report_paths()]
+    assert report is not None and not report.display_only
 
 
 @pytest.mark.parametrize("session", [None, "", "sess-1", "sess-other", "kernel:abc"])
@@ -1202,7 +1179,7 @@ def test_live_statement_reports_is_exported():
 )
 def test_blocking_pids_passes_over_a_display_only_report(session, target, generation):
     """A display process states no session and no switch, so it never holds anybody up."""
-    data = control_context.parse_report(
+    data = control_context._parse_report(
         _display_payload(4322, applied_target=target, applied_generation=generation)
     )
     record = _context()
@@ -1227,7 +1204,7 @@ def test_a_dead_owners_file_is_swept(data_root, monkeypatch):
     dead = _write_report(data_root, 4321, _report_payload(4321))
     monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
 
-    assert _sweep(control_context.state_dir()) == [dead]
+    assert _sweep(posture_store.state_dir()) == [dead]
     assert not dead.exists()
 
 
@@ -1235,7 +1212,7 @@ def test_a_live_owners_file_is_left_alone(data_root, monkeypatch):
     alive = _write_report(data_root, 4321, _report_payload(4321))
     monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
 
-    assert _sweep(control_context.state_dir()) == []
+    assert _sweep(posture_store.state_dir()) == []
     assert alive.exists()
 
 
@@ -1243,13 +1220,13 @@ def test_the_kept_file_is_never_probed(data_root, monkeypatch):
     own = _write_report(data_root, 1234, _report_payload(1234))
     monkeypatch.setattr(os, "kill", _kill_with_dead({1234}))
 
-    assert _sweep(control_context.state_dir(), keep=own.name) == []
+    assert _sweep(posture_store.state_dir(), keep=own.name) == []
     assert own.exists()
 
 
 @pytest.mark.usefixtures("data_root")
 def test_a_filename_that_encodes_no_pid_is_swept():
-    directory = control_context.state_dir()
+    directory = posture_store.state_dir()
     directory.mkdir(parents=True)
     junk = directory / "server_notapid.json"
     junk.write_text("{}", encoding="utf-8")
@@ -1260,8 +1237,8 @@ def test_a_filename_that_encodes_no_pid_is_swept():
 
 @pytest.mark.usefixtures("data_root")
 def test_a_missing_directory_sweeps_to_empty():
-    assert not control_context.state_dir().exists()
-    assert _sweep(control_context.state_dir()) == []
+    assert not posture_store.state_dir().exists()
+    assert _sweep(posture_store.state_dir()) == []
 
 
 # --- convergence -----------------------------------------------------------
@@ -1618,7 +1595,7 @@ def test_the_record_fixture_round_trips_through_read_record(data_root):
     assert record is not None
     assert record.target == "va"
     assert record.generation == 7
-    assert record.posture == control_context.posture_mirror({})
+    assert record.posture == control_context._posture_mirror({})
     assert record.last_switch == {"request_id": "req-1", "status": control_context.SWITCH_APPLIED}
 
 
@@ -1819,7 +1796,7 @@ def test_the_switch_fields_round_trip_through_the_payload():
     )
     payload = record.to_payload()
     assert payload["switch"] == {"live": "asked"} and payload["switch_epoch"] == 42
-    mirrored = replace(record, posture=control_context.posture_mirror(record.switch))
+    mirrored = replace(record, posture=control_context._posture_mirror(record.switch))
     assert control_context.parse_record(payload) == mirrored
     assert control_context.parse_record(json.dumps(payload)) == mirrored
 

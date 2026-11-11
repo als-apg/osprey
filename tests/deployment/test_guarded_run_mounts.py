@@ -159,8 +159,8 @@ def _container_repo_root(service: dict[str, Any]) -> PurePosixPath | None:
 
 #: Services that name a spool directory yet run no framework MCP server: the
 #: history page serves a web app and runs no agent tool, the bluesky queueserver
-#: and web sidecar record their own decisions, and each chat bridge records its
-#: conversations.
+#: and web sidecars (bluesky's and the optimizer's) record their own decisions, each chat bridge records its
+#: conversations, and the optimizer names one for its put-log identity alone.
 _NO_MCP_SERVER = frozenset(
     {
         "history.yml:history",
@@ -168,7 +168,10 @@ _NO_MCP_SERVER = frozenset(
         "bluesky_web.yml:bluesky-web",
         "gchat_bridge.yml:gchat-bridge",
         "nextcloud_bridge.yml:nextcloud-bridge",
+        "optimizer.yml:optimizer",
+        "optimizer_web.yml:optimizer-web",
         "teams_bridge.yml:teams-bridge",
+        "slack_bridge.yml:slack-bridge",
     }
 )
 

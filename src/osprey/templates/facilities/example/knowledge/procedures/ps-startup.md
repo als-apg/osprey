@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Procedure
 title: Primary Source Startup
 description: Step-by-step startup sequence for the Primary Source system from cold-start to beam-ready state.

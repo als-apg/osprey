@@ -1,0 +1,306 @@
+"""Jobs API router.
+
+Provides unified endpoints for monitoring and controlling any job, regardless
+of type.
+"""
+
+import logging
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+
+from osprey_optimizer.api.dependencies import (
+    get_environment_registry,
+    get_job_tracker,
+    require_job_meta,
+)
+from osprey_optimizer.api.environment_ops import guard_environment_start, load_environment
+from osprey_optimizer.api.job_control import (
+    cancel_with_reread,
+    draft_changed_409,
+    raise_control_conflict_409,
+)
+from osprey_optimizer.api.job_status import read_job_status
+from osprey_optimizer.api.job_tracker import JobMeta, JobTracker
+from osprey_optimizer.api.optimization_lifecycle import (
+    draft_revision,
+    read_optimization_config,
+    read_optimization_draft,
+    require_model_file_under_results,
+    start_optimization_job,
+    update_optimization_config,
+)
+from osprey_optimizer.api.optimization_status import build_optimization_response
+from osprey_optimizer.api.owner import OWNER_HEADER, owner_from_header
+from osprey_optimizer.api.security import require_launch_token
+from osprey_optimizer.api.start_gates import run_start_gates
+from osprey_optimizer.models.api import CurrentJobRequest, CurrentJobResponse, JobResponse
+from osprey_optimizer.models.config import OptimizationConfig, machine_config
+from osprey_optimizer.models.enums import JobStatus
+from osprey_optimizer.optimization.state import get_optimization_reader, get_optimization_writer
+from osprey_optimizer.services.plugin_registry import EnvironmentRegistry
+from osprey_optimizer.utils.cancellation import get_cancellation_token
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+CONFIG_REVISION_HEADER = "X-Config-Revision"
+
+
+def _cancel_job(job_id: str, tracker: JobTracker) -> None:
+    """Cancel a job by setting the cancellation token and updating state."""
+    writer = get_optimization_writer(job_id)
+    token = get_cancellation_token(job_id)
+    cancel_with_reread(job_id, writer, token, tracker)
+
+
+def _control_action(
+    job_id: str, action: Literal["pause", "resume"], tracker: JobTracker
+) -> JobResponse:
+    """Pause/resume an optimization job via a single status CAS.
+
+    pause is only legal from RUNNING, resume only from PAUSED. The CAS from that
+    required source is the sole gate — it rejects a terminal job (worker drove it
+    done in the gap) and a wrong-source job (e.g. CREATED) alike. The cancellation
+    token is toggled only after the swap commits, so a rejected action never
+    poisons a job's token, and the token (whose key a draft does not own) is
+    built only then.
+    """
+    logger.info("%s request for job %s", action.capitalize(), job_id)
+    try:
+        state_writer = get_optimization_writer(job_id)
+
+        if action == "pause":
+            required_source, new_status = JobStatus.RUNNING, JobStatus.PAUSED
+        else:
+            required_source, new_status = JobStatus.PAUSED, JobStatus.RUNNING
+
+        if not state_writer.set_status_cas(required_source, new_status):
+            raise_control_conflict_409(job_id, action, required_source, state_writer)
+
+        token = get_cancellation_token(job_id)
+        if action == "pause":
+            token.pause()
+        else:
+            token.resume()
+        return read_job_status(tracker, job_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("%s action failed", action.capitalize())
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
+
+@router.get("", response_model=list[JobResponse])
+def list_jobs(
+    tracker: JobTracker = Depends(get_job_tracker),
+) -> list[JobResponse]:
+    """List every non-terminal job (created, submitted, running, paused).
+
+    Created jobs do not hold the single active slot, so this scans all job
+    metadata rather than reading the active pointer. Terminal jobs (which linger
+    under their terminal TTL) are excluded.
+    """
+    responses: list[JobResponse] = []
+    try:
+        for meta in tracker.list_job_metas():
+            job_id = meta.job_id
+            if not job_id:
+                continue
+            try:
+                response = read_job_status(tracker, job_id)
+            except HTTPException:
+                logger.warning("Skipping job %s in listing: metadata unreadable", job_id)
+                continue
+            if not response.status.is_terminal:
+                responses.append(response)
+        return responses
+    except Exception as e:
+        logger.exception("Failed to list jobs")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to read job state: {e}",
+        ) from e
+
+
+@router.get("/current", response_model=CurrentJobResponse)
+def read_current_job(
+    tracker: JobTracker = Depends(get_job_tracker),
+) -> CurrentJobResponse:
+    """Return the UI 'current job' pointer (id or null).
+
+    Declared before /{job_id} so 'current' is not parsed as a job id.
+    """
+    return CurrentJobResponse(job_id=tracker.get_current_job())
+
+
+@router.put("/current", response_model=CurrentJobResponse)
+def put_current_job(
+    body: CurrentJobRequest,
+    tracker: JobTracker = Depends(get_job_tracker),
+) -> CurrentJobResponse:
+    """Set the UI 'current job' pointer to an existing job (404 if unknown)."""
+    if not tracker.job_exists(body.job_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {body.job_id} not found"
+        )
+    tracker.set_current_job(body.job_id)
+    return CurrentJobResponse(job_id=body.job_id)
+
+
+@router.get("/{job_id}", response_model=JobResponse)
+def get_job_status(
+    job_id: str,
+    detail: Literal["summary", "full"] | None = Query(None),
+    tracker: JobTracker = Depends(get_job_tracker),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
+) -> JobResponse:
+    """Get the status of any job; ``detail=summary|full`` enriches optimizations.
+
+    Default (no ``detail``) returns the basic status.
+    """
+    try:
+        if detail is not None:
+            return build_optimization_response(job_id, detail, tracker)
+        response = read_job_status(tracker, job_id)
+        if response.status.is_terminal:
+            tracker.mark_completed(job_id)
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error reading job state for %s", job_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to read job state: {e}",
+        ) from e
+
+
+@router.post("/{job_id}/cancel", response_model=JobResponse)
+def cancel_job(
+    job_id: str,
+    tracker: JobTracker = Depends(get_job_tracker),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
+) -> JobResponse:
+    """Cancel any running job."""
+    logger.info("Cancel request for job %s", job_id)
+
+    current = get_optimization_reader(job_id).get_status()
+    if current.is_terminal:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot cancel job {job_id}: already {current.value}",
+        )
+
+    try:
+        _cancel_job(job_id, tracker)
+        return read_job_status(tracker, job_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Cancel job failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/{job_id}/start",
+    response_model=JobResponse,
+    dependencies=[Depends(require_launch_token)],
+)
+def start_job(
+    job_id: str,
+    config_revision: str = Query(),
+    override_unhealthy: bool = Query(default=False),
+    x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
+    tracker: JobTracker = Depends(get_job_tracker),
+    registry: EnvironmentRegistry = Depends(get_environment_registry),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
+) -> JobResponse:
+    """Start a CREATED job's worker on the target its config names.
+
+    The run's writes are made for the login ``X-Osprey-Owner`` names
+    (:mod:`osprey_optimizer.api.owner`): its tier and switch govern them. With
+    no usable owner the run starts owner-less, and on a deployment that holds
+    the control-context tree the connector refuses its writes ``owner_unknown``.
+
+    ``config_revision`` is the draft revision the caller showed (the
+    ``X-Config-Revision`` of ``GET /jobs/{id}/config``): 409 when the draft
+    changed since, checked first and again atomically with the start.
+    """
+    config, config_json = read_optimization_draft(job_id)  # 404 when no config is stored
+    if config_revision != draft_revision(config):
+        raise draft_changed_409(job_id)
+    env_name = config.environment_name
+    target = config.control_target
+    if env_name is None or target is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Job {job_id} cannot start: its config must name an environment_name and a "
+                "control_target (va, standin or live)."
+            ),
+        )
+    guard_environment_start(env_name, target, registry, override_unhealthy=override_unhealthy)
+    env_config = {
+        **(config.environment_config or {}),
+        **machine_config(target, config.execution_mode),
+    }
+    require_model_file_under_results(config)
+    run_start_gates(config, load_environment(env_name, registry, env_config), env_name=env_name)
+    owner = owner_from_header(x_osprey_owner)
+    return start_optimization_job(job_id, tracker, config, config_json, owner=owner)
+
+
+@router.put("/{job_id}/config", response_model=JobResponse)
+def update_job_config(
+    job_id: str,
+    request: OptimizationConfig,
+    tracker: JobTracker = Depends(get_job_tracker),
+    registry: EnvironmentRegistry = Depends(get_environment_registry),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
+) -> JobResponse:
+    """Replace a CREATED optimization job's stored config (live-sync)."""
+    return update_optimization_config(job_id, request, tracker, registry)
+
+
+@router.get("/{job_id}/config", response_model=OptimizationConfig)
+def get_job_config(
+    job_id: str,
+    response: Response,
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
+) -> OptimizationConfig:
+    """Return an optimization job's stored config (read-side of live-sync).
+
+    ``X-Config-Revision`` carries its revision, the value a start must name.
+    """
+    config = read_optimization_config(job_id)
+    response.headers[CONFIG_REVISION_HEADER] = draft_revision(config)
+    return config
+
+
+@router.post("/{job_id}/pause", response_model=JobResponse)
+def pause_job(
+    job_id: str,
+    tracker: JobTracker = Depends(get_job_tracker),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
+) -> JobResponse:
+    """Pause a running optimization job."""
+    return _control_action(job_id, "pause", tracker)
+
+
+@router.post(
+    "/{job_id}/resume",
+    response_model=JobResponse,
+    dependencies=[Depends(require_launch_token)],
+)
+def resume_job(
+    job_id: str,
+    tracker: JobTracker = Depends(get_job_tracker),
+    _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
+) -> JobResponse:
+    """Resume a paused optimization job."""
+    return _control_action(job_id, "resume", tracker)

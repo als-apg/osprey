@@ -86,6 +86,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
+from osprey.facility.records import FacilityRecords
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
@@ -105,7 +106,7 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.sdk_helpers import render_dir, set_switch_in_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -242,7 +243,6 @@ CONNECTOR_CONFIG: dict[str, Any] = {
 }
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
@@ -303,18 +303,18 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     view are built in memory from the repo's tree, because the pairs are
     chosen before the build.
     """
+    from osprey.facility import TEXTURE
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
-    from osprey_connectors.simulation.view import TEXTURE
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     coupled = {
         str(entry["address"])
         for model in facility.get("models") or []
         if model.get("engine") != TEXTURE
-        for entry in simulator_wiring(facility, str(model["name"]))
+        for entry in simulator_wiring(FacilityRecords(facility), str(model["name"]))
     }
     low, high = SP_ECHO_BAND
     in_band = {
@@ -324,7 +324,7 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
         and isinstance(nominal := (channel.get("simulation") or {}).get("nominal"), int | float)
         and low <= nominal <= high
     }
-    document = bluesky_document(facility)
+    document = bluesky_document(FacilityRecords(facility))
     pairs = sorted(
         (entry["setpoint"], entry["readback"])
         for entry in document[SETTABLES_KEY]
@@ -349,16 +349,17 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     that same model wires, and which a limits record gives a range to write
     inside. The first by setpoint address is taken.
     """
+    from osprey.facility import TEXTURE
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
-    from osprey_connectors.simulation.view import TEXTURE, Binding
+    from osprey_connectors.simulation.view import Binding
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     readback_of = {
         entry["setpoint"]: entry["readback"]
-        for entry in bluesky_document(facility)[SETTABLES_KEY]
+        for entry in bluesky_document(FacilityRecords(facility))[SETTABLES_KEY]
         if "readback" in entry
     }
     candidates = []
@@ -366,13 +367,16 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
         if model.get("engine") == TEXTURE:
             continue
         name = str(model["name"])
-        bindings = [Binding.from_record(name, entry) for entry in simulator_wiring(facility, name)]
+        bindings = [
+            Binding.from_record(name, entry)
+            for entry in simulator_wiring(FacilityRecords(facility), name)
+        ]
         wired = {binding.address for binding in bindings}
         for binding in bindings:
             setpoint = binding.address
             entry = limits.get(setpoint) or {}
             if (
-                binding.role == "setpoint"
+                binding.engine_role == "setpoint"
                 and binding.plane is not None
                 and readback_of.get(setpoint) in wired
                 and "min_value" in entry
@@ -469,37 +473,42 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     base = tmp_path_factory.mktemp("va_substrate_build")
     repo = base / PROJECT_NAME
 
-    # Extends control-assistant (which already ships its facility tree) with
+    # Extends demo (which already ships its facility tree) with
     # the one flag it doesn't default to: the
     # control-system type. Written as a flat dotted-string key under `config:`,
     # the spelling the preset itself uses: everything after `config.` is one
     # key naming one leaf, so the rest of the `control_system` block
     # (writes/limits_checking/connector gateways) is left alone.
-    # `dispatch: null` drops control-assistant's default event-dispatcher
+    # `dispatch: null` drops demo's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant here and far slower to
     # build than the VA image already is. The preset's `services:` block holds
     # the record archive, which runs the same project image, so it goes with the
     # dispatch stack: `services: {}` is the spelling because a single service
     # cannot be nulled.
     # `modules.web_terminals.enabled: false` scopes this deploy back to the VA +
-    # bridge substrate: the control-assistant preset now ships the multi-user
+    # bridge substrate: the demo preset now ships the multi-user
     # web-terminal stack on by default, so an unqualified deploy would also
     # render both render projects, build two web images, and start nginx/web
     # containers -- none of which this substrate-equivalence proof exercises
-    # (that topology is covered by test_control_assistant_demo.py).
+    # (that topology is covered by the demo-e2e lane).
     # `_orm_stack.VA_ARCHIVER_CI_KNOBS` shrinks the archive the preset declares
     # to a CI-sized one -- this proof deploys the store (the preset's
     # `va_archiver:` block is what makes the VA's history real) but reads none
     # of its history, and seeding a tutorial-sized month costs every run.
-    edits = {
-        "config": {
-            "control_system.type": "virtual_accelerator",
-            "modules.web_terminals.enabled": False,
-        },
-        "dispatch": None,
-        "services": {},
-        **_orm_stack.VA_ARCHIVER_CI_KNOBS,
-    }
+    # `_orm_stack.knowledge_services_off` drops the agent's knowledge services
+    # (qmd, the graph store, ARIEL's Postgres, the ClickHouse record store):
+    # nothing in this proof reads them, and they are most of the stack's disk.
+    edits = _orm_stack.knowledge_services_off(
+        {
+            "config": {
+                "control_system.type": "virtual_accelerator",
+                "modules.web_terminals.enabled": False,
+            },
+            "dispatch": None,
+            "services": {},
+            **_orm_stack.VA_ARCHIVER_CI_KNOBS,
+        }
+    )
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
@@ -510,8 +519,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "init",
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
+            *e2e_scenario_pin(),
             *set_pairs(edits),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
@@ -974,7 +984,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], rb)
+    col = _find_column([column["name"] for column in data["columns"]], rb)
     bridge_value = data["rows"][0][col]
     assert bridge_value is not None, f"no value recorded for {rb}: {data}"
 
@@ -1076,7 +1086,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == num, f"expected {num} rows: {data}"
-    col = _find_column(data["columns"], rb)
+    col = _find_column([column["name"] for column in data["columns"]], rb)
     row_values = [row[col] for row in data["rows"]]
     assert len(row_values) == num and all(v is not None for v in row_values), (
         f"incomplete {rb} column: {row_values}"
@@ -1221,7 +1231,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         status, data = _get(f"/runs/{run_id}/data")
         assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
         assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-        col = _find_column(data["columns"], rb)
+        col = _find_column([column["name"] for column in data["columns"]], rb)
         bridge_rb = data["rows"][0][col]
         assert bridge_rb is not None, f"no value recorded for {rb}: {data}"
 

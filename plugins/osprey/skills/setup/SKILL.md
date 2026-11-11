@@ -158,7 +158,7 @@ with no OSPREY, and the status-quo card. On "nothing yet" every value is `?`.
 - Framework version: `build/.osprey-manifest.json` `creation.osprey_version`, or `?` when
   the repo was never built. `requires_osprey_version` is a schema floor, shown as one.
 - Agent model pins: every `claude_code.agent_models.<agent>` key in `profile.yml`'s
-  `config:` block and in each `tiers/*.yml` and `apps/*.yml`, plus the `model:` line of each
+  `config:` block and in each `tiers/*.yml`, plus the `model:` line of each
   `agents/<name>.md`. `osprey profile card --json` does not carry them. They are the
   AGENT box's `models` line.
 - **Reference-facility material is recognized here.** A file whose content still
@@ -179,7 +179,7 @@ Read `references/map.md`. It carries the closed verdict vocabulary (`port`, `nat
 `placeholder`, `obsolete`, `gap`, `unknown`), the porting-map card, and the rule that `?`
 rows render first. Every element of the locked status quo gets exactly one verdict, read
 live from that card, `osprey profile artifacts`, the emitted `profile.yml`, and the
-`control-assistant` preset. A `gap` verdict becomes an upstream candidate under the rules
+`demo` preset. A `gap` verdict becomes an upstream candidate under the rules
 above. A `placeholder` verdict is answered `refresh` or `localize` on the card itself.
 Each agent model pin is one element: `port` when the `models` list of the provider the
 deployment will run carries its id, landing as
@@ -200,7 +200,7 @@ ships `code:` only.
 ### 3. BUILD
 
 1. `osprey init <name> --preset hello-world`, hello-world by rule, not by choice.
-   `control-assistant` is the reference example this phase reads from. It is never
+   `demo` is the reference example this phase reads from. It is never
    initialized and never pulled with `--with-content`: its data bundle is the reference
    facility's, and a deployment half adapted and half demo is the failure this rule
    prevents.
@@ -220,7 +220,7 @@ ships `code:` only.
    follow that recipe in full. Nothing enters the profile any other way.
    - Profile scalars: `osprey set config.<dotted key>=<value>`.
    - Optional top-level blocks the emitted profile carries commented: uncomment them.
-   - Data and context files: skeletons via `osprey scaffold pull control-assistant:<path>`,
+   - Data and context files: skeletons via `osprey scaffold pull demo:<path>`,
      or, on a `port` verdict, the facility's own file copied unchanged.
    - Custom code: the matching convention directory, with the rest recorded under
      Deferred. Never write a custom component mid-run.
@@ -248,13 +248,16 @@ ships `code:` only.
      proposes each model's `wiring` block; its open slots are answered in a review
      sized to the model, with the MODEL WIRING card in `references/cards.md`
      (`## MODEL WIRING`) as its overview. The import refuses while one is open.
-   - `osprey facility import mml` refuses while `data/facility/` holds record sources
-     of its own — on this base, hello-world's demo records — and prints one `rm` line
-     per file. Run those lines as printed, then import again.
+   - `osprey facility import mml` replaces the bundled facility in one line
+     (`import mml: replaced the bundled <name> facility (<n> files)`) and refuses only
+     hand-written records of the kinds it writes, naming each file with the new-repo
+     remedy.
 8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
 9. Core four, hardwired, resolved before wrap-up. **Provider, its key, and each agent's
-   model**: the list is `providers.yml` beside the profile; `osprey init` writes
-   `.env.example`, never `.env`, so the key goes into a `.env` you create from it, and a
+   model**: the list is `providers.yml` beside the profile; `osprey init` always writes
+   `.env.example` and seeds `.env` only from what it already has — a key the shell
+   exports, the preset's `env.defaults` — so on a bare hello-world there is none: the
+   key goes into `.env`, created from the example when absent, and a
    key deferred is an Open entry naming the variable. Once the ports in step 5 have made
    the agent list final, draw the MODELS card in `references/cards.md`: every agent runs
    the main model unless the user pins it, one
@@ -265,6 +268,9 @@ ships `code:` only.
    containers and is what hello-world emits, `serving: served` is a
    containerized soft-IOC — or a real one; `osprey init --help` lists every connector.
    **Write access and safety**, where enabling writes forces the limits conversation.
+   The ceiling is `control_system.writes`: `never` (what hello-world emits), `asked`
+   or `allowed`. `osprey set` only lowers it, so raising it is a hand edit of
+   `profile.yml` or a tier file; the comment above the key says what each value arms.
    **Project identity**.
 10. **Base demo material.** hello-world emits two demo items of its own: the
     `example_server` MCP example (keep or remove) and three demo records in
@@ -288,15 +294,15 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
   record from it, and every file `osprey facility import mml` writes under
   `data/facility/imported/mml/` is `built`.
 - Write limits: absent, empty, or ported, never a hand-written min or max.
-- Tiers, apps and users: emit all, then prune. One ordering, one home:
+- Tiers, shared logins and users: emit all, then prune. One ordering, one home:
   `references/knowledge-starter.md` §6, which the web-terminal recipe points at too.
 - Triggers: never pulled; `dispatch.triggers` names a bundled set or a repo path.
 - ARIEL vocabulary and lattice: skeleton or facility file only, then recorded for curation.
 
 ### 4. CLOSE
 
-**Ledger gate first, mechanical.** Walk `data/`, `tiers/`, `apps/`, `web-terminal-context/`,
-`mcp_servers/` and every `services.*` block in the profile against `## Ledger`. Render
+**Ledger gate first, mechanical.** Walk `data/`, `tiers/`, `apps/`, `watchdogs/`,
+`web-terminal-context/`, `mcp_servers/` and every `services.*` block in the profile against `## Ledger`. Render
 the LEDGER GATE panel from `references/cards.md`. Wrap-up is blocked while any path has
 no row, or any row reads `reference facility`. Each blocking row is resolved with the
 user as `localize`, `refresh`, `remove`, or `keep — <reason>`; nothing is resolved
@@ -362,7 +368,7 @@ core: provider ✔ · models ✔ · control system ✔ · writes/safety ✖ · i
 | --- | --- | --- | --- |
 | data/facility/knowledge/ | pulled | skeleton | indexes only |
 | data/facility/knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
-| data/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
+| data/facility/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
 | services.postgresql | ported | LCLS | ARIEL store |
 ## Decided
 - <decision> — <one-line rationale> (<date>)

@@ -1,7 +1,7 @@
 """Agentic e2e acceptance gate for the graph MCP server.
 
 This is the feature's acceptance test: a deployment built from the
-``control_assistant`` preset, pointed at a *real* Neo4j 5.26 + neosemantics
+``demo`` preset, pointed at a *real* Neo4j 5.26 + neosemantics
 store seeded with the shipped demo-machine corpus, driven by a real agent
 session with an operator-style question about the machine's structure. The
 claim under test is the whole chain at once — the preset renders ``graph`` into
@@ -108,7 +108,7 @@ logger = logging.getLogger(__name__)
 # No module-level ``pytestmark`` — see the module docstring. The two halves of
 # this file have different prerequisites and therefore different markers:
 #
-#   * the live acceptance test carries ``e2e``/``slow``/``agentic_benchmark``
+#   * the live acceptance test carries ``e2e``/``slow``/``agentic``
 #     (the lane: the agent must choose and sequence tools and reason about what
 #     came back, and a weak model plausibly fails it), ``requires_als_apg``, and
 #     the SDK/CLI skips, and
@@ -315,7 +315,7 @@ def graph_store_port(graph_smoke_plugin_dir: Path) -> Iterator[int]:
 def _assert_graph_is_rendered(repo: Path) -> None:
     """Fail loudly if the build did not put the graph surface in the render.
 
-    The whole test rests on ``control_assistant`` shipping a ``services.graphdb``
+    The whole test rests on ``demo`` shipping a ``services.graphdb``
     block that makes ``graphdb_configured`` true; if that ever stops being so,
     every assertion below would still "pass" against an agent that simply had no
     graph tools to reach for — which is precisely the vacuous green this pins.
@@ -323,7 +323,7 @@ def _assert_graph_is_rendered(repo: Path) -> None:
     render = render_dir(repo)
     servers = expected_mcp_servers(render)
     assert "graph" in servers, (
-        f"the control_assistant build rendered no 'graph' MCP server — .mcp.json "
+        f"the demo build rendered no 'graph' MCP server — .mcp.json "
         f"declares {sorted(servers)}. Without it the readiness barrier never waits "
         "for the graph server and the agent has nothing to reach for."
     )
@@ -360,8 +360,7 @@ def _point_project_at_the_store(repo: Path, port: int) -> None:
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     graphdb = config["services"]["graphdb"]
     assert graphdb.get("ttl_path"), (
-        "control_assistant's services.graphdb block declares no ttl_path, so "
-        "`osprey up` has no corpus to load"
+        "demo's services.graphdb block declares no ttl_path, so `osprey up` has no corpus to load"
     )
     graphdb["port_host"] = port
     config_path.write_text(
@@ -387,7 +386,7 @@ def _seed_demo_corpus(repo: Path) -> str:
     three minutes and one LLM call later.
     """
     from osprey.deployment import container_lifecycle
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
     connection = container_lifecycle._graphdb_connection(config, repo)
@@ -407,7 +406,7 @@ def _seed_demo_corpus(repo: Path) -> str:
 def graph_project(
     graph_store_port: int, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[Path]:
-    """A built ``control_assistant`` deployment wired to the seeded store.
+    """A built ``demo`` deployment wired to the seeded store.
 
     Module-scoped so a ``@flaky`` rerun re-asks the question instead of
     rebuilding and re-seeding: nothing in this test writes to the graph, so the
@@ -431,7 +430,7 @@ def graph_project(
     """
     tmp = tmp_path_factory.mktemp("graph-smoke")
     monkeypatch = pytest.MonkeyPatch()
-    repo = init_project(tmp, "graph_smoke", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp, "graph_smoke", template="demo", provider="als-apg")
     try:
         monkeypatch.setenv("GRAPHDB_PASSWORD", GRAPHDB_TEST_PASSWORD)
         _assert_graph_is_rendered(repo)
@@ -608,9 +607,16 @@ def _print_run(result: Any, prose: str, prompt: str) -> None:
     print("  --- end prose ---\n")
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
-@pytest.mark.agentic_benchmark
+@pytest.mark.agentic(
+    tier=1,
+    title="What a PV belongs to",
+    asks=(
+        "Which device does this PV belong to, what else does that device expose, and where does it "
+        "sit?"
+    ),
+    passes_if="answers from the facility graph through its subagent; no invented addresses",
+)
 @pytest.mark.requires_als_apg
 @pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed")
 @pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")

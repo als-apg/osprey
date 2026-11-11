@@ -17,7 +17,7 @@ never a partial answer marked complete.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,7 +28,9 @@ from osprey.agent_record import reader as rd
 from osprey.agent_record.backends.embedded import EmbeddedBackend
 from tests.agent_record.test_identities import _config
 
-T0 = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
+# Noon of the day before the wall clock's: a service over the seed runs export and
+# retention on the wall clock, and a fixed date drifts out of the retention window.
+T0 = datetime.combine(datetime.now(UTC).date() - timedelta(days=1), time(12), tzinfo=UTC)
 NOW = T0 + timedelta(hours=1)
 
 S1 = "sess-alice-1"  # alice, terminal transcript with a subagent and a queue submit

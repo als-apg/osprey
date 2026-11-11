@@ -17,7 +17,6 @@ class GoogleProviderAdapter(LiteLLMDelegatingProvider):
     description = "Google (Gemini models)"
     requires_api_key = True
     requires_base_url = False
-    requires_model_id = True
     supports_proxy = True
     default_base_url = None
     default_model_id = "gemini-3.8-flash"  # Current stable Flash for general use

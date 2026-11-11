@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- Pre-paint theme boot FIRST (plain script), so the panel never flashes
+     the wrong theme. -->
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="panel.css">
+<!-- Plotly as a classic, parser-blocking script, so the `Plotly` global exists
+     before the module graph below runs. vendor_url() picks the CDN, or the
+     locally fetched vendor/ copy under OSPREY_OFFLINE; the local path is
+     RELATIVE so it resolves under the web terminal's /panel/{id}/ proxy. -->
+<script src="{{ vendor_url('Plotly.js', 'vendor/plotly-3.3.1.min.js') }}"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optimizer</title>
+<script type="module">
+  // Follower role: the web terminal is the theme hub.
+  import { initTheme } from '/design-system/js/theme-manager.js';
+  import { applyEmbedded } from '/design-system/js/frame-params.js';
+  initTheme({ role: 'follower' });
+  applyEmbedded();
+</script>
+</head>
+<body>
+<div class="panel" id="optimizer-root">
+  <!-- The one header row: which machine (target), which environment and its
+       status LED. The target has NO default: a run never lands on a machine
+       nobody named. The panel follows the service's current job. -->
+  <div class="osprey-panel-toolbar">
+    <div class="osprey-panel-toolbar__start">
+      <select id="target-select" class="picker" aria-label="Control target"></select>
+      <select id="env-select" class="picker" aria-label="Environment">
+        <option value="">Environment&hellip;</option>
+      </select>
+      <span id="status-chip" class="osprey-chip osprey-chip--connecting" role="status"
+            aria-label="Optimizer status: connecting…"><span
+            id="status-label" class="osprey-chip-label">connecting&hellip;</span></span>
+    </div>
+  </div>
+  <div id="panel-banner" class="banner banner-err" role="alert" hidden></div>
+
+  <div class="view-scroll">
+    <div class="columns">
+      <div class="column">
+        <!-- The approval surface reads the STORED draft (GET jobs/{id}/config),
+             never the form below; Start sends that response's revision. -->
+        <section id="approval-card" class="card" aria-label="Approve and start"></section>
+        <section id="run-card" class="card" aria-label="Run" hidden>
+          <div id="run-status"></div>
+          <div id="live-plot" class="live-plot"></div>
+        </section>
+      </div>
+      <div class="column">
+        <section id="form-card" class="card" aria-label="Draft"></section>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="module" src="panel.js"></script>
+</body>
+</html>

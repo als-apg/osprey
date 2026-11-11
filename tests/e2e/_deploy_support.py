@@ -11,14 +11,19 @@ The failure-time log capture lives next door in :mod:`tests.e2e._deploy_diagnost
 
 from __future__ import annotations
 
+import fcntl
 import os
 import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Container runtime selection -- ``docker`` by default, ``podman`` opt-in via
 #: OSPREY_E2E_RUNTIME (the CI podman lanes set it), so one env var drives every
@@ -30,6 +35,68 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
     raise RuntimeError(
         f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
     )
+
+
+#: The provider key a deploy-backed suite stands in, so a render whose web
+#: terminals need one (`osprey up` refuses an ``anthropic`` render without it)
+#: deploys. These suites never call the model; the template's own line is
+#: commented out, as a real ``.env`` starts.
+STAND_IN_PROVIDER_KEY = "ANTHROPIC_API_KEY=e2e-stand-in-not-a-key\n"
+
+
+@contextmanager
+def host_stack_lock(path: Path) -> Iterator[None]:
+    """Hold a lane's host-wide stack lock for the duration of the block.
+
+    For a lane with a fixed project name and fixed ports, which parallel
+    benchmark cells on one host would otherwise fight over. An advisory
+    ``flock``, so the operating system releases it when the holder dies: a
+    crashed cell never leaves the host locked.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def checkout_revision() -> str | None:
+    """The checked-out commit, or ``None`` when it cannot be read (always rebuild then)."""
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if head.returncode != 0:
+        return None
+    return head.stdout.strip() or None
+
+
+def images_built_for(stamp: Path, revision: str | None) -> bool:
+    """Whether a lane's images were last built at *revision*."""
+    if revision is None or not stamp.is_file():
+        return False
+    return stamp.read_text(encoding="utf-8").strip() == revision
+
+
+def record_images_built(stamp: Path, revision: str | None) -> None:
+    """Record that a lane's images now match *revision*; an unknown one records nothing."""
+    if revision is None:
+        stamp.unlink(missing_ok=True)
+        return
+    stamp.write_text(revision, encoding="utf-8")
+
+
+def env_from_example(repo: Path) -> str:
+    """The ``.env`` a suite deploys with: the CLI's ``cp .env.example .env``, plus a stand-in key."""
+    return f"{(repo / '.env.example').read_text().rstrip()}\n{STAND_IN_PROVIDER_KEY}"
 
 
 def find_osprey_console_script() -> Path:

@@ -4,7 +4,7 @@
 says whether two values would reach a client as the same bytes, and
 :func:`~osprey.services.virtual_accelerator.serving.publication.changed_outputs`
 narrows a pass's values to those a client has not received yet. The identity
-case runs the built control-assistant composite and proves that posting only
+case runs the built demo composite and proves that posting only
 the changes leaves every client holding what a full post would have given it.
 """
 
@@ -129,13 +129,13 @@ def _undefined(composite: Any, names: list[str]) -> frozenset[str]:
 
 
 def test_publishing_only_changes_serves_what_a_full_publish_serves(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     pytest.importorskip("at")
     from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.view import SimulatorView
 
-    view = SimulatorView.of_render(built_control_assistant.build_dir)
+    view = SimulatorView.of_render(built_demo.build_dir)
     clock = _Clock(1_760_000_000.0)
     composite = Composite(view, model_log=False, clock=clock)
     periodic = periodic_addresses(view)
@@ -143,7 +143,7 @@ def test_publishing_only_changes_serves_what_a_full_publish_serves(
     correctors = sorted(
         binding.address
         for binding in view.bindings()
-        if binding.role == "setpoint"
+        if binding.engine_role == "setpoint"
         and binding.direction == "write"
         and binding.plane is not None
         and view.channel(binding.address).writable

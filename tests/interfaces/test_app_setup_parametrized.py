@@ -2,8 +2,8 @@
 
 Every OSPREY app that delegates its middleware + static-mount wiring to
 :func:`osprey.interfaces._app_setup.configure_interface_app` is built here —
-all ten: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
-``lattice_dashboard``, ``health``, ``okf_panel``, ``bluesky_web`` (which
+all nine: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
+``health``, ``okf_panel``, ``bluesky_web`` (which
 assembles its app at module scope rather than via a ``create_app()`` factory),
 ``theme_lab`` (whose factory lives in ``osprey.cli.theme_lab_cmd``, not
 under ``osprey/interfaces/``) and ``history`` (``osprey.history.app``). This module builds each real app and asserts the
@@ -18,7 +18,7 @@ shared invariants hold uniformly:
    two ends of the shared block:
    :class:`WebAuthMiddleware` outermost of everything,
    :class:`HttpAuditMiddleware` inside every other layer
-   ``configure_interface_app`` installs. Pinned here, on the ten real apps,
+   ``configure_interface_app`` installs. Pinned here, on the nine real apps,
    and not only on a synthetic one — "this lands in every interface app" is
    the audit layer's own spec, and an interface that grew its own middleware
    around the shared block would break it silently.
@@ -91,14 +91,6 @@ def _build_channel_finder(tmp_path: Path) -> FastAPI:
     return create_app(project_cwd=str(tmp_path))
 
 
-def _build_lattice_dashboard(tmp_path: Path) -> FastAPI:
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    # workspace_root is optional; supply tmp_path so the lattice state dir is
-    # created under an isolated, writable location.
-    return create_app(workspace_root=tmp_path)
-
-
 def _build_health(_tmp_path: Path) -> FastAPI:
     from osprey.interfaces.health.app import create_app
 
@@ -134,6 +126,15 @@ def _build_bluesky_web(_tmp_path: Path) -> FastAPI:
     return app
 
 
+def _build_optimizer_web(_tmp_path: Path) -> FastAPI:
+    # Assembled at module scope like bluesky_web, so seed the operator secret
+    # before the import runs configure_interface_app.
+    os.environ.setdefault("OSPREY_TERMINAL_SECRET", "test-bluesky-web-secret")
+    from osprey.interfaces.optimizer_web.app import app
+
+    return app
+
+
 def _build_history(_tmp_path: Path) -> FastAPI:
     # The history page lives in its own package, not under osprey/interfaces/;
     # its store settings default from the environment and are not read here.
@@ -147,10 +148,10 @@ INTERFACE_BUILDERS = [
     ("artifacts", _build_artifacts),
     ("ariel", _build_ariel),
     ("channel_finder", _build_channel_finder),
-    ("lattice_dashboard", _build_lattice_dashboard),
     ("health", _build_health),
     ("okf_panel", _build_okf_panel),
     ("bluesky_web", _build_bluesky_web),
+    ("optimizer_web", _build_optimizer_web),
     ("theme_lab", _build_theme_lab),
     ("history", _build_history),
 ]
@@ -159,10 +160,11 @@ INTERFACE_BUILDERS = [
 #: Interfaces that ship no own ``static`` directory, so configure_interface_app's
 #: ``.exists()``-guarded ``/static`` catch-all is (correctly) not mounted. The
 #: two shared mounts (``/static/fonts``, ``/design-system``) are still present.
-#: bluesky_web serves its panel bundle at ``/bluesky`` instead. (theme_lab is
+#: bluesky_web and optimizer_web serve their panel bundles at ``/bluesky`` and
+#: ``/optimizer`` instead. (theme_lab is
 #: not here: it passes the design-system directory as its own ``static_dir``,
 #: so it does mount ``/static``.)
-_INTERFACES_WITHOUT_OWN_STATIC = {"bluesky_web"}
+_INTERFACES_WITHOUT_OWN_STATIC = {"bluesky_web", "optimizer_web"}
 
 
 @pytest.fixture(params=INTERFACE_BUILDERS, ids=[name for name, _ in INTERFACE_BUILDERS])

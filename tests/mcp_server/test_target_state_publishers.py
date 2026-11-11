@@ -32,7 +32,7 @@ the reconciler and the endpoint prober publish from the same event loop, and an
 back a report built before the other's change. It is pinned here.
 
 Every payload this module writes is asserted to round-trip through
-``control_context.parse_report``: the library is the only reader, and a writer
+``control_context.read_report``: the library is the only reader, and a writer
 that drifted from the ten fields it parses would degrade silently.
 """
 
@@ -426,7 +426,7 @@ class TestReportFileContract:
         assert target_state.report_file_path().name == f"server_{os.getpid()}.json"
 
     def test_the_writer_and_the_library_name_the_same_file(self, state_root, started):
-        assert target_state.report_file_path(started) == control_context.report_path_under(
+        assert target_state.report_file_path(started) == control_context._report_path_under(
             state_root, started
         )
 
@@ -444,11 +444,13 @@ class TestWriteServerRecord:
 
         assert set(target_state.read(1234)) == REPORT_FIELDS
 
-    def test_the_payload_round_trips_through_parse_report(self):
+    def test_the_payload_round_trips_through_read_report(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234, session="s")
 
         payload = target_state.read(1234)
-        assert control_context.parse_report(payload).to_payload() == payload
+        report = control_context.read_report(target_state.report_file_path(1234))
+        assert report is not None
+        assert report.to_payload() == payload
 
     def test_a_fresh_report_has_reached_nothing(self):
         """Null is not the baseline: this server has launched no child yet, and a

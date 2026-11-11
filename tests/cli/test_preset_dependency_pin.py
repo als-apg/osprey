@@ -7,7 +7,7 @@ the interpreter running the ``osprey`` CLI — and some of what a deploy does ru
 there, in-process, notably the archiver store's seeding (see
 ``container_lifecycle._stage_archiver_store``).
 
-That gap is why the ``control-assistant`` preset once carried
+That gap is why the ``demo`` preset once carried
 ``dependencies: [pymongo>=4.0]`` and ``osprey up`` still refused: the entry was
 real, it did install pymongo into all three project environments, and none of
 them was the one doing the seeding. The declaration looked like the fix, which
@@ -30,7 +30,7 @@ import tomllib
 from pathlib import Path
 
 from osprey.cli.build_profile import _load_preset_raw, list_presets
-from osprey.cli.build_profile_presets import list_apps, list_tiers
+from osprey.cli.build_profile_presets import list_tiers
 
 #: preset, tier or app name -> the ``dependencies:`` it declares in its own file.
 #:
@@ -40,17 +40,17 @@ from osprey.cli.build_profile_presets import list_apps, list_tiers
 PINNED_PRESET_DEPENDENCIES: dict[str, list[str]] = {
     # Emptied when pymongo became a core OSPREY dependency. Before that this
     # read ``[pymongo>=4.0]`` — see the module docstring.
-    "control-assistant": [],
+    "demo": [],
     "hello-world": [],
-    # A tier or app renders inside a deployment whose root it rides on, so a
+    # A login renders inside a deployment whose root it rides on, so a
     # package one of them asks for would reach that deployment's environments
     # exactly as a root preset's would.
     "tiers/admin": [],
     "tiers/readonly": [],
     "tiers/readwrite": [],
-    "apps/channel-finder": [],
-    "apps/knowledge": [],
-    "apps/logbook": [],
+    "tiers/channel-finder": [],
+    "tiers/knowledge": [],
+    "tiers/logbook": [],
 }
 
 #: Packages a build or deploy imports in the CLI's own process, which therefore
@@ -68,12 +68,8 @@ HOST_SIDE_PACKAGES = {
 
 
 def _bundled_names() -> list[str]:
-    """Every bundled root preset, then every tier and app as ``<kind>/<stem>``."""
-    return (
-        list_presets()
-        + [f"tiers/{name}" for name in list_tiers()]
-        + [f"apps/{name}" for name in list_apps()]
-    )
+    """Every bundled root preset, then every login as ``tiers/<stem>``."""
+    return list_presets() + [f"tiers/{name}" for name in list_tiers()]
 
 
 def _distribution_name(spec: str) -> str:

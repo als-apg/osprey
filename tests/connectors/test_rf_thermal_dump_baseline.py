@@ -34,8 +34,8 @@ NOISE_SIGMAS = 6.0
 
 
 @pytest.fixture(scope="module")
-def facility(built_control_assistant) -> dict[str, Any]:
-    root = built_control_assistant.facility_dir
+def facility(built_demo) -> dict[str, Any]:
+    root = built_demo.facility_dir
     return {
         "seeds": read_yaml((root / "seeds.yaml").read_text(encoding="utf-8")),
         "scenario": yaml.safe_load(
@@ -45,8 +45,8 @@ def facility(built_control_assistant) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def archive(built_control_assistant) -> ArchiveComposite:
-    view = built_control_assistant.build_dir / "data" / "simulator"
+def archive(built_demo) -> ArchiveComposite:
+    view = built_demo.build_dir / "data" / "simulator"
     return build(view, ["rf-thermal"], anchor_s=RF_ANCHOR_S)
 
 
@@ -93,7 +93,8 @@ def test_after_the_recovery_the_stored_current_carries_the_sawtooth(
     field = field_name(DCCT)
     stored = np.array([document[field] for document in _synthesize_documents(archive, epoch)])
     # A full tooth: from a refill to just before the next.
-    full_tooth = record["ceiling"] * (1.0 - topoff.shape(record, record["period_s"] - 1e-6))
+    tau, period = topoff.tau_period(record)
+    full_tooth = record["ceiling"] * (1.0 - np.exp(-(period - 1e-6) / tau))
     assert np.ptp(stored) >= full_tooth, (float(np.ptp(stored)), full_tooth)
     assert np.ptp(stored) <= full_tooth + 2 * NOISE_SIGMAS * _noise(seed)
     assert float(np.mean(stored)) == pytest.approx(held, abs=3 * _noise(seed))
@@ -111,5 +112,5 @@ def test_inside_one_tooth_ln_current_decays_at_one_over_the_lifetime(
     lifetime_h = np.asarray(archive.series(LIFETIME, times))
     assert np.ptp(lifetime_h) == 0.0, "the lifetime readback holds over a tooth"
     rate = -np.polyfit(times - refill, np.log(current), 1)[0]
-    expected = 1.0 / (float(lifetime_h[0]) * topoff.SECONDS_PER_HOUR)
+    expected = 1.0 / (float(lifetime_h[0]) * 3600.0)
     assert rate == pytest.approx(expected, rel=0.05), (rate, expected)

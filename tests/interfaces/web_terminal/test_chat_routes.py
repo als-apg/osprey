@@ -22,7 +22,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json as _json
+import re
 from contextlib import AsyncExitStack
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -165,6 +167,11 @@ _STRIP_CASES = [
         {"type": "result", "is_error": False, "duration_ms": 4567, "seq": 9},
     ),
     (
+        "result_drops_the_conversation_id",
+        {"type": "result", "is_error": False, "session_id": "sess-child", "seq": 4},
+        {"type": "result", "is_error": False, "seq": 4},
+    ),
+    (
         "result_error_keeps_is_error_true",
         {
             "type": "result",
@@ -177,9 +184,31 @@ _STRIP_CASES = [
         {"type": "result", "is_error": True, "duration_ms": 10, "seq": 2},
     ),
     (
-        "system_passes_through",
-        {"type": "system", "subtype": "init"},
-        {"type": "system", "subtype": "init"},
+        "system_init_drops_the_conversation_id",
+        {"type": "system", "subtype": "init", "session_id": "sess-child", "seq": 1},
+        {"type": "system", "subtype": "init", "seq": 1},
+    ),
+    (
+        "system_agent_done_keeps_what_the_chip_reads",
+        {
+            "type": "system",
+            "subtype": "agent_done",
+            "tool_use_id": "tu_9",
+            "status": "completed",
+            "summary": "done",
+        },
+        {
+            "type": "system",
+            "subtype": "agent_done",
+            "tool_use_id": "tu_9",
+            "status": "completed",
+            "summary": "done",
+        },
+    ),
+    (
+        "system_background_wait_drops_the_task_count",
+        {"type": "system", "subtype": "background_wait", "tasks": 2},
+        {"type": "system", "subtype": "background_wait"},
     ),
     (
         "error_passes_through",
@@ -253,6 +282,23 @@ class TestStripForChat:
         before = copy.deepcopy(input_event)
         _strip_for_chat(input_event)
         assert input_event == before
+
+    def test_system_fields_are_the_ones_the_chat_reads(self):
+        """The ``system`` allowlist is exactly what ``chat-system.js`` reads, plus ``seq``.
+
+        A field the renderer starts reading must be added to the wire, and a
+        field it stops reading must leave it.
+        """
+        js = (Path(chat_module.__file__).parents[1] / "static" / "js" / "chat-system.js").read_text(
+            encoding="utf-8"
+        )
+        read = set(re.findall(r"\bevent\.([a-z_]+)", js))
+        assert chat_module._CHAT_FRAME_FIELDS["system"] == read | {"type", "seq"}
+
+    def test_the_conversation_id_rides_no_frame(self):
+        """The child's conversation id is declared on no reduced frame type."""
+        for etype, fields in chat_module._CHAT_FRAME_FIELDS.items():
+            assert "session_id" not in fields, etype
 
     def test_a_bottomless_input_is_cut_at_a_depth_the_wire_can_carry(self):
         """A tool input nested past any sane depth cannot end the stream that carries it."""
@@ -564,6 +610,41 @@ class TestChatBufferedRoute:
         assert payload["is_error"] is True
         assert payload["error"] == "boom"
 
+    @pytest.mark.parametrize(
+        "frame,expected",
+        [
+            ({"type": "error", "message": "", "error_type": "ClaudeSDKError"}, "ClaudeSDKError"),
+            ({"type": "error", "error_type": "AgentExited"}, "AgentExited"),
+        ],
+        ids=["empty_message_names_the_type", "missing_message_names_the_type"],
+    )
+    def test_terminal_error_without_text_names_its_type(self, frame, expected):
+        """An error frame with no message reports its type, never a placeholder."""
+        session = _FakeChatSession([frame])
+        registry = _FakeRegistry(session=session, pooled_key="c1")
+        client = TestClient(_make_chat_app(registry))
+
+        resp = client.post(
+            "/api/chat", params={"stream": "false"}, json={"prompt": "hi", "chat_id": "c1"}
+        )
+        assert resp.status_code == 500
+        assert resp.json()["error"] == expected
+
+    def test_terminal_error_with_no_reason_reports_only_the_failure(self):
+        """Neither text nor type: the payload says it failed and makes up no reason."""
+        session = _FakeChatSession([{"type": "error", "message": "  ", "error_type": ""}])
+        registry = _FakeRegistry(session=session, pooled_key="c1")
+        client = TestClient(_make_chat_app(registry))
+
+        resp = client.post(
+            "/api/chat", params={"stream": "false"}, json={"prompt": "hi", "chat_id": "c1"}
+        )
+        assert resp.status_code == 500
+        payload = resp.json()
+        assert payload["is_error"] is True
+        assert "error" not in payload
+        assert "Unknown error" not in resp.text
+
 
 class TestChatHandoffMapping:
     """What the hand-off door raises, and what the client is told.
@@ -648,6 +729,7 @@ class TestChatRefusesUnlistedCommands:
     The chat offers the project's skills and commands and the built-ins
     ``/clear`` and ``/compact``. Any other ``/name`` (``/login``, ``/model``)
     the CLI would run itself, so the route refuses it before a turn opens.
+    ``/mcp`` is listed but the browser runs it; one that arrives here is refused too.
     """
 
     @staticmethod
@@ -664,7 +746,9 @@ class TestChatRefusesUnlistedCommands:
         skill.write_text("Body\n", encoding="utf-8")
         return tmp_path
 
-    @pytest.mark.parametrize(("prompt", "name"), [("/login", "login"), ("/model opus", "model")])
+    @pytest.mark.parametrize(
+        ("prompt", "name"), [("/login", "login"), ("/model opus", "model"), ("/mcp", "mcp")]
+    )
     def test_an_unlisted_command_is_refused_before_a_turn_opens(self, tmp_path, prompt, name):
         session = _FakeChatSession([{"type": "result", "is_error": False}])
         registry, client = self._client(self._project(tmp_path), session)

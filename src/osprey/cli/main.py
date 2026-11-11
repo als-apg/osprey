@@ -65,7 +65,6 @@ class LazyGroup(click.Group):
             "validate": "osprey.cli.validate_cmd",
             "chat": "osprey.cli.chat_cmd",  # Agent session against build/
             "health": "osprey.cli.health_cmd",
-            "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
             "ariel": "osprey.cli.ariel",  # ARIEL search service
             "archive": "osprey.cli.archive_cmd",  # Artifacts and plan-queue history
@@ -80,10 +79,13 @@ class LazyGroup(click.Group):
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
             "knowledge": "osprey.cli.knowledge_cmd",  # OKF facility knowledge
             "facility": "osprey.cli.facility_cmd",  # Facility description checks
+            "app": "osprey.cli.app_cmd",  # Deployment application checks
             "query": "osprey.cli.query_cmd",  # Headless agent query
             "users": "osprey.cli.users_cmd",  # Web-terminal roster
             "feedback": "osprey.cli.feedback_cmd",  # Web-terminal feedback store
             "watchdog": "osprey.cli.watchdog_cmd",  # Replay labelled prompts through watchdogs
+            # Approve, list, revoke a program's bounded write authorization
+            "write-authorization": "osprey.cli.write_authorization_cmd",
         }
 
         if cmd_name not in commands:
@@ -111,6 +113,8 @@ class LazyGroup(click.Group):
             cmd_func = mod.scaffold
         elif cmd_name == "profile":
             cmd_func = mod.profile
+        elif cmd_name == "write-authorization":
+            cmd_func = mod.write_authorization
         elif cmd_name in ("up", "down", "restart", "status", "logs"):
             # Every lifecycle verb in deploy_cmd is defined as `<name>_verb`,
             # so it is resolved by that name rather than by the bare one. The
@@ -143,7 +147,6 @@ class LazyGroup(click.Group):
             "config",
             "health",
             "channel-finder",
-            "eject",
             "ariel",
             "archive",
             "history",
@@ -157,10 +160,12 @@ class LazyGroup(click.Group):
             "vendor",
             "knowledge",
             "facility",
+            "app",
             "query",
             "users",
             "feedback",
             "watchdog",
+            "write-authorization",
         ]
 
 
@@ -186,7 +191,7 @@ def cli(ctx, verbose):
     Examples:
 
     \b
-      osprey init my-agent --preset control-assistant
+      osprey init my-agent --preset demo
                                        Create a deployment repo from a preset
       osprey set connector=epics       Edit profile.yml
       osprey validate                  Check profile.yml without building

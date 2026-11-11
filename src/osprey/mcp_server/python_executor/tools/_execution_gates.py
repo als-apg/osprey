@@ -903,6 +903,7 @@ async def run_gated_execution(
     approved_view_sha256: str | None = None,
     code_review: bool = True,
     script_args: Sequence[str] = (),
+    on_launch: Callable[[], None] | None = None,
 ) -> tuple[ExecutionResult, dict]:
     """Run *code* through every executor gate, launch it, and report the run.
 
@@ -955,6 +956,8 @@ async def run_gated_execution(
         code_review: Whether this tool's code is reviewed at all. ``False`` skips the settings
             load too, so a malformed ``code_review`` section never refuses such a tool.
         script_args: The script's arguments, which only the review request uses.
+        on_launch: Called once every gate has passed, just before the launch, so
+            a caller can tell a refusal before the launch from one after it.
 
     Returns:
         ``(exec_result, patterns)`` — the backend's result and the pattern
@@ -1062,6 +1065,8 @@ async def run_gated_execution(
 
     from osprey.mcp_server.python_executor.executor import execute_code
 
+    if on_launch is not None:
+        on_launch()
     exec_result = await execute_code(
         code=code,
         execution_mode=execution_mode,

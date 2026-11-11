@@ -36,6 +36,7 @@ from osprey.agent_runner import (
     ToolUseEvent,
     agent_session,
 )
+from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice
 from osprey.agent_runner.clean_env import add_panel_token, build_clean_env
 from osprey.agent_runner.sdk_context import (
     PermissionResultAllow,
@@ -405,11 +406,6 @@ _SVG_CALLOUT_GUIDE = (
 _TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "stopped", "killed"})
 
 
-#: The deny for an ask that is not a write on a render whose tier allows no writes:
-#: nobody can approve a tool call on it, and it is not a write to refuse by reason.
-_NOT_ARMED_MESSAGE = "This deployment does not arm writes, so the operator cannot approve it."
-
-
 @dataclass(frozen=True)
 class _RenderFacts:
     """What the chat reads from the render its child runs in, once at start.
@@ -448,7 +444,7 @@ def _read_render(project_dir: str) -> _RenderFacts:
     try:
         config = yaml.safe_load((Path(project_dir) / "config.yml").read_text(encoding="utf-8"))
     except Exception:
-        logger.warning("Could not read the render's config; chat approvals stay off", exc_info=True)
+        logger.warning("Could not read the render's config; chat writes stay off", exc_info=True)
         return _NO_RENDER
     if not isinstance(config, dict):
         return _NO_RENDER
@@ -1205,6 +1201,7 @@ class OperatorSession:
                 session_id=session_id,
                 await_mcp_servers=(),
                 can_use_tool=self._can_use_tool,
+                stderr=self._record_stderr,
                 include_partial_messages=True,
             )
         )
@@ -1214,6 +1211,20 @@ class OperatorSession:
         self._stream_ended = False
         self._pump_task = asyncio.create_task(self._pump())
         logger.info("OperatorSession started (cwd=%s)", self._cwd)
+
+    def _record_stderr(self, line: str) -> None:
+        """Log one CLI stderr line; loudly when the CLI dropped the render's allow list."""
+        if is_untrusted_allow_rules_notice(line):
+            logger.warning(
+                "Claude Code is ignoring the permissions.allow list of %s because it is "
+                "not a trusted workspace, so every read-only tool will ask for approval. "
+                'Set projects["%s"].hasTrustDialogAccepted: true in Claude Code\'s '
+                ".claude.json (the web terminal does this at startup on a host).",
+                self._cwd,
+                Path(self._cwd).resolve(),
+            )
+            return
+        logger.debug("Claude Code stderr: %s", line)
 
     # ---- Operator approvals ---- #
 
@@ -1236,11 +1247,11 @@ class OperatorSession:
             writes, target = await asyncio.to_thread(
                 _place_write, self._render, tool_name, tool_input, self._child_stamped()
             )
-            if not self._render.tier_allows:
-                if not writes:
-                    return PermissionResultDeny(message=_NOT_ARMED_MESSAGE)
-                # The tier verdict (C-FRAME): the refusal text carries the trailer,
-                # so the tool_result this deny becomes carries ``refusal``.
+            # A write on a render whose tier allows none is refused with the tier
+            # verdict (C-FRAME): the refusal text carries the trailer, so the
+            # tool_result this deny becomes carries ``refusal``. Any other ask is
+            # the operator's to answer on a card, whatever the tier.
+            if writes and not self._render.tier_allows:
                 from osprey_connectors.refusals import refusal_text
 
                 machine = target["machine_kind"] if target else None

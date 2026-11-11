@@ -9,7 +9,7 @@ These tests lock down the translation from profile inputs into rendered
 3. Overlay agent frontmatter survival through ``regenerate_claude_code``.
 4. The crown-jewel invariant: every ``mcp__`` tool an agent declares must have
    a matching entry in the project's ``permissions.allow``.
-5. The tier floor: the privileges the ``control-assistant`` base takes away
+5. The tier floor: the privileges the ``demo`` base takes away
    from every tier built on it, and the ``remove_deny`` that gives them back to
    the admin tier alone — asserted on the rendered artifacts, since a profile
    pin is only worth what the build writes out.
@@ -95,19 +95,19 @@ def _apply_preset_config(manager: TemplateManager, project: Path, preset: str) -
     return project
 
 
-def _build_control_assistant(tmp_path_factory) -> Path:
-    """Build a control-assistant project via TemplateManager (no venv, no lifecycle)."""
+def _build_demo(tmp_path_factory) -> Path:
+    """Build a demo project via TemplateManager (no venv, no lifecycle)."""
     out_dir = tmp_path_factory.mktemp("ca_build")
     manager = TemplateManager()
     project = create_project_with_manifest(
         manager,
         project_name="ca-contract",
         output_dir=out_dir,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
-    return _apply_preset_config(manager, project, "control-assistant")
+    return _apply_preset_config(manager, project, "demo")
 
 
 def _build_hello_world(tmp_path_factory) -> Path:
@@ -129,8 +129,8 @@ def _build_hello_world(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def built_control_assistant_project(tmp_path_factory) -> Path:
-    return _build_control_assistant(tmp_path_factory)
+def built_demo_project(tmp_path_factory) -> Path:
+    return _build_demo(tmp_path_factory)
 
 
 @pytest.fixture(scope="module")
@@ -160,12 +160,12 @@ def _framework_allow_snapshot(settings_allow: set[str]) -> dict[str, set[str]]:
     return by_server
 
 
-def test_mcp_permissions_round_trip_control_assistant(built_control_assistant_project):
-    """For control-assistant: every framework-server tool that ships enabled
+def test_mcp_permissions_round_trip_demo(built_demo_project):
+    """For demo: every framework-server tool that ships enabled
     appears as ``mcp__<server>__<tool>`` in settings.json permissions.allow,
     and the channel-finder pipeline tools round-trip from the registry constant.
     """
-    project = built_control_assistant_project
+    project = built_demo_project
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     allow = set(settings["permissions"]["allow"])
 
@@ -209,7 +209,7 @@ def test_mcp_permissions_round_trip_hello_world(built_hello_world_project):
         )
 
 
-def test_mcp_permissions_ask_round_trip(built_control_assistant_project):
+def test_mcp_permissions_ask_round_trip(built_demo_project):
     """``permissions.ask`` flattens the same way as ``permissions.allow``.
 
     The preset's tier is ``control_system.writes: allowed``, on which a write
@@ -218,7 +218,7 @@ def test_mcp_permissions_ask_round_trip(built_control_assistant_project):
     write the switch forbids). ``channel_write`` is such a tool, so it is in
     neither ``ask`` nor ``deny``; the approval-only framework entries stay.
     """
-    project = built_control_assistant_project
+    project = built_demo_project
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     ask = set(settings["permissions"]["ask"])
 
@@ -284,7 +284,7 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
         # tools: rendered from CHANNEL_FINDER_TOOLS_BY_PIPELINE['hierarchical']
         #        + mcp__osprey_workspace__submit_response, and nothing else.
         # The subagent gets exactly its paradigm's vocabulary: the `graph`
-        # server this fixture's render also enables (control_assistant ships a
+        # server this fixture's render also enables (demo ships a
         # `services.graphdb` block) is a MAIN-agent server and stays off this
         # list. The tool list is read from the registry rather than spelled out,
         # so it cannot drift from what the render uses.
@@ -373,7 +373,6 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
             "mcp__osprey_workspace__create_interactive_plot",
             "mcp__osprey_workspace__create_dashboard",
             "mcp__osprey_workspace__create_document",
-            "mcp__osprey_workspace__artifact_get",
             "mcp__osprey_workspace__artifact_list",
             "mcp__osprey_workspace__artifact_read",
             "mcp__osprey_workspace__facility_description",
@@ -440,9 +439,9 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
 
 
 @pytest.mark.parametrize("agent_name", list(_FRAMEWORK_AGENT_EXPECTED))
-def test_framework_agent_frontmatter_preserved(built_control_assistant_project, agent_name):
+def test_framework_agent_frontmatter_preserved(built_demo_project, agent_name):
     """Each framework agent's rendered frontmatter matches the locked-down spec."""
-    md = built_control_assistant_project / ".claude" / "agents" / f"{agent_name}.md"
+    md = built_demo_project / ".claude" / "agents" / f"{agent_name}.md"
     assert md.exists(), f"missing rendered agent file: {md}"
     fm = _parse_frontmatter(md)
     expected = _FRAMEWORK_AGENT_EXPECTED[agent_name]
@@ -452,10 +451,10 @@ def test_framework_agent_frontmatter_preserved(built_control_assistant_project, 
     assert _split_csv(fm.get("disallowedTools")) == expected["disallowedTools"]
 
 
-def test_disallowed_tools_includes_skill_and_agent(built_control_assistant_project):
+def test_disallowed_tools_includes_skill_and_agent(built_demo_project):
     """Every framework agent must deny Skill and Agent (commit 3757e95c lockdown)."""
     for agent_name in FRAMEWORK_AGENTS:
-        md = built_control_assistant_project / ".claude" / "agents" / f"{agent_name}.md"
+        md = built_demo_project / ".claude" / "agents" / f"{agent_name}.md"
         if not md.exists():
             pytest.skip(f"framework agent {agent_name} not rendered in this build")
         fm = _parse_frontmatter(md)
@@ -481,7 +480,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
     the skill set on its own — which is how a render that drops a skill by name
     still ended up shipping it.
 
-    Pins a selection strictly smaller than the ``control_assistant`` bundle's,
+    Pins a selection strictly smaller than the ``demo`` bundle's,
     because that is the case a same-or-wider selection cannot distinguish.
     """
     manager = TemplateManager()
@@ -489,7 +488,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
         manager,
         project_name="narrowed-skills",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
         artifacts={
             "hooks": ["memory-guard"],
@@ -498,7 +497,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
             "output_styles": ["control-operator"],
             "web_panels": ["ariel"],
         },
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
 
     skills_dir = project / ".claude" / "skills"
@@ -520,9 +519,9 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
         manager,
         project_name="overlay-test",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
 
     # Drop a custom agent file with a known frontmatter shape.
@@ -578,9 +577,9 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
         manager,
         project_name="extends-contract",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
 
     from osprey.utils.config_writer import config_update_fields
@@ -754,6 +753,11 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
         # The render carries no pyAML view.
         "measurement": {},
+        # Nor an application.
+        "app_approvals": {},
+        "app_error_types": {},
+        # With every server off no tool acts, so plan mode refuses nothing.
+        "plan_mode_denied_tools": [],
     }, f"all-disabled build should render empty lists; got {hook_cfg}"
 
 
@@ -797,9 +801,9 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
 # another is a build that renders without complaint and misbehaves at runtime.
 #
 # The negative half is a render with no ``services.graphdb`` block:
-# ``hello_world`` below, and a control_assistant render with its store removed
+# ``hello_world`` below, and a demo render with its store removed
 # in ``tests/cli/test_graph_agent_surface.py``, which owns the renders this
-# module's single control_assistant fixture does not provide.
+# module's single demo fixture does not provide.
 # ---------------------------------------------------------------------------
 
 
@@ -807,8 +811,8 @@ def _graph_entries(values) -> list[str]:
     return sorted(entry for entry in values if str(entry).startswith("mcp__graph__"))
 
 
-def test_graph_server_reaches_the_main_agent_surface(built_control_assistant_project):
-    """control_assistant ships ``services.graphdb``, so the main agent gets the
+def test_graph_server_reaches_the_main_agent_surface(built_demo_project):
+    """demo ships ``services.graphdb``, so the main agent gets the
     graph server: exactly the registry's four tools in ``permissions.allow``,
     none of them behind ``ask`` or ``deny``, a launchable ``.mcp.json`` entry
     carrying both config-path variables, and the PostToolUse prefix.
@@ -817,7 +821,7 @@ def test_graph_server_reaches_the_main_agent_surface(built_control_assistant_pro
     server reads, so an approval prefix would put a human in the loop on each
     one — the read/approve split is what makes the tools usable unprompted.
     """
-    project = built_control_assistant_project
+    project = built_demo_project
 
     permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
     assert _graph_entries(permissions["allow"]) == graph_permission_entries()
@@ -881,7 +885,7 @@ def test_hello_world_renders_no_graph_surface_at_all(built_hello_world_project):
         ("osprey_control_context.py", "UserPromptSubmit"),
     ],
 )
-def test_panel_hooks_rendered_and_wired(built_control_assistant_project, hook_file, event):
+def test_panel_hooks_rendered_and_wired(built_demo_project, hook_file, event):
     """Both halves of panel awareness must survive a fresh render.
 
     The template hook directory is catalog-bound: a hook file that is not listed
@@ -890,7 +894,7 @@ def test_panel_hooks_rendered_and_wired(built_control_assistant_project, hook_fi
     never runs. Neither failure is visible from the template tree alone, which
     is what this pair of assertions covers.
     """
-    project = built_control_assistant_project
+    project = built_demo_project
 
     assert (project / ".claude" / "hooks" / hook_file).is_file(), (
         f"{hook_file} was not rendered into the project — check the build-artifact "
@@ -909,9 +913,9 @@ def test_panel_hooks_rendered_and_wired(built_control_assistant_project, hook_fi
 # ---------------------------------------------------------------------------
 
 
-def test_crown_jewel_invariant_passes_on_preset(built_control_assistant_project):
-    """The shipped control-assistant preset must satisfy the invariant."""
-    errors = validate_agent_tools_against_permissions(built_control_assistant_project)
+def test_crown_jewel_invariant_passes_on_preset(built_demo_project):
+    """The shipped demo preset must satisfy the invariant."""
+    errors = validate_agent_tools_against_permissions(built_demo_project)
     assert errors == [], "preset violates agent-tools-vs-permissions invariant:\n" + "\n".join(
         errors
     )
@@ -924,9 +928,9 @@ def test_crown_jewel_invariant_catches_missing_tool(tmp_path):
         manager,
         project_name="missing-tool-test",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
 
     bogus = project / ".claude" / "agents" / "bogus.md"
@@ -958,9 +962,9 @@ def test_crown_jewel_invariant_rejects_wildcards(tmp_path):
         manager,
         project_name="wildcard-test",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
 
     wild = project / ".claude" / "agents" / "wild.md"
@@ -986,12 +990,12 @@ def test_crown_jewel_invariant_rejects_wildcards(tmp_path):
 
 
 def test_crown_jewel_invariant_accepts_prefix_match_on_existing_allow(
-    built_control_assistant_project,
+    built_demo_project,
 ):
     """Sanity: an exact-literal tool that IS in permissions.allow passes."""
     # data-visualizer declares mcp__osprey_workspace__create_static_plot,
     # which IS in workspace.permissions_allow → must pass.
-    errors = validate_agent_tools_against_permissions(built_control_assistant_project)
+    errors = validate_agent_tools_against_permissions(built_demo_project)
     # Filter to errors mentioning data-visualizer specifically — there should be none.
     data_viz_errors = [e for e in errors if "data-visualizer" in e]
     assert data_viz_errors == [], (
@@ -1085,7 +1089,7 @@ def _killswitch_project(base: Path, tmp_path, name: str, fields: dict) -> Path:
     ``control_system.writes`` setting.
 
     The project is a ``copy_build`` of *base* (the module's
-    ``built_control_assistant_project``), which already carries the preset's
+    ``built_demo_project``), which already carries the preset's
     own ``config:``: the connector blocks these postures are
     stated against are the preset's — the framework template renders no
     ``control_system`` at all — and a posture keyed on a connector the project
@@ -1099,7 +1103,7 @@ def _killswitch_project(base: Path, tmp_path, name: str, fields: dict) -> Path:
     return project
 
 
-def test_killswitch_deny_survives_profile_remove_deny(tmp_path, built_control_assistant_project):
+def test_killswitch_deny_survives_profile_remove_deny(tmp_path, built_demo_project):
     """A writes-off kill-switch deny is NOT liftable through ``remove_deny``.
 
     ``remove_deny`` is authored in the profile, so anything it can reach is
@@ -1110,7 +1114,7 @@ def test_killswitch_deny_survives_profile_remove_deny(tmp_path, built_control_as
     hole the deny-source split closes.
     """
     project = _killswitch_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         "killswitch-remove-deny",
         {
@@ -1128,9 +1132,7 @@ def test_killswitch_deny_survives_profile_remove_deny(tmp_path, built_control_as
     assert deny.count("mcp__controls__channel_write") == 1, f"duplicate deny entry in {deny}"
 
 
-def test_remove_deny_still_subtracts_profile_authored_deny(
-    tmp_path, built_control_assistant_project
-):
+def test_remove_deny_still_subtracts_profile_authored_deny(tmp_path, built_demo_project):
     """The other half of the split: what a profile ADDED, a profile may remove.
 
     Both profile-authored deny sources — the ``deny_defaults`` floor and the
@@ -1139,7 +1141,7 @@ def test_remove_deny_still_subtracts_profile_authored_deny(
     inert rather than merely kill-switch-proof.
     """
     project = _killswitch_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         "remove-deny-subtracts",
         {
@@ -1161,7 +1163,7 @@ def test_remove_deny_still_subtracts_profile_authored_deny(
     assert "mcp__controls__channel_write" in deny
 
 
-def test_killswitch_deny_absent_when_writes_allowed(tmp_path, built_control_assistant_project):
+def test_killswitch_deny_absent_when_writes_allowed(tmp_path, built_demo_project):
     """On an ``allowed`` tier there is no kill-switch deny to protect, and none renders.
 
     Guards the split against the opposite failure: a ``killswitch_deny`` key
@@ -1169,7 +1171,7 @@ def test_killswitch_deny_absent_when_writes_allowed(tmp_path, built_control_assi
     system's write tool on a deployment that is supposed to have it.
     """
     project = _killswitch_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         "killswitch-writes-on",
         {
@@ -1182,7 +1184,7 @@ def test_killswitch_deny_absent_when_writes_allowed(tmp_path, built_control_assi
 
 @pytest.mark.parametrize("writes", ["never", "allowed"], ids=["writes-off", "writes-on"])
 def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(
-    tmp_path, built_control_assistant_project, writes
+    tmp_path, built_demo_project, writes
 ):
     """The read-only session refuses ``Monitor`` and ``EnterWorktree``, and so
     does a session with writes on, exactly as for ``Bash`` and ``Edit``.
@@ -1192,7 +1194,7 @@ def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(
     both postures.
     """
     project = _killswitch_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         f"write-floor-{'on' if writes == 'allowed' else 'off'}",
         {"control_system.writes": writes},
@@ -1202,7 +1204,7 @@ def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(
         assert tool in deny, f"{tool} missing from the rendered deny {deny}"
 
 
-def test_killswitch_dedupe_when_profile_also_denies(tmp_path, built_control_assistant_project):
+def test_killswitch_dedupe_when_profile_also_denies(tmp_path, built_demo_project):
     """A profile that itself denies a kill-switch matcher renders it exactly once.
 
     Pins the ``already_denied`` dedupe path: the facility-authored deny renders
@@ -1211,7 +1213,7 @@ def test_killswitch_dedupe_when_profile_also_denies(tmp_path, built_control_assi
     lost) or zero times (deny silently absent) — both must fail here.
     """
     project = _killswitch_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         "killswitch-profile-denies",
         {
@@ -1233,7 +1235,7 @@ def test_killswitch_dedupe_when_profile_also_denies(tmp_path, built_control_assi
 #: makes both selectable. The render used to count the targets a session here
 #: could be pointed at and render a third way when they disagreed; it now reads
 #: ``control_system.writes`` alone, and these spell the old keys so the tests
-#: below can prove they are inert. The control-assistant preset builds a
+#: below can prove they are inert. The demo preset builds a
 #: ``mock`` and already carries both blocks, so naming ``epics`` as the type is
 #: what opens the second target. Spelled out rather than resolved, so a preset
 #: that stopped configuring both targets fails these tests instead of quietly
@@ -1263,7 +1265,7 @@ def _rendered_permissions(project: Path) -> dict:
     ids=["flat-off-va-armed", "flat-armed-live-off", "both-blocks-armed-flat-off"],
 )
 def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(
-    tmp_path, built_control_assistant_project, fields
+    tmp_path, built_demo_project, fields
 ):
     """A render spelling only retired leaves reads tier ``never``, whichever is ``true``.
 
@@ -1275,12 +1277,12 @@ def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(
     statically denied, in exactly the lists an explicit ``never`` tier puts it.
     """
     project = _retired_posture_project(
-        built_control_assistant_project, tmp_path, "posture-retired-armed", fields
+        built_demo_project, tmp_path, "posture-retired-armed", fields
     )
     perms = _rendered_permissions(project)
     assert "mcp__controls__channel_write" in perms["deny"]
     explicit = _killswitch_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         "posture-explicit-never",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "never"},
@@ -1290,9 +1292,7 @@ def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(
     ) == _permission_lists_holding(_rendered_permissions(explicit), "mcp__controls__channel_write")
 
 
-def test_mixed_posture_leaves_python_execute_unasked_and_undenied(
-    tmp_path, built_control_assistant_project
-):
+def test_mixed_posture_leaves_python_execute_unasked_and_undenied(tmp_path, built_demo_project):
     """python's execute is pulled from ask on a retired-leaf (``never``) render, never denied.
 
     It reaches ``allow`` here only through the required-tool rescue, which the
@@ -1304,7 +1304,7 @@ def test_mixed_posture_leaves_python_execute_unasked_and_undenied(
     write-access kernel on a target whose posture forbids one.
     """
     project = _retired_posture_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         "posture-mixed-execute",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
@@ -1364,7 +1364,7 @@ def _permission_lists_holding(perms: dict, tool: str) -> set[str]:
     ],
 )
 def test_execute_file_lands_in_the_same_permission_list_as_execute(
-    tmp_path, built_control_assistant_project, posture, fields, pyat_enabled
+    tmp_path, built_demo_project, posture, fields, pyat_enabled
 ):
     """``execute_file`` gets the same verdict as ``execute`` under every posture.
 
@@ -1391,7 +1391,7 @@ def test_execute_file_lands_in_the_same_permission_list_as_execute(
     """
     overrides = {} if pyat_enabled else _NO_PYAT
     project = _killswitch_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         f"execute-file-{posture}-{'pyat' if pyat_enabled else 'nopyat'}",
         {**fields, **overrides},
@@ -1424,9 +1424,7 @@ def test_execute_file_lands_in_the_same_permission_list_as_execute(
     )
 
 
-def test_all_write_posture_asks_for_both_python_exec_tools(
-    tmp_path, built_control_assistant_project
-):
+def test_all_write_posture_asks_for_both_python_exec_tools(tmp_path, built_demo_project):
     """On an ``allowed`` tier both exec tools are approval-gated, not prompted.
 
     The parity test above would be satisfied by both tools being unlisted, which
@@ -1437,7 +1435,7 @@ def test_all_write_posture_asks_for_both_python_exec_tools(
     raises the prompt the static ``ask`` used to.
     """
     project = _killswitch_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         "execute-file-armed-ask",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "allowed"},
@@ -1475,7 +1473,7 @@ def _retired_posture_project(base: Path, tmp_path, name: str, fields: dict) -> P
 
 
 def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(
-    tmp_path, built_control_assistant_project
+    tmp_path, built_demo_project
 ):
     """Every retired leaf disarmed, no tier key: the hard deny is back.
 
@@ -1484,7 +1482,7 @@ def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(
     already had.
     """
     project = _retired_posture_project(
-        built_control_assistant_project,
+        built_demo_project,
         tmp_path,
         "posture-both-disarmed",
         {
@@ -1498,7 +1496,7 @@ def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(
 
 
 def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(
-    tmp_path, built_control_assistant_project
+    tmp_path, built_demo_project
 ):
     """One reachable target, on a ``never`` tier: the kill switch fires.
 
@@ -1509,9 +1507,7 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(
     """
     from osprey.utils.config_writer import config_delete_field, config_update_fields
 
-    project = copy_build(
-        built_control_assistant_project, tmp_path / "posture-single-target-disarmed"
-    )
+    project = copy_build(built_demo_project, tmp_path / "posture-single-target-disarmed")
     config_update_fields(
         project / "config.yml",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "never"},
@@ -1528,7 +1524,7 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(
 # Tier floor: what a preset's config: layer does to the rendered project
 # ---------------------------------------------------------------------------
 
-#: The agent's deployment-editing tool. The ``control-assistant`` base denies it
+#: The agent's deployment-editing tool. The ``demo`` base denies it
 #: for every tier built on it; the ``admin`` tier is the one layer that
 #: subtracts the deny back off with ``permissions.remove_deny``.
 SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
@@ -1575,7 +1571,7 @@ def tier_floor_projects(tmp_path_factory) -> dict[str, Path]:
     Both halves of the floor contract need a real render — the base to show the
     privilege is gone, the admin tier to show it comes back — and neither is
     readable off the profile alone. Both come from the exemplar deployment
-    materialized from ``control-assistant``: its ``profile.yml`` and the
+    materialized from ``demo``: its ``profile.yml`` and the
     ``tiers/admin.yml`` that resolves over it.
     """
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
@@ -1654,8 +1650,8 @@ def test_tier_floor_web_keys_render_into_config(tier_floor_projects):
 def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
     """Selecting a hook COPIES the helpers it needs; nothing WIRES them.
 
-    ``osprey_hook_log.py``, ``osprey_target_state.py`` and
-    ``osprey_safety_file.py`` are libraries the real hooks import, and
+    ``osprey_hook_log.py``, ``osprey_target_state.py``,
+    ``osprey_safety_file.py`` and ``osprey_prompt_render.py`` are libraries the real hooks import, and
     ``hook_config.json`` is the file the logger reads beside itself. A profile
     names none of them: the build ships the closure of the hooks it does name.
     None of them declares an ``event``, so none may appear in ``settings.json``:
@@ -1671,7 +1667,7 @@ def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
         manager,
         project_name="hook-helpers",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
         artifacts={
             # memory-guard is along not for this test's sake but for the
@@ -1681,13 +1677,14 @@ def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
             "hooks": ["approval", "memory-guard"],
             "rules": ["safety"],
         },
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
 
     helpers = (
         "osprey_hook_log.py",
         "osprey_target_state.py",
         "osprey_safety_file.py",
+        "osprey_prompt_render.py",
         "hook_config.json",
     )
 
@@ -1745,10 +1742,9 @@ def _wired(settings: dict, event: str) -> list[tuple[str | None, str, int]]:
 
 
 def _selection_without(manager: TemplateManager, *dropped: str) -> dict[str, list[str]]:
-    """The control-assistant bundle's artifact selection, minus *dropped* hooks."""
+    """The demo bundle's artifact selection, minus *dropped* hooks."""
     artifacts = {
-        key: list(value)
-        for key, value in manager._effective_artifacts("control_assistant", None).items()
+        key: list(value) for key, value in manager._effective_artifacts("demo", None).items()
     }
     for name in dropped:
         assert name in artifacts["hooks"], f"{name} is not in the bundle selection to begin with"
@@ -1774,22 +1770,20 @@ def _project_with_hooks(
         manager,
         project_name=name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
         artifacts=_selection_without(manager, *dropped),
     )
-    profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
+    profile, _profile_dir = resolve_build_profile(None, preset="demo")
     config_update_fields(project / "config.yml", {**profile.config, **(config_fields or {})})
     manager.regenerate_claude_code(project)
     return project
 
 
-def test_full_selection_wires_every_framework_hook(built_control_assistant_project):
+def test_full_selection_wires_every_framework_hook(built_demo_project):
     """A profile that selects every hook gets the whole framework wiring."""
-    settings = json.loads(
-        (built_control_assistant_project / ".claude" / "settings.json").read_text()
-    )
+    settings = json.loads((built_demo_project / ".claude" / "settings.json").read_text())
 
     for event in ("SessionStart", "UserPromptSubmit", "Stop", "StopFailure"):
         expected = [
@@ -1838,13 +1832,11 @@ def _approval_matchers(settings: dict, event: str) -> list[str]:
     ]
 
 
-def test_every_approval_matcher_has_a_post_tool_use_twin(built_control_assistant_project):
+def test_every_approval_matcher_has_a_post_tool_use_twin(built_demo_project):
     """An asked call that ran is recorded as approved, on every approval matcher."""
-    settings = json.loads(
-        (built_control_assistant_project / ".claude" / "settings.json").read_text()
-    )
+    settings = json.loads((built_demo_project / ".claude" / "settings.json").read_text())
     pre = _approval_matchers(settings, "PreToolUse")
-    assert pre, "the control-assistant render wires the approval hook"
+    assert pre, "the demo render wires the approval hook"
     assert _approval_matchers(settings, "PostToolUse") == pre
     for rule in settings["hooks"]["PostToolUse"]:
         for hook in rule["hooks"]:
@@ -1853,11 +1845,9 @@ def test_every_approval_matcher_has_a_post_tool_use_twin(built_control_assistant
                 assert hook["timeout"] == 5
 
 
-def test_post_tool_use_failure_carries_the_twins(built_control_assistant_project):
+def test_post_tool_use_failure_carries_the_twins(built_demo_project):
     """A call that ran and failed was still approved."""
-    settings = json.loads(
-        (built_control_assistant_project / ".claude" / "settings.json").read_text()
-    )
+    settings = json.loads((built_demo_project / ".claude" / "settings.json").read_text())
     assert _approval_matchers(settings, "PostToolUseFailure") == _approval_matchers(
         settings, "PreToolUse"
     )
@@ -1986,3 +1976,73 @@ def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     granted = [entry for entry in settings["permissions"]["allow"] if "data/textbooks" in entry]
     assert granted == [], f"a directory name granted a Read permission: {granted}"
+
+
+def _registered_workspace_tools() -> set[str]:
+    """Names the workspace server registers, importing the modules its factory imports."""
+    import ast
+    import asyncio
+    import importlib
+
+    import osprey.mcp_server.workspace.server as server_module
+
+    tree = ast.parse(Path(server_module.__file__).read_text(encoding="utf-8"))
+    modules = [
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "osprey.mcp_server.workspace.tools"
+        for alias in node.names
+    ]
+    assert modules, "server.py no longer imports its tool modules from the tools package"
+    for name in modules:
+        importlib.import_module(f"osprey.mcp_server.workspace.tools.{name}")
+    return {t.name for t in asyncio.run(server_module.mcp.list_tools())}
+
+
+_WORKSPACE_TOOL_REF = re.compile(r"mcp__osprey_workspace__([a-z_]+)")
+_BACKTICKED_CALL = re.compile(r"`([a-z_]+)\(")
+
+
+def test_rendered_prompts_name_only_registered_workspace_tools(built_demo_project):
+    """Every workspace tool an agent, rule, skill or CLAUDE.md names is one the server serves."""
+    project = built_demo_project
+    texts = [project / "CLAUDE.md"]
+    for pattern in ("agents/*.md", "rules/*.md", "skills/**/SKILL.md"):
+        texts.extend((project / ".claude").glob(pattern))
+    registered = _registered_workspace_tools()
+    named: dict[str, set[str]] = {}
+    for path in texts:
+        for tool in _WORKSPACE_TOOL_REF.findall(path.read_text(encoding="utf-8")):
+            named.setdefault(tool, set()).add(path.name)
+    assert named, "no rendered prompt names a workspace tool; the scan found nothing"
+    unknown = {tool: sorted(files) for tool, files in named.items() if tool not in registered}
+    assert not unknown, f"rendered prompts name unregistered workspace tools: {unknown}"
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "CLAUDE.md.j2",
+        "claude/rules/artifacts.md",
+        "claude/agents/data-visualizer.md.j2",
+        "claude/skills/session-report/SKILL.md",
+        "claude/skills/diagnose/SKILL.md",
+    ],
+)
+def test_artifact_prompts_call_only_registered_workspace_tools(template):
+    """Bare backticked artifact calls in the prompt templates are registered tools.
+
+    The ariel-gated CLAUDE.md lines do not render on the preset, so the
+    template source is scanned directly.
+    """
+    root = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code"
+    text = (root / template).read_text(encoding="utf-8")
+    calls = {name for name in _BACKTICKED_CALL.findall(text) if name.startswith("artifact_")}
+    # Bare backticked names too, minus the id parameters (`artifact_id`, `artifact_ids`).
+    calls |= {
+        m.group(1)
+        for m in re.finditer(r"`(artifact_[a-z_]+)`", text)
+        if not m.group(1).endswith(("_id", "_ids"))
+    }
+    registered = _registered_workspace_tools()
+    assert not calls - registered, f"{template}: {sorted(calls - registered)}"

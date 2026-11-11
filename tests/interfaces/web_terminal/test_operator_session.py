@@ -47,7 +47,6 @@ from osprey.interfaces.web_terminal.chat_session_pool import (
     ChatSessionPool,
 )
 from osprey.interfaces.web_terminal.operator_session import (
-    _NOT_ARMED_MESSAGE,
     OperatorRegistry,
     OperatorSession,
     TurnInProgressError,
@@ -123,13 +122,14 @@ def _result(
     total_cost_usd: float | None = 0.01,
     duration_ms: int = 1200,
     num_turns: int = 1,
+    session_id: str = "sdk-session",
 ) -> ResultEvent:
     return ResultEvent(
         subtype="success",
         is_error=is_error,
         num_turns=num_turns,
         duration_ms=duration_ms,
-        session_id="sdk-session",
+        session_id=session_id,
         total_cost_usd=total_cost_usd,
         usage=None,
         result=None,
@@ -202,6 +202,7 @@ class TestEventToWire:
         assert ev["total_cost_usd"] == 0.05
         assert ev["duration_ms"] == 3000
         assert ev["num_turns"] == 2
+        assert ev["session_id"] == "sdk-session"
 
     def test_frames_keep_their_key_order(self):
         frames = [
@@ -578,13 +579,26 @@ class TestTierVerdictDeny:
 
         assert result.message == refusal_text("tier_never")
 
-    async def test_an_ask_that_is_not_a_write_keeps_todays_deny(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("tool", "tool_input"),
+        [
+            pytest.param("mcp__weather__forecast", {}, id="mcp-read"),
+            pytest.param("Read", {"file_path": "/tmp/x.png"}, id="read"),
+            pytest.param("Glob", {"pattern": "**/*.png"}, id="glob"),
+        ],
+    )
+    async def test_an_ask_that_is_not_a_write_gets_the_approval_card(
+        self, tmp_path, tool, tool_input
+    ):
+        """No tier arms writes here, but a read is not a write: the operator answers it."""
         async with _chat_on(tmp_path, writes="never") as chat:
-            result = await chat.can_use_tool("mcp__weather__forecast", {}, SimpleNamespace())
+            answer, card = await chat.ask(tool, tool_input)
+            assert await chat.session.resolve_permission(card["request_id"], allow=True)
+            result = await asyncio.wait_for(answer, timeout=2.0)
 
-        assert isinstance(result, PermissionResultDeny)
-        assert result.message == _NOT_ARMED_MESSAGE
-        assert "[osprey-refusal:" not in result.message
+        assert card["type"] == "permission_request"
+        assert card["kind"] == "tool"
+        assert isinstance(result, PermissionResultAllow)
 
 
 class TestStandingRules:
@@ -865,6 +879,29 @@ class TestOperatorSession:
 
         assert captured[0].setting_sources == ["project"]
         await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_start_warns_loudly_when_the_cli_drops_the_allow_list(self, tmp_path, caplog):
+        """Still untrusted after the startup seed: every read-only tool would reach the card."""
+        session = OperatorSession(cwd=str(tmp_path))
+        with sdk_seam() as captured:
+            await session.start()
+        try:
+            sink = captured[0].stderr
+            assert sink is not None
+            caplog.clear()
+            with caplog.at_level(logging.WARNING):
+                sink("Some other CLI line")
+                sink(
+                    "Ignoring 98 permissions.allow entries from .claude/settings.json: this "
+                    "workspace has not been trusted. Run Claude Code interactively here once."
+                )
+            warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+            assert len(warnings) == 1
+            assert str(tmp_path) in warnings[0]
+            assert "hasTrustDialogAccepted" in warnings[0]
+        finally:
+            await session.stop()
 
     @pytest.mark.asyncio
     async def test_start_requires_sdk(self):
@@ -2422,6 +2459,7 @@ class TestOperatorChatLaunchParity:
             cli_path=STUB_AGENT_CLI,
             include_partial_messages=True,
             can_use_tool=session._can_use_tool,
+            stderr=session._record_stderr,
             # The stub CLI takes --thinking-display, so the launch passes the
             # default display.
             extra_args={"thinking-display": "summarized"},

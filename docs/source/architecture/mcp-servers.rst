@@ -4,10 +4,16 @@ MCP Servers
 OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
 servers. The OSPREY agent discovers servers from ``.mcp.json`` at startup and calls
-tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
-deployment normally renders. The ``phoebus`` server, last on this page, ships
-in-tree too but is off unless a deployment switches it on; build profiles can
-inject additional servers beyond these.
+tools via stdio JSON-RPC. This page lists every server that ships in-tree,
+with every tool each one can register. The **10 core servers** are the ones a
+deployment normally renders: ``control_system``, the four channel-finder
+variants, ``workspace``, ``python_executor``, ``ariel``,
+``osprey_facility_knowledge`` and ``graph``. Four more ship in-tree but are off
+by default: ``phoebus``, ``optimizer``, ``bluesky`` and ``health``. A profile
+enables one with ``claude_code.servers.<name>.enabled: true``. The
+``demo`` preset enables ``bluesky`` and ``health``; ``phoebus`` and
+``optimizer`` stay off in every preset. Build profiles can inject additional servers beyond
+these.
 
 .. raw:: html
    :file: ../_diagrams/mcp-server-map.html
@@ -33,7 +39,10 @@ safety-limits enforcement on all write operations.
 **Tools:**
 
 - ``channel_read`` -- Read current values from one or more control system channels.
-- ``channel_write`` -- Write values to one or more control system channels (requires human approval).
+- ``channel_write`` -- Write values to one or more control system channels. Every write
+  goes through the writes check and the limits check. The write switch's position then
+  decides: at *off* the write is refused, at *asked* the operator approves it at a prompt,
+  and at *allowed* it runs unprompted (see :ref:`architecture-safety-chain-order`).
 - ``archiver_read`` -- Retrieve historical archived data for one or more channels over a
   time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
   ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
@@ -46,6 +55,16 @@ safety-limits enforcement on all write operations.
   write-gated and under what constraints (lookup, pattern match, summary). Not a channel
   roster -- an unlisted channel may still exist; use channel-finder to discover what channels
   exist.
+- ``control_target`` -- Report which control system the deployment points at (``live``,
+  ``va`` or ``standin``), each target's endpoints and reachability, and whether the session
+  may move to it now. Read-only: it connects to nothing.
+- ``control_target_set`` -- Point the deployment's control-system tools at another target.
+  The target belongs to the deployment, so every session on it moves too (requires human
+  approval).
+
+An application's write tools take the same path: they enter the gate as their server's
+``writes:`` list, the switch's position decides each call, and no per-tool approval policy exists
+for them. See :doc:`/how-to/apps/index`.
 
 
 Channel Finding
@@ -153,15 +172,15 @@ tools into several functional areas.
 **Artifacts:**
 
 - ``artifact_register`` -- Register a file on disk, or literal text, as a gallery artifact.
-- ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
-- ``artifact_list`` -- List stored artifacts, optionally narrowed by category, tool or agent.
-- ``artifact_read`` -- Read a stored artifact's full content (small artifacts only).
+- ``artifact_list`` -- List this session's artifacts, optionally narrowed by form or tool;
+  ``scope="all"`` lists every session's.
+- ``artifact_read`` -- Return an artifact's metadata and file path, plus its content when small
+  (an image as the image itself).
 - ``artifact_delete`` -- Delete an artifact from the gallery.
-- ``artifact_delete_all`` -- Delete a whole scope of artifacts (one category, or everything)
+- ``artifact_delete_all`` -- Delete one form, or everything, of this session's artifacts
   in a single call. The ``scope`` argument is required.
 - ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
-- ``artifact_pin`` -- Pin or unpin an artifact for quick-access filtering.
 
 **Visualization:**
 
@@ -173,43 +192,27 @@ tools into several functional areas.
 **Stored data:**
 
 Datasets are not a separate namespace -- an archiver read or a run result is an
-artifact with a ``category``, so the artifact tools above list, read and delete
-them (``artifact_list(category="archiver_data")``).
+artifact with a form, so the artifact tools above list, read and delete them
+(``artifact_list(tool="archiver_read")``).
 
 - ``archiver_downsample`` -- Downsample an archiver artifact to a target point count.
-
-**Lattice Dashboard:**
-
-- ``lattice_state`` -- Get current lattice state (summary, families, figures, baseline).
-- ``lattice_set_param`` -- Set a magnet family parameter override.
-- ``lattice_refresh`` -- Recompute figures: a figure name refreshes that one figure,
-  ``verify`` runs ``da`` and ``lma``, and no argument refreshes the selected model's fast figures.
-- ``lattice_set_baseline`` -- Snapshot the current state as the comparison baseline.
-- ``lattice_clear_baseline`` -- Discard the saved comparison baseline.
-- ``lattice_get_figure`` -- Return a named figure with its status and key when it is current for
-  the inputs on screen, else an error naming its status (stale, computing, failed, not yet
-  computed) or the reason the model cannot draw it.
-- ``lattice_get_data`` -- Return the numeric data behind a named figure with its status and key
-  when it is current for the inputs on screen, else the same errors as ``lattice_get_figure``.
-- ``lattice_get_settings`` -- Get current dashboard settings (display options, baselines).
-- ``lattice_update_settings`` -- Update dashboard settings.
 
 **Panels:**
 
 - ``list_panels`` -- List the panels available in the Web Terminal (built-in and
-  custom), the dock's layout (every tile with its tabs and showing tab, the
+  custom), the dock's layout (every tile with the panel it shows, the
   terminal included) and its ``rev``.
-- ``open_panel`` -- Put a panel on screen: a new tab of the service tile used
-  last, or focus it where it already is.
-- ``open_panel_set`` -- Open several panels in one call, as tabs of one tile or
-  side by side.
+- ``open_panel`` -- Put a panel on screen: in a new tile split off the service
+  tile used last, or, with ``place="replace"``, in that tile (the replaced panel
+  keeps its rail entry); focused where it already is.
+- ``open_panel_set`` -- Open several panels in one call, side by side in tiles
+  of their own.
 - ``arrange_workspace`` -- Lay out the service tiles from a configured preset or
-  an exact layout; the terminal keeps its place.
-- ``drop_panel`` -- Make any drop a person can make (tile centre, tab position,
-  edge, a whole side of the dock), plus a drop between two tiles, with a new
-  panel, an open tab or a whole tile.
-- ``close_panel_tab`` -- Close a panel's tab, leaving it on the rail.
-- ``close_panel_tile`` -- Close a whole tile with its tabs.
+  an exact layout; the terminal keeps its place. A tile holds one panel.
+- ``drop_panel`` -- Make any drop a person can make (a tile's edge, a whole
+  side of the dock), plus a drop between two tiles, with a new panel, an open
+  panel or a whole tile.
+- ``close_panel`` -- Close a panel's tile, leaving the panel on the rail.
 - ``add_panel_to_rail`` -- Make a panel launchable from the rail in one click
   (requires human approval).
 - ``remove_panel_from_rail`` -- Take a panel off the rail (and off screen with it)
@@ -228,11 +231,15 @@ pruning the operator gets by clicking that layout.
 Every layout tool is one agent dock operation sent through the op helper
 (``panel_op``): the web terminal relays it to the browser holding the dock and
 answers with the resulting layout and ``rev``, or with a named refusal
-(``stale_base``, ``no_dock_client``, ``terminal_not_agent_movable``, ...) that
-changed nothing. The tools that name tile ids (``drop_panel``,
-``close_panel_tile``) take the ``rev`` of the agent's last read as
-``base_rev``. The terminal is never an agent drop source or close target, and a
-layout never names it.
+(``stale_base``, ``no_dock_client``, ``terminal_not_agent_movable``,
+``one_panel_per_tile``, ...) that changed nothing. A browser that does not
+answer within five seconds gives ``no_dock_answer``. The browser can still
+apply that operation, so the outcome is unknown: the agent reads the panels
+again before it tries again. The web terminal records the late answer of the
+browser as its layout report. The one tool that names tile ids,
+``drop_panel``, takes the ``rev`` of the agent's last read as ``base_rev``.
+The terminal is never an agent drop source or close target, and a layout
+never names it.
 
 **Screen Capture:**
 
@@ -243,10 +250,11 @@ layout never names it.
 **Session:**
 
 - ``session_log`` -- Retrieve the structured session activity log.
-- ``session_summary`` -- Return a compact inventory of all data and artifacts in the session.
 - ``submit_response`` -- Submit a formatted response to the web terminal.
 - ``facility_description`` -- Get the hand-written facility description and the build's generated facts page (places with device counts, device classes with their groups, models, and the signals and roles the channels use).
 - ``prior_answer_read`` -- Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).
+- ``provenance_locator`` -- Return the telemetry coordinates (session id, service name, time
+  window) that locate this session in the agent record, for a filed issue to carry.
 
 **Setup / Diagnostics:**
 
@@ -270,6 +278,15 @@ boundary with limits enforcement and timeout protection, not a sandbox; see
 
 - ``execute`` -- Execute Python code with safety checks, process isolation, and timeout.
 - ``execute_file`` -- Execute a Python file from the workspace with the same safety envelope as ``execute``.
+
+Two more tools are registered only when the render's facility facts record a pyAML view
+(see :doc:`/how-to/measure-with-pyaml`):
+
+- ``pyaml_measure`` -- Measure a response matrix or the chromaticity with pyAML on the
+  control target. It steps setpoints, so it is a write: see :ref:`A pyAML tool
+  <architecture-safety-chain-pyaml-tool>`.
+- ``model_response_matrix`` -- Solve a served model's orbit response to its correctors on
+  the model alone. Read-only.
 
 
 ARIEL
@@ -387,3 +404,134 @@ Phoebus product, not a connector: see :ref:`A Phoebus drive
   under ``phoebus.agent_access: read_write`` and asked for approval.
 - ``phoebus_open_databrowser`` -- Open a Data Browser plot of a channel list over a
   time range, bound to the archiver when ``phoebus.archiver_url`` is set.
+
+
+Optimizer
+---------
+
+``optimizer``
+~~~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.optimizer``
+
+Reads the optimizer service a profile deploys with its ``optimizer:`` section
+(:doc:`/reference/configuration/profile`). It is off in every preset and
+switched on with ``claude_code.servers.optimizer.enabled: true``. The build
+refuses that switch on a render with no optimizer to dial: a deployment that
+does not run one, or an attached render whose host publishes no
+``services.optimizer.port``. The server dials ``services.optimizer.port`` on
+loopback, or ``OPTIMIZER_URL`` when that is set.
+
+The server holds no launch token, so it cannot start, resume or restore a run:
+the agent drafts a run and a person starts it. A tool that reads a machine
+(``environment_status``, ``read_observables``, ``initial_bounds``) asks about
+the session's control target, as every app does, and a draft is always for
+that target: ``create_draft`` and ``update_draft`` refuse a config naming
+another.
+
+**Tools:**
+
+- ``list_environments`` -- List the optimization environments the service offers.
+- ``get_environment`` -- Read one environment's variable and observable definitions.
+- ``environment_status`` -- Check whether an environment is reachable on a machine.
+- ``read_observables`` -- Read the current values of an environment's observables.
+- ``list_presets`` -- List the run presets an environment offers.
+- ``initial_bounds`` -- Resolve each variable's starting bounds from its current setpoint.
+- ``list_jobs`` -- List the jobs that have not finished.
+- ``get_job`` -- Read one job's status, optionally with its result summary or full data.
+- ``current_job`` -- Read the current-job pointer, the job a start launches.
+- ``get_job_config`` -- Read an optimization job's stored config and its revision.
+- ``create_draft`` -- Create a draft optimization job from a config; the current-job
+  pointer moves to it.
+- ``update_draft`` -- Replace a draft's whole config; refused once it has started.
+- ``pause_job`` -- Pause a running optimization job (requires human approval).
+- ``cancel_job`` -- Cancel a draft or a run; the machine stays where the run left it
+  (requires human approval).
+- ``list_results`` -- List the stored runs.
+- ``get_result`` -- Read one stored run: config, best point and evaluated records.
+- ``preview_restore`` -- Show the values restoring a run would write, without writing them.
+- ``list_models`` -- List the saved surrogate model files.
+
+
+Bluesky
+-------
+
+``bluesky``
+~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.bluesky``
+
+A thin HTTP client of the facility-side Bluesky bridge. It lists plans and
+devices, and stages a shared plan draft. It queues and starts that draft, stops
+a run and reads run data. It also writes and validates session plans. It is off
+by default and enabled with ``claude_code.servers.bluesky.enabled: true``; the
+``demo`` preset enables it. ``queue_add`` and
+``queue_start`` can set hardware in motion, so they are governed writes, like
+``channel_write``: the writes check runs first, then the write switch's position
+decides whether the operator is asked. See :doc:`/how-to/bluesky/queue`.
+
+**Plans and devices:**
+
+- ``list_plans`` -- List the plans registered on the bridge, with each plan's metadata,
+  provenance and parameter schema.
+- ``get_plan_source`` -- Read one plan's source text as it sits on disk.
+- ``list_devices`` -- List the device names this deployment's plans accept, one page at a
+  time.
+
+**Draft:**
+
+- ``get_draft`` -- Read the shared plan draft, its revision and its lane.
+- ``set_draft`` -- Create or edit the shared plan draft; every open Bluesky panel shows
+  the edit live.
+- ``clear_draft`` -- Clear the shared plan draft.
+
+**Authoring:**
+
+- ``write_plan`` -- Write a session-tier plan file on the bridge; the bridge never runs
+  it (requires human approval).
+- ``validate_plan`` -- Validate a written session plan with the static checks and a
+  mock-device dry run (requires human approval).
+
+**Queue:**
+
+- ``queue_status`` -- Report whether this deployment can run plans at all or is
+  browse-only.
+- ``queue_list`` -- Read the queue: pending items, the running item and the manager's
+  state.
+- ``queue_add`` -- Add the shared draft, at a pinned revision, to the queue. Starts
+  nothing on a stopped queue.
+- ``queue_start`` -- Start draining the queue: every pending item runs, in order.
+- ``queue_stop`` -- Stop the queue after the running item finishes, or withdraw a
+  pending stop (requires human approval).
+- ``queue_remove`` -- Remove one pending item from the queue (requires human approval).
+
+**Runs:**
+
+- ``list_runs`` -- List the runs OSPREY queued, newest first.
+- ``get_run`` -- Read one run's lifecycle status.
+- ``get_run_data`` -- Read a bounded window of a run's data.
+- ``get_run_figure`` -- Read a run's figure, bounded to a fixed point budget.
+- ``stop_run`` -- Abort the running plan now. Data collected so far is kept and the
+  hardware stays where the plan left it (requires human approval).
+
+
+Health
+------
+
+``health``
+~~~~~~~~~~
+
+Package: ``osprey.mcp_server.health``
+
+Runs the facility health suite for the agent. It is off by default and enabled
+with ``claude_code.servers.health.enabled: true``; the ``demo`` preset
+enables it. Its tools take only a category filter, so every probe they run is
+declared in config and read-only.
+See :doc:`/how-to/health-and-monitoring/configure-health-checks`.
+
+**Tools:**
+
+- ``health_check`` -- Run the cached poll tier: config load, connector reachability,
+  provider canaries, archiver freshness and other fast read-only checks.
+- ``health_check_full`` -- Run the full tier, which adds the costly ``on_demand`` checks
+  the poll tier reports as skipped (requires human approval).

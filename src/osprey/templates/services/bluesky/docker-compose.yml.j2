@@ -20,6 +20,8 @@
     package index — are rendered by the shared macro rather than spelled out
     per template, so every image OSPREY builds is handed the same set. -#}
 {%- import "services/_site_image_args.j2" as site -%}
+{#- The own-image build gate, elected once across the lanes below. -#}
+{%- import "services/_own_image.j2" as own -%}
 {#- The PLAN LANE axis. A lane is a whole stack — bridge + RE Manager + its own
     Redis — bound at render time to the control-system target it serves, and
     this file renders one set of those three containers per lane.
@@ -65,11 +67,7 @@
     block reads as unset, so it keeps its build. None qualifies when every lane
     names another image, and then nothing here builds. -#}
 {%- set builder = namespace(key=none) %}
-{%- for candidate in lane_keys %}
-{%- if builder.key is none and (not services[candidate].image or services[candidate].image == osprey_images.bluesky_bridge) %}
-{%- set builder.key = candidate %}
-{%- endif %}
-{%- endfor %}
+{{- own.elect(builder, lane_keys, services, osprey_images.bluesky_bridge) }}
 {%- set builder_key = builder.key %}
 
 services:
@@ -90,7 +88,9 @@ services:
     INSIDE the container stays constant — the image's code is lane-agnostic
     and reads `BLUESKY_LAUNCH_TOKEN` whichever lane it is running as. -#}
 {%- set svc = services[lane_key] %}
-{%- set lane_builds_image = not svc.image or svc.image == osprey_images.bluesky_bridge %}
+{%- set lane_own = namespace(key=none) %}
+{{- own.elect(lane_own, [lane_key], services, osprey_images.bluesky_bridge) }}
+{%- set lane_builds_image = lane_own.key is not none %}
 {%- set lane = lane_key | replace('_', '-') %}
 {%- set qserver = 'queueserver' if lane_key == 'bluesky' else lane ~ '-queueserver' %}
 {%- set lane_env = lane_key | upper %}
@@ -489,15 +489,15 @@ services:
       # Facility plan directory: operator-supplied host path via
       # services.{{ lane_key }}.plan_dir in config.yml, mounted read-only — the
       # bridge only discovers/execs plans from here, never writes into it.
-      # An absolute host path passes through unchanged; a relative one
-      # resolves against the compose project directory (the repo root),
-      # same rule as every other bind source in this file. The container
+      # The injector stores it compose-ready: an absolute host path as is, a
+      # bare relative one `./`-prefixed (compose would read it as a named
+      # volume), resolving against the repo root. The container
       # target is fixed (matches BLUESKY_PLAN_DIRS above) so plan_loader.py
       # never needs to know the host-side location.
       - {{ svc.plan_dir }}:/app/project/plans:ro
 {% endif %}
 {#- `svc.writes_enabled` is the render's login tier, computed host-side
-    (`_bluesky_lane_write_posture`): true for a `control_system.writes: allowed`
+    (`drives_target_write_posture`): true for a `control_system.writes: allowed`
     render, false for a `never` one, the same on every lane.
     The limits mount is gated on the KEY as well as on the writes posture,
     because a channel-limits database is optional. A deployment with no
@@ -953,7 +953,7 @@ services:
   {{ lane }}-redis:
     # Public upstream image, overridable env -> config -> default like every
     # other service image here.
-    image: ${OSPREY_BLUESKY_REDIS_IMAGE:-{{ svc.redis_image | default('redis:7.4-alpine') }}}
+    image: ${OSPREY_BLUESKY_REDIS_IMAGE:-{{ svc.redis_image | default(upstream_images.redis) }}}
     container_name: {{ osprey_labels.project_name }}-{{ lane }}-redis
     restart: unless-stopped
     # Append-only persistence: a queue that survives a bridge restart but not
@@ -989,12 +989,12 @@ services:
   # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
   # only, same as the bridge itself.
   tiled:
-    # Public upstream image, overridable like every other service image
-    # (env → config → default): set OSPREY_TILED_IMAGE, or
+    # The upstream image catalogue's `tiled` entry, overridable like every
+    # other service image (env → config → default): set OSPREY_TILED_IMAGE, or
     # services.bluesky.tiled_image in config.yml, to point at a mirror or a
     # pinned digest. The tag is a published bluesky/tiled release no older than
     # the `tiled[client]` floor in the framework's own dependencies.
-    image: ${OSPREY_TILED_IMAGE:-{{ services.bluesky.tiled_image | default('ghcr.io/bluesky/tiled:0.2.18') }}}
+    image: ${OSPREY_TILED_IMAGE:-{{ services.bluesky.tiled_image | default(upstream_images.tiled) }}}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy Tiled on one host without colliding on one
     # name. The bridge reaches this service by its compose service key `tiled`

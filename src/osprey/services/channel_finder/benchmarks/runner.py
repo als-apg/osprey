@@ -262,7 +262,7 @@ class BenchmarkRunner:
         environment either way.
 
         The ``neo4j`` driver is imported inside
-        :func:`~osprey.services.facility_knowledge.seeder.graph_seeder.open_session`,
+        :func:`~osprey.services.graph_store.seeder.open_session`,
         which also closes it, so importing this module costs no driver.
 
         This census is the one place in the graph paradigm that deliberately
@@ -287,7 +287,7 @@ class BenchmarkRunner:
         """
         from osprey.deployment.graphdb_service import resolve_graphdb_connection
         from osprey.port_layout import resolve_port_base
-        from osprey.services.facility_knowledge.seeder import graph_seeder
+        from osprey.services.graph_store import seeder as graph_seeder
 
         config = self._read_config()
         services = config.get("services") or {}
@@ -338,7 +338,7 @@ class BenchmarkRunner:
         benchmark = (config.get("channel_finder") or {}).get("benchmark") or {}
         dataset_path = benchmark.get("dataset_path")
         if not dataset_path:
-            # Only the control_assistant bundle ships a benchmark query corpus,
+            # Only the demo bundle ships a benchmark query corpus,
             # so the app templates built around channel finding alone reach here
             # with no `benchmark:` block at all. Name both ways out rather than
             # surfacing a bare KeyError on the config subscript.

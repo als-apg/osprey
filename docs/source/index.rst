@@ -3,9 +3,27 @@ Osprey Framework Documentation
 
 **An agentic interface to scientific control systems.**
 
-The **Osprey Framework** is an agentic interface and harness for scientific facilities managing complex technical infrastructure, such as particle accelerators. It runs Claude Code as its agent and wraps it in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer. The model behind the agent is a configuration choice, and the code specific to Claude Code sits in :ref:`one adapter package <extending-agent-harness>`. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.
+The **Osprey Framework** is an agentic interface and harness for scientific
+facilities managing complex technical infrastructure, such as particle
+accelerators. The *harness* is the layer that stands between the agent and the
+machine. Osprey runs Claude Code as its agent and wraps it in an
+operator-facing safety policy, a hook-based approval chain, and an MCP-server
+multiplexer (MCP, the Model Context Protocol, is how the agent calls tools).
 
-Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, :doc:`protocol-agnostic integration with control stacks </how-to/control-systems/use-connectors>` (EPICS, DOOCS, TANGO and the built-in simulator ship in-tree; LabVIEW and other stacks are supported via custom connectors), :doc:`logbook search <how-to/ariel/index>` across facility electronic logbooks, and mandatory human oversight for safety-critical operations.
+The model behind the agent is a configuration choice, and the code specific to
+Claude Code sits in :ref:`one adapter package <extending-agent-harness>`. The
+current reference implementation is a browser-based operator workstation;
+other surfaces (control-room consoles, chat clients, headless services) are
+possible.
+
+Osprey addresses challenges specific to control systems:
+
+- semantic addressing across large channel namespaces;
+- :doc:`protocol-agnostic integration with control stacks </how-to/control-systems/use-connectors>`:
+  EPICS, DOOCS, TANGO and the built-in simulator ship in-tree, and LabVIEW and
+  other stacks are supported via custom connectors;
+- :doc:`logbook search <how-to/ariel/index>` across facility electronic logbooks;
+- mandatory human oversight for safety-critical operations.
 
 A short demo of the operator workstation:
 
@@ -21,9 +39,9 @@ A short demo of the operator workstation:
             alt="The Osprey operator workstation with a 3D plot the agent made of three BPMs.">
      </video>
      <p class="osprey-demo-source">
-       Recorded on the control-assistant demo, which runs a simulated accelerator
+       Recorded on the OSPREY demo, which runs a simulated accelerator
        rather than a real facility. To reproduce it, follow the
-       <a href="getting-started/control-assistant.html">control-assistant tutorial</a>.
+       <a href="getting-started/demo.html">demo tutorial</a>.
      </p>
      <p class="osprey-demo-note" id="osprey-demo-note">
        One unedited session of several minutes. The agent's working time is sped up
@@ -53,7 +71,7 @@ Documentation Structure
       :link-type: doc
       :class-header: sd-bg-primary sd-text-white
 
-      Install Osprey, create your first project, and deploy a control assistant
+      Install Osprey, create your first project, and deploy the demo
       with a coding agent and MCP servers.
 
    .. grid-item-card:: How-To Guides

@@ -1,7 +1,7 @@
 # Knowledge starter
 
 Rules for the facility material a deployment starts with: the OKF knowledge
-bundle, the graph corpus, facility records, write limits, tiers and apps — and the
+bundle, the graph corpus, facility records, write limits, tiers and shared logins — and the
 ledger row each one gets.
 
 ## The rule
@@ -26,7 +26,7 @@ INTERVIEW.md with its source, and its ledger row reads the facility's name.
 **Step 1, the skeleton.**
 
 ```
-osprey scaffold pull control-assistant:data/facility/knowledge
+osprey scaffold pull demo:data/facility/knowledge
 ```
 
 It writes six `index.md` files and reports `17 knowledge documents skipped (use
@@ -158,18 +158,17 @@ types none of them.
    that share the stem `<machine>.<submachine>`: `.lattice.mat`, `.ao.json`, `.ad.json`,
    `.va.json`, `.response.json` and `.model.json`. Repeating it per sub-machine
    overwrites nothing.
-3. **Clear the base's demo records.** The import refuses while `data/facility/` holds a
-   record source of its own: it prints `import mml: authored-present: <n> files` and
-   one `rm <path>` line per file. On a hello-world base those are the demo's
-   `records/channels.yaml`, `limits.yaml`, `seeds.yaml` and `identity.yaml`. Read each
-   line before running it — a file the facility authored is named there too, demo or
-   not. Run them, then import.
+3. **What the import does to the base's demo.** `osprey facility import mml` replaces the
+   bundled facility and says so in one line:
+   `import mml: replaced the bundled <name> facility (<n> files)`. It refuses only
+   hand-written records of the kinds it writes, naming each file with the new-repo
+   remedy. A file becomes hand-written when its bundled-origin line is deleted.
 4. **Draft the mapping.**
    `osprey facility import mml <machine>.<sub>.ao.json [<machine>.<sub2>.ao.json ...]`.
    Name the `.ao.json` files only; the files beside each one are read automatically,
    and the sub-machine name recorded in the file becomes the system name. The first run
    writes `data/facility/imported/mml/mapping.yaml` and stops with
-   `import mml: mapping-draft`. Nothing else is written. Every slot the export states a
+   `import mml: mapping-draft`. No record is written. Every slot the export states a
    fact for is pre-filled, every other slot is `null`. This file is the only place a
    decision about this facility is recorded.
 5. **Fill every `null`.** The import stops with `import mml: mapping-undecided` while
@@ -273,7 +272,7 @@ Middle Layer export (§3.1), or are authored by hand under `data/facility/record
 one file per kind. The reference example's records are the shape to follow:
 
 ```
-osprey scaffold pull control-assistant:data/facility/records
+osprey scaffold pull demo:data/facility/records
 ```
 
 What the pull brings describes the reference facility. It is a `pulled` row whose
@@ -309,20 +308,20 @@ the build renders from it. Its ledger row starts as `reference facility` and the
 CLOSE gate blocks on it until the records are emptied or replaced
 (`references/map.md`, base demo material).
 
-## 6. Tiers, apps and users
+## 6. Tiers, shared logins and users
 
 **This is the one home for the ordering. Emit all, then prune.**
 
-A tier is an access level of the deployment's own agent, one file in `tiers/`; a
-roster entry picks one with `tier:`, and `default_tier` covers any entry that does
-not. An app is a second, complete agent beside the deployment's own, one file in
-`apps/`, opened from a shared landing card by everyone on the roster; the roster
-lists it by name under `shared:`.
+Every login is one file in `tiers/`. A tier is an access level of the deployment's
+own agent; a roster entry picks one with `tier:`, and `default_tier` covers any
+entry that does not. A shared login is a second, complete agent beside the
+deployment's own (`lists: own`), opened from a shared landing card by everyone on
+the roster; the roster lists it by name under `shared:`. `apps/` is neither: it
+holds applications, one `apps/<name>/` directory each, made with `osprey app new`.
 
-`osprey scaffold tiers --from control-assistant` writes every tier that preset's
-roster names, and `osprey scaffold apps --from control-assistant` writes every app
-its `shared:` list names. Neither has a selection flag, so every deployment starts
-with all of them and prunes down.
+`osprey scaffold tiers --from demo` writes every tier that preset's
+roster names and every shared login its `shared:` list names. It has no selection
+flag, so every deployment starts with all of them and prunes down.
 
 Then delete the ones this deployment has no role for:
 
@@ -330,23 +329,23 @@ Then delete the ones this deployment has no role for:
   `default_tier` names — a deployment whose `default_tier` has no tier file is
   stranded.
 - **The user named none** ("not sure" is the common answer). Keep only the tier
-  `default_tier` names. Keep the app that opens the knowledge bundle when the
+  `default_tier` names. Keep the shared login that opens the knowledge bundle when the
   KNOWLEDGE area is adopted, since its card is what opens the bundle. Delete the
   rest.
-- **An app nothing serves.** An app whose `default_panel` needs a service this base
+- **A shared login nothing serves.** One whose `default_panel` needs a service this base
   does not declare goes, whatever the user named, and returns with its area's
   feature port. The web-terminal recipe in `references/map.md` step 4 has this case.
 
 Deleting a tier is three deletions that go together: `tiers/<name>.yml`, every
 roster entry under `modules.web_terminals.users` (and every
 `authorization.roles.<role>.tier`) that names it, and those users'
-`web-terminal-context/<user>/` once a build has seeded it. Deleting an app is
-`apps/<name>.yml`, its name under `modules.web_terminals.shared`, and its seeded
+`web-terminal-context/<user>/` once a build has seeded it. Deleting a shared login is
+`tiers/<name>.yml`, its name under `modules.web_terminals.shared`, and its seeded
 context directory. Leave one behind and the next build either fails on the missing
 file or warns about context for a name not on the roster.
 
 The demo logins are removed, not renamed. In
-`src/osprey/profiles/presets/control-assistant.yml` they are the roster entries
+`src/osprey/profiles/presets/demo.yml` they are the roster entries
 `alice`, `bob` and `carol` under `modules.web_terminals.users`, plus
 `OSPREY_AUTH_PW_ALICE`, `OSPREY_AUTH_PW_BOB` and `OSPREY_AUTH_PW_CAROL` under
 `env.defaults`. Renaming a demo login keeps its password and its index. Delete
@@ -365,14 +364,14 @@ the devil's advocate walks the same list against the ledger afterwards.
 | `data/facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
 | `data/facility/records/`, `seeds.yaml` and `identity.yaml` nobody replaced | the demo facility's channels |
 | `data/facility/limits.yaml` with records nobody ported | the demo facility's limits |
-| `data/benchmarks/` | demo query sets |
+| `data/facility/benchmarks/` | demo query sets |
 | `data/facility/models.yaml`, `decks/`, `measurement/`, `scenarios/` nobody replaced | demo machine model |
-| `data/ariel/vocabulary.yml` | demo facility terms |
+| `data/facility/ariel/vocabulary.yml` | demo facility terms |
 | `data/landing/working-safely.md` | the demo product's safety notice |
 | `web-terminal-context/base.md` | opens by naming the demo product |
 | `profile.yml` roster entries `alice`, `bob`, `carol` | demo logins |
 | `.env` keys `OSPREY_AUTH_PW_ALICE`, `_BOB`, `_CAROL` | demo passwords |
-| `tiers/*.yml` no roster entry or `default_tier` names, `apps/*.yml` not under `shared:` | orphaned tier and app files |
+| `tiers/*.yml` that no roster entry, `default_tier` or `shared:` names | orphaned login files |
 | `data/facility/limits.yaml` still holding hello-world's demo records | the base's own emitted demo records, §5 |
 | `web-terminal-context/<name>/` for a name no roster entry has | seeded by an earlier build for a user since deleted |
 

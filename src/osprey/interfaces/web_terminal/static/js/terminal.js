@@ -6,6 +6,9 @@ import { clearPointer, getPointer, setPointer } from './session-pointer.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { hideHandoffOverlay, showHandoffPending, showHandoffRefused } from './terminal-handoff.js';
 import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
+import { queryAllDocuments } from './attached-window.js';
+import { matcherFor } from './key-bindings.js';
+import { installTerminalMenu } from './terminal-menu.js';
 
 /** @type {any} */
 let term = null;
@@ -16,6 +19,8 @@ let wsConnection = null;
 let hasConnectedBefore = false;
 /** @type {string|null} */
 let currentSessionId = null;
+/** Removes the terminal body's context menu (terminal-menu.js). */
+let uninstallTerminalMenu = () => {};
 
 // Every connection gets a 'session_info' confirmation from
 // routes/websocket.py carrying the id ACTUALLY attached. A resume of an id
@@ -152,6 +157,9 @@ function agentClipboardProvider() {
  * whether or not anything is selected: xterm would otherwise encode it as ^C
  * and interrupt the agent.
  *
+ * The chord is the `terminal-copy` entry of key-bindings.js, which also
+ * holds the hint a menu row prints for it.
+ *
  * Returning `false` tells xterm the event is handled; anything else returns
  * `true` and is processed as usual.
  *
@@ -159,9 +167,7 @@ function agentClipboardProvider() {
  * @returns {boolean}
  */
 function copyKeyHandler(event) {
-  if (event.type !== 'keydown') return true;
-  if (!(event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey)) return true;
-  if (event.key !== 'c' && event.key !== 'C') return true;
+  if (!matcherFor('terminal-copy')(event)) return true;
 
   if (term && term.hasSelection()) {
     // A refusal surfaces in the console rather than as a pasted ^C.
@@ -172,13 +178,55 @@ function copyKeyHandler(event) {
   return false;
 }
 
+/** The page globals the xterm.js scripts define, all read by initTerminal(). */
+const XTERM_GLOBALS = ['Terminal', 'FitAddon', 'WebLinksAddon', 'ClipboardAddon'];
+
+/**
+ * Put a visible notice where the terminal would have been.
+ *
+ * A terminal whose assets never loaded leaves an EMPTY pane, and an empty pane
+ * is indistinguishable from a terminal that has nothing to show — the operator
+ * waits at a prompt that is never going to appear. A console log line is not a
+ * user-facing surface; this is. The page's data-vendor attribute says where the
+ * assets were meant to come from. An offline server refuses to boot without its
+ * vendor assets, so a failed load on an offline page is a serving fault: the
+ * notice names this server, not the image.
+ *
+ * @param {string} containerId
+ */
+export function renderTerminalBootFailure(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const notice = document.createElement('p');
+  notice.className = 'terminal-boot-failure';
+  notice.textContent =
+    document.documentElement.dataset.vendor === 'cdn'
+      ? 'Terminal assets did not load from the CDN. For a host without internet, build the images with offline: true in config.yml.'
+      : 'Terminal assets did not load from this server. Reload the page.';
+  container.replaceChildren(notice);
+}
+
 /**
  * Initialize xterm.js terminal in the given container.
+ *
+ * A missing xterm.js global renders the boot-failure notice in the container
+ * and returns without constructing a terminal, so every later call stays a
+ * no-op.
+ *
  * @param {string} containerId
  */
 export function initTerminal(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
+
+  const missing = XTERM_GLOBALS.filter(
+    (name) => /** @type {any} */ (globalThis)[name] === undefined
+  );
+  if (missing.length > 0) {
+    console.error('xterm.js globals unavailable:', missing.join(', '));
+    renderTerminalBootFailure(containerId);
+    return;
+  }
 
   term = new Terminal({
     scrollback: 10000,
@@ -219,7 +267,23 @@ export function initTerminal(containerId) {
   term.loadAddon(fitAddon);
   term.loadAddon(webLinksAddon);
   term.loadAddon(clipboardAddon);
-  term.attachCustomKeyEventHandler(copyKeyHandler);
+  // The terminal body's context menu. xterm keeps ONE custom key handler (a
+  // second attach replaces the first and would drop Ctrl+Shift+C), so the
+  // menu key is composed into it here rather than attached by the menu.
+  uninstallTerminalMenu();
+  const menu = installTerminalMenu({
+    container,
+    term,
+    onRestart: async () => {
+      await restartTerminal();
+      startTerminal();
+    },
+    onSwitchToChat: showChatSurface,
+  });
+  uninstallTerminalMenu = menu.uninstall;
+  term.attachCustomKeyEventHandler((/** @type {KeyboardEvent} */ event) =>
+    menu.handleKey(event) ? false : copyKeyHandler(event)
+  );
   term.open(container);
 
   // Initial fit — run once now and again after fonts finish loading, since
@@ -377,8 +441,6 @@ export function startTerminal(
           const msg = JSON.parse(e.data);
           if (msg.type === 'exit') {
             term.write(`\r\n\x1b[33m[Process exited with code ${msg.code}]\x1b[0m\r\n`);
-            const led = document.getElementById('session-led');
-            if (led) led.classList.remove('active');
 
             // If this was our page-load auto-resume attempt, treat the exit
             // as the resume having failed: drop the dead id and fall back to
@@ -522,7 +584,11 @@ export function startTerminal(
       }
     },
     onClose() {
-      setConnectionIndicator(false);
+      // A socket already dropped (a stop, or the new session that follows a
+      // refused resume) closes once the server answers the close, which can
+      // be after the connection that replaced it opened; the indicators are
+      // that connection's by then, and dropConnection() dimmed them for this one.
+      if (wsConnection === socket) setConnectionIndicator(false);
       // A close before any answer is itself the answer: this attempt is over,
       // whatever the wrapper does about reconnecting.
       settle();
@@ -732,17 +798,13 @@ export function stopTerminal() {
 }
 
 /**
- * Single owner of the connection-status indicators: the header LED
- * (`#session-led`) and the terminal-body glow track PTY WebSocket
- * connectedness together. (The process-exit branch in onMessage
- * deliberately dims only the LED — the chrome keeps its glow until the
- * connection itself closes.)
+ * Single owner of the connection-status indicator: the terminal-body glow
+ * tracks PTY WebSocket connectedness. (A process exit leaves it on: the glow
+ * goes when the connection itself closes.)
  * @param {boolean} connected
  */
 function setConnectionIndicator(connected) {
-  const led = document.getElementById('session-led');
-  if (led) led.classList.toggle('active', connected);
-  const body = document.querySelector('.terminal-body');
+  const body = queryAllDocuments('.terminal-body')[0];
   if (body) body.classList.toggle('active', connected);
 }
 
@@ -758,7 +820,8 @@ function setConnectionIndicator(connected) {
 export function setSessionLabel(sessionId) {
   const label = document.getElementById('terminal-label');
   if (!label) return;
-  label.textContent = 'Agent';
+  // Once the session switcher owns the label, its text is the session's title.
+  if (!label.classList.contains('session-switcher')) label.textContent = 'Agent';
   if (sessionId) {
     label.title = `Session ${sessionId}`;
     label.dataset.sessionId = sessionId;
@@ -854,7 +917,7 @@ export function onSessionChange(fn) {
  * @param {string} sessionId - The new session UUID.
  */
 export function notifySessionChange(sessionId) {
-  document.querySelectorAll('.panel-iframe').forEach((iframe) => {
+  queryAllDocuments('.panel-iframe').forEach((iframe) => {
     try {
       /** @type {Window} */ (/** @type {HTMLIFrameElement} */ (iframe).contentWindow).postMessage(
         { type: 'osprey-session-change', session_id: sessionId },

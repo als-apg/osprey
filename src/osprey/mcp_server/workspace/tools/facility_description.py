@@ -40,7 +40,7 @@ async def facility_description() -> str:
     """Get facility description and context.
 
     Reads two pages from the project root: the hand-written description in
-    .claude/rules/facility.md (facility identity, systems, terminology, and
+    .claude/rules/facility.md (the operator's guidance: systems, terminology and
     operational context) and the facts page the build generates in
     data/facility_facts.md (identity, the place tree with device counts, device
     classes with their aliases and groups, the signals and roles the channels
@@ -68,8 +68,8 @@ async def facility_description() -> str:
                 [
                     f"Run `osprey build` to write {generated_source}.",
                     "Or create .claude/rules/facility.md manually.",
-                    "The file should describe your facility's identity, "
-                    "systems, terminology, and operational context.",
+                    "The file should describe your facility's systems, "
+                    "terminology, and operational context.",
                 ],
             )
 

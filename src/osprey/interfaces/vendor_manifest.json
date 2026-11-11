@@ -187,8 +187,7 @@
       "sha256": "e2b0f77ee8156ff9d525852fe4acb7bfe7d85e8a2e1da0523f6d16209b848968",
       "targets": [
         "artifacts/static/js/vendor/",
-        "tuning/static/vendor/",
-        "lattice_dashboard/static/vendor/"
+        "optimizer_web/panels/optimizer/vendor/"
       ]
     }
   ],

@@ -46,7 +46,7 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_USERNAME,
     WatchedSession,
     WatchedStore,
-    watched_graphdb_store,
+    wiped_graphdb_store,
 )
 from tests.integration._graph_oracles import (
     GRAPH_DEVICE_COUNT_CYPHER,
@@ -153,7 +153,7 @@ def _requires_a_real_store(graphdb_plugin_dir: Path) -> None:
 @contextmanager
 def _session(uri: str) -> Iterator[Any]:
     """A driver session on *uri*, closed with the block."""
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     with graph_seeder.open_session(
         uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE
@@ -162,12 +162,13 @@ def _session(uri: str) -> Iterator[Any]:
 
 
 @pytest.fixture(scope="module")
-def ties_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
-    """A store of its own, seeded with :data:`TIES_CORPUS`.
+def ties_store(graphdb_session_store: WatchedStore) -> Iterator[WatchedStore]:
+    """The session's store, wiped and seeded with :data:`TIES_CORPUS`.
 
-    Its own container rather than the demo lane's: n10s imports into whatever
-    is already there, and a second corpus in the demo store would move every
-    count the module beside this one asserts.
+    Wiped before the seed rather than seeded on top of the demo lane's corpus:
+    n10s imports into whatever is already there, so a second corpus would move
+    every count either module asserts. The demo lane wipes it again before it
+    seeds.
 
     The seeding goes through the real seeder, which is the path ``osprey up``
     takes. It yields the store watched: a seeding step
@@ -175,23 +176,23 @@ def ties_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
     for the store to answer again, failing naming this store and the state its
     container was in only when it does not.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
-    with watched_graphdb_store(graphdb_plugin_dir, label=TIES_STORE_LABEL) as store:
-        with store.reading(), _session(store.uri) as session:
-            bootstrap = graph_seeder.bootstrap(session)
-            assert bootstrap.ok, bootstrap.message
-            imported = graph_seeder.import_ttl(session, TIES_CORPUS)
-            assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
-            graph_seeder.write_marker(
-                session,
-                graph_seeder.ttl_sha256(TIES_CORPUS),
-            )
-            logger.info(
-                f"ties: seeded {imported.triples_loaded} triples, "
-                f"{graph_seeder.resource_count(session)} Resource nodes"
-            )
-        yield store
+    store = wiped_graphdb_store(graphdb_session_store, label=TIES_STORE_LABEL)
+    with store.reading(), _session(store.uri) as session:
+        bootstrap = graph_seeder.bootstrap(session)
+        assert bootstrap.ok, bootstrap.message
+        imported = graph_seeder.import_ttl(session, TIES_CORPUS)
+        assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
+        graph_seeder.write_marker(
+            session,
+            graph_seeder.ttl_sha256(TIES_CORPUS),
+        )
+        logger.info(
+            f"ties: seeded {imported.triples_loaded} triples, "
+            f"{graph_seeder.resource_count(session)} Resource nodes"
+        )
+    yield store
 
 
 @pytest.fixture(scope="module")

@@ -1154,6 +1154,15 @@ REASONS = (
     "launch_pinned",
     "switching",
     "stopped_since",
+    "auth_unreadable",
+    "auth_holder",
+    "auth_channel",
+    "auth_range",
+    "auth_exhausted",
+    "auth_lease_lapsed",
+    "auth_expired",
+    "auth_revoked",
+    "auth_overlap",
 )
 
 # Mirrors ``refusals._PHRASES`` word for word.
@@ -1200,6 +1209,43 @@ _PHRASES = {
     "stopped_since": (
         "Writes are off because a stop came after the turn-on began; "
         "turn it on again from the chip."
+    ),
+    "auth_unreadable": (
+        "Writes are refused because this program's write authorization cannot be read; "
+        "retry, then ask the deployment admin."
+    ),
+    "auth_holder": (
+        "Writes are refused because this write authorization was approved for another "
+        "program or login; ask the operator to approve one for this program."
+    ),
+    "auth_channel": (
+        "Writes are refused because this channel is not in the program's write "
+        "authorization; ask the operator to approve one that lists it."
+    ),
+    "auth_range": (
+        "Writes are refused because this value is outside the range the program's write "
+        "authorization allows; ask the operator to approve a wider range."
+    ),
+    "auth_exhausted": (
+        "Writes are refused because the program has used every write its authorization "
+        "allows; ask the operator to approve a new authorization."
+    ),
+    "auth_lease_lapsed": (
+        "Writes are refused because the program holding this write authorization stopped "
+        "renewing it; ask the operator to approve a new authorization."
+    ),
+    "auth_expired": (
+        "Writes are refused because the program's write authorization has expired; "
+        "ask the operator to approve a new authorization."
+    ),
+    "auth_revoked": (
+        "Writes are refused because the program's write authorization has ended: a stop "
+        "came, or the switch is no longer at allowed; ask the operator to approve a new "
+        "authorization."
+    ),
+    "auth_overlap": (
+        "The authorization is refused because another program holds one on a channel of "
+        "this machine it names; wait for that run to end, or stop it from the chip."
     ),
 }
 
@@ -1728,7 +1774,7 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
 # The stdlib twin of ``osprey_connectors.session_hold``'s reader. The hold's key
 # is ``OSPREY_SESSION_ID``, which is not :func:`session_key`'s variable.
 
-#: Mirror ``session_hold.HOLD_DIR_ENV_VAR``, ``RECORD_NAME``, ``SCHEMA_VERSION``,
+#: Mirror ``session_hold.HOLD_DIR_ENV_VAR``, ``RECORD_NAME``, ``_SCHEMA_VERSION``,
 #: ``_RECORD_READ_LIMIT`` and ``posture_store._SESSION_KEY_ENV_VAR``.
 HOLD_DIR_ENV_VAR = "OSPREY_SESSION_HOLD_DIR"
 HOLD_RECORD_NAME = "record.json"
@@ -1896,6 +1942,10 @@ _FACILITY_EXTRAS_KEY = "control_system_write_tools"
 #: verbatim from ``osprey.registry.mcp.facility_write_tools``, its one producer.
 _FACILITY_WRITES_KEY = "facility_write_tools"
 
+#: The hook_config key holding every application tool's approval declaration,
+#: keyed by full tool name.
+_APP_APPROVALS_KEY = "app_approvals"
+
 #: The wildcard a whole-server ``writes_check`` matcher ends in.
 _SERVER_MATCHER_WILDCARD = ".*"
 
@@ -1930,6 +1980,12 @@ def _is_facility_tool(tool_name, hook_config):
                 return True
     extras = hook_config.get(_FACILITY_EXTRAS_KEY) or ()
     return tool_name in [extra for extra in extras if isinstance(extra, str)]
+
+
+def _is_app_tool(tool_name, hook_config):
+    """Whether *tool_name* is an application tool: one ``app_approvals`` keys."""
+    declared = hook_config.get(_APP_APPROVALS_KEY)
+    return isinstance(declared, dict) and tool_name in declared
 
 
 def _lane_block(config, lane_key):
@@ -1999,6 +2055,8 @@ def hook_write_target(config, tool_name, short_name, hook_input):
 
     * ``None`` for a call that writes nothing: a tool outside the render's
       ``write_tools``, or a readonly execution.
+    * The session's target for an application tool (``app_approvals``): an
+      application drives whatever machine the session is pointed at.
     * :data:`TARGET_LIVE` for a facility write tool (:func:`_is_facility_tool`):
       the deployment declared it, and only the real machine's switch covers it.
       A declaring server's other tools are in no write list, so they are
@@ -2024,6 +2082,8 @@ def hook_write_target(config, tool_name, short_name, hook_input):
         if not is_write_call(tool_name, tool_input, short_name):
             return None
         hook_config = load_hook_config()
+        if _is_app_tool(tool_name, hook_config):
+            return _session_machine(config, hook_input)
         if _is_facility_tool(tool_name, hook_config):
             return TARGET_LIVE
         if short_name in tuple(hook_config.get(_LANE_ADDRESSED_KEY) or ()):

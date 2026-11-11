@@ -57,11 +57,11 @@ from osprey.stores.artifact_manifest import (
     is_collectable_file,
 )
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
-from osprey.utils.workspace import LAYER_DIRNAMES
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES
 from osprey_connectors import posture_store
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.posture_env import POSTURE_ENV_VAR
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
@@ -109,10 +109,14 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     "triggers.yml",
     "ci-extra.yml",
     "osprey.service",
+    # The deployment's own list of repo files kept out of its image.
+    ".dockerignore",
     # Source directories at the repo root.
     "data",
-    # The tier and app files laid over the profile, by location.
+    # The login files laid over the profile, by location.
     *LAYER_DIRNAMES,
+    # The applications: `apps/<name>/` source, not a layer directory.
+    APPS_DIRNAME,
     "profiles",
     "scripts",
     "watchdogs",
@@ -1057,7 +1061,7 @@ def _in_flight_marker(control_target: str, launch_posture: str | None = None):
         from osprey.mcp_server.control_system import target_state
 
         directory = target_state.state_dir()
-        directory.mkdir(parents=True, exist_ok=True)
+        ensure_shared_dir(directory)
         path = (
             directory
             / f"{INFLIGHT_FILE_PREFIX}{os.getpid()}_{uuid.uuid4().hex}{INFLIGHT_FILE_SUFFIX}"
@@ -1073,7 +1077,9 @@ def _in_flight_marker(control_target: str, launch_posture: str | None = None):
         }
         # A reader must never meet half a marker, so it is replaced whole
         # through atomic_replace.
-        atomic_replace(path, json.dumps(record).encode("utf-8"), mode=0o640, sync="best_effort")
+        atomic_replace(
+            path, json.dumps(record).encode("utf-8"), mode=SHARED_FILE_MODE, sync="best_effort"
+        )
     except Exception:
         logger.warning(
             "Could not record the in-flight execution marker; a target switch during "

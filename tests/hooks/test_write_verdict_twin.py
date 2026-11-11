@@ -242,7 +242,7 @@ def test_the_routes_ceiling_is_the_verdicts_under_a_tree(
     monkeypatch, tmp_path, section_tier, map_tier
 ):
     """``write_ceiling`` is the one producer: the chip's ceiling never disagrees with the verdict."""
-    from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+    from osprey.interfaces.web_terminal.config_view import login_tier
 
     _stage_tree_switch(monkeypatch, tmp_path, {"live": "allowed"})
     section = {"type": "epics", "writes": section_tier, "login_tiers": {"alice": map_tier}}
@@ -250,14 +250,14 @@ def test_the_routes_ceiling_is_the_verdicts_under_a_tree(
     verdict = posture_store.write_verdict(section, "live", owner="alice")
 
     assert verdict.position == map_tier
-    assert websocket_routes._login_tier(section, "alice") == verdict.position
+    assert login_tier(section, "alice") == verdict.position
     assert posture_store.write_ceiling(section, "alice") == verdict.position
 
 
 @pytest.mark.usefixtures("case_environment")
 @pytest.mark.parametrize(("section_tier", "map_tier"), _CEILING_PAIRS)
 def test_the_routes_ceiling_is_the_verdicts_on_a_host(tmp_path, section_tier, map_tier):
-    from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+    from osprey.interfaces.web_terminal.config_view import login_tier
     from osprey_connectors.identity import acting_identity
 
     _stage_host_switch(tmp_path, {"live": "allowed"})
@@ -267,7 +267,7 @@ def test_the_routes_ceiling_is_the_verdicts_on_a_host(tmp_path, section_tier, ma
     verdict = posture_store.write_verdict(section, "live", owner=login)
 
     assert verdict.position == section_tier
-    assert websocket_routes._login_tier(section, login) == verdict.position
+    assert login_tier(section, login) == verdict.position
     assert posture_store.write_ceiling(section, login) == verdict.position
 
 
@@ -484,11 +484,11 @@ def test_restated_store_names_match_the_package():
     assert reader.CONTROL_CONTEXT_TREE_ENV_VAR == posture_store.CONTROL_CONTEXT_TREE_ENV_VAR
     assert reader.CONTROL_TREE_MARKER_NAME == posture_store.CONTROL_TREE_MARKER_NAME
     assert reader.LAUNCH_POSTURE_ENV_VAR == posture_store.LAUNCH_POSTURE_ENV_VAR
-    assert reader.LAUNCH_POSTURE_ALL_TARGETS == posture_store.LAUNCH_POSTURE_ALL_TARGETS
+    assert reader.LAUNCH_POSTURE_ALL_TARGETS == posture_store._LAUNCH_POSTURE_ALL_TARGETS
     assert reader.RECORD_READ_LIMIT == posture_store._RECORD_READ_LIMIT
     assert reader.HOLD_DIR_ENV_VAR == session_hold.HOLD_DIR_ENV_VAR
     assert reader.HOLD_RECORD_NAME == session_hold.RECORD_NAME
-    assert reader.HOLD_SCHEMA_VERSION == session_hold.SCHEMA_VERSION
+    assert reader.HOLD_SCHEMA_VERSION == session_hold._SCHEMA_VERSION
     assert reader.HOLD_RECORD_READ_LIMIT == session_hold._RECORD_READ_LIMIT
     assert reader.HOLD_SESSION_ENV_VAR == posture_store._SESSION_KEY_ENV_VAR
     assert reader._HOLD_SAFE_KEY == session_hold._SAFE_KEY.pattern

@@ -29,7 +29,9 @@ Two rules make the match total:
 ``web.panels.<id>.enabled`` is deliberately absent: it is derived from
 ``web_panels:`` too, but a spelling that AGREES with the selection is accepted
 there, so it stays with
-:func:`osprey.cli.build_profile_panels.panel_selection_errors`.
+:func:`osprey.cli.build_profile_panels.panel_selection_errors`. The settings
+:mod:`osprey.facility.settings` lists are absent too: the build derives each
+from the facility, and a spelling is an override it checks against the facility.
 """
 
 from __future__ import annotations

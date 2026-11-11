@@ -25,14 +25,14 @@ per rendered project::
 
 ``root.yml`` is ``build/config.yml``; each ``<name>.yml`` is
 ``build/<project>-<name>/config.yml``, the render the build makes of
-``tiers/<name>.yml`` or ``apps/<name>.yml``.
+``tiers/<name>.yml``.
 
 Completeness
 ------------
 A build writes ``config.yml`` in three more places: ``build/.image/*/build/``
 (the container copies), and ``build/services/*/`` (one per deployed service).
-Every one of them is a re-serialization of the root or of a tier or app render,
-so capturing root + tiers + apps captures the whole surface. That is not assumed — the
+Every one of them is a re-serialization of the root or of a login render, so
+capturing root + logins captures the whole surface. That is not assumed — the
 script re-reads every ``config.yml`` under ``build/`` and refuses to write a
 cell whose extra documents do not each equal a captured one. If a future render
 grows a document that is genuinely its own, the freeze fails loudly with the
@@ -41,10 +41,10 @@ path rather than quietly producing an incomplete fixture.
 The staged login map
 --------------------
 One key is the exception. The shared containers that run one render for every
-login (``LOGIN_TIERS_SERVICES``: the Bluesky bridge and the untiered dispatch
-worker) get their ``config.yml`` staged with ``control_system.login_tiers``, the
-login→tier map. No root, tier or app render carries it, so it is not a delta of
-any captured document. The completeness check compares each
+login (every container that drives the target,
+``compose_generator.drives_target_services``) get their ``config.yml`` staged
+with ``control_system.login_tiers``, the login→tier map. No root, tier or app
+render carries it, so it is not a delta of any captured document. The completeness check compares each
 ``build/services/*`` document with that key removed, and the map is frozen on
 its own, once per cell, as::
 
@@ -151,7 +151,7 @@ BASELINE_SOURCE_DIRS: tuple[str, ...] = ("src", "packages/osprey-connectors/src"
 #: The presets whose renders are frozen: every preset ``osprey init`` ships.
 PRESETS: tuple[str, ...] = (
     "hello-world",
-    "control-assistant",
+    "demo",
 )
 
 #: Deployment name used for every cell. A constant, because the repo directory
@@ -185,7 +185,7 @@ REPLACED_KEYS: Mapping[str, str] = {
 
 #: The deployment-repo directories whose files each render a project of their
 #: own, at ``build/<project_name>-<file stem>/``.
-LAYER_DIRS: tuple[str, ...] = ("tiers", "apps")
+LAYER_DIRS: tuple[str, ...] = ("tiers",)
 
 #: The build account every CLI subprocess runs as. ``osprey build`` writes it
 #: into the staged login map (``control_system.login_tiers``), so an unpinned
@@ -198,6 +198,13 @@ DROPPED_IDENTITY_ENV: tuple[str, ...] = ("OSPREY_TERMINAL_USER",)
 
 #: The identity variable the pinned build account is passed in.
 AUDIT_IDENTITY_ENV = "OSPREY_AUDIT_IDENTITY"
+
+#: The demo preset's ``canopy-payload`` pre_build step, switched
+#: off for every CLI subprocess. With it on, a host that names no prebuilt CANOPY
+#: payload renders the preset without its CANOPY panel, so the fixtures would
+#: depend on the host. ``tests/conftest.py`` defaults the same switch off, and
+#: this module's own builds share this environment with the equivalence test.
+CANOPY_PAYLOAD_CHECK_ENV = "OSPREY_CANOPY_PAYLOAD_CHECK"
 
 #: The ``control_system`` key the shared containers' staged copies carry.
 LOGIN_TIERS_KEY = "login_tiers"
@@ -406,7 +413,9 @@ def _cli_env(source_dirs: list[Path]) -> dict[str, str]:
     Every ``*_API_KEY`` is dropped so which provider credentials happen to be
     exported cannot reach a fixture, the build account is pinned to
     :data:`FROZEN_BUILD_ACCOUNT` so the staged login map does not name the
-    host's login, and *source_dirs* is prepended to
+    host's login, the CANOPY payload step is skipped
+    (:data:`CANOPY_PAYLOAD_CHECK_ENV`) so the panel does not depend on a
+    payload the host may or may not have, and *source_dirs* is prepended to
     ``PYTHONPATH`` so a pristine source tree shadows the editable install — the
     ``.pth`` file an editable install drops appends its directory when
     ``site-packages`` is processed, which is after ``PYTHONPATH``.
@@ -423,6 +432,7 @@ def _cli_env(source_dirs: list[Path]) -> dict[str, str]:
         if not key.endswith("_API_KEY") and key not in DROPPED_IDENTITY_ENV
     }
     env[AUDIT_IDENTITY_ENV] = FROZEN_BUILD_ACCOUNT
+    env[CANOPY_PAYLOAD_CHECK_ENV] = "0"
     entries = [str(path) for path in source_dirs]
     if entries:
         existing = env.get("PYTHONPATH")
@@ -484,7 +494,7 @@ def collect_rendered_configs(project: Path) -> dict[str, dict[str, Any]]:
     """The documents a build emitted, keyed by the render they belong to.
 
     The renders are discovered from the deployment repo, not from the build
-    tree: every file directly under ``tiers/`` and ``apps/`` renders one project
+    tree: every file directly under ``tiers/`` renders one project
     at ``build/<project_name>-<file stem>/``, so each of those must hold a
     ``config.yml``. Reading the source side means a render the build failed to
     write is an error here rather than a cell that silently lost a document.

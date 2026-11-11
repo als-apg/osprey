@@ -14,7 +14,7 @@ import fcntl
 import json
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +45,10 @@ def _sanitize_for_json(obj: Any) -> Any:
     if isinstance(obj, float) and (obj != obj or obj == float("inf") or obj == float("-inf")):
         return None
     return obj
+
+
+#: Read by the gallery's ``StoreIndexWatcher``, in the same container under the same uid.
+_INDEX_FILE_MODE = 0o600
 
 
 class BaseStore(Generic[T]):
@@ -208,7 +212,7 @@ class BaseStore(Generic[T]):
             atomic_replace(
                 self._index_file,
                 json.dumps(payload, indent=2, default=str).encode("utf-8"),
-                mode=0o600,
+                mode=_INDEX_FILE_MODE,
                 sync="best_effort",
             )
             self._index_mtime = self._index_file.stat().st_mtime
@@ -266,7 +270,7 @@ class BaseStore(Generic[T]):
 
         Usage::
 
-            store.update_entry_metadata(entry.id, category="document", source_agent="data-visualizer")
+            store.update_entry_metadata(entry.id, source_agent="data-visualizer")
         """
         with self._with_index_lock():
             for e in self._entries:
@@ -278,3 +282,36 @@ class BaseStore(Generic[T]):
                     self._save_index()
                     return e
         return None
+
+    def merge_entry_metadata(self, updates: Mapping[str, Mapping[str, Any]]) -> int:
+        """Merge keys into the ``metadata`` dicts of several entries at once.
+
+        ``updates`` maps an entry id to the keys to set in that entry's
+        ``metadata``. Keys are merged, never the whole dict replaced, so another
+        writer's keys survive. One index lock, one index write (none when
+        nothing changed); ids the store does not hold are ignored. This is the
+        path for late stamps on existing entries (a settle, a transcript stamp);
+        :meth:`update_entry_metadata` stays the setter for entry attributes.
+
+        Returns:
+            How many entries changed.
+        """
+        if not updates:
+            return 0
+        changed = 0
+        with self._with_index_lock():
+            for e in self._entries:
+                eid = getattr(e, "id", None)
+                keys = updates.get(eid) if isinstance(eid, str) else None
+                if not keys:
+                    continue
+                metadata = getattr(e, "metadata", None)
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                    e.metadata = metadata  # type: ignore[attr-defined]
+                if any(k not in metadata or metadata[k] != v for k, v in keys.items()):
+                    metadata.update(keys)
+                    changed += 1
+            if changed:
+                self._save_index()
+        return changed

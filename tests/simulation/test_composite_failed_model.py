@@ -27,6 +27,7 @@ from lume.variables import ScalarVariable, StrVariable, Variable
 from lume_pyat.exceptions import OrbitSolveError
 
 from osprey.cli.sim import sim_group
+from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
@@ -34,7 +35,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
 )
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
-from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, ENGINE_GROUP, Composite
+from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, Composite
 from osprey_connectors.simulation.view import SCHEMAS
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests._by_path import load_module
@@ -82,10 +83,10 @@ def _composite(view: Path) -> Composite:
 
 
 @pytest.fixture
-def demo_view(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
+def demo_view(built_demo: BuiltProject, tmp_path: Path) -> Path:
     prefix = "data/simulator/"
     view = tmp_path / "demo" / "data" / "simulator"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(prefix):
             target = view / name[len(prefix) :]
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -270,9 +271,9 @@ async def test_a_live_line_corrector_write_that_loses_the_beam_is_refused(
 @pytest.mark.slow
 @pytest.mark.usefixtures("contain_env_written_by_the_cli")
 def test_an_applied_line_fault_that_loses_the_beam_fails_line(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
-    repo, view = stage_built_simulator_view(built_control_assistant, tmp_path)
+    repo, view = stage_built_simulator_view(built_demo, tmp_path)
     _with_scenario(
         view,
         {
@@ -347,7 +348,7 @@ def stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     real = importlib.metadata.entry_points
 
     def entry_points(**selection: Any) -> Any:
-        if selection == {"group": ENGINE_GROUP, "name": "stub"}:
+        if selection == {"group": ENTRY_POINT_GROUP, "name": "stub"}:
             return [SimpleNamespace(load=lambda: STUB)]
         return real(**selection)
 
@@ -366,7 +367,7 @@ def _stub_view(root: Path, settings: Mapping[str, Any] | None = None) -> Path:
             "id": str(index),
             "address": channel["address"],
             "direction": "read",
-            "role": "readback",
+            "engine_role": "readback",
             "plane": None,
             "refresh": "pass",
         }

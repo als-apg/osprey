@@ -32,10 +32,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+from osprey_connectors.simulation.view import READBACK, SETPOINT
+
 __all__ = [
     "CHANNEL_FAULTS",
-    "DISCONNECTED",
-    "FROZEN",
     "STUCK",
     "ChannelFault",
 ]
@@ -44,13 +44,11 @@ __all__ = [
 STUCK = "stuck"
 
 #: Holds a reading at the value it served when the fault became active.
-FROZEN = "frozen"
+_FROZEN = "frozen"
 
 #: Reads not-a-number, or the activation value, with the ``udf`` condition.
-DISCONNECTED = "disconnected"
+_DISCONNECTED = "disconnected"
 
-_SETPOINT = "setpoint"
-_READBACK = "readback"
 _NONE = "none"
 _FLOAT = "float"
 _UNDEFINED = "udf"
@@ -88,12 +86,12 @@ class ChannelFault:
 #: Every channel fault, by its word.
 CHANNEL_FAULTS: Mapping[str, ChannelFault] = MappingProxyType(
     {
-        STUCK: ChannelFault(roles=frozenset({_SETPOINT}), write=True, read=None, severity=None),
-        FROZEN: ChannelFault(
-            roles=frozenset({_READBACK, _NONE}), write=False, read=_snapshot, severity=None
+        STUCK: ChannelFault(roles=frozenset({SETPOINT}), write=True, read=None, severity=None),
+        _FROZEN: ChannelFault(
+            roles=frozenset({READBACK, _NONE}), write=False, read=_snapshot, severity=None
         ),
-        DISCONNECTED: ChannelFault(
-            roles=frozenset({_SETPOINT, _READBACK, _NONE}),
+        _DISCONNECTED: ChannelFault(
+            roles=frozenset({SETPOINT, READBACK, _NONE}),
             write=True,
             read=_not_a_number,
             severity=_UNDEFINED,

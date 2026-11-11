@@ -83,7 +83,7 @@ from osprey.runtime.guarded_run import (
 )
 from osprey_connectors.control_system import values_match
 from osprey_connectors.logger import get_logger
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -491,7 +491,7 @@ def _claim_cell() -> None:
             return
 
         directory = target_state.state_dir()
-        directory.mkdir(parents=True, exist_ok=True)
+        ensure_shared_dir(directory)
         path = directory / (
             f"{target_state.INFLIGHT_FILE_PREFIX}{os.getpid()}_{uuid.uuid4().hex}"
             f"{target_state.INFLIGHT_FILE_SUFFIX}"
@@ -507,7 +507,9 @@ def _claim_cell() -> None:
         }
         # A reader must never meet half a marker, so it is replaced whole
         # through atomic_replace.
-        atomic_replace(path, json.dumps(marker).encode("utf-8"), mode=0o640, sync="best_effort")
+        atomic_replace(
+            path, json.dumps(marker).encode("utf-8"), mode=SHARED_FILE_MODE, sync="best_effort"
+        )
         _cell_marker = path
     except Exception:  # an unclaimed cell is not worth the cell
         logger.warning("Could not claim this cell against a target switch", exc_info=True)
@@ -719,8 +721,9 @@ def record_writes() -> "Iterator[list[tuple[str, str]]]":
     """Record the writes this process makes while the block is open.
 
     Yields a list that grows by one ``(address, phase)`` record each time a
-    write made through :func:`write_channel` or :func:`write_channels`, on any
-    thread, reaches a phase:
+    write made through :func:`write_channel`, :func:`write_channels` or
+    :func:`osprey.runtime.guarded_run.command_write`, on any thread, reaches a
+    phase:
 
     * ``"attempt"``: the target pin and the limits net passed; the connector
       call comes next.

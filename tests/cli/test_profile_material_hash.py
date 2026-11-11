@@ -115,13 +115,12 @@ def test_empty_directory_does_not_move_the_hash(data_profile):
     assert compute_profile_hash(data_profile) == before
 
 
-def test_shared_parent_data_tree_marks_sibling_profiles_stale(tmp_path):
-    """Render profiles share one ``../data`` tree; an edit must reach all of them.
+def test_shared_parent_data_tree_marks_profiles_outside_a_repository_stale(tmp_path):
+    """The hash folds a data tree wherever it sits, for a profile outside any repository.
 
-    Sibling profiles live in their own directories beside a single data tree they
-    all declare as ``../data``. Anchoring on the profile directory alone would
-    resolve nothing there, so each render project would keep deploying against a
-    tree that has since changed.
+    Profiles outside any repository are hashed like any other: each names the
+    tree beside it as ``../data``, and an edit to that tree moves every hash
+    that folds it.
     """
     _write(tmp_path / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
     profiles = [
@@ -156,3 +155,173 @@ def test_profile_without_file_inputs_is_unaffected_by_neighbouring_files(tmp_pat
     _write(tmp_path / "data" / "stray.json", "{}\n")
     _write(tmp_path / "unrelated.md", "text\n")
     assert compute_profile_hash(profile) == before
+
+
+def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
+    """The fold is exactly a walk over the material and overlay entries, in order."""
+    import hashlib
+
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import (
+        ProfileInputRole,
+        _fold_profile_material,
+        _fold_source_tree,
+        profile_inputs,
+        resolve_profile_document,
+    )
+    from osprey.cli.profile_root import layer_files
+    from osprey.cli.variant_selection import VARIANT_SETTING_FILENAME, VARIANT_SETTING_KEY
+
+    root = tmp_path / "facility"
+    _write(root / "data" / "channels.json", "{}\n")
+    _write(root / "data" / ".runtime" / "minted.key", "runtime\n")
+    _write(root / "rules" / "safety.md", "rule\n")
+    _write(root / "skills" / "scan" / "SKILL.md", "skill\n")
+    _write(root / "triggers.yml", "triggers: []\n")
+    _write(root / "tiers" / "operator.yml", "name: operator\n")
+    _write(root / "tiers" / "expert.yml", "name: expert\n")
+    _write(root / "apps" / "knob" / "app.yml", "name: knob\n")
+    _write(root / "apps" / "knob" / "panel" / "vendor" / "lib.js", "vendored\n")
+    _write(root / "packages" / "ring" / "pyproject.toml", "[project]\nname = 'ring'\n")
+    _write(root / "profiles" / "teststand.yml", "# teststand\n")
+    _write(root / VARIANT_SETTING_FILENAME, f"{VARIANT_SETTING_KEY}=teststand\n")
+    profile = _write(
+        root / "profile.yml",
+        "name: Facility\ndata: data\ndependencies:\n  - ./packages/ring\n"
+        "dispatch:\n  triggers: triggers.yml\n",
+    )
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+
+    inputs = profile_inputs(document)
+    folded = [entry for entry in inputs if entry.role is not ProfileInputRole.DOCUMENT]
+    labels = [entry.label for entry in folded]
+    assert labels[0] == "data"
+    assert labels[-5:] == ["tier", "tier", "app:knob", "package:packages/ring", "variant"]
+    assert "triggers" in labels
+    assert [entry.path for entry in folded if entry.label == "tier"] == [
+        path for _kind, path in layer_files(root)
+    ]
+    assert [entry.role for entry in inputs] == sorted(
+        (entry.role for entry in inputs), key=list(ProfileInputRole).index
+    )
+
+    expected = hashlib.sha256()
+    for entry in folded:
+        _fold_source_tree(
+            expected,
+            entry.label,
+            entry.path,
+            skip_runtime_output=entry.label == "data",
+            skip=entry.build_output,
+        )
+    actual = hashlib.sha256()
+    _fold_profile_material(actual, inputs)
+    assert actual.hexdigest() == expected.hexdigest()
+
+
+def test_a_label_disagreeing_with_the_role_fails_at_construction(tmp_path):
+    """A label is ``None`` exactly for a document; anything else never exists."""
+    from osprey.cli.build_profile_merge import ProfileInput, ProfileInputRole
+
+    with pytest.raises(ValueError):
+        ProfileInput("x", None, tmp_path, ProfileInputRole.MATERIAL)
+    with pytest.raises(ValueError):
+        ProfileInput("profile.yml", "data", tmp_path, ProfileInputRole.DOCUMENT)
+    with pytest.raises(ValueError):
+        ProfileInput("", "data", tmp_path, ProfileInputRole.MATERIAL)
+
+
+def test_the_data_key_is_the_tree_the_profile_names(tmp_path):
+    """For a profile outside any repository, the data key is the tree as spelled."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import profile_inputs, resolve_profile_document
+
+    _write(tmp_path / "data" / "channels.json", "{}\n")
+    profile = _write(tmp_path / "alice" / "profile.yml", "name: alice\ndata: ../data\n")
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+
+    data = [entry for entry in profile_inputs(document) if entry.label == "data"]
+
+    assert [entry.key for entry in data] == ["../data/"]
+    assert data[0].path == (tmp_path / "data").resolve()
+
+
+def test_resolved_document_records_the_repo_local_extends_files(tmp_path):
+    """The chain's non-preset files are recorded nearest first; a bundled preset is not."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import resolve_profile_document
+
+    root = tmp_path / "facility"
+    _write(root / "site-base.yml", "extends: demo\nname: Site\n")
+    profile = _write(root / "profile.yml", "extends: site-base.yml\nname: Facility\n")
+
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+
+    assert document.extends_files == ((root / "site-base.yml").resolve(),)
+
+
+def test_the_documents_are_the_root_profile_and_its_extends_files(tmp_path):
+    """Every document the resolver read is an input; a bundled preset is not."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import (
+        ProfileInputRole,
+        profile_inputs,
+        resolve_profile_document,
+    )
+
+    root = tmp_path / "facility"
+    _write(root / "site-base.yml", "extends: demo\nname: Site\n")
+    profile = _write(root / "profile.yml", "extends: site-base.yml\nname: Facility\n")
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+
+    documents = [
+        entry for entry in profile_inputs(document) if entry.role is ProfileInputRole.DOCUMENT
+    ]
+
+    assert [entry.path for entry in documents] == [
+        root / "profile.yml",
+        *document.extends_files,
+    ]
+    assert [entry.key for entry in documents] == ["profile.yml", "site-base.yml"]
+
+
+def _service_profile(root: Path, template: str) -> Path:
+    _write(root / "svc" / "docker-compose.yml.j2", "services: {}\n")
+    return _write(
+        root / "profile.yml", f"name: Facility\nservices:\n  svc:\n    template: {template}\n"
+    )
+
+
+def test_a_profile_service_template_is_a_material_input(tmp_path):
+    """A profile-relative template is material; a bundled ``osprey.<name>`` one is not."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import (
+        ProfileInputRole,
+        profile_inputs,
+        resolve_profile_document,
+    )
+
+    def service_entries(profile: Path) -> list:
+        document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+        return [
+            entry
+            for entry in profile_inputs(document)
+            if entry.label is not None and entry.label.startswith("services.")
+        ]
+
+    root = tmp_path / "facility"
+    entries = service_entries(_service_profile(root, "svc"))
+
+    assert [(entry.key, entry.label, entry.path, entry.role) for entry in entries] == [
+        ("svc/", "services.svc.template", root / "svc", ProfileInputRole.MATERIAL)
+    ]
+    assert service_entries(_service_profile(tmp_path / "bundled", "osprey.postgresql")) == []
+
+
+def test_editing_an_in_repo_service_template_moves_the_hash(tmp_path):
+    profile = _service_profile(tmp_path / "facility", "svc")
+    before = compute_profile_hash(profile)
+
+    _write(profile.parent / "svc" / "docker-compose.yml.j2", "services:\n  svc: {}\n")
+
+    assert compute_profile_hash(profile) != before

@@ -1,4 +1,4 @@
-"""Sidecar panel registry — the panels the web terminal starts itself.
+"""Panel registry — the panels the web terminal starts itself, and its applications' panels.
 
 A leaf module: it imports ``dataclasses`` and nothing else, and must stay that
 way. ``osprey.profiles.web_panels`` re-exports everything here and is where
@@ -236,3 +236,73 @@ SIDECAR_PANELS: dict[str, SidecarPanel] = {
         ),
     ),
 }
+
+
+#: The verbs of one streamable-HTTP conversation: ``POST`` carries a call,
+#: ``GET`` opens the event stream, ``DELETE`` ends the session.
+_MCP_HOP_METHODS: tuple[str, ...] = ("GET", "POST", "DELETE")
+
+
+@dataclass(frozen=True)
+class ApplicationPanel:
+    """A panel an application serves, as the panel token sees it.
+
+    Attributes:
+        app: The application serving the panel.
+        agent_routes: The exact ``(method, path)`` pairs the application
+            declares for the agent, ``path`` relative to the panel's mount.
+        session_writes: Whether the panel's writes belong to the terminal's
+            sessions, as :attr:`SidecarPanel.session_writes` says for a
+            sidecar: a hold on any of them holds the panel's writes, the
+            operator's from the application's own page as well as the agent's.
+            Every application panel's writes do.
+    """
+
+    app: str
+    agent_routes: tuple[tuple[str, str], ...] = ()
+    session_writes: bool = True
+
+
+@dataclass(frozen=True)
+class PanelRegistry:
+    """The panels one web terminal serves: its sidecars and its applications' panels.
+
+    The one source the panel token's route table is derived from
+    (``osprey.interfaces.web_auth.panel_tier_routes``), and the one the proxy
+    reads a sidecar's posture from.
+
+    Attributes:
+        sidecars: The sidecar panels, by panel id.
+        applications: The application panels, by panel id.
+    """
+
+    sidecars: dict[str, SidecarPanel]
+    applications: dict[str, ApplicationPanel]
+
+    def agent_routes(self) -> frozenset[tuple[str, str]]:
+        """Every ``(method, /panel/<id><path>)`` pair a registered panel opens to the agent.
+
+        A sidecar that sets ``agent_hop`` opens exactly ``GET|POST|DELETE`` on
+        its ``mcp_path``; declaring the path alone opens nothing. An
+        application panel opens each route it declares, the method
+        upper-cased. A path that does not start with ``/`` adds nothing:
+        spliced onto the panel id it would name a route below some *other*
+        panel id.
+        """
+        hops = {
+            (method, f"/panel/{panel_id}{panel.mcp_path}")
+            for panel_id, panel in self.sidecars.items()
+            if panel.agent_hop and panel.mcp_path and panel.mcp_path.startswith("/")
+            for method in _MCP_HOP_METHODS
+        }
+        routes = {
+            (method.upper(), f"/panel/{panel_id}{path}")
+            for panel_id, panel in self.applications.items()
+            for method, path in panel.agent_routes
+            if path.startswith("/")
+        }
+        return frozenset(hops | routes)
+
+
+#: The registry of a terminal that serves no application panel: the sidecars alone.
+SIDECAR_REGISTRY = PanelRegistry(SIDECAR_PANELS, {})

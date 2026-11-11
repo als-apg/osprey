@@ -13,9 +13,11 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching a gated directory; when cutting a release |
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching the plugin tree |
 | `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
+| `transcript_resume_probe.py` | Prove the pinned build resumes a transcript OSPREY authored | ~5 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` or changing `transcript_author.py` |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
-| `facility_demo/facility_overview.py` | Generate the control-assistant facility overview, booster and storage-ring sector screens from the example records | < 1 s | After changing the example facility's records or the generated screens' layout |
+| `facility_demo/facility_overview.py` | Generate the demo facility overview, booster and storage-ring sector screens from the example records | < 1 s | After changing the example facility's records or the generated screens' layout |
 | `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
+| `docs/snippet_coverage.py` | Per-page count of docs code blocks a test reads; `--check` is the ratchet | < 1 s | After adding or removing a code block on a docs page, or a test that reads one |
 
 ## Scripts
 
@@ -185,7 +187,8 @@ plugin tree changes.
 manifests disagree. `bump` advances `YYYY.M.N` in both (`--set` writes a given
 version). `check --base <ref>` compares the branch against what it merges into:
 when `plugins/`, `.claude-plugin/` or `.agents/plugins/` changed since the merge
-base, the head version must differ from every version the base tip carries. A
+base, the head version must be newer than every version the base tip carries,
+compared as numbers (2026.10.0 is newer than 2026.9.9). A
 plain branch name such as `main` is read as `origin/main` first, as every
 range check in this directory reads it.
 
@@ -193,6 +196,7 @@ range check in this directory reads it.
 ```bash
 uv run python scripts/plugin_version.py show
 uv run python scripts/plugin_version.py bump
+uv run python scripts/plugin_version.py bump --base origin/main   # on a branch behind its base
 
 # What the `lint` CI job and `scripts/check.py`'s plugin-version check run;
 # --worktree judges staged, unstaged and untracked files too
@@ -204,8 +208,8 @@ uv run python scripts/plugin_version.py check --base origin/main
 
 **Exit codes** (`check`):
 - `0`: The plugin tree is untouched, new, or carries a new version
-- `1`: The plugin tree changed without a version bump, or the manifests cannot
-  be read or disagree
+- `1`: The plugin tree changed without a version newer than the base's, a
+  version is not CalVer, or the manifests cannot be read or disagree
 - `2`: Environment problem — the base ref was not found, or the clone is too
   shallow to find a common ancestor
 
@@ -231,6 +235,33 @@ name can reject a real tool, but a recorded name is never one the build lacks.
 ```bash
 uv run python scripts/cli_tool_inventory.py --write   # after bumping the pin
 uv run python scripts/cli_tool_inventory.py --check   # what the static-checks CI job runs
+```
+
+---
+
+### transcript_resume_probe.py
+
+**Purpose**: Prove, without a model, that the pinned Claude Code build reads a
+transcript written by `osprey.agent_runner.transcript_author` (the seeded
+`demo-history` conversations) as one it recorded.
+
+**What it does**: Authors the `demo-history` session `sector-3-corrector-nudge`
+into a fresh config directory, points `ANTHROPIC_BASE_URL` at a localhost stub
+that records the first `/v1/messages` request and answers `500`, and runs the
+build with `-p --resume`. It passes when that request holds the authored
+prompts plus the new one, in order and count, and every authored `tool_use` id
+with exactly one `tool_result`. It fails when no request arrives, the build
+finds no conversation, or the body is not JSON. `--cli PATH` probes a given
+binary instead of npm-installing the pin.
+
+**CLI bump**: a PR that bumps `_DEFAULT_CLAUDE_CLI_VERSION` needs the
+`full-ci` label, so the live resume test (`tests/e2e/test_demo_history_resume.py`)
+runs on it too.
+
+**Usage**:
+```bash
+uv run python scripts/transcript_resume_probe.py              # what the static-checks CI job runs
+uv run python scripts/transcript_resume_probe.py --cli "$(uv run python scripts/pinned_claude.py)/claude"
 ```
 
 ---
@@ -264,7 +295,7 @@ uv run python scripts/bpm_polarity_picture.py --simulator build/data/simulator
 
 ### facility_demo/facility_overview.py
 
-**Purpose**: Generate the control-assistant library's landing page
+**Purpose**: Generate the demo library's landing page
 `facility/overview`, the booster screen `br/overview` and the storage-ring sector
 screens `sr/sector-01` to `sr/sector-12` with their sub-screens from the example
 facility's channel records, so every bound channel exists.
@@ -286,8 +317,8 @@ committed file that differs. After a `write`, regenerate the library's report
 
 **Usage**:
 ```bash
-uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/control_assistant/data/canopy/library
-uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/control_assistant/data/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/demo/data/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/demo/data/canopy/library
 ```
 
 ---
@@ -315,6 +346,43 @@ Needs Docker.
 ```bash
 uv run python scripts/va/capture_nominals.py --out tests/facility/golden/nominal_va.json
 uv run python scripts/va/capture_nominals.py --check tests/facility/golden/nominal_va.json
+```
+
+---
+
+### docs/snippet_coverage.py
+
+**Purpose**: Show, page by page, how many code blocks under `docs/source` a test
+reads, and keep that number from falling. Every `code-block`, `literalinclude`
+and `::` literal block is counted; `scripts/docs/snippet_coverage.yml` is the
+hand-kept ledger of which tests read which pages and languages, and how
+(`runs`, `checks`, `pins` or, weakest, `parses`: only the language's parser
+reads the block). A block only a `parses` claim reads counts as tested and is
+also reported as parse-only. Blocks nothing in the repository can read (a
+network install, a host service, a third-party tool, a chat with the model, an
+illustration) are listed under `not_testable:` with a reason and a one-line
+why; they get their own column and the ratchet does not count them. A claim
+under `pending:` (a test on an open pull
+request) counts as soon as its test file is on disk, so the pull requests can
+merge in any order. The default output is a Markdown table, the pages with the
+most untested blocks first, with the line of each untested block; `--page`
+narrows it to one page and lists what tests the rest, and `--json` is for
+scripts. `--check` fails when a page has more untested blocks than
+`snippet_coverage_baseline.json` allows, or fewer (shrink the allowance with
+`--update-baseline`; while a pending claim has landed this is only noted), or when a claim
+names a missing test, a page its test never names, or no block, or when a
+`not_testable:` entry is stale, lacks a known reason or a why, or names a block
+a real claim reads;
+`tests/docs/test_snippet_coverage.py` runs the same check in CI.
+
+---
+
+**Usage**:
+```bash
+uv run python scripts/docs/snippet_coverage.py
+uv run python scripts/docs/snippet_coverage.py --page how-to/build-profiles.rst
+uv run python scripts/docs/snippet_coverage.py --check
+uv run python scripts/docs/snippet_coverage.py --update-baseline
 ```
 
 ---

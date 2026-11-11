@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
+from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
 from osprey.facility.records import FacilityRecords
 from osprey.facility.references import LINK_SCHEME, FacilityReference, find_facility_links
 from osprey.facility.validate import Validated, need
@@ -54,23 +55,21 @@ def _page_links(path: Path, records: FacilityRecords) -> tuple[str | None, list[
         body's facility links, looked up in ``records``, in page order;
         ``(None, [])`` for a page that does not parse.
     """
-    from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
-
     try:
-        document = OKFDocument.parse(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, OKFDocumentError):
+        frontmatter, body = split_frontmatter(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, FrontmatterError):
         return None, []
-    value = document.frontmatter.get(LINK_KEY)
+    value = frontmatter.get(LINK_KEY)
     device_id = value.strip() if isinstance(value, str) and value.strip() else None
-    return device_id, find_facility_links(document.body, records)
+    return device_id, find_facility_links(body, records)
 
 
 def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingLink]:
     """Name every knowledge-page link the facility file does not resolve.
 
     Args:
-        facility_dir: The ``data/facility`` directory; its ``knowledge``
-            directory may be missing.
+        facility_dir: The content root, ``data/facility``, where the
+            deployment's ``knowledge`` directory sits; it may be missing.
         doc: The facility file.
 
     Returns:
@@ -87,9 +86,7 @@ def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingL
             continue
         page = path.relative_to(facility_dir).as_posix()
         device_id, references = _page_links(path, records)
-        if device_id is not None and not any(
-            found.kind == "device" for found in records.resolve(device_id)
-        ):
+        if device_id is not None and records.record("device", device_id) is None:
             links.append(DanglingLink(page, device_id, "frontmatter"))
         links.extend(
             DanglingLink(page, found.target, "body") for found in references if not found.kinds
@@ -116,7 +113,7 @@ def check_knowledge_links(validated: Validated) -> list[FacilityBuildError]:
         RuntimeError: The stage ran before S2 produced the document.
     """
     document: dict[str, Any] = need(validated.document)
-    for link in dangling_links(validated.facility_dir, document):
+    for link in dangling_links(validated.content_root, document):
         if link.where == "frontmatter":
             named = f"device {link.target}"
             remedy = f"set {LINK_KEY} to a device id of the facility file, or remove the key"

@@ -82,6 +82,7 @@ from osprey.facility.layers.mml.mapping import (
     read_mapping,
 )
 from osprey.facility.layers.mml.rows import read_rows
+from osprey.facility.records import FacilityRecords
 
 __all__ = [
     "FLOOR_FRACTION",
@@ -678,14 +679,12 @@ def _family_records(
     rows: dict[str, list[tuple[int, ...]]] = {}
     for key, owner in family_rows.items():
         rows.setdefault(owner, []).append(key)
-    on_device = {
-        channel["id"]: (channel.get("on") or {}).get("device")
-        for channel in document.get("channels", [])
-    }
+    records = FacilityRecords(document)
     words = engine.words()
     found: dict[tuple[int, ...], list[Mapping[str, Any]]] = {}
     for record in model.get("wiring", []):
-        device = on_device.get(record.get("address"))
+        channel = records.record("channel", str(record.get("address"))) or {}
+        device = (channel.get("on") or {}).get("device")
         if device not in rows or record.get("direction") != direction:
             continue
         if dict(record.get("engine") or {}) != words:

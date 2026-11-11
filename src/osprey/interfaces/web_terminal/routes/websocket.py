@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import json
 import logging
 import os
 import re
+import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -17,7 +17,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
@@ -34,6 +34,13 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal import session_handoff
+from osprey.interfaces.web_terminal.config_view import (
+    TERMINAL_REFUSAL,
+    UNREADABLE,
+    login_tier,
+    rendered_config,
+    section_of,
+)
 from osprey.interfaces.web_terminal.control_context_owner import (
     CONTROL_CONTEXT_FRAME,
     ContextOwnedElsewhere,
@@ -270,101 +277,25 @@ def _context_state(app: Any) -> _ContextState:
     )
 
 
-#: Sentinel telling "the render could not be read" apart from "the render has
-#: no ``control_system:`` block". Both answer writes-off, but only the first is
-#: a failure worth logging, and the connector helpers have their own opinion
-#: about a ``None`` section that the failure case must not borrow.
-_UNREADABLE_SECTION = object()
-
-
-#: The last render this module parsed: ``(path, signature, config)``. One entry
-#: is the whole cache, because one server serves one render — a second path
-#: simply replaces it rather than growing a map of stale files.
-_CONFIG_MEMO: tuple[Path, tuple[int, int, int], Any] | None = None
-
-
-def reset_rendered_config_memo() -> None:
-    """Forget the parsed render, so the next read parses the file afresh.
-
-    The memo is process-wide: without a reset, a render parsed for one app is
-    still answered to the next app in the same process whose file carries the
-    same path and stat signature.
-    """
-    global _CONFIG_MEMO
-    _CONFIG_MEMO = None
-
-
-def _rendered_config(config_path: Path | None) -> Any:
-    """The WHOLE parsed render, or :data:`_UNREADABLE_SECTION`.
-
-    The whole file rather than the ``control_system:`` block alone because the
-    target labels are derived from more than that block — a deployment running a
-    stand-in for its live machine says so under ``services:`` — and one caller
-    then gets to read the file exactly once for every question it asks.
-    Blocking; never call it from the event loop.
-
-    **Memoized by the file's signature.** ``config.yml`` is a build artefact: it
-    changes when a deployment is re-rendered and not otherwise, while the chip
-    polls the roster per open card and every row it draws asks this render three
-    or four questions. Re-parsing a few hundred lines of YAML for each of them
-    is the cost this removes. The key is
-    ``(st_mtime_ns, st_size, st_ino)`` — the same signature the state-file memo
-    uses, and the inode is in it because a re-render lands through a rename and
-    can carry the same size and, on a coarse clock, the same mtime.
-
-    The memo is invisible to callers: what comes back is a deep copy, so a
-    caller may keep or mutate the render without the next request inheriting it.
-    An unreadable render is never memoized — the file may be mid-write — so the
-    next call looks again rather than serving a failure until the mtime moves.
-    """
-    global _CONFIG_MEMO
-    try:
-        if not config_path:
-            return _UNREADABLE_SECTION
-        path = Path(config_path)
-        signature = _file_signature(path)
-        if signature is None:
-            return _UNREADABLE_SECTION
-        memo = _CONFIG_MEMO
-        if memo is not None and memo[0] == path and memo[1] == signature:
-            return copy.deepcopy(memo[2])
-        config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:  # an unreadable config is not a writes-on render
-        logger.warning("Could not read the rendered config at %s", config_path)
-        return _UNREADABLE_SECTION
-    _CONFIG_MEMO = (path, signature, config)
-    return copy.deepcopy(config)
-
-
-def _section_of(config: Any) -> Any:
-    """The ``control_system:`` block of an ALREADY-READ render.
-
-    A render that could not be read stays :data:`_UNREADABLE_SECTION`; one that
-    parsed to something that is not a mapping has no section, which is a
-    different (and non-failing) answer the predicates below already handle.
-    """
-    if config is _UNREADABLE_SECTION:
-        return _UNREADABLE_SECTION
-    return config.get("control_system") if isinstance(config, dict) else None
-
-
 def _control_system_section(config_path: Path | None) -> Any:
-    """The rendered ``control_system:`` section, or :data:`_UNREADABLE_SECTION`.
+    """The rendered ``control_system:`` section, or :data:`UNREADABLE`.
 
     For the one caller that asks the render a single question. Anything that
     asks it several — the roster, the posture ladder — takes
-    :func:`_rendered_config` and passes the parse down through
-    :func:`_section_of`, because the target labels are derived from the whole
-    file and not from this block. Blocking; never call it from the event loop.
+    :func:`~osprey.interfaces.web_terminal.config_view.rendered_config` and
+    passes the parse down through
+    :func:`~osprey.interfaces.web_terminal.config_view.section_of`, because the
+    target labels are derived from the whole file and not from this block.
+    Blocking; never call it from the event loop.
     """
-    return _section_of(_rendered_config(config_path))
+    return section_of(rendered_config(config_path))
 
 
 # ── Reading files another process wrote ──────────────────────────────────────
 #
-# Two coercions the surfaces on this router share, spelled once because both
-# answer a question about a file this process does not own: what a pid field
-# holds, and whether the file has been rewritten since it was last read.
+# A coercion the surfaces on this router share, spelled once because it
+# answers a question about a file this process does not own: what a pid field
+# holds.
 
 
 def _pid_or_none(value: object) -> int | None:
@@ -375,22 +306,6 @@ def _pid_or_none(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _file_signature(path: Path) -> tuple[int, int, int] | None:
-    """``(st_mtime_ns, st_size, st_ino)`` of *path*, or ``None`` when it is gone.
-
-    One ``stat`` — the cheapest question that distinguishes "the writer has
-    republished" from "nothing has moved", and the one that answers "the file
-    disappeared" at the same time. The inode is in the tuple because the render
-    this module memoizes is replaced through a rename, and a replacement can
-    land with the same size and, on a coarse clock, the same mtime.
-    """
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
 
 
 def _read_effort_level(config_path: Path | None) -> str | None:
@@ -703,6 +618,7 @@ class _TerminalChannel:
         interrupt: bool,
         spawn: SpawnCallback,
         end_started: bool = False,
+        launch_env: Callable[[str], dict[str, str] | None] | None = None,
     ) -> AcquireResult:
         """Take *key* for the terminal surface while reading the socket.
 
@@ -722,6 +638,7 @@ class _TerminalChannel:
                 interrupt=interrupt,
                 spawn=spawn,
                 end_started=end_started,
+                launch_env=launch_env,
             )
         finally:
             reader.cancel()
@@ -759,6 +676,7 @@ async def _open_surface(
     interrupt: bool,
     spawn: SpawnCallback,
     end_started: bool = False,
+    launch_env: Callable[[str], dict[str, str] | None] | None = None,
 ) -> AcquireResult | None:
     """Take *key* for this terminal, answering the client for every way that can end.
 
@@ -785,7 +703,12 @@ async def _open_surface(
         await channel.send_json({"type": "handoff_pending", "busy": _chat_is_busy(app, key)})
     try:
         return await channel.acquire(
-            app, key, interrupt=interrupt, spawn=spawn, end_started=end_started
+            app,
+            key,
+            interrupt=interrupt,
+            spawn=spawn,
+            end_started=end_started,
+            launch_env=launch_env,
         )
     except session_handoff.HandoffRefused as refused:
         logger.info("Refusing the terminal session %s: %s", key, refused)
@@ -854,8 +777,8 @@ async def _spawn_pooled_pty(
         command: The child's argv.
         rows: Initial terminal height.
         cols: Initial terminal width.
-        extra_env: The one launch-env overlay used for the mismatch check and
-            the spawn alike.
+        extra_env: The overlay the door compared the key against, used for
+            the mismatch check and the spawn alike.
         cwd: Working directory for a spawned child.
 
     Returns:
@@ -911,7 +834,9 @@ async def terminal_ws(websocket: WebSocket):
     the conversation off from a chat that holds it (``handoff_pending``
     while that finishes), takes it over from an older terminal on the same
     key (closed with 4409), reuses the pooled PTY, or spawns one resuming
-    the key's current transcript. The spawn callback below, through
+    the key's current transcript. A pooled PTY is reused only when it was
+    launched under the overlay this handler would launch it with now;
+    otherwise the door replaces it. The spawn callback below, through
     :func:`_spawn_pooled_pty`, is the only place the registry's create path is
     called from, and it never lets that path kill on the loop.
 
@@ -937,9 +862,6 @@ async def terminal_ws(websocket: WebSocket):
 
     app = websocket.app
     if not getattr(app.state, "web_terminal_offered", True):
-        # Imported here for the routes -> app cycle routes/panels.py avoids too.
-        from osprey.interfaces.web_terminal.app import TERMINAL_REFUSAL
-
         logger.info("Refusing /ws/terminal: web.terminal is false")
         with suppress(Exception):
             await websocket.send_text(json.dumps({"type": "error", "message": TERMINAL_REFUSAL}))
@@ -1014,16 +936,18 @@ async def terminal_ws(websocket: WebSocket):
             )
         else:
             command = build_session_argv(base_shell_command, session_id=request.key, effort=effort)
-        extra_env = _build_extra_env(websocket, request.key, request.key)
         return await _spawn_pooled_pty(
             registry,
             request.key,
             command,
             rows=channel.rows,
             cols=channel.cols,
-            extra_env=extra_env or None,
+            extra_env=request.launch_env,
             cwd=app.state.project_cwd,
         )
+
+    def launch_env(key: str) -> dict[str, str] | None:
+        return _build_extra_env(websocket, key, key) or None
 
     async def close_displaced() -> None:
         # A newer terminal on the same key took the PTY over. This handler's
@@ -1049,7 +973,13 @@ async def terminal_ws(websocket: WebSocket):
     output_task: asyncio.Task[None] | None = None
     try:
         result = await _open_surface(
-            channel, app, current_key, interrupt=interrupt, spawn=spawn, end_started=end_started
+            channel,
+            app,
+            current_key,
+            interrupt=interrupt,
+            spawn=spawn,
+            end_started=end_started,
+            launch_env=launch_env,
         )
         if result is None or channel.closed.is_set():
             return
@@ -1153,6 +1083,7 @@ async def terminal_ws(websocket: WebSocket):
                                 interrupt=False,
                                 spawn=spawn,
                                 end_started=False,
+                                launch_env=launch_env,
                             )
                         except Exception:
                             logger.exception("Session switch to %s failed", target_id)
@@ -1459,7 +1390,7 @@ def _configured_target_names(section: Any) -> tuple[str, ...]:
     config, and the honest one: a server that cannot read its own render does
     not know which machines exist.
     """
-    if section is _UNREADABLE_SECTION:
+    if section is UNREADABLE:
         return ()
     try:
         from osprey_connectors.types import configured_targets
@@ -1478,7 +1409,7 @@ def _baseline_target(section: Any) -> str:
     what a switch is measured against, and guessing a simulator would make a
     deployment look further from its own machine than it is.
     """
-    if section is _UNREADABLE_SECTION:
+    if section is UNREADABLE:
         return "live"
     try:
         from osprey_connectors.types import baseline_target
@@ -1629,8 +1560,8 @@ def _target_request_facts(app: Any, config_path: Path | None) -> _TargetRequestF
     it may happen on the event loop, where one slow shared volume would stall
     every request this server is serving, the terminal websocket included.
     """
-    config = _rendered_config(config_path)
-    section = _section_of(config)
+    config = rendered_config(config_path)
+    section = section_of(config)
     in_flight = _live_executions()
     return _TargetRequestFacts(
         configured=_configured_target_names(section),
@@ -2027,7 +1958,8 @@ class _PostureRequestFacts:
     lock: posture_store.WriteVerdict | None
     #: Where the machine stands now; ``None`` for all-off or an unreadable record.
     before: str | None = None
-    #: The login's ceiling (:func:`_login_tier`) for a widening, else ``None``.
+    #: The login's ceiling (:func:`~osprey.interfaces.web_terminal.config_view.login_tier`)
+    #: for a widening, else ``None``.
     ceiling: str | None = None
 
 
@@ -2055,7 +1987,7 @@ def _posture_post_facts(
     answer ``switch_off``. A narrowing or a no-op reads neither, because the
     locks never stand between a person and less.
     """
-    section = _section_of(_rendered_config(config_path))
+    section = section_of(rendered_config(config_path))
     configured = _configured_target_names(section)
     record, status = control_context.read_record_status()
     before = None
@@ -2064,7 +1996,7 @@ def _posture_post_facts(
     lock = None
     ceiling = None
     if target in configured and _widens(state, before):
-        ceiling = _login_tier(section, login)
+        ceiling = login_tier(section, login)
         verdict = posture_store.write_verdict(section, target, owner=login, ignore_launch_pin=True)
         if verdict.reason in _TURN_ON_LOCKS:
             lock = verdict
@@ -2523,7 +2455,7 @@ def _row_selected_role(
     ``None`` for a target this render cannot derive at all, which the collapse
     renders as ``unknown``.
     """
-    if config is _UNREADABLE_SECTION:
+    if config is UNREADABLE:
         return None
     try:
         from osprey_connectors.ipc import derive_endpoints
@@ -2570,7 +2502,7 @@ def _row_availability(
         logger.warning("Could not import the target eligibility rules", exc_info=True)
         return False, None, None
 
-    if config is _UNREADABLE_SECTION:
+    if config is UNREADABLE:
         return False, REASON_TARGET_UNRESOLVABLE, None
     try:
         verdict = target_availability(
@@ -2831,7 +2763,7 @@ def _target_display(
     rather than two.
 
     Args:
-        config: The rendered config mapping, or ``_UNREADABLE_SECTION`` when
+        config: The rendered config mapping, or ``UNREADABLE`` when
             ``config.yml`` could not be read.
         published: The fleet's per-target display metadata, collapsed by
             :func:`_published_targets`.
@@ -2842,7 +2774,7 @@ def _target_display(
             virtual-accelerator gateway port is filled from it.
     """
     derived: dict[str, Any] = {}
-    if config is not _UNREADABLE_SECTION and isinstance(config, dict):
+    if config is not UNREADABLE and isinstance(config, dict):
         try:
             from osprey.mcp_server.control_system.connector_host_manager import (
                 target_display_metadata,
@@ -2870,38 +2802,6 @@ def _target_display(
     return meta
 
 
-#: ``locks.tier`` when the login's tier cannot be read — the verdict refuses it
-#: as ``owner_unknown``, which no chip gesture lifts either.
-TIER_UNKNOWN = "unknown"
-
-
-def _login_tier(section: Any, login: str) -> str:
-    """The login's write ceiling here: ``never``, ``asked``, ``allowed`` or ``unknown``.
-
-    The two tier terms of the write verdict first, in its order: the
-    deployment's tier (:func:`~osprey_connectors.types.tier_writes`), then the
-    login's own rung (:func:`~osprey_connectors.posture_store.owner_tier_term`).
-    Otherwise the verdict's own ceiling
-    (:func:`~osprey_connectors.posture_store.write_ceiling`). Never raises.
-    """
-    try:
-        from osprey_connectors.types import tier_writes
-
-        readable = None if section is _UNREADABLE_SECTION else section
-        if tier_writes(readable) == "never":
-            return "never"
-        rung = posture_store.owner_tier_term(section, login)
-        ceiling = posture_store.write_ceiling(readable, login)
-    except Exception:  # an unreadable tier is not an allowed one
-        logger.warning("Could not read the write tier for login %s", login)
-        return TIER_UNKNOWN
-    if rung == "never":
-        return "never"
-    if rung == "unknown":
-        return TIER_UNKNOWN
-    return ceiling
-
-
 def _row_verdict(section: Any, target: str, login: str) -> posture_store.WriteVerdict:
     """The write verdict for a new call by *login* to *target* (C-GET, FR 5).
 
@@ -2910,7 +2810,7 @@ def _row_verdict(section: Any, target: str, login: str) -> posture_store.WriteVe
     turn-on lock reads.
     """
     return posture_store.write_verdict(
-        None if section is _UNREADABLE_SECTION else section,
+        None if section is UNREADABLE else section,
         target,
         owner=login,
         ignore_launch_pin=True,
@@ -2923,6 +2823,52 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
     An absent record is every switch off; only an unreadable one is unknown.
     """
     return None if status == "unreadable" else control_context.switch_position(record, target)
+
+
+def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
+    """This login's program authorizations still in force, by machine. BLOCKING; never raises.
+
+    Read from the ``authorizations`` directory beside the login's record, and
+    the self-issued grants naming this login from the holders' ledger
+    directory this terminal sees read-only
+    (:func:`~osprey_connectors.write_authorization.self_issued_directories`).
+    In force is :func:`~osprey_connectors.write_authorization.grant_standing`'s:
+    not revoked, not expired, issued under the record's epoch, and not ended
+    by the holder's ledger (its lease lapsed or every step spent). A row says
+    a program may write here, not that one is writing now. A directory that
+    cannot be read reports none: a grant there that cannot be read refuses
+    every write already.
+
+    A self-issued row is in force only while the switch stands at ``allowed``,
+    and ends by moving it off ``allowed`` (the row's off control), not by a
+    revoke this terminal could write.
+    """
+    from osprey_connectors import write_authorization
+
+    login = acting_identity()
+    own = write_authorization.authorizations_dir()
+    ledgers = write_authorization.self_issued_directories()
+    now = time.time_ns()
+    holds: dict[str, list[dict[str, Any]]] = {}
+    found, _unreadable = write_authorization.listed_grants([] if own is None else [own], ledgers)
+    for grant, _directory in found:
+        if grant.owner != login:
+            continue
+        standing = write_authorization.grant_standing(grant, record, ledgers, now_ns=now)
+        if not standing.in_force:
+            continue
+        holds.setdefault(grant.target, []).append(
+            {
+                "id": grant.id,
+                "holder": grant.holder,
+                "label": grant.label,
+                "steps": grant.steps,
+                "used": standing.used,
+                "expires_in_s": max(0.0, round((grant.expires_at_ns - now) / 1e9, 1)),
+                "self_issued": grant.approver.surface == write_authorization.SELF_ISSUE_SURFACE,
+            }
+        )
+    return holds
 
 
 def _session_held(app: Any, session_id: str | None) -> bool:
@@ -2965,7 +2911,7 @@ def _posture_view(
     that one read; the fleet is listed once and the server rows, the
     reachability and the display metadata all come from that one listing. The
     render is read once and memoized by ``config.yml``'s signature besides
-    (:func:`_rendered_config`).
+    (:func:`~osprey.interfaces.web_terminal.config_view.rendered_config`).
 
     **The write columns are the verdict's.** Each row carries
     :func:`~osprey_connectors.posture_store.write_verdict` for a new call by the
@@ -2981,9 +2927,9 @@ def _posture_view(
     hold, so the chip can name why its writes are paused. It is ``False`` with no
     session named and wherever no watchdog runs.
     """
-    config = _rendered_config(config_path)
+    config = rendered_config(config_path)
     derive_path = str(config_path) if config_path else None
-    section = _section_of(config)
+    section = section_of(config)
     record, record_status = control_context.read_record_status()
     reports = _live_reports()
     login = acting_identity()
@@ -2992,6 +2938,7 @@ def _posture_view(
     control_target = record.target if record is not None else baseline
 
     configured = list(_configured_target_names(section))
+    programs = _program_holds(record)
     # Resolved BEFORE the render, and exactly once. The display metadata names
     # one gateway per target, and WHICH gateway depends on the same verdict the
     # rows below publish.
@@ -3031,6 +2978,10 @@ def _posture_view(
                 "reason": reason,
                 "reason_detail": reason_detail,
                 "switch": _switch_state(record, record_status, target),
+                # A program's authorization on this machine, in force: the chip
+                # shows it as held, and the row's off control revokes it.
+                "program_hold": bool(programs.get(target)),
+                "programs": programs.get(target, []),
                 # Whether the next write prompts: the effective position, so a
                 # stored ``allowed`` capped at ``asked`` answers true.
                 "prompt": verdict.position == "asked",
@@ -3058,13 +3009,17 @@ def _posture_view(
         "readonly_run": readonly_run,
         "switch_epoch": None if record is None else wire_epoch(record.switch_epoch),
         # What enables "Turn all off": any machine armed in this login's record,
-        # configured here or not — a machine a later render dropped is still armed.
-        "any_armed": record is not None
-        and any(
-            control_context.switch_position(record, target) != SWITCH_OFF
-            for target in record.switch
+        # configured here or not — a machine a later render dropped is still armed —
+        # or a program's authorization in force, which the stop revokes.
+        "any_armed": bool(programs)
+        or (
+            record is not None
+            and any(
+                control_context.switch_position(record, target) != SWITCH_OFF
+                for target in record.switch
+            )
         ),
-        "locks": {"readonly_run": readonly_run, "tier": _login_tier(section, login)},
+        "locks": {"readonly_run": readonly_run, "tier": login_tier(section, login)},
         "owner": _owner_row(app, record),
         "servers": _server_rows(reports),
         "execution_in_flight": _execution_rows(),
@@ -3098,6 +3053,11 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       (C-KIND), and ``short_label`` follows it — never the label's shape or
       the target name, so a stand-in no server vouched for reads as the real
       machine.
+    * ``program_hold`` / ``programs`` — whether a program's write
+      authorization of this login is in force on the machine, and each one's
+      ``{id, holder, label, steps, used, expires_in_s, self_issued}``; ``used``
+      is ``null`` where the holder's ledger cannot be read. The machine's
+      switch may be off beside it; the row's off control revokes it.
     * ``switch`` / ``write_allowed`` / ``write_reason`` / ``write_phrase`` —
       the login's switch for the machine (``on`` | ``off``, ``null`` when the
       record cannot be read) and the write verdict a new call by the signed-in
@@ -3141,7 +3101,8 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       sends back unchanged with a turn-on (C-POST); ``null`` for no record or an
       epoch-less one.
     * ``any_armed`` — whether any machine is armed in this login's record,
-      configured here or not; it enables "Turn all off".
+      configured here or not, or a program's authorization is in force; it
+      enables "Turn all off".
     * ``locks`` — ``{readonly_run, tier}``: the two locks no chip gesture
       lifts. ``tier`` is this login's ceiling and its one home: ``never``,
       ``asked``, ``allowed`` or ``unknown``.

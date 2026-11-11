@@ -27,7 +27,7 @@ Four properties are asserted:
   list in the store, so no query may compare ``altLabel`` as a scalar; and there
   is no ``:Device`` label in the projection, so no query may ask for one.
 
-The demo corpus is the graph view the control-assistant build writes, prose
+The demo corpus is the graph view the demo build writes, prose
 included: the examples that search descriptions are held to the same coverage
 as the rest, because the corpus they search carries the predicates.
 """
@@ -47,16 +47,16 @@ if TYPE_CHECKING:
     from tests._builds import BuiltProject
 
 # ---------------------------------------------------------------------------
-# The corpus: the graph view the control-assistant build writes.
+# The corpus: the graph view the demo build writes.
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
-def corpus_text(built_control_assistant: BuiltProject) -> str:
+def corpus_text(built_demo: BuiltProject) -> str:
     """Return the Turtle source of the built demo corpus."""
     from osprey.facility.views.graph import GRAPH_FILE
 
-    path = built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
+    path = built_demo.build_dir / "data" / "graph" / GRAPH_FILE
     return path.read_text(encoding="utf-8")
 
 

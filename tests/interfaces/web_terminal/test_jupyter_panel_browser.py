@@ -28,17 +28,17 @@ What only a browser can prove, and why each step is here:
 The kernel's first start runs a fresh interpreter through the launcher, so the
 timeouts here are generous by design rather than by superstition.
 
-THE SECOND FLOW: a popped-out notebook that follows the deployment
-------------------------------------------------------------------
-The two lanes at the bottom of this file are about the OTHER way an operator
-holds a notebook — popped out of the hub into its own window, with the terminal
-tab closed behind it — and about the control-target bar the panel proxy injects
-into that page. They share this module's real sidecar and real kernel, and add
-a control-context record and a three-target render on top, because the question
-they answer is what a CELL is routed at:
+THE SECOND FLOW: a detached notebook that follows the deployment
+----------------------------------------------------------------
+The lanes at the bottom of this file are about the OTHER way an operator holds a
+notebook — the Jupyter pane out in a window of its own — and about the
+control-target bar the panel proxy injects into that page. They share this
+module's real sidecar and real kernel, and add a control-context record and a
+three-target render on top, because the question they answer is what a CELL is
+routed at:
 
   * a switch made from the Lab page's own chip moves the deployment's record,
-    and the very next cell in the popped-out notebook comes up on the new
+    and the very next cell in the detached notebook comes up on the new
     machine. Nothing is restarted — that re-routing is the one thing that
     separates a notebook kernel from an executor sandbox;
   * restarting the kernel changes none of it: the fresh process reads the same
@@ -76,6 +76,7 @@ import pytest
 import requests
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces._serving import run_app_server
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
 from osprey_connectors import posture_store
@@ -451,7 +452,7 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
 
 
 # ===========================================================================
-# A popped-out notebook, its own control-target bar, and what a cell is on
+# A notebook in its own window, its own control-target bar, and what a cell is on
 # ===========================================================================
 
 #: The cell that reports what this cell is routed at. One line, because a
@@ -467,6 +468,8 @@ _TARGET_CELL = "import os; print(os.environ.get('OSPREY_CONTROL_TARGET'))"
 _LAB_BAR = "#osprey-control-target-bar"
 _LAB_CHIP = f"{_LAB_BAR} {CHIP}"
 _LAB_BAR_MODULE = "control-target-lab-bar.js"
+#: The starter notebook's address, on JupyterLab's single-document route.
+_NOTEBOOK_URL = "{}/panel/jupyter/doc/tree/getting-started.ipynb"
 
 #: JupyterLab's own execution indicator, in the notebook's toolbar. Its
 #: ``data-status`` is the frontend's account of the kernel it is CONNECTED to,
@@ -546,7 +549,7 @@ def _control_target_lab(
     document["agent_data"] = {"base_dir": str(root)}
     config.write_text(yaml.safe_dump(document), encoding="utf-8")
 
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
     monkeypatch.setenv("OSPREY_WEB_THEME", "dark")
@@ -650,23 +653,13 @@ def _publish_fleet(root: Path, *, applied_target: str, applied_generation: int) 
     )
 
 
-def _standalone_notebook(browser, base_url: str) -> Page:
-    """Open the starter notebook in its own window, the way a pop-out lands.
+def _framed_notebook(browser, base_url: str, *, init_script: str | None = None) -> tuple[Page, Any]:
+    """Open the starter notebook as the page a frame loads, on a page of its own.
 
-    ``/panel/jupyter/notebooks/<path>`` is JupyterLab's single-document route,
-    and it is on the proxy's page allow-list, so this is a real page with the
-    control-target bar injected into it — not the hub, and not an iframe inside
-    the hub. That is the whole arrangement these lanes are about: the operator
-    has the notebook and nothing else on screen.
-    """
-    page, _response = _popped_out_notebook(browser, base_url)
-    return page
-
-
-def _popped_out_notebook(
-    browser, base_url: str, *, init_script: str | None = None
-) -> tuple[Page, Any]:
-    """:func:`_standalone_notebook`, plus the page's own response and a probe.
+    ``/panel/jupyter/doc/tree/<path>`` is JupyterLab's single-document route, and
+    it is on the proxy's page allow-list, so this is a real page with the
+    control-target module injected into it. ``embedded=true`` is what keeps it
+    here: a Lab page opened at its own address leaves for the web terminal.
 
     Args:
         browser: The function-scoped chromium fixture.
@@ -681,12 +674,45 @@ def _popped_out_notebook(
     page = browser.new_page(viewport=_VIEWPORT)
     if init_script:
         page.add_init_script(init_script)
-    response = page.goto(
-        f"{base_url}/panel/jupyter/doc/tree/getting-started.ipynb",
-        wait_until="domcontentloaded",
-    )
+    response = page.goto(f"{_NOTEBOOK_URL.format(base_url)}?embedded=true", wait_until="load")
     expect(page.locator(".jp-NotebookPanel")).to_be_visible(timeout=_LAB_BOOT_MS)
     return page, response
+
+
+def _detached_notebook(
+    browser, base_url: str, *, init_script: str | None = None
+) -> tuple[Page, Page, Any]:
+    """Open the starter notebook in the Jupyter pane's own window, the way an operator does.
+
+    A direct visit brings the hub up with Jupyter on the notebook, and the tile's
+    Open in new window moves the frame into a window the hub drives. That window
+    has no sidebar, so the control-target bar in the frame is its picker.
+
+    Args:
+        browser: The function-scoped chromium fixture.
+        base_url: The hub's address, per-user prefix included.
+        init_script: Seeded at document start on every page and frame of the
+            context, the window's included.
+
+    Returns:
+        ``(hub, window, lab)``: the hub page, the pane's window, and the Lab frame
+        inside it. A frame takes the same ``locator`` calls a page does, and
+        keeps its events on ``window``.
+    """
+    context = browser.new_context(viewport=_VIEWPORT)
+    if init_script:
+        context.add_init_script(init_script)
+    hub = context.new_page()
+    hub.goto(_NOTEBOOK_URL.format(base_url), wait_until="domcontentloaded")
+    expect(_lab(hub).locator(".jp-NotebookPanel")).to_be_visible(timeout=_LAB_BOOT_MS)
+    with hub.expect_popup() as info:
+        hub.locator('.tile-tab[data-panel-id="iframe:jupyter"] .tile-tab-window').click()
+    window = info.value
+    frame = 'iframe.panel-iframe[data-panel-id="jupyter"]'
+    expect(window.frame_locator(frame).locator(".jp-NotebookPanel")).to_be_visible(
+        timeout=_LAB_BOOT_MS
+    )
+    return hub, window, window.locator(frame).element_handle().content_frame()
 
 
 def _run_next_cell(page: Page, code: str) -> Any:
@@ -700,17 +726,19 @@ def _run_next_cell(page: Page, code: str) -> Any:
     keyboard path for what an operator does with the ``+`` button.
 
     Args:
-        page: The notebook's own page.
+        page: The page or frame the notebook is on.
         code: One line of Python. Multi-line source would be re-indented by the
             editor, and the test would then be about CodeMirror.
 
     Returns:
         The cell that ran, so the caller can read its output.
     """
+    # A frame has no keyboard of its own: the page it is on holds it.
+    keyboard = getattr(page, "page", page).keyboard
     before = page.locator(".jp-CodeCell").count()
     page.locator(".jp-CodeCell").last.locator(".cm-content").click()
-    page.keyboard.press("Escape")
-    page.keyboard.press("b")
+    keyboard.press("Escape")
+    keyboard.press("b")
     expect(page.locator(".jp-CodeCell")).to_have_count(before + 1, timeout=TIMEOUT)
 
     # Addressed by INDEX, never by ``.last``. A locator is resolved when it is
@@ -720,8 +748,8 @@ def _run_next_cell(page: Page, code: str) -> Any:
     # that never ran.
     cell = page.locator(".jp-CodeCell").nth(before)
     cell.locator(".cm-content").click()
-    page.keyboard.type(code)
-    page.keyboard.press("Shift+Enter")
+    keyboard.type(code)
+    keyboard.press("Shift+Enter")
     return cell
 
 
@@ -743,17 +771,16 @@ def _switch_from_the_lab_bar(page: Page, target: str) -> None:
     expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
 
 
-def test_a_popped_out_notebook_follows_a_switch_made_from_its_own_bar(
+def test_a_detached_notebook_follows_a_switch_made_from_its_own_bar(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """The terminal tab is gone; the notebook and its bar carry the whole gesture.
+    """The notebook is in its own window, and its bar carries the whole gesture.
 
-    The arrangement is the one an operator actually ends up in: the notebook is
-    popped out into its own window and the hub tab is closed behind it. Nothing
-    of the hub's shell is on screen — no rail, no dock, no ``terminal.js`` — so
-    the control-target bar the panel proxy injects is the only way to see or
-    move the deployment, and the chip inside it is the same module the hub
-    header mounts.
+    The arrangement is the one an operator actually ends up in: the Jupyter pane
+    is out in a window of its own. Nothing of the hub's shell is in that window —
+    no sidebar, no dock — so the control-target bar in the frame is the way to see
+    or move the deployment from there, and the chip inside it is the same module
+    the hub's sidebar mounts.
 
     Ordered so a failure names its own step:
 
@@ -779,12 +806,8 @@ def test_a_popped_out_notebook_follows_a_switch_made_from_its_own_bar(
         )
         _publish_fleet(root, applied_target=ACTIVE_TARGET, applied_generation=RECORD_GENERATION)
 
-        hub = _open_page(chromium_browser, base_url)
-        notebook = _standalone_notebook(chromium_browser, base_url)
+        hub, window, notebook = _detached_notebook(chromium_browser, base_url)
         try:
-            # The pop-out is on its own; the tab it came from is closed.
-            hub.close()
-
             _wait_for_idle_kernel(base_url, _KERNEL_TIMEOUT)
 
             before = _run_next_cell(notebook, _TARGET_CELL)
@@ -811,12 +834,17 @@ def test_a_popped_out_notebook_follows_a_switch_made_from_its_own_bar(
                 "data-pending", "true", timeout=TIMEOUT
             )
 
+            # The open card would take the click meant for the notebook.
+            notebook.locator(_LAB_CHIP).click()
+            expect(notebook.locator(POPOVER)).to_be_hidden(timeout=TIMEOUT)
+
             after = _run_next_cell(notebook, _TARGET_CELL)
             printed = _cell_output(after)
             assert printed.strip() == SWITCH_TARGET, printed
             assert HINT_TARGET_CHANGED not in printed, printed
         finally:
-            notebook.close()
+            window.close()
+            hub.close()
 
 
 def test_a_restarted_kernel_comes_back_on_the_same_target_with_no_hint(
@@ -850,10 +878,8 @@ def test_a_restarted_kernel_comes_back_on_the_same_target_with_no_hint(
         assert getattr(app.state, "jupyter_server_url", None)
         _publish_fleet(root, applied_target=ACTIVE_TARGET, applied_generation=RECORD_GENERATION)
 
-        hub = _open_page(chromium_browser, base_url)
-        notebook = _standalone_notebook(chromium_browser, base_url)
+        notebook, _response = _framed_notebook(chromium_browser, base_url)
         try:
-            hub.close()
             _wait_for_idle_kernel(base_url, _KERNEL_TIMEOUT)
 
             before = _run_next_cell(notebook, _TARGET_CELL)
@@ -1058,7 +1084,7 @@ def test_agent_script_in_an_output_makes_no_request_and_the_switch_stays_off(
         terminal_user=_USER,
         notebook_files={f"{_PROBE_MODULE}.py": _PROBE_SOURCE},
     ) as (base_url, _app, _root):
-        page, response = _popped_out_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
+        page, response = _framed_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
         sent: list[tuple[str, str]] = []
         page.on("request", lambda request: sent.append((request.method, request.url)))
         try:
@@ -1147,7 +1173,7 @@ def test_the_renderers_an_operator_relies_on_survive_the_policy(
         terminal_user=_USER,
         notebook_files={f"{_PROBE_MODULE}.py": _PROBE_SOURCE},
     ) as (base_url, _app, _root):
-        page, _response = _popped_out_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
+        page, _response = _framed_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
         try:
             _wait_for_idle_kernel(base_url, _KERNEL_TIMEOUT)
 
@@ -1177,14 +1203,14 @@ def test_the_renderers_an_operator_relies_on_survive_the_policy(
             page.close()
 
 
-def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
+def test_the_lab_bar_mounts_in_a_detached_window_and_flips_a_switch(
     tmp_path, monkeypatch, chromium_browser
 ):
     """Behind the per-user prefix, the bar mounts and its off→asked lands everywhere.
 
-    The popped-out page is its own window, so the injected module mounts the
-    bar. The machine the deployment stands on is moved off→asked from the
-    bar's card, through the confirm a fresh browser always shows; the move
+    The frame's parent is a detached pane's window, so the injected module mounts
+    the bar there. The machine the deployment stands on is moved off→asked from
+    the bar's card, through the confirm a fresh browser always shows; the move
     lands in the record, the bar's chip reads ``writes asked``, and the hub's
     own chip — another page, reading the same record — reads the same word.
     Then off again, which applies at once. The gestures post to the PREFIXED
@@ -1197,13 +1223,12 @@ def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
         _app,
         _root,
     ):
-        page, _response = _popped_out_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
+        hub, window, page = _detached_notebook(chromium_browser, base_url, init_script=_CSP_PROBE)
         posts: list[str] = []
-        page.on(
+        window.on(
             "request",
             lambda request: posts.append(request.url) if request.method == "POST" else None,
         )
-        hub = None
         try:
             expect(page.locator(f'script[src$="{_LAB_BAR_MODULE}"]')).to_have_attribute(
                 "src", f"{_PREFIX}/panel/jupyter/terminal-static/js/{_LAB_BAR_MODULE}"
@@ -1237,8 +1262,6 @@ def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
             )
 
             # The hub's own chip, on its own page, reads the same word.
-            hub = chromium_browser.new_page()
-            hub.goto(base_url, wait_until="domcontentloaded")
             expect(hub.locator(CHIP)).to_be_visible(timeout=TIMEOUT)
             expect(hub.locator(CHIP)).to_have_attribute("data-state", "asked", timeout=TIMEOUT)
             expect(hub.locator(f"{CHIP} .ctc-state")).to_have_text("writes asked", timeout=TIMEOUT)
@@ -1251,6 +1274,28 @@ def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
             assert switch_posts == [f"{base_url}/api/terminal/posture"] * 2, posts
             assert _violations(page) == []
         finally:
-            if hub is not None:
-                hub.close()
+            window.close()
+            hub.close()
+
+
+def test_a_direct_lab_path_lands_in_the_terminal(tmp_path, monkeypatch, chromium_browser):
+    """A Lab page opened at its own address opens the hub with Jupyter on that path.
+
+    Behind the per-user prefix, where a lost prefix in ``at`` is a refused link.
+    Framed in the hub the sidebar's chip is the picker, so the frame has no bar.
+    """
+    with _control_target_lab(tmp_path, monkeypatch, terminal_user=_USER) as (
+        base_url,
+        _app,
+        _root,
+    ):
+        page = chromium_browser.new_page(viewport=_VIEWPORT)
+        try:
+            page.goto(_NOTEBOOK_URL.format(base_url), wait_until="domcontentloaded")
+            expect(_lab(page).locator(".jp-NotebookPanel")).to_be_visible(timeout=_LAB_BOOT_MS)
+            expect(page).to_have_url(f"{base_url}/", timeout=TIMEOUT)
+            src = page.locator('iframe.panel-iframe[data-panel-id="jupyter"]').get_attribute("src")
+            assert f"{_PREFIX}/panel/jupyter/doc/tree/getting-started.ipynb" in src, src
+            expect(_lab(page).locator(_LAB_BAR)).to_have_count(0)
+        finally:
             page.close()

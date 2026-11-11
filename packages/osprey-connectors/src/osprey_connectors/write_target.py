@@ -2,9 +2,9 @@
 
 The hooks place every hooked call before they judge it: the stdlib twin's
 ``hook_write_target`` (``osprey_target_state.py``) answers ``None`` for a call
-that writes nothing, the real machine for a facility write tool, the lane's
-target for a lane-addressed tool, and the session's target for every other
-framework write tool. :func:`write_target_for_tool` is the package restatement
+that writes nothing, the session's target for an application tool, the real
+machine for a facility write tool, the lane's target for a lane-addressed tool,
+and the session's target for every other framework write tool. :func:`write_target_for_tool` is the package restatement
 of that placement, for a surface that has to name the machine before the hook
 has run — the operator chat's approval card (C-FRAME). A parity test
 (``tests/hooks/test_write_target_parity.py``) pins the two against each other
@@ -35,7 +35,6 @@ from osprey_connectors.types import (
 )
 
 __all__ = [
-    "FALLBACK_WRITE_TOOLS",
     "KIND_BANNERS",
     "UNRESOLVED",
     "Unresolved",
@@ -53,10 +52,10 @@ KIND_BANNERS: dict[str, str] = {
 }
 
 #: The write list a deployment with no rendered ``write_tools`` falls back to.
-#: Restated from the hooks' ``FALLBACK_WRITE_TOOLS`` (``osprey_hook_log.py``):
+#: Restated from the hooks' ``_FALLBACK_WRITE_TOOLS`` (``osprey_hook_log.py``):
 #: this package cannot import the framework, and the hooks cannot import this
 #: package. The parity test pins the two.
-FALLBACK_WRITE_TOOLS: tuple[str, ...] = (
+_FALLBACK_WRITE_TOOLS: tuple[str, ...] = (
     "mcp__bluesky__queue_add",
     "mcp__bluesky__queue_start",
     "mcp__controls__channel_write",
@@ -82,6 +81,10 @@ _FACILITY_EXTRAS_KEY = "control_system_write_tools"
 #: The hook_config key naming the facility (custom-server) write set: exact
 #: names for a declaring server, ``mcp__<name>__.*`` for one with no list.
 _FACILITY_WRITES_KEY = "facility_write_tools"
+
+#: The hook_config key holding every application tool's approval declaration,
+#: keyed by full tool name: an application writes to the session's target.
+_APP_APPROVALS_KEY = "app_approvals"
 
 #: The hook_config keys naming server prefixes, longest match stripped.
 _PREFIX_KEYS = ("server_prefixes", "approval_prefixes")
@@ -257,6 +260,7 @@ def write_target_for_tool(
     * ``None`` for a call that writes nothing: a tool outside the render's
       ``write_tools`` (the fallback list when the render names none), or a
       readonly execution.
+    * The session's target for an application tool (``app_approvals``).
     * ``live`` for a facility write tool the deployment declared.
     * The lane's target for a lane-addressed tool.
     * The session's target for every other framework write tool.
@@ -279,13 +283,16 @@ def write_target_for_tool(
     """
     try:
         hooks: Mapping[str, Any] = hook_config if isinstance(hook_config, Mapping) else {}
-        write_tools = hooks.get("write_tools", FALLBACK_WRITE_TOOLS)
+        write_tools = hooks.get("write_tools", _FALLBACK_WRITE_TOOLS)
         if not _is_write_tool(tool_name, write_tools):
             return None
         if short_name is None:
             short_name = _short_tool_name(tool_name, _hook_prefixes(hooks))
         if not _is_write_call(tool_input, short_name):
             return None
+        apps = hooks.get(_APP_APPROVALS_KEY)
+        if isinstance(apps, Mapping) and tool_name in apps:
+            return _session_machine(config, record_path, stamped)
         if _is_facility_tool(tool_name, hooks):
             return TARGET_LIVE
         if short_name in tuple(hooks.get(_LANE_ADDRESSED_KEY) or ()):

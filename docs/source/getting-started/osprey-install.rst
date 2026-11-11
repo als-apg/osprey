@@ -15,9 +15,9 @@ resume at any point.
    :icon: list-unordered
 
    * **A coding-agent CLI** — the setup runs inside a coding-agent session;
-     the commands here use Claude Code. Install it from
-     `claude.ai/code <https://claude.ai/code>`_ and make sure
-     ``claude --version`` works in your terminal.
+     the commands here use Claude Code. Install the pinned version as Step 2
+     of :doc:`installation` shows, and make sure ``claude --version`` works in
+     your terminal.
    * **uv** — the setup puts OSPREY on your ``PATH`` with ``uv tool install``.
      :doc:`installation` covers installing ``uv``; OSPREY itself can wait for the
      conversation.
@@ -33,7 +33,6 @@ The skill ships in the ``osprey`` plugin:
 
 .. code-block:: bash
 
-   # skip-ci
    claude plugin marketplace add als-apg/osprey --sparse .claude-plugin plugins
    claude plugin install osprey@osprey
 
@@ -45,7 +44,6 @@ Run it
 
 .. code-block:: bash
 
-   # skip-ci
    mkdir -p ~/my-osprey-project
    cd ~/my-osprey-project
    claude
@@ -140,12 +138,10 @@ Tips
 Build and run
 =============
 
-The setup leaves you inside a deployment repository:
+The setup leaves you inside the deployment repository it built:
 
 .. code-block:: bash
 
-   # skip-ci
-   cd my-project
    osprey build     # render build/ from the profile
    osprey web       # web dashboard on your own machine
 
@@ -163,7 +159,6 @@ there, never written there. Then:
 
 .. code-block:: bash
 
-   # skip-ci
    osprey scaffold ci    # CI pipeline + post-deploy health check script
    osprey up -d          # start it
    osprey status         # what is running, where it answers, which build it is

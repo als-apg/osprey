@@ -24,14 +24,14 @@ from osprey.cli.build_profile_load import load_profile
 from osprey.cli.build_profile_merge import resolve_profile_document
 from osprey.cli.build_profile_presets import _presets_dir, preset_data_bundle
 from osprey.cli.templates.claude_code import _graphdb_configured
-from osprey.deployment.web_terminals.lint import lint_app_render
+from osprey.deployment.web_terminals.lint import lint_shared_render
 from osprey.registry.mcp import resolve_servers
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import configured_targets
 
 _SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
 _DRAFT_CONCEPT = "mcp__osprey_facility_knowledge__draft_concept"
-_APP_RENDER_CODE = "web_terminals.app_render_holds_privilege"
+_APP_RENDER_CODE = "web_terminals.shared_render_holds_privilege"
 
 _BUNDLED_APPS = ("logbook", "knowledge", "channel-finder")
 
@@ -42,9 +42,9 @@ _HOST = {
     "data": "data",
     "provider": "anthropic",
     "model": "opus",
-    "env": {"FACILITY": "test"},
+    "env": {"defaults": {"FACILITY": "test"}},
     "dispatch": {"max_turns": 5},
-    "provenance": {"preset": "control-assistant"},
+    "provenance": {"preset": "demo"},
     "channel_finder_mode": "graph",
     "default_panel": "events",
     "claude_md_template": "CLAUDE.md.j2",
@@ -62,11 +62,13 @@ _HOST = {
         "claude_code.permissions.deny": [_SETUP_PATCH],
         "web.theme": "main",
         "modules.web_terminals.enabled": True,
+        "modules.web_terminals.shared": ["logbook"],
     },
 }
 
 _APP = {
     "name": "Logbook Research",
+    "lists": "own",
     "claude_md_template": "CLAUDE.logbook.md.j2",
     "default_panel": "ariel",
     "channel_finder_mode": None,
@@ -93,11 +95,17 @@ def _write_yaml(path: Path, document: dict) -> Path:
 
 
 def _repo(tmp_path: Path, app: dict, host: dict | None = None) -> Path:
-    """A deployment repo with one app file; returns the app file's path."""
+    """A deployment repo with one shared `lists: own` login; returns its file's path.
+
+    The host names the login under ``modules.web_terminals.shared`` whatever
+    config the test hands it, so the login is always sealed.
+    """
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True, exist_ok=True)
-    _write_yaml(repo / "profile.yml", host if host is not None else _HOST)
-    return _write_yaml(repo / "apps" / "logbook.yml", app)
+    host = dict(host if host is not None else _HOST)
+    host["config"] = {"modules.web_terminals.shared": ["logbook"], **(host.get("config") or {})}
+    _write_yaml(repo / "profile.yml", host)
+    return _write_yaml(repo / "tiers" / "logbook.yml", app)
 
 
 def _resolve(path: Path) -> dict:
@@ -128,9 +136,9 @@ def _materialized_repo(repo: Path, host_preset: str, host_config: dict | None = 
     if host_config:
         host["config"] = host_config
     _write_yaml(repo / "profile.yml", host)
-    (repo / "apps").mkdir()
+    (repo / "tiers").mkdir()
     for app in _BUNDLED_APPS:
-        shutil.copyfile(_presets_dir() / "apps" / f"{app}.yml", repo / "apps" / f"{app}.yml")
+        shutil.copyfile(_presets_dir() / "tiers" / f"{app}.yml", repo / "tiers" / f"{app}.yml")
     return repo
 
 
@@ -144,8 +152,8 @@ def _admin_tier_lift() -> dict:
 
 @pytest.fixture(scope="module")
 def flagship_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant deployment with every bundled app materialized."""
-    return _materialized_repo(tmp_path_factory.mktemp("flagship") / "repo", "control-assistant")
+    """A demo deployment with every bundled app materialized."""
+    return _materialized_repo(tmp_path_factory.mktemp("flagship") / "repo", "demo")
 
 
 @pytest.fixture(scope="module", params=["floor", "lifting"])
@@ -154,9 +162,7 @@ def host_shape_repo(
 ) -> Path:
     """The flagship host, and the same host carrying the admin tier's floor lift."""
     lift = _admin_tier_lift() if request.param == "lifting" else None
-    return _materialized_repo(
-        tmp_path_factory.mktemp("host") / "repo", "control-assistant", host_config=lift
-    )
+    return _materialized_repo(tmp_path_factory.mktemp("host") / "repo", "demo", host_config=lift)
 
 
 def _targets(config: dict) -> list[str]:
@@ -239,9 +245,9 @@ def test_an_app_model_replaces_the_hosts_and_keeps_the_hosts_provider(tmp_path: 
 
 
 def test_a_bundled_app_given_a_model_loads_with_it(tmp_path: Path) -> None:
-    repo = _materialized_repo(tmp_path / "repo", "control-assistant")
+    repo = _materialized_repo(tmp_path / "repo", "demo")
     host = load_profile(repo / "profile.yml")
-    app_path = repo / "apps" / "logbook.yml"
+    app_path = repo / "tiers" / "logbook.yml"
     app_path.write_text(
         app_path.read_text(encoding="utf-8") + "\nmodel: claude-sonnet-5\n", encoding="utf-8"
     )
@@ -250,7 +256,7 @@ def test_a_bundled_app_given_a_model_loads_with_it(tmp_path: Path) -> None:
 
     assert app.model == "claude-sonnet-5" != host.model
     assert app.provider == host.provider
-    assert load_profile(repo / "apps" / "knowledge.yml").model == host.model
+    assert load_profile(repo / "tiers" / "knowledge.yml").model == host.model
 
 
 @pytest.mark.parametrize("spelled", [{}, {"model": None}], ids=["absent", "null"])
@@ -275,7 +281,7 @@ def test_a_default_model_spelled_in_an_app_config_names_the_app_file(
 
     message = str(excinfo.value)
     assert "the top-level `model:` field sets it" in message
-    assert "Remove it from apps/logbook.yml." in message
+    assert "Remove it from tiers/logbook.yml." in message
     assert "profile.yml" not in message
 
 
@@ -302,13 +308,13 @@ def test_a_tier_model_still_replaces_the_hosts(tmp_path: Path) -> None:
 
 def test_provenance_is_the_hosts(tmp_path: Path) -> None:
     raw = _resolve(_repo(tmp_path, _APP))
-    assert raw["provenance"] == {"preset": "control-assistant"}
+    assert raw["provenance"] == {"preset": "demo"}
 
 
 def test_app_without_provenance_keeps_the_hosts(tmp_path: Path) -> None:
     app = {k: v for k, v in _APP.items() if k != "provenance"}
     raw = _resolve(_repo(tmp_path, app))
-    assert raw["provenance"] == {"preset": "control-assistant"}
+    assert raw["provenance"] == {"preset": "demo"}
 
 
 def test_attachment_facts_still_hold(tmp_path: Path) -> None:
@@ -382,7 +388,7 @@ def test_permissions_are_unioned_in_one_spelling(tmp_path: Path, spelling: dict)
         {"control_system.connector.epics.writes_enabled": True},
         {"control_system.connector": {"epics": {"writes_enabled": True}}},
         {"control_system.connector.tango.writes_enabled": True},
-        {"control_system.connector": {"mypackage.Moat": {"writes_enabled": True}}},
+        {"control_system.connector": {"mypackage.Site": {"writes_enabled": True}}},
         {"control_system.writes": "allowed"},
         {"control_system": {"writes": "allowed"}},
     ],
@@ -448,8 +454,8 @@ def test_a_dotted_custom_type_gets_no_per_type_pin(tmp_path: Path) -> None:
     host = dict(
         _HOST,
         config={
-            "control_system.type": "mypackage.Moat",
-            "control_system.connector": {"mypackage.Moat": {"writes_enabled": True, "url": "x"}},
+            "control_system.type": "mypackage.Site",
+            "control_system.connector": {"mypackage.Site": {"writes_enabled": True, "url": "x"}},
         },
     )
     config = _resolve(_repo(tmp_path, _APP, host=host))["config"]
@@ -489,7 +495,7 @@ def test_the_app_render_has_the_hosts_targets(tmp_path: Path, host_config: dict)
 @pytest.mark.parametrize("app", _BUNDLED_APPS)
 def test_every_bundled_app_render_has_the_flagship_targets(flagship_repo: Path, app: str) -> None:
     host = load_profile(flagship_repo / "profile.yml")
-    profile = load_profile(flagship_repo / "apps" / f"{app}.yml")
+    profile = load_profile(flagship_repo / "tiers" / f"{app}.yml")
     assert _targets(profile.config) == _targets(host.config)
     assert len(_targets(host.config)) >= 2
 
@@ -518,9 +524,9 @@ def test_every_bundled_app_render_has_a_single_target_hosts_targets(
     """An app's own per-type write pins never count as a connector block."""
     host_config = _SINGLE_TARGET_HOSTS[host_shape]
     host = dict(_HOST, config=host_config)
-    path = tmp_path / "repo" / "apps" / f"{app}.yml"
+    path = tmp_path / "repo" / "tiers" / f"{app}.yml"
     _repo(tmp_path, {}, host=host)
-    shutil.copyfile(_presets_dir() / "apps" / f"{app}.yml", path)
+    shutil.copyfile(_presets_dir() / "tiers" / f"{app}.yml", path)
 
     render = _resolve(path)["config"]
     assert len(_targets(host_config)) == 1
@@ -552,7 +558,7 @@ def test_a_dotted_server_name_is_kept_whole(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("app", _BUNDLED_APPS)
 def test_no_app_render_can_patch_its_setup(host_shape_repo: Path, app: str) -> None:
-    profile = load_profile(host_shape_repo / "apps" / f"{app}.yml")
+    profile = load_profile(host_shape_repo / "tiers" / f"{app}.yml")
     assert _profile_setup_patch_capable(profile) is False
 
 
@@ -590,27 +596,27 @@ def test_an_app_that_lifts_the_setup_deny_is_refused(tmp_path: Path, lift: dict)
 
 @pytest.mark.parametrize("app", _BUNDLED_APPS)
 def test_every_bundled_app_render_is_write_less(flagship_repo: Path, app: str) -> None:
-    profile = load_profile(flagship_repo / "apps" / f"{app}.yml")
+    profile = load_profile(flagship_repo / "tiers" / f"{app}.yml")
     assert "writes-check" in profile.hooks
-    assert lint_app_render({"hooks": profile.hooks, "config": profile.config}) == []
+    assert lint_shared_render({"hooks": profile.hooks, "config": profile.config}) == []
 
 
 def test_knowledge_render_denies_setup_patch_and_draft_concept(flagship_repo: Path) -> None:
-    profile = load_profile(flagship_repo / "apps" / "knowledge.yml")
+    profile = load_profile(flagship_repo / "tiers" / "knowledge.yml")
     deny = effective_config_subtree(profile.config, ("claude_code",))["permissions"]["deny"]
     assert _SETUP_PATCH in deny
     assert _DRAFT_CONCEPT in deny
 
 
 def test_logbook_render_servers(flagship_repo: Path) -> None:
-    profile = load_profile(flagship_repo / "apps" / "logbook.yml")
+    profile = load_profile(flagship_repo / "tiers" / "logbook.yml")
     assert sorted(_render_servers(profile)) == ["ariel", "graph", "osprey_workspace"]
 
 
 def test_logbook_render_keeps_the_host_provenance(flagship_repo: Path) -> None:
-    raw = yaml.safe_load((flagship_repo / "apps" / "logbook.yml").read_text(encoding="utf-8"))
-    document = resolve_profile_document(raw, flagship_repo / "apps" / "logbook.yml", warn=False)
-    assert document.inherited_preset == "control-assistant"
+    raw = yaml.safe_load((flagship_repo / "tiers" / "logbook.yml").read_text(encoding="utf-8"))
+    document = resolve_profile_document(raw, flagship_repo / "tiers" / "logbook.yml", warn=False)
+    assert document.inherited_preset == "demo"
     assert document.raw["channel_finder_mode"] is None
 
 
@@ -624,7 +630,7 @@ def test_preset_data_bundle_refuses_an_app(name: str) -> None:
 
 
 def test_preset_data_bundle_still_answers_for_a_deployment() -> None:
-    assert preset_data_bundle("control-assistant") == preset_data_bundle("control_assistant")
+    assert preset_data_bundle("demo") == preset_data_bundle("demo")
     assert isinstance(preset_data_bundle(None), str)
 
 
@@ -645,11 +651,11 @@ def test_lint_passes_a_pinned_render() -> None:
             "web.scaffold_gallery.write_enabled": False,
         },
     }
-    assert lint_app_render(render) == []
+    assert lint_shared_render(render) == []
 
 
 def test_lint_refuses_a_render_that_can_patch_its_setup() -> None:
-    findings = lint_app_render({"hooks": ["writes-check"], "config": {_WRITES: "never"}})
+    findings = lint_shared_render({"hooks": ["writes-check"], "config": {_WRITES: "never"}})
     assert _codes(findings) == [_APP_RENDER_CODE]
     assert _SETUP_PATCH in findings[0].message
 
@@ -672,7 +678,7 @@ def test_lint_refuses_a_render_that_can_patch_its_setup() -> None:
         {_WRITES: "never", "control_system.connector.epics.writes_enabled": True},
         {
             _WRITES: "never",
-            "control_system.connector": {"mypackage.Moat": {"writes_enabled": "true"}},
+            "control_system.connector": {"mypackage.Site": {"writes_enabled": "true"}},
         },
         {
             _WRITES: "never",
@@ -683,7 +689,7 @@ def test_lint_refuses_a_render_that_can_patch_its_setup() -> None:
 )
 def test_lint_refuses_an_armed_or_unpinned_render(config: dict) -> None:
     config = {**config, "claude_code.permissions.deny": [_SETUP_PATCH]}
-    findings = lint_app_render({"hooks": ["writes-check"], "config": config})
+    findings = lint_shared_render({"hooks": ["writes-check"], "config": config})
     assert _codes(findings) == [_APP_RENDER_CODE]
     assert _WRITES in findings[0].message
 
@@ -700,11 +706,11 @@ def test_lint_tolerates_a_retired_leaf_that_is_off() -> None:
             "web.scaffold_gallery.write_enabled": False,
         },
     }
-    assert lint_app_render(render) == []
+    assert lint_shared_render(render) == []
 
 
 def test_lint_refuses_a_render_without_writes_check() -> None:
-    findings = lint_app_render(
+    findings = lint_shared_render(
         {
             "hooks": ["target-state"],
             "config": {

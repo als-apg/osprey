@@ -2,18 +2,25 @@
 LLM Providers
 =============
 
-Two separate decisions sit behind every model call OSPREY makes. *Which
-provider* you use -- an Anthropic-native endpoint (Anthropic itself or an
-institutional proxy), an OpenAI-compatible endpoint, or a model served on your
-own hardware -- is a matter of endpoints and API keys. *Which model handles
-which task* is routing, and OSPREY has two consumers to route for: the OSPREY
-agent speaks the Anthropic Messages API, while the MCP tool servers call the
-same named providers directly through LiteLLM. Both draw endpoints and keys
-from one catalog -- ``providers.yml`` beside the deployment's ``profile.yml``,
-rendered into ``api.providers`` -- so a key set there serves both. Which
-provider and model each one runs on is chosen separately: the profile's
-top-level ``provider:`` field for the agent, and each tool server's own
-provider setting, some of which default to the agent's.
+Use these pages to choose which provider and which model each OSPREY model
+call uses. You make two separate decisions:
+
+- **Which provider.** A provider is an endpoint and its API key. It can be an
+  Anthropic-native endpoint (Anthropic itself or an institutional proxy), an
+  OpenAI-compatible endpoint, or a model served on your own hardware. You
+  declare providers in one catalog, ``providers.yml`` beside the deployment's
+  ``profile.yml``, which is rendered into ``api.providers``.
+- **Which model handles which task.** This is routing. OSPREY routes for two
+  consumers, and you choose the provider and model for each one separately:
+
+  - **The OSPREY agent** speaks the Anthropic Messages API. Set its provider
+    and model in the profile's top-level ``provider:`` and ``model:`` fields.
+  - **The MCP (Model Context Protocol) tool servers** call the same named
+    providers directly through LiteLLM. Set each tool server's own provider
+    setting. Some of these default to the agent's.
+
+Both consumers draw endpoints and keys from the same catalog, so a key you set
+there serves both.
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -32,11 +39,10 @@ provider setting, some of which default to the agent's.
       :link-type: doc
       :shadow: md
 
-      Running the agent on open-weight or self-hosted models: how the local
+      Run the agent on open-weight or self-hosted models. Covers how the local
       translation proxy bridges an OpenAI-protocol endpoint to the Anthropic
-      Messages API, the same way whether the model is remote or on your own
-      machine, which open models are known to sustain the full e2e suite, and
-      how to benchmark one yourself.
+      Messages API, remote or on your own machine. Also lists the open models
+      known to sustain the full end-to-end (e2e) test suite, and how to benchmark one yourself.
 
 .. toctree::
    :hidden:

@@ -110,6 +110,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit import posture as audit_posture
 from osprey.audit import writer as audit_writer
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import session_control, target_state
@@ -389,7 +390,7 @@ def module_environment(tmp_path_factory, endpoints):
     records: list[dict] = []
 
     with pytest.MonkeyPatch.context() as patch_env:
-        patch_env.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+        patch_env.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
         patch_env.setenv(audit_posture.POSTURE_SESSION_ENV_VAR, SESSION_ID)
         patch_env.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
         patch_env.setenv("CONFIG_FILE", str(written))
@@ -397,7 +398,6 @@ def module_environment(tmp_path_factory, endpoints):
         patch_env.delenv("OSPREY_EXECUTION_MODE", raising=False)
         patch_env.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
         patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
-        posture_store.invalidate_cache()
         control_context.invalidate_cache()
         write_control_context(
             root,
@@ -408,7 +408,7 @@ def module_environment(tmp_path_factory, endpoints):
         )
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture(scope="module")

@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.agent_record.config import HISTORY_SERVICE
-from osprey.deployment import container_lifecycle
+from osprey.deployment import compose_generator, container_lifecycle
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     DeploymentPreconditionError,
@@ -1230,11 +1230,11 @@ def test_web_deploy_raises_before_any_compose_call_when_shared_disk_missing(monk
 # COMPOSE_PROJECT_NAME pinning on the plain (non-web) deploy paths
 #
 # The web path already pins it (see test_web_deploy_pins_compose_project_name).
-# These lock in that deploy_up's plain branch, deploy_down, deploy_restart, and
-# rebuild_deployment route their runtime env through runtime_env() too. Without
-# the pin, compose derives the project from the first -f file's directory (the
-# shared "services" project), so one deploy's up/down adopts and destroys a
-# sibling deploy's containers and volumes.
+# These lock in that deploy_up's plain branch and clean_deployment route their
+# runtime env through runtime_env() too. Without the pin, compose derives the
+# project from the first -f file's directory (the shared "services" project), so
+# one deploy's up/down adopts and destroys a sibling deploy's containers and
+# volumes.
 # ---------------------------------------------------------------------------
 
 
@@ -1245,138 +1245,6 @@ def test_deploy_up_plain_pins_compose_project_name(captured_argv, tmp_path):
     # captured_argv's config carries no project_name/project_root -> the
     # resolve_project_name fallback, but crucially it is PINNED, not inherited.
     assert captured_argv["env"]["COMPOSE_PROJECT_NAME"] == "unnamed-project"
-
-
-def _mock_down_config(monkeypatch, project_name, extra=None):
-    """Wire deploy_down's config load to a fixed config dict.
-
-    ``extra`` is merged over the base dict, so a caller can add the config keys
-    its own branch turns on (e.g. ``modules.web_terminals``).
-    """
-    raw_config = {"project_name": project_name, "deployed_services": ["event_dispatcher"]}
-    raw_config.update(extra or {})
-    monkeypatch.setattr(
-        container_lifecycle,
-        "load_project_config",
-        lambda p, **kwargs: raw_config,
-    )
-    monkeypatch.setattr(
-        "osprey.deployment.compose_generator.find_existing_compose_files",
-        lambda *a, **k: ["docker-compose.yml"],
-    )
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-
-
-# deploy_down's own compose invocation — the pin it carries and the web-stack
-# ordering around it — is covered against the captured-run seam in
-# tests/deployment/test_down_conversion.py, which owns the conversion. What is
-# only asserted here is the *negative* branch: a project with the module off
-# must not touch the web stack at all.
-
-
-def _capture_services_down_and_web_down(monkeypatch):
-    """Record the services compose ``down`` and any deploy_down_web_terminals call.
-
-    ``down`` no longer ``execvpe``-replaces the process; it runs through
-    ``run_captured`` and exits on the child's code, so the seam to patch is
-    ``container_lifecycle.run_captured`` and the caller must expect SystemExit.
-    """
-    captured: dict = {"web_down_order": None, "down_order": None}
-    order = iter(range(100))
-
-    def _fake_run_captured(cmd, **kwargs):
-        captured.update(args=list(cmd), env=kwargs.get("env"), down_order=next(order))
-        return completed(returncode=0)
-
-    monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run_captured)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "deploy_down_web_terminals",
-        lambda config, env, env_file_args, **kwargs: captured.update(
-            web_down_config=config, web_down_order=next(order)
-        ),
-    )
-    return captured
-
-
-def test_deploy_down_skips_web_stack_when_module_disabled(monkeypatch, tmp_path):
-    """No modules.web_terminals.enabled → the plain services-only down, no
-    web-stack invocation."""
-    monkeypatch.chdir(tmp_path)
-    _mock_down_config(monkeypatch, "myproj")
-    captured = _capture_services_down_and_web_down(monkeypatch)
-
-    with pytest.raises(SystemExit):
-        container_lifecycle.deploy_down(str(tmp_path / "config.yml"))
-
-    assert captured["web_down_order"] is None
-    assert "down" in captured["args"]
-
-
-def test_deploy_restart_pins_compose_project_name(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (
-            {"project_name": "myproj", "deployed_services": ["event_dispatcher"]},
-            ["docker-compose.yml"],
-        ),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    captured: dict = {}
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, env=None, **k: captured.update(cmd=cmd, env=env),
-    )
-    container_lifecycle.deploy_restart(str(tmp_path / "config.yml"))
-    assert captured["env"]["COMPOSE_PROJECT_NAME"] == "myproj"
-    assert "restart" in captured["cmd"]
-
-
-def test_rebuild_deployment_pins_compose_project_name(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (
-            {"project_name": "myproj", "deployed_services": ["event_dispatcher"]},
-            ["docker-compose.yml"],
-        ),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
-    monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
-    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    # The stale-container `rm -f` preflight lands on subprocess.run; swallow it.
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: completed())
-    # `rebuild_deployment` defaults to an attached start, whose watched build
-    # runs through Popen rather than `run` -- unpatched it escapes to a real
-    # container runtime.
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: None),
-    )
-    captured: dict = {}
-    monkeypatch.setattr(
-        container_lifecycle.os,
-        "execvpe",
-        lambda file, args, env: captured.update(file=file, args=args, env=env),
-    )
-    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
-    assert captured["env"]["COMPOSE_PROJECT_NAME"] == "myproj"
-    assert "up" in captured["args"]
 
 
 def test_clean_deployment_pins_compose_project_name(monkeypatch, tmp_path):
@@ -1691,105 +1559,6 @@ def test_a_start_whose_every_build_is_held_runs_no_build_step(monkeypatch, tmp_p
     assert "--no-build" in ups[-1], joined
 
 
-def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
-    """rebuild delegates its up phase to deploy_up, so --dev inherits the same
-    build/up split (Defect A): standalone `build`, then exec'd `up --no-build`."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
-    monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
-    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    runs: list = []
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, env=None, **k: runs.append(cmd) or completed(),
-    )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: runs.append(cmd)),
-    )
-    execd: dict = {}
-    monkeypatch.setattr(
-        container_lifecycle.os,
-        "execvpe",
-        lambda file, args, env: execd.update(args=args),
-    )
-    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"), dev_mode=True)
-    # `build` ran as its own subprocess; the exec'd `up` carries --no-build.
-    assert any(c[-1] == "build" for c in runs), [" ".join(c) for c in runs]
-    assert "up" in execd["args"] and "--no-build" in execd["args"]
-    assert "--build" not in execd["args"]
-
-
-def test_rebuild_deployment_cleans_before_delegating_to_deploy_up(monkeypatch, tmp_path):
-    """rebuild = clean, then the real deploy_up (single definition of every
-    up-path behavior); clean must run first."""
-    monkeypatch.chdir(tmp_path)
-    order: list[str] = []
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "clean_deployment", lambda *a, **k: order.append("clean")
-    )
-    monkeypatch.setattr(
-        container_lifecycle,
-        "deploy_up",
-        lambda *a, **k: order.append("deploy_up"),
-    )
-    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
-    assert order == ["clean", "deploy_up"]
-
-
-def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path):
-    """A web-terminals project's rebuild must reach the web reconcile — the
-    pre-delegation rebuild ran only the plain services path, so nginx and the
-    render containers never came back up after clean."""
-    # Every deployment builds the project image, which agent-record runs on;
-    # that build has its own tests, and this one is about the compose argv.
-    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env.users").write_text("", encoding="utf-8")
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (
-            {"deployed_services": [], "modules": {"web_terminals": _web_terminals_on()}},
-            [],
-        ),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
-    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
-    calls: list = []
-
-    def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
-        calls.append(list(cmd))
-        return completed(returncode=0)
-
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
-    assert any(_addresses(c, "docker-compose.web.yml") and "up" in c for c in calls)
-
-
 # ---------------------------------------------------------------------------
 # Stale-container preflight — self-healing `osprey up`
 #
@@ -2070,7 +1839,7 @@ def no_site_env(monkeypatch):
     kin), so a developer machine that happens to export one for its own tooling
     would otherwise leak into every assertion here.
     """
-    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+    for name in compose_generator.SITE_IMAGE_AXES:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
 
@@ -2086,6 +1855,7 @@ def _site_config(tmp_path, **extra):
             "pip_no_proxy": ".internal.example.org",
             "pip_index_url": "https://mirror.example.org/simple",
             "pip_extra_index_url": "https://wheels.example.org/simple",
+            "base_registry": "mirror.example.org/dockerhub",
         },
     }
     config.update(extra)
@@ -2117,6 +1887,7 @@ def test_site_image_build_args_carry_every_axis(tmp_path):
         "PIP_NO_PROXY": ".internal.example.org",
         "PIP_INDEX_URL": "https://mirror.example.org/simple",
         "PIP_EXTRA_INDEX_URL": "https://wheels.example.org/simple",
+        "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub",
     }
     staged = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
     assert staged.read_text() == "-----BEGIN CERTIFICATE-----\n"
@@ -2567,6 +2338,7 @@ def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypa
     monkeypatch.delenv("OSPREY_SITE_CA", raising=False)
     monkeypatch.delenv("PIP_EXTRA_INDEX_URL", raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
     monkeypatch.setenv("PIP_INDEX_URL", "https://from-the-shell.example.org/simple")
     monkeypatch.setenv("PIP_NO_PROXY", ".shell.example.org")
 
@@ -2577,6 +2349,17 @@ def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypa
         "PIP_INDEX_URL": "https://from-the-shell.example.org/simple",
         "PIP_NO_PROXY": ".shell.example.org",
     }
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_the_base_registry_takes_the_environment_ahead_of_the_config(monkeypatch, tmp_path):
+    """One shell can point the base images at another mirror than the config pins."""
+    monkeypatch.setenv("OSPREY_BASE_REGISTRY", "shell.example.org/hub")
+
+    config = {"project_name": "x", "images": {"base_registry": "pinned.example.org/hub"}}
+    args = container_lifecycle.site_image_build_args(config, tmp_path)
+
+    assert _build_args(args) == {"OSPREY_BASE_REGISTRY": "shell.example.org/hub"}
 
 
 @pytest.mark.usefixtures("no_site_env")
@@ -2611,6 +2394,34 @@ def test_project_and_render_builds_share_one_site_arg_producer(tmp_path):
     assert site_args, "the fixture config declares site axes"
     assert site_args <= set(project)
     assert site_args <= set(tier)
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_a_stated_image_platform_reaches_every_managed_build(tmp_path):
+    """The project and render builders extend the one producer the sidecar does too."""
+    from osprey.deployment.web_terminals import render_images
+
+    config = {"project_name": "myfacility", "images": {"platform": "linux/amd64"}}
+    project = container_lifecycle._project_image_build_cmd(config, "docker", str(tmp_path))
+    tier = render_images._render_image_build_cmd(
+        "docker", str(tmp_path), "demo:local", "myfacility", config
+    )
+
+    assert container_lifecycle.site_image_build_args(config, tmp_path) == [
+        "--platform",
+        "linux/amd64",
+    ]
+    for cmd in (project, tier):
+        assert cmd[cmd.index("--platform") + 1] == "linux/amd64"
+        assert cmd[-1] == str(tmp_path)
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_an_image_platform_no_builder_accepts_is_refused_before_the_build(tmp_path):
+    config = {"project_name": "x", "images": {"platform": "linux/riscv64"}}
+
+    with pytest.raises(ValueError, match="images.platform"):
+        container_lifecycle.site_image_build_args(config, tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -3487,11 +3298,13 @@ def test_every_template_on_the_project_image_is_a_project_image_service():
 
     # The history page is derived from the config rather than deployed by name,
     # so it joins the gate through its predicate (test_history_service.py);
-    # agent-record is derived and always deployed, so it joins unconditionally.
+    # agent-record is derived and always deployed, so it joins unconditionally;
+    # a projected application runtime joins by its row (_projected_services).
     assert on_project_image == {
         *container_lifecycle._PROJECT_IMAGE_SERVICES,
         HISTORY_SERVICE,
         container_lifecycle.AGENT_RECORD_TEMPLATE_DIR,
+        "app_runtime",
     }
 
 
@@ -4976,7 +4789,7 @@ def _start_until_the_host(monkeypatch, tmp_path, *, web_terminals: bool = True):
         container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
     )
     monkeypatch.setattr(
-        container_lifecycle, "_preflight_bluesky_network_backend", lambda config: None
+        container_lifecycle, "_preflight_internal_network_backend", lambda config: None
     )
     monkeypatch.setattr(
         container_lifecycle,

@@ -403,7 +403,7 @@ class TestWireContract:
         assert posture.CONTROL_TARGET_ENV_VAR == executor.ENV_CONTROL_TARGET
 
     def test_the_agent_data_root_env_matches_the_record_reader(self):
-        assert posture.OSPREY_AGENT_DATA_ROOT == posture_store.AGENT_DATA_ROOT_ENV_VAR
+        assert posture.OSPREY_AGENT_DATA_ROOT == posture_store._AGENT_DATA_ROOT_ENV_VAR
 
     def test_the_posture_spellings_match_the_record_reader(self):
         assert posture.POSTURE_SANDBOX == posture_store.POSTURE_SANDBOX

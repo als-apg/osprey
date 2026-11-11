@@ -3,7 +3,7 @@
 A case (:class:`PictureCase`) names the plot, the target entry's text, the
 text-only entries seeded beside it, the operator's question, and the answer
 only the plot carries. :func:`run_picture_case` runs it as one agent session
-against a deployment built from the control-assistant preset unchanged, and
+against a deployment built from the demo preset unchanged, and
 asserts the same chain for every case: the agent delegates to the
 ``logbook-search`` subagent, that subagent views the plot with
 ``attachment_view``, the answer names what only the plot shows, and a follow-up
@@ -53,6 +53,7 @@ import pytest
 import yaml
 
 from tests._container_support import is_docker_available, start_or_fail, stop_quietly
+from tests.e2e.agentic_tiers import not_applicable
 from tests.e2e.provider import e2e_provider
 from tests.e2e.sdk_helpers import init_project, render_dir, run_sdk_query
 
@@ -374,12 +375,14 @@ async def run_picture_case(
     """
     provider = e2e_provider()
     if not _effective_supports_images(provider):
-        pytest.skip(f"provider {provider} does not carry images on its route")
+        pytest.skip(
+            not_applicable("no vision", f"provider {provider} does not carry images on its route")
+        )
 
     db_uri = _start_logbook_db(request)
     # init_project pins ariel.database.uri to this and checks the render names it.
     monkeypatch.setenv("OSPREY_ARIEL_DB_URI", db_uri)
-    repo = init_project(tmp_path, "picture_demo", template="control_assistant", provider=provider)
+    repo = init_project(tmp_path, "picture_demo", template="demo", provider=provider)
 
     ariel = _rendered_ariel(repo)
     modules = ariel.get("enhancement_modules") or {}

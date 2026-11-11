@@ -67,6 +67,8 @@ import _line
 import _standin
 import _transfer
 
+from osprey_connectors.simulation.values import is_waveform
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "demo_seeds"))
 
 import reseed
@@ -157,7 +159,7 @@ def devices() -> list[dict[str, Any]]:
 
 def _pulsed(number: str) -> bool:
     """Whether the septum numbered ``number`` has a sampled current pulse."""
-    return any(_number(row) == number and row.template.value_type == "waveform" for row in rows())
+    return any(_number(row) == number and is_waveform(row.template.value_type) for row in rows())
 
 
 def _description(row: _elements.ElementRow) -> str:
@@ -214,7 +216,7 @@ def seeds() -> dict[str, dict[str, Any]]:
     sites = {(_number(row), row.template.site): row.demo_name for row in rows()}
     for row in rows():
         value = row.nominal_value()
-        if row.template.value_type == "waveform":
+        if is_waveform(row.template.value_type):
             n = _number(row)
             out[row.demo_name] = {
                 "pulse": {"driver": sites[(n, "sp")], "enable": sites[(n, "status")]}
@@ -820,7 +822,8 @@ def _merge_seeds(
         for address in sorted(committed)
         if committed[address]
     }
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    text = _line.origin_line() + yaml.safe_dump(document, sort_keys=False)
+    path.write_text(text, encoding="utf-8")
 
 
 def write_sources(tree: Path) -> None:

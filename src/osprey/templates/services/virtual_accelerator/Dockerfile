@@ -3,18 +3,20 @@
 # EPICSConnector, with the physics model's own variables served on PVAccess
 # from the same process.
 #
-# osprey install strategy (two cache-friendly layers):
-#   * deps layer  — primes the pinned framework release with the
-#     `virtual-accelerator` extra (+ all dependencies) from PyPI in one RUN,
-#     plus any local dependency delta staged as osprey-local-requirements.txt
-#     on dev builds. Its build cache is shared across projects and only
-#     rebuilds when the staged manifest changes. The extra is what carries the
-#     serving stack (`lume-pva-apg[ca,pva]`, PyAT) and the archiver recorder's
-#     CA client — deliberately, so this file cannot pin a dependency that
-#     pyproject.toml disagrees with. The recorder's other client-side dep,
-#     pymongo, is core and arrives with the base install. The recorder
-#     runs THIS image with a different command (compose template only, no
-#     Dockerfile of its own), which is why its deps ride along here.
+# osprey install strategy (cache-friendly layers):
+#   * deps layer  — primes the pinned framework release (+ its dependencies)
+#     from PyPI in one RUN, plus any local dependency delta staged as
+#     osprey-local-requirements.txt on dev builds. It is the same layer, built
+#     once, as every other Python service image's, so a deploy that builds the
+#     bridge too installs the framework once. Its build cache is shared across
+#     projects and only rebuilds when the staged manifest changes.
+#   * virtual-accelerator layer — adds the framework's `virtual-accelerator`
+#     extra on top: the serving stack (`lume-pva-apg[ca,pva]`) and the archiver
+#     recorder's CA client, resolved from the extra so this file cannot pin a
+#     dependency that pyproject.toml disagrees with. PyAT and pymongo (the
+#     recorder's store client) are core and arrive with the deps layer. The
+#     recorder runs THIS image with a different command (compose template only,
+#     no Dockerfile of its own), which is why its deps ride along here.
 #   * wheel layer — when `osprey up --dev` stages a locally-built wheel
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). The first wheel install carries the `[virtual-accelerator]`
@@ -22,26 +24,31 @@
 #     (the primer only covers the *released* extra set, and `pip check` cannot
 #     see missing extras); the second install is a fast, deps-free
 #     force-reinstall without the extra. With no wheel staged it is a no-op.
+#   * source builds — `osprey up --dev` also stages osprey-lock-constraints.txt,
+#     the checkout's uv.lock exported as constraints. With it present the deps
+#     layer primes no release, and every install layer holds each third-party
+#     package to the version the lock holds (see the deps layer).
 #
-# The deps layer pins no native-dependency version — the extra + core deps
-# resolve them, so it can't drift from pyproject.toml's declared constraints.
-# The one exception is the arm64 native-wheels stage below, which builds two
-# sdists at pinned versions inside the ranges pyproject.toml admits.
+# No install layer pins a native-dependency version — the extra + core deps
+# resolve them, so they can't drift from pyproject.toml's declared constraints.
+# The one exception is the arm64 native-wheels stage below, which builds pcaspy
+# from its sdist at a pinned version inside the range pyproject.toml admits.
 #
 # ARCHITECTURE: native, linux/amd64 or linux/arm64 — whichever the build
 # targets. On amd64 every framework dependency resolves to a prebuilt manylinux
 # wheel. On arm64 several have no linux/aarch64 wheel at the interpreter this
-# image runs. p4p and the EPICS libraries under it build from source with the
-# deps layer's own toolchain. pcaspy, the Channel Access server behind the
-# serving stack, and accelerator-toolbox (PyAT) are built by the
-# `native-wheels-arm64` stage from their pinned sdists — pcaspy against EPICS
-# Base and the PCAS module, which that stage compiles first, statically, so the
-# wheel carries them — and handed to the final stage in a find-links
-# directory, where the deps layer installs them like any other wheel. On amd64
-# that directory is empty and the resolve is exactly what it is without it.
+# image runs. p4p, the EPICS libraries under it and accelerator-toolbox (PyAT)
+# build from source with the deps layer's own toolchain, exactly as they do in
+# the other service images that share that layer. pcaspy, the Channel Access
+# server behind the serving stack, is built by the `native-wheels-arm64` stage
+# from its pinned sdist against EPICS Base and the PCAS module, which that
+# stage compiles first, statically, so the wheel carries them — and handed to
+# the final stage in a find-links directory, where the virtual-accelerator
+# layer installs it like any other wheel. On amd64 that directory is empty and
+# the resolve is exactly what it is without it.
 # The stage depends on nothing but its pins, so BuildKit builds it once per
-# host and serves it from cache after; the deps layer, which rebuilds with
-# every new framework version, never recompiles EPICS. An architecture with no
+# host and serves it from cache after; the install layers, which rebuild with
+# every new framework version, never recompile EPICS. An architecture with no
 # native-wheels stage fails at the FROM that selects one.
 #
 # This image is built locally by `osprey up`; override with
@@ -50,9 +57,11 @@
 # The build's target architecture, set by BuildKit and by buildah; it selects
 # the native-wheels stage.
 ARG TARGETARCH
+# Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
+ARG OSPREY_BASE_REGISTRY="docker.io"
 
 # ── base: site trust and apt settings, shared by every stage ────────────────
-FROM python:3.11-slim AS va-base
+FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim AS va-base
 
 WORKDIR /app
 
@@ -115,8 +124,10 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 FROM va-base AS native-wheels-amd64
 RUN mkdir -p /wheels
 
-# arm64: pcaspy and PyAT from their sdists. Every download is pinned by
-# version and checked against its sha256, the sdists through pip's hash mode.
+# arm64: pcaspy from its sdist. Every download is pinned by version and checked
+# against its sha256, the sdist through pip's hash mode. PyAT is not built here:
+# it is a core dependency, so the shared deps layer has already installed it by
+# the time this stage's wheels are in reach.
 #
 # pcaspy links EPICS Base and the PCAS module, which Base 7 no longer bundles.
 # Both build here as position-independent static libraries, and PCAS's headers
@@ -135,8 +146,6 @@ ARG PCAS_VERSION=4.13.3
 ARG PCAS_SHA256=5004e39339c8e592fcb9b4275c84143635c6e688c0fbe01f17dafe19850398a0
 ARG PCASPY_VERSION=0.8.1
 ARG PCASPY_SHA256=80f6aafacdd796c471b62737ad242a322cff22d8b8f18d9c56feed4270d221bf
-ARG PYAT_VERSION=0.9.0
-ARG PYAT_SHA256=680f16803a8528c32afeb1d4485a935c4d56752034f0400801540739acec3842
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
 ARG PIP_EXTRA_INDEX_URL=""
@@ -167,66 +176,53 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     export EPICS_BASE="$base" EPICS_HOST_ARCH="$(perl "$base/src/tools/EpicsHostArch.pl")"; \
     cp "$pcas/lib/$EPICS_HOST_ARCH"/*.a "$base/lib/$EPICS_HOST_ARCH/"; \
     cp -R "$pcas/include/." "$base/include/"; \
-    printf 'pcaspy==%s --hash=sha256:%s\naccelerator-toolbox==%s --hash=sha256:%s\n' \
-        "$PCASPY_VERSION" "$PCASPY_SHA256" "$PYAT_VERSION" "$PYAT_SHA256" > /tmp/native/requirements.txt; \
-    pip wheel --no-deps --no-binary pcaspy,accelerator-toolbox --require-hashes \
+    printf 'pcaspy==%s --hash=sha256:%s\n' \
+        "$PCASPY_VERSION" "$PCASPY_SHA256" > /tmp/native/requirements.txt; \
+    pip wheel --no-deps --no-binary pcaspy --require-hashes \
         -r /tmp/native/requirements.txt -w /wheels; \
-    ls /wheels/pcaspy-*_aarch64.whl /wheels/accelerator_toolbox-*_aarch64.whl; \
+    ls /wheels/pcaspy-*_aarch64.whl; \
     rm -rf /tmp/native
 
 FROM native-wheels-${TARGETARCH} AS native-wheels
 
 # ── final image ──────────────────────────────────────────────────────────────
-# Every install below resolves against the native wheels too, pip and uv
-# alike; with the directory empty (amd64) the variables change nothing.
-FROM va-base
-COPY --from=native-wheels /wheels/ /opt/osprey-native-wheels/
-ENV PIP_FIND_LINKS=/opt/osprey-native-wheels \
-    UV_FIND_LINKS=/opt/osprey-native-wheels
+# The final image starts again from the Python base and repeats va-base's steps
+# word for word, rather than building `FROM va-base`. That is what lets the deps
+# layer below be the one every other Python service image builds: BuildKit keys
+# a RUN in a stage built on an earlier stage differently from the same RUN in a
+# single-stage recipe once that earlier stage sets an ENV (va-base sets the CA
+# variables), so a `FROM va-base` final stage would install the framework a
+# second time however identical its instructions are. The steps below are the
+# bluesky recipe's, and the shared-deps test holds them to it; va-base keeps them
+# for the native-wheels builder stages, where nothing is shared.
+FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim
+WORKDIR /app
+ARG OSPREY_SITE_CA=""
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
+RUN if [ -n "$OSPREY_SITE_CA" ]; then \
+        cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
+        && update-ca-certificates; \
+    fi \
+ && rm -rf /tmp/ca-ctx
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+    -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
+ && printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
+ && rm -f /etc/apt/apt.conf.d/docker-clean
 
 # ── deps layer ───────────────────────────────────────────────────────────────
-# Prime the image with the pinned framework release + `virtual-accelerator`
-# extra and their dependencies. Under `--dev` an unreleased pin may not exist on
-# PyPI: OSPREY_DEV=1 relaxes the failure to an unpinned prime (the wheel layer
-# below then overlays the real code); without it a pin miss stays fatal. Any
-# local dependency delta staged as osprey-local-requirements.txt (dev builds
-# only) is installed after the primer, while the toolchain is still available —
-# that delta is arbitrary, so it is the one install here that may still need to
-# compile something; the `.osprey-layer-anchor` COPY sibling keeps the glob
-# matching when no manifest is staged, so this cache only busts when the
-# manifest content changes. The toolchain is purged in this same RUN so it never
-# bloats the final image.
-#
-# `--only-binary pcaspy` is a guard, not an optimisation: pcaspy's sdist wants
-# a full EPICS base + epics-modules/pcas build that only the native-wheels
-# stage is set up to do, and a wheel always exists here — PyPI's on amd64, that
-# stage's on arm64 — so if pip ever reaches for that sdist, something upstream
-# is wrong and the build should say so immediately instead of failing minutes
-# later inside a compile. It trails the requirement rather than leading it
-# purely for readability of the pinned spec; pip applies it to the whole
-# resolve either way.
-#
-# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
-# fails the arm64 source builds of p4p and its EPICS libraries; the
-# PIP_CONSTRAINT below (which reaches pip's isolated build environments, where
-# a plain requirement pin would not) holds setuptools <84 until a fixed release
-# is out.
-#
-# pip and apt fetch through BuildKit cache mounts, so a deps layer that does
-# rebuild (a new pin, a changed manifest) downloads only what changed, and
-# images building side by side draw on one cache. The apt mounts are locked:
-# apt keeps its own lock files in both directories, so two builds cannot use
-# them at once, and podman's builder accepts no private sharing mode. The lock
-# lasts the whole RUN, so two different deps layers building together take
-# turns; the service recipes share one deps layer, which builds only once.
-#
-# The installs here run under uv rather than pip: uv resolves without pip's
-# one-candidate-at-a-time metadata crawl and downloads in parallel, which on a
-# slow index is most of this layer's time. It is installed with pip from the
-# same index (so a site mirror still applies), handed pip's settings (the
-# constraint file for runtime and build dependencies, the site indexes with
-# pip's consider-every-index strategy, bytecode compilation), and uninstalled
-# before the RUN ends, so no image ships it. Later layers install with pip.
+# The same framework install as every other Python service image, instruction
+# for instruction (see the bluesky recipe's deps layer for what each line is
+# for): the pinned release and its dependencies, the dev fallback for an
+# unreleased pin, and the dev-staged osprey-local-requirements.txt delta, with
+# the toolchain purged in the same RUN. Nothing VA-specific happens here, so
+# BuildKit builds this layer once and a deploy that also builds the bridge or
+# bluesky-web image shares it rather than installing the framework a second
+# time; `test_python_services_share_one_deps_layer` holds the recipes to that.
+# Everything the VA needs beyond the framework is in the layer after this one.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. osprey-connectors releases
@@ -249,7 +245,25 @@ ARG OSPREY_PIP_PRE=""
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
 ARG PIP_EXTRA_INDEX_URL=""
-COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
+# A build from an osprey source checkout (`osprey up --dev`) also stages
+# osprey-lock-constraints.txt, the checkout's uv.lock exported as constraints,
+# and the file's presence (not OSPREY_DEV) puts this layer on the lock-driven
+# install: nothing is primed from a released framework, the staged wheels' own
+# dependency list is installed with every third-party package held to the
+# version the lock holds, and the file is kept at
+# /opt/osprey/lock-constraints.txt so that every later install layer is held to
+# it as well. The lock's lines are appended to the setuptools constraint file
+# below rather than replacing it, so they reach uv's build environments too,
+# and a lock that pins setuptools>=84 fails this layer loudly instead of
+# quietly dropping the fix that constraint is for. With no file staged (a
+# release build) the layer is exactly what it was. The `.osprey-layer-anchor`
+# sibling keeps the glob COPY matching either way, and the file is the same
+# bytes in every context, so the layer stays shared.
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] osprey-lock-constraints.tx[t] /tmp/deps-ctx/
+# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
+# fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
+# where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
+# pip's isolated build environments. Drop once a fixed release is out.
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -268,15 +282,94 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && pip install "uv==0.12.21" \
-    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework[virtual-accelerator]==$OSPREY_VERSION" --only-binary pcaspy \
-         || if [ "$OSPREY_DEV" = "1" ]; then \
-                echo "WARNING: pin unreleased, priming with latest" \
-                && uv pip install "osprey-framework[virtual-accelerator]" --only-binary pcaspy ; \
-            else \
-                exit 1 ; \
-            fi ; } \
-    && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
-           uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+    && if [ -f /tmp/deps-ctx/osprey-lock-constraints.txt ]; then \
+           echo "Source build: installing the staged wheels' dependencies at the checkout's uv.lock versions" \
+           && mkdir -p /opt/osprey \
+           && cp /tmp/deps-ctx/osprey-lock-constraints.txt /opt/osprey/lock-constraints.txt \
+           && cat /opt/osprey/lock-constraints.txt >> /tmp/deps-ctx/pip-constraints.txt \
+           && uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+       else \
+           { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION" \
+             || if [ "$OSPREY_DEV" = "1" ]; then \
+                    echo "WARNING: pin unreleased, priming with latest" \
+                    && uv pip install "osprey-framework" ; \
+                else \
+                    exit 1 ; \
+                fi ; } \
+           && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
+                  uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+              fi ; \
+       fi \
+    && pip uninstall -y uv \
+    && apt-get purge -y build-essential python3-dev \
+    && apt-get autoremove -y \
+    && rm -rf /tmp/deps-ctx
+
+# ── virtual-accelerator layer ────────────────────────────────────────────────
+# The `virtual-accelerator` extra on top of the shared install: the serving
+# stack (`lume-pva-apg[ca,pva]`, with pcaspy under it) and the archiver
+# recorder's CA client. It is resolved from the framework's own extra rather
+# than pinned here, so this file cannot pin a dependency pyproject.toml
+# disagrees with; the framework is already installed, so the resolve adds the
+# extra's packages and leaves the rest in place. The same dev fallback as the
+# deps layer applies, because an unreleased pin is just as absent from PyPI
+# here.
+#
+# The native wheels arrive here, after the shared layer, and are in place for
+# this resolve and for the wheel layer's. On amd64 the directory is empty and
+# the variables change nothing.
+#
+# `--only-binary pcaspy` is a guard, not an optimisation: pcaspy's sdist wants
+# a full EPICS base + epics-modules/pcas build that only the native-wheels
+# stage is set up to do, and a wheel always exists here — PyPI's on amd64, that
+# stage's on arm64 — so if pip ever reaches for that sdist, something upstream
+# is wrong and the build should say so immediately instead of failing minutes
+# later inside a compile.
+#
+# The toolchain comes back for this RUN and is purged in it: on arm64 an extra
+# dependency without a wheel may still compile. The setuptools constraint is
+# the deps layer's, for the same reason.
+#
+# On the lock-driven path (see the deps layer) no framework is installed yet
+# and none may come from the index, so the layer installs the extra's own
+# requirements instead, staged beside the wheels as
+# osprey-extra-requirements.txt, with the lock appended to the setuptools
+# constraint exactly as the deps layer appends it. The arm64 pcaspy wheel is
+# built at PCASPY_VERSION, which a test holds equal to the lock's pin, so the
+# constrained resolve still takes it from the find-links directory.
+COPY --from=native-wheels /wheels/ /opt/osprey-native-wheels/
+COPY .osprey-layer-anchor osprey-extra-requirements.tx[t] /tmp/deps-ctx/
+ENV PIP_FIND_LINKS=/opt/osprey-native-wheels \
+    UV_FIND_LINKS=/opt/osprey-native-wheels
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
+    mkdir -p /tmp/deps-ctx \
+    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_BUILD_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 \
+              UV_INDEX_STRATEGY=unsafe-best-match \
+    && { [ -z "$PIP_INDEX_URL" ] || export UV_DEFAULT_INDEX="$PIP_INDEX_URL"; } \
+    && { [ -z "$PIP_EXTRA_INDEX_URL" ] || export UV_INDEX="$PIP_EXTRA_INDEX_URL"; } \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && pip install "uv==0.12.21" \
+    && if [ -f /opt/osprey/lock-constraints.txt ]; then \
+           cat /opt/osprey/lock-constraints.txt >> /tmp/deps-ctx/pip-constraints.txt \
+           && uv pip install -r /tmp/deps-ctx/osprey-extra-requirements.txt --only-binary pcaspy ; \
+       else \
+           { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework[virtual-accelerator]==$OSPREY_VERSION" --only-binary pcaspy \
+             || if [ "$OSPREY_DEV" = "1" ]; then \
+                    echo "WARNING: pin unreleased, adding the extra to the latest release" \
+                    && uv pip install "osprey-framework[virtual-accelerator]" --only-binary pcaspy ; \
+                else \
+                    exit 1 ; \
+                fi ; } ; \
        fi \
     && pip uninstall -y uv \
     && apt-get purge -y build-essential python3-dev \
@@ -301,12 +394,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # writes the same `pyaml/` files, and neither the resolver nor `pip check` sees
 # two of them installed together. The manifest above is staged only beside these
 # wheels, so every build that installed it runs the assertion.
+#
+# On the lock-driven path (see the deps layer) the first install runs under
+# /opt/osprey/lock-constraints.txt, so anything the wheels add beyond what the
+# earlier layers installed is held to the checkout's uv.lock as well; the
+# staged wheels satisfy one another, so nothing resolves an osprey
+# distribution from the index.
 COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
+        && lock= && { [ ! -f /opt/osprey/lock-constraints.txt ] || lock="-c /opt/osprey/lock-constraints.txt" ; } \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \
-        && pip install "${whl}[virtual-accelerator]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) --only-binary pcaspy \
+        && pip install $lock "${whl}[virtual-accelerator]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) --only-binary pcaspy \
         && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
         && python -m osprey.deployment.pyaml_owner \
         && pip check ; \

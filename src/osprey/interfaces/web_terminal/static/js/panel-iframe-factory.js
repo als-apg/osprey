@@ -13,6 +13,7 @@ import { sendThemeToIframe, sendSessionToIframe, buildEmbedSrc } from './panel-i
 import { adoptIframe, setPanelReachable } from './dock-iframe.js';
 import { clockTime } from './panel-rail.js';
 import { withPrefix } from './api.js';
+import { panelUiUrl } from './panel-queries.js';
 
 /**
  * The sandbox an OSPREY-shipped (first-party) panel is framed under — today's
@@ -37,10 +38,11 @@ export const OPAQUE_SANDBOX = 'allow-scripts allow-popups allow-modals allow-dow
  *
  * Whether a panel is opaque is decided by where its bytes come from, and only
  * the server knows that (a discovered bundle and a config-defined custom panel
- * look alike here), so the answer is the C-CAP mint: `200 {cap_url}` is an
- * opaque panel and the capability URL minted for this login, `404` is a
- * first-party panel. Anything else — a network failure, a 401/5xx, a body with
- * no `cap_url` — fails closed: the panel is treated as opaque but has no cap.
+ * look alike here), so the answer is the C-CAP mint: `200 {opaque: false}` is a
+ * first-party panel, `200 {cap_url}` an opaque panel and the capability URL
+ * minted for this login. Anything else — a network failure, a 404/401/5xx, a
+ * body with no `cap_url` — fails closed: the panel is treated as opaque but has
+ * no cap.
  * @param {string} panelId
  * @returns {Promise<{ opaque: boolean, capUrl: string | null }>}
  */
@@ -49,9 +51,9 @@ export async function resolvePanelFrame(panelId) {
     const resp = await fetch(withPrefix(`/api/panels/${encodeURIComponent(panelId)}/cap`), {
       cache: 'no-store',
     });
-    if (resp.status === 404) return { opaque: false, capUrl: null };
     if (!resp.ok) return { opaque: true, capUrl: null };
     const body = await resp.json();
+    if (body?.opaque === false) return { opaque: false, capUrl: null };
     const capUrl = typeof body?.cap_url === 'string' ? body.cap_url : null;
     return { opaque: true, capUrl };
   } catch {
@@ -189,18 +191,19 @@ const LOAD_NOTICE_MS = 15000;
  * @param {string} panelId
  * @param {PanelIframeState} state        panel-manager's live state record
  * @param {HTMLElement} contentEl         resize-observed host (#panel-content)
+ * @param {{ dock?: boolean }} [options]  `dock: false` builds the frame with no
+ *   tile: it is about to leave for a window of its own (pane-window.js)
  */
-export function createPanelIframe(panel, panelId, state, contentEl) {
+export function createPanelIframe(panel, panelId, state, contentEl, { dock = true } = {}) {
   if (!state.url) return;
 
   const iframe = document.createElement('iframe');
   iframe.className = 'panel-iframe';
   iframe.dataset.panelId = panelId;
   // Use pendingUrl (from a pre-iframe panel_focus navigation) if available,
-  // otherwise base URL. For custom panels with a subpath (e.g. path:
-  // "/panel/"), append it so the iframe loads the UI root, not the API root.
-  const panelPath = panel?.path && panel.path !== '/' ? panel.path : '';
-  const targetUrl = state.pendingUrl || state.url + panelPath;
+  // otherwise base URL plus the panel's UI path (e.g. "/panel/", or "/" for a
+  // UI at the service root).
+  const targetUrl = state.pendingUrl || panelUiUrl(state.url, panel?.path);
   state.pendingUrl = null;
   // targetUrl is the already-prefixed, root-relative `state.url` (+ optional
   // subpath); buildEmbedSrc preserves it verbatim.
@@ -238,7 +241,8 @@ export function createPanelIframe(panel, panelId, state, contentEl) {
   // the iframe's geometry from here; panel-manager keeps owning its src, sandbox,
   // health and the theme/session postMessage protocol above.
   state.iframe = iframe;
-  adoptIframe(panelId, iframe, { title: panel?.label || panelId });
+  const title = panel?.label || panelId;
+  adoptIframe(panelId, iframe, dock ? { title } : { title, dock });
 
   // Forward resize events to the iframe so embedded apps re-render. Observing
   // #panel-content covers the fallback (in-content) mount and the workspace-panel

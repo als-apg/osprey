@@ -58,11 +58,12 @@ EXPECTED_PORTS_AT_DEFAULT_BASE = {
     "bluesky_web": 10071,
     "bluesky": 10080,
     "bluesky_second_lane": 10081,
+    "optimizer": 10082,
+    "optimizer_web": 10083,
     "va_standin": 10090,
     "web": 10100,
     "artifact": 10200,
     "ariel": 10300,
-    "lattice": 10400,
     "channel_finder": 10500,
     "okf": 10600,
     "system_health": 10700,
@@ -80,7 +81,6 @@ EXPECTED_FAMILY_PORTS = {
     "web": 10100,
     "artifact": 10200,
     "ariel": 10300,
-    "lattice": 10400,
     "channel_finder": 10500,
     "okf": 10600,
     "system_health": 10700,
@@ -102,14 +102,11 @@ def _registry_port_families() -> set[str]:
     """Return the port-family names the layout has to have a slot for.
 
     Returns:
-        Every companion web server's family — ``port_family`` when it is set,
-        otherwise the registry key it is filed under — plus ``web``, the web
-        terminal's own family, which is not a companion server and so has no
-        registry entry.
+        Every companion web server's family — the registry key it is filed
+        under — plus ``web``, the web terminal's own family, which is not a
+        companion server and so has no registry entry.
     """
-    return {"web"} | {
-        definition.port_family or key for key, definition in FRAMEWORK_WEB_SERVERS.items()
-    }
+    return {"web"} | set(FRAMEWORK_WEB_SERVERS)
 
 
 #: What a fresh import of ``port_layout`` may add besides the stdlib: the module
@@ -271,18 +268,17 @@ class TestRegistryReconciliation:
             "osprey.registry.web and osprey.port_layout disagree about port "
             f"families. Registry families with no per-index LAYOUT slot: "
             f"{unslotted or 'none'}. Per-index LAYOUT slots no registry entry "
-            f"claims: {unregistered or 'none'}. Either add the slot to LAYOUT or "
-            "point the registry entry at an existing family with port_family."
+            f"claims: {unregistered or 'none'}. Add the missing slot to LAYOUT, "
+            "and drop the slot no server claims."
         )
 
     def test_registry_defaults_are_the_layout_defaults(self):
         """The registry cannot drift from the layout: it reads its ports from it."""
-        for key, definition in FRAMEWORK_WEB_SERVERS.items():
-            expected = default_port(definition.port_family or key, 0, DEFAULT_PORT_BASE)
+        for key in FRAMEWORK_WEB_SERVERS:
+            expected = default_port(key, 0, DEFAULT_PORT_BASE)
             assert framework_web_port_default(key) == expected, (
                 f"companion server {key!r} defaults to "
-                f"{framework_web_port_default(key)}, but its family "
-                f"{definition.port_family or key!r} is at {expected}"
+                f"{framework_web_port_default(key)}, but its family is at {expected}"
             )
 
     def test_registry_defaults_are_pinned_by_registry_key(self):
@@ -291,7 +287,6 @@ class TestRegistryReconciliation:
             "artifact": 10200,
             "ariel": 10300,
             "channel_finder": 10500,
-            "lattice_dashboard": 10400,
             "okf": 10600,
             "system_health": 10700,
         }

@@ -227,9 +227,9 @@ services:
       # Facility plan directory: operator-supplied host path via
       # services.bluesky.plan_dir in config.yml, mounted read-only — the
       # bridge only discovers/execs plans from here, never writes into it.
-      # An absolute host path passes through unchanged; a relative one
-      # resolves against the compose project directory (the repo root),
-      # same rule as every other bind source in this file. The container
+      # The injector stores it compose-ready: an absolute host path as is, a
+      # bare relative one `./`-prefixed (compose would read it as a named
+      # volume), resolving against the repo root. The container
       # target is fixed (matches BLUESKY_PLAN_DIRS above) so plan_loader.py
       # never needs to know the host-side location.
       - /facility/plans:/app/project/plans:ro
@@ -596,8 +596,8 @@ services:
   # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
   # only, same as the bridge itself.
   tiled:
-    # Public upstream image, overridable like every other service image
-    # (env → config → default): set OSPREY_TILED_IMAGE, or
+    # The upstream image catalogue's `tiled` entry, overridable like every
+    # other service image (env → config → default): set OSPREY_TILED_IMAGE, or
     # services.bluesky.tiled_image in config.yml, to point at a mirror or a
     # pinned digest. The tag is a published bluesky/tiled release no older than
     # the `tiled[client]` floor in the framework's own dependencies.

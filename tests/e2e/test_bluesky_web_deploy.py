@@ -38,7 +38,7 @@ shipped catalog currently has exactly two such plans (``orm``, ``grid_scan``
 -- see the project's "no bba/tune_scan" convention: only ``orm`` + n-d
 ``grid_scan`` ship), but NEITHER name is hardcoded here:
 ``_build_minimal_plan_args`` maps the winning candidate's JSON ``schema`` by
-FIELD SHAPE (``correctors``+``readbacks``+``span_a``+``num`` vs.
+FIELD SHAPE (``correctors``+``readbacks``+``span``+``num`` vs.
 ``axes``+``readbacks``) onto the derived corrector/BPM device names, so a
 future third exemplar plan is picked up automatically as long as it matches
 one of those two shapes, and is otherwise skipped rather than crashing the
@@ -107,7 +107,7 @@ BLUESKY_WEB_URL = f"http://localhost:{BLUESKY_WEB_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
-# ariel-postgres is deployed unconditionally by the control-assistant preset,
+# ariel-postgres is deployed unconditionally by the demo preset,
 # and a locally-running deployment routinely holds its port. A bound-port
 # collision aborts `osprey up` before the containers this proof needs ever
 # start, so it moves to a high, unassigned port. Stated in this module's own
@@ -141,7 +141,6 @@ SCAN_TIMEOUT_SEC = 90.0
 # module docstring's "Per-function flaky" note. `flaky` is applied per
 # function below to tests 1-4 only.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
@@ -253,7 +252,7 @@ def _build_minimal_plan_args(
     corrector_names = list(correctors.keys())
     bpm_names = list(bpms.keys())
 
-    if {"correctors", "readbacks", "span_a", "num"} <= props.keys():
+    if {"correctors", "readbacks", "span", "num"} <= props.keys():
         # orm-shaped: sweep one corrector over a small bounded
         # current range, reading the BPMs.
         if not corrector_names or not bpm_names:
@@ -261,7 +260,7 @@ def _build_minimal_plan_args(
         return {
             "correctors": corrector_names[:1],
             "readbacks": bpm_names[: min(2, len(bpm_names))],
-            "span_a": 1.0,
+            "span": 1.0,
             "num": 3,
         }
 
@@ -375,11 +374,15 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.
         port_base=21700,
-        extra_config={
-            "config": {
-                "services.postgresql.port_host": POSTGRES_PORT,
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(
+            {
+                "config": {
+                    "services.postgresql.port_host": POSTGRES_PORT,
+                }
             }
-        },
+        ),
     )
     args += ["--set", f"bluesky_web.port={BLUESKY_WEB_PORT}"]
 

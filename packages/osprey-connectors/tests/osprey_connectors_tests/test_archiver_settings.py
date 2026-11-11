@@ -53,7 +53,7 @@ def test_a_builtin_still_reads_its_own_name_block():
 
 
 def test_a_registered_short_name_reads_its_own_name_block():
-    section = {"type": "moat_archiver", "moat_archiver": {"x": 1}}
+    section = {"type": "site_archiver", "site_archiver": {"x": 1}}
     assert resolve_archiver_settings(section) == {"x": 1}
 
 
@@ -128,7 +128,7 @@ class TestArchiverSettingsErrors:
         [
             {"type": "a.b.C", "settings": {"server": "s"}},
             {"type": "epics_archiver", "epics_archiver": {"url": "u"}},
-            {"type": "moat_archiver", "moat_archiver": {"x": 1}},
+            {"type": "site_archiver", "site_archiver": {"x": 1}},
             {"type": "a.b.C", "settings": {}, "epics_archiver": {"url": "u"}},
             {"type": "mock_archiver", "auto_bin_points": 10000},
             {},
@@ -140,3 +140,11 @@ class TestArchiverSettingsErrors:
 
     def test_a_scalar_is_not_a_block(self):
         assert archiver_settings_errors({"type": "a.b.C", "url": "x"}) == []
+
+
+def test_the_known_archiver_names_are_the_factory_builtins():
+    """A built-in's own name block is read, so every built-in has to be a known name."""
+    from osprey_connectors import types
+    from osprey_connectors.factory import _BUILTIN_ARCHIVERS
+
+    assert sorted(types._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)

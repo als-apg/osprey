@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the control-assistant facility overview, booster and sector screens from the records.
+"""Generate the demo facility overview, booster and sector screens from the records.
 
 The ``write`` mode renders ``facility/overview``, ``br/overview``, the storage-ring
 sectors ``sr/sector-NN`` and their vacuum and absorber sub-screens from the example
@@ -179,6 +179,10 @@ class MissingScreenError(GeneratorError):
     """A section area would open a screen the library does not hold."""
 
 
+class UnitMismatchError(GeneratorError):
+    """A channel the screens scale reads in another unit than the drawing's constants."""
+
+
 # --------------------------------------------------------------------------- records
 
 
@@ -226,13 +230,20 @@ class Records:
         return options.index(option)
 
 
+def _safe_load(text: str) -> Any:
+    """``yaml.safe_load`` of *text*, on libyaml's scanner when it is installed.
+
+    ``yaml.safe_load`` never reaches libyaml; the two loaders share the
+    constructor and resolver, so the records parse to the same objects.
+    """
+    return yaml.load(text, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+
+
 def load_records(path: Path) -> Records:
     """The channel records at ``path`` and the device records beside them."""
-    rows = yaml.safe_load(path.read_text(encoding="utf-8"))
+    rows = _safe_load(path.read_text(encoding="utf-8"))
     devices_path = path.with_name(DEVICES_FILE)
-    devices = (
-        yaml.safe_load(devices_path.read_text(encoding="utf-8")) if devices_path.is_file() else []
-    )
+    devices = _safe_load(devices_path.read_text(encoding="utf-8")) if devices_path.is_file() else []
     return Records({row["id"]: row for row in rows}, {row["id"]: row for row in devices})
 
 
@@ -905,7 +916,7 @@ def facility_overview(records: Records) -> Screen:
     screen = Screen(
         OVERVIEW_ID,
         "Facility overview",
-        "The control-assistant facility at a glance: the plan of gun, linac, booster and "
+        "The demo facility at a glance: the plan of gun, linac, booster and "
         "storage ring with BPM status, each storage-ring sector and each other section "
         "opening its own screen, and the storage-ring status, RF, magnet supplies, injector "
         "and booster, and charge along the chain.",
@@ -1376,7 +1387,7 @@ def orbit_rms_formulas(records: Records) -> list[dict[str, Any]]:
             {
                 "name": f"orbit_rms_{plane}",
                 "kind": "scalar",
-                "expression": rounded(f"sqrt(({terms}) / {len(names)}) * 1e6", 1),
+                "expression": rounded(f"sqrt(({terms}) / {len(names)}) * {UM_PER_ORBIT_UNIT:g}", 1),
                 "bindings": bindings,
             }
         )
@@ -1479,7 +1490,7 @@ def booster_overview(records: Records) -> Screen:
     screen = Screen(
         BOOSTER_ID,
         "Booster",
-        "The control-assistant booster: the ring with its BPM status, the dipole and "
+        "The demo booster: the ring with its BPM status, the dipole and "
         "quadrupole ramps, the injection and extraction septa and kicker, and the booster DCCT.",
         width,
         height,
@@ -1611,11 +1622,15 @@ STRAIGHT_WIDTHS = {
 }
 STRAIGHT_MIN_GAP = 6
 STRAIGHT_NAME_ROWS = 3
-# The orbit drawn at the BPMs: a reading of ORBIT_FULL_SCALE_M draws full size, and a
+# The unit the storage-ring BPM positions read in, and the µm in one of it: every orbit
+# constant below is in ORBIT_UNIT, and a readout in µm multiplies by UM_PER_ORBIT_UNIT.
+ORBIT_UNIT = "mm"
+UM_PER_ORBIT_UNIT = 1e3
+# The orbit drawn at the BPMs: a reading of ORBIT_FULL_SCALE draws full size, and a
 # reading's magnitude tints it OK below the first edge, MINOR below the second, MAJOR
 # beyond.
-ORBIT_FULL_SCALE_M = 50e-6
-ORBIT_BANDS_M = (50e-6, 100e-6)
+ORBIT_FULL_SCALE = 0.05
+ORBIT_BANDS = (0.05, 0.1)
 ORBIT_SCREEN = "sr/orbit-feedback"
 # The orbit band under the strip: its top below the beam, a bar's half height, its height.
 ORBIT_BAND_TOP = 172
@@ -1770,7 +1785,7 @@ class SectorDrawing:
         self.screen = Screen(
             sector_id(sector),
             f"SR sector {sector:02d}",
-            f"Storage-ring sector {sector:02d} of the control-assistant facility: straight "
+            f"Storage-ring sector {sector:02d} of the demo facility: straight "
             f"{sector:02d} and its arc in beam order with every magnet, corrector and BPM of "
             "the records, the straight's own devices, the vacuum (ion pumps, gauges, gate "
             "valves), insertion devices, front-end shutters, absorber temperatures, scrapers "
@@ -2038,8 +2053,8 @@ class SectorDrawing:
             pvs=[{"name": valid, "trigger": True}, {"name": position, "trigger": True}],
             conditions=[
                 {"expression": f"not ({flag_on('{0}')})", "value": ALARM_DISCONNECTED},
-                {"expression": f"abs({{1}}) < {ORBIT_BANDS_M[0]:g}", "value": ALARM_OK},
-                {"expression": f"abs({{1}}) < {ORBIT_BANDS_M[1]:g}", "value": MINOR},
+                {"expression": f"abs({{1}}) < {ORBIT_BANDS[0]:g}", "value": ALARM_OK},
+                {"expression": f"abs({{1}}) < {ORBIT_BANDS[1]:g}", "value": MINOR},
             ],
             default=ALARM_MAJOR,
         )
@@ -2053,7 +2068,7 @@ class SectorDrawing:
         """
         s, r, top = self.screen, self.records, self.y + ORBIT_BAND_TOP
         half, bar = ORBIT_BAR_HALF, 16
-        k = half / ORBIT_FULL_SCALE_M
+        k = half / ORBIT_FULL_SCALE
         s.polyline([(self.xs, top - 6), (self.x1, top - 6)], BOX_BORDER, 1)
         s.label(
             self.x0, top, self.xs - self.x0 - 16, 18, "Orbit at the BPMs", size=12, align="right"
@@ -2063,8 +2078,9 @@ class SectorDrawing:
             top + 20,
             self.xs - self.x0 - 16,
             16,
-            f"bar full height ±{ORBIT_FULL_SCALE_M * 1e6:g} µm · green < {ORBIT_BANDS_M[0] * 1e6:g}, "
-            f"amber < {ORBIT_BANDS_M[1] * 1e6:g}",
+            f"bar full height ±{ORBIT_FULL_SCALE * UM_PER_ORBIT_UNIT:g} µm · green < "
+            f"{ORBIT_BANDS[0] * UM_PER_ORBIT_UNIT:g}, "
+            f"amber < {ORBIT_BANDS[1] * UM_PER_ORBIT_UNIT:g}",
             size=10,
             align="right",
         )
@@ -2502,7 +2518,7 @@ class SectorDrawing:
             for fx, plane in ((cx0 + 140, "x"), (cx0 + 258, "y")):
                 ref = s.formula(
                     f"bpm{b:02d}_{plane}_um",
-                    rounded("{p} * 1e6", 1),
+                    rounded(f"{{p}} * {UM_PER_ORBIT_UNIT:g}", 1),
                     {"p": r.need(f"{channel}:POSITION:{plane.upper()}")},
                 )
                 s.field(fx, ry, 110, ref, units=False, precision=1, parent=bpm)
@@ -2952,7 +2968,7 @@ def detail_screen(records: Records, sector: int, kind: str) -> Screen:
     screen = Screen(
         screen_id,
         title,
-        f"Detail of storage-ring sector {sector:02d} of the control-assistant facility: {what}.",
+        f"Detail of storage-ring sector {sector:02d} of the demo facility: {what}.",
         1200,
         0,
     )
@@ -3124,8 +3140,20 @@ def _absorber_detail(d: SectorDrawing, parts: SectorParts, top: float) -> float:
 # --------------------------------------------------------------------------- CLI
 
 
+def check_orbit_unit(records: Records) -> None:
+    """Refuse SR BPM positions that do not read in ORBIT_UNIT, the orbit constants' unit."""
+    for plane in ("X", "Y"):
+        for name in records.devices("SR:DIAG:BPM", f"POSITION:{plane}"):
+            unit = records.by_id[name].get("unit")
+            if unit != ORBIT_UNIT:
+                raise UnitMismatchError(
+                    f"{name} reads in {unit!r}; the orbit drawing is in {ORBIT_UNIT!r}"
+                )
+
+
 def render(records: Records, library: Path) -> dict[str, str]:
     """The generated screen files by library-relative path."""
+    check_orbit_unit(records)
     docs = {
         OVERVIEW_ID: facility_overview(records).document(),
         BOOSTER_ID: booster_overview(records).document(),

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.port_layout import default_port
@@ -57,6 +58,34 @@ async def test_entry_get_existing(ariel_registry):
     assert data["entry_id"] == "e1"
     assert data["raw_text"] == "Test content"
     assert data["author"] == "Alice"
+
+
+async def test_entry_get_carries_facility_references(ariel_registry):
+    """The whole entry lists its references with the records they name."""
+    ariel_registry()
+
+    entry = make_mock_entry(entry_id="e1", raw_text="DEV-7 swapped")
+    entry["facility_refs"] = [{"start": 0, "end": 5, "target": "DEV-7", "kinds": ["device"]}]
+
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.repository.get_entry.return_value = entry
+    mock_service.repository.facility_records = FacilityRecords({"devices": [{"id": "DEV-7"}]})
+
+    with patch_ariel_service(mock_service):
+        fn = _get_entry_get()
+        result = await fn(entry_id="e1")
+
+    assert json.loads(result)["facility_references"] == [
+        {
+            "start": 0,
+            "end": 5,
+            "target": "DEV-7",
+            "kinds": ["device"],
+            "label": None,
+            "records": [{"kind": "device", "id": "DEV-7"}],
+        }
+    ]
 
 
 async def test_entry_get_nonexistent(ariel_registry):
@@ -120,6 +149,8 @@ async def test_entry_create_all_fields(ariel_registry):
     assert call_args["metadata"]["shift"] == "Day"
     assert call_args["metadata"]["tags"] == ["test", "debug"]
     assert call_args["metadata"]["created_via"] == "ariel-mcp"
+    # An ARIEL-native entry has no facility page, and says so itself.
+    assert call_args["metadata"]["sync_status"] == "local_only"
 
 
 async def test_entry_create_minimal_fields(ariel_registry):
@@ -279,6 +310,50 @@ async def test_entry_create_draft_default(tmp_path, monkeypatch):
     assert filepath.exists()
     contents = json.loads(filepath.read_text())
     assert contents["subject"] == "Beam lost"
+
+
+async def test_entry_create_draft_writes_atomically_under_redirected_dir(tmp_path, monkeypatch):
+    """The MCP draft write goes through atomic_write_json into the redirected dir."""
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+    written: list = []
+    real = entry_mod.atomic_write_json
+
+    def spy(path, obj):
+        written.append(path)
+        real(path, obj)
+
+    monkeypatch.setattr(entry_mod, "atomic_write_json", spy)
+
+    fn = _get_entry_create()
+    data = json.loads(await fn(subject="Beam lost", details="D"))
+
+    expected = drafts_dir / f"{data['draft_id']}.json"
+    assert written == [expected]
+    assert [p.name for p in drafts_dir.iterdir()] == [expected.name]
+    assert json.loads(expected.read_text())["subject"] == "Beam lost"
+
+
+async def test_entry_create_draft_interrupted_write_leaves_no_file(tmp_path, monkeypatch):
+    """A write interrupted before the replace leaves neither a draft nor a temp."""
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+    import osprey_connectors.safety_file as safety_file
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    def boom(_src, _dst):
+        raise OSError("interrupted before the replace")
+
+    monkeypatch.setattr(safety_file.os, "replace", boom)
+
+    fn = _get_entry_create()
+    with assert_raises_error(error_type="internal_error"):
+        await fn(subject="Beam lost", details="D")
+
+    assert list(drafts_dir.iterdir()) == []
 
 
 async def test_entry_create_draft_all_fields(tmp_path, monkeypatch):
@@ -1392,3 +1467,82 @@ async def test_entry_create_misdeclared_fields_is_internal_error(
     fn = _get_entry_create()
     with assert_raises_error(error_type="internal_error"):
         await fn(subject="S", details="D", fields={"book": "ops"})
+
+
+# ---------------------------------------------------------------------------
+# entry_create — follows_up: the agent threads an entry under its parent
+# ---------------------------------------------------------------------------
+
+
+def _service_holding(*entry_ids: str) -> AsyncMock:
+    """A service whose repository holds exactly ``entry_ids``."""
+    service = AsyncMock()
+    service.repository.upsert_entry.return_value = None
+
+    async def get_entry(entry_id):
+        return make_mock_entry(entry_id=entry_id) if entry_id in entry_ids else None
+
+    service.repository.get_entry.side_effect = get_entry
+    return service
+
+
+async def test_entry_create_draft_follows_up_its_parent(tmp_path, monkeypatch, ariel_registry):
+    """A draft carries ``metadata.follows_up``, the key the compose sheet submits."""
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+
+    ariel_registry()
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    with patch_ariel_service(_service_holding("DEMO-025")):
+        result = await _get_entry_create()(
+            subject="Cathode check", details="Stable after 24 h", follows_up="DEMO-025"
+        )
+
+    draft_id = json.loads(result)["draft_id"]
+    stored = json.loads((drafts_dir / f"{draft_id}.json").read_text())
+    assert stored["metadata"]["follows_up"] == "DEMO-025"
+    assert "session_metadata" in stored["metadata"]
+
+
+async def test_entry_create_direct_follows_up_its_parent(ariel_registry):
+    """A direct write stores ``metadata.follows_up``, which the thread view reads."""
+    ariel_registry()
+    service = _service_holding("DEMO-025")
+
+    with patch_ariel_service(service):
+        await _get_entry_create()(
+            subject="Cathode check", details="Stable", follows_up="DEMO-025", draft=False
+        )
+
+    written = service.repository.upsert_entry.call_args[0][0]
+    assert written["metadata"]["follows_up"] == "DEMO-025"
+
+
+@pytest.mark.parametrize("draft", [True, False])
+async def test_entry_create_refuses_an_unknown_parent_and_writes_nothing(
+    tmp_path, monkeypatch, ariel_registry, draft
+):
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+
+    ariel_registry()
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+    service = _service_holding("DEMO-025")
+
+    with patch_ariel_service(service), assert_raises_error(error_type="validation_error") as ctx:
+        await _get_entry_create()(
+            subject="Orphan", details="No parent", follows_up="NOPE-1", draft=draft
+        )
+
+    assert "follows_up" in json.dumps(ctx["envelope"])
+    service.repository.upsert_entry.assert_not_called()
+    assert not drafts_dir.exists() or not any(drafts_dir.iterdir())
+
+
+async def test_entry_create_follows_up_is_documented_for_the_agent():
+    from osprey.mcp_server.ariel.server import mcp
+
+    tool = await mcp.get_tool("entry_create")
+    assert "follows_up" in tool.parameters["properties"]
+    assert "follows up" in (tool.description or "").lower()

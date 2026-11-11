@@ -341,7 +341,7 @@ def test_custom_panels_are_not_invented_from_the_selection():
 def test_unselected_builtin_panels_get_no_block():
     """A builtin the profile did not select is somebody else's block to write.
 
-    The frozen control-assistant renders carry `web.panels.bluesky.enabled:
+    The frozen demo renders carry `web.panels.bluesky.enabled:
     false` and `web.panels.events.enabled: false` — blocks an injector and the
     preset's `config:` wrote, which `panel_selection_overrides` then annotated
     as not-shown. Writing them here would claim a tab the selection never named.

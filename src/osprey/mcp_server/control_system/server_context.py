@@ -763,7 +763,7 @@ class ControlSystemContext:
         return True
 
     def channel_finder_config(self) -> dict[str, Any]:
-        """Config section for ChannelFinderService."""
+        """Return the project's ``channel_finder:`` config section."""
         return self.config.channel_finder
 
     @staticmethod
@@ -859,7 +859,7 @@ class ControlSystemContext:
             f"{pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY} "
             f"Under this file's `archiver:` section, set `type:` to a connector that "
             f"reads a store this deployment actually writes (a project built from the "
-            f"control-assistant preset deploys one, and its type reads "
+            f"demo preset deploys one, and its type reads "
             f"{MONGODB_ARCHIVER!r}); or, if this deployment is meant to be a "
             f"simulation nothing is real in, serve the simulator in process "
             f"(`control_system.connector.virtual_accelerator.serving: in_process`), "

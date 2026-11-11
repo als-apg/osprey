@@ -5,8 +5,16 @@ from unittest.mock import AsyncMock, MagicMock
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 
 
-def make_mock_service(adapter_supports_write: bool = True, source_system: str = "Generic JSON"):
-    """Build a mock ARIELSearchService with mocked adapter and repository."""
+def make_mock_service(
+    adapter_supports_write: bool = True,
+    source_system: str = "Generic JSON",
+    writes_local_only: bool | None = None,
+):
+    """Build a mock ARIELSearchService with mocked adapter and repository.
+
+    ``writes_local_only`` defaults to what the named adapter declares: ``True``
+    for ``Generic JSON`` (as :class:`GenericJSONAdapter` does), else ``False``.
+    """
     from osprey.services.ariel_search.config import ARIELConfig
 
     config = ARIELConfig.from_dict(
@@ -27,6 +35,9 @@ def make_mock_service(adapter_supports_write: bool = True, source_system: str = 
     mock_adapter = AsyncMock(spec=FacilityAdapter)
     mock_adapter.supports_write = adapter_supports_write
     mock_adapter.source_system_name = source_system
+    mock_adapter.writes_local_only = (
+        source_system == "Generic JSON" if writes_local_only is None else writes_local_only
+    )
     mock_adapter.create_entry = AsyncMock(return_value="test-entry-001")
 
     async def empty_fetch(**kwargs):

@@ -7,12 +7,16 @@ no independent reader. A rendered config comes from two places, and the
 guard reads both: the framework template
 (``templates/project/config.yml.j2``), which writes only what the BUILD derives,
 and the ``config:`` block of each shipped root preset, which is the operator's
-own document and holds everything else. Each bundled app
-(``presets/apps/*.yml``) is a third kind of document: its ``config:`` is
-composed over a host root preset exactly as a build composes an app render, so
-a key only an app states has its writer in the union. The manifest also records the keys this
+own document and holds everything else. Each bundled shared login
+(``render_contexts.shared``, ``lists: own`` files in ``presets/tiers/``) is a
+third kind of document: its ``config:`` is composed over a host root preset
+exactly as a build composes a shared login's render, so a key only a shared
+login states has its writer in the union. The manifest also records the keys this
 branch deleted, the code sites that went with them, and the assets whose
-continued existence is load-bearing.
+continued existence is load-bearing. A deployment's applications are a fourth:
+the keys the build projects from them are rendered through a fixture deployment
+(``render_contexts.application_deployment``) and described once per family
+(``services.<app-container>.*`` and its peers), never once per application.
 
 This tool re-derives all of that against the working tree on every run.
 
@@ -38,6 +42,7 @@ Failure modes
                          matrix produces is stale, or missing
 10. ``layout``           a ``default:`` line stranded below a comment block
                          instead of sitting inside the entry it belongs to
+11. ``preset-count``     manifest prose, or a page that describes presets, that counts them
 
 plus the manifest's own consistency checks (covered-by chains, evidence
 vacuity, governed sets, keeps, absent paths) and a self-test
@@ -57,18 +62,20 @@ with ``re.M`` serves both.
 Usage
 -----
     python scripts/check_config_keys.py
-    python scripts/check_config_keys.py --back-test          # dev-time only
+    python scripts/check_config_keys.py --back-test
     python scripts/check_config_keys.py --back-test <commit>
 
 The back-test proves every orphan regex is falsifiable — it must match at the
 recorded merge-base and not on the branch. It shells out to git and extracts
-the base tree, so it is a developer-time check, not part of the CI run.
+the base tree, so it needs the repository's history. Every ``config-keys``
+run (CI and both gate tiers) includes it.
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import re
 import subprocess
 import sys
@@ -109,6 +116,36 @@ REQUIRED_SECTIONS = ("keys", "deleted", "orphan_sites", "render_contexts")
 EVIDENCE_ROOTS = ("src/osprey", "packages/osprey-connectors/src/osprey_connectors")
 PRESET_DIR = "src/osprey/profiles/presets"
 
+#: The files whose prose describes the presets; ``preset-count`` reads them
+#: beside the manifest's prose. A missing file fails the check, so a moved file
+#: moves here.
+PRESET_PROSE_FILES = (
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    "docs/source/how-to/build-profiles.rst",
+    "plugins/osprey/skills/housekeeping/SKILL.md",
+    "plugins/osprey/skills/release/SKILL.md",
+    "scripts/config_key_parity.md",
+    "src/osprey/cli/build_profile_emit.py",
+    "tests/cli/test_emit_partition.py",
+    "tests/cli/test_example_server_launch.py",
+    "tests/cli/test_init_revalidate_fill.py",
+    "tests/cli/test_posture_floor.py",
+    "tests/cli/test_profile_annotations.py",
+    "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/mcp_server/workspace/test_setup_tools.py",
+    "tests/profiles/test_preset_connector_prose.py",
+    "tests/profiles/test_simulation_models_key.py",
+    "tests/profiles/test_simulation_tick_s_key.py",
+    "tests/templates/test_graphdb_preset_block.py",
+)
+
+#: Phrases that count presets and stay, keyed by the one file of
+#: ``PRESET_PROSE_FILES`` each is declared in, with the reason. A count inside
+#: a phrase passes in that file only; a phrase its file does not hold fails, so
+#: an exception leaves with the text it excused.
+PRESET_COUNT_EXCEPTIONS: dict[str, dict[str, str]] = {}
+
 #: The union's non-preset half: the framework template's renders, under one
 #: name so a failure can say which side of the config a key came from.
 FRAMEWORK_SOURCE = "framework"
@@ -116,6 +153,10 @@ FRAMEWORK_SOURCE = "framework"
 #: The suffix naming a preset's deploying render — its config after every
 #: service injector ran — as a union source of its own.
 INJECTED_SUFFIX = "+injectors"
+
+#: The source naming the fixture deployment's render, past what its own profile
+#: states, which is what the build projects from its applications.
+APPLICATION_SOURCE = "application-deployment+projection"
 
 #: A root preset carries one ``# osprey:panel-port <name>`` stanza per
 #: panel-port entry, and the rule is a NAME correspondence with the
@@ -133,6 +174,21 @@ INJECTED_SUFFIX = "+injectors"
 #: them.
 PANEL_PORT_MARKER = "osprey:panel-port"
 PANEL_PORT_MARKER_RE = re.compile(rf"{re.escape(PANEL_PORT_MARKER)}\s+([A-Za-z0-9_-]+)")
+
+# A number word from "two" up, any numeral, or "both" within two words before
+# "preset(s)" counts presets. "One" is never a count: it is a pronoun, an
+# article or a distributive ("one ... per preset"), and a sentence about a
+# single preset cannot go stale by a preset being added. A quantifier such as
+# "every root preset" passes: it stays true as presets are added. So does a
+# threshold ("no two", "at least two", "fewer than two"), which states a rule
+# rather than how many presets ship.
+PRESET_COUNT_RE = re.compile(
+    r"(?<!\bno\s)(?<!\bleast\s)(?<!\bthan\s)"
+    r"\b(?:two|three|four|five|six|seven|eight|nine|ten|both|\d+)\b"
+    r"(?:\s+[\w`'-]+){0,2}?\s+presets?\b",
+    re.IGNORECASE,
+)
+PATTERN_FIELDS = frozenset({"evidence", "regex"})
 
 #: A bare-word ``evidence`` regex appearing in more than this many files proves
 #: nothing — it would keep matching after its reader was deleted. See the
@@ -229,8 +285,9 @@ _TEXT_CACHE: dict[tuple[str, str], list[tuple[str, str]]] = {}
 #: the preset names the resolved profile, and ``repr`` of the render spells
 #: the ``config.yml`` laid out for them — so a doctored render is a different
 #: key, never a stale hit. Callers get a deep copy, so no guard's edits reach
-#: another's.
-_INJECTED_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+#: another's. The application deployment's render also reads that deployment's
+#: files, so its key adds their digest (:func:`deployment_digest`).
+_INJECTED_CACHE: dict[tuple[str, ...], dict[str, Any]] = {}
 
 
 @dataclass
@@ -263,6 +320,19 @@ def walk_paths(node: Any, prefix: str = "") -> Iterator[str]:
             path = f"{prefix}.{key}" if prefix else str(key)
             yield path
             yield from walk_paths(value, path)
+
+
+def _prose_strings(node: Any, path: tuple[str, ...]) -> Iterator[tuple[tuple[str, ...], str]]:
+    """Every string scalar under ``node`` with its dotted path, patterns skipped."""
+    if isinstance(node, str):
+        yield path, node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            if key not in PATTERN_FIELDS:
+                yield from _prose_strings(value, (*path, str(key)))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _prose_strings(value, (*path, str(index)))
 
 
 _ABSENT = object()
@@ -300,6 +370,30 @@ def deep_merge(base: dict[str, Any], over: Any) -> dict[str, Any]:
         else:
             merged[key] = value
     return merged
+
+
+def deployment_digest(root: Path) -> str:
+    """The digest of every file a deployment holds, each with its relative path."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def family_spelling(path: str, families: dict[str, str]) -> str:
+    """*path* with each instance name replaced by its family's word.
+
+    ``families`` maps a parent path to the word for its children, parents of an
+    earlier entry's word allowed, so ``apps.gauge.approval.gauge_set.prompt``
+    reads ``apps.<app>.approval.<tool>.prompt``.
+    """
+    parts = path.split(".")
+    for parent, word in families.items():
+        head = parent.split(".")
+        if parts[: len(head)] == head and len(parts) > len(head):
+            parts[len(head)] = word
+    return ".".join(parts)
 
 
 class ConfigKeyGuard:
@@ -400,15 +494,15 @@ class ConfigKeyGuard:
 
     @property
     def app_rels(self) -> list[str]:
-        """Every app file the ``render_contexts.apps`` globs name, sorted."""
+        """Every shared login file the ``render_contexts.shared`` globs name, sorted."""
         found: set[str] = set()
-        for pattern in self.manifest["render_contexts"].get("apps") or []:
+        for pattern in self.manifest["render_contexts"].get("shared") or []:
             found.update(path.relative_to(self.root).as_posix() for path in self.root.glob(pattern))
         return sorted(found)
 
     @property
     def app_host(self) -> str:
-        """The root preset every app is composed over (``render_contexts.host``)."""
+        """The root preset every shared login is composed over (``render_contexts.host``)."""
         return self.manifest["render_contexts"]["host"]
 
     def framework_base(self) -> dict[str, Any]:
@@ -506,21 +600,27 @@ class ConfigKeyGuard:
         """
         if self._presets is not None:
             return self._presets
-        from osprey.cli.build_profile_archiver import _expand_dotted
-        from osprey.cli.build_profile_ports import layout_port_fill
         from osprey.cli.build_profile_resolve import resolve_build_profile
-        from osprey.port_layout import DEFAULT_PORT_BASE
 
         out: dict[str, tuple[Any, dict[str, Any]]] = {}
         for rel in self.preset_rels:
             name = preset_id(rel)
             profile, _preset_dir = resolve_build_profile(None, name)
-            overlay = dict(profile.config)
-            for key, port in layout_port_fill(overlay, DEFAULT_PORT_BASE).items():
-                overlay.setdefault(key, port)
-            out[name] = (profile, _expand_dotted(overlay))
+            out[name] = (profile, self._port_filled_config(profile))
         self._presets = out
         return out
+
+    @staticmethod
+    def _port_filled_config(profile: Any) -> dict[str, Any]:
+        """A profile's ``config:`` as a nested mapping, its layout ports filled."""
+        from osprey.cli.build_profile_archiver import _expand_dotted
+        from osprey.cli.build_profile_ports import layout_port_fill
+        from osprey.port_layout import DEFAULT_PORT_BASE
+
+        overlay = dict(profile.config)
+        for key, port in layout_port_fill(overlay, DEFAULT_PORT_BASE).items():
+            overlay.setdefault(key, port)
+        return _expand_dotted(overlay)
 
     def stated_presets(self) -> dict[str, dict[str, Any]]:
         """preset id -> its ``config:`` as the operator wrote it, as a nested mapping.
@@ -546,29 +646,27 @@ class ConfigKeyGuard:
         return self._stated
 
     def resolved_apps(self) -> dict[str, tuple[Any, dict[str, Any]]]:
-        """app name -> (composed profile, its composed ``config:`` as a nested mapping).
+        """login name -> (composed profile, its composed ``config:`` as a nested mapping).
 
-        Each app is composed through the resolver's app branch, the one
-        ``osprey build`` takes for ``apps/<name>.yml``: a scratch deployment
-        whose ``profile.yml`` extends the host preset, with the app file copied
-        beside it under ``apps/``. The composed ``config:`` is the host's facts
-        with the app's own ``config:`` over them and every write switch pinned
-        off, so a key only an app states (a server switch the host leaves at
+        Each shared login is composed the way ``osprey build`` composes
+        ``tiers/<name>.yml`` named by ``shared:``: a scratch deployment whose
+        ``profile.yml`` extends the host preset and lists the login under
+        ``modules.web_terminals.shared``, with the login file copied beside it
+        under ``tiers/``. The composed ``config:`` is the host's facts with the
+        login's own ``config:`` over them and every write switch pinned off, so
+        a key only a shared login states (a server switch the host leaves at
         its default, the title-bar picker) is written here and nowhere else.
         :func:`layout_port_fill` is applied as for a root preset.
 
-        The app files are read from ``self.root``; the host preset, like every
-        root preset, from the installed package.
+        The login files are read from ``self.root``; the host preset, like
+        every root preset, from the installed package.
         """
         if self._apps is not None:
             return self._apps
         import shutil
 
-        from osprey.cli.build_profile_archiver import _expand_dotted
-        from osprey.cli.build_profile_ports import layout_port_fill
         from osprey.cli.build_profile_resolve import resolve_build_profile
-        from osprey.port_layout import DEFAULT_PORT_BASE
-        from osprey.utils.workspace import APPS_DIRNAME
+        from osprey.utils.workspace import TIERS_DIRNAME
 
         host = preset_id(self.app_host)
         roots = {preset_id(rel) for rel in self.preset_rels}
@@ -580,19 +678,25 @@ class ConfigKeyGuard:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
             (repo / "data").mkdir()
-            (repo / "profile.yml").write_text(yaml.safe_dump({"extends": host, "data": "data"}))
-            (repo / APPS_DIRNAME).mkdir()
+            shared = [preset_id(rel) for rel in self.app_rels]
+            (repo / "profile.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "extends": host,
+                        "data": "data",
+                        "config": {"modules.web_terminals.shared": shared},
+                    }
+                )
+            )
+            (repo / TIERS_DIRNAME).mkdir()
             for rel in self.app_rels:
                 name = preset_id(rel)
                 if name in roots:
-                    raise ValueError(f"app {rel} shares its name with a root preset")
-                target = repo / APPS_DIRNAME / Path(rel).name
+                    raise ValueError(f"shared login {rel} shares its name with a root preset")
+                target = repo / TIERS_DIRNAME / Path(rel).name
                 shutil.copyfile(self.root / rel, target)
                 profile, _root = resolve_build_profile(target, None)
-                overlay = dict(profile.config)
-                for key, port in layout_port_fill(overlay, DEFAULT_PORT_BASE).items():
-                    overlay.setdefault(key, port)
-                out[name] = (profile, _expand_dotted(overlay))
+                out[name] = (profile, self._port_filled_config(profile))
         self._apps = out
         return out
 
@@ -602,8 +706,8 @@ class ConfigKeyGuard:
         Three kinds of source. ``framework`` is the framework template once per
         matrix cell. Each root preset is its resolved ``config:`` block — the
         half of a rendered config the operator owns, which no template renders.
-        Each app is its ``config:`` composed over the host preset
-        (:meth:`resolved_apps`), under the app's own name.
+        Each shared login is its ``config:`` composed over the host preset
+        (:meth:`resolved_apps`), under the login's own name.
         """
         if self._rendered is not None:
             return self._rendered
@@ -664,6 +768,71 @@ class ConfigKeyGuard:
         before = set(walk_paths(self.render_one(name)))
         return set(walk_paths(self.injected_render(name))) - before
 
+    def application_render(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The fixture deployment's config before and after its applications project.
+
+        The build's own steps in the build's own order: the services half through
+        :func:`~osprey.cli.build_cmd._inject_services`, then the root login's half
+        through ``project_app_login``, its servers persisted and its panels told
+        they show. Kept for the process under the render handed in and the
+        deployment's files, since the injectors read ``app.yml`` as well as the
+        render (see :data:`_INJECTED_CACHE`).
+        """
+        from dataclasses import replace
+
+        from osprey.apps.loader import ROOT_LOGIN, check_deployment
+        from osprey.cli.build_cmd import (
+            _inject_services,
+            _persist_mcp_servers,
+            project_app_login,
+        )
+        from osprey.cli.build_profile_panels import apply_panel_selection, panel_selection_overrides
+        from osprey.cli.build_profile_resolve import resolve_build_profile
+
+        root = self.root / self.manifest["render_contexts"]["application_deployment"]["root"]
+        profile, _root = resolve_build_profile(root / ROOT_LOGIN, None)
+        own = deep_merge(self._framework_render(profile), self._port_filled_config(profile))
+        cache_key = (APPLICATION_SOURCE, repr(own), deployment_digest(root))
+        if cache_key not in _INJECTED_CACHE:
+            applications = check_deployment(root)
+
+            def read(config: Path) -> dict[str, Any]:
+                return yaml.safe_load(config.read_text()) or {}
+
+            with tempfile.TemporaryDirectory() as scratch:
+                project = Path(scratch)
+                config = project / "config.yml"
+                config.write_text(yaml.safe_dump(own))
+                _inject_services(
+                    replace(profile, deploy_services=True),
+                    root,
+                    project,
+                    app_manifests=applications.manifests,
+                )
+                panels, servers = project_app_login(
+                    project, applications.manifests, read(config), applications.logins[ROOT_LOGIN]
+                )
+                _persist_mcp_servers(project, servers)
+                apply_panel_selection(
+                    config,
+                    panel_selection_overrides([*(profile.web_panels or ()), *panels], read(config)),
+                )
+                _INJECTED_CACHE[cache_key] = read(config)
+        return own, copy.deepcopy(_INJECTED_CACHE[cache_key])
+
+    def application_paths(self) -> set[str]:
+        """The paths the fixture deployment's applications add, in family spelling.
+
+        Spelled by family in the union itself, so one row describes a key of every
+        application, and that row is rendered or not like any other.
+        """
+        families = self.manifest["render_contexts"]["application_deployment"]["families"]
+        own, render = self.application_render()
+        return {
+            family_spelling(path, families)
+            for path in set(walk_paths(render)) - set(walk_paths(own))
+        }
+
     def union(self) -> dict[str, set[str]]:
         """Every rendered dotted path -> the sources that carry it."""
         if self._union is not None:
@@ -676,6 +845,8 @@ class ConfigKeyGuard:
         for name in self.resolved_presets():
             for path in self.injected_paths(name):
                 merged.setdefault(path, set()).add(f"{name}{INJECTED_SUFFIX}")
+        for path in self.application_paths():
+            merged.setdefault(path, set()).add(APPLICATION_SOURCE)
         self._union = merged
         return merged
 
@@ -698,6 +869,11 @@ class ConfigKeyGuard:
         ctx["ariel_server_on"] = _ariel_server_enabled(profile)
         return ctx
 
+    def _framework_render(self, profile: Any) -> dict[str, Any]:
+        """The framework template rendered from *profile*'s fields."""
+        template = self._jinja_env().get_template(self.framework_template)
+        return yaml.safe_load(template.render(**self._preset_context(profile))) or {}
+
     def render_one(self, name: str) -> dict[str, Any]:
         """One source's config, in the shape a build of it writes.
 
@@ -709,11 +885,11 @@ class ConfigKeyGuard:
         framework side. Reading the ``config:`` block alone would resolve every
         preset's servers against a pipeline mode of ``None``.
 
-        For an app it is the host's framework render, host config and app config:
-        the composed profile carries the host's fields except the ones the app
-        file owns (its channel-finder mode, panels and lists), and its composed
-        ``config:`` is the host's facts with the app's over them — the render a
-        build of ``apps/<name>.yml`` writes.
+        For a shared login it is the host's framework render, host config and
+        login config: the composed profile carries the host's fields except the
+        ones the login file owns (its channel-finder mode, panels and lists), and
+        its composed ``config:`` is the host's facts with the login's over them —
+        the render a build of ``tiers/<name>.yml`` writes.
         """
         if name == FRAMEWORK_SOURCE:
             env = self._jinja_env()
@@ -723,14 +899,7 @@ class ConfigKeyGuard:
         if name not in resolved:
             raise KeyError(f"no preset or app named {name!r} in the manifest")
         profile, config = resolved[name]
-        env = self._jinja_env()
-        rendered = (
-            yaml.safe_load(
-                env.get_template(self.framework_template).render(**self._preset_context(profile))
-            )
-            or {}
-        )
-        return deep_merge(rendered, config)
+        return deep_merge(self._framework_render(profile), config)
 
     # ── failure mode 1: unmapped rendered key ───────────────────────────
 
@@ -990,19 +1159,7 @@ class ConfigKeyGuard:
         A retired key documented as a commented example is still a retired key
         put back in front of the operator, which is what ``system.facility_name``
         was before this branch removed it.
-
-        Some keys are exempt, and the manifest says which and why
-        (``deleted_commented_examples``). Each was removed from what OSPREY
-        SHIPS while staying live in its reader — an explicitly set
-        ``ariel.database.uri`` still wins over the derived DSN — and the
-        commented line beside that prose is the documentation of an override
-        that works, not a retired knob put back. The exemption is narrow: an
-        exempt key is still checked against the rendered union, against a LIVE
-        preset override and against the loader's defaults, which is where an
-        actual resurrection would show.
         """
-        if key in (self.manifest.get("deleted_commented_examples") or {}):
-            return []
         pattern = rf"^\s*#\s*{re.escape(key)}\s*:"
         return [name for name, text in self.preset_texts() if self.has_match(pattern, text)]
 
@@ -1044,36 +1201,6 @@ class ConfigKeyGuard:
                     "resurrection",
                     f"{key} is deleted but the config loader still synthesizes it as a default",
                 )
-
-    def check_deleted_commented_examples(self) -> None:
-        """The exemptions above must stay tied to something real.
-
-        Three ways one rots: it can name a key that was never deleted, it can
-        carry no reason, and it can outlive the preset line it was written for —
-        the last being the one that matters, because an unused exemption is a
-        hole waiting for the next retired key that happens to share the name.
-        """
-        deleted = set(self.manifest["deleted"])
-        for key, why in (self.manifest.get("deleted_commented_examples") or {}).items():
-            if key not in deleted:
-                self.fail(
-                    "resurrection",
-                    f"deleted_commented_examples exempts {key}, which is not on the deleted list",
-                )
-                continue
-            if not str(why or "").strip():
-                self.fail(
-                    "resurrection", f"the commented-example exemption for {key} gives no reason"
-                )
-            pattern = rf"^\s*#\s*{re.escape(key)}\s*:"
-            if not any(self.has_match(pattern, text) for _name, text in self.preset_texts()):
-                self.fail(
-                    "resurrection",
-                    f"the commented-example exemption for {key} is unused — no preset documents "
-                    f"it any more, so the exemption is a hole with nothing behind it",
-                )
-
-    # ── failure mode 5: orphan sites ────────────────────────────────────
 
     def check_orphan_sites(self) -> None:
         absent = [entry["path"] for entry in self.manifest.get("absent_paths") or []]
@@ -1263,6 +1390,58 @@ class ConfigKeyGuard:
                         f"entry; an entry inserted between the two would steal it",
                     )
                 comment = None
+
+    def check_preset_counts(self) -> None:
+        """Manifest prose and the preset pages never count presets.
+
+        ``render_contexts.presets`` and the preset files state how many presets
+        ship; a number, or "both", in a note restates that fact and goes false
+        when a preset is added or removed. Every string scalar is read except
+        ``evidence`` and ``regex`` values, which are patterns, not prose. The
+        files in ``PRESET_PROSE_FILES`` are read whole, so a count wrapped
+        across a line break is still found; a missing file fails. A count
+        inside a ``PRESET_COUNT_EXCEPTIONS`` phrase passes in the file it is
+        declared in, and a phrase its file does not hold fails. A quantifier
+        such as "every root preset" stays true and passes.
+        """
+        for path, text in _prose_strings(self.manifest, ()):
+            match = PRESET_COUNT_RE.search(text)
+            if match is not None:
+                self.fail(
+                    "preset-count",
+                    f"{'.'.join(path)} counts presets ({match.group(0)!r}); the "
+                    f"presets list in render_contexts.presets is the count's one home",
+                )
+        unused = {
+            (rel, phrase) for rel, phrases in PRESET_COUNT_EXCEPTIONS.items() for phrase in phrases
+        }
+        for rel in PRESET_PROSE_FILES:
+            page = self.root / rel
+            if not page.is_file():
+                self.fail("preset-count", f"{rel} is missing; the preset-count check reads it")
+                unused -= {(rel, phrase) for phrase in PRESET_COUNT_EXCEPTIONS.get(rel, {})}
+                continue
+            text = page.read_text(encoding="utf-8")
+            excused = []
+            for phrase in PRESET_COUNT_EXCEPTIONS.get(rel, {}):
+                for found in re.finditer(re.escape(phrase), text):
+                    excused.append((found.start(), found.end()))
+                    unused.discard((rel, phrase))
+            for match in PRESET_COUNT_RE.finditer(text):
+                if any(start <= match.start() and match.end() <= end for start, end in excused):
+                    continue
+                line = text.count("\n", 0, match.start()) + 1
+                self.fail(
+                    "preset-count",
+                    f"{rel}:{line} counts presets ({match.group(0)!r}); the presets "
+                    f"list in render_contexts.presets is the count's one home",
+                )
+        for rel, phrase in sorted(unused):
+            self.fail(
+                "preset-count",
+                f"exception {phrase!r} is not in {rel}; drop it from "
+                f"PRESET_COUNT_EXCEPTIONS[{rel!r}]",
+            )
 
     def check_branch_self_test(self) -> None:
         """Each Jinja conditional branch must still be covered by the matrix.
@@ -1466,7 +1645,7 @@ class ConfigKeyGuard:
         proc = self.git("ls-files", "--", rel_path)
         return [line for line in proc.stdout.splitlines() if line.strip()]
 
-    # ── back-test (developer-time) ──────────────────────────────────────
+    # ── back-test ───────────────────────────────────────────────────────
 
     def back_test(self, commit: str) -> None:
         """Prove every orphan regex is falsifiable against the merge-base.
@@ -1559,12 +1738,12 @@ class ConfigKeyGuard:
         self.check_defaults()
         self.check_evidence_vacuity()
         self.check_deleted()
-        self.check_deleted_commented_examples()
         self.check_orphan_sites()
         self.check_parity()
         self.check_panel_port_markers()
         self.check_branch_self_test()
         self.check_manifest_layout()
+        self.check_preset_counts()
         self.check_provider_shape()
         self.check_governed_sets()
         self.check_keeps()
@@ -1595,7 +1774,7 @@ def main(argv: list[str] | None = None) -> int:
         const="",
         default=None,
         metavar="COMMIT",
-        help="also prove every orphan regex fires at the merge-base (developer-time; "
+        help="also prove every orphan regex fires at the merge-base (needs git history; "
         "defaults to the commit recorded in the manifest)",
     )
     args = parser.parse_args(argv)

@@ -509,35 +509,6 @@ class TestDemotedRows:
 
         assert _levels_for(caplog, "no scenarios to re-apply") == {logging.DEBUG}
 
-    def test_the_legacy_down_compose_file_listing_is_a_debug_line(
-        self, tmp_path, monkeypatch, caplog
-    ):
-        _stub_legacy_down(monkeypatch, tmp_path, compose_files=["docker-compose.yml"])
-
-        # `deploy_down` exits the process on the runtime's status, which is 0
-        # here; the narration under test has already been emitted by then.
-        with caplog.at_level(logging.DEBUG), pytest.raises(SystemExit):
-            container_lifecycle.deploy_down(tmp_path / "config.yml")
-
-        assert _levels_for(caplog, "Using existing compose files") == {logging.DEBUG}
-        assert _levels_for(caplog, "- docker-compose.yml") == {logging.DEBUG}
-
-    def test_the_legacy_down_rerender_is_a_debug_line(self, tmp_path, monkeypatch, caplog):
-        _stub_legacy_down(monkeypatch, tmp_path, compose_files=[])
-
-        with caplog.at_level(logging.DEBUG), pytest.raises(SystemExit):
-            container_lifecycle.deploy_down(tmp_path / "config.yml")
-
-        assert _levels_for(caplog, "No existing compose files found") == {logging.DEBUG}
-
-    def test_the_legacy_detached_restart_line_is_a_debug_line(self, tmp_path, monkeypatch, caplog):
-        _stub_legacy_restart(monkeypatch, tmp_path)
-
-        with caplog.at_level(logging.DEBUG):
-            container_lifecycle.deploy_restart(tmp_path / "config.yml", detached=True)
-
-        assert _levels_for(caplog, "Running in detached mode") == {logging.DEBUG}
-
 
 class TestVerboseKeepsThePrimaryOutput:
     """Criterion 3, for this module: ``-v`` adds the transcript, loses nothing."""
@@ -804,58 +775,6 @@ def _stub_ariel_stage(monkeypatch: pytest.MonkeyPatch, *, seeded: int) -> None:
     monkeypatch.setattr(container_lifecycle, "_wait_for_ariel_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_migrate_ariel_store", lambda *a, **k: None)
     monkeypatch.setattr(apply_mod, "seed_active_logbook", lambda *a, **k: seeded)
-
-
-def _stub_legacy_down(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, compose_files: list[str]
-) -> None:
-    """Reduce the *legacy* ``deploy_down`` to its compose-file narration.
-
-    ``tmp_path`` becomes the working directory because the captured `down`
-    spools a file under ``var/logs/`` relative to it.
-    """
-    from osprey.deployment import compose_generator
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(container_lifecycle, "load_project_config", lambda *a, **k: {})
-    monkeypatch.setattr(container_lifecycle, "_web_terminals_enabled", lambda config: False)
-    monkeypatch.setattr(
-        compose_generator, "find_existing_compose_files", lambda *a, **k: list(compose_files)
-    )
-    monkeypatch.setattr(
-        container_lifecycle, "prepare_compose_files", lambda *a, **k: ({}, ["rendered.yml"])
-    )
-    monkeypatch.setattr(container_lifecycle, "resolve_repo_root", lambda *a, **k: Path("."))
-    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config=None, **_: None)
-    monkeypatch.setattr(container_lifecycle, "compose_base_cmd", lambda *a, **k: ["docker"])
-    monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda *a, **k: [])
-    monkeypatch.setattr(container_lifecycle, "runtime_env", lambda config, env: dict(env))
-    monkeypatch.setattr(
-        container_lifecycle,
-        "with_plain_progress",
-        lambda cmd, **k: list(cmd) if cmd else ["docker"],
-    )
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, **kwargs: subprocess.CompletedProcess(list(cmd), 0),
-    )
-
-
-def _stub_legacy_restart(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Reduce the *legacy* ``deploy_restart`` to its detached-mode line."""
-    _stub_legacy_down(monkeypatch, tmp_path, compose_files=["docker-compose.yml"])
-    monkeypatch.setattr(
-        container_lifecycle, "_ensure_bluesky_control_plane_keys", lambda *a, **k: None
-    )
-    # `restart` probes the runtime where `down` does not, and raises its own
-    # error rather than going through the stubbed `get_runtime_command`. Without
-    # this the narration under test is unreachable on any host with no container
-    # runtime installed.
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
 
 
 def _levels_for(caplog: pytest.LogCaptureFixture, fragment: str) -> set[int]:
@@ -1272,6 +1191,9 @@ def _stub_a_successful_wheel_build(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", _fake_build)
     monkeypatch.setattr(wheel_build, "_wheel_base_requirements", lambda path: [])
+    # The lock export is uv's, not the build's; the stub above answers only
+    # `python -m build`.
+    monkeypatch.setattr(wheel_build, "export_lock_constraints", lambda root: "")
 
 
 def _rendered_project(tmp_path: Path, name: str) -> Path:

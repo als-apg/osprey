@@ -1,17 +1,17 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "467c4c642a261dea878ccd71e6ce858b5321f998",
-  "baseline_sha": "467c4c642",
+  "baseline_commit": "158f4a520a2c25c0326717b463d30cb37563319e",
+  "baseline_sha": "158f4a520a",
   "build_account": "osprey-freeze-builder",
   "cells": [
     "hello-world/unset",
-    "control-assistant/in_context",
-    "control-assistant/hierarchical",
-    "control-assistant/middle_layer",
-    "control-assistant/graph"
+    "demo/in_context",
+    "demo/hierarchical",
+    "demo/middle_layer",
+    "demo/graph"
   ],
   "completeness": {
-    "control-assistant/graph": {
+    "demo/graph": {
       "build_configs_checked": 25,
       "documents": [
         "admin.yml",
@@ -32,7 +32,7 @@
         "readwrite"
       ]
     },
-    "control-assistant/hierarchical": {
+    "demo/hierarchical": {
       "build_configs_checked": 25,
       "documents": [
         "admin.yml",
@@ -53,7 +53,7 @@
         "readwrite"
       ]
     },
-    "control-assistant/in_context": {
+    "demo/in_context": {
       "build_configs_checked": 25,
       "documents": [
         "admin.yml",
@@ -74,7 +74,7 @@
         "readwrite"
       ]
     },
-    "control-assistant/middle_layer": {
+    "demo/middle_layer": {
       "build_configs_checked": 25,
       "documents": [
         "admin.yml",

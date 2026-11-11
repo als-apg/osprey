@@ -322,7 +322,7 @@ def _normalize_retired_roster_keys(raw: dict[str, Any], source: str) -> dict[str
                 continue
             spelled = f"{catalog_old}.{name}.{knob}"
             if knob in RENDER_KEYS:
-                remedy = f"set `{knob}` at the top of tiers/{name}.yml (or apps/{name}.yml)"
+                remedy = f"set `{knob}` at the top of tiers/{name}.yml"
             elif knob == "landing_group":
                 remedy = f"group landing cards with `{_WT_LABEL}.landing.groups`"
             else:
@@ -361,9 +361,6 @@ _NEVER, _ASKED, _ALLOWED = TIER_WORDS
 
 #: The tier key's words that arm anything; an app may spell neither.
 _ARMING_WORDS = (_ASKED, _ALLOWED)
-
-#: The document kind an app file is read as (``LAYER_DIR_KINDS``' word).
-_APP_KIND = "app"
 
 #: Resolved path -> the retired posture leaves the normalizer removed from the
 #: document there (C-ORIGIN). Set or deleted on every parse of a path.
@@ -590,11 +587,11 @@ def retired_write_origin(path: Path) -> dict[str, Any] | None:
 
 
 def _document_kind(path: Path | None) -> str:
-    """``app``, ``tier``, ``layer`` or ``root``, from where the document lives.
+    """``tier``, ``layer`` or ``root``, from where the document lives.
 
     Only the directory holding the file counts, so a root profile in a repo
-    that happens to sit under an ``apps/`` directory is still a root. A
-    document with no file is a root.
+    that happens to sit under a ``tiers/`` directory of something else is
+    still a root. A document with no file is a root.
     """
     if path is None:
         return "root"
@@ -675,7 +672,7 @@ def _place_tier_key(config: dict, found: _WriteSpellings, answer: str) -> None:
         del container[key]
 
 
-def _warn_retired_writes(found: _WriteSpellings, source: str, kind: str, answer: str) -> None:
+def _warn_retired_writes(found: _WriteSpellings, source: str, answer: str) -> None:
     labels: list[tuple[str, bool]] = []
     for container, key, _top in found.flat:
         labels.append((_FLAT_RETIRED_LABEL, container.get(key) is True))
@@ -686,15 +683,8 @@ def _warn_retired_writes(found: _WriteSpellings, source: str, kind: str, answer:
                 container.get(key) is True,
             )
         )
-    for label, arms in labels:
-        if kind == _APP_KIND:
-            reading = (
-                f"it arms nothing: an app is always `{_WRITES_LABEL}: {_NEVER}`"
-                if arms
-                else f"an app is always `{_WRITES_LABEL}: {_NEVER}`"
-            )
-        else:
-            reading = f"this document reads as `{_WRITES_LABEL}: {answer}`"
+    for label, _arms in labels:
+        reading = f"this document reads as `{_WRITES_LABEL}: {answer}`"
         _warn_retired(source, label, f"`{label}` is retired; {reading}")
 
 
@@ -716,22 +706,22 @@ def _tier_key_values(mapping: dict, prefix: tuple[str, ...] = ()) -> Iterator[An
             yield from _tier_key_values(value, path)
 
 
-def validate_tier_key_value(raw: dict[str, Any], source: str, *, path: Path | None = None) -> None:
+def validate_tier_key_value(raw: dict[str, Any], source: str) -> None:
     """Refuse a ``control_system.writes`` that is not ``never``, ``asked`` or ``allowed``.
 
     Runs after :func:`normalize_retired_write_keys` on every document it
     sees — files, text and the ``--set`` layer — so a value it wrote is
     checked too. Only the exact lowercase strings pass: a boolean, ``null``,
-    ``"Allowed"`` or ``"yes"`` is refused rather than read as a tier. An app
-    (kind from *path*, as for the normalizer) may only spell ``never``.
+    ``"Allowed"`` or ``"yes"`` is refused rather than read as a tier. Whether
+    a login may spell an arming word is its audience's question, judged where
+    the render is composed.
 
     Args:
         raw: One raw profile mapping; not changed.
         source: How to name the document in the error.
-        path: The file the document was read from, when there is one.
 
     Raises:
-        BuildProfileError: On any other value, or an arming word in an app.
+        BuildProfileError: On any other value.
     """
     config = raw.get("config")
     if not isinstance(config, dict):
@@ -745,13 +735,6 @@ def validate_tier_key_value(raw: dict[str, Any], source: str, *, path: Path | No
                 f"{source}: `{_WRITES_LABEL}` must be `{_NEVER}`, `{_ASKED}` or `{_ALLOWED}`, "
                 f"got {value!r}"
             )
-    arming = next((value for value in values if value != _NEVER), None)
-    if arming is not None and _document_kind(path) == _APP_KIND:
-        raise BuildProfileError(
-            f"{source}: an app cannot spell `{_WRITES_LABEL}: {arming}` — "
-            f"an app is always `{_WRITES_LABEL}: {_NEVER}`; set the tier key in "
-            "the profile or a tier instead"
-        )
 
 
 def normalize_retired_write_keys(
@@ -765,11 +748,12 @@ def normalize_retired_write_keys(
     so a silent tier, overlay or ``extends`` child inherits its host's tier.
     The retired leaves are removed (a connector block they empty is left for
     the render's checks) and ``control_system.writes`` is written where they
-    stood (:func:`_place_tier_key`): :func:`retired_write_answer` for a root,
-    tier or retired-layer document, ``never`` for an app.
+    stood (:func:`_place_tier_key`): :func:`retired_write_answer`, for every
+    document. A login named by ``shared:`` is sealed ``never`` where its render
+    is composed, which reads the recorded origin to tell a rewritten
+    ``allowed`` from an authored one.
 
-    The document's kind is read from *path* — never from *source*, which is a
-    display label. With a path, the removed leaves are recorded for
+    With a path, the removed leaves are recorded for
     :func:`retired_write_origin`, and a parse that finds none deletes the
     record, so a file rewritten in the same process leaves nothing stale.
 
@@ -800,7 +784,7 @@ def normalize_retired_write_keys(
     if not (found.flat or found.per_type):
         if key is not None:
             _RETIRED_WRITE_ORIGINS.pop(key, None)
-        validate_tier_key_value(raw, source, path=path)
+        validate_tier_key_value(raw, source)
         return raw
     assert isinstance(config, dict)
     if found.new:
@@ -809,15 +793,14 @@ def normalize_retired_write_keys(
         raise _mixed_writes_error(found, source)
 
     leaves = _retired_leaves(config)
-    kind = _document_kind(path)
-    answer = _NEVER if kind == _APP_KIND else _retired_tier(leaves)
-    _warn_retired_writes(found, source, kind, answer)
+    answer = _retired_tier(leaves)
+    _warn_retired_writes(found, source, answer)
 
     _place_tier_key(config, found, answer)
 
     if key is not None:
         _RETIRED_WRITE_ORIGINS[key] = leaves
-    validate_tier_key_value(raw, source, path=path)
+    validate_tier_key_value(raw, source)
     return raw
 
 
@@ -974,6 +957,102 @@ def normalize_retired_approval_policies(raw: dict[str, Any], source: str) -> dic
     return raw
 
 
+#: The retired bar arrangement: ``web.bar_items`` and its four sub-keys, which
+#: arranged the header and the status bar the sidebar shell replaced.
+RETIRED_BAR_ITEMS_PATH: tuple[str, ...] = ("web", "bar_items")
+_BAR_ITEMS_LABEL = ".".join(RETIRED_BAR_ITEMS_PATH)
+
+
+def retired_bar_items_spellings(
+    config: dict, prefix: tuple[str, ...] = ()
+) -> list[tuple[dict, str, tuple[tuple[dict, str], ...]]]:
+    """Every ``web.bar_items`` (or a key beneath it) under *config*, however spelled.
+
+    Each hit is ``(container, key, parents)``: the mapping holding the key, the
+    key as spelled there (dotted, nested or mixed), and the ``(mapping, key)``
+    chain from *config* down to the container, so a caller can prune what the
+    removal empties.
+    """
+    hits: list[tuple[dict, str, tuple[tuple[dict, str], ...]]] = []
+    depth = len(RETIRED_BAR_ITEMS_PATH)
+    for key, value in list(config.items()):
+        if not isinstance(key, str):
+            continue
+        path = prefix + tuple(key.split("."))
+        if len(path) >= depth and path[:depth] == RETIRED_BAR_ITEMS_PATH:
+            hits.append((config, key, ()))
+        elif (
+            len(path) < depth
+            and path == RETIRED_BAR_ITEMS_PATH[: len(path)]
+            and isinstance(value, dict)
+        ):
+            for container, inner, parents in retired_bar_items_spellings(value, path):
+                hits.append((container, inner, ((config, key), *parents)))
+    return hits
+
+
+def normalize_retired_bar_items(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop ``web.bar_items`` under ``config:``, in place, with one warning.
+
+    The key arranged the header and the status bar, and the sidebar shell
+    replaced both: nothing reads it, so a profile that still spells it (or any
+    key beneath it) loses the key -- and any ``web`` mapping the removal
+    empties -- and is told so once per build. The build goes on; the key is
+    ignored, not refused, because a profile emitted before the sidebar is
+    otherwise sound. Every other ``web.*`` key survives.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    config = raw.get("config")
+    if not isinstance(config, dict):
+        return raw
+    hits = retired_bar_items_spellings(config)
+    if not hits:
+        return raw
+    for container, key, parents in hits:
+        container.pop(key, None)
+        node: dict = container
+        for parent, parent_key in reversed(parents):
+            if node or parent.get(parent_key) is not node:
+                break
+            del parent[parent_key]
+            node = parent
+    # One warning per build, not per document: a build parses the same profile
+    # again for its image staging copy, and a second block for the same key
+    # would read as two problems. The first source is the one named.
+    if ("*", _BAR_ITEMS_LABEL) not in _WARNED_RETIRED_KEYS:
+        _WARNED_RETIRED_KEYS.add(("*", _BAR_ITEMS_LABEL))
+        # Promoted rather than logged bare: the altitude gate keeps a raw
+        # WARNING off the terminal while a lifecycle verb draws its phases, and
+        # this one is the operator's only notice that a key they set does
+        # nothing. ``warn_fact`` prints the block in the run's own column and
+        # still emits the record, marked printed, for the sinks and ``-v``.
+        from osprey.cli import output
+
+        output.warn_fact(
+            _LOGGER,  # type: ignore[arg-type]  # a plain logger emits the same record
+            f"{source}: `{_BAR_ITEMS_LABEL}` ignored",
+            retired_bar_items_message(),
+            "drop the key from the profile, or run `osprey init --revalidate`",
+        )
+    return raw
+
+
+def retired_bar_items_message() -> str:
+    """What the dropped ``web.bar_items`` is told: where the bars went."""
+    return (
+        "The web terminal's sidebar replaced the header and the status bar that "
+        "key arranged: Workspace (Agent, Artifacts, Script runs, Events), Tools "
+        "(one row per panel) and ☰ More. Its groups are arranged in the browser, "
+        "per user, so nothing reads the key."
+    )
+
+
 def retired_approval_policy_message(tools: list[str]) -> str:
     """The warning (and revalidate report) for the dropped policies of *tools*."""
     spelled = ", ".join(f"`{_APPROVAL_POLICY_LABEL}.{tool}`" for tool in tools)
@@ -1054,6 +1133,108 @@ def normalize_retired_web_keys(raw: dict[str, Any], source: str) -> dict[str, An
     return raw
 
 
+#: The gallery no longer seeds a shipped example artifact, so the key that
+#: switched it on is dropped from a profile that still states it.
+RETIRED_EXAMPLE_ARTIFACT_KEY = "artifact_server.example_artifact"
+
+
+def normalize_retired_example_artifact(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop ``artifact_server.example_artifact`` under ``config:``, in place.
+
+    Every repo materialized from the demo preset states it. Each
+    spelling (and any mapping that empties) warns once per *source* and is
+    dropped.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    for chain in _leaf_spellings(raw.get("config"), RETIRED_EXAMPLE_ARTIFACT_KEY.split(".")):
+        spelled = ": ".join(key for _mapping, key in chain)
+        for mapping, key in reversed(chain):
+            del mapping[key]
+            if mapping:
+                break
+        if (source, spelled) not in _WARNED_RETIRED_KEYS:
+            _WARNED_RETIRED_KEYS.add((source, spelled))
+            _LOGGER.warning("%s: `%s` is no longer read; delete it", source, spelled)
+    return raw
+
+
+#: The retired LATTICE panel's id, and the ``config:`` paths that configured it:
+#: its ``web.panels`` block and the dashboard server's own section.
+RETIRED_PANEL_ID = "lattice"
+_RETIRED_PANEL_CONFIG = (("web", "panels", RETIRED_PANEL_ID), ("lattice_dashboard",))
+
+
+def _drop_config_path(node: dict, prefix: tuple[str, ...], path: tuple[str, ...] = ()) -> list[str]:
+    """Delete every key of *node* at or below *prefix*, in any dotted spelling.
+
+    A mapping emptied by the deletion goes with it. Returns the dotted path of
+    each key deleted.
+    """
+    dropped: list[str] = []
+    for key in list(node):
+        if not isinstance(key, str):
+            continue
+        full = path + tuple(key.split("."))
+        depth = min(len(full), len(prefix))
+        if full[:depth] != prefix[:depth]:
+            continue
+        if len(full) >= len(prefix):
+            del node[key]
+            dropped.append(".".join(full))
+        elif isinstance(node[key], dict):
+            dropped.extend(_drop_config_path(node[key], prefix, full))
+            if not node[key]:
+                del node[key]
+    return dropped
+
+
+def normalize_retired_panel(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop the retired LATTICE panel from one profile document, in place.
+
+    Every repo materialized from the demo preset selects it, and a
+    tab that no longer exists has nothing to protect, so each spelling — the
+    ``web_panels`` entry, a ``default_panel`` naming it, and its ``config:``
+    keys — warns once per *source* and is dropped.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    panels = raw.get("web_panels")
+    if isinstance(panels, list) and RETIRED_PANEL_ID in panels:
+        raw["web_panels"] = [panel for panel in panels if panel != RETIRED_PANEL_ID]
+        _warn_retired_panel(source, f"web_panels: {RETIRED_PANEL_ID}")
+    if raw.get("default_panel") == RETIRED_PANEL_ID:
+        del raw["default_panel"]
+        _warn_retired_panel(source, f"default_panel: {RETIRED_PANEL_ID}")
+    config = raw.get("config")
+    if isinstance(config, dict):
+        for prefix in _RETIRED_PANEL_CONFIG:
+            for spelled in _drop_config_path(config, prefix):
+                _warn_retired_panel(source, f"config: {spelled}")
+    return raw
+
+
+def _warn_retired_panel(source: str, spelled: str) -> None:
+    if (source, spelled) in _WARNED_RETIRED_KEYS:
+        return
+    _WARNED_RETIRED_KEYS.add((source, spelled))
+    _LOGGER.warning(
+        "%s: `%s` is no longer read — the LATTICE panel was retired; delete it",
+        source,
+        spelled,
+    )
+
+
 def _read_profile_document(path: Path, source: str | None = None) -> Any:
     """Read one raw profile-YAML document.
 
@@ -1105,6 +1286,9 @@ def _parse_profile_document(text: str, source: str, *, path: Path | None = None)
         normalize_retired_write_keys(raw, source, path=path)
         normalize_retired_approval_policies(raw, source)
         normalize_retired_web_keys(raw, source)
+        normalize_retired_example_artifact(raw, source)
+        normalize_retired_panel(raw, source)
+        normalize_retired_bar_items(raw, source)
     elif path is not None:
         _RETIRED_WRITE_ORIGINS.pop(Path(path).resolve(), None)
     return raw

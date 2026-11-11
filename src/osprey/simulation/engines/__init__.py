@@ -33,6 +33,10 @@ class EnginePlugin(Protocol):
     ======================================  ============================================  ==========================================
     name                                    what it gives                                 a module without it
     ======================================  ============================================  ==========================================
+    ``deck_length(deck, *, model=None)``    the length of the deck's lattice in metres    the SDK's ``model_members`` raises
+                                            (a ring's circumference)
+    ``element_index(deck, element, *,       the element's lattice index: ring order,      the SDK's ``model_members`` raises
+    model=None)``                           which tells co-located elements apart
     ``error_text(exc)``                     the one line a failed build reports           the exception's own text
     ``fault_variables(wiring)``             every fault a model built from the wiring     the model declares no faults
                                             declares, by address or by element
@@ -49,6 +53,11 @@ class EnginePlugin(Protocol):
                                             it as a facility-file defect; a return with
                                             no column is refused with the ``unsolved``
                                             map
+    ``scenario_stops(wiring, faults)``      ``(fault, detail, remedy)`` per refusal of a  no scenario stops
+                                            scenario's faults on the model, channel-
+                                            keyed ones included, without a deck load;
+                                            each stops the build ``engine-invalid``
+                                            with the plug-in's remedy
     ``REFUSAL_ERRORS``                      the exceptions meaning "the request is not    no exception is a request refusal
                                             one this engine answers"; stand-in until
                                             lume-base states it
@@ -80,7 +89,7 @@ class EnginePlugin(Protocol):
         ...
 
     def describe(self, wiring_record: Any) -> Mapping[str, Any]:
-        """What a wiring record is: its role, plane and refresh."""
+        """What a wiring record is: its engine_role, plane and refresh, and any marks."""
         ...
 
     def build(

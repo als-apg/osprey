@@ -17,19 +17,17 @@ equal to one of them has its first character escaped too (``date`` is stored
 as ``%64ate``), so no channel shares a field with the document that holds it.
 
 So an address with no ``%``, no ``.``, no NUL, no leading ``$`` and not equal
-to one of those fields is its own field name, byte for byte, and
-:func:`channel_address` reverses :func:`field_name` for every address.
+to one of those fields is its own field name, byte for byte, and the escape is
+injective: two distinct addresses never share a field.
 
 Every writer and every reader of the archive collection names a channel's
-field through these two functions, so a channel is written and read back under
+field through :func:`field_name`, so a channel is written and read back under
 one name. The module imports only the standard library.
 """
 
 from __future__ import annotations
 
-__all__ = ["channel_address", "field_name"]
-
-_HEX_DIGITS = "0123456789ABCDEF"
+__all__ = ["field_name"]
 
 # The fields the archive's own documents carry beside channels: every
 # document's ``_id``; a sample document's ``date``, ``expireAt`` and the densify
@@ -76,36 +74,4 @@ def field_name(address: str) -> str:
             parts.append(f"%{ord(character):02X}")
         else:
             parts.append(character)
-    return "".join(parts)
-
-
-def channel_address(field: str) -> str:
-    """The channel address stored under the archive field ``field``.
-
-    Args:
-        field: A field name written by :func:`field_name`.
-
-    Returns:
-        The address, with every ``%XX`` replaced by its character.
-
-    Raises:
-        ValueError: when a ``%`` is not followed by two uppercase hex digits,
-            which :func:`field_name` never writes.
-    """
-    parts: list[str] = []
-    position = 0
-    while position < len(field):
-        character = field[position]
-        if character != "%":
-            parts.append(character)
-            position += 1
-            continue
-        digits = field[position + 1 : position + 3]
-        if len(digits) != 2 or any(digit not in _HEX_DIGITS for digit in digits):
-            raise ValueError(
-                f"{field!r} is not an archive field name: '%' at position {position} "
-                f"is not followed by two uppercase hex digits"
-            )
-        parts.append(chr(int(digits, 16)))
-        position += 3
     return "".join(parts)

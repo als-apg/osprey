@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
+
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
@@ -76,7 +78,10 @@ def _inputs(doc: dict[str, Any], rendered_config: dict[str, Any] | None = None) 
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc=doc, rendered_config=rendered_config or {}, facility_dir=Path("."), served=[]
+        records=FacilityRecords(doc),
+        rendered_config=rendered_config or {},
+        facility_dir=Path("."),
+        served=[],
     )
 
 
@@ -331,7 +336,9 @@ def test_two_level_words_at_one_depth_stop_with_view_unsupported() -> None:
 
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(
-            {"places": [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}]}
+            FacilityRecords(
+                {"places": [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}]}
+            )
         )
 
     assert caught.value.kind == "view-unsupported"
@@ -344,7 +351,7 @@ def test_a_level_word_that_is_a_tail_level_stops_with_view_unsupported() -> None
     from osprey.facility.views.channel_finder import hierarchical_document
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document({"places": [{"id": "A", "level": "device"}]})
+        hierarchical_document(FacilityRecords({"places": [{"id": "A", "level": "device"}]}))
 
     assert caught.value.kind == "view-unsupported"
 
@@ -412,7 +419,7 @@ def test_a_tree_key_beginning_with_an_underscore_stops_with_view_unsupported(
     from osprey.facility.views.channel_finder import hierarchical_document
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document(doc)
+        hierarchical_document(FacilityRecords(doc))
 
     assert caught.value.kind == "view-unsupported"
     message = caught.value.format_message()
@@ -458,7 +465,7 @@ def test_two_channels_on_one_leaf_key_stop_with_view_unsupported(
     from osprey.facility.views.channel_finder import hierarchical_document
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document(_shared_leaf_key(device))
+        hierarchical_document(FacilityRecords(_shared_leaf_key(device)))
 
     assert caught.value.format_message() == (
         f"{line}fix: give one of them a signal or address that differs, "
@@ -557,9 +564,9 @@ def _leaf_of(document: dict[str, Any], address: str) -> dict[str, Any]:
 
 @pytest.mark.slow
 def test_the_demo_index_holds_every_channel_at_one_depth(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     document, database = _written(tmp_path, facility)
     levels = [level["name"] for level in document["hierarchy"]["levels"]]
 
@@ -574,11 +581,11 @@ def test_the_demo_index_holds_every_channel_at_one_depth(
 
 @pytest.mark.slow
 def test_a_demo_leaf_takes_its_channel_s_description(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     from tests.facility.test_cf_view_parity import golden_leaf_sentences
 
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     document, _database = _written(tmp_path, facility)
     channels = {channel["id"]: channel for channel in facility["channels"]}
     sentences = golden_leaf_sentences()
@@ -601,9 +608,7 @@ def test_a_demo_leaf_takes_its_channel_s_description(
 
 
 @pytest.mark.slow
-def test_a_hierarchical_build_writes_the_index(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
+def test_a_hierarchical_build_writes_the_index(built_demo: BuiltProject, tmp_path: Path) -> None:
     """The shared build's deployment rendered selecting hierarchical: that index, no other."""
     from osprey.facility.views.channel_finder import (
         CHANNEL_FINDER_SCHEMA,
@@ -613,7 +618,7 @@ def test_a_hierarchical_build_writes_the_index(
     )
     from tests.facility._built_render import render_built
 
-    written = render_built(built_control_assistant, tmp_path / "render", "hierarchical")
+    written = render_built(built_demo, tmp_path / "render", "hierarchical")
 
     indexes = tmp_path / "render" / "data" / "channel_finder"
     assert indexes / HIERARCHICAL_FILE in written
@@ -644,7 +649,7 @@ def test_a_view_stop_names_the_file_that_states_its_record(
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document(document)
+        hierarchical_document(FacilityRecords(document))
 
     assert (caught.value.kind, caught.value.record_id) == ("view-unsupported", "_LAB:TEMP")
     assert caught.value.sources == sources

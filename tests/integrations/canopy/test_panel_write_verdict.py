@@ -652,7 +652,7 @@ class TestDataKeys:
         assert write is not None and write.read and write.write and not write.admin
         assert write.modules == frozenset({"hare"})
         assert write.allows_module("hare")
-        for module in ("fox", "mole", "vole", "converter"):
+        for module in ("formula-engine", "mole", "vole", "converter"):
             assert not write.allows_module(module)
 
 

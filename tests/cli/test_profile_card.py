@@ -31,6 +31,7 @@ from rich.console import Console
 from osprey.cli.build_profile import (
     GChatBridgeProfileConfig,
     NextcloudBridgeProfileConfig,
+    SlackBridgeProfileConfig,
     TeamsBridgeProfileConfig,
     resolve_build_profile,
 )
@@ -53,7 +54,7 @@ from tests.cli._reporters import ConsoleReporter, installed
 _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 # ---------------------------------------------------------------------------
-# The exemplar: the control-assistant preset, resolved the way `init` resolves
+# The exemplar: the demo preset, resolved the way `init` resolves
 # it, with the layers the materializer parses. Session-scoped: the
 # preset is packaged data, identical for every test here.
 # ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 @pytest.fixture(scope="session")
 def exemplar() -> tuple[BuildProfile, dict]:
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
+    resolved, _preset_dir = resolve_build_profile(None, "demo", (), ())
     texts = _layer_profile_texts(resolved, "Exemplar", "")
     return resolved, _parsed_layer_deltas(texts)
 
@@ -122,7 +123,7 @@ def test_the_card_shows_every_family_the_deployment_publishes(exemplar_lines: li
     """
     ports = line_with(exemplar_lines, "ports (user 0)")
 
-    for family in ("web", "artifact", "ariel", "lattice", "channel finder", "okf", "system health"):
+    for family in ("web", "artifact", "ariel", "channel finder", "okf", "system health"):
         assert family in ports
     assert f"web :{_PORTS['web']}" in ports
     assert f"artifact :{_PORTS['artifact']}" in ports
@@ -365,13 +366,10 @@ def test_the_panels_row_is_the_union_across_renders(exemplar_lines: list[str]) -
     # come from `web.panels.<id>.label` — they are not built-ins.
     # The order is declaration order: the host profile's `web_panels` first, in
     # the order it lists them, then whatever the layers add. JUPYTER
-    # follows SYSTEM because the profile lists `jupyter` after `system-health`,
+    # follows Health because the profile lists `jupyter` after `system-health`,
     # and CANOPY follows JUPYTER because the profile lists `canopy` next.
     panels = line_with(exemplar_lines, "panels")
-    assert (
-        "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · CANOPY · EVENTS · BLUESKY"
-        in panels
-    )
+    assert "LOGBOOK · CHANNELS · KNOWLEDGE · Health · JUPYTER · CANOPY · EVENTS · BLUESKY" in panels
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
@@ -577,13 +575,14 @@ def test_the_services_group_names_every_chat_bridge_the_profile_carries() -> Non
         nextcloud_bridge=NextcloudBridgeProfileConfig(),
         gchat_bridge=GChatBridgeProfileConfig(),
         teams_bridge=TeamsBridgeProfileConfig(),
+        slack_bridge=SlackBridgeProfileConfig(),
     )
     named = [
         row["value"]
         for row in card_rows(profile, {})
         if row["group"] == "services" and row["label"] == "bridge"
     ]
-    assert named == ["Nextcloud Talk", "Google Chat", "Microsoft Teams"]
+    assert named == ["Nextcloud Talk", "Google Chat", "Microsoft Teams", "Slack"]
 
 
 def test_a_profile_without_a_teams_block_gets_no_teams_row() -> None:
@@ -682,7 +681,7 @@ def test_init_prints_the_card_after_its_report(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["init", str(tmp_path / "exemplar"), "--preset", "control-assistant", "--no-git"],
+        ["init", str(tmp_path / "exemplar"), "--preset", "demo", "--no-git"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
@@ -705,19 +704,19 @@ def exemplar_config(lifecycle_repo: Path) -> dict:
     return document["config"]
 
 
-#: The layers the exemplar repo carries: its three tiers, then its three apps.
-_EXEMPLAR_LAYERS = ["admin", "readonly", "readwrite", "channel-finder", "knowledge", "logbook"]
+#: The layers the exemplar repo carries: its six logins, sorted.
+_EXEMPLAR_LAYERS = ["admin", "channel-finder", "knowledge", "logbook", "readonly", "readwrite"]
 
 
 def test_read_layer_deltas_reads_one_delta_per_layer_file(lifecycle_repo: Path) -> None:
     deltas = read_layer_deltas(lifecycle_repo)
 
-    # Keyed by file stem, tiers before apps, sorted within each.
+    # Keyed by file stem, sorted.
     assert list(deltas) == _EXEMPLAR_LAYERS
     # Every one was really read, and it is the file's own content.
     assert all(delta for delta in deltas.values())
     assert deltas["logbook"] == yaml.safe_load(
-        (lifecycle_repo / "apps" / "logbook.yml").read_text(encoding="utf-8")
+        (lifecycle_repo / "tiers" / "logbook.yml").read_text(encoding="utf-8")
     )
     assert deltas["admin"] == yaml.safe_load(
         (lifecycle_repo / "tiers" / "admin.yml").read_text(encoding="utf-8")
@@ -744,8 +743,8 @@ def test_read_layer_deltas_reads_a_layer_file_added_to_the_directory(
     # reports it as well; a dot-file or a nested tree is not a layer.
     (lifecycle_repo / "tiers" / "operator.yml").write_text("provider: cborg\n", encoding="utf-8")
     (lifecycle_repo / "tiers" / ".draft.yml").write_text("provider: x\n", encoding="utf-8")
-    (lifecycle_repo / "apps" / "nested").mkdir()
-    (lifecycle_repo / "apps" / "nested" / "deep.yml").write_text("provider: x\n", encoding="utf-8")
+    (lifecycle_repo / "tiers" / "nested").mkdir()
+    (lifecycle_repo / "tiers" / "nested" / "deep.yml").write_text("provider: x\n", encoding="utf-8")
 
     deltas = read_layer_deltas(lifecycle_repo)
 
@@ -754,7 +753,7 @@ def test_read_layer_deltas_reads_a_layer_file_added_to_the_directory(
 
 
 def test_read_layer_deltas_drops_a_removed_layer(lifecycle_repo: Path) -> None:
-    (lifecycle_repo / "apps" / "logbook.yml").unlink()
+    (lifecycle_repo / "tiers" / "logbook.yml").unlink()
 
     deltas = read_layer_deltas(lifecycle_repo)
 
@@ -782,12 +781,12 @@ def test_read_layer_deltas_refuses_an_unparsable_file(lifecycle_repo: Path) -> N
 def test_read_layer_deltas_refuses_a_file_that_is_not_a_mapping(lifecycle_repo: Path) -> None:
     # Valid YAML, but nothing a delta can be merged from. Carried as an empty
     # delta it would read as a layer that overrides nothing.
-    (lifecycle_repo / "apps" / "knowledge.yml").write_text("- readonly\n", encoding="utf-8")
+    (lifecycle_repo / "tiers" / "knowledge.yml").write_text("- readonly\n", encoding="utf-8")
 
     with pytest.raises(click.ClickException) as excinfo:
         read_layer_deltas(lifecycle_repo)
 
-    assert "apps/knowledge.yml is not a YAML mapping" in str(excinfo.value)
+    assert "tiers/knowledge.yml is not a YAML mapping" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
@@ -1013,14 +1012,14 @@ def test_a_broken_layer_file_never_reaches_the_json_document(
     lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An unparsable layer refuses, and the refusal lands on stderr alone."""
-    (lifecycle_repo / "apps" / "logbook.yml").write_text("- not a mapping\n", encoding="utf-8")
+    (lifecycle_repo / "tiers" / "logbook.yml").write_text("- not a mapping\n", encoding="utf-8")
     monkeypatch.chdir(lifecycle_repo)
 
     result = CliRunner().invoke(cli, ["profile", "card", "--json"], catch_exceptions=False)
 
     assert result.exit_code == 1
     assert result.stdout == ""
-    assert "apps/logbook.yml is not a YAML mapping" in result.stderr
+    assert "tiers/logbook.yml is not a YAML mapping" in result.stderr
 
 
 @pytest.mark.parametrize("mode", [[], ["--json"]], ids=["plain", "json"])

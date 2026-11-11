@@ -9,7 +9,7 @@ notebook kernel read, refuse, follow and survive the way the panel promises?
 
 THE DEPLOYMENT THIS BUILDS
 --------------------------
-One ``osprey up --dev`` of a ``control-assistant`` render, trimmed to one
+One ``osprey up --dev`` of a ``demo`` render, trimmed to one
 roster user (``alice``) on one render that keeps the preset's write gate armed
 and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
@@ -109,11 +109,11 @@ from tests.e2e._deploy_support import (
     runtime_cli,
 )
 from tests.e2e._facility_select import bounded_corrector, repo_view, seeded_readback
-from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
+from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT, knowledge_services_off
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 RUNTIME = "docker"
 
@@ -122,7 +122,7 @@ RUNTIME = "docker"
 PROJECT_NAME = "osprey-e2e-jnb"
 #: The compose project name the web tier's containers are named by.
 PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
-PRESET = "control-assistant"
+PRESET = "demo"
 USER = "alice"
 RENDER = "operator"
 #: ``osprey build`` renders a layer to ``build/<repo>-<render>``, and
@@ -130,7 +130,7 @@ RENDER = "operator"
 RENDER_PROJECT = f"{PROJECT_NAME}-{RENDER}"
 RENDER_IMAGE_TAG = f"{RENDER_PROJECT}:local"
 #: Service images ``osprey up`` builds per project, exact tags for the teardown.
-SERVICE_IMAGE_TAGS = (f"{PROJECT_NAME}-va:local", f"{PROJECT_NAME}-qmd:local")
+SERVICE_IMAGE_TAGS = (f"{PROJECT_NAME}-va:local",)
 
 #: This module's own thousand-port block; every host port follows it.
 PORT_BASE = 24000
@@ -297,29 +297,34 @@ def _profile_edits() -> dict[str, Any]:
     are rewritten in :func:`_shape_repo` instead of stated here: this lane's
     tier is its own file in ``tiers/``, and ``osprey init`` materializes only
     the tiers OSPREY ships, so the roster can name it only once the repo exists.
+    The agent's knowledge services go too (:data:`_orm_stack.KNOWLEDGE_SERVICES_OFF`):
+    the notebook reads none of them, and the record it does read is the
+    agent-record service's own, whichever backend keeps it.
     """
-    return {
-        "config": {
-            "container_runtime": RUNTIME,
-            "system.timezone": "UTC",
-            "deploy.fqdn": "127.0.0.1",
-            PORT_BASE_CONFIG_KEY: PORT_BASE,
-            "control_system.type": "virtual_accelerator",
-            "claude_code.servers.bluesky.enabled": False,
-            "claude_code.servers.health.enabled": False,
-            "modules.web_terminals": {
-                "enabled": True,
-                "image_source": "local",
-                "auth": {"method": "token"},
+    return knowledge_services_off(
+        {
+            "config": {
+                "container_runtime": RUNTIME,
+                "system.timezone": "UTC",
+                "deploy.fqdn": "127.0.0.1",
+                PORT_BASE_CONFIG_KEY: PORT_BASE,
+                "control_system.type": "virtual_accelerator",
+                "claude_code.servers.bluesky.enabled": False,
+                "claude_code.servers.health.enabled": False,
+                "modules.web_terminals": {
+                    "enabled": True,
+                    "image_source": "local",
+                    "auth": {"method": "token"},
+                },
             },
-        },
-        "channel_finder_mode": "hierarchical",
-        "dispatch": None,
-        "services": {},
-        "bluesky": None,
-        "bluesky_web": None,
-        "va_archiver": {"retention_days": 2, "hot_span_hours": 2},
-    }
+            "channel_finder_mode": "hierarchical",
+            "dispatch": None,
+            "services": {},
+            "bluesky": None,
+            "bluesky_web": None,
+            "va_archiver": {"retention_days": 2, "hot_span_hours": 2},
+        }
+    )
 
 
 def _shape_repo(repo: Path) -> None:
@@ -339,6 +344,8 @@ def _shape_repo(repo: Path) -> None:
     # render's `project` / `project_path` from the profile's `project_name` and
     # its file from the tier's name, so the profile spells no catalog.
     terminals["default_tier"] = RENDER
+    # The shared logins' files give way below, so the roster names none of them.
+    terminals["shared"] = []
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
     renders = repo / TIERS_DIRNAME
@@ -364,6 +371,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
             "--preset",
             PRESET,
             "--no-git",
+            *e2e_scenario_pin(PRESET),
             *set_pairs(_profile_edits()),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
@@ -1212,20 +1220,20 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
     hands the update hook the panel token and web port it posts with.
     """
     assert terminal.agent_data_root and terminal.pty_pid
-    settings = json.loads(
-        (terminal.repo / "build" / RENDER_PROJECT / ".claude" / "settings.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    allow = settings["permissions"]["allow"]
-    assert "Edit(var/agent_data/notebooks/**)" in allow, allow
-    assert "Edit(var/agent_data/artifacts/**)" in allow, allow
-    assert not any(a.startswith("NotebookEdit(") for a in allow), allow
-
     agent_env = _process_env(terminal.pty_pid)
     config_path = agent_env["OSPREY_CONFIG"]
     hooks_dir = str(Path(config_path).parent / ".claude" / "hooks")
     project_dir = str(Path(config_path).parent)
+
+    # The rules the agent in the container runs under, read where it reads them:
+    # the image render names the agent-data root by the container's own absolute
+    # path, the one the kernel was handed.
+    settings = json.loads(_exec_text("cat", f"{project_dir}/.claude/settings.json"))
+    allow = settings["permissions"]["allow"]
+    root = terminal.agent_data_root.rstrip("/")
+    assert f"Edit(/{root}/notebooks/**)" in allow, allow
+    assert f"Edit(/{root}/artifacts/**)" in allow, allow
+    assert not any(a.startswith("NotebookEdit(") for a in allow), allow
     hook_env = {
         name: agent_env[name]
         for name in ("OSPREY_PANEL_TOKEN", "OSPREY_WEB_PORT", "OSPREY_CONFIG")

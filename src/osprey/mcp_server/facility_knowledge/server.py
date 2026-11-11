@@ -25,7 +25,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
     # Imported at type-checking time only so the runtime import stays lazy
@@ -117,6 +117,10 @@ _drafts_in_flight: set[str] = set()
 TOUCH_MARKER_NAME = ".qmd-touch"
 
 
+#: The qmd sidecar only stats it for its mtime; no other uid opens it.
+_TOUCH_MARKER_MODE = 0o600
+
+
 def _touch_bundle_marker(root: Path) -> bool:
     """Advance the bundle's :data:`TOUCH_MARKER_NAME` freshness marker.
 
@@ -141,7 +145,7 @@ def _touch_bundle_marker(root: Path) -> bool:
     marker = root / TOUCH_MARKER_NAME
     try:
         text = f"{datetime.now(UTC).isoformat()}\n"
-        atomic_replace(marker, text.encode("utf-8"), mode=0o600, sync="required")
+        atomic_replace(marker, text.encode("utf-8"), mode=_TOUCH_MARKER_MODE, sync="required")
     except OSError as exc:
         logger.warning(
             "draft_concept: could not update freshness marker %s: %s — the search "
@@ -638,12 +642,17 @@ async def draft_concept(
                     ["Use a relative path within the bundle (e.g. 'tables/beam_params')."],
                 )
 
-            # Ensure parent directories exist.
-            target.parent.mkdir(parents=True, exist_ok=True)
+            # A nested id's directories inherit the bundle's setgid group, but
+            # their permission bits would come from the umask.
+            ensure_shared_dir(target.parent)
 
             # Replaced whole, so a concurrent reader never sees a half-written
-            # doc. atomic_replace is synchronous: no await point opens here.
-            atomic_replace(target, doc.serialize().encode("utf-8"), mode=0o600, sync="required")
+            # doc. atomic_replace is synchronous: no await point opens here. Read
+            # by every entitled web-terminal container, each under its own uid,
+            # through the bundle's setgid group.
+            atomic_replace(
+                target, doc.serialize().encode("utf-8"), mode=SHARED_FILE_MODE, sync="required"
+            )
 
             # Advance the freshness marker so a search sidecar re-indexes the
             # bundle promptly instead of waiting out its full fallback sweep.

@@ -68,6 +68,11 @@ _PROFILE_OWNED_KEYS: dict[str, str] = {
     "users": "the profile's `config:` key `modules.web_terminals.users`",
     RETIRED_CATALOG_KEY: "one file per tier in `tiers/` and per app in `apps/` beside profile.yml",
     RETIRED_DEFAULT_TIER_KEY: "the profile's `config:` key `modules.web_terminals.default_tier`",
+    "ci_image_prefix": (
+        "the profile's `config:` key `images.base_registry`, the registry standing in for "
+        "docker.io (it keeps Docker Hub's paths, so the jobs pull `library/python:3.12-slim` "
+        "from it)"
+    ),
 }
 
 #: Environment declarations have one channel for the whole profile, so the
@@ -101,9 +106,7 @@ REGISTRY_URL_CONFIG_KEY = "registry.url"
 #: (``_inject_dispatch``), and so where the lint view carries it.
 DISPATCH_TIER_CONFIG_KEY = "services.dispatch_worker.tier"
 
-_KNOWN_DEPLOY_KEYS = frozenset(
-    {"ci", "ci_image_prefix", "registry", "host", "image_source", "external_projects"}
-)
+_KNOWN_DEPLOY_KEYS = frozenset({"ci", "registry", "host", "image_source", "external_projects"})
 _KNOWN_REGISTRY_KEYS = frozenset({"url", "token_env_var"})
 _KNOWN_HOST_KEYS = frozenset({"name", "fqdn", "user", "project_path"})
 _KNOWN_EXTERNAL_PROJECT_KEYS = frozenset({"name", "url", "image", "token_env_var"})
@@ -154,11 +157,6 @@ class DeployConfig:
     host: DeployHost
     registry: DeployRegistry | None = None
     image_source: str = "registry"
-    ci_image_prefix: str = ""
-    """Where the pipeline pulls its own base images from — the mirror that
-    stands in for Docker Hub on a runner with no route to it. Normalised to end
-    in ``/`` so the template concatenates, empty when the profile says
-    nothing."""
     external_projects: list[ExternalProject] = field(default_factory=list)
 
 
@@ -193,7 +191,6 @@ def parse_deploy_block(raw: dict[str, Any]) -> DeployConfig | None:
     _reject_unknown_deploy_keys(block, problems)
 
     ci = _parse_ci(block, problems)
-    ci_image_prefix = _parse_ci_image_prefix(block, problems)
     image_source = _parse_image_source(block, problems)
     registry = _parse_registry(block, image_source, problems)
     host = _parse_host(block, problems)
@@ -211,7 +208,6 @@ def parse_deploy_block(raw: dict[str, Any]) -> DeployConfig | None:
         host=host,
         registry=registry,
         image_source=image_source,
-        ci_image_prefix=ci_image_prefix,
         external_projects=external_projects,
     )
 
@@ -759,7 +755,7 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
             f"a dotted custom type as its own map key:\n"
             f"  config:\n"
             f"    control_system.connector:\n"
-            f"      mypkg.MoatConnector:\n"
+            f"      mypkg.SiteConnector:\n"
             f"        limits_checking:\n"
             f"          enabled: true\n"
             f"          mode: exclusive"
@@ -929,10 +925,10 @@ def _mixed_depth_control_system_errors(config: Mapping[str, Any]) -> list[str]:
     Exactly that pair, and no deeper one. A deeper pair —
     ``control_system.connector:`` holding one type's block beside
     ``control_system.connector.epics.gateways`` — renders correctly
-    today: :func:`~osprey.utils.config_writer._set_dotted_anchored` runs with
-    ``create_only=True``, so it walks INTO whatever an existing intermediate
-    key holds rather than replacing it, and the two entries merge. Refusing
-    those would refuse profiles the build already honours.
+    today: :func:`~osprey.utils.config_writer._set_dotted_anchored` walks
+    INTO whatever an existing intermediate key holds rather than replacing it,
+    and the two entries merge. Refusing those would refuse profiles the build
+    already honours.
 
     The bare key is the one that does not merge. It is a top-level ``config:``
     entry with no dots to walk, so the render assigns its value verbatim at
@@ -1063,31 +1059,6 @@ def _parse_ci(block: dict[str, Any], problems: list[str]) -> str | None:
         )
         return None
     return ci
-
-
-def _parse_ci_image_prefix(block: dict[str, Any], problems: list[str]) -> str:
-    """Read ``ci_image_prefix``, the mirror the pipeline pulls base images from.
-
-    A sibling of ``ci:`` rather than a key under it, because ``ci`` names the
-    platform as a string and refuses a mapping outright (:func:`_parse_ci`).
-
-    The value is returned already shaped as a PREFIX — trailing slash when
-    there is one, empty string when the profile declares none — so the template
-    concatenates rather than re-deriving whether a separator is needed, exactly
-    as ``images.registry`` is resolved for compose.
-    """
-    value = block.get("ci_image_prefix")
-    if value is None:
-        return ""
-    if not isinstance(value, str) or isinstance(value, bool):
-        problems.append(
-            f"'ci_image_prefix' must be a string naming a registry and path "
-            f"(got {type(value).__name__}) — it is concatenated in front of the "
-            f"pipeline's base images, so it carries no scheme and no tag."
-        )
-        return ""
-    trimmed = value.strip()
-    return f"{trimmed.rstrip('/')}/" if trimmed else ""
 
 
 def _parse_image_source(block: dict[str, Any], problems: list[str]) -> str:

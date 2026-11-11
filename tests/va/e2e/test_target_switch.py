@@ -68,7 +68,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.audit.posture import posture_session
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, posture_session
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
@@ -83,7 +83,7 @@ from osprey.mcp_server.control_system.server_context import (
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.workspace import reset_config_cache
@@ -352,7 +352,7 @@ def state_root(tmp_path, monkeypatch):
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     control_context.invalidate_cache()
     write_control_context(
         root, target="live", generation=0, owned_by=None, switch={"live": "asked", "va": "asked"}

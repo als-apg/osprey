@@ -15,45 +15,34 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import fnmatch
 import functools
-import importlib.util
 import json
 import os
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
 import yaml
 
+from tests import _canopy_contract, _wallclock_files
+from tests.scripts import _check_script
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
-
-def _load(relative: str, name: str) -> ModuleType:
-    # import-time required because scripts/ is not a package: each module is
-    # loaded by path, under a name no import uses, and registered in
-    # sys.modules before exec so @dataclass can resolve annotations through
-    # cls.__module__.
-    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / relative)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-check = _load("scripts/check.py", "_check_by_path")
+check = _check_script.check
 fw = check.FRAMEWORK
 kit = check.kit
-canopy_contract = _load("tests/_canopy_contract.py", "_canopy_contract_by_path")
+canopy_contract = _canopy_contract
 
 #: The CANOPY integration's checks module.
 CANOPY_MODULE = "src/osprey/integrations/canopy/repo_checks.py"
@@ -131,7 +120,14 @@ def malformed(checks: tuple[Any, ...]) -> list[str]:
             problems.append(f"{c.id}: unknown tier in {sorted(c.tiers)}")
         problems += [
             f"{c.id}: unknown need {need}"
-            for need in c.needs
+            for need in (
+                *c.needs,
+                *(
+                    c.selected_needs(check.Selection(check.WHOLE), check.Context())
+                    if c.selected_needs
+                    else ()
+                ),
+            )
             if need != "base" and need not in check.NEED_PROBES
         ]
         if c.venue and c.venue not in check.VENUES:
@@ -192,27 +188,44 @@ def test_the_check_ids_are_the_public_names() -> None:
         "eslint",
         "prettier",
         "actionlint",
+        "hand-typed-sweeps",
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-wallclock-unit",
         "readonly-warmups-py314",
         "live-ca",
         "vitest",
+        "app-check-js",
         "docs",
         "linkcheck",
         "package",
+        "connectors-public-names",
         "canopy-marker",
         "canopy-contract",
     ]
     assert [c.id for c in check.CHECKS if "quick" not in c.tiers] == [
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-wallclock-unit",
         "readonly-warmups-py314",
         "live-ca",
+        "app-check-js",
         "docs",
         "linkcheck",
         "package",
     ]
+
+
+def test_the_js_check_lane_opens_the_test_it_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OSPREY_JS_CHECK", "0")  # Puts the variable back after the test.
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+
+    assert BY_ID["app-check-js"].prepare(None) == 0
+
+    assert os.environ["OSPREY_JS_CHECK"] == "1"
 
 
 #: Modules whose import is a read of the whole tests tree.
@@ -225,19 +238,67 @@ _ROOT_WALKERS = frozenset({"text_files"})
 _Value = tuple[str, Any]
 
 
+def _import_names(node: ast.Import | ast.ImportFrom, here: tuple[str, ...]) -> list[str]:
+    """The dotted names one import statement in the module at repo-relative parts *here* binds.
+
+    A relative import resolves against the module's own package; ``from X import a``
+    names both ``X`` and ``X.a``, since ``a`` may be a module or a name in ``X``.
+    """
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    package = list(here[:-1])[: len(here) - node.level] if node.level else []
+    base = ".".join([*package, *([node.module] if node.module else [])])
+    return [base, *(f"{base}.{alias.name}" for alias in node.names)]
+
+
+def _module_file(name: str, root: Path) -> Path | None:
+    """The file under *root* that the ``tests`` module *name* loads, or None."""
+    if name != "tests" and not name.startswith("tests."):
+        return None
+    parts = name.split(".")
+    for candidate in (
+        root.joinpath(*parts).with_suffix(".py"),
+        root.joinpath(*parts, "__init__.py"),
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _imported_modules(
+    source: str, here: tuple[str, ...], *, root: Path = REPO_ROOT, follow: bool = False
+) -> frozenset[str]:
+    """Every dotted name *source*, the module at repo-relative parts *here*, imports.
+
+    With *follow*, the names each imported ``tests`` module under *root* imports
+    are added too, transitively; a module already read is not read again, so a
+    cycle ends.
+    """
+    names: set[str] = set()
+    visited: set[Path] = set()
+    pending: list[tuple[str, tuple[str, ...]]] = [(source, here)]
+    while pending:
+        text, parts = pending.pop()
+        for node in ast.walk(ast.parse(text)):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            for name in _import_names(node, parts):
+                names.add(name)
+                if not follow or (path := _module_file(name, root)) is None or path in visited:
+                    continue
+                visited.add(path)
+                pending.append((path.read_text(encoding="utf-8"), path.relative_to(root).parts))
+    return frozenset(names)
+
+
 def _imports_a_tree_reader(tree: ast.Module, here: tuple[str, ...]) -> bool:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            if any(alias.name in _TREE_READER_MODULES for alias in node.names):
-                return True
-        elif isinstance(node, ast.ImportFrom):
-            package = list(here[:-1])[: len(here) - node.level] if node.level else []
-            base = ".".join([*package, *([node.module] if node.module else [])])
-            if base in _TREE_READER_MODULES:
-                return True
-            if any(f"{base}.{alias.name}" in _TREE_READER_MODULES for alias in node.names):
-                return True
-    return False
+    """Whether *tree* imports a tree-reader module itself; a helper that does is not followed."""
+    return any(
+        name in _TREE_READER_MODULES
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for name in _import_names(node, here)
+    )
 
 
 def _resolve(node: ast.expr, env: dict[str, _Value | None], here: tuple[str, ...]) -> _Value | None:
@@ -492,6 +553,155 @@ def test_a_tree_reader_left_out_of_the_invariant_tests_is_named(reader: str) -> 
     assert _tree_readers_outside(tuple(p for p in INVARIANT_TESTS if p != reader)) == [reader]
 
 
+#: The container starters every recipe calls; a helper module that spells one
+#: of them is a container recipe.
+CONTAINER_STARTERS = ("start_or_skip(", "start_or_fail(")
+
+#: The markers that say a test needs a container engine. Their source is
+#: ``[tool.pytest.ini_options].markers`` in ``pyproject.toml``.
+ENGINE_MARKERS = ("dockerbuild", "e2e_services")
+
+
+def _container_recipes() -> frozenset[str]:
+    """The dotted names of the helper modules under ``tests/`` that start a container."""
+    found = set()
+    for path in (REPO_ROOT / "tests").rglob("_*.py"):
+        if "__pycache__" in path.parts or path.name.startswith("__"):
+            continue
+        if any(starter in path.read_text(encoding="utf-8") for starter in CONTAINER_STARTERS):
+            found.add(".".join(path.relative_to(REPO_ROOT).with_suffix("").parts))
+    return frozenset(found)
+
+
+def _is_engine_marker(node: ast.AST) -> bool:
+    """Whether *node* is ``pytest.mark.<engine marker>``."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr in ENGINE_MARKERS
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+    )
+
+
+def _engine_reaches(
+    source: str,
+    recipes: frozenset[str] | None = None,
+    *,
+    here: tuple[str, ...] = ("tests", "test_sample.py"),
+    root: Path = REPO_ROOT,
+) -> list[str]:
+    """Every place *source*, the module at repo-relative parts *here*, reaches a
+    container engine: an import of a recipe, directly, relatively or through a
+    ``tests`` helper that imports one, or an engine marker."""
+    recipes = _container_recipes() if recipes is None else recipes
+    reaches = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and _is_engine_marker(node):
+            reaches.append(f"line {node.lineno}: applies pytest.mark.{node.attr}")
+            continue
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        for name in _import_names(node, here):
+            if name in recipes:
+                reaches.append(f"line {node.lineno}: imports {name}")
+            elif (path := _module_file(name, root)) is not None:
+                closure = _imported_modules(
+                    path.read_text(encoding="utf-8"),
+                    path.relative_to(root).parts,
+                    root=root,
+                    follow=True,
+                )
+                reaches.extend(
+                    f"line {node.lineno}: imports {name}, which imports {recipe}"
+                    for recipe in sorted(closure & recipes)
+                )
+    return sorted(reaches)
+
+
+def test_no_invariant_test_reaches_a_container_engine() -> None:
+    """The invariant-tests check runs on every host, so a file it names imports no
+    container recipe and carries no engine marker."""
+    recipes = _container_recipes()
+    reaching = {
+        path: found
+        for path in fw.INVARIANT_TESTS
+        if (
+            found := _engine_reaches(
+                (REPO_ROOT / path).read_text(encoding="utf-8"), recipes, here=Path(path).parts
+            )
+        )
+    }
+    assert reaching == {}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import tests._mongo_container\n",
+        "from tests import _graphdb_container\n",
+        "import pytest\n\n@pytest.mark.dockerbuild\ndef test_x():\n    pass\n",
+    ],
+    ids=["imports-a-recipe", "imports-a-recipe-from-its-package", "carries-an-engine-marker"],
+)
+def test_a_source_that_reaches_a_container_engine_is_named(source: str) -> None:
+    assert _engine_reaches(source) != []
+
+
+@pytest.mark.parametrize(
+    ("source", "reaches"),
+    [
+        ("from .. import _rec\n", True),
+        ("import tests._helper\n", True),
+        ("from .._helper import x\n", True),
+        ("import tests._cycle_a\n", True),
+        ("import tests._plain\n", False),
+    ],
+    ids=[
+        "relative-import-of-a-recipe",
+        "helper-that-imports-a-recipe",
+        "relative-helper",
+        "helper-cycle",
+        "helper-without-a-recipe",
+    ],
+)
+def test_a_relative_or_helper_import_of_a_recipe_is_named(
+    tmp_path: Path, source: str, reaches: bool
+) -> None:
+    tests = tmp_path / "tests"
+    (tests / "sub").mkdir(parents=True)
+    modules = {
+        "__init__.py": "",
+        "sub/__init__.py": "",
+        "_rec.py": "start_or_skip(None)\n",
+        "_helper.py": "from tests import _rec\n",
+        "_cycle_a.py": "import tests._cycle_b\n",
+        "_cycle_b.py": "import tests._cycle_a\nimport tests._rec\n",
+        "_plain.py": "import json\n",
+    }
+    for name, text in modules.items():
+        (tests / name).write_text(text)
+    found = _engine_reaches(
+        source, frozenset({"tests._rec"}), here=("tests", "sub", "test_x.py"), root=tmp_path
+    )
+    assert (found != []) is reaches
+    assert all("tests._rec" in line for line in found)
+
+
+def test_an_engine_marker_spelled_as_text_reaches_nothing() -> None:
+    assert _engine_reaches('NEEDLE = "pytest.mark.dockerbuild"\n') == []
+
+
+def test_each_engine_marker_is_declared() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = {
+        line.split(":", 1)[0].split("(", 1)[0].strip()
+        for line in pyproject["tool"]["pytest"]["ini_options"]["markers"]
+    }
+    assert set(ENGINE_MARKERS) <= declared
+
+
 def test_the_need_probes_of_the_new_toolchains_name_their_install(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -565,6 +775,18 @@ def test_the_tree_reader_rule_follows_where_a_name_is_bound(body: str, reads: bo
     assert _source_reads_the_tests_tree(_PREAMBLE + body, ("tests", "test_sample.py")) is reads
 
 
+def test_the_tree_reader_question_reads_direct_imports_only(tmp_path: Path) -> None:
+    """Importing a helper that imports the tree reader does not walk the tree: only
+    the test's own import of the reader marks it (``tests._text_sweep``)."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "__init__.py").write_text("")
+    (tmp_path / "tests" / "_helper.py").write_text("import tests._tree_scan\n")
+    source = "import tests._helper\n"
+    here = ("tests", "test_x.py")
+    assert "tests._tree_scan" in _imported_modules(source, here, root=tmp_path, follow=True)
+    assert not _imports_a_tree_reader(ast.parse(source), here)
+
+
 def test_every_literal_scope_path_exists() -> None:
     scopes = (
         *(c.scope for c in check.CHECKS),
@@ -582,9 +804,9 @@ def test_every_ignored_path_exists_and_has_a_host() -> None:
 
 
 def test_an_ignore_whose_host_is_gone_is_reported() -> None:
-    without = tuple(lane for lane in check.LANES if lane.job != "channel-finder-benchmarks")
+    without = tuple(lane for lane in check.LANES if lane.job != "build-boot-smoke")
     assert unhosted(fw.UNIT_SELECTION, check.CHECKS, without) == [
-        "tests/services/channel_finder/graph_index/test_scale.py"
+        "tests/integration/test_build_boot.py"
     ]
 
 
@@ -604,7 +826,8 @@ def test_every_required_ci_job_is_a_caller_or_a_lane() -> None:
     assert [job for job in (*lanes, *check.CALLER_JOBS) if job not in jobs] == []
     required = jobs["all-checks-passed"]["needs"]
     assert sorted(set(required) - set(lanes) - set(check.CALLER_JOBS)) == []
-    assert set(lanes) - set(required) == {"channel-finder-benchmarks"}
+    # The warm-up runs on main pushes only, so a revalidation dispatch would read it as a skipped lane.
+    assert set(lanes) - set(required) == {"benchmarks", "qmd-cache-warmup"}
 
 
 # ---------------------------------------------------------------------------
@@ -642,7 +865,6 @@ SWEEP_IGNORES = [
     "--ignore=tests/e2e",
     "--ignore=tests/va/test_apply_fault.py",
     "--ignore=tests/va/test_lume_pva_seam.py",
-    "--ignore=tests/services/channel_finder/graph_index/test_scale.py",
     "--ignore=tests/integration/test_build_boot.py",
     "--ignore=tests/integration/test_preset_static.py",
     "--ignore=tests/integration/test_preset_build.py",
@@ -650,15 +872,39 @@ SWEEP_IGNORES = [
 
 #: The sweep each shard selects: its paths, then everything it ignores.
 SHARD_SELECTIONS = {
-    "cli": ["tests/cli", *SWEEP_IGNORES],
-    "rest-a": ["tests/facility", "tests/mcp_server", "tests/deployment", *SWEEP_IGNORES],
+    "cli-a": ["tests/cli", "--ignore-glob=tests/cli/test_[!a-h]*", *SWEEP_IGNORES],
+    "cli-b": [
+        "tests/cli",
+        "--ignore=tests/cli/templates",
+        "--ignore-glob=tests/cli/test_[a-h]*",
+        *SWEEP_IGNORES,
+    ],
+    "rest-a": ["tests/facility", "tests/deployment", *SWEEP_IGNORES],
     "rest-b": [
         "tests/",
         "packages/osprey-connectors/tests",
         "--ignore=tests/cli",
         "--ignore=tests/facility",
-        "--ignore=tests/mcp_server",
         "--ignore=tests/deployment",
+        "--ignore=tests/interfaces",
+        "--ignore=tests/mcp_server",
+        "--ignore=tests/scripts",
+        "--ignore=tests/hooks",
+        "--ignore=tests/agent_record",
+        "--ignore=tests/infrastructure",
+        "--ignore=tests/docs",
+        "--ignore=tests/templates",
+        *SWEEP_IGNORES,
+    ],
+    "rest-c": [
+        "tests/interfaces",
+        "tests/mcp_server",
+        "tests/scripts",
+        "tests/hooks",
+        "tests/agent_record",
+        "tests/infrastructure",
+        "tests/docs",
+        "tests/templates",
         *SWEEP_IGNORES,
     ],
 }
@@ -729,7 +975,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
             *selection,
             *SWEEP_MARKER,
             *CI_UNIT_EXEC_FLAGS,
-            *("--dist", "loadgroup"),
+            *fw.UNIT_SELECTION.dist,
             *pytest_report("pytest"),
         ]
     (pty,) = run("pytest-pty", "--", "-v", "--tb=short")
@@ -749,6 +995,16 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         *("pytest", "tests/integration", "-m", "wallclock"),
         *pytest_report("pytest-wallclock"),
     ]
+    (wallclock_unit,) = run("pytest-wallclock-unit")
+    marked = fw.wallclock_unit_files()
+    assert "tests/scripts/test_run_bounded.py" in marked, marked
+    assert after_bound(wallclock_unit) == [
+        *fw.UV_RUN,
+        "pytest",
+        *marked,
+        *("-m", "wallclock"),
+        *pytest_report("pytest-wallclock-unit"),
+    ]
     assert run("live-ca") == [[*fw.UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"]]
 
     assert run("docs") == [[*fw.UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"]]
@@ -759,6 +1015,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     assert (REPO_ROOT / fw.DOCS_HTML).parent.parent == REPO_ROOT / BY_ID["docs"].workdir
 
     lean, pyaml = "{scratch}/lean/bin/python", "{scratch}/pyaml/bin/python"
+    optimizer = "{scratch}/optimizer/bin/python"
     assert run("package") == [
         ["uv", "build"],
         ["uvx", "twine", "check", "dist/*"],
@@ -766,6 +1023,13 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ["uv", "venv", "{scratch}/lean", "--python", "3.11"],
         ["uv", "pip", "install", "--python", lean, "dist/osprey_connectors-*.whl"],
         [lean, "-I", fw.LEAN_IMPORT_WALK],
+        ["uv", "build", "--package", "osprey-optimizer"],
+        ["uv", "venv", "{scratch}/optimizer", "--python", "3.11"],
+        [
+            *("uv", "pip", "install", "--python", optimizer, "dist/osprey_connectors-*.whl"),
+            "dist/osprey_optimizer-*.whl",
+        ],
+        [optimizer, "-c", fw.OPTIMIZER_BASE_PROBE],
         ["uv", "build", "--package", "pyaml-cs-osprey"],
         ["uv", "venv", "{scratch}/pyaml", "--python", "3.11"],
         [
@@ -774,6 +1038,119 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ],
         [pyaml, "-c", fw.PYAML_WHEEL_PROBE],
     ]
+
+
+# The image-free wall-clock budgets collect only the files a scan of the tree
+# finds, not the whole tree. A scan can miss a marker applied out of sight, so
+# the root conftest stops any run that collects a marked test in a file the scan
+# does not name, and the scanned files are held to hold a marked test each.
+
+wallclock_files = _wallclock_files
+
+
+def test_the_wallclock_scan_reads_each_way_a_file_applies_the_marker() -> None:
+    def read(source: bytes) -> bool:
+        # The marker is filled in here, so this file is no carrier to the scans
+        # that read the tree.
+        mark = b"pytest.mark." + wallclock_files.MARKER.encode()
+        return wallclock_files.MARK_RE.search(source.replace(b"MARK", mark)) is not None
+
+    assert read(b"@MARK\ndef test_x(): ...\n")
+    assert read(b"    @MARK\n    def test_x(self): ...\n")
+    assert read(b"pytestmark = MARK\n")
+    assert read(b"pytestmark = [pytest.mark.slow, MARK]\n")
+    assert read(b"pytestmark = [\n    pytest.mark.slow,\n    MARK,\n]\n")
+    # Spelled in a string or a comment, the marker applies to nothing.
+    assert not read(b'src = "pytestmark = [MARK]"\n')
+    assert not read(b"# carries @MARK elsewhere\n")
+    assert not read(b"@MARK_free\n")
+
+
+def test_the_wallclock_scan_finds_exactly_the_files_that_mark_a_test() -> None:
+    """Each file the scan names holds a test pytest gives the marker. Collected
+    by the check's own selection, alone, so it costs the scanned files only.
+    ``-qq`` against addopts' ``-v`` prints one node id per line."""
+    marked = fw.wallclock_unit_files()
+    assert marked, "the scan finds no wallclock file; the marker or the scan is gone"
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-qq", "-p", "no:cacheprovider"]
+        + [*marked, "-m", "wallclock"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+    selected = {line.split("::", 1)[0] for line in out.stdout.splitlines() if "::" in line}
+    assert selected == set(marked)
+
+
+def _item(path: Path, marked: bool) -> Any:
+    marker = getattr(pytest.mark, wallclock_files.MARKER).mark if marked else None
+
+    class Item:
+        keywords: dict[str, object] = {}
+
+        def __init__(self) -> None:
+            self.path = path
+
+        def get_closest_marker(self, name: str) -> object:
+            return marker if name == "wallclock" else None
+
+    return Item()
+
+
+@pytest.fixture()
+def root_conftest(pytestconfig: pytest.Config) -> Any:
+    """The root conftest pytest loaded, taken from the plugin manager rather
+    than imported: an import here would be a second copy of its module."""
+    path = REPO_ROOT / "tests" / "conftest.py"
+    (plugin,) = [
+        p
+        for p in pytestconfig.pluginmanager.get_plugins()
+        if getattr(p, "__file__", None) == str(path)
+    ]
+    return plugin
+
+
+def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses(root_conftest: Any) -> None:
+    """The root conftest's collection hook reads the marks pytest applied,
+    before ``-m`` deselects them, so the sweep that hands the marker away is
+    where a marker applied out of the scan's sight is caught."""
+    carrier = REPO_ROOT / "tests/scripts/test_run_bounded.py"
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(carrier, True), _item(CI_YML, False)]
+    )
+
+
+def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses__mutation_marks_out_of_sight(
+    root_conftest: Any,
+) -> None:
+    unscanned = Path(__file__).resolve()
+    assert not wallclock_files.carries_marker(unscanned), "this file carries it; stale"
+    with pytest.raises(pytest.UsageError, match=r"tests/scripts/test_check\.py holds a wallclock"):
+        root_conftest.pytest_collection_modifyitems_wallclock_guard([_item(unscanned, True)])
+
+
+def test_a_run_stops_on_a_marked_test__the_excluded_trees_are_left_to_their_checks(
+    root_conftest: Any,
+) -> None:
+    sidecar = REPO_ROOT / "tests/integration/test_suite_exit_bound.py"
+    elsewhere = REPO_ROOT / "packages/osprey-connectors/tests/conftest.py"
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(sidecar, True), _item(elsewhere, True)]
+    )
+
+
+def test_the_wallclock_guard_is_a_collection_hook_pytest_calls(
+    pytestconfig: pytest.Config, root_conftest: Any
+) -> None:
+    """The guard has a name of its own, so it is wired by ``specname``; without
+    it pytest would never call the guard and the tests above would still pass."""
+    hook = pytestconfig.pluginmanager.hook.pytest_collection_modifyitems
+    called = [impl.function for impl in hook.get_hookimpls() if impl.plugin is root_conftest]
+    assert root_conftest.pytest_collection_modifyitems_wallclock_guard in called, called
+    assert root_conftest.pytest_collection_modifyitems in called, called
 
 
 def test_a_dropped_ignore_changes_the_sweep() -> None:
@@ -797,10 +1174,24 @@ def test_the_shards_cover_the_sweep_roots_exactly_once() -> None:
             name
             for name, (paths, ignores) in unit.shards.items()
             if any(relative == p.rstrip("/") or relative.startswith(p) for p in paths)
-            and not any(relative == i or relative.startswith(i + "/") for i in ignores)
+            and not any(
+                relative == i or relative.startswith(i + "/") or fnmatch.fnmatch(relative, i)
+                for i in ignores
+            )
         ]
 
-    assert {top: owners(top) for top in tops if len(owners(top)) != 1} == {}
+    # A directory two shards split by file name holds each of its test files once.
+    split = {top for top in tops if len(owners(top)) > 1}
+    files = [
+        path.as_posix()
+        for top in split
+        for path in Path(top).rglob("test_*.py")
+        if "__pycache__" not in path.parts
+    ]
+    assert "tests/cli" in {Path(top).relative_to(REPO_ROOT).as_posix() for top in split}
+    assert {
+        path: owners(path) for path in [*files, *(set(tops) - split)] if len(owners(path)) != 1
+    } == {}
     assert fw.unit_argv("full") == [*unit.roots, *SWEEP_IGNORES, *SWEEP_MARKER]
 
 
@@ -815,9 +1206,9 @@ def test_the_shards_cover_the_sweep_roots__mutation_drops_an_ignore() -> None:
     assert "--ignore=tests/cli" not in selection
 
 
-#: Files the macOS trim must keep, with what each exercises that ubuntu
-#: cannot answer for. Not the whole kept set: the slow ones a later trim is
-#: most likely to reach for.
+#: Files the macOS subset must run, whole or in part, with what each exercises
+#: that ubuntu cannot answer for. Not the whole list: the slow ones a later
+#: cut is most likely to reach for.
 MACOS_KEEPS = {
     "tests/test_offline_build_env.py": "the one real venv install (arm64 wheels)",
     "tests/connectors/ipc/test_pool.py": "child spawn, SIGKILL and replace",
@@ -839,120 +1230,235 @@ MACOS_KEEPS = {
 }
 
 
-def test_the_macos_trim_is_the_whole_sweep_minus_its_files() -> None:
+def test_the_macos_subset_runs_its_list_alone() -> None:
     unit = fw.UNIT_SELECTION
-    trimmed = [f"--ignore={path}" for path in unit.trims["macos"]]
     assert fw.unit_argv("full", shard="macos") == [
-        *unit.roots,
-        *trimmed,
+        *unit.subsets["macos"],
         *SWEEP_IGNORES,
         *SWEEP_MARKER,
     ]
+    # A path would replace the list, not narrow it.
+    with pytest.raises(ValueError, match="takes no paths"):
+        fw.unit_argv("full", ["tests/cli"], shard="macos")
 
 
-def test_the_macos_trim_names_existing_test_files_the_sweep_runs() -> None:
-    # pytest silently accepts an --ignore of a missing path, so a rename would
-    # void the entry unnoticed; a directory would trim files nobody read.
-    unit = fw.UNIT_SELECTION
-    trimmed = unit.trims["macos"]
+#: The function and class names pytest collects, as pyproject declares them.
+COLLECTED = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"][
+    "pytest"
+]["ini_options"]
+
+
+def _collects(option: str, name: str) -> bool:
+    return any(name.startswith(p) or fnmatch.fnmatchcase(name, p) for p in COLLECTED[option])
+
+
+def _tests(source: str) -> dict[str, ast.AST]:
+    """Every test function, class and method pytest collects from a module, by
+    the name its node ID spells."""
+    tests: dict[str, ast.AST] = {}
+
+    def walk(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                if _collects("python_functions", node.name):
+                    tests[prefix + node.name] = node
+            elif isinstance(node, ast.ClassDef) and _collects("python_classes", node.name):
+                tests[prefix + node.name] = node
+                walk(node.body, f"{prefix}{node.name}::")
+
+    walk(ast.parse(source).body, "")
+    return tests
+
+
+def _unresolved(entries: Sequence[str], unit: Any = fw.UNIT_SELECTION) -> list[str]:
+    """The entries that name no collected test file under the roots, or a test it
+    does not hold."""
     swept = {path for path, _lane in unit.ignores}
-    assert len(set(trimmed)) == len(trimmed)
-    assert [p for p in trimmed if not (REPO_ROOT / p).is_file()] == []
-    assert [p for p in trimmed if not Path(p).name.startswith("test_")] == []
-    assert [p for p in trimmed if p in swept or p.startswith("tests/e2e/")] == []
+    roots = tuple(root.rstrip("/") + "/" for root in unit.roots)
+    missing = []
+    for entry in entries:
+        path, _, name = entry.partition("::")
+        file = REPO_ROOT / path
+        if (
+            not path.startswith(roots)
+            or not file.is_file()
+            or not fw._is_pytest_file(file.name)
+            or fw._hosted_outside_sweep(path)
+            or path in swept
+            or (name and name not in _tests(file.read_text(encoding="utf-8")))
+        ):
+            missing.append(entry)
+    return missing
 
 
-def _trimmed_keeps(unit: Any) -> dict[str, str]:
-    """The keeps the macOS selection of *unit* leaves out, with why each matters."""
-    selection = fw.unit_argv("full", shard="macos", unit=unit)
-    return {p: why for p, why in MACOS_KEEPS.items() if f"--ignore={p}" in selection}
+def _parents(entry: str) -> list[str]:
+    """The file and classes whose selection selects *entry*."""
+    parts = entry.split("::")
+    return ["::".join(parts[:i]) for i in range(1, len(parts))]
 
 
-def test_the_macos_trim_keeps_what_macos_can_answer() -> None:
+def _covered_twice(entries: Sequence[str]) -> list[str]:
+    """The entries another entry already selects: a file's or a class's own tests."""
+    listed = set(entries)
+    return [entry for entry in entries if listed.intersection(_parents(entry))]
+
+
+def test_the_macos_subset_names_tests_that_exist() -> None:
+    # pytest refuses a node ID it cannot find, but only once the cell runs on
+    # macOS; a file or class and its own tests both listed would run them twice.
+    listed = fw.UNIT_SELECTION.subsets["macos"]
+    assert len(set(listed)) == len(listed)
+    assert [e for e in listed if "[" in e] == []
+    assert _covered_twice(listed) == []
+    assert _unresolved(listed) == []
+
+
+def test_the_macos_subset_names_tests_that_exist__mutation_renames_a_test() -> None:
+    pool = "tests/connectors/ipc/test_pool.py"
+    unit = fw.UNIT_SELECTION
+    entries = (pool, f"{pool}::test_no_such_test", f"{pool}::spawns", "tests/test_no_such_file.py")
+    assert _unresolved(entries) == list(entries[1:])
+    connectors = (
+        "packages/osprey-connectors/tests/osprey_connectors_tests/test_write_authorization.py"
+    )
+    assert _unresolved((connectors,)) == []
+    assert _unresolved((connectors,), dataclasses.replace(unit, roots=("tests/",))) == [connectors]
+    stores = (
+        "tests/stores/test_artifact_two_file_entries.py::TestOutsideStoreDirectoryIsNeverUnlinked"
+    )
+    method = f"{stores}::test_symlinked_companion_escaping_the_store_survives"
+    assert _covered_twice((stores, method, pool, f"{pool}::test_x")) == [method, f"{pool}::test_x"]
+
+
+def _dropped_keeps(unit: Any) -> dict[str, str]:
+    """The keeps the macOS selection of *unit* runs no test of, with why each matters."""
+    paths = {entry.partition("::")[0] for entry in fw.unit_argv("full", shard="macos", unit=unit)}
+    return {p: why for p, why in MACOS_KEEPS.items() if p not in paths}
+
+
+def test_the_macos_subset_keeps_what_macos_can_answer() -> None:
     assert [p for p in MACOS_KEEPS if not (REPO_ROOT / p).is_file()] == []
-    assert _trimmed_keeps(fw.UNIT_SELECTION) == {}
+    assert _dropped_keeps(fw.UNIT_SELECTION) == {}
 
 
-def test_the_macos_trim_keeps_what_macos_can_answer__mutation_trims_a_keep() -> None:
+def test_the_macos_subset_keeps_what_macos_can_answer__mutation_drops_a_keep() -> None:
     unit = fw.UNIT_SELECTION
     pool = "tests/connectors/ipc/test_pool.py"
-    narrowed = dataclasses.replace(unit, trims={"macos": (*unit.trims["macos"], pool)})
-    assert _trimmed_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
+    kept = tuple(e for e in unit.subsets["macos"] if e.partition("::")[0] != pool)
+    narrowed = dataclasses.replace(unit, subsets={"macos": kept})
+    assert _dropped_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
 
 
-#: Uses whose outcome can depend on the OS. Matched in the syntax tree, so a
-#: comment or a string that names one is not a use.
-OS_SENSITIVE_USES = frozenset(
-    {
-        "os.kill",
-        "os.killpg",
-        "os.getppid",
-        "os.setsid",
-        "os.setpgrp",
-        "os.mkfifo",
-        "os.symlink",
-        "os.link",
-        "sys.platform",
-        "platform.system",
-        "subprocess.Popen",
-        "asyncio.create_subprocess_exec",
-        "asyncio.create_subprocess_shell",
-        "socket.socket",
-        "signal.*",
-        "start_new_session",
-        "symlink_to",
-        "hardlink_to",
-    }
-)
-
-#: Trimmed files read and judged OS-independent despite these uses.
-MACOS_TRIM_VETTED = {
-    # A symlinked checkout resolves to one repo identity on any POSIX host.
-    "tests/deployment/test_up_as_built.py": ("symlink_to",),
-    # A child is killed with SIGKILL, in teardown and to make a dead child the
-    # supervisor replaces; the assertions are on the envelope's frames. A dead
-    # connector-host child is detected by tests/connectors/ipc/test_pool.py,
-    # kept on macOS.
-    "tests/mcp_server/test_error_envelope_ipc.py": ("asyncio.create_subprocess_exec", "os.kill"),
-}
+#: The platform's name for macOS, outside the guard's comparisons so it does not match itself.
+DARWIN = frozenset({"darwin"})
 
 
-def _os_sensitive_uses(source: str) -> set[str]:
-    found: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Attribute):
-            found.add(node.attr)
-            if isinstance(node.value, ast.Name):
-                found |= {f"{node.value.id}.{node.attr}", f"{node.value.id}.*"}
-        elif isinstance(node, ast.keyword) and node.arg:
-            found.add(node.arg)
-    return found & OS_SENSITIVE_USES
+def _darwin_branches(source: str | ast.AST) -> list[int]:
+    """The lines where *source* compares a value to darwin: a skip unless or
+    except on macOS, or a branch macOS alone takes. Matched in the syntax
+    tree, so faking the platform (an assignment, a parametrized value) or a
+    comment that names it is not a branch."""
 
-
-def _unvetted_trims(trims: Sequence[str]) -> dict[str, list[str]]:
-    """The trimmed files that gained an OS-sensitive use nobody has judged."""
-    return {
-        path: sorted(uses)
-        for path in trims
-        if (
-            uses := _os_sensitive_uses((REPO_ROOT / path).read_text(encoding="utf-8"))
-            - set(MACOS_TRIM_VETTED.get(path, ()))
+    def darwin(node: ast.AST) -> bool:
+        return any(
+            isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.lower() in DARWIN
+            for n in ast.walk(node)
         )
-    }
+
+    tree = ast.parse(source) if isinstance(source, str) else source
+    return sorted(
+        node.lineno
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Compare) and darwin(node))
+        or (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "startswith"
+            and any(darwin(arg) for arg in node.args)
+        )
+    )
 
 
-def test_the_macos_trim_holds_no_unread_os_sensitive_use() -> None:
-    # A trimmed file that gains a signal, link or platform branch would stay
-    # off macOS silently: read it, then keep it on macOS or vet the use here.
-    trimmed = fw.UNIT_SELECTION.trims["macos"]
-    assert [p for p in MACOS_TRIM_VETTED if p not in trimmed] == []
-    assert _unvetted_trims(trimmed) == {}
+def _darwin_unlisted(path: str, source: str, listed: Sequence[str]) -> list[str]:
+    """What of the test file at *path* branches on darwin and *listed* leaves out:
+    the file, when no entry names it; else each test whose body or decorators,
+    or whose class's decorators, compare to darwin and no entry selects."""
+    entries = set(listed)
+    if path in entries:
+        return []
+    if not any(entry.partition("::")[0] == path for entry in entries):
+        return [path] if _darwin_branches(source) else []
+    tests = _tests(source)
+    marked = [
+        f"{name}::"
+        for name, node in tests.items()
+        if isinstance(node, ast.ClassDef) and any(map(_darwin_branches, node.decorator_list))
+    ]
+    darwin = [
+        name
+        for name, node in tests.items()
+        if not isinstance(node, ast.ClassDef)
+        and (_darwin_branches(node) or name.startswith(tuple(marked)))
+    ]
+    node_ids = (f"{path}::{name}" for name in darwin)
+    return [n for n in node_ids if n not in entries and not entries.intersection(_parents(n))]
 
 
-def test_the_macos_trim_holds_no_unread_os_sensitive_use__mutation_trims_a_keep() -> None:
-    pool = "tests/connectors/ipc/test_pool.py"
-    assert _unvetted_trims((pool,)) == {pool: ["os.kill", "signal.*", "subprocess.Popen"]}
-    assert _os_sensitive_uses("# os.kill is not the signal here\nx = 'socket.socket'\n") == set()
+def test_a_test_file_that_branches_on_darwin_is_in_the_macos_subset() -> None:
+    # Ubuntu never takes a darwin branch, so a test's outcome there says
+    # nothing about it; off the list, nothing would run it.
+    unit = fw.UNIT_SELECTION
+    listed = unit.subsets["macos"]
+    unlisted = []
+    for root in unit.roots:
+        for file in sorted((REPO_ROOT / root).rglob("*.py")):
+            path = file.relative_to(REPO_ROOT).as_posix()
+            if fw._is_pytest_file(file.name) and not fw._hosted_outside_sweep(path):
+                unlisted += _darwin_unlisted(path, file.read_text("utf-8"), listed)
+    assert unlisted == []
+
+
+def test_a_test_file_that_branches_on_darwin__mutation_skips_unless_darwin() -> None:
+    source = (
+        "import platform, sys\n"
+        "@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS only')\n"
+        "def test_a(): ...\n"
+        "def test_b():\n"
+        "    if platform.system() == 'Darwin': ...\n"
+        "    assert sys.platform.startswith('darwin')\n"
+    )
+    assert _darwin_branches(source) == [2, 5, 6]
+    faked = (
+        "# sys.platform == 'darwin' is not read here\n"
+        "def test_c(monkeypatch):\n"
+        "    monkeypatch.setattr(sys, 'platform', 'darwin')\n"
+        "    mock_sys.platform = 'darwin'\n"
+    )
+    assert _darwin_branches(faked) == []
+
+
+def test_a_test_file_that_branches_on_darwin__mutation_adds_a_darwin_test() -> None:
+    listed = fw.UNIT_SELECTION.subsets["macos"]
+    worker = "tests/imaging/test_render_worker.py"
+    source = (REPO_ROOT / worker).read_text("utf-8")
+    added = "\ndef test_added():\n    if sys.platform == 'darwin': ...\n"
+    assert _darwin_unlisted(worker, source, listed) == []
+    assert _darwin_unlisted(worker, source + added, listed) == [f"{worker}::test_added"]
+    path = "tests/test_x.py"
+    source = (
+        "@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS only')\n"
+        "class TestK:\n"
+        "    def test_k(self): ...\n"
+        "class TestL:\n"
+        "    def test_l(self):\n"
+        "        if sys.platform == 'darwin': ...\n"
+        "def _helper():\n"
+        "    if sys.platform == 'darwin': ...\n"
+    )
+    assert _darwin_unlisted(path, source, (f"{path}::TestL",)) == [f"{path}::TestK::test_k"]
+    assert _darwin_unlisted(path, source, (f"{path}::TestK::test_k", f"{path}::TestL")) == []
+    assert _darwin_unlisted(path, source, (path,)) == []
+    assert _darwin_unlisted(path, source, ()) == [path]
 
 
 def test_the_tiers_bound_their_pytest_runs() -> None:
@@ -961,7 +1467,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800", "1800"]
-    assert bounds("full") == ["5400", "600", "900", "900", "1800"]
+    assert bounds("full") == ["5400", "600", "900", "900", "900", "600", "1800"]
 
 
 def test_both_tiers_deselect_the_canopy_contract() -> None:
@@ -988,6 +1494,11 @@ FILES = [
     "tests/cli/test_main.py",
     "src/osprey/lonely/__init__.py",
     "src/osprey/lonely/thing.py",
+    "src/osprey/cli/sub/__init__.py",
+    "src/osprey/cli/sub/thing.py",
+    "src/osprey/cli/bundled/pyproject.toml",
+    "src/osprey/cli/bundled/bundled/__init__.py",
+    "src/osprey/cli/bundled/bundled/server.py",
     "tests/scripts/test_scenario_plots.py",
 ]
 
@@ -1062,7 +1573,6 @@ def test_a_module_in_an_interface_without_tests_widens_to_every_test() -> None:
         (WT + "vendor/xterm.js", "vitest"),
         # What the mapping cannot place widens pytest to the sweep.
         ("tests/conftest.py", "pytest"),
-        ("tests/cli/conftest.py", "pytest"),
         ("tests/_shared_contract.py", "pytest"),
         ("src/osprey/lonely/thing.py", "pytest"),
         ("src/osprey/__init__.py", "pytest"),
@@ -1104,6 +1614,338 @@ def test_a_source_file_selects_its_mirrored_tests() -> None:
         assert selected("quick", path)["pytest"] == check.Selection(check.PATHS, ("tests/cli",))
 
 
+def test_a_reason_does_not_change_what_a_selection_is() -> None:
+    explained = check.Selection(check.WHOLE, reason="tests/conftest.py: a rule")
+    assert explained == check.Selection(check.WHOLE)
+    assert explained.reason == "tests/conftest.py: a rule"
+    assert check.Selection(check.WHOLE).reason is None
+
+
+@pytest.mark.parametrize(
+    ("runner", "path", "rule"),
+    [
+        ("pytest", "tests/conftest.py", fw.WIDENS_ROOT_CONFTEST),
+        ("pytest", "tests/__init__.py", fw.WIDENS_ROOT_PACKAGE),
+        (
+            "pytest",
+            "packages/osprey-connectors/tests/osprey_connectors_tests/_soft_ioc.py",
+            fw.WIDENS_SWEEP_HELPER,
+        ),
+        (
+            "pytest",
+            "packages/osprey-connectors/tests/osprey_connectors_tests/ipc/conftest.py",
+            fw.WIDENS_SWEEP_CONFTEST,
+        ),
+        ("pytest", "tests/_shared_contract.py", fw.WIDENS_UNMIRRORED),
+        ("pytest", "pyproject.toml", fw.WIDENS_PROJECT),
+        ("pytest", "tests/fixtures/config.yml", fw.WIDENS_NO_TEST_MODULE),
+        ("pytest", "tests/README.md", fw.WIDENS_UNPLACED),
+        ("pytest", "src/osprey/lonely/thing.py", fw.WIDENS_NO_MIRROR),
+        ("pytest", "src/osprey/cli/bundled/bundled/server.py", fw.WIDENS_BUNDLED_PROJECT),
+        ("vitest", "package.json", fw.WIDENS_NO_MAPPING),
+        pytest.param(
+            "vitest",
+            "src/osprey/interfaces/design_system/static/js/tokens.js",
+            fw.WIDENS_SHARED_INTERFACE,
+            marks=needs_mapping,
+        ),
+        pytest.param(
+            "vitest",
+            "src/osprey/interfaces/health/static/js/dashboard.js",
+            fw.WIDENS_UNTESTED_INTERFACE,
+            marks=needs_mapping,
+        ),
+        pytest.param("vitest", "vitest.config.js", fw.WIDENS_WIDE_INPUT, marks=needs_mapping),
+    ],
+)
+def test_every_widening_names_its_path_and_rule(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, runner: str, path: str, rule: str
+) -> None:
+    if rule == fw.WIDENS_NO_MAPPING:
+        monkeypatch.setattr(kit, "ROOT", tmp_path)
+    got = selected("quick", "src/osprey/cli/main.py", path, WT + "settings.js")[runner]
+    assert got.state == check.WHOLE
+    assert got.reason == f"{path}: {rule}"
+
+
+def test_the_first_widening_path_is_the_one_named() -> None:
+    got = selected("quick", "src/osprey/cli/main.py", "uv.lock", "pyproject.toml")["pytest"]
+    assert got.reason == f"uv.lock: {fw.WIDENS_PROJECT}"
+
+
+def test_no_selector_widens_without_a_reason() -> None:
+    import inspect
+
+    for selector in (fw._select_pytest, fw._select_vitest, fw._conftest_selection):
+        assert "Selection(WHOLE)" not in inspect.getsource(selector), selector.__name__
+
+
+def _tree(root: Path, files: dict[str, str]) -> list[str]:
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text, encoding="utf-8")
+    return sorted(files)
+
+
+FIXTURE = "import pytest\n\n\n@pytest.fixture\ndef thing():\n    return 1\n"
+
+
+def test_a_conftest_that_reaches_only_its_directory_selects_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert selected("quick", "tests/cli/conftest.py")["pytest"] == check.Selection(
+        check.PATHS, ("tests/cli",)
+    )
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/conftest.py": FIXTURE,
+            "tests/a/test_x.py": "from .conftest import thing\n",
+            "tests/a/deep/test_y.py": "from tests.a.conftest import thing\n",
+            "tests/b/test_z.py": "def test_z():\n    assert 'conftest'\n",
+        },
+    )
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/a",))
+    assert got.reason is None
+
+
+def test_a_nested_conftest_selects_its_own_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/test_x.py": "",
+            "tests/a/b/conftest.py": FIXTURE,
+            "tests/a/b/test_y.py": "",
+        },
+    )
+    got = fw._select_pytest(["tests/a/b/conftest.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/a/b",))
+
+
+@pytest.mark.parametrize(
+    "path", ["tests/conftest.py", "packages/osprey-connectors/tests/conftest.py"]
+)
+def test_a_root_conftest_widens(path: str) -> None:
+    got = selected("quick", path)["pytest"]
+    assert got.state == check.WHOLE
+    assert got.reason == f"{path}: {fw.WIDENS_ROOT_CONFTEST}"
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "from tests.a.conftest import thing\n",
+        "from tests.a import conftest\n",
+        "import tests.a.conftest\n",
+        "from ..a.conftest import thing\n",
+    ],
+)
+def test_a_conftest_imported_from_outside_widens_and_names_the_importer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, spelling: str
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/conftest.py": FIXTURE,
+            "tests/a/test_x.py": "",
+            "tests/b/test_y.py": spelling,
+        },
+    )
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got.state == check.WHOLE
+    assert got.reason == "tests/a/conftest.py: imported by tests/b/test_y.py"
+
+
+def test_a_conftest_defining_a_hook_widens(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    hook = FIXTURE + "\n\ndef pytest_addoption(parser):\n    pass\n"
+    files = _tree(tmp_path, {"tests/a/conftest.py": hook, "tests/a/test_x.py": ""})
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got.state == check.WHOLE
+    assert got.reason == ("tests/a/conftest.py: " + fw.WIDENS_HOOK.format(hook="pytest_addoption"))
+
+
+@pytest.mark.parametrize("text", [None, "def broken(:\n"])
+def test_an_unreadable_conftest_widens(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str | None
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(tmp_path, {"tests/a/test_x.py": ""})
+    if text is not None:
+        files += _tree(tmp_path, {"tests/a/conftest.py": text})
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got.state == check.WHOLE
+    assert got.reason == f"tests/a/conftest.py: {fw.WIDENS_UNREADABLE}"
+
+
+def test_a_conftest_in_a_directory_without_test_modules_widens(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(tmp_path, {"tests/a/conftest.py": FIXTURE, "tests/b/test_y.py": ""})
+    got = fw._select_pytest(["tests/a/conftest.py"], files)
+    assert got.reason == f"tests/a/conftest.py: {fw.WIDENS_NO_TEST_MODULE}"
+
+
+def test_the_shared_conftests_of_this_tree_widen(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    files = check.repository_files()
+    for path in ("tests/mcp_server/conftest.py", "tests/hooks/conftest.py"):
+        got = fw._select_pytest([path], files)
+        assert got.state == check.WHOLE
+        assert got.reason is not None
+        assert got.reason.startswith(f"{path}: imported by ")
+        importer = got.reason.removeprefix(f"{path}: imported by ")
+        assert importer in files
+        assert not importer.startswith(path.rsplit("/", 1)[0] + "/")
+
+
+GOLDEN = "EXAMPLE_CONFIG = {}\n\n\ndef test_render():\n    assert EXAMPLE_CONFIG == {}\n"
+IMPORTS_GOLDEN = "from tests.a.web.test_golden import EXAMPLE_CONFIG\n"
+
+
+@pytest.mark.parametrize("changed", ["tests/a/__init__.py", "tests/a/web/test_golden.py"])
+def test_a_test_module_another_directory_imports_selects_its_importer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, changed: str
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/__init__.py": "BASE = 1\n",
+            "tests/a/web/__init__.py": "",
+            "tests/a/web/test_golden.py": GOLDEN,
+            "tests/b/__init__.py": "",
+            "tests/b/test_identities.py": IMPORTS_GOLDEN,
+            "tests/c/test_unrelated.py": "def test_c():\n    assert 'test_golden'\n",
+        },
+    )
+    got = fw._select_pytest([changed], files)
+    assert got.state == check.PATHS
+    assert "tests/b/test_identities.py" in got.paths
+    assert not any(path.startswith("tests/c") for path in got.paths)
+
+
+@pytest.mark.parametrize(
+    ("spelling", "reaches_package"),
+    [
+        ("from tests.a.web.test_golden import EXAMPLE_CONFIG\n", True),
+        ("from tests.a.web import test_golden\n", True),
+        ("import tests.a.web.test_golden\n", True),
+        ("from tests.a import BASE\n", True),
+        ("import tests.a\n", True),
+        ("from tests.other import test_golden\n", False),
+    ],
+)
+def test_every_spelling_of_an_import_reaches_the_package_it_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, spelling: str, reaches_package: bool
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/__init__.py": "BASE = 1\n",
+            "tests/a/web/test_golden.py": GOLDEN,
+            "tests/b/test_y.py": spelling,
+        },
+    )
+    got = fw._select_pytest(["tests/a/__init__.py"], files)
+    assert ("tests/b/test_y.py" in got.paths) is reaches_package
+
+
+def test_an_import_through_a_helper_or_a_conftest_reaches_their_tests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/test_golden.py": GOLDEN,
+            "tests/b/_kit.py": "from tests.a.test_golden import EXAMPLE_CONFIG\n",
+            "tests/c/test_z.py": "from tests.b._kit import EXAMPLE_CONFIG\n",
+            "tests/d/conftest.py": "from tests.a.test_golden import EXAMPLE_CONFIG\n",
+            "tests/d/test_w.py": "",
+            "tests/e2e/test_live.py": "from tests.a.test_golden import EXAMPLE_CONFIG\n",
+        },
+    )
+    got = fw._select_pytest(["tests/a/test_golden.py"], files)
+    assert got.state == check.PATHS
+    assert set(got.paths) == {"tests/a/test_golden.py", "tests/c/test_z.py", "tests/d"}
+
+
+def test_a_test_module_that_imports_itself_selects_only_itself(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(tmp_path, {"tests/a/test_x.py": "from tests.a.test_x import thing\n"})
+    got = fw._select_pytest(["tests/a/test_x.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/a/test_x.py",))
+
+
+@pytest.mark.parametrize(
+    "changed",
+    ["tests/deployment/__init__.py", "tests/deployment/web_terminals/test_golden_render.py"],
+)
+def test_the_deployment_tests_reach_the_agent_record_tests_that_import_them(
+    monkeypatch: pytest.MonkeyPatch, changed: str
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    files = check.repository_files()
+    got = fw._select_pytest([changed], files)
+    assert got.state == check.PATHS
+    assert "tests/agent_record/test_identities.py" in got.paths
+
+
+def test_a_source_file_walks_up_to_the_nearest_tested_package() -> None:
+    files = [
+        "src/osprey/cli/__init__.py",
+        "src/osprey/cli/sub/__init__.py",
+        "src/osprey/cli/sub/deep/__init__.py",
+        "src/osprey/cli/sub/deep/thing.py",
+        "tests/cli/test_main.py",
+        "tests/cli/sub/deep/data.json",
+    ]
+    got = fw._select_pytest(["src/osprey/cli/sub/deep/thing.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/cli",))
+    assert selected("quick", "src/osprey/cli/sub/thing.py")["pytest"] == check.Selection(
+        check.PATHS, ("tests/cli",)
+    )
+
+
+def test_a_package_with_no_tested_ancestor_widens() -> None:
+    got = selected("quick", "src/osprey/lonely/thing.py")["pytest"]
+    assert got.state == check.WHOLE
+    assert got.reason == f"src/osprey/lonely/thing.py: {fw.WIDENS_NO_MIRROR}"
+
+
+def test_a_bundled_project_below_the_source_tree_widens(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    files = check.repository_files()
+    project = "src/osprey/profiles/presets/apps/orbit-bump"
+    path = f"{project}/orbit_bump/server.py"
+    assert f"{project}/pyproject.toml" in files
+    got = fw._select_pytest([path], files)
+    assert got.state == check.WHOLE
+    assert got.reason == f"{path}: {fw.WIDENS_BUNDLED_PROJECT}"
+
+
+def test_a_directory_that_is_not_a_package_does_not_stop_the_climb() -> None:
+    files = [
+        "src/osprey/pkg/__init__.py",
+        "src/osprey/pkg/gap/inner/__init__.py",
+        "src/osprey/pkg/gap/inner/mod.py",
+        "tests/pkg/test_a.py",
+    ]
+    got = fw._select_pytest(["src/osprey/pkg/gap/inner/mod.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/pkg",))
+
+
 def test_a_helper_script_selects_only_its_mirror() -> None:
     assert selected("quick", "scripts/scenario_plots.py")["pytest"] == check.Selection(
         check.PATHS, ("tests/scripts/test_scenario_plots.py",)
@@ -1127,6 +1969,61 @@ def test_a_file_under_a_tests_directory_selects_that_directory() -> None:
 def test_a_file_under_a_tests_directory_without_test_modules_widens() -> None:
     assert not any(name.startswith("tests/fixtures/") for name in FILES)
     assert selected("quick", "tests/fixtures/config.yml")["pytest"].state == check.WHOLE
+
+
+_CONNECTORS_TESTS = "packages/osprey-connectors/tests/osprey_connectors_tests"
+_TEST_ONLY = [
+    "tests/cli/__init__.py",
+    "tests/cli/test_main.py",
+    "tests/empty/__init__.py",
+    f"{_CONNECTORS_TESTS}/__init__.py",
+    f"{_CONNECTORS_TESTS}/test_session_hold.py",
+    f"{_CONNECTORS_TESTS}/ipc/__init__.py",
+    f"{_CONNECTORS_TESTS}/ipc/test_pool_soft_ioc.py",
+]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (
+            f"{_CONNECTORS_TESTS}/test_session_hold.py",
+            (f"{_CONNECTORS_TESTS}/test_session_hold.py",),
+        ),
+        (f"{_CONNECTORS_TESTS}/ipc/__init__.py", fw.WIDENS_SWEEP_HELPER),
+        ("tests/cli/__init__.py", ("tests/cli",)),
+        ("tests/empty/__init__.py", fw.WIDENS_NO_TEST_MODULE),
+        ("tests/__init__.py", fw.WIDENS_ROOT_PACKAGE),
+        ("packages/osprey-connectors/tests/conftest.py", fw.WIDENS_ROOT_CONFTEST),
+        (f"{_CONNECTORS_TESTS}/ipc/conftest.py", fw.WIDENS_SWEEP_CONFTEST),
+        (f"{_CONNECTORS_TESTS}/_soft_ioc.py", fw.WIDENS_SWEEP_HELPER),
+        ("packages/osprey-connectors/src/osprey_connectors/epics.py", fw.WIDENS_UNMIRRORED),
+        ("packages/osprey-optimizer/tests/test_bounds.py", fw.WIDENS_UNMIRRORED),
+        ("pyproject.toml", fw.WIDENS_PROJECT),
+    ],
+    ids=[
+        "packages-test-file",
+        "packages-test-package-init-widens",
+        "tests-package-init",
+        "init-without-test-modules-widens",
+        "top-level-init-widens",
+        "packages-conftest-widens",
+        "packages-nested-conftest-widens",
+        "packages-test-helper-widens",
+        "packages-source-widens",
+        "packages-outside-sweep-roots-widens",
+        "pyproject-widens",
+    ],
+)
+def test_a_test_only_path_selects_only_its_tests(
+    path: str, expected: tuple[str, ...] | str
+) -> None:
+    got = fw._select_pytest([path], _TEST_ONLY)
+    if isinstance(expected, str):
+        assert got == check.Selection(check.WHOLE)
+        assert got.reason == f"{path}: {expected}"
+    else:
+        assert got == check.Selection(check.PATHS, expected)
 
 
 def test_a_new_check_naming_a_script_makes_it_shaping(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1165,17 +2062,18 @@ def test_a_file_the_sweep_ignores_goes_to_its_host() -> None:
 
 def test_a_range_names_the_ci_lanes_it_touches() -> None:
     plan = check.select("quick", ["src/osprey/mcp_server/bluesky/server.py"], (), FILES)
-    assert {
-        "bluesky-deploy-e2e",
-        "bluesky-web-deploy-e2e",
-        "bluesky-queue-e2e",
-        "tiled-roundtrip-e2e",
-        "bluesky-catalog-e2e",
-        "bluesky-sandbox-escape-e2e",
-        "orm-roundtrip-e2e",
-    } <= set(plan.lanes)
+    assert {"stack-e2e", "orm-roundtrip-e2e"} <= set(plan.lanes)
     assert "plugin-smoke" not in plan.lanes
     assert check.select("quick", ["README.md"], (), FILES).lanes == ()
+
+
+def test_a_spending_lane_names_its_prefix() -> None:
+    lane = kit.Lane("agentic", kit.SPENDS, ("tests/e2e/**",), "Agentic E2E")
+    assert kit.spending([lane, kit.Lane("plain", "containers", ())]) == {"agentic": "Agentic E2E"}
+    with pytest.raises(ValueError, match="agentic"):
+        kit.Lane("agentic", kit.SPENDS, ("tests/e2e/**",))
+    with pytest.raises(ValueError, match="plain"):
+        kit.Lane("plain", "containers", (), "Plain E2E")
 
 
 def test_a_named_vitest_file_alone_is_accepted_and_routed_to_vitest() -> None:
@@ -1407,12 +2305,28 @@ class Recorder:
         return any(text in shlex.join(argv) for argv in self.calls)
 
 
+#: The connectors checks module. Its ``connectors-public-names`` check is a
+#: ``builtin=``, so a ``check.main`` run calls it in process (``recorder`` does
+#: not stand in for it), and it sweeps the real tree from the module's own
+#: ``ROOT``, not ``kit.ROOT``.
+_connectors_checks = check.DECLARED.modules["packages/osprey-connectors/repo_checks.py"]
+#: The sweep, run once per worker for each root: every ``check.main`` here
+#: is about the runner, and the real tree does not change during a session.
+_cached_stray_exports = functools.cache(_connectors_checks.stray_exports)
+
+
+@pytest.fixture(autouse=True)
+def _one_public_names_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_connectors_checks, "stray_exports", _cached_stray_exports)
+
+
 @pytest.fixture
 def recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recorder:
-    """An empty root, every need met, the venue met, every install proven, and
-    no process started."""
+    """An empty root with no sweep exception, every need met, the venue met,
+    every install proven, and no process started."""
     recorder = Recorder()
     monkeypatch.setattr(kit, "ROOT", tmp_path)
+    monkeypatch.setattr(fw, "SWEEP_LINE_EXCEPTIONS", {})
     monkeypatch.setattr(kit, "run", recorder)
     monkeypatch.setattr(check, "probe_install", lambda install: recorder.install)
     monkeypatch.setattr(kit, "capture", lambda argv: (0, ""))
@@ -1657,9 +2571,10 @@ def test_a_refusal_names_every_unmet_need(
         f"check: eslint: refused ({node})",
         f"check: prettier: refused ({node})",
         f"check: vitest: refused ({node})",
+        f"check: app-check-js: refused ({node})",
         f"check: docs: refused ({docs})",
         f"check: linkcheck: refused ({docs})",
-        f"check: refused: tsc, eslint, prettier, vitest ({node}); "
+        f"check: refused: tsc, eslint, prettier, vitest, app-check-js ({node}); "
         f"refused: docs, linkcheck ({docs})",
     ]
 
@@ -1670,6 +2585,395 @@ def test_fix_rewrites_nothing_when_a_need_is_refused(
     monkeypatch.setitem(check.NEED_PROBES, "node", lambda: "Node is not installed")
     assert check.main(["quick", "--fix"]) == 2
     assert recorder.calls == []
+
+
+def last_error_line(capsys: pytest.CaptureFixture[str]) -> str:
+    return capsys.readouterr().err.strip().splitlines()[-1]
+
+
+def _faulting(probe: str, fact: str) -> Any:
+    """A need probe that says this machine cannot judge."""
+
+    def need() -> str | None:
+        raise kit.EnvironmentFault(probe, fact)
+
+    return need
+
+
+def test_a_raising_need_gives_the_environment_verdict_and_runs_nothing(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fault = _faulting("docker storage", "volume create input/output error")
+    monkeypatch.setitem(check.NEED_PROBES, "uv", fault)
+    assert check.main(["quick", "--fix"]) == kit.ENVIRONMENT_EXIT == 3
+    assert last_error_line(capsys) == (
+        "check: environment: docker storage: volume create input/output error"
+    )
+    assert recorder.calls == []
+
+
+def test_a_fault_wins_over_a_refusal(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "uv", lambda: "uv is not on PATH")
+    monkeypatch.setitem(check.NEED_PROBES, "node", _faulting("free space", "1 MiB free"))
+    assert check.main(["full"]) == 3
+    assert last_error_line(capsys) == "check: environment: free space: 1 MiB free"
+    assert recorder.calls == []
+
+
+def test_a_reports_directory_that_cannot_open_is_the_environment_verdict(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def full(*_args: Any, **_kwargs: Any) -> Any:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(check.tempfile, "TemporaryDirectory", full)
+    assert check.main(["quick"]) == 3
+    assert last_error_line(capsys) == (
+        "check: environment: free space: [Errno 28] No space left on device"
+    )
+    assert recorder.calls == []
+
+
+def test_a_selected_need_is_probed_from_the_selection_and_the_run(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[Any, Any]] = []
+    probed: list[str] = []
+
+    def hook(selection: Any, context: Any) -> tuple[str, ...]:
+        seen.append((selection, context))
+        return ("gitleaks",)
+
+    monkeypatch.setitem(check.NEED_PROBES, "gitleaks", lambda: probed.append("gitleaks"))
+    _replace(monkeypatch, "pytest", selected_needs=hook)
+    assert check.main(["run", "pytest", "--shard", "cli-a"]) == 0
+    ((selection, context),) = seen
+    assert selection.state == check.WHOLE
+    assert context.shard == "cli-a"
+    assert probed == ["gitleaks"]
+    assert recorder.ran("pytest")
+
+
+def test_an_unmet_selected_need_is_a_refusal(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "gitleaks", lambda: "gitleaks is not on PATH")
+    _replace(monkeypatch, "pytest", selected_needs=lambda _s, _c: ("gitleaks",))
+    assert check.main(["run", "pytest"]) == 2
+    assert "gitleaks is not on PATH" in last_error_line(capsys)
+    assert recorder.calls == []
+
+
+@pytest.mark.parametrize("words", [["list"], ["list", "--json"]])
+def test_list_probes_nothing(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, words: list[str]
+) -> None:
+    for need in check.NEED_PROBES:
+        monkeypatch.setitem(check.NEED_PROBES, need, _faulting("free space", "listed"))
+    # The recorder's root is no repository; a derived scope is computed from its files.
+    monkeypatch.setattr(check, "repository_files", lambda worktree=False: [])
+    assert check.main(words) == 0
+    assert recorder.calls == []
+
+
+def test_the_selection_hook_stays_out_of_the_declaration() -> None:
+    assert all("selected_needs" not in entry for entry in check.declaration()["checks"])
+
+
+def _probing(monkeypatch: pytest.MonkeyPatch, *answers: tuple[int, str]) -> list[list[str]]:
+    """``_probe`` answers each call with the next (status, stdout); the argv are returned."""
+    calls: list[list[str]] = []
+    queue = list(answers)
+
+    def probe(argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:  # noqa: ARG001
+        calls.append(list(argv))
+        status, out = queue.pop(0)
+        return status, out, ""
+
+    monkeypatch.setattr(fw, "_probe", probe)
+    return calls
+
+
+STALE_ROW = "osprey-connectors\t2026.9.0b3\t2026.10.0\n"
+
+
+def test_a_current_install_syncs_nothing(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    read = _probing(monkeypatch, (0, ""))
+    assert fw._need_install_current() is None
+    assert read == [list(fw.INSTALLED_VERSIONS_PROBE)]
+    assert "--no-sync" in fw.INSTALLED_VERSIONS_PROBE
+    assert recorder.calls == []
+
+
+def test_a_stale_install_is_resynced_and_rechecked(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    read = _probing(monkeypatch, (0, STALE_ROW + "pyaml-cs-osprey\t2026.9.0\t2026.10.0\n"), (0, ""))
+    assert fw._need_install_current() is None
+    assert len(read) == 2
+    assert recorder.calls == [
+        [
+            "uv",
+            "sync",
+            "--frozen",
+            "--inexact",
+            "--reinstall-package",
+            "osprey-connectors",
+            "--reinstall-package",
+            "pyaml-cs-osprey",
+        ]
+    ]
+    assert "osprey-connectors installed 2026.9.0b3" in capsys.readouterr().out
+
+
+def test_an_install_still_stale_after_the_sync_is_a_fault(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _probing(monkeypatch, (0, STALE_ROW), (0, STALE_ROW))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_install_current()
+    assert fault.value.probe == "install currency"
+    assert fault.value.fact == (
+        "osprey-connectors installed 2026.9.0b3, tree describes 2026.10.0 after uv sync"
+    )
+    assert len(recorder.calls) == 1
+
+
+def test_a_failed_sync_is_a_fault_whatever_the_reread_prints(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder.failing = {"uv sync": 1}
+    _probing(monkeypatch, (0, STALE_ROW), (1, ""))
+    with pytest.raises(kit.EnvironmentFault, match="after uv sync"):
+        fw._need_install_current()
+
+
+@pytest.mark.parametrize("status", [127, 1])
+def test_a_reader_that_cannot_run_answers_met(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    """127: the ``uv`` need refuses. Otherwise a checkout with no environment
+    yet: the check's own ``uv run`` creates it current."""
+    _probing(monkeypatch, (status, ""))
+    assert fw._need_install_current() is None
+    assert recorder.calls == []
+
+
+def _free(monkeypatch: pytest.MonkeyPatch, **by_place: int) -> list[str]:
+    """``shutil.disk_usage`` answers *temp* and *root* bytes free; the paths asked are returned."""
+    asked: list[str] = []
+
+    def usage(path: Any) -> Any:
+        asked.append(str(path))
+        free = by_place["temp"] if str(path) == fw.tempfile.gettempdir() else by_place["root"]
+        return shutil._ntuple_diskusage(10**15, 10**15 - free, free)
+
+    monkeypatch.setattr(fw.shutil, "disk_usage", usage)
+    return asked
+
+
+GIB = 2**30
+
+
+def test_free_space_above_the_floor_is_met(monkeypatch: pytest.MonkeyPatch) -> None:
+    _free(monkeypatch, temp=fw.FREE_SPACE_FLOOR_GIB * GIB, root=fw.FREE_SPACE_FLOOR_GIB * GIB)
+    assert fw._need_free_space() is None
+
+
+def test_free_space_under_the_floor_names_the_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    _free(monkeypatch, temp=313 * 2**20, root=100 * GIB)
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_free_space()
+    assert fault.value.probe == "free space"
+    assert fault.value.fact == f"313 MiB free on {tmp_path}, floor 5 GiB"
+
+
+def test_free_space_is_read_once_per_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(kit, "ROOT", tmp_path / "root")
+    (tmp_path / "root").mkdir()
+    asked = _free(monkeypatch, temp=100 * GIB, root=100 * GIB)
+    assert fw._need_free_space() is None
+    assert asked == [str(tmp_path)]
+
+
+def test_a_second_device_is_read_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "root"
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(kit, "ROOT", root)
+    monkeypatch.setattr(fw, "_device", lambda path: str(path))
+    asked = _free(monkeypatch, temp=100 * GIB, root=1 * GIB)
+    with pytest.raises(kit.EnvironmentFault, match="1024 MiB free on .*root"):
+        fw._need_free_space()
+    assert asked == [str(tmp_path), str(root)]
+
+
+def test_no_usable_temporary_directory_is_a_fault(monkeypatch: pytest.MonkeyPatch) -> None:
+    def nowhere() -> str:
+        raise FileNotFoundError(2, "No usable temporary directory found")
+
+    monkeypatch.setattr(fw.tempfile, "gettempdir", nowhere)
+    with pytest.raises(kit.EnvironmentFault, match="No usable temporary directory found"):
+        fw._need_free_space()
+
+
+class FakeDocker:
+    """Answers ``_probe`` for the docker commands; no test here starts a real one."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, **answers: Any) -> None:
+        self.calls: list[list[str]] = []
+        #: The verb (``info``, ``create``, ``rm``) to (status, stderr) or an exception.
+        self.answers = answers
+        self.timeouts: list[float | None] = []
+        monkeypatch.setattr(fw.shutil, "which", lambda name: f"/stub/{name}")
+        monkeypatch.setattr(fw, "_probe", self)
+
+    def __call__(self, argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:
+        self.calls.append(list(argv))
+        self.timeouts.append(timeout)
+        answer = self.answers.get(argv[1] if argv[1] == "info" else argv[2], (0, ""))
+        if isinstance(answer, Exception):
+            raise answer
+        return answer[0], "", answer[1]
+
+
+def _volume(verb: str) -> list[str]:
+    return ["docker", "volume", verb, f"osprey-check-probe-{os.getpid()}"]
+
+
+def test_docker_storage_creates_and_removes_a_probe_volume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(monkeypatch)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == [["docker", "info"], _volume("create"), _volume("rm")]
+    assert set(docker.timeouts) == {60}
+
+
+def test_no_docker_on_the_path_is_met(monkeypatch: pytest.MonkeyPatch) -> None:
+    docker = FakeDocker(monkeypatch)
+    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == []
+
+
+@pytest.mark.parametrize(
+    "info", [(1, "Cannot connect to the Docker daemon"), subprocess.TimeoutExpired("docker", 60)]
+)
+def test_a_daemon_that_does_not_answer_is_met(monkeypatch: pytest.MonkeyPatch, info: Any) -> None:
+    docker = FakeDocker(monkeypatch, info=info)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == [["docker", "info"]]
+
+
+def test_a_failing_volume_create_is_a_fault_in_the_daemons_words(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(
+        monkeypatch,
+        create=(
+            1,
+            "Error response from daemon: mkdir /var/lib/docker/volumes/x: input/output error\n",
+        ),
+    )
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.probe == "docker storage"
+    assert fault.value.fact == "volume create input/output error"
+    assert _volume("rm") not in docker.calls
+
+
+def test_a_volume_create_that_does_not_answer_is_a_fault(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeDocker(monkeypatch, create=subprocess.TimeoutExpired("docker", 60))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.fact == "volume create did not answer in 60 s"
+
+
+def test_a_failing_volume_remove_is_a_fault_after_the_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(monkeypatch, rm=(1, "remove x: volume is in use"))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.fact == "volume rm volume is in use"
+    assert docker.calls[-1] == _volume("rm")
+
+
+@pytest.fixture
+def group_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A git tree with a file carrying the docker group, one without, and a
+    package whose conftest carries it."""
+    carrying = 'import pytest\npytestmark = pytest.mark.xdist_group("docker")\n'
+    for path, text in {
+        "tests/plain/test_plain.py": "def test_x(): pass\n",
+        "tests/containers/test_db.py": carrying,
+        "tests/suite/conftest.py": carrying,
+        "tests/suite/deep/test_deep.py": "def test_y(): pass\n",
+        "tests/README.md": 'pytest.mark.xdist_group("docker")\n',
+    }.items():
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    return tmp_path
+
+
+def _hook(*roots: str) -> Any:
+    return fw._docker_group_needs(lambda _context: roots)
+
+
+@pytest.mark.parametrize(
+    ("paths", "needs"),
+    [
+        (("tests/plain/test_plain.py",), ()),
+        (("tests/plain/test_plain.py::test_x",), ()),
+        (("tests/containers/test_db.py::test_q",), ("docker-storage",)),
+        (("tests/plain/test_plain.py", "tests/containers/test_db.py"), ("docker-storage",)),
+        (("tests/containers/",), ("docker-storage",)),
+        (("tests/suite/deep/test_deep.py",), ("docker-storage",)),
+        (("tests/suite/deep",), ("docker-storage",)),
+        (("tests/gone/test_deleted.py",), ()),
+        (("tests/gone/test_deleted.py", "tests/containers/test_db.py"), ("docker-storage",)),
+    ],
+)
+def test_the_docker_group_is_read_from_the_selected_paths(
+    group_tree: Path,  # noqa: ARG001
+    paths: tuple[str, ...],
+    needs: tuple[str, ...],
+) -> None:
+    selection = check.Selection(check.PATHS, paths)
+    assert _hook("tests/")(selection, check.Context()) == needs
+
+
+def test_the_docker_group_under_a_whole_selection_is_read_from_the_roots(
+    group_tree: Path,  # noqa: ARG001
+) -> None:
+    whole = check.Selection(check.WHOLE)
+    assert _hook("tests/plain")(whole, check.Context()) == ()
+    assert _hook("tests/containers")(whole, check.Context()) == ("docker-storage",)
+
+
+def test_a_hook_that_cannot_read_the_tree_answers_no_need(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    selection = check.Selection(check.WHOLE)
+    assert _hook("tests/")(selection, check.Context()) == ()
+    monkeypatch.setattr(fw, "_probe", lambda argv: (127, "", ""))
+    assert _hook("tests/")(selection, check.Context()) == ()
 
 
 def test_a_check_off_its_venue_has_its_needs_left_unprobed(
@@ -2120,7 +3424,53 @@ def test_the_pin_probe_runs_the_resolver() -> None:
 
 
 def test_the_test_sweep_needs_the_pin() -> None:
-    assert BY_ID["pytest"].needs == ("uv", "claude-pin")
+    assert BY_ID["pytest"].needs == ("free-space", "uv", "install-current", "claude-pin")
+
+
+def _runs_pytest(c: Any) -> bool:
+    return "pytest" in c.argv
+
+
+def test_free_space_is_the_first_need_of_every_check_that_writes() -> None:
+    writes = [
+        c
+        for c in check.CHECKS
+        if c.kind in ("tests", "build") or "node" in c.needs or _runs_pytest(c)
+    ]
+    assert writes
+    assert [c.id for c in writes if c.needs[:1] != ("free-space",)] == []
+
+
+def test_every_pytest_run_on_the_synced_venv_needs_a_current_install() -> None:
+    synced = [
+        c
+        for c in check.CHECKS
+        if _runs_pytest(c)
+        and tuple(c.argv[:3]) == fw.UV_RUN
+        and "--isolated" not in c.argv
+        and c.kind != "invariant"
+    ]
+    assert {c.id for c in synced} >= {"pytest", "pytest-pty", "pytest-wallclock", "app-check-js"}
+    assert [c.id for c in synced if "install-current" not in c.needs] == []
+
+
+def test_a_check_that_writes_nothing_runs_under_a_free_space_fault(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "free-space", _faulting("free space", "1 MiB free"))
+    assert check.main(["run", "lockfile", "ruff"]) == 0
+    assert recorder.ran("uv lock --check") and recorder.ran("ruff check .")
+
+
+def test_a_shard_narrows_the_roots_the_docker_hook_reads() -> None:
+    assert fw._unit_roots(check.Context(shard="cli-a")) == ["tests/cli"]
+    assert fw._unit_roots(check.Context()) == list(fw.UNIT_SELECTION.roots)
+    assert fw._pytest_paths(BY_ID["pytest-wallclock"].argv) == ["tests/integration"]
+
+
+def test_docker_storage_is_derived_from_the_selection_never_declared() -> None:
+    assert [c.id for c in check.CHECKS if "docker-storage" in c.needs] == []
+    assert {c.id for c in check.CHECKS if c.selected_needs} == {"pytest", "pytest-wallclock"}
 
 
 @pytest.mark.usefixtures("recorder")
@@ -2140,7 +3490,7 @@ def test_the_pin_goes_first_on_path_before_any_check(
     monkeypatch.setitem(check.NEED_PROBES, "claude-pin", fw._need_claude_pin)
     assert check.main(["quick"]) == 0
     assert os.environ["PATH"].startswith(str(pin) + os.pathsep)
-    assert probed == [fw.CLAUDE_PIN_PROBE]
+    assert [argv for argv in probed if argv[0] != "git"] == [fw.CLAUDE_PIN_PROBE]
 
 
 @pytest.mark.parametrize(
@@ -2253,7 +3603,8 @@ def test_a_pytest_check_leaves_its_output_on_the_callers_stdout(
 ) -> None:
     assert check.main(["run", "pytest-pty", "--", "-q"]) == 0
     assert "stub uv says hello" in capfd.readouterr().out
-    logged = (tmp_path / "uv.log").read_text(encoding="utf-8").strip()
+    probe, logged = (tmp_path / "uv.log").read_text(encoding="utf-8").strip().splitlines()
+    assert probe == shlex.join(fw.INSTALLED_VERSIONS_PROBE[1:])
     pty = shlex.join(BY_ID["pytest-pty"].argv)
     command = f"{shlex.join(kit.UV_RUN[1:])} python scripts/run_bounded.py 600 -- {pty} -q"
     written = re.fullmatch(re.escape(command) + r" --junitxml=(\S+) -o junit_family=xunit1", logged)
@@ -2323,7 +3674,8 @@ def test_run_passes_execution_flags_to_the_pytest_checks_only(recorder: Recorder
     assert check.main(["run", "ruff", "pytest", "--", *flags]) == 0
     ruff, sweep = recorder.calls
     assert ruff == [*fw.UV_RUN, "ruff", "check", "."]
-    assert sweep[:-3][-len(flags) - 2 :] == [*flags, "--dist", "loadgroup"]
+    dist = fw.UNIT_SELECTION.dist
+    assert sweep[:-3][-len(flags) - len(dist) :] == [*flags, *dist]
     assert sweep[-3].endswith("/pytest/junit.xml") and sweep[-2:] == ["-o", "junit_family=xunit1"]
     assert check.main(["run", "ruff", "--", "-v"]) == 2
 
@@ -2403,6 +3755,71 @@ def test_a_redirect_without_its_stub_page_is_reported(tmp_path: Path) -> None:
     (tmp_path / "guides").mkdir()
     (tmp_path / "guides" / "old.html").write_text("", encoding="utf-8")
     assert fw.missing_redirect_stubs(["guides/old", "guides/lost"], tmp_path) == ["guides/lost"]
+
+
+def test_a_hand_typed_parallel_sweep_is_named_with_its_line() -> None:
+    text = "# Tests\nuv run pytest tests/ -n 4 --dist loadgroup\n"
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
+        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
+    ]
+
+
+def test_a_serial_line_a_check_py_line_and_flag_prose_pass() -> None:
+    text = (
+        "pytest tests/x.py -v\n"
+        "uv run python scripts/check.py run pytest -- -n 4\n"
+        "A test that flakes under `-n 4` shares state.\n"
+    )
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == []
+
+
+def test_a_continued_sweep_command_is_read_as_one_line() -> None:
+    text = "intro\npython -m pytest tests/ \\\n  --ignore=tests/e2e \\\n  -n auto\n"
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
+        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
+    ]
+
+
+def test_an_exception_that_matches_no_line_is_named() -> None:
+    held = "pytest tests/e2e/ -n 4 --dist loadfile"
+    exceptions = {("doc.md", held): "the e2e lane", ("doc.md", "pytest gone -n 2"): "stale"}
+    assert fw.hand_typed_sweeps({"doc.md": f"It runs `{held}`.\n"}, exceptions=exceptions) == [
+        "stale exception: doc.md: pytest gone -n 2"
+    ]
+
+
+def test_an_exception_whose_document_is_gone_is_named() -> None:
+    exceptions = {("gone.md", "pytest tests/e2e/ -n 4"): "the e2e lane"}
+    assert fw.hand_typed_sweeps({"doc.md": "prose\n"}, exceptions=exceptions) == [
+        "stale exception: gone.md: pytest tests/e2e/ -n 4"
+    ]
+
+
+def test_a_document_that_is_not_utf8_is_named(tmp_path: Path) -> None:
+    (tmp_path / "good.md").write_text("prose\n", encoding="utf-8")
+    (tmp_path / "bad.rst").write_bytes("caf\xe9\n".encode("latin-1"))
+    texts, unreadable = fw.read_doc_texts(["bad.rst", "good.md"], tmp_path)
+    assert texts == {"good.md": "prose\n"}
+    assert unreadable == ["bad.rst"]
+
+
+def test_the_sweep_guard_reads_documents_only() -> None:
+    assert selected("quick", "src/osprey/cli/main.py")["hand-typed-sweeps"].state == (
+        check.NOT_TOUCHED
+    )
+    assert selected("quick", "tests/README.md")["hand-typed-sweeps"].state != check.NOT_TOUCHED
+    assert selected("quick", "docs/source/index.rst")["hand-typed-sweeps"].state != (
+        check.NOT_TOUCHED
+    )
+
+
+def test_the_tree_has_no_hand_typed_sweep() -> None:
+    read = fw.tracked_doc_texts()
+    assert read is not None, "git ls-files failed"
+    texts, unreadable = read
+    assert texts, "no tracked *.md or *.rst file was read"
+    assert unreadable == []
+    assert fw.hand_typed_sweeps(texts) == []
 
 
 @pytest.mark.usefixtures("recorder")
@@ -2494,6 +3911,7 @@ def test_the_package_check_builds_into_an_empty_dist(
     assert check.main(["run", "package"]) == 0
     assert seen == [False]
     build, twine, connectors, venv, install, probe, *rest = recorder.calls
+    optimizer_build, optimizer_venv, optimizer_install, optimizer_probe, *rest = rest
     pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
     assert twine == [
         "uvx",
@@ -2521,6 +3939,13 @@ def test_the_package_check_builds_into_an_empty_dist(
     # A glob no built file matches is passed on as written, for the step to fail on.
     assert "dist/osprey_framework-*.whl" in pyaml_install
     assert pyaml_probe == [pyaml_python, "-c", fw.PYAML_WHEEL_PROBE]
+    assert optimizer_build == ["uv", "build", "--package", "osprey-optimizer"]
+    optimizer_python = f"{optimizer_venv[2]}/bin/python"
+    assert Path(optimizer_venv[2]).parent == Path(venv[2]).parent
+    # The base wheel is installed beside the connectors wheel alone, never the framework's.
+    assert "dist/osprey_connectors-1.0-py3-none-any.whl" in optimizer_install
+    assert not any("osprey_framework" in part for part in optimizer_install)
+    assert optimizer_probe == [optimizer_python, "-c", fw.OPTIMIZER_BASE_PROBE]
 
 
 def test_the_package_check_stops_at_the_first_failing_step(recorder: Recorder) -> None:
@@ -2560,9 +3985,10 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
     declared = [{**item, "scope": []} if item["id"] in derived else item for item in data["checks"]]
     assert tuple(rebuilt(item) for item in declared) == check.CHECKS
     assert "touched" not in data
-    assert tuple(check.Lane(i["job"], i["why"], tuple(i["scope"])) for i in data["lanes"]) == (
-        check.LANES
+    lanes = tuple(
+        check.Lane(i["job"], i["why"], tuple(i["scope"]), i["prefix"]) for i in data["lanes"]
     )
+    assert lanes == check.LANES
     assert data["tiers"] == ["quick", "full"]
     unit = data["unit_selection"]
     assert [tuple(pair) for pair in unit["ignores"]] == list(fw.UNIT_SELECTION.ignores)
@@ -2579,13 +4005,72 @@ def test_list_changed_names_the_checks_and_lanes_a_range_touches(
 ) -> None:
     monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: [changed])
     assert check.main(["list", "--changed", "B", "--json"]) == 0
-    touched = json.loads(capsys.readouterr().out)["touched"]
+    data = json.loads(capsys.readouterr().out)
+    touched = data["touched"]
     assert ("pytest-wallclock" in touched) is hit
     assert ("deploy-e2e" in touched) is hit
     assert "lockfile" in touched and "pytest-pty" not in touched
     assert check.main(["list", "--changed", "B"]) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == f"touched: {', '.join(touched)}"
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-1] == f"touched: {', '.join(touched)}"
+    assert [line for line in lines if line.startswith("widened: ")] == [
+        f"widened: {name}: {reason}" for name, reason in data["widened"].items()
+    ]
     assert check.resolve(["list", "--changed", "B"]) == []
+
+
+@pytest.mark.usefixtures("any_base")
+def test_list_changed_carries_the_widening(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: ["uv.lock"])
+    monkeypatch.setattr(check, "repository_files", lambda worktree=False: FILES)
+    assert check.main(["list", "--changed", "B", "--json"]) == 0
+    widened = json.loads(capsys.readouterr().out)["widened"]
+    assert widened["pytest"] == f"uv.lock: {fw.WIDENS_PROJECT}"
+    assert check.main(["list", "--changed", "B"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert f"widened: pytest: uv.lock: {fw.WIDENS_PROJECT}" in lines
+    assert lines[-1].startswith("touched: ")
+
+
+@pytest.mark.usefixtures("any_base")
+def test_a_widened_run_says_which_file_widened_it_before_running(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: ["uv.lock"])
+    monkeypatch.setattr(check, "repository_files", lambda worktree=False: FILES)
+    before_first_run: list[str] = []
+
+    def run(argv: Any, cwd: Path | None = None) -> int:
+        if not before_first_run:
+            before_first_run.append(capsys.readouterr().out)
+        return recorder(argv, cwd)
+
+    monkeypatch.setattr(kit, "run", run)
+    assert check.main(["quick", "--changed", "B"]) == 0
+    header = f"check: pytest: widened by uv.lock: {fw.WIDENS_PROJECT}"
+    assert header in before_first_run[0].splitlines()
+    assert header not in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("any_base")
+def test_list_changed_names_the_path_that_widened_a_runner(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A root-level tests/ helper has no mirror, so the unit sweep runs whole;
+    the listing says which changed path did that."""
+    changed = ["tests/test_wait_ceilings.py", "tests/_live.py"]
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: changed)
+    monkeypatch.setattr(check, "repository_files", lambda worktree=False: FILES)
+    assert check.main(["list", "--changed", "B", "--json"]) == 0
+    reason = f"tests/_live.py: {fw.WIDENS_UNMIRRORED}"
+    assert json.loads(capsys.readouterr().out)["widened"] == {"pytest": reason}
+    assert check.main(["list", "--changed", "B"]) == 0
+    assert f"widened: pytest: {reason}" in capsys.readouterr().out
 
 
 @pytest.mark.usefixtures("repo")
@@ -2842,6 +4327,20 @@ def test_the_connectors_package_declares_its_own_lanes() -> None:
     assert own == {"connectors-standalone", "connectors-compat-plan", "connectors-compat"}
     assert own <= {lane.job for lane in check.LANES}
     assert not own & {lane.job for lane in fw.LANES}
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["quick"], ["full"], ["run", "pytest", "--", "-n", "4"]],
+    ids=["quick", "full", "run"],
+)
+def test_every_sweep_ends_when_a_worker_dies(recorder: Recorder, argv: list[str]) -> None:
+    assert check.main(argv) == 0
+    markers = {fw.UNIT_SELECTION.marker, fw.UNIT_SELECTION.quick_marker}
+    sweeps = [call for call in recorder.calls if markers.intersection(call)]
+    assert sweeps, recorder.calls
+    for sweep in sweeps:
+        assert "--max-worker-restart=0" in sweep, sweep
 
 
 # ---------------------------------------------------------------------------

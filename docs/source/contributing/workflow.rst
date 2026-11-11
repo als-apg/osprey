@@ -19,6 +19,7 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 - ``main`` is always the integration target. CI gates every PR; protected status checks must pass before merge.
 - Releases are cut by maintainers tagging a commit on ``main``; the PyPI publish workflow runs on ``v*.*.*`` tags.
 - The ``osprey-connectors`` workspace package has its **own** CalVer stream, on its own ``osprey-connectors-vYYYY.M.P`` tags (``bN`` / ``rcN`` for pre-releases), cut when the package changes. Each release stays backward-compatible with every supported framework release, enforced in CI by the ``connectors-compat`` and ``framework-at-connectors-floor`` lanes, so the framework declares only a floor on it, never a pin. (The ``osprey-connectors-v0.1.0`` tag predates the scheme and is retired; the describe glob skips it.) A fork or mirror must sync the ``osprey-connectors-v*`` tags as well as the ``v*`` ones: without them the package builds as ``0.0.postN`` and ``osprey up --dev`` refuses it. Connectors releases are stable by default: a beta framework installs with pre-releases admitted and would absorb a connectors beta. A connectors tag runs its own publish workflow, ``release-connectors.yml``, and nothing else: the framework's ``v*.*.*`` release never builds the package, and resolves its ``osprey-connectors>=`` floor from PyPI, so a floor bump lands only after the connectors release it names is published.
+- The ``osprey-optimizer`` workspace package versions with the framework's calendar stream and releases from the **same** ``v*.*.*`` tag: one tag publishes the framework and optimizer wheels, always carrying the same number.
 - A change to what ships in the connectors wheel carries its changelog fragment in ``packages/osprey-connectors/changelog.d/``, which feeds that package's own ``CHANGELOG.md``; every other shipped change carries one in the root ``changelog.d/``. The README in each of those directories says which files need a fragment, and the changelog check names them in every verdict.
 - Hotfixes follow the same path: branch from the tag (or ``main``), PR back, tag again as ``vYYYY.M.P+1``. No special hotfix branches.
 - Documentation publishes on the same tags: the site root is always the newest release; every push to ``main`` rebuilds ``/latest/``, shown with a development banner.
@@ -41,7 +42,8 @@ Making Changes
 
    git checkout -b feature/your-feature-name
 
-**2. Make changes** -- follow the code standards below, add tests, update docs.
+**2. Make changes** -- follow the code standards on :doc:`development-setup`, add
+tests, update docs.
 
 **3. Test locally** with the check command, ``scripts/check.py``, which runs
 the merge gate from the checks every owner declares:
@@ -64,8 +66,12 @@ run also names the CI lanes your diff touches. ``--base BASE`` arms the checks
 that judge a range without scoping the tier, so ``full --base origin/main``
 judges the whole tree and the range in one verdict. Before any check runs, the
 command puts the tree's pins in place: the pinned Claude Code first on ``PATH``
-for the test sweep, and ``npm ci`` when ``node_modules`` differs from
-``package-lock.json``. When it cannot, it refuses and names what to install.
+for the test sweep, ``npm ci`` when ``node_modules`` differs from
+``package-lock.json``, and ``uv sync`` when an editable install predates the
+tree's tags. When it cannot, it refuses and names what to install. A machine
+that cannot judge (too little free disk, an install the sync left stale, Docker
+storage that fails) prints ``check: environment: <probe>: <fact>``, runs
+nothing and exits 3.
 
 A check is declared by the code that owns it, in a ``repo_checks.py`` module
 beside that code: ``scripts/repo_checks.py`` holds the framework's and the
@@ -145,11 +151,13 @@ escape hatch.
 Model-Spending Lanes: ``full-ci`` on a PR, On Demand on ``main``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Eight CI lanes drive real agent sessions against a live model endpoint: the
-agentic per-preset flows, the E2E suite, the two dispatch stacks, the scan-stack
-and control-target-switch agentic lanes, and the two chat bridges. Together they
-cost about $15 per run — and they used to run on every push of every pull
-request, which at this repository's pace was the group's whole model bill.
+The CI lanes the LANES table in ``scripts/repo_checks.py`` marks ``why="models"``
+(the workflow wiring test holds the set against the workflow) drive real agent
+sessions against a live model endpoint. Together they cost about $15 per run (measured on the
+gateway ledger, week of 2026-09-01: ~150 runs a week, ~$2,300, on pace for $10k
+a month, 95% of the group's model spend) — and they used to run on every push of
+every pull request, which at this repository's pace was the group's whole model
+bill.
 
 They now run on exactly two events:
 
@@ -175,21 +183,62 @@ They now run on exactly two events:
 A release-notes pull request always carries ``full-ci``: these lanes are the
 only proof the agentic paths work on the tree about to be tagged.
 
-There is deliberately no schedule. A scheduled run spends model tokens with
-nobody watching, and its red reaches nobody; a lane that only runs when someone
-asked for it has a person waiting on the result. If you consume ``main``
-directly, pin a sha a full run was green on rather than raw head.
+On ``main``, ``.github/workflows/main-full-ci.yml`` starts that dispatch once a
+day, and only when ``main`` has moved since the last revalidation run, so a quiet
+day spends no model tokens. A red revalidation run opens or updates the one
+"Full CI red on main" issue, and the next green run closes it, so a red reaches
+a person. If you consume ``main`` directly, pin a sha a full run was green on
+rather than raw head. This prints the newest such sha, for the whole run or for
+one lane; it reads the runs through ``gh``, so sign in to the GitHub CLI first:
+
+.. code-block:: bash
+
+   python3 scripts/ci/full_ci_on_main.py last-green
+   python3 scripts/ci/full_ci_on_main.py last-green scan-agentic-e2e
 
 Everything else on a PR is unchanged: the unit, lint, docs and package lanes and
 every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
 run on every push. Those cost runner minutes, not tokens, and the deploy lanes
 are the per-PR proof that a render builds and starts.
 
-Path filtering was measured and rejected as the mechanism: over the 161 PRs
+Path filtering was measured and rejected as the mechanism for the
+model-spending lanes: over the 161 PRs
 merged in the two weeks before this landed, 86–91 % touched something under
 ``src/`` that the broad lanes cover, so a filter map would have saved about a
 fifth and needed maintaining. The label is the whole mechanism; the stop-loss
 behind it is a daily budget on the CI gateway key.
+
+Every PR and ``main`` push keeps one live run per ref: a new push cancels the
+run for the previous head. Before that grouping, superseded runs kept running
+and queued ahead of the live one on a saturated concurrent-job allowance:
+measured over 71 PR runs, 35 % were superseded runs still holding 31 % of all
+CI wall-clock.
+
+Once a cheap, deterministic lane fails (lint, the docs build, the package
+build, the frontend JS checks, the plugin smoke), the run cannot pass, so a
+pull request's run cancels its remaining lanes, ``All CI Checks Passed``
+included. Push a fix or re-run the workflow to merge.
+
+.. _contributing-ci-figures:
+
+Measured CI Figures
+^^^^^^^^^^^^^^^^^^^
+
+.. csv-table:: Figures the workflow caps cite; dated by the first commit stating them.
+   :header: "Lane", "What", "Figure", "Where measured", "Date"
+   :widths: 18, 34, 18, 18, 12
+
+   "``test`` coverage", "tests/{registry,connectors,mcp_server,cli} on 3.12: bare / ctrace / sysmon", "150 s / 283 s / 130 s", "developer host", "2026-08-21"
+   "``test`` coverage", "CI cells: 3.12 (sysmon) / 3.11 (ctrace)", "14.6 min / 36.1 min", "GHA", "2026-08-21"
+   "``test`` unit shards", "rest-a / rest-b / rest-c share of non-cli test time", "32–35 / 33–37 / 31–32 %", "GHA per-test event logs", "2026-11-06"
+   "``test`` unit shards", "cli-a share of tests/cli test time", "51 %", "GHA per-test event logs", "2026-11-06"
+   "``scan-agentic-e2e``", "whole cycle, cold / warm", "~33 min / ~7.5 min", "Apple Silicon host", "2026-08-11"
+   "``terminal-auth-multiuser-e2e``", "whole module, warm layer cache", "6 min 55 s", "developer host", "2026-08-27"
+   "single-build auth lanes", "one cold image build", "7–11 min", "runner", "2026-08-26"
+   "``full-chain-auth-e2e``", "whole module: project image built / warm / warm with history cases", "~5 min / ~1 min / 114 s", "developer host", "2026-10-11"
+   "``target-switch-e2e``", "VA image cold / bench IOC image / three modules (54 tests) / total", "226 s / 1 s / 214 s / 7.4 min", "Apple Silicon host, amd64 emulated", "2026-08-27"
+   "``target-switch-e2e``", "run step", "3.6 min", "Apple Silicon host, amd64 emulated", "2026-08-27"
+   "``target-switch-agentic-e2e``", "VA image cold / bench IOC image / module (10 tests) / total", "226 s / 1 s / 281 s / ~8.5 min", "Apple Silicon host, amd64 emulated", "2026-08-24"
 
 Dependency Update Pull Requests
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -232,6 +281,6 @@ If you use the OSPREY agent (e.g., via `Claude Code <https://code.claude.com/doc
 the ``/osprey:contribute`` skill gives guided help following this workflow. It
 walks you through branching, commits, push, PR, and CI iteration,
 auto-detecting whether you have push access to ``als-apg/osprey`` or are
-contributing from a fork. It ships in the ``osprey`` plugin alongside five
+contributing from a fork. It ships in the ``osprey`` plugin alongside nine
 others; how to install it, and which skill fits which step of the journey, is
 on :doc:`agent-skills`.

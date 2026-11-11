@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+
 HOOKS_DIR = (
     Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code" / "claude" / "hooks"
 )
@@ -22,6 +24,7 @@ HOOK_FILES = [
     "osprey_error_guidance.py",
     "osprey_notebook_update.py",
     "osprey_memory_guard.py",
+    "osprey_plan_mode.py",
     "osprey_config_drift.py",
     "osprey_focus_validate.py",
     "osprey_panels_context.py",
@@ -36,11 +39,14 @@ HOOK_FILES = [
 # Shared libraries that live beside the hooks but are imported by them rather
 # than wired as hooks themselves. They carry no front matter and are never
 # invoked as scripts, so the front-matter rules below do not apply to them.
+# The build catalog names them (``BuildArtifactCatalog.helpers()``), less the
+# plan-mode guard: the approval hook imports it, and it is wired as a hook too.
+_CATALOG = BuildArtifactCatalog.default()
 HELPER_MODULES = {
-    "osprey_hook_log.py",
-    "osprey_safety_file.py",
-    "osprey_target_state.py",
-}
+    Path(a.output_path).name
+    for a in _CATALOG.all_artifacts()
+    if a.canonical_name in _CATALOG.helpers()
+} - {"osprey_plan_mode.py"}
 
 # Required fields for all hooks
 REQUIRED_FIELDS = {"name", "description", "event"}

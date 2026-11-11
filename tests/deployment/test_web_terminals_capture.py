@@ -2,7 +2,7 @@
 
 `deploy_up` returns through `deploy_up_web_terminals` for every
 `modules.web_terminals` deployment, which makes this the path an operator of
-the control-assistant preset actually watches. Every inherited-stdio child on
+the demo preset actually watches. Every inherited-stdio child on
 it — the render and auth-sidecar image builds, both compose stacks' `rm`,
 `build`, `pull`, `up` and the post-`up` recreate/restart — now runs through
 `run_captured`, and each reports itself as one phase sub-step instead of
@@ -26,7 +26,7 @@ import sys
 import pytest
 
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
-from osprey.deployment import container_lifecycle
+from osprey.deployment import compose_generator, container_lifecycle
 from osprey.deployment.subprocess_capture import SPOOL_DIR, CapturedProcess
 from osprey.deployment.web_terminals import postup_hooks, provision, render_images
 
@@ -291,7 +291,7 @@ def test_render_image_build_cmd_carries_the_site_build_args(monkeypatch, tmp_pat
     """A render image is built on the same host as the project image, so it
     gets the same site CA, package index and offline mode — from the FACILITY
     config, which is the only place those are declared."""
-    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+    for name in compose_generator.SITE_IMAGE_AXES:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
     ca = tmp_path / "site-ca.pem"
@@ -403,7 +403,7 @@ def test_auth_sidecar_build_carries_the_site_build_args(monkeypatch, tmp_path):
     """The login service is the container that reaches the identity provider,
     so its image gets the same site CA every other managed image is built
     with — staged into its own context, since a COPY cannot leave one."""
-    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+    for name in compose_generator.SITE_IMAGE_AXES:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
     monkeypatch.chdir(tmp_path)

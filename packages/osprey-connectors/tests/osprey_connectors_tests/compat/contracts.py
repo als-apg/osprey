@@ -68,7 +68,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "control_context"
 #: The preset the view check renders. Bundled by every framework release that
 #: depends on this distribution, and it serves physics models besides the
 #: texture, so every document of the view carries entries.
-PRESET = "control-assistant"
+PRESET = "demo"
 
 #: Where the framework ships the simulator view's writer, when it ships one.
 VIEW_WRITER_RELPATH = Path("facility/views/simulator.py")
@@ -235,7 +235,7 @@ def check_control_context_golden(fixtures: Path = FIXTURES) -> str:
     reports = sorted(fixtures.glob(control_context.REPORT_FILE_GLOB))
     _require(bool(reports), f"no golden report under {fixtures}")
     for path in reports:
-        report = control_context.parse_report(json.loads(path.read_text(encoding="utf-8")))
+        report = control_context.read_report(path)
         _require(report is not None, f"the golden report {path.name} no longer parses")
         assert report is not None
         _require(
@@ -296,9 +296,9 @@ def defaulted_posture(posture: dict[str, str]) -> dict[str, str]:
     form only writes that default out, for every machine in
     :data:`~osprey_connectors.types.CONTROL_TARGETS`.
     """
-    from osprey_connectors import control_context
+    from osprey_connectors.types import CONTROL_TARGETS
 
-    return {**control_context.posture_mirror({}), **posture}
+    return {**dict.fromkeys(CONTROL_TARGETS, "sandbox"), **posture}
 
 
 def check_golden_rewrite(written: dict, golden: dict) -> None:

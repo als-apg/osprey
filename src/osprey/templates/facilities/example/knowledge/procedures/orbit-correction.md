@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Procedure
 title: Orbit Correction
 description: Procedure to restore the beam orbit to the golden orbit using BPM readings and corrector magnets.

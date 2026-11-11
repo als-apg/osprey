@@ -38,9 +38,16 @@ The snippets on this page show only the keys their section is about; the
 deployment also carries ``default_tier`` and the rest of the roster from the
 multi-user page (see the worked example in
 :ref:`multi-user-registry-images`), and ``tier: readwrite`` / ``readonly``
-name files under ``tiers/``. The ``control-assistant`` preset sets
+name files under ``tiers/``. The ``demo`` preset sets
 ``method: password`` with ``allow_insecure_http: true``, which suits
 ``127.0.0.1`` only; set ``method: token`` to use login URLs.
+
+Merge each snippet's keys into the ``modules.web_terminals:`` entry under
+``config:`` in ``profile.yml``; a second copy of that key silently replaces the
+first. A list in a snippet, such as ``users:``, stands as the whole list, so
+write every entry you keep into it. Keep it one dotted key: a nested
+``modules:`` block would replace the whole ``modules`` subtree, dropping the
+keys the preset sets.
 
 Choose a method
 ===============
@@ -65,8 +72,8 @@ beyond it.
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        auth:
          method: none
 
@@ -81,7 +88,7 @@ inside the deployment can reach nginx back:
 ``.claude/settings.json`` denies ``Bash``, ``Monitor``, ``WebFetch``,
 ``WebSearch`` and ``mcp__plugin_*`` (``osprey scaffold web-terminals
 lint`` reports the same, as ``web_terminals.open_mode_egress``). All of them
-are in OSPREY's deny defaults, so a refusal means a tier or app lifted one —
+are in OSPREY's deny defaults, so a refusal means a login lifted one —
 put it back in that file's ``config:`` block and rebuild. The python executor's
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: ``none`` is for rooms where the agents are trusted too.
@@ -90,8 +97,8 @@ not a boundary: ``none`` is for rooms where the agents are trusted too.
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        tls:
          enabled: true
          host_cert_dir: /etc/ssl/facility     # host side; mounted for you
@@ -106,8 +113,8 @@ user's terminal:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        tls:
          enabled: true
          host_cert_dir: /etc/ssl/facility
@@ -146,6 +153,9 @@ That symptom has one fix:
 
 .. code-block:: yaml
 
+   config:
+     modules.web_terminals:
+       auth:
          oidc:
            issuer: https://sso.example.org/realms/accelerator
            claim: email
@@ -241,8 +251,8 @@ the provider's groups choose:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        authorization:
          roles:
            operator: {tier: readwrite}
@@ -403,16 +413,18 @@ other set is written as a list.
        needs ``method: oidc``; a tier no login with an ``oidc_subject`` runs is
        a build error.
 
-A shared app takes the same set. List the app by name to open it to the whole
-roster, or as a mapping to name who may open it. ``user:`` members need not be
-on the roster: they reach the app and nothing else.
+A shared login takes the same set. List the login by name to open it to the
+whole roster, or as a mapping to name who may open it. ``user:`` members need
+not be on the roster: they reach that card and nothing else.
 
 .. code-block:: yaml
 
-   shared:
-     - logbook                          # every roster login
-     - name: controls                   # the admins and two named experts
-       access: [tier:admin, "user:ada@example.org", "user:grace@example.org"]
+   config:
+     modules.web_terminals:
+       shared:
+         - logbook                        # every roster login
+         - name: controls                 # the admins and two named experts
+           access: [tier:admin, "user:ada@example.org", "user:grace@example.org"]
 
 A card whose set is anything but ``[self]`` is a **shared card**: one
 terminal, one tier, one audit directory, opened by more than one person.
@@ -420,8 +432,8 @@ Here is one shared with the whole roster:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        tls:
          enabled: true
          host_cert_dir: /etc/ssl/facility
@@ -453,8 +465,8 @@ with a whole single sign-on domain, one with two named people:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        auth:
          method: oidc
          oidc:
@@ -472,7 +484,7 @@ with a whole single sign-on domain, one with two named people:
            tier: readwrite
            access: [user:ada@example.org, user:bo@example.org]
 
-The apps are shared cards by construction. The ``control-assistant`` preset
+The apps are shared cards by construction. The ``demo`` preset
 lists three under ``shared:`` — ``logbook``, ``knowledge`` and
 ``channel-finder`` — and any roster login opens them with its own password;
 they carry no credential of their own.
@@ -649,10 +661,12 @@ Keep names off the landing page
 
 .. code-block:: yaml
 
-   landing:
-     groups:
-       - type: users
-         names: hidden
+   config:
+     modules.web_terminals:
+       landing:
+         groups:
+           - type: users
+             names: hidden
 
 The users section then shows one "Log in to your terminal" button and no names.
 The button opens the sign-in described in :ref:`multi-user-own-terminal-entry`.
@@ -677,8 +691,8 @@ owner's account name instead:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        auth:
          method: oidc
          oidc:
@@ -688,9 +702,11 @@ owner's account name instead:
            claim: email
        users:
          - name: alice
+           index: 0
            oidc_subject: alice@example.org
            control_identity: alice
          - name: carol
+           index: 2
            oidc_subject: carol@example.org
            control_identity: cjones
 
@@ -719,9 +735,9 @@ auth method, and by the build itself even with ``--no-lint``:
 
 - **The value must be a usable account name**
   (``web_terminals.invalid_user_control_identity``). It must be a string of
-  lowercase letters, digits, ``_`` and ``-``, starting with a letter or ``_``,
-  at most 32 characters. ``root``, ``osprey`` and every ``osprey-*`` name are
-  reserved for the framework, and the accounts the base image already ships
+  lowercase letters, digits, ``.``, ``_`` and ``-``, starting with a letter or
+  ``_``, at most 32 characters. ``root``, ``osprey`` and every ``osprey-*`` and
+  ``osprey.*`` name are reserved for the framework, and the accounts the base image already ships
   (``daemon``, ``nobody``, ``list``, ``backup`` and the rest) are refused too.
 - **A shared card cannot carry one** (``web_terminals.shared_card_control_identity``).
   Everyone who opens a shared card writes through it, so a fixed name would
@@ -780,9 +796,10 @@ port stays out of the origin and the callback is
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        external_origin: https://terminals.example.org   # what the browser reaches
+       history_origin: https://terminals.example.org:8443   # the history page, same host
        auth:
          method: password
          allow_insecure_http: true
@@ -791,6 +808,11 @@ port stays out of the origin and the callback is
 request unless the browser says it came from that address, and nothing else
 in the configuration can work out what the thing in front answers on. Write
 it as a bare origin — scheme, host, port if non-default, no path.
+``history_origin`` is required beside it for the same reason: it is the
+address browsers reach the history page on (:ref:`multi-user-history-page`),
+on the same host as ``external_origin``. Behind a sign-in, ``osprey build``
+refuses an ``external_origin`` without it
+(``web_terminals.history_origin_required``).
 
 The deployment answers on that one origin, and every other name is redirected
 there. A front proxy must forward the browser's own ``Host`` (for nginx in
@@ -865,8 +887,8 @@ The four keys and their defaults:
 
 .. code-block:: yaml
 
-   modules:
-     web_terminals:
+   config:
+     modules.web_terminals:
        auth:
          method: password
          throttle:

@@ -130,14 +130,23 @@ class Deployment:
             config["code_review"] = section
         self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
 
-    def run(self, tool, tool_input, *, argv=BUDGET, tool_use_id="toolu_1", event="PreToolUse"):
+    def run(
+        self,
+        tool,
+        tool_input,
+        *,
+        argv=BUDGET,
+        tool_use_id="toolu_1",
+        event="PreToolUse",
+        permission_mode="default",
+    ):
         """Run ``main``; return the hook's output, or ``None`` when stdout stayed empty."""
         payload = {
             "hook_event_name": event,
             "tool_name": tool,
             "tool_use_id": tool_use_id,
             "session_id": "conv-1",
-            "permission_mode": "default",
+            "permission_mode": permission_mode,
             "tool_input": tool_input,
             "cwd": str(self.root),
         }
@@ -221,6 +230,24 @@ def test_a_feature_that_is_off_asks_as_before(deployment, review):
     deployment.stub.result = BLOCK
 
     _assert_asked_unreviewed(deployment, deployment.run(EXECUTE, _execute()))
+
+
+def test_a_plan_mode_denied_execute_is_never_reviewed(deployment, tmp_path):
+    """The plan-mode rule's deny comes first: the hook says nothing and calls no reviewer."""
+    deployment.configure({"enabled": True, "level": "block"})
+    deployment.stub.result = BLOCK
+    hook_config = tmp_path / "hook_config.json"
+    hook_config.write_text(
+        json.dumps({**HOOK_CONFIG, "plan_mode_denied_tools": [EXECUTE, EXECUTE_FILE]}),
+        encoding="utf-8",
+    )
+
+    output = deployment.run(EXECUTE, _execute(), permission_mode="plan")
+
+    assert output is None
+    assert deployment.stub.calls == []
+    assert deployment.review_audits() == []
+    assert deployment.stamp() is None
 
 
 def test_by_default_a_readonly_run_is_asked_unreviewed(deployment):

@@ -304,7 +304,7 @@ def _session_on(target: str, generation: int = 0) -> None:
     to the host: :func:`target_banner.resolve_control_target` reads this file
     and nothing else.
     """
-    root = posture_store.agent_data_root()
+    root = posture_store.stamped_agent_data_root()
     assert root is not None, "the deployment fixture stamps OSPREY_AGENT_DATA_ROOT"
     write_control_context(root, target=target, generation=generation)
 
@@ -531,10 +531,12 @@ async def test_a_lane_refusal_carries_the_whole_lane_board(deployment):
     # Same `{code, detail, capability}` shape every other queue refusal has, so
     # a consumer branching on details.code needs no special case.
     assert details["code"] == lanes_module.REASON_LANE_MISMATCH
+    assert details["retryable"] is False
     assert details["capability"] == {
         "can_execute": False,
         "reason": lanes_module.REASON_LANE_MISMATCH,
         "detail": details["detail"],
+        "retryable": False,
     }
 
 

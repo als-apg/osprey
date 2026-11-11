@@ -1,0 +1,8 @@
+# profile.yml
+config:
+  code_review.enabled: true
+  code_review.level: block    # stop unsafe code; `flag` only reports it
+
+hooks:
+  - code-review           # reviews the notebook cells the agent writes
+  - memory-guard          # keeps those edits inside the agent-data root

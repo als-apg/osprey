@@ -40,9 +40,8 @@ from tests.e2e.sdk_helpers import (
 from tests.hooks.conftest import import_hook
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.requires_als_apg,
-    pytest.mark.agentic_benchmark,
+    pytest.mark.harness_benchmark,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available"),
 ]

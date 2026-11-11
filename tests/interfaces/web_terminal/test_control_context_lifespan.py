@@ -37,8 +37,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from osprey.interfaces.web_terminal import control_context_owner as owner_module
+from osprey.interfaces.web_terminal.config_view import TerminalConfigView
 from osprey.interfaces.web_terminal.control_context_owner import (
     CONTROL_CONTEXT_FRAME,
     ControlContextOwnerTask,
@@ -130,7 +132,7 @@ async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_ro
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation, stored.switch) == (BASELINE, 0, {})
-    assert stored.posture == control_context.posture_mirror({})
+    assert stored.posture == control_context._posture_mirror({})
     assert stored.owner == terminal_identity()
     assert app.state.control_context_owner is task.owner
     assert app.state.control_context_follows is None
@@ -245,7 +247,7 @@ async def test_a_terminal_claims_a_record_whose_owner_pid_is_another_users_proce
     """
     liveness.add(OTHER_TERMINAL_PID)
     monkeypatch.setattr(
-        control_context, "is_foreign_process", lambda pid: pid == OTHER_TERMINAL_PID
+        control_context, "_is_foreign_process", lambda pid: pid == OTHER_TERMINAL_PID
     )
     write_control_context(
         control_context_root,
@@ -652,9 +654,112 @@ async def test_the_owner_gate_derives_against_the_file_its_config_came_from(
     assert (stored.target, stored.generation) == ("va", 7)
 
 
-def test_the_owner_names_the_file_load_osprey_config_reads(monkeypatch, tmp_path):
-    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "x.yml"))
-    assert make_task(make_app())._config_path() == str(tmp_path / "x.yml")
+def viewed_task(app: SimpleNamespace, config_file: Path | None) -> ControlContextOwnerTask:
+    """A task whose terminal resolved *config_file*, read through the real view."""
+    app.state.terminal_config = TerminalConfigView(config_file)
+    return ControlContextOwnerTask(app)
+
+
+def write_render(path: Path, connector_type: str = "epics") -> Path:
+    """A render whose baseline is ``live`` for ``epics`` and ``va`` for the simulator."""
+    staged = path.with_suffix(".new")
+    staged.write_text(yaml.safe_dump({"control_system": {"type": connector_type}}))
+    os.replace(staged, path)
+    return path
+
+
+def test_the_owner_names_the_view_s_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "elsewhere.yml"))
+    config_file = write_render(tmp_path / "config.yml")
+
+    assert viewed_task(make_app(), config_file)._config_path() == str(config_file)
+
+
+def test_with_no_file_resolved_the_owner_reads_an_empty_render():
+    task = viewed_task(make_app(), None)
+
+    assert task._rendered_config() == {}
+    assert task._config_path() is None
+    assert task._baseline() == "va"
+
+
+@pytest.mark.usefixtures("liveness")
+async def test_an_unreadable_render_claims_nothing_until_it_is_repaired(
+    control_context_root, tmp_path
+):
+    """No record is written at a guessed baseline; the next tick after repair claims."""
+    config_file = tmp_path / "config.yml"
+    config_file.write_text("control_system: [unclosed\n")
+    app = make_app()
+    task = viewed_task(app, config_file)
+
+    started = await start_control_context_owner(app, interval_s=3600)
+    try:
+        assert read(control_context_root) is None
+        assert not hasattr(app.state, "control_context_owner")
+
+        write_render(config_file)
+        await task.tick_once()
+    finally:
+        await started.stop()
+
+    stored = read(control_context_root)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("live", 0)
+    assert app.state.control_context_owner is task.owner
+
+
+@pytest.mark.usefixtures("liveness")
+async def test_an_unreadable_render_still_renews_an_owned_record(
+    control_context_root, write_control_context, tmp_path
+):
+    path = write_control_context(control_context_root, target="va", generation=3)
+    before = path.read_bytes()
+    config_file = tmp_path / "config.yml"
+    config_file.write_text("control_system: [unclosed\n")
+    app = make_app()
+
+    await viewed_task(app, config_file).tick_once()
+
+    assert path.read_bytes() == before
+    assert app.state.control_context_owner is not None
+    assert app.state.control_context_follows is None
+
+
+async def test_an_unreadable_render_refuses_a_request_naming_the_file(
+    control_context_root, write_control_context, liveness, tmp_path
+):
+    liveness.add(OTHER_TERMINAL_PID)
+    write_control_context(control_context_root, target="live", generation=6)
+    request = file_request(OTHER_TERMINAL_PID, "va", request_id="r-9")
+    config_file = tmp_path / "config.yml"
+    config_file.write_text("control_system: [unclosed\n")
+
+    await viewed_task(make_app(), config_file).tick_once()
+
+    stored = read(control_context_root)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("live", 6)
+    assert stored.last_switch is not None
+    assert stored.last_switch["request_id"] == "r-9"
+    assert stored.last_switch["status"] == control_context.SWITCH_REFUSED
+    assert stored.last_switch["reason"] == "internal_error"
+    assert str(config_file) in stored.last_switch["detail"]
+    assert not request.exists()
+
+
+@pytest.mark.usefixtures("liveness")
+async def test_a_re_render_moves_the_baseline_a_later_claim_uses(control_context_root, tmp_path):
+    config_file = write_render(tmp_path / "config.yml")
+    task = viewed_task(make_app(), config_file)
+    assert task._baseline() == "live"
+
+    write_render(config_file, "virtual_accelerator")
+    await task.tick_once()
+
+    stored = read(control_context_root)
+    assert stored is not None
+    assert stored.target == "va"
 
 
 async def test_a_gate_that_raises_is_refused_as_internal_error(

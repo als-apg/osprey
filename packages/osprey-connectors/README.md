@@ -1,13 +1,15 @@
 # osprey-connectors
 
-Lean control-system and archiver connectors for OSPREY: EPICS, DOOCS, and
-mock/virtual-accelerator connectors for reading and writing control-system
-channels, plus matching archiver connectors (EPICS Archiver Appliance,
-DOOCS local history, MongoDB, mock) for historical data. The package also
-carries the small set of support modules those connectors depend on —
-configuration loading, logging setup, the error/exception taxonomy, and the
-data-driven simulation core used by the mock connectors — without pulling in
-the rest of the OSPREY framework (agents, capabilities, web UI, etc.).
+Lean control-system and archiver connectors for OSPREY. A control-system
+connector reads and writes the channels of one machine; an archiver connector
+reads their history as a pandas `DataFrame`. Every connector of a kind answers
+the same API, so the code above them does not change when the machine behind
+them does. The package also carries what those connectors need — configuration
+loading, logging, the error taxonomy, the write-safety records and the
+simulation core behind the virtual accelerator — without the rest of the OSPREY
+framework (agents, capabilities, web UI, etc.).
+
+Documentation: <https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors.html>
 
 ## Install
 
@@ -15,19 +17,60 @@ the rest of the OSPREY framework (agents, capabilities, web UI, etc.).
 pip install osprey-connectors
 ```
 
+[Use the Connectors Without the Framework](https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors-standalone.html)
+reads a control system and its archiver from a script of your own, and says
+what needs a deployment.
+
+## Connectors
+
+A connector is built by `ConnectorFactory` from its registered type name, after
+`register_builtin_connectors()` has registered the built-in ones:
+
+| Kind | Type name | Talks to |
+| --- | --- | --- |
+| control system | `epics` | EPICS IOCs over Channel Access, and pvAccess for the channels listed under `pva_channels` |
+| control system | `virtual_accelerator` | OSPREY's simulated machine, in process or served over Channel Access (needs a facility built by `osprey build`) |
+| control system | `live_standin` | The facility-shaped soft IOC a deployment runs for itself, over Channel Access |
+| control system | `doocs` | DOOCS servers (needs `doocs4py`) |
+| control system | `tango` | Tango device servers (needs `pytango`) |
+| archiver | `epics_archiver` | The EPICS Archiver Appliance |
+| archiver | `mongodb_archiver` | A deployment's own MongoDB time-series store |
+| archiver | `doocs_archiver` | DOOCS local history (needs `doocs4py`) |
+| archiver | `mya_archiver` | JLab's MYA, over the myquery HTTP service (needs `jlab-archiver-client`) |
+| archiver | `mock_archiver` | The simulated machine's history (needs a facility built by `osprey build`) |
+
+A type name that holds a dot, such as `my_site.connectors.MyConnector`, is
+imported as a module path and class name, so a connector of your own needs no
+registration.
+
+How to configure each one is in the
+[Use Connectors](https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors.html)
+guide, and what every connector must do — reading large values, confirming a
+write, the safety gates a write passes — in the
+[connector contracts](https://als-apg.github.io/osprey/latest/reference/contracts/connectors.html).
+
 ## Public API
 
 Every public module lists its public names in `__all__`, and a module whose
-name starts with an underscore is internal and can change in any release.
+name starts with an underscore is internal and can change in any release. The
+[API reference](https://als-apg.github.io/osprey/latest/reference/connectors-api/index.html)
+documents every one of those names, grouped by area.
 
-Most modules are their own API, each imported by its own path: `config`,
-`workspace`, `dotenv`, `yaml_loader`, `connection`, `types`, `factory`,
-`call_timeout`, `errors`, `logger`, `log_filter`, `identity`, `relative_time`,
-`control_context`, `posture_env`, `posture_store`, `safety_file`, `settle`,
-`process`, `standin` and `honesty`. So are the `simulation` package and its modules
-(`simulation.state`, `simulation.view`, `simulation.archive`, ...): its root
-imports neither numpy nor lume, and the heavier modules are imported by their
-own names.
+Most modules are their own API, each imported by its own path:
+
+| Area | Modules |
+| --- | --- |
+| Building connectors | `factory` (the factory and the built-in registry), `types` (the type names), `connection` (an outbound connection block's address, bound, login and CA), `call_timeout` (a connector call's bound) |
+| Configuration | `config`, `workspace` (where a process finds its config and agent data), `dotenv` (the deployment's env chain), `yaml_loader` |
+| Errors and logging | `errors`, `logger`, `log_filter` |
+| Writing safely | `posture_env` (the read-only run), `posture_store` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle) |
+| The deployment's machines | `simulator` (its virtual accelerator), `standin` (its stand-in soft IOC), `archive_targets` (which machines its archive serves), `honesty` (the one connector pairing a deployment may not have) |
+| Supervising connector processes | `process` (starting and stopping child processes), `recovery` (what to do about a failed connector call) |
+| Utilities | `identity` (who an audit record names), `relative_time`, `safety_file` (replacing a file whole) |
+
+So are the `simulation` package and its modules (`simulation.state`,
+`simulation.view`, `simulation.archive`, ...): its root imports neither numpy
+nor lume, and the heavier modules are imported by their own names.
 
 Three subpackages gather their implementation modules behind one namespace,
 and their names are imported from the subpackage itself:
@@ -74,7 +117,7 @@ removed; the table maps each old path to the public spelling that replaces it.
 | `osprey.connectors.honesty` | `osprey_connectors.honesty` |
 | `osprey.connectors.control_system`, `.control_system.base`, `.control_system.limits_validator` | `osprey_connectors.control_system` |
 | `osprey.connectors.control_system.*_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
-| `osprey.connectors.archiver`, `.archiver.base`, `.archiver._timerange` | `osprey_connectors.archiver` |
+| `osprey.connectors.archiver`, `.archiver.base` | `osprey_connectors.archiver` |
 | `osprey.connectors.archiver.*_archiver_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
 | `osprey.errors` | `osprey_connectors.errors` |
 | `osprey.utils.config` | `osprey_connectors.config` |
@@ -93,21 +136,24 @@ facility timestamp formatter are the framework's `osprey.utils.execution_method`
 and `osprey.utils.facility`, and writing `.env` files is
 `osprey.deployment.dotenv`.
 
-## Optional runtime dependencies
+## Dependencies
 
-Only the connectors you actually use need their backing libraries installed;
-none of the following are declared as hard dependencies of this package, so
-importing `osprey_connectors` never requires them:
+Installing the package installs what every built-in connector except three
+needs: `aioca` for Channel Access and `p4p` for pvAccess (both on the one EPICS
+base `epicscorelibs` ships, so nothing else is needed to talk to real IOCs),
+`pymongo` for `mongodb_archiver`, numpy and pandas, and `lume-base` for the
+simulated machine's models. `pymongo` is imported inside `connect()`, which
+keeps registration cheap; it is not optional.
 
-- **EPICS Channel Access** — `EPICSConnector` speaks Channel Access through
-  `aioca`, a declared dependency, which loads the per-architecture `libca`
-  that `epicscorelibs` ships. Nothing else is needed to talk to real IOCs.
-- **`pymongo`** — required by `MongoDBArchiverConnector`. Installed with this
-  package; the connector imports it inside `connect()` so registration stays
-  cheap, not because it is optional.
-- **`doocs4py`** — required by `DOOCSConnector` and `DOOCSArchiverConnector`.
-  Install separately (it is not on PyPI in all environments) if you connect
-  to a DOOCS control system.
+Three connectors need a client library this package does not declare, because
+only a site that runs that control system or archiver wants it. Each is imported
+when the connector connects, never when the package is imported or the connector
+registered, so a machine without it finds out only when it uses that connector:
+
+- **`doocs4py`** — `doocs` and `doocs_archiver`. The DOOCS environment supplies
+  it.
+- **`pytango`** — `tango`.
+- **`jlab-archiver-client`** — `mya_archiver`.
 
 ## Stability
 

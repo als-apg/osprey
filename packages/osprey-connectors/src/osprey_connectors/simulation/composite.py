@@ -43,6 +43,12 @@ disconnected reading with the ``udf`` condition. A channel fault acts on live
 reads, writes and severity only; :meth:`Composite.readings` serves history
 without it.
 
+**A model with no deck.** A model whose record names no deck and wires no
+channel is not built: there is nothing for an engine to serve, and the
+facility describes such a machine so that its channels are the texture's. Its
+status is ``no deck`` (:data:`~osprey_connectors.simulation.status.STATUS_NO_DECK`),
+its log records an ``unbuilt`` event, and it is no failure.
+
 **A failed child.** A child whose engine raises while it is built or read is
 failed, with the engine's error text as its status (``ok`` otherwise), capped
 at :data:`_STATUS_MAX_BYTES` UTF-8 bytes. It holds the inputs written to it and
@@ -57,9 +63,23 @@ directory, re-read when its modification time changes. A change rebuilds every
 physics child with the active scenarios' writes and fault seeds as its start
 state, and hands the texture the active writes it owns and the active drivers,
 couplings and noise replacements; session writes are dropped. The readings
-any active scenario stills, ``nominal`` included, are stilled; ``all`` stills
-every one. A set whose scenarios touch one target twice is served without its
+any active scenario's ``still`` list names, ``nominal`` included, are stilled.
+A set whose scenarios touch one target twice is served without its
 scenarios.
+
+**Evolution.** A composite built with ``evolve=True`` drives the children
+whose engine states the time contract (``advance``, ``next_deadline``,
+``emitted``, ``client_write``), each looked up on the engine the way
+``readout`` is: it calls ``advance(model, t)`` at its clock's reading right
+after it builds or rebuilds a child, right after :meth:`Composite.reset`, and
+before every read and write; :meth:`Composite.next_deadline` is the earliest
+of the children's deadlines and :meth:`Composite.emitted` the union of what
+they emitted, drained. Only a write through :meth:`Composite.set` that reaches
+a child's model is a client write, handed to ``client_write(model, values,
+t)``; :meth:`Composite.restore`, the start state and the scenario writes are
+not, and neither is a write a ``stuck`` or ``disconnected`` setpoint holds. A
+rebuild discards what a child had pending. Built without it, the default, the
+composite calls none of the four names.
 
 **The model log.** Each physics child appends JSON lines ``{instance, pid,
 ...}`` to ``var/simulator/<model>.log`` under the repo root of the loaded
@@ -88,7 +108,6 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
-from osprey_connectors.simulation.envelope import STILL_ALL
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -97,6 +116,7 @@ from osprey_connectors.simulation.state import (
     resolve_active_scenarios,
     scenario_targets,
 )
+from osprey_connectors.simulation.status import STATUS_NO_DECK, STATUS_OK
 from osprey_connectors.simulation.texture import (
     TEXTURE_OWNER,
     TextureModel,
@@ -104,14 +124,17 @@ from osprey_connectors.simulation.texture import (
     channel_variable,
     is_float_channel,
 )
-from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, Model, SimulatorView
+from osprey_connectors.simulation.view import (
+    MONITOR,
+    SEEDS_FILE,
+    SETPOINT,
+    VARIABLES_FILE,
+    Model,
+    SimulatorView,
+)
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
 __all__ = [
-    "ENGINE_GROUP",
-    "INSTANCES",
-    "STATUS_OK",
-    "UDF",
     "Composite",
     "WriteRefusedError",
     "log_dir",
@@ -120,13 +143,10 @@ __all__ = [
 logger = get_logger("simulation_composite")
 
 #: The entry-point group every engine plug-in registers under.
-ENGINE_GROUP = "osprey.simulation.engines"
+_ENGINE_GROUP = "osprey.simulation.engines"
 
 #: The serving instances a model log record names.
-INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
-
-#: A physics child's status while its engine serves it.
-STATUS_OK = "ok"
+_INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
 
 #: The longest status text, in UTF-8 bytes.
 _STATUS_MAX_BYTES = 1023
@@ -135,11 +155,9 @@ _STATUS_MAX_BYTES = 1023
 _LOG_RECORD_MAX_BYTES = 4096
 
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
-UDF = "udf"
+_UDF = "udf"
 
 _ELLIPSIS = "…"
-_SETPOINT = "setpoint"
-_MONITOR = "monitor"
 _FAULT_SEPARATOR = "/"
 _MODEL_SEPARATOR = "/"
 _LOG_MODE = 0o664
@@ -241,15 +259,17 @@ class Composite(LUMEModel):
         state_dir: The directory holding the ``active_scenarios`` file; ``None``
             serves ``nominal`` alone.
         instance: The serving instance the model log names, one of
-            :data:`INSTANCES`.
+            :data:`_INSTANCES`.
         clock: Returns the current instant in epoch seconds.
         model_log: ``False`` sends the model log records to the process logger
             only, for a composite no instance serves.
         log_dir: The directory the model logs are appended in; ``None`` takes
             :func:`log_dir` when ``model_log`` is set.
+        evolve: Drive the children's time contract with ``clock``; ``False``
+            never calls it, so every channel holds its start state until written.
 
     Raises:
-        ValueError: ``instance`` is not one of :data:`INSTANCES`.
+        ValueError: ``instance`` is not one of :data:`_INSTANCES`.
         NoSimulatorView: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
@@ -263,13 +283,15 @@ class Composite(LUMEModel):
         clock: Callable[[], float] = time.time,
         model_log: bool = True,
         log_dir: Path | str | None = None,
+        evolve: bool = False,
     ) -> None:
-        if instance not in INSTANCES:
-            raise ValueError(f"instance is {instance!r}; use one of {list(INSTANCES)}")
+        if instance not in _INSTANCES:
+            raise ValueError(f"instance is {instance!r}; use one of {list(_INSTANCES)}")
         if not isinstance(view, SimulatorView):
             view = SimulatorView.open(view)
         self._instance = instance
         self._clock = clock
+        self._evolve = evolve
         self._state_path = (
             None if state_dir is None else Path(state_dir) / ACTIVE_SCENARIOS_FILENAME
         )
@@ -339,7 +361,7 @@ class Composite(LUMEModel):
         )
         groups: dict[str, list[str]] = {}
         for binding in source.bindings:
-            if binding.role == _MONITOR and binding.element is not None:
+            if binding.engine_role == MONITOR and binding.element is not None:
                 groups.setdefault(str(binding.element), []).append(binding.address)
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
         return _Child(
@@ -375,18 +397,26 @@ class Composite(LUMEModel):
         Raises:
             LookupError: No plug-in is registered under that name.
         """
-        found = metadata.entry_points(group=ENGINE_GROUP, name=name)
+        found = metadata.entry_points(group=_ENGINE_GROUP, name=name)
         for entry in found:
             return entry.load()
-        raise LookupError(f"no simulation engine {name!r} is registered in {ENGINE_GROUP}")
+        raise LookupError(f"no simulation engine {name!r} is registered in {_ENGINE_GROUP}")
 
     def _build(self, child: _Child) -> None:
-        """Build a child at its active state; a raise leaves it failed with the engine's text."""
+        """Build a child at its active state; a raise leaves it failed with the engine's text.
+
+        A child that names no deck and wires no channel is left unbuilt, with
+        the ``no deck`` status.
+        """
         source = child.source
         child.model = None
         child.engine = None
         child.starts = {}
         child.inputs = self._start_inputs(child)
+        if source.deck is None and not source.bindings:
+            child.status = STATUS_NO_DECK
+            self._log(child.name, {"event": "unbuilt", "status": STATUS_NO_DECK})
+            return
         try:
             child.engine = self._engine(str(source.engine))
             child.model = child.engine.build(
@@ -407,6 +437,7 @@ class Composite(LUMEModel):
             return
         child.status = STATUS_OK
         self._log(child.name, {"event": "built", "status": STATUS_OK})
+        self._advance_child(child, float(self._clock()))
 
     def _fail(self, child: _Child, exc: BaseException) -> None:
         """Mark a child failed with the text its engine gives for ``exc``.
@@ -424,6 +455,81 @@ class Composite(LUMEModel):
         child.model = None
         child.status = _cap_status(text)
         self._log(child.name, {"event": "failed", "error": text})
+
+    # -- the time contract ---------------------------------------------------
+
+    def _time_function(self, child: _Child, name: str) -> Callable[..., Any] | None:
+        """A built child's time-contract function ``name``; ``None`` unless evolving."""
+        if not self._evolve or child.model is None:
+            return None
+        function = getattr(child.engine, name, None)
+        return function if callable(function) else None
+
+    def _call_time(self, child: _Child, name: str, *args: Any) -> Any:
+        """Call ``child``'s time-contract function ``name`` on its model with ``args``.
+
+        Returns what it returns, or ``None`` when the child states no such
+        function or is not evolving; a raise fails the child and returns ``None``.
+        """
+        function = self._time_function(child, name)
+        if function is None:
+            return None
+        try:
+            return function(child.model, *args)
+        except Exception as exc:
+            self._fail(child, exc)
+            return None
+
+    def _advance_child(self, child: _Child, t_s: float) -> None:
+        """Apply every step of ``child`` due by ``t_s``; a raise fails the child."""
+        self._call_time(child, "advance", t_s)
+
+    def _advance(self, t_s: float) -> None:
+        for child in self._children.values():
+            self._advance_child(child, t_s)
+
+    def advance(self) -> None:
+        """Advance every time-driven child to the clock; nothing unless built to evolve."""
+        self._refresh()
+        self._advance(float(self._clock()))
+
+    def next_deadline(self) -> float | None:
+        """The earliest epoch second a time-driven child has a step due, else ``None``.
+
+        ``None`` too when the composite does not evolve; a child whose engine
+        raises is failed and has no deadline.
+        """
+        self._refresh()
+        deadlines: list[float] = []
+        for child in self._children.values():
+            deadline = self._call_time(child, "next_deadline")
+            if deadline is not None:
+                deadlines.append(float(deadline))
+        return min(deadlines) if deadlines else None
+
+    def emitted(self) -> frozenset[str]:
+        """The addresses the time-driven children emitted since the last call, drained.
+
+        Empty when the composite does not evolve; a child whose engine raises
+        is failed and emits nothing.
+        """
+        self._refresh()
+        fired: set[str] = set()
+        for child in self._children.values():
+            emitted = self._time_function(child, "emitted")
+            if emitted is None:
+                continue
+            try:
+                fired.update(str(address) for address in emitted(child.model))
+            except Exception as exc:
+                self._fail(child, exc)
+        return frozenset(fired)
+
+    def _client_write(self, forwarded: Mapping[str, Mapping[str, Any]], t_s: float) -> None:
+        """Hand each child the client writes that reached its model."""
+        for model, written in forwarded.items():
+            if written:
+                self._call_time(self._children[model], "client_write", dict(written), t_s)
 
     # -- the active scenarios ------------------------------------------------
 
@@ -470,7 +576,6 @@ class Composite(LUMEModel):
         couple: dict[str, list[Mapping[str, Any]]] = {}
         noise: dict[str, Mapping[str, Any]] = {}
         still: set[str] = set()
-        still_all = False
         channel_faults: dict[str, str] = {}
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
@@ -486,11 +591,7 @@ class Composite(LUMEModel):
             for address, terms in (scenario.get("couple") or {}).items():
                 couple.setdefault(str(address), []).extend(terms)
             noise.update(scenario.get("noise") or {})
-            stilled = scenario.get("still")
-            if stilled == STILL_ALL:
-                still_all = True
-            elif stilled and not isinstance(stilled, str):
-                still.update(str(address) for address in stilled)
+            still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
 
         resolved: dict[str, list[Mapping[str, Any]]] = {}
@@ -501,7 +602,7 @@ class Composite(LUMEModel):
                     logger.warning(f"{address} couples to undeclared driver {term['driver']!r}")
                     continue
                 resolved.setdefault(address, []).append({**term, "drive": drive})
-        self._texture.set_motion(resolved, noise, still=frozenset(still), still_all=still_all)
+        self._texture.set_motion(resolved, noise, still=frozenset(still))
         self._moving = frozenset(
             address
             for address in self._owner
@@ -566,7 +667,7 @@ class Composite(LUMEModel):
             if fault is None or channel is None:
                 logger.warning(f"Ignoring channel fault {word!r} on {address!r}")
                 continue
-            if channel.get("role") != _SETPOINT:
+            if channel.get("role") != SETPOINT:
                 faulted[str(address)] = fault
                 continue
             if fault.write:
@@ -618,6 +719,15 @@ class Composite(LUMEModel):
         self._refresh()
         return self._moving
 
+    def texture_reach(self) -> dict[str, frozenset[str]]:
+        """What a write to each settable texture channel can change, by address.
+
+        The channel, the readback it echoes into, and the texture channels
+        derived from either. No physics model reads a texture channel, so the
+        write changes nothing else.
+        """
+        return self._texture.reach()
+
     def get(self, names: list[str] | str) -> dict[str, Any] | Any:
         """Read channels, each as its variable declares it; a waveform as an array of its shape.
 
@@ -662,7 +772,9 @@ class Composite(LUMEModel):
 
     def _get(self, names: list[str]) -> dict[str, Any]:
         self._refresh()
-        outputs = self._served(names, float(self._clock()))
+        t_s = float(self._clock())
+        self._advance(t_s)
+        outputs = self._served(names, t_s)
         outputs.update(self._held_demands(names))
         for name in names:
             fault = self._faulted.get(name)
@@ -685,7 +797,7 @@ class Composite(LUMEModel):
 
     def _is_moving_readback(self, address: str) -> bool:
         channel = self._channels[address]
-        return channel.get("role") != _SETPOINT and is_float_channel(channel)
+        return channel.get("role") != SETPOINT and is_float_channel(channel)
 
     def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, Any]:
         """A physics child's channels at ``t_s``: readbacks with motion, readout and clamp."""
@@ -881,6 +993,7 @@ class Composite(LUMEModel):
         wanted = list(names)
         self._require(wanted)
         self._refresh()
+        self._advance(float(self._clock()))
         outputs, texture, physics = self._partition(wanted)
         outputs.update(self._texture.held(texture))
         for model, owned in physics.items():
@@ -909,7 +1022,7 @@ class Composite(LUMEModel):
         for name in names:
             child = self._children.get(self._owner.get(name, TEXTURE_OWNER))
             if child is not None and child.model is None:
-                severities[name] = {"condition": UDF}
+                severities[name] = {"condition": _UDF}
             elif name in self._fault_severity:
                 severities[name] = {"condition": self._fault_severity[name]}
         return severities
@@ -940,6 +1053,21 @@ class Composite(LUMEModel):
                 ``address`` names the channel when one channel was refused.
             ReadOnlyError: A name is not a settable channel.
         """
+        self._write(values_by_name, client=True)
+
+    def restore(self, values_by_name: dict[str, Any]) -> None:
+        """Put channels back as :meth:`set` writes them, without a client write.
+
+        For a rollback or a replay: the children's models take the values, and
+        no engine is told a client wrote them.
+
+        Raises:
+            WriteRefusedError: As :meth:`set`.
+            ReadOnlyError: As :meth:`set`.
+        """
+        self._write(values_by_name, client=False)
+
+    def _write(self, values_by_name: Mapping[str, Any], *, client: bool) -> None:
         self._refresh()
         if not values_by_name:
             return
@@ -963,13 +1091,19 @@ class Composite(LUMEModel):
                 variable.validate_value(_for_variable(variable, coerced[name]))
             except ValueError as exc:
                 raise WriteRefusedError(str(exc), address=name) from exc
-        self._set(coerced)
+        t_s = float(self._clock())
+        self._advance(t_s)
+        forwarded = self._set(coerced)
+        if client:
+            self._client_write(forwarded, t_s)
 
-    def _set(self, values_by_name: dict[str, Any]) -> None:
+    def _set(self, values_by_name: dict[str, Any]) -> dict[str, dict[str, Any]]:  # type: ignore[override]
+        """Write the children, then the texture; returns what reached each child's model."""
         batches: dict[str, dict[str, Any]] = {}
         for name, value in values_by_name.items():
             batches.setdefault(self._owner[name], {})[name] = value
         restores: list[Callable[[], None]] = []
+        forwarded: dict[str, dict[str, Any]] = {}
         texture = batches.get(TEXTURE_OWNER) or {}
         demands = {name: value for name, value in texture.items() if name in self._held_writes}
         writing: Mapping[str, Any] = {}
@@ -977,7 +1111,8 @@ class Composite(LUMEModel):
             for model, child in self._children.items():
                 if model in batches:
                     writing = batches[model]
-                    restores.append(self._set_child(child, writing))
+                    restore, forwarded[model] = self._set_child(child, writing)
+                    restores.append(restore)
             forward = {name: value for name, value in texture.items() if name not in demands}
             if forward:
                 writing = forward
@@ -995,9 +1130,12 @@ class Composite(LUMEModel):
             address = next(iter(writing)) if len(writing) == 1 else None
             raise WriteRefusedError(str(exc) or type(exc).__name__, address=address) from exc
         self._texture_demands.update(demands)
+        return forwarded
 
-    def _set_child(self, child: _Child, batch: Mapping[str, Any]) -> Callable[[], None]:
-        """Write one child's batch; returns what puts its previous inputs back.
+    def _set_child(
+        self, child: _Child, batch: Mapping[str, Any]
+    ) -> tuple[Callable[[], None], dict[str, Any]]:
+        """Write one child's batch; returns its undo and the values that reached the model.
 
         Every name of the batch lands in the child's inputs; only the names the
         active scenarios do not hold reach the model.
@@ -1005,6 +1143,7 @@ class Composite(LUMEModel):
         forward = {name: value for name, value in batch.items() if name not in self._held_writes}
         previous = {name: child.inputs[name] for name in batch if name in child.inputs}
         model = child.model
+        reached = dict(forward) if model is not None else {}
         if model is not None and forward:
             model.set(
                 {
@@ -1028,7 +1167,7 @@ class Composite(LUMEModel):
                 except Exception as exc:
                     self._fail(child, exc)
 
-        return restore
+        return restore, reached
 
     def reset(self) -> None:
         """Return every child to its start state; a failed child is rebuilt.
@@ -1036,7 +1175,8 @@ class Composite(LUMEModel):
         Setpoints return to their active writes or defaults, the texture to its
         nominals and active writes; session writes are dropped, the ones a
         channel fault holds among them. A faulted reading keeps the value it
-        served when its fault became active.
+        served when its fault became active. An evolving composite advances
+        each child to the clock right after, which anchors its time anew.
         """
         self._refresh()
         for child in self._children.values():
@@ -1049,6 +1189,7 @@ class Composite(LUMEModel):
                 self._fail(child, exc)
                 continue
             child.inputs = self._start_inputs(child)
+            self._advance_child(child, float(self._clock()))
         self._texture.reset()
         self._texture_demands = {}
 
@@ -1062,6 +1203,8 @@ class Composite(LUMEModel):
                 f"{name!r} names no model variable; use <model>/<name>, model in {self.models}"
             )
         if child.model is None:
+            if child.status == STATUS_NO_DECK:
+                raise ValueError(f"model {model!r} is not built: it names no deck")
             raise ValueError(f"model {model!r} has failed: {child.status}")
         if variable in self._channels or variable not in child.model.supported_variables:
             raise ValueError(f"model {model!r} has no variable {variable!r}")

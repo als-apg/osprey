@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Subsystem
 title: Timing System (TIM)
 description: Facility-wide synchronization and triggering system providing event-based timing to all subsystems.

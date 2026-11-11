@@ -25,7 +25,7 @@ def load_hook_config():
     global _hook_config_cache
     if _hook_config_cache is not None:
         return _hook_config_cache
-    config_path = os.environ.get("OSPREY_HOOK_CONFIG")
+    config_path: str | Path | None = os.environ.get("OSPREY_HOOK_CONFIG")
     if config_path is None:
         config_path = Path(__file__).parent / "hook_config.json"
     try:
@@ -382,6 +382,12 @@ def load_osprey_config(hook_input=None):
     return _osprey_config_cache
 
 
+# The group-shared directory helper, a sibling script (``hooks/safety-file``).
+try:
+    import osprey_safety_file as _safety_file
+except Exception:  # pragma: no cover - hooks must never crash the agent
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
+
 # The framework default agent-data root, imported so the hooks and the framework
 # cannot drift apart. The literal serves a hook running with osprey off the
 # path, the one case where guessing beats crashing.
@@ -594,11 +600,10 @@ SPOOL_OPEN_SUFFIX = ".open"
 SPOOL_SEALED_SUFFIX = ".sealed"
 SPOOL_ERRORS_FILE = ".errors"
 
-#: Modes the spool writer uses, restated. A segment is readable by the spool
-#: directory's group (the consumer); a directory the hook has to create itself
-#: is setgid group-writable so the consumer can remove sealed segments.
+#: The mode the spool writer gives a segment, restated: readable by the spool
+#: directory's group (the consumer). A directory the hook has to create itself
+#: is made through the sibling ``osprey_safety_file``, as the writer's is.
 SPOOL_SEGMENT_MODE = 0o640
-SPOOL_DIR_MODE = 0o2770
 
 #: A segment is created, never reopened: ``O_EXCL`` refuses a name that is
 #: already taken, so no other process's segment can be appended to.
@@ -891,13 +896,17 @@ def _spool_host():
 
 
 def _spool_ensure_dir(directory):
-    """Create *directory*; the mode is best-effort, exactly as the writer's."""
-    directory.mkdir(parents=True, exist_ok=True)
-    with contextlib.suppress(OSError):
-        # mkdir's mode is umask-masked and the setgid bit does not survive it
-        # at all, so the chmod is what actually sets the provisioned mode. A
-        # narrower directory still beats a dropped record.
-        os.chmod(directory, SPOOL_DIR_MODE)
+    """Create *directory* as a group-shared location; the mode is best-effort.
+
+    Each level this creates gets the sibling's ``SHARED_DIR_MODE``, and a level
+    that already exists keeps its own. A narrower directory still beats a
+    dropped record, so a hook rendered without its ``osprey_safety_file``
+    sibling creates it at the umask.
+    """
+    if _safety_file is None:
+        directory.mkdir(parents=True, exist_ok=True)
+        return
+    _safety_file.ensure_shared_dir(directory, modes="best_effort")
 
 
 def _spool_create(directory):

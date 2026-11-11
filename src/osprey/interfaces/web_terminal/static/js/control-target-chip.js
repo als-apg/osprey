@@ -7,7 +7,7 @@
  * machine, and a dot whose colour says how much a write there matters and
  * whose shape says who is holding writes back. On the hub it is the button of
  * the sidebar's control-system block (sidebar-target.js lays it out); on a
- * popped-out JupyterLab page it is a 28 px chip in the Lab menu bar
+ * JupyterLab page in its own window it is a 28 px chip in the Lab menu bar
  * (control-target-lab-bar.js). The popover behind it
  * (control-target-popover.js) lists every configured target and owns every
  * gesture that CHANGES something; this module owns the chip, the read, and the
@@ -66,6 +66,7 @@ import {
   displayName,
   isPosition,
   machineKind,
+  programQualifier,
   reasonPhrase,
   resolvePendingSwitch,
   statePhrase,
@@ -97,6 +98,13 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  *   sentence for that code — the popover's tooltip, never its row text
  * @property {'off'|'asked'|'allowed'|null} switch  this login's stored position
  *   for the machine; `null` when the record cannot be read
+ * @property {boolean} [program_hold]  a program's write authorization of this
+ *   login is in force on the machine, whatever `switch` says; the row's off
+ *   control revokes it with the switch
+ * @property {Array<{id: string, holder: string, label: string, steps: number,
+ *             expires_in_s: number, self_issued?: boolean}>} [programs]  each one
+ *   in force; `self_issued` when the program issued it itself at `allowed`,
+ *   which moving the switch away from `allowed` ends
  * @property {boolean} prompt  whether this login's next write here prompts: the
  *   effective position, so a stored `allowed` capped at `asked` answers true
  * @property {boolean} write_allowed  the verdict a new write by this login
@@ -385,6 +393,9 @@ function buildChip() {
 /**
  * Write the state phrase with its leading "writes " in a span of its own: the
  * sidebar block hides that word, and the element's text keeps the whole phrase.
+ * A trailing program qualifier gets one too (`ctc-state-program`, its ` · ` in
+ * `ctc-state-program-sep`), so the narrow sidebar pill can stack `program`
+ * under the word instead of squeezing the machine's name.
  * @param {HTMLElement} node
  * @param {string} phrase
  */
@@ -396,8 +407,22 @@ function paintState(node, phrase) {
   }
   const word = span('ctc-state-lead');
   word.textContent = lead;
-  node.replaceChildren(word, phrase.slice(lead.length));
+  let rest = phrase.slice(lead.length);
+  /** @type {HTMLElement[]} */
+  const tail = [];
+  if (PROGRAM_QUALIFIER.startsWith(' · ') && rest.endsWith(PROGRAM_QUALIFIER)) {
+    rest = rest.slice(0, -PROGRAM_QUALIFIER.length);
+    const program = span('ctc-state-program');
+    const sep = span('ctc-state-program-sep');
+    sep.textContent = ' · ';
+    program.append(sep, PROGRAM_QUALIFIER.slice(' · '.length));
+    tail.push(program);
+  }
+  node.replaceChildren(word, rest, ...tail);
 }
+
+/** The qualifier {@link programQualifier} appends for a program in force. */
+const PROGRAM_QUALIFIER = programQualifier({ program_hold: true });
 
 /** @param {string} cls @returns {HTMLElement} */
 function span(cls) {
@@ -959,6 +984,10 @@ export function kindAttr(row) {
  * `asked` reads `asked`: the word says what the next write meets, not what was
  * stored. A row that does not say reads `allowed`, the louder of the two.
  *
+ * A program's write authorization in force on the machine (`program_hold`)
+ * does not change the word: it is said beside it ({@link programQualifier}),
+ * so this login's own switch stays readable.
+ *
  * Exported for the popover, whose rows and confirms have to name the state in
  * the same words the chip does — the confirm for a switch tells the operator
  * the state they will land in, and it must be the word the chip shows a
@@ -1010,7 +1039,7 @@ export function targetReading() {
   const word = stateWord(row);
   return {
     name: displayName(row, kind),
-    state: pending ? 'switching…' : statePhrase(word),
+    state: pending ? 'switching…' : statePhrase(word) + programQualifier(row),
     kind,
     word,
   };
@@ -1040,6 +1069,7 @@ function render() {
       chip.hidden = false;
       chip.dataset.targetKind = reading.kind;
       chip.dataset.state = reading.word;
+      chip.dataset.program = String(row.program_hold === true);
       const held = state.held === true;
       chip.dataset.held = String(held);
       // A question about the CONTEXT, not about the switch: whether a target

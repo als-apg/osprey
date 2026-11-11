@@ -1,0 +1,1 @@
+The Claude Code hooks gain a stdlib-only prompt renderer that fills an approval prompt from `input.*` and `state.*` values with escaping and caps, shipped as the `hooks/prompt-render` row beside the approval hook. Approval-prompt labels now escape bidi overrides, zero-width marks and C1 controls to a visible codepoint token.

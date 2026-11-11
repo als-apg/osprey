@@ -43,7 +43,12 @@ from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
-from .build_profile_presets import PRESET_ONLY_KEYS, _load_preset_raw
+from .build_profile_presets import (
+    PRESET_APPS_KEY,
+    PRESET_ONLY_KEYS,
+    _load_preset_raw,
+    preset_apps,
+)
 from .build_profile_resolve import apply_cli_edits
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
 
@@ -97,7 +102,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "default_panel",
         "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
-        "artifact_server",  # gallery categories + host/port
+        "artifact_server",  # gallery extension types + host/port
         "dispatch",  # the seven optional feature blocks
         "bluesky",
         "virtual_accelerator",
@@ -105,9 +110,23 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "agent_record",
         "watchdogs",
         "bluesky_web",
+        "optimizer",
+        "optimizer_web",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "slack_bridge",
+        "apps",  # the deployment's applications, one entry per apps/<name>/
+    }
+)
+
+# Keys a login file spells and a deployment's profile.yml never does: never
+# synthesized and never offered as a template. A carried value is not stripped
+# (see above), so an emitter can write one; the build then refuses that
+# profile.yml (`_refuse_root_lists`), naming the login file as the key's home.
+_LOGIN_ONLY_KEYS: frozenset[str] = frozenset(
+    {
+        "lists",  # own | add: how a login's lists relate to the deployment's
     }
 )
 
@@ -115,7 +134,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
 # which means absent from what the emitter ADDS: never synthesized (a facility
 # should not inherit build plumbing it did not ask for) and never offered as a
 # commented template. It does NOT mean stripped when carried — `claude_md_template`
-# is a preset-author primitive that two bundled presets rely on, and dropping it
+# is a preset-author primitive that bundled presets rely on, and dropping it
 # would silently swap their CLAUDE.md render and break emitted-vs-preset parity.
 _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
     {
@@ -125,6 +144,7 @@ _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
         "environment",  # interpreter + packages: the built Python env
         "dependencies",
         "lifecycle",  # pre/post-build steps
+        "machine",  # a mounted machine repository: the repo's own layout, never a preset's
     }
 )
 
@@ -151,7 +171,7 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "deploy_services": "true builds its own services stack; false attaches to another project's.",
     "config": "config.yml overrides, as dotted keys. Empty means template defaults stand.",
     "services": "Services this profile declares. Injected ones are added at build time.",
-    "env": "Environment variables the deployment needs (required:/defaults:/file:).",
+    "env": "Environment variables the deployment needs (required:/pinned:/defaults:).",
     "panel_presets": "Named web-terminal layouts, as label -> tiles of panel-id tabs.",
     "hooks": "Safety and lifecycle hooks installed into .claude/.",
     "rules": "Facility rules installed into .claude/rules/.",
@@ -182,15 +202,14 @@ _ANNOTATIONS: dict[str, tuple[str, ...]] = {
     "env": (
         "# Environment variables the deployment needs. Replace `env: {}` with any",
         "# of `required` (the variable must be set somewhere), `pinned` (this",
-        "# repo's own env chain owns it outright, and nowhere else), `defaults`",
-        "# (name to value) and `file` (a profile-relative path copied in as .env):",
+        "# repo's own env chain owns it outright, and nowhere else) and `defaults`",
+        "# (name to value):",
         "#",
         "#   env:",
         "#     required: [DISPATCH_WORKER_TOKEN]",
         "#     pinned: [ARIEL_DB_PASSWORD]",
         "#     defaults:",
         '#       OSPREY_FACILITY_NAME: "Example Facility"',
-        "#     file: env/facility.env",
         "#",
         "# If `env:` already has children, add yours under it.",
     ),
@@ -269,18 +288,21 @@ _MCP_SERVERS_APPENDIX = """
 """.replace("__BUILD__", BUILD_OUTPUT_DIR)
 
 # Appended when the resolved profile has no ``artifact_server:`` block.
-_CATEGORIES_APPENDIX = """
-# --- Artifacts gallery: custom categories ------------------------------------
-# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
-# tool passes as category="<key>" when it saves an artifact; label and color
-# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
-# block also accepts host/port/auto_launch overrides for the gallery server.
+_EXTENSION_TYPES_APPENDIX = """
+# --- Artifacts gallery: extension types -------------------------------------
+# Facility artifact kinds, each conforming to one gallery base form (plots,
+# trends, tables, documents, dashboards, images, data) and listed under it.
+# A label may not repeat a base form's or another type's. The optional viewer
+# is a .js/.mjs ES module under this profile's project/ directory, given
+# relative to it. The block also accepts host/port/auto_launch overrides for
+# the gallery server.
 #
 # artifact_server:
-#   categories:
-#     optics:
-#       label: Optics
-#       color: "#4C9AFF"
+#   extension_types:
+#     beam_scan:
+#       label: Beam scan
+#       base_form: plots
+#       viewer: viewers/beam_scan.js
 """
 
 
@@ -304,7 +326,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     "data": """
 # --- Facility data tree ------------------------------------------------------
 # Path (relative to this profile) of the data tree the build copies. `osprey
-# init` materializes one from the preset's packaged tree and sets this key; a
+# init` materializes it from the preset's packaged tree and sets this key; a
 # layer under tiers/ inherits it and resolves it against this
 # profile's directory. Full replacement, not a fallback.
 #
@@ -519,6 +541,28 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # bluesky_web:
 #   port: <host port>
 """,
+    "optimizer": """
+# --- Optimizer ---------------------------------------------------------------
+# Tunes machine variables against an objective with Bayesian optimization. The
+# service takes the optimizer slot of this deployment's port block and keeps
+# its jobs in a Redis sidecar. `targets` lists the control targets it may
+# drive (va, standin); the live machine is not allowed yet. Environment files
+# (YAML) in `environments_dir` are mounted read-only into the service.
+#
+# optimizer:
+#   targets: [va]
+#   environments_dir: optimizer/environments
+""",
+    "optimizer_web": """
+# --- Optimizer web panel -----------------------------------------------------
+# The OPTIMIZER tab for the web terminal (requires the optimizer block): where
+# a person reviews and starts the run an agent drafted. The sidecar takes the
+# optimizer_web slot of this deployment's port block; the override below pins
+# it outside that block.
+#
+# optimizer_web:
+#   port: <host port>
+""",
     "nextcloud_bridge": """
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
@@ -556,6 +600,19 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """,
+    "slack_bridge": """
+# --- Slack bridge ------------------------------------------------------------
+# Answers questions asked from a Slack channel, thread or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Slack credentials are runtime env, not profile keys: declare
+# SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
+# Mode app token) under `env.required`.
+#
+# slack_bridge:
+#   trigger: slack-question
+#   mentions: true               # false posts the agent's @mentions as plain text
+""",
     "deploy": """
 # --- Deployment coordinates --------------------------------------------------
 # Where this deployment is built, pushed, and run. Needed only once it leaves
@@ -575,10 +632,29 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #     user: operator
 #     project_path: /home/operator/projects/facility-profiles
 """,
+    "apps": """
+# --- Applications ------------------------------------------------------------
+# The applications this deployment runs, one entry per apps/<name>/ directory
+# holding its app.yml. Listing one turns it on; to turn it off, remove the
+# entry. Its tool server is added by the build, so no tool-server key goes here,
+# and its writes follow each login's control_system.writes tier.
+#
+# apps:
+#   orbit-bump:
+#     config:                    # free-form; handed to the application as a file
+#       step: 0.5
+#     services:
+#       orbit-bump:              # a container key from its app.yml
+#         network: host          # bridge | host
+#         env: [HTTP_PROXY]      # host variables passed through
+#
+# A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
+# {shown: false}}`, and `lists: own` to show only what it names.
+""",
     # The two long-form blocks above this module's helpers, registered here so
     # the partition has a single template table to guard.
     "mcp_servers": _MCP_SERVERS_APPENDIX,
-    "artifact_server": _CATEGORIES_APPENDIX,
+    "artifact_server": _EXTENSION_TYPES_APPENDIX,
 }
 
 # Append order for the commented templates, so two emissions of the same preset
@@ -600,9 +676,13 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "agent_record",
     "watchdogs",
     "bluesky_web",
+    "optimizer",
+    "optimizer_web",
     "nextcloud_bridge",
     "gchat_bridge",
     "teams_bridge",
+    "slack_bridge",
+    "apps",
 )
 
 # The six artifact-selection lists, in profile spelling. Each gets a generated
@@ -797,7 +877,10 @@ def effective_config_subtree(
     either key alone answers wrong. So:
 
     1. :func:`_collapse_config_prefixes` runs FIRST, folding every
-       prefix-related pair deeper-key-wins;
+       prefix-related pair deeper-key-wins — over only the keys on this
+       path (the path itself, its ancestors, keys under it), so a conflict
+       between keys elsewhere in the block cannot refuse a reader that never
+       asked about them;
     2. then every key that still addresses this path — the path itself, a key
        under it, or an ancestor carrying it nested inside its value — is folded
        into one subtree, shallowest first so the deeper key again wins.
@@ -805,9 +888,14 @@ def effective_config_subtree(
     Returns a plain dict (empty when the config addresses nothing here); the
     caller owns it and may mutate it freely.
     """
-    collapsed = _collapse_config_prefixes(dict(config))
-    segments = _config_segments(collapsed)
     depth = len(subtree_path)
+    on_path = {
+        key: config[key]
+        for key, path in _config_segments(config).items()
+        if path[:depth] == subtree_path or subtree_path[: len(path)] == path
+    }
+    collapsed = _collapse_config_prefixes(on_path)
+    segments = _config_segments(collapsed)
     subtree: dict[str, Any] = {}
     for key in sorted(segments, key=lambda k: len(segments[k])):
         path = segments[key]
@@ -859,8 +947,8 @@ def emits_layer_profiles(config: Mapping[str, Any]) -> bool:
     :func:`effective_web_terminals`) is enabled AND carries a non-empty
     ``renders`` projection — which only a rendered ``build/config.yml`` does:
     the build writes it, a profile never spells it, and the retired
-    render catalog is dropped when a profile is read. False for a tier
-    or app render, which disables the module: a render never carries
+    render catalog is dropped when a profile is read. False for a login
+    render, which disables the module: a render never carries
     renders-of-a-render.
     """
     web_terminals = effective_web_terminals(config)
@@ -1007,7 +1095,7 @@ def _drop_key_and_pre_comment(cm: CommentedMap, key: Any) -> None:
     :func:`_sync_to_resolved` deletes a key the resolved profile does not carry
     but deliberately KEEPS the block above it, because for a preset-authored
     key that block is usually a section header introducing what follows. For a
-    key the emitted profile must not document at all — one the preset consumes
+    key the emitted profile must not document at all — a key the preset consumes
     on its own behalf — the block is the key's own explanation and has to go
     with it, or the emitted file explains a key it does not contain.
 
@@ -1139,17 +1227,17 @@ def _replace_header(text: str, header: str) -> str:
 
 
 def _layer_header(
-    kind: str, stem: str, title: str, profile_filename: str, host: str, preset_hash: str
+    own: bool, stem: str, title: str, profile_filename: str, host: str, preset_hash: str
 ) -> str:
-    """The leading comment block of an emitted tier or app file.
+    """The leading comment block of an emitted login file.
 
-    The two kinds say different things about the host because they ARE
-    different things: a tier is a delta that only adds to the host, while an
-    app is a whole agent definition that brings its own lists and borrows only
-    the host's services, data, provider and config — and the host's model,
-    unless it names its own.
+    The two shapes say different things about the host because they ARE
+    different things: a login that adds to the host is a delta, while a
+    ``lists: own`` login brings its own lists and borrows only the host's
+    services, data, provider and config — and the host's model, unless it
+    names its own.
     """
-    if kind == TIERS_DIRNAME:
+    if not own:
         lead = (
             f"# {title} — one access level of this deployment's agent\n"
             f"#\n"
@@ -1159,19 +1247,19 @@ def _layer_header(
         )
     else:
         lead = (
-            f"# {title} — an app this deployment offers on a shared card\n"
+            f"# {title} — a narrow login of this deployment (`lists: own`)\n"
             f"#\n"
-            f"# A complete agent definition of its own: the lists below are its whole\n"
-            f"# selection, and nothing is inherited from {host}'s lists or subtracted\n"
-            f"# from them. Services, data and provider are {host}'s, and so is the model\n"
-            f"# unless a top-level `model:` here names one the provider serves. Its\n"
-            f"# config: keys are laid over {host}'s. To see the combined result:\n"
+            f"# The lists below are its whole selection: nothing is inherited from\n"
+            f"# {host}'s lists or subtracted from them, and {host}'s PreToolUse\n"
+            f"# guards reach it whatever they say. Services, data and provider are\n"
+            f"# {host}'s, and so is the model unless a top-level `model:` here names one\n"
+            f"# the provider serves. Its config: keys are laid over {host}'s. To see the\n"
+            f"# combined result:\n"
         )
-    word = LAYER_DIR_KINDS[kind]
     return (
         lead + f"#   osprey validate {profile_filename}\n"
         f"#\n"
-        f"# Made from the bundled `{stem}` {word}. Everything it sets is written out\n"
+        f"# Made from the bundled `{stem}` login. Everything it sets is written out\n"
         f"# below and is yours to edit. Nothing is hidden or inherited from the package.\n"
         f"#\n"
         f"#   emitted by OSPREY {__version__}\n"
@@ -1185,7 +1273,7 @@ def emit_layer_delta_yaml(
     profile_filename: str,
     host_filename: str = "profile.yml",
 ) -> str:
-    """Materialize one bundled tier or app as the explicit file a repo holds.
+    """Materialize one bundled login as the explicit file a repo holds.
 
     The same explicit emission ``profile.yml`` gets: everything the bundled
     file sets is written out, with its comments, under a header saying what
@@ -1193,17 +1281,17 @@ def emit_layer_delta_yaml(
     ``extends:`` and no pointer into the package — the materialized repo never
     carries one, so nothing a deployment runs is hidden in an installed file.
 
-    The bundled tiers and apps are already written as the layer a repo holds,
-    each key carrying its own explanatory comment, so the body is the bundled
-    file's raw text, comments and all. Two things change: the leading comment
-    block, which addresses package readers, is replaced by the header; and a
-    tier's ``name:`` is retitled after the deployment (``<profile> (<tier>)``),
-    since it is one access level of that deployment's agent. An app keeps its
-    own ``name:``: it is the title of the shared card it runs behind.
+    The bundled logins are already written as the layer a repo holds, each key
+    carrying its own explanatory comment, so the body is the bundled file's raw
+    text, comments and all. Two things change: the leading comment block, which
+    addresses package readers, is replaced by the header; and a login that adds
+    to the deployment has its ``name:`` retitled after the deployment
+    (``<profile> (<tier>)``), since it is one access level of that deployment's
+    agent. A ``lists: own`` login keeps its own ``name:``: it is the title of
+    the card it runs behind.
 
     Args:
-        preset_name: The bundled layer, kind-qualified: ``tiers/<name>`` or
-            ``apps/<name>``.
+        preset_name: The bundled layer, kind-qualified: ``tiers/<name>``.
         profile_name: The deployment's display name, which a tier is titled
             after.
         profile_filename: The path the header's validate hint names
@@ -1223,8 +1311,7 @@ def emit_layer_delta_yaml(
     kind, _sep, stem = preset_name.partition("/")
     if kind not in LAYER_DIR_KINDS or not stem or "/" in stem:
         raise BuildProfileError(
-            f"{preset_name!r} names no tier or app: a layer is named "
-            f"'tiers/<name>' or 'apps/<name>'."
+            f"{preset_name!r} names no login: a layer is named '{TIERS_DIRNAME}/<name>'."
         )
     word = LAYER_DIR_KINDS[kind]
     raw, preset_path = _load_preset_raw(preset_name)
@@ -1235,20 +1322,21 @@ def emit_layer_delta_yaml(
             f"{host_filename} by its location, never by a parent it names."
         )
     preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
-    title = f"{profile_name} ({stem})" if kind == TIERS_DIRNAME else str(raw.get("name") or stem)
+    own = raw.get("lists") == "own"
+    title = str(raw.get("name") or stem) if own else f"{profile_name} ({stem})"
     body: list[str] = []
     titled = False
     for line in preset_path.read_text(encoding="utf-8").splitlines():
-        if kind == TIERS_DIRNAME and line.startswith("name:"):
+        if not own and line.startswith("name:"):
             body.append(f"name: {title}")
             titled = True
         else:
             body.append(line)
     text = _replace_header(
         "\n".join(body),
-        _layer_header(kind, stem, title, profile_filename, host_filename, preset_hash),
+        _layer_header(own, stem, title, profile_filename, host_filename, preset_hash),
     )
-    if kind == TIERS_DIRNAME and not titled:
+    if not own and not titled:
         text = text.rstrip("\n") + "\n\n" + f"name: {title}\n"
 
     provenance = (
@@ -1266,7 +1354,7 @@ def emit_layer_delta_yaml(
 # parts of it are the operator's and which the build owns, and the loop between
 # them. No box-drawing glyphs and <= 80 columns, so it survives any editor a
 # facility opens config files in. Emitted only into the main profile.yml —
-# tier and app files share the mental model and repeating the picture in each
+# login files share the mental model and repeating the picture in each
 # per repo would just be noise.
 _ZONE_MAP = """\
 # This file is your assistant's settings. Edit it, then run `osprey build`.
@@ -1354,6 +1442,18 @@ def materialized_profile(
     return document if isinstance(document, dict) else {}
 
 
+def _with_preset_apps(document: dict[str, Any], preset_name: str) -> dict[str, Any]:
+    """*document* with the applications *preset_name* lists, the one init writes."""
+    listed = preset_apps(preset_name)
+    return {**document, PRESET_APPS_KEY: listed} if listed else document
+
+
+def init_applications(preset_name: str, set_pairs: tuple[str, ...]) -> list[str]:
+    """The applications ``osprey init`` copies: what its emitted profile will list."""
+    edited = apply_cli_edits(_with_preset_apps({}, preset_name), set_pairs)
+    return sorted(edited.get(PRESET_APPS_KEY) or {})
+
+
 def emit_standalone_profile_yaml(
     preset_name: str,
     set_pairs: tuple[str, ...],
@@ -1404,7 +1504,7 @@ def emit_standalone_profile_yaml(
     raw, base_anchor = _load_preset_raw(preset_name)
     chain: list[Path] = []
     resolved = _resolve_extends(raw, base_anchor, chain)
-    resolved = apply_cli_edits(resolved, set_pairs)
+    resolved = apply_cli_edits(_with_preset_apps(resolved, preset_name), set_pairs)
     for layer in extra_layers:
         resolved = _deep_merge(resolved, dict(layer))
     resolved["name"] = profile_name
@@ -1467,10 +1567,13 @@ def emit_standalone_profile_yaml(
 
     # `app_template:` and `facility:` are preset-side only: they name the
     # packaged data tree `osprey init` copies, and are not profile keys (a
-    # profile spelling one is refused). Each comment goes with its key — left
-    # behind, it would read as the introduction to whichever key followed.
+    # profile spelling one is refused). `apps:` is written when this preset lists
+    # it, and goes with the others when only a parent does. Each comment goes with
+    # its key — left behind, it would read as the introduction to whichever key
+    # followed.
     for key in PRESET_ONLY_KEYS:
-        _drop_key_and_pre_comment(doc, key)
+        if key not in resolved:
+            _drop_key_and_pre_comment(doc, key)
 
     # `project_name` sits directly below `name:`, the field it is most easily
     # mistaken for. No preset carries it (the emitter sets it), so the sync

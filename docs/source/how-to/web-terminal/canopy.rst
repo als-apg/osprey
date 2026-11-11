@@ -24,7 +24,7 @@ opens the screen you ask for, arranges tabs, and builds new screens.
    page, :doc:`canopy-library`.
 
 How it fits together
-====================
+--------------------
 
 .. raw:: html
    :file: ../../_diagrams/canopy-panel.html
@@ -51,7 +51,7 @@ opens it: they share its screens and saved views, and its writes are audited
 under the card's name.
 
 Turn it on
-==========
+----------
 
 OSPREY does not build CANOPY. It takes a ready-made **payload**: a directory
 with CANOPY's Python packages and web pages, built from the canopy repository.
@@ -69,12 +69,12 @@ with CANOPY's Python packages and web pages, built from the canopy repository.
 
 2. **Name the payload** in the deployment's ``.env``:
 
-   .. code-block:: bash
+   .. code-block:: text
 
       OSPREY_CANOPY_PAYLOAD=/srv/canopy/payload
 
 3. **Add the panel to** ``profile.yml``. A deployment made from the
-   ``control-assistant`` preset already has it, and the web terminal opens on
+   ``demo`` preset already has it, and the web terminal opens on
    it at the example facility's ``facility/overview``: skip this step. For any
    other profile, add ``canopy`` to ``web_panels``, its three skills to
    ``skills``, and the build step that copies the payload into the deployment:
@@ -114,11 +114,12 @@ screen CANOPY opens first and the channel Trace starts with:
 is in :ref:`the configuration reference <config-web-panels-canopy>`.
 
 Use the panel
-=============
+-------------
 
 Open a screen from the panel's sidebar or the command palette, or ask the
-agent ("open the RF overview"). Screens and tools open as tabs in tiles, which
-you drag and split like the terminal's own (:ref:`web-terminal-tiles`). The
+agent ("open the RF overview"). Screens and tools open as tabs in CANOPY's own
+tiles, which you drag and split much as you do the terminal's
+(:ref:`web-terminal-tiles`). The
 **☰** menu at the right end of the top-right tile's bar resets the layout,
 saves the open tabs as a collection and reopens recently closed tabs.
 
@@ -138,7 +139,7 @@ you are on. If the deployment archives another machine, or none, they say
 your agent data.
 
 Write to the machine from a screen
-==================================
+----------------------------------
 
 A button, slider or entry field on a screen writes as you. The chip's write
 switch for the machine decides how:
@@ -171,7 +172,7 @@ After the agent changes the panel, the write buttons in that window pause for
 catch a click meant for something else.
 
 What the agent can do in the panel
-==================================
+----------------------------------
 
 The agent reaches your CANOPY and nobody else's. Its CANOPY tools fall into
 three groups:
@@ -202,7 +203,7 @@ to close.
    Read such a check as incomplete, not as a pass.
 
 Size the host
-=============
+-------------
 
 Each CANOPY takes about 270 MiB, and one runs for every login whose tier shows
 the panel, whether or not the tab is open. The agent's screenshot tool starts
@@ -214,7 +215,7 @@ users on one screen are ten sets of subscriptions on the control system.
 .. _canopy-upgrading:
 
 Upgrade CANOPY
-==============
+--------------
 
 A CANOPY upgrade is an OSPREY upgrade plus a new payload:
 

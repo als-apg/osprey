@@ -46,11 +46,11 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.reset import RuntimeProbe
 from osprey.deployment.runtime_helper import (
-    TRANSCRIPTS_COPY_IMAGE,
     TranscriptsCopyError,
     copy_transcripts_once,
     transcripts_copy_image,
 )
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals import lifecycle
 from osprey.deployment.web_terminals.render import render_web_terminals
 from tests.deployment.test_compose_generator import _packaged_compose_template
@@ -387,7 +387,7 @@ def test_a_failed_pull_refuses_naming_the_image():
     fake.volumes["proj_alice-claude-config"] = {}
     fake.fail_pull = True
 
-    with pytest.raises(TranscriptsCopyError, match=TRANSCRIPTS_COPY_IMAGE):
+    with pytest.raises(TranscriptsCopyError, match=UPSTREAM_IMAGES["transcripts_copy"]):
         _copy(_deploy_config(), fake)
     assert "proj_alice-claude-projects" not in fake.volumes
 
@@ -416,26 +416,27 @@ def test_the_copy_runs_the_pinned_image_as_root_without_a_network():
     _copy(_deploy_config(), fake)
 
     (copy_argv,) = fake.copies()
-    assert TRANSCRIPTS_COPY_IMAGE.startswith("docker.io/library/alpine:")
-    assert TRANSCRIPTS_COPY_IMAGE.rsplit(":", 1)[1] not in {"", "latest"}
-    assert TRANSCRIPTS_COPY_IMAGE in copy_argv
+    assert UPSTREAM_IMAGES["transcripts_copy"].startswith("docker.io/library/alpine:")
+    assert UPSTREAM_IMAGES["transcripts_copy"].rsplit(":", 1)[1] not in {"", "latest"}
+    assert UPSTREAM_IMAGES["transcripts_copy"] in copy_argv
     assert copy_argv[copy_argv.index("--user") + 1] == "0:0"
     assert copy_argv[copy_argv.index("--network") + 1] == "none"
-    assert ["docker", "pull", TRANSCRIPTS_COPY_IMAGE] in fake.calls
+    assert ["docker", "pull", UPSTREAM_IMAGES["transcripts_copy"]] in fake.calls
 
 
 def test_the_image_has_its_own_override_and_ignores_the_osprey_registry():
     mirror = "mirror.example.org/hub/library/alpine:3.20"
 
     assert transcripts_copy_image({"OSPREY_TRANSCRIPTS_COPY_IMAGE": mirror}) == mirror
-    assert transcripts_copy_image({"OSPREY_TRANSCRIPTS_COPY_IMAGE": "  "}) == (
-        TRANSCRIPTS_COPY_IMAGE
+    assert (
+        transcripts_copy_image({"OSPREY_TRANSCRIPTS_COPY_IMAGE": "  "})
+        == (UPSTREAM_IMAGES["transcripts_copy"])
     )
-    assert transcripts_copy_image({}) == TRANSCRIPTS_COPY_IMAGE
+    assert transcripts_copy_image({}) == UPSTREAM_IMAGES["transcripts_copy"]
     # The registry OSPREY's own images live in is not a mirror of library images.
     assert (
         transcripts_copy_image({"OSPREY_IMAGE_REGISTRY": "ghcr.io/als-apg"})
-        == TRANSCRIPTS_COPY_IMAGE
+        == UPSTREAM_IMAGES["transcripts_copy"]
     )
 
 
@@ -453,6 +454,47 @@ def test_the_override_reaches_the_pull_and_the_copy():
 
     assert ["docker", "pull", mirror] in fake.calls
     assert any(argv[:2] == ["docker", "run"] and mirror in argv for argv in fake.calls)
+
+
+def test_the_copy_image_comes_from_the_base_registry(monkeypatch):
+    """A deployment that mirrors Docker Hub pulls the copy image from the mirror."""
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    mirrored = "mirror.example.org/dockerhub/library/alpine:3.20"
+    assert UPSTREAM_IMAGES["transcripts_copy"] == "docker.io/library/alpine:3.20"
+    fake = FakeRuntime("docker")
+    fake.volumes["proj_alice-claude-config"] = {}
+
+    copy_transcripts_once(
+        _deploy_config(images={"base_registry": "mirror.example.org/dockerhub"}),
+        runtime=fake.runtime,
+        run=fake,
+        env={},
+    )
+
+    assert ["docker", "pull", mirrored] in fake.calls
+    assert any(argv[:2] == ["docker", "run"] and mirrored in argv for argv in fake.calls)
+
+
+def test_the_copy_image_override_wins_over_the_base_registry(monkeypatch):
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    pinned = "pinned.example.org/alpine:3.20"
+    fake = FakeRuntime("docker")
+    fake.volumes["proj_alice-claude-config"] = {}
+
+    copy_transcripts_once(
+        _deploy_config(images={"base_registry": "mirror.example.org/dockerhub"}),
+        runtime=fake.runtime,
+        run=fake,
+        env={"OSPREY_TRANSCRIPTS_COPY_IMAGE": pinned},
+    )
+
+    assert ["docker", "pull", pinned] in fake.calls
+    assert (
+        transcripts_copy_image(
+            {"OSPREY_TRANSCRIPTS_COPY_IMAGE": pinned}, base_registry="mirror.example.org/dockerhub"
+        )
+        == pinned
+    )
 
 
 def test_the_podman_form_stamps_the_podman_compose_project():
@@ -488,7 +530,7 @@ def _is_compose(argv: list[str]) -> bool:
 
 
 def _assert_copies_precede_compose(calls: list[list[str]]) -> None:
-    copies = [i for i, c in enumerate(calls) if TRANSCRIPTS_COPY_IMAGE in c]
+    copies = [i for i, c in enumerate(calls) if UPSTREAM_IMAGES["transcripts_copy"] in c]
     composes = [i for i, c in enumerate(calls) if _is_compose(c)]
     assert copies, calls
     assert composes, calls
@@ -736,7 +778,7 @@ def test_a_real_copy_leaves_the_transcript_readable_at_its_new_mount():
     project = f"osprey-test-{uuid.uuid4().hex[:8]}"
     parent = f"{project}_alice{CLAUDE_CONFIG_VOLUME_SUFFIX}"
     target = f"{project}_alice{CLAUDE_PROJECTS_VOLUME_SUFFIX}"
-    image = TRANSCRIPTS_COPY_IMAGE
+    image = UPSTREAM_IMAGES["transcripts_copy"]
 
     def _docker(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(["docker", *args], capture_output=True, text=True, check=False)

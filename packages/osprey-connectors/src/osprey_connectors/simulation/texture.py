@@ -69,6 +69,7 @@ from lume.variables import (
 
 from osprey_connectors.simulation import pulse, series, topoff, values
 from osprey_connectors.simulation.envelope import declares_motion
+from osprey_connectors.simulation.view import SETPOINT
 
 __all__ = [
     "TEXTURE_OWNER",
@@ -81,7 +82,6 @@ __all__ = [
 #: The ``owner`` the simulator view writes for a channel no model wires.
 TEXTURE_OWNER = "texture"
 
-_SETPOINT = "setpoint"
 _MS_PER_S = 1000.0
 _GAIN_WANDER_SUBKEY = b":gain_wander:"
 _ABSOLUTE = "absolute"
@@ -163,7 +163,7 @@ def channel_variable(channel: Mapping[str, Any], nominal: Any) -> Variable:
         The variable, named by the channel's address.
     """
     address = str(channel["address"])
-    read_only = not (channel.get("role") == _SETPOINT and channel.get("writable") is True)
+    read_only = not (channel.get("role") == SETPOINT and channel.get("writable") is True)
     value_type = channel_value_type(channel)
     unit = channel.get("unit")
     if value_type in values.LABELLED_TYPES:
@@ -229,7 +229,7 @@ class TextureModel(LUMEModel):
         self._echo: dict[str, str] = {
             address: str(self._channels[address]["pair"])
             for address in owned
-            if self._channels[address].get("role") == _SETPOINT
+            if self._channels[address].get("role") == SETPOINT
             and self._channels[address].get("pair") not in (None, address)
             and str(self._channels[address]["pair"]) in owned
         }
@@ -247,7 +247,6 @@ class TextureModel(LUMEModel):
         self._couple: dict[str, list[Mapping[str, Any]]] = {}
         self._noise: dict[str, Mapping[str, Any]] = {}
         self._still: frozenset[str] = frozenset()
-        self._still_all = False
         self._active: dict[str, Any] = {}
         self.reset()
 
@@ -328,6 +327,39 @@ class TextureModel(LUMEModel):
         """
         return {name: self._held_value(name) for name in names}
 
+    def reach(self) -> dict[str, frozenset[str]]:
+        """What a write to each settable channel can change, by address.
+
+        The channel itself, the readback it echoes into, and every channel
+        downstream of either: a ``linear`` channel summing it, a ``gate``
+        channel it blocks, a ``pulse`` waveform it drives or enables.
+        """
+        downstream: dict[str, set[str]] = {}
+        for address in self._variables:
+            seed = self._seeds.get(address) or {}
+            sources = [source for source, _ in _linear_terms(seed.get("linear") or {})]
+            sources += [
+                source for source, _ in _gate_inputs((seed.get("gate") or {}).get("inputs"))
+            ]
+            record = self._pulse(address)
+            if record is not None:
+                sources += [str(record["driver"]), str(record["enable"])]
+            for source in sources:
+                downstream.setdefault(source, set()).add(address)
+        reach: dict[str, frozenset[str]] = {}
+        for address, variable in self._variables.items():
+            if variable.read_only:
+                continue
+            found = {address, self._echo.get(address, address)}
+            pending = list(found)
+            while pending:
+                for dependent in downstream.get(pending.pop(), ()):
+                    if dependent not in found:
+                        found.add(dependent)
+                        pending.append(dependent)
+            reach[address] = frozenset(found)
+        return reach
+
     def _held_value(self, address: str) -> Any:
         return self._derived(address, self._held)
 
@@ -375,7 +407,6 @@ class TextureModel(LUMEModel):
         noise: Mapping[str, Mapping[str, Any]],
         *,
         still: frozenset[str] = frozenset(),
-        still_all: bool = False,
     ) -> None:
         """Hold the active scenarios' motion until the next call.
 
@@ -388,15 +419,10 @@ class TextureModel(LUMEModel):
                 ``{relative: <fraction>}``, standing in for the seed's.
                 Empty for the seeds' noise.
             still: Addresses served without motion.
-            still_all: Every address is served without motion.
         """
         self._couple = {str(address): list(terms) for address, terms in couple.items()}
         self._noise = {str(address): dict(entry) for address, entry in noise.items()}
         self._still = frozenset(str(address) for address in still)
-        self._still_all = still_all
-
-    def _stilled(self, address: str) -> bool:
-        return self._still_all or address in self._still
 
     def motion(self, address: str, t_s: Any, base: Any = 0.0) -> np.ndarray:
         """The motion of a channel at absolute epoch seconds.
@@ -422,7 +448,7 @@ class TextureModel(LUMEModel):
         flat = times.reshape(-1)
         total = np.zeros(flat.shape, dtype=np.float64)
         channel = self._channels.get(address)
-        if channel is None or not is_float_channel(channel) or self._stilled(address):
+        if channel is None or not is_float_channel(channel) or address in self._still:
             return total.reshape(times.shape)
         seed = self._seeds.get(address) or {}
         key = series.channel_key_bytes(address)
@@ -457,7 +483,7 @@ class TextureModel(LUMEModel):
         if self._pulse(address) is not None:
             return True
         channel = self._channels.get(address)
-        if channel is None or not is_float_channel(channel) or self._stilled(address):
+        if channel is None or not is_float_channel(channel) or address in self._still:
             return False
         seed = self._seeds.get(address) or {}
         if self._couple.get(address) or topoff.topoff_record(seed) is not None:

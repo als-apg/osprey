@@ -27,21 +27,29 @@ Per-service templates have access to the full configuration plus a few
 engine-injected values:
 
 .. code-block:: yaml
+   :caption: services/postgresql/docker-compose.yml.j2 (excerpt)
 
-   # services/postgresql/docker-compose.yml.j2
    services:
      postgresql:
-       container_name: {{services.postgresql.container_name | default('osprey-postgres')}}
+       container_name: {{ osprey_labels.project_name }}-ariel-postgres
        ports:
-         - "{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432"
+         - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.postgresql.port_host | default(osprey_ports.postgres, true) }}:5432"
        environment:
-         TZ: {{system.timezone}}
+         TZ: {{ system.timezone }}
        networks:
-         - osprey-network
+         osprey-network:
+           aliases:
+             - ariel-postgres
+
+The container name starts with the project name because a container name is
+global on the host: a fixed name collides when two projects run on one host.
+Other containers reach the database through the stable network alias
+``ariel-postgres``.
 
 Common access patterns: ``{{services.<name>.<key>}}``,
 ``{{file_paths.<key>}}``, ``{{system.<key>}}``, ``{{project_root}}``,
-``{{deployment.bind_address}}``, and ``{{osprey_labels.project_name}}`` /
+``{{deployment.bind_address}}``, ``{{osprey_ports.<slot>}}`` (the port layout
+for the deployment's ``port_base``), and ``{{osprey_labels.project_name}}`` /
 ``project_root`` (injected by the deploy engine).
 
 The build writes ``build/osprey-labels.override.yml`` and passes it to every
@@ -108,7 +116,7 @@ When a deploy builds an image
 A service is built on the deploy host only when its rendered compose document
 carries a ``build:`` block. Upstream pins never do. The OSPREY-built services
 (the event dispatcher, the Bluesky bridge, the Bluesky web panel, the Google
-Chat, Nextcloud and Teams bridges, the qmd sidecar and the virtual
+Chat, Nextcloud, Teams and Slack bridges, the qmd sidecar and the virtual
 accelerator) each do while they run the image OSPREY builds. A service whose
 ``services.<name>.image`` names any other image renders without ``build:``, and
 that image is pulled and run as named. Where one template renders several
@@ -207,16 +215,17 @@ fails at ``up`` on the image it forgot:
      - Set the registry axis once — ``images.registry``, or
        ``OSPREY_IMAGE_REGISTRY`` for a single build.
    * - The upstream pins
-     - One row at a time: ``services.<name>.image`` (or the row's
-       ``OSPREY_..._IMAGE`` variable) naming your mirrored copy. The agent
-       record's ClickHouse store has no variable: the profile's
-       ``agent_record.clickhouse.image`` names its mirrored copy.
+     - ``images.base_registry`` (or ``OSPREY_BASE_REGISTRY``) moves every
+       Docker Hub pin onto your mirror at once; a ``services.<name>.image`` row
+       (or its ``OSPREY_..._IMAGE``) still names one outright. tiled is on
+       ghcr.io and needs its row. The agent record's ClickHouse store has no
+       variable: the profile's ``agent_record.clickhouse.image`` names it.
    * - The web tier's images, auth sidecar included
      - ``registry.url`` plus ``modules.web_terminals.image_tag``.
    * - nginx
-     - ``modules.web_terminals.nginx_image``. **It carries no environment
-       variable**, so a mirror reaches it through ``config.yml`` only —
-       there is no one-shell equivalent.
+     - ``images.base_registry`` reaches it too.
+       ``modules.web_terminals.nginx_image`` names it outright; **that key
+       carries no environment variable**.
 
 .. code-block:: yaml
 
@@ -224,25 +233,18 @@ fails at ``up`` on the image it forgot:
    images:
      registry: registry.example.org/accelerator
      tag: "2026.08.1"
+     base_registry: registry.example.org/dockerhub
 
    registry:
      url: registry.example.org/accelerator
 
    services:
-     postgresql:
-       image: registry.example.org/mirror/pgvector/pgvector:pg16
-     mongodb:
-       image: registry.example.org/mirror/mongo:7
-     graphdb:
-       image: registry.example.org/mirror/neo4j:5.26-community
      bluesky:
        tiled_image: registry.example.org/mirror/tiled:0.2.18
-       redis_image: registry.example.org/mirror/redis:7.4-alpine
 
    modules:
      web_terminals:
        image_tag: "2026.08.1"
-       nginx_image: registry.example.org/mirror/nginx:1.31-alpine
 
 Copy only the rows for services you actually deploy — the upstream pins for a
 service that is not in ``deployed_services`` are never rendered.

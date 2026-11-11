@@ -87,6 +87,7 @@ from osprey.agent_record.contract import (
     sealed_name,
     segment_name,
 )
+from osprey_connectors.safety_file import SHARED_DIR_MODE, SHARED_FILE_MODE, ensure_shared_dir
 
 __all__ = [
     "SEGMENT_FILE_MODE",
@@ -104,11 +105,11 @@ logger = logging.getLogger("osprey.agent_record.writer")
 
 #: A segment is readable by the spool directory's group (the consumer), and
 #: written only by the process that created it.
-SEGMENT_FILE_MODE: int = 0o640
+SEGMENT_FILE_MODE: int = SHARED_FILE_MODE
 
 #: Mode of a spool directory the writer has to create itself. Group-write and
 #: setgid let the consumer, in another container, remove sealed segments.
-SPOOL_DIR_MODE: int = 0o2770
+SPOOL_DIR_MODE: int = SHARED_DIR_MODE
 
 #: The id fields a caller may pass to :func:`write`.
 _ID_FIELDS: frozenset[str] = frozenset(
@@ -251,21 +252,16 @@ def _arm_timer(segment: _Segment, delay: float) -> None:
     timer.start()
 
 
-def _ensure_dir(directory: Path) -> None:
-    """Create *directory* at :data:`SPOOL_DIR_MODE`; the mode is best-effort."""
-    directory.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(directory, SPOOL_DIR_MODE)
-    except OSError:
-        logger.debug("Could not set %o on the spool directory %s", SPOOL_DIR_MODE, directory)
-
-
 def _open_creating(path: Path, flags: int) -> int:
-    """``os.open`` *path* at :data:`SEGMENT_FILE_MODE`, creating its directory if missing."""
+    """``os.open`` *path* at :data:`SEGMENT_FILE_MODE`, creating its directory if missing.
+
+    The directory is created at :data:`SPOOL_DIR_MODE`, best-effort: a record in
+    a narrower directory beats a dropped one.
+    """
     try:
         return os.open(path, flags, SEGMENT_FILE_MODE)
     except FileNotFoundError:
-        _ensure_dir(path.parent)
+        ensure_shared_dir(path.parent, modes="best_effort")
         return os.open(path, flags, SEGMENT_FILE_MODE)
 
 

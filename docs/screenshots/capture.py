@@ -13,9 +13,9 @@ Two environments are dispatched by :func:`run`:
   throwaway port via :func:`osprey.interfaces._serving.run_app_server`, and
   capture. Zero container, deterministic, the default target.
 * ``tutorial_stack`` — delegated to :func:`capture_tutorial_stack`, which owns
-  the full container lifecycle: it builds the ``control-assistant`` tutorial
+  the full container lifecycle: it builds the ``demo`` tutorial
   project, brings up Postgres detached, seeds ARIEL at the frozen anchor, and
-  captures either the static ARIEL views or the agentic web-terminal hero. In an
+  captures the live web terminal, statically or with an agent turn. In an
   environment without that runtime (no ``osprey`` binary, no container engine,
   Postgres never ready) it raises :class:`ScreenshotSkip` so a ``--stack`` run
   degrades to a clean one-line notice instead of a traceback.
@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING
 
 from docs.screenshots import recipes
 
+from osprey.cli.build_profile_resolve import preset_authored_config
 from osprey.interfaces._serving import (
     authorize_browser_context,
     run_app_server,
@@ -74,7 +75,7 @@ _VA_PVA_PORT = 27075
 _POSTGRES_PORT = default_port("postgres", base=_PORT_BASE)
 
 # Directory name for the throwaway tutorial deployment repo. ``osprey init
-# <dir>/<name> --preset control-assistant`` creates the repo; ``osprey build``
+# <dir>/<name> --preset demo`` creates the repo; ``osprey build``
 # run inside it renders ``<dir>/<name>/build``.
 _TUTORIAL_PROJECT_NAME = "docshots-tutorial"
 
@@ -469,6 +470,20 @@ def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     return paths
 
 
+def _deployment_operator_secret(project_dir: Path) -> str | None:
+    """The terminal secret the deployment's ``.env`` holds, or ``None`` without one."""
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
+    env_file = project_dir / ".env"
+    if not env_file.is_file():
+        return None
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == OPERATOR_SECRET_ENV:
+            return value.strip().strip("'\"") or None
+    return None
+
+
 def _run_stack_step(cmd: list[str], *, cwd: Path | None, what: str) -> None:
     """Run one project-scoped lifecycle command, mapping failure to a skip.
 
@@ -489,8 +504,8 @@ def _run_stack_step(cmd: list[str], *, cwd: Path | None, what: str) -> None:
     except FileNotFoundError as exc:
         raise ScreenshotSkip(f"osprey CLI unavailable to {what}: {exc}") from exc
     if result.returncode != 0:
-        tail = (result.stderr or result.stdout or "").strip().splitlines()[-1:] or [""]
-        raise ScreenshotSkip(f"failed to {what} (exit {result.returncode}): {tail[0]}")
+        tail = (result.stderr or result.stdout or "").strip().splitlines()[-15:] or [""]
+        raise ScreenshotSkip(f"failed to {what} (exit {result.returncode}): " + "\n".join(tail))
 
 
 def rendered_artifact_port(project_dir: Path) -> int:
@@ -539,19 +554,37 @@ def _opus_model_id(project_dir: Path) -> str:
     raise ScreenshotSkip(f"provider {provider!r} serves no Opus model: {models}")
 
 
+_SCENARIO_PRESET = "demo"
+_HISTORY_SCENARIO = "demo-history"
+
+
+def _default_scenarios_pin() -> str:
+    """The init ``--set`` value pinning the preset's default scenarios minus history.
+
+    Read off the preset file's own ``config:`` block, so the list is never a
+    copy that drifts from the preset; ``demo-history`` is dropped because a
+    docs capture shows a quiet machine, not a seeded past.
+    """
+    authored = preset_authored_config(_SCENARIO_PRESET).get("simulation.default_scenarios", [])
+    names = [name for name in authored if name != _HISTORY_SCENARIO]
+    return f"config.simulation.default_scenarios=[{', '.join(names)}]"
+
+
 @contextmanager
 def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     """Build the tutorial project, bring up Postgres, seed ARIEL, yield the dir.
 
     Lifecycle order (each step's failure degrades to :class:`ScreenshotSkip`):
-    make a temp build root, ``osprey init <dir> --preset control-assistant``
+    make a temp build root, ``osprey init <dir> --preset demo``
     into it, ``osprey set model=<the provider's Opus id>``, ``osprey build --skip-deps --dev``
     (the capture drives ``osprey``/ARIEL from the current environment, so the
     deployment needs no venv of its own), ``osprey up -d --dev`` (detached — the
     non-detached form would ``execvpe`` away the runner), wait for Postgres on
     :data:`_POSTGRES_PORT` *before* seeding, then ``osprey sim apply nominal``
-    frozen to :data:`recipes.ANCHOR`. *sets* adds ``--set KEY=VALUE`` values to
-    the init, after the shared ones. Yields the deployment repo directory
+    on real time. The init pins the default scenario set to the preset's own
+    minus ``demo-history`` (:func:`_default_scenarios_pin`): no docs capture
+    lays down history. *sets* adds ``--set KEY=VALUE`` values to the init,
+    after the shared ones. Yields the deployment repo directory
     (``<build_root>/<name>``). The ``finally`` block always tears the deployment
     down with the repo-scoped ``osprey reset --yes`` — containers, volumes and
     built images carrying this repo's identity, so the next run's fresh
@@ -574,12 +607,14 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
             "init",
             str(project_dir),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             # The capture drives a single-user `osprey web` on the host; the
             # preset's multi-user roster would own the same index-0 panel ports.
             "--set",
             "config.modules.web_terminals.enabled=false",
+            "--set",
+            _default_scenarios_pin(),
             "--set",
             f"port_base={_PORT_BASE}",
             "--set",
@@ -596,7 +631,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
         _run_stack_step(
             init_cmd,
             cwd=None,
-            what="create the control-assistant tutorial repo",
+            what="create the demo tutorial repo",
         )
         # Captures on this stack (the stack and agentic screenshots and the
         # demo video) run on Opus, whatever the preset defaults to. The profile
@@ -610,7 +645,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
         _run_stack_step(
             ["osprey", "build", "--skip-deps", "--dev"],
             cwd=project_dir,
-            what="build the control-assistant tutorial",
+            what="build the demo tutorial",
         )
         _run_stack_step(
             ["osprey", "up", "-d", "--dev"],
@@ -622,7 +657,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
         except RuntimeError as exc:
             raise ScreenshotSkip(f"Postgres did not become ready: {exc}") from exc
         _run_stack_step(
-            ["osprey", "sim", "apply", "nominal", "--yes", "--now", recipes.ANCHOR],
+            ["osprey", "sim", "apply", "nominal", "--yes"],
             cwd=project_dir,
             what="seed ARIEL",
         )
@@ -912,7 +947,10 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
             f"{len(problems)} vendored front-end file(s) missing or corrupt "
             f"(first: {problems[0]}); run `osprey vendor fetch` once"
         )
-    operator_secret = mint_secret()
+    # The deployment's own secret, as `osprey web` reads it from the repo's .env: the
+    # application containers accept that one, so a minted secret would lock the
+    # terminal out of every application panel.
+    operator_secret = _deployment_operator_secret(project_dir) or mint_secret()
     config_dir = _isolated_claude_config(project_dir)
     child_env = {
         **os.environ,
@@ -1046,13 +1084,16 @@ def _capture_agentic(
                     secret=operator_secret,
                 )
 
-                # Select the plot by its row in the hub sidebar's artifact list:
-                # the row click shows the plot in the work pane, and the row's
-                # ``data-id`` pins the viewer to the plot (unlike relying on
-                # newest-auto-select) even as the agent keeps emitting later
-                # artifacts.
+                # Select the plot by its row in the hub sidebar's session tree
+                # (opened down to it): the row click shows the plot in the work
+                # pane, and the row's ``data-id`` pins the viewer to the plot
+                # (unlike relying on newest-auto-select) even as the agent keeps
+                # emitting later artifacts.
+                from docs.screenshots.contact_sheet import open_tree_to_row
+
+                open_tree_to_row(page, plot_id)
                 page.locator(
-                    f'#sidebar-artifacts-list .osprey-list-row[data-id="{plot_id}"]'
+                    f'#sidebar-session-tree .osprey-list-row[data-id="{plot_id}"]'
                 ).first.click(timeout=30_000)
                 panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
                 panel.locator("#preview-content .preview-viewport > *").first.wait_for(
@@ -1151,6 +1192,56 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
         return written
 
 
+def _capture_web_terminal_panel(browser: Browser, project_dir: Path, shot: DocShot) -> list[Path]:
+    """Capture a panel as the web terminal shows it (no agent turn).
+
+    Logs in with ``?token=`` on a first visit, then opens
+    ``/?open=<panel>``, the address a direct visit to a panel lands on. The
+    recipe's wait selectors and sub-view clicks run inside the panel's frame;
+    the shot is the whole viewport, once per theme and view.
+    """
+    from playwright.sync_api import expect
+
+    frame_selector = f'iframe.panel-iframe[data-panel-id="{shot.panel}"]'
+    with web_terminal(project_dir) as web:
+        token = urllib.parse.quote(web.operator_secret, safe="")
+        dest_dir = output_dir()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        n_themes = len(shot.themes)
+        written: list[Path] = []
+
+        for theme in shot.themes:
+            for view in _views(shot):
+                page = browser.new_page(
+                    viewport={"width": shot.viewport[0], "height": shot.viewport[1]},
+                )
+                try:
+                    page.goto(
+                        f"{web.base_url}/?theme={theme}&token={token}",
+                        wait_until="domcontentloaded",
+                        timeout=30_000,
+                    )
+                    page.goto(
+                        f"{web.base_url}/?theme={theme}&open={shot.panel}",
+                        wait_until="domcontentloaded",
+                        timeout=30_000,
+                    )
+                    frame = page.frame_locator(frame_selector)
+                    if view.click_selector:
+                        frame.locator(view.click_selector).click(timeout=30_000)
+                    for selector in view.wait_selectors:
+                        expect(frame.locator(selector)).to_be_attached(timeout=30_000)
+                    page.wait_for_timeout(600)
+                    reject_error_state(page, f"{shot.name} ({view.out}, {theme})")
+
+                    dest = dest_dir / _output_filename(view.out, theme, n_themes)
+                    dest.write_bytes(page.screenshot())
+                    written.append(dest)
+                finally:
+                    page.close()
+        return written
+
+
 def capture_tutorial_stack(
     browser_factory: Callable[[], Browser], shot: DocShot, *, agentic: bool
 ) -> list[Path]:
@@ -1171,11 +1262,11 @@ def capture_on_stack(
 ) -> list[Path]:
     """Capture a ``tutorial_stack`` recipe on an already running tutorial stack.
 
-    Dispatches on ``shot.kind`` and ``shot.stack_app``: ``"static"`` boots the
-    ARIEL app on a throwaway port and reuses :func:`capture_shot` — or, for
-    ``stack_app="web_terminal"``, drives the live web terminal statically via
-    :func:`_capture_web_terminal_static`; ``"agentic"`` drives it with a real
-    agent turn via :func:`_capture_agentic` (only when ``agentic`` is set).
+    Dispatches on ``shot.kind``: ``"static"`` drives the live web terminal with
+    no agent turn — a recipe's ``panel`` via :func:`_capture_web_terminal_panel`,
+    otherwise the control-target popover via :func:`_capture_web_terminal_static`;
+    ``"agentic"`` drives it with a real agent turn via :func:`_capture_agentic`
+    (only when ``agentic`` is set).
     """
     artifact_port = rendered_artifact_port(project_dir)
 
@@ -1192,33 +1283,9 @@ def capture_on_stack(
                 f"{shot.name}: agent did not produce a {shot.wait_for!r} artifact in time"
             ) from exc
 
-    if shot.stack_app == "web_terminal":
-        return _capture_web_terminal_static(browser, project_dir, shot)
-
-    from osprey.interfaces.ariel.app import create_app
-
-    # The rendered config moved under build/; older layouts kept it at the repo root.
-    config_path = project_dir / "build" / "config.yml"
-    if not config_path.is_file():
-        config_path = project_dir / "config.yml"
-
-    # `osprey up` minted the database password into the repo's `.env`; the
-    # in-process app reads it from the environment, as the container does.
-    from dotenv import dotenv_values
-
-    password = dotenv_values(project_dir / ".env").get("ARIEL_DB_PASSWORD")
-    previous = os.environ.get("ARIEL_DB_PASSWORD")
-    if password:
-        os.environ["ARIEL_DB_PASSWORD"] = password
-    try:
-        app = create_app(config_path=str(config_path))
-        with run_app_server(app) as ariel_url:
-            return capture_shot(browser, ariel_url, shot)
-    finally:
-        if previous is None:
-            os.environ.pop("ARIEL_DB_PASSWORD", None)
-        else:
-            os.environ["ARIEL_DB_PASSWORD"] = previous
+    if shot.panel is not None:
+        return _capture_web_terminal_panel(browser, project_dir, shot)
+    return _capture_web_terminal_static(browser, project_dir, shot)
 
 
 # ---------------------------------------------------------------------------

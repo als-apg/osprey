@@ -24,6 +24,7 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorInternalError,
     RefusalReason,
@@ -179,6 +180,20 @@ def test_batched_read_result_dict_round_trips():
     assert frame.value["SR:B"].value == "Off"
     assert frame.value["SR:C"].value is None
     assert all(isinstance(v, ChannelValue) for v in frame.value.values())
+
+
+def test_write_result_round_trips_the_verdict_reason():
+    result = ChannelWriteResult(
+        channel_address="SR:BEND:1:CUR",
+        value_written=2.5,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason="WRITES_DISABLED",
+        error_message="Write to 'SR:BEND:1:CUR' blocked",
+        verdict_reason="switching",
+    )
+    frame = _round_trip(frames.encode_result("req-w", result))
+
+    assert frame.value.verdict_reason == "switching"
 
 
 def test_write_result_round_trips_with_outcome_and_alarm():
@@ -454,6 +469,19 @@ def test_a_typed_exception_round_trips_with_every_spec_field(original):
     assert exceptions.exception_fields(frame.exception) == exceptions.exception_fields(original)
 
 
+def test_a_vocabulary_subclass_is_tagged_as_its_registered_ancestor():
+    # No host in between: the codec itself names the class the far side rebuilds.
+    class _Mine(ChannelUnreachableError):
+        pass
+
+    frame = _round_trip(frames.encode_error("req-s", _Mine("SR:Q", "SR:Q went quiet")))
+
+    assert frame.class_tag == "ChannelUnreachableError"
+    assert type(frame.exception) is ChannelUnreachableError
+    assert frame.exception.channel_address == "SR:Q"
+    assert str(frame.exception) == "SR:Q went quiet"
+
+
 def test_unknown_class_tag_fails_closed_to_the_contract_fault():
     class SomeChildOnlyError(Exception):
         pass
@@ -688,6 +716,11 @@ MALFORMED_FRAMES = [
         lambda: _doctored(_result(), _set("v", 99)),
         f"frame protocol version 99 != {frames.PROTOCOL_VERSION}",
         id="wrong-protocol-version",
+    ),
+    pytest.param(
+        lambda: _doctored(_result(), _set("v", 1)),
+        f"frame protocol version 1 != {frames.PROTOCOL_VERSION}",
+        id="version-1-peer-without-verdict-reasons",
     ),
     pytest.param(
         lambda: _doctored(_array_result(), lambda h: h.__setitem__("blobs", [h["blobs"][0] + 7])),

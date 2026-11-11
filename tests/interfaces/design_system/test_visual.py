@@ -123,10 +123,11 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
 # serving the genuine render output — so the baseline exercises the real
 # deploy render path, not a hand-built HTML fixture. Two users on distinct
 # tiers (alice->operator, bob->physicist) so both tier sublabels appear, plus
-# the three shared apps the control-assistant preset ships (logbook research,
-# facility knowledge and channel finder), titled by their app files' ``name:``
-# — so the baseline also covers the labelled users section and the apps tray
-# (accent-edged panel, no badges on app cards).
+# the three shared logins the demo preset ships (logbook research,
+# facility knowledge and channel finder), titled by their login files' ``name:``
+# — so the baseline also covers the labelled users section and the shared tray
+# (accent-edged panel, no badges on shared cards). The tray keeps the label
+# "Apps" the baseline was taken with.
 # ---------------------------------------------------------------------------
 
 _MULTI_USER_LANDING_CONFIG = {
@@ -140,9 +141,10 @@ _MULTI_USER_LANDING_CONFIG = {
             "web_base_port": 8100,
             "artifact_base_port": 8200,
             "ariel_base_port": 8300,
-            "lattice_base_port": 8400,
             "default_tier": "operator",
-            "landing": {"groups": [{"type": "users", "label": "Users"}, {"type": "apps"}]},
+            "landing": {
+                "groups": [{"type": "users", "label": "Users"}, {"type": "shared", "label": "Apps"}]
+            },
             "renders": {
                 name: {
                     "kind": kind,
@@ -152,9 +154,9 @@ _MULTI_USER_LANDING_CONFIG = {
                 for name, kind in (
                     ("operator", "tier"),
                     ("physicist", "tier"),
-                    ("logbook", "app"),
-                    ("knowledge", "app"),
-                    ("channel-finder", "app"),
+                    ("logbook", "tier"),
+                    ("knowledge", "tier"),
+                    ("channel-finder", "tier"),
                 )
             },
             "users": [
@@ -166,7 +168,7 @@ _MULTI_USER_LANDING_CONFIG = {
     },
 }
 
-#: Each shared app's title, as the deploy reads it off ``apps/<name>.yml``.
+#: Each shared login's title, as the deploy reads it off ``tiers/<name>.yml``.
 _MULTI_USER_LANDING_APP_TITLES = {
     "logbook": "Logbook Research",
     "knowledge": "Facility Knowledge",
@@ -178,7 +180,7 @@ def _create_multi_user_landing_app() -> FastAPI:
     from osprey.deployment.web_terminals.render import render_web_terminals
 
     landing_html = render_web_terminals(
-        _MULTI_USER_LANDING_CONFIG, app_titles=_MULTI_USER_LANDING_APP_TITLES
+        _MULTI_USER_LANDING_CONFIG, shared_titles=_MULTI_USER_LANDING_APP_TITLES
     )["nginx/landing.html"]
 
     app = FastAPI()
@@ -221,6 +223,15 @@ def _artifacts_server(tmp_path: Path):
     return run_app_server(create_app(workspace_root=tmp_path / "artifacts_ws"))
 
 
+# ARIEL once its list pane's first load has landed and the rail's facets
+# mount is idle (see the TARGETS below). The mount always exists and clears
+# ``aria-busy`` even when hidden or degraded, so the wait never hangs.
+_ARIEL_SETTLED = (
+    'body:has(#ariel-list-body[aria-busy="false"] > :not(.loading-overlay))'
+    ':has(.ariel-rail-facets[aria-busy="false"])'
+)
+
+
 def _ariel_server(_tmp_path: Path):
     from osprey.interfaces.ariel.app import create_app
 
@@ -249,12 +260,6 @@ def _channel_finder_graph_server(tmp_path: Path):
     call it.
     """
     return launch_graph_channel_finder(tmp_path)
-
-
-def _lattice_dashboard_server(tmp_path: Path):
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    return run_app_server(create_app(workspace_root=tmp_path / "lattice_ws"))
 
 
 def _dispatch_dashboard_server(_tmp_path: Path):
@@ -320,10 +325,9 @@ TARGETS: list[VisualTarget] = [
         "web_terminal_hub",
         _web_terminal_hub_server,
         path="/",
-        # Scope to the rail button: overlay iframes now also carry
-        # data-panel-id="artifacts" in the docked shell, so the bare attribute
-        # selector is ambiguous.
-        wait_selector='button.panel-rail-button[data-panel-id="artifacts"]',
+        # The sidebar's Agent row: every hub renders it, and the artifacts
+        # panel has no rail entry.
+        wait_selector="#sidebar-agent-row",
         dock_shell=True,
     ),
     VisualTarget(
@@ -331,30 +335,26 @@ TARGETS: list[VisualTarget] = [
         _web_terminal_static_page_server,
         path="/static/session.html",
     ),
-    VisualTarget("artifacts_gallery", _artifacts_server, path="/"),
-    VisualTarget("ariel", _ariel_server, path="/"),
-    # Embedded mode drops the panel's own header entirely (the hub tile bar is
-    # the one header, see ``body.embedded .header`` in ariel's layout.css) and
-    # opens on Browse rather than Search, since embedded users search the
-    # logbook through the agent. Wait for that redirect to land so the baseline
-    # captures the browse view, not the pre-navigation search shell.
+    VisualTarget("artifacts_gallery", _artifacts_server, path="/?embedded=true"),
+    # Waits for the list pane to settle — its body holds rows, the empty state
+    # or the error state, never the loading spinner — so the baseline captures
+    # the one screen (rail | list | reader), not a spinner. The rail starts
+    # collapsed to its strip.
     VisualTarget(
         "ariel_embedded",
         _ariel_server,
         path="/?embedded=true",
-        wait_selector="#view-browse.active",
+        wait_selector=_ARIEL_SETTLED,
     ),
-    VisualTarget("channel_finder", _channel_finder_server, path="/"),
-    # D14/D15 regression guard: embedded mode must hide the standalone logo +
-    # theme switcher (component self-hides via body.embedded) while keeping
-    # the pipeline switcher + nav usable — see channel-finder-narrowing.
+    # The pipeline switcher stays usable with the hub's tile bar as the only
+    # header.
     VisualTarget(
         "channel_finder_embedded",
         _channel_finder_server,
         path="/?embedded=true",
     ),
     # The graph paradigm's Explore view: a search-first faceted finder, where the
-    # file-backed pipelines browse a channel tree. Path stays "/" — the router
+    # file-backed pipelines browse a channel tree. No hash — the router
     # (``routeFromHash`` in app.js) already defaults an empty hash to ``explore``,
     # and a literal "/#explore" would push this suite's ``?theme=``
     # query into the fragment, where neither the theme nor the mode hook reads
@@ -365,19 +365,18 @@ TARGETS: list[VisualTarget] = [
     VisualTarget(
         "channel_finder_graph",
         _channel_finder_graph_server,
-        path="/",
+        path="/?embedded=true",
         wait_selector="#graph-finder-table .result-table tbody tr[data-pv]:first-child",
     ),
-    VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/"),
     VisualTarget(
         "okf_panel",
         _okf_panel_server,
-        path="/",
+        path="/?embedded=true",
         wait_selector="#tree",
     ),
     # Dispatch dashboard has no live dispatcher backend behind it here, so it
     # renders its genuine no-data empty state — a legitimate, stable baseline.
-    VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/"),
+    VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/?embedded=true"),
     # The scan panel: one bundle at /bluesky, with /plan and /results kept as
     # deprecated aliases for one release (see ``_PANEL_MOUNTS`` in
     # ``osprey.interfaces.bluesky_web.app``). The wait_selector is a static
@@ -387,7 +386,7 @@ TARGETS: list[VisualTarget] = [
     VisualTarget(
         "scan_panel_bluesky",
         _bluesky_web_server,
-        path="/bluesky/",
+        path="/bluesky/?embedded=true",
         wait_selector="#plan-tree",
     ),
 ]

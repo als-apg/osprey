@@ -1,6 +1,6 @@
 """Tutorial-rot guard for the shipped ``tutorial_triggers.yml``.
 
-The ``control-assistant`` preset ships a bundled set of demonstration triggers
+The ``demo`` preset ships a bundled set of demonstration triggers
 that double as the event-dispatch tutorial *and* as the definitions the
 real-token e2e tests fire (``tests/e2e/test_dispatch_tutorial.py`` /
 ``test_dispatch_deploy.py``). If someone edits the shipped file — renames a

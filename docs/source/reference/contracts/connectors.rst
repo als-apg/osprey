@@ -23,11 +23,9 @@ rule to every read, whatever protocol answered it: values within an element
 budget come back inline as JSON lists, and anything larger is saved to the
 artifact gallery and reported as a summary plus a handle to it.
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-read-budget.yml
+   :language: yaml
 
-   control_system:
-     read_inline_max_elements: 2000        # per-value element budget
-     channel_read_artifact_retention: 20   # readings kept per channel
 
 Only arrays are measured -- strings and single scalars are always inline. One
 ``channel_read`` call also has an aggregate budget of four times
@@ -48,10 +46,7 @@ alone. The agent reaches the numbers by loading ``data_file`` inside
 write, the read still reports success with ``artifact_error`` in place of the
 handle -- the machine did answer.
 
-``channel_read_artifact_retention`` (default 20) keeps only the newest N
-**unpinned** artifacts per channel; pinned readings are never pruned and never
-occupy a slot. ``0`` keeps everything -- remembering that an unattended
-polling loop will then grow the gallery without bound.
+OSPREY never deletes a reading; keep or delete them in the gallery.
 
 Addresses Outside the Facility
 ------------------------------
@@ -87,7 +82,10 @@ on the difference:
   answer in time. It names the channel under ``channel_address`` and is no
   ``ConnectionError``: the connector keeps serving every other channel, and
   nothing is restarted. The controls tools report it as error type
-  ``channel_unreachable``, naming the channel under ``details.channel``.
+  ``channel_unreachable``, naming the channel under ``details.channel``. The
+  error also states whether the active target's gateway answered when the
+  channel failed, under ``details.target_reachability``: ``state`` is
+  ``reached``, ``down``, or ``unmeasured`` when no gateway could be probed.
 - ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
   context, its service or its connector-host child. It is a
   ``ConnectionError``. Its supervisor replaces the connector once per
@@ -117,16 +115,16 @@ A write is **confirmed** when the channel it wrote now holds the value that was
 sent. The connector establishes that itself: it re-reads the channel once the
 control system has accepted the put, and reports what it found as a single word
 on :class:`~osprey_connectors.control_system.ChannelWriteResult`, which every
-``write_channel()`` call returns.
+``write_channel()`` call returns; ``write_multiple_channels()`` returns one per
+operation. The program in :ref:`how-to-write-from-a-program` reads it after a
+batch, with :class:`~osprey_connectors.control_system.WriteOutcome` imported
+from ``osprey_connectors.control_system``:
 
-.. code-block:: python
-
-   from osprey_connectors.control_system import WriteOutcome
-
-   result = await connector.write_channel("BEAM:CURRENT", 100.0)
-
-   if result.outcome is WriteOutcome.CONFIRMED:
-       print("the channel now holds the value that was sent")
+.. literalinclude:: ../../how-to/control-systems/examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: outcome begins
+   :end-before: # docs: outcome ends
+   :dedent: 4
 
 Every write ends in exactly one of six outcomes:
 
@@ -176,14 +174,8 @@ Switching confirmation off
 ``confirm`` is a per-channel boolean in the limits database, sitting beside
 ``writable``, which every entry states:
 
-.. code-block:: json
-
-   {
-     "SHUTTER:OPEN_CMD": {
-       "writable": true,
-       "confirm": false
-     }
-   }
+.. literalinclude:: examples/limits-confirm-off.json
+   :language: json
 
 A channel's own entry decides; an entry that does not state ``confirm``, or a
 channel with no entry, has confirmation on. The database holds no ``defaults``
@@ -222,10 +214,9 @@ points to.
 
 **The tier key** is the furthest position a login may put its switch at:
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-writes.yml
+   :language: yaml
 
-   control_system:
-     writes: asked            # never | asked | allowed; silence is never
 
 It is spelled in ``tiers/*.yml``, in the deployment root for the root or
 single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
@@ -316,6 +307,158 @@ separate layer from the **per-intent human authorization** at the tool
 boundary (the approval hook, the launch token for plans), which gates the
 *intent* once rather than every put. Neither substitutes for the other. See
 :doc:`/architecture/safety-chain` for the order the layers run in.
+
+.. _write-authorization-contract:
+
+A Program's Write Authorization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A process that names an authorization (``OSPREY_WRITE_AUTHORIZATION``, set by
+the connector pool for a key that names one) has every write call judged
+against it by the connector's write guard, after the write verdict: the
+authorization is consulted whenever that verdict allows or refuses only
+``switch_off``, so it never lifts a tier, an owner, a record, a pin or a hold,
+and a switch moved to *asked* or *allowed* does not widen it. The how-to is
+:ref:`how-to-write-from-a-program`; the module is
+``osprey_connectors.write_authorization``.
+
+**Three files, three writers.** Each is read the fail-closed way: no symbolic
+link followed, a bounded read, a regular file, exactly the fields below, no
+repeated key, every number finite. A request or grant is written only inside
+three ceilings: at most 100000 ``steps`` (``MAX_STEPS``), an ``expires_at_ns``
+at most 24 hours after its ``requested_at_ns`` or ``issued_at_ns``
+(``MAX_EXPIRES_S``), and a ``lease_s`` of at most 600 seconds; a write past
+one raises ``ValueError`` and writes nothing. Reading does not apply them, so
+a file already on disk past a ceiling is honoured as before. A file that is
+there and cannot be read refuses; an absent grant is no authorization
+(``switch_off``).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 30 48
+
+   * - File
+     - Where, written by
+     - Fields (``schema: 1``)
+   * - request
+     - ``<ledger dir>/requests/<id>.json``, the holder
+     - ``id``, ``owner``, ``holder``, ``target``, ``channels``
+       (``{address: {min, max}}``), ``steps``, ``requested_at_ns``,
+       ``expires_at_ns``, ``lease_s``, ``label``, ``completion``
+       (``none`` | ``apply_best`` | ``restore``)
+   * - grant
+     - ``<owner's state dir>/authorizations/<id>.json``, the approver (chip or
+       CLI); a self-issued one in the holder's ledger dir
+     - the request's fields but ``requested_at_ns`` and ``completion``, plus
+       ``switch_epoch``, ``issued_at_ns``, ``approver``
+       (``{identity, surface: chip | cli | write_switch, at_ns}``) and
+       ``revoked`` (``null`` or ``{at_ns, by}``)
+   * - ledger
+     - ``<ledger dir>/<id>.ledger.json``, the holder's connector child
+     - ``authorization``, ``holder_pid``, ``holder_start``, ``pid_ns``,
+       ``lease_until_ns``, ``steps`` (``[{n, at_ns, channels}]``)
+
+The grant's id is the request's, so a holder waits for exactly that id. The
+ledger directory is ``OSPREY_WRITE_LEDGER_DIR`` (on a deployment,
+``var/write_ledger/``). The ledger is written by the holder (it opens and
+renews the lease) and by its connector child (it appends one step per write
+call), so a holder's container needs ``OSPREY_WRITE_LEDGER_DIR`` bound
+writable and ``OSPREY_CONTROL_OWNER`` naming the login it stands in for. A web
+terminal reads the requests through a read-only bind,
+``OSPREY_WRITE_REQUESTS_DIR``, and the holders' self-issued grants and ledgers
+through a read-only bind of the whole ledger directory,
+``OSPREY_WRITE_LEDGER_VIEW_DIR``; it sees no other login's grants. A program
+run on the host with no ledger directory bound files its request and keeps its
+ledger in its owner's own ``authorizations`` directory, so every surface also
+reads the requests and ledgers there.
+``control_context.json`` is not touched and keeps its schema.
+
+**Approval.** The approver acts as the owner: the web terminal's login, or
+``osprey write-authorization approve`` (``approver.identity`` is the acting
+identity, ``surface`` the place). It takes the owner's record lock, then the
+grants directory's — the one lock order every writer of both keeps — stamps
+the record's ``switch_epoch`` on the grant, and refuses ``auth_overlap`` when
+a live grant of another holder lists one of the channels on the same machine:
+one in the owner's own directory, or a self-issued one in the ledger directory
+the approver sees. A grant whose every ledger the approver sees shows its
+lease time passed by more than a minute (its holder stopped renewing; the
+minute is a grace for the two clocks) does not count; one with no ledger in
+sight, or a ledger that cannot be read, does, until it expires. Another
+owner's directory is not read. A grant file that cannot be read is logged and
+left out of that check; it refuses every write under it already. Both
+surfaces also refuse a target the deployment does not configure, a ceiling of
+``never`` or ``unknown``, a range outside the limits database, and a channel
+without a numeric range there; the chip also refuses in a read-only run. The
+ceiling is the one the program's own writes will meet: for a request in
+``var/write_ledger/requests`` (a program in a shared container), the login map
+the build staged for those containers; for one filed on the host, the rendered
+config, as the web terminal on the host reads it.
+A refusal names every channel that cannot be approved.
+
+An approval is the confirmation for every write the run makes inside it, a
+batch included, for a login whose ceiling is ``asked`` as much as ``allowed``:
+the person confirms the channels, ranges and step count once, and the
+program's writes are not prompted one by one.
+
+**What the bounds guard.** The channels, ranges and the grant itself are the
+approver's, written where the holder cannot write them. The step budget and
+the lease are the holder's own record: the ledger directory is writable by the
+holder, so they bound a program that runs as written, not one that sets out
+to forge its ledger. The boundary for a program that must not write at all is
+the gateway it can reach.
+
+**How a grant ends.** Every step spent (``auth_exhausted``); its expiry
+(``auth_expired``); its lease lapsing — not renewed in time, or its holder
+gone (``auth_lease_lapsed``); a stop (``auth_revoked``); for a self-issued
+grant, its owner's switch leaving ``allowed``. None of these is undone:
+nothing renews a budget or revives a lease, and the program asks again. The
+chip, ``osprey write-authorization list`` and ``osprey status`` read the
+holder's ledger and show a grant whose steps are spent or whose lease lapsed
+as ended, with its steps used of its total.
+
+**Stop.** :func:`~osprey_connectors.control_context.set_switch` with ``off``
+marks every grant on the named machines (every grant for ``"all"``) revoked
+inside its record lock; ``"all"`` also moves the epoch, which ends every grant
+issued under the old one. A stop whose marks cannot be written moves the epoch
+as well, so it ends every grant of that owner rather than none. A self-issued
+grant ends once its owner's switch leaves ``allowed``.
+
+**Reasons.** Each ``auth_*`` reason is a member of
+``osprey_connectors.refusals.REASONS`` with its phrase, and arrives as
+``verdict_reason`` on a refused write. In the order the terms are judged:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Reason
+     - Refused when
+   * - ``auth_unreadable``
+     - the named id is not an id, the grant or the ledger is there and cannot
+       be read, or the process has no ledger directory.
+   * - ``auth_holder``
+     - the grant names another owner, or another holder than the writing
+       process's acting identity.
+   * - ``auth_channel``
+     - the grant covers another machine, the write names no channel, or a
+       channel the grant does not list.
+   * - ``auth_revoked``
+     - the grant is marked revoked, the record's epoch has moved past it, or a
+       self-issued grant's switch is no longer at ``allowed``.
+   * - ``auth_expired``
+     - its expiry has passed.
+   * - ``auth_range``
+     - a value is not a finite number inside its channel's range.
+   * - ``auth_lease_lapsed``
+     - no lease was started, the lease ran out, or its holder is gone.
+   * - ``auth_exhausted``
+     - every step has been spent.
+   * - ``auth_overlap``
+     - (approval only) another program holds a listed channel on the machine,
+       under the same owner or self-issued.
+
+A grant that ended — revoked or expired — more than an hour ago is removed by
+the next listing (the chip's, or ``osprey write-authorization list``).
 
 .. _write-safety-upgrade:
 
@@ -408,17 +551,9 @@ executor subprocesses and kernels where ``osprey`` may not be importable.
 Limits Checking
 ~~~~~~~~~~~~~~~
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-limits.yml
+   :language: yaml
 
-   control_system:
-     limits_checking:
-       enabled: true                     # Enable limits validation
-       mode: exclusive                   # Only channels in the database can be written
-     connector:
-       virtual_accelerator:
-         limits_checking:                # This connector type's own posture,
-           enabled: true                 # replacing the pair above for it alone
-           mode: optional
 
 When enabled, every ``write_channel()`` call is validated against the limits
 database before the write reaches hardware. The database format is the
@@ -566,11 +701,6 @@ applied independently to each channel's own samples:
   grid of its own is the documented exception -- the Archiver Appliance's
   operators are epoch-anchored, and the window merely clips them.
 
-The shared helpers in ``osprey_connectors.archiver`` (``to_utc``,
-``require_datetime``, ``resolve_processing``, ``long_frame``, ``decimate_raw``,
-``aggregate_series``, ``reject_non_numeric``) implement all of the above --
-every in-tree connector builds on them rather than reimplementing binning.
-
 **The dtype rule for** ``value``\ **.** Enum/status channels carry string
 values, and ``get_data`` never coerces them: a channel's own dtype flows
 through, and only mixing non-numeric with numeric channels in one query promotes
@@ -582,4 +712,4 @@ string.)
 
 Query windows must be normalized to UTC before touching the wire: a naive
 ``start_date``/``end_date`` is facility-local and must be converted -- not
-relabeled -- to your backend's UTC wire format; ``to_utc()`` does this.
+relabeled -- to your backend's UTC wire format.

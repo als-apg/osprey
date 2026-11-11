@@ -18,6 +18,7 @@ from osprey.deployment.subprocess_capture import observe_exit, stop_child
 from osprey.port_layout import BLOCK_SIZE
 from osprey_connectors_tests._harness import _ports
 from osprey_connectors_tests._harness._ports import (
+    _MACOS_DEFAULT_RANGE_START,
     bound_socket,
     ephemeral_range_start,
     lock_path,
@@ -37,6 +38,12 @@ _HIGHEST_EPHEMERAL_START = 49152
 #: A pinned deployment block: ``port_base``, ``PORT_BASE`` or ``worker_port_base``
 #: set to a literal, in Python, YAML or an ``osprey set`` argument.
 _PINNED_BASE = re.compile(r"port_base\W{1,4}(\d{4,5})\b", re.IGNORECASE)
+
+#: A store's host port an e2e stack publishes at a literal, as a module constant.
+_PINNED_HOST_PORT = re.compile(r"^(?:MONGO\w*|QMD)_PORT\w*\s*=\s*(\d{4,5})\b", re.MULTILINE)
+
+#: The suites whose stacks publish those ports on the host.
+_STACK_SUITES = ("tests/e2e", "tests/va/e2e")
 
 #: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
 _HOLDER_GRACE_S = 1.0
@@ -114,6 +121,32 @@ def test_every_block_a_test_pins_is_skipped():
     )
 
 
+def test_every_store_port_a_stack_pins_is_skipped():
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", *_STACK_SUITES],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+        timeout=60,
+    )
+    pinned: dict[int, list[str]] = {}
+    for name in listed.stdout.decode("utf-8").split("\0"):
+        if name.endswith(".py") and (REPO_ROOT / name).is_file():
+            text = (REPO_ROOT / name).read_text(encoding="utf-8")
+            for match in _PINNED_HOST_PORT.finditer(text):
+                pinned.setdefault(int(match.group(1)), []).append(name)
+    assert pinned, "the scan found no pinned store port at all; its pattern no longer matches"
+    uncovered = {
+        port: files
+        for port, files in sorted(pinned.items())
+        if _ports.PORT_FLOOR <= port < _HIGHEST_EPHEMERAL_START and not _pinned(port)
+    }
+    assert not uncovered, (
+        "e2e stack(s) publish a store port that reservations may hand out; widen "
+        f"_ports.BOOKED_BLOCKS to cover it: {uncovered}"
+    )
+
+
 def test_two_nested_reservations_never_share_a_port():
     with reserved_port() as outer, reserved_port() as inner:
         assert outer != inner
@@ -177,7 +210,7 @@ def test_a_port_already_bound_is_never_yielded(monkeypatch, kind):
 def test_the_lock_is_released_when_the_block_ends():
     with reserved_port() as port:
         pass
-    fd = os.open(lock_path(port), os.O_RDWR)
+    fd = os.open(lock_path(port), os.O_RDONLY)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     finally:
@@ -298,3 +331,36 @@ def test_a_bound_socket_can_listen():
         held.listen()
         client.settimeout(5)
         client.connect(("127.0.0.1", held.getsockname()[1]))
+
+
+@pytest.fixture
+def fresh_range_probe():
+    """Probe the ephemeral range anew here, and leave no patched answer in the cache."""
+    ephemeral_range_start.cache_clear()
+    yield
+    ephemeral_range_start.cache_clear()
+
+
+@pytest.mark.usefixtures("fresh_range_probe")
+def test_a_slow_macos_probe_falls_back_to_the_platform_default(monkeypatch, capsys):
+    probes: list[list[str]] = []
+
+    def timed_out(command: list[str], **_kwargs: object) -> None:
+        probes.append(command)
+        raise subprocess.TimeoutExpired(command, 10)
+
+    monkeypatch.setattr(_ports.sys, "platform", "darwin")
+    monkeypatch.setattr(_ports.subprocess, "run", timed_out)
+
+    assert ephemeral_range_start() == _MACOS_DEFAULT_RANGE_START
+    assert ephemeral_range_start() == _MACOS_DEFAULT_RANGE_START
+
+    assert len(probes) == 1
+    assert capsys.readouterr().err.count(str(_MACOS_DEFAULT_RANGE_START)) == 1
+
+
+@pytest.mark.usefixtures("fresh_range_probe")
+def test_an_unknown_platform_still_refuses(monkeypatch):
+    monkeypatch.setattr(_ports.sys, "platform", "plan9")
+    with pytest.raises(RuntimeError, match="plan9"):
+        ephemeral_range_start()

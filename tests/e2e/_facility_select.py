@@ -72,7 +72,7 @@ def corrector_addresses(
     """
     return frozenset(
         binding.address
-        for binding in view.bindings(role="setpoint", model=model)
+        for binding in view.bindings(engine_role="setpoint", model=model)
         if binding.plane is not None and (plane is None or binding.plane == plane)
     )
 
@@ -83,7 +83,8 @@ def monitor_addresses(
     """Every monitor reading the view's bindings serve, optionally of one plane
     and of one model."""
     return frozenset(
-        binding.address for binding in view.bindings(role="monitor", plane=plane, model=model)
+        binding.address
+        for binding in view.bindings(engine_role="monitor", plane=plane, model=model)
     )
 
 
@@ -115,22 +116,29 @@ def claimed_addresses(view: SimulatorView) -> frozenset[str]:
 
 
 def bounded_corrector_of(view: SimulatorView) -> tuple[str, str, str] | None:
-    """The first corrector of ``view``, in address order, that a limits record
-    bounds at both ends and that names its own readback, as
-    ``(setpoint, readback, model)``; ``None`` when no corrector qualifies.
+    """The first corrector, in address order, of the model with the most
+    correctors a limits record bounds at both ends and that name their own
+    readback, as ``(setpoint, readback, model)``; ``None`` when no corrector
+    qualifies.
 
     ``model`` is the model whose binding wires the setpoint: a lane that
     drives correctors drives that model's, and reads their response on that
-    model's monitors.
+    model's monitors. The model with the most such correctors is the one a
+    lane can drive the most of; a tie goes to the model first by name.
     """
+    found: dict[str, list[tuple[str, str]]] = {}
     for address in sorted(corrector_addresses(view)):
         channel = view.channel(address)
         readback = channel.pair
         if channel.value_range is not None and readback is not None and readback != address:
             binding = view.binding(address)
             assert binding is not None, f"corrector {address} has no served binding"
-            return address, readback, binding.model
-    return None
+            found.setdefault(binding.model, []).append((address, readback))
+    if not found:
+        return None
+    model = min(found, key=lambda name: (-len(found[name]), name))
+    address, readback = found[model][0]
+    return address, readback, model
 
 
 def lane_model(view: SimulatorView) -> str:
@@ -202,7 +210,7 @@ def lane_selection(view: SimulatorView) -> LaneSelection:
     setpoint, readback, model = found
     plane = next(
         binding.plane
-        for binding in view.bindings(role="setpoint", model=model)
+        for binding in view.bindings(engine_role="setpoint", model=model)
         if binding.address == setpoint
     )
     if plane is None:

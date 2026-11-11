@@ -18,12 +18,12 @@ sit between the two claims and neither is visible from the TTL:
   That is a real migration with a real failure mode, and it is only observable
   against a live n10s.
 
-So this lane seeds the graph view the control-assistant build writes through
+So this lane seeds the graph view the demo build writes through
 the seeder API and asks the
 questions in Cypher.  It is separate from ``tests/integration/test_graphdb_store.py``
 — which pins the corpus's verified node counts — because it owns a different
 claim (the *enrichment* is reachable) and because its tests wipe the store
-between steps, which would strand that module's session-scoped fixture.
+between steps, where that module walks one seeded store through its whole life.
 
 Each test starts from a wiped store and seeds the corpus itself — which is also
 the sequence ``osprey up`` performs on a stamp mismatch, so the wipe is under
@@ -33,17 +33,16 @@ The container recipe (pinned image, n10s jar from the pinned release or
 ``OSPREY_TEST_N10S_JAR``, APOC copied out of the image) comes from
 :mod:`tests._graphdb_container` rather than being copied; see that module's
 docstring for why the container starts without ``NEO4J_PLUGINS``.  The store is
-module-scoped because this module wipes it; the jars it mounts are resolved once
-per session by the shared ``graphdb_plugin_dir`` fixture, which is also the skip
-gate — without Docker, without the image, or without the jar this module skips
-and says which.
+the session's ``graphdb_session_store``, wiped before this module and before each
+test; the jars it mounts are resolved once per session by the shared
+``graphdb_plugin_dir`` fixture, which is also the skip gate — without Docker,
+without the image, or without the jar this module skips and says which.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -53,10 +52,14 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
-    graphdb_store,
+    WatchedStore,
+    wiped_graphdb_store,
 )
 
 logger = logging.getLogger(__name__)
+
+#: What this module's store is called in a failure.
+ENRICHMENT_STORE_LABEL = "graphdb (neo4j + n10s) for the enrichment lane"
 
 # xdist_group("docker") keeps every container-starting module on one xdist
 # worker: two testcontainers sessions starting at once race their own reapers
@@ -185,23 +188,22 @@ RETURN c.uri AS uri
 
 
 @pytest.fixture(scope="module")
-def enrichment_store_uri(graphdb_plugin_dir: Path) -> Iterator[str]:
-    """Start a throwaway graph store for this module and yield its bolt URI.
+def enrichment_store_uri(graphdb_session_store: WatchedStore) -> str:
+    """The bolt URI of the session's store, wiped for this module.
 
-    Module-scoped rather than session-scoped: the tests below wipe the store
-    between steps, and a store shared with another module's session-scoped
-    fixture would hand that module an emptied graph halfway through its run.
-    The plugins it mounts *are* session-scoped — see ``graphdb_plugin_dir``,
+    The tests below wipe the store again between steps. That is safe to do to
+    a store other modules seed too, because each of them wipes it and seeds it
+    for itself before it reads, and they run one module after another on the
+    docker worker. The jars it mounts are resolved by ``graphdb_plugin_dir``,
     which is also this module's skip gate.
     """
-    with graphdb_store(graphdb_plugin_dir) as uri:
-        yield uri
+    return wiped_graphdb_store(graphdb_session_store, label=ENRICHMENT_STORE_LABEL).uri
 
 
 @pytest.fixture(scope="module")
-def demo_ttl(built_control_assistant: BuiltProject) -> str:
-    """The graph view the control-assistant build writes, as the seeder reads it."""
-    view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+def demo_ttl(built_demo: BuiltProject) -> str:
+    """The graph view the demo build writes, as the seeder reads it."""
+    view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
     return view.read_text(encoding="utf-8")
 
 
@@ -213,7 +215,7 @@ def clean_store(enrichment_store_uri: str) -> Iterator[Any]:
     every test that receives this fixture starts from the state a fresh deploy
     starts from and has to bootstrap for itself.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     with graph_seeder.open_session(
         enrichment_store_uri,
@@ -242,7 +244,7 @@ def _ttl_census(ttl: str) -> dict[str, int]:
 
     Cheap string counts rather than an rdflib parse, and derived from the corpus
     under test rather than pinned as numbers here: the committed censuses belong
-    to ``tests/templates/test_control_assistant_demo_ttl.py``, and a second copy
+    to ``tests/templates/test_demo_ttl.py``, and a second copy
     of them would go stale on its own schedule.  What this lane needs is only the
     comparison — whether the graph holds *everything* the file declares, which is
     what turns "the descriptions are consistent" into "the corpus is complete".
@@ -264,7 +266,7 @@ def _ttl_census(ttl: str) -> dict[str, int]:
 
 def _seed(session: Any, ttl: str, label: str) -> None:
     """Bootstrap a wiped store and import *ttl* into it, as ``osprey up`` does."""
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     result = graph_seeder.bootstrap(session)
     assert result.status is graph_seeder.BootstrapStatus.INITIALIZED, result.message
@@ -412,7 +414,7 @@ def _legacy_bootstrap(session: Any) -> None:
     store whose config is *not* osprey's current one, which is the state every
     graph store deployed before this change is sitting in.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     session.run(graph_seeder._CONSTRAINT_CYPHER).consume()
     session.run("CALL n10s.graphconfig.init($params)", params=LEGACY_GRAPH_CONFIG).consume()
@@ -435,7 +437,7 @@ def test_a_legacy_store_is_reported_then_recovered_by_a_reseed(
     the first and last assertions read the same subject on either side of the
     migration.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     session = clean_store
 

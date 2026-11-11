@@ -69,7 +69,6 @@ from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA/bridge/Tiled image build + deploy -- runs in the
     # dedicated orm-roundtrip-e2e CI job alongside test_orm_roundtrip.py,
@@ -109,7 +108,7 @@ SCAN_TIMEOUT_SEC = 120.0
 # value that lets the "every point visited" check (b) distinguish "grid
 # actually swept" from "coincidentally saw the endpoints twice". Values stay
 # well inside the band of the corrector a limits record bounds (+-12A in the
-# example facility, the band test_orm_roundtrip.py's SPAN_A documents), and
+# example facility, the band test_orm_roundtrip.py's SPAN documents), and
 # NUM_POINTS meets grid_scan's own `ge=2` num_points floor.
 AXIS_START_A = -3.0
 AXIS_STOP_A = 3.0
@@ -159,6 +158,9 @@ def deployed_grid_scan_stack(
         # landing on a real deployment's default 10000 block.
         port_base=21300,
         timeout=BUILD_TIMEOUT_SEC,
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(),
     )
     # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
     # the orm plan, grid_scan doesn't sweep every named corrector against
@@ -290,7 +292,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         f"expected {NUM_POINTS} rows (one per grid point), got {data['row_count']}: {data}"
     )
 
-    columns = data["columns"]
+    columns = [column["name"] for column in data["columns"]]
     corrector_col = _find_column(columns, corrector_name)
     bpm_col = _find_column(columns, bpm_name)
 

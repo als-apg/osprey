@@ -21,9 +21,11 @@ from typing import Any
 import pytest
 import yaml
 
+from tests._builds import Restorable
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
+    enable_orbit_bump,
     preserved_environ,
 )
 
@@ -45,6 +47,9 @@ _ROSTER_TIERS = {"alice": "asked", "bob": "never", "carol": "allowed"}
 #: Where the two shared-container configs are staged, under ``build/``.
 _BLUESKY = Path("services/bluesky/config.yml")
 _WORKER = Path("services/dispatch_worker/config.yml")
+#: The example application's container, turned on in each build here: it holds
+#: the map because it drives the target.
+_APP = Path("services/orbit-bump/config.yml")
 
 
 @contextmanager
@@ -60,7 +65,7 @@ def _pinned_env() -> Iterator[None]:
 def _ask_in(path: Path) -> None:
     """*path* authors ``asked``, the one write line it has.
 
-    The shipped stance (FR4) puts the control-assistant root and the readwrite
+    The shipped stance (FR4) puts the demo root and the readwrite
     tier at ``asked``, so the exemplar already authors the word; this proves it
     rather than writing it.
     """
@@ -69,12 +74,8 @@ def _ask_in(path: Path) -> None:
     assert text.count("\n  control_system.writes:") == 1, path
 
 
-def _build(base: Path, *, tiered: bool = True, asked: bool = False) -> Path:
-    """The exemplar repo after one real ``osprey build`` (no venv, no hooks).
-
-    *asked* checks that the root and the readwrite tier author ``asked``; the
-    admin tier keeps ``allowed``, so such a build carries all three words.
-    """
+def _build(base: Path, *, tiered: bool = True) -> Path:
+    """The exemplar repo after one real ``osprey build`` (no venv, no hooks)."""
     from click.testing import CliRunner
 
     from osprey.cli.build_cmd import build as build_command
@@ -82,14 +83,12 @@ def _build(base: Path, *, tiered: bool = True, asked: bool = False) -> Path:
     base.mkdir(parents=True, exist_ok=True)
     with _pinned_env():
         repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
+        enable_orbit_bump(repo)
         if not tiered:
             profile = repo / "profile.yml"
             text = profile.read_text(encoding="utf-8")
             assert text.count(_DISPATCH_TIER_LINE) == 1
             profile.write_text(text.replace(_DISPATCH_TIER_LINE, "\n"), encoding="utf-8")
-        if asked:
-            _ask_in(repo / "profile.yml")
-            _ask_in(repo / "tiers" / "readwrite.yml")
         with chdir(repo):
             result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
@@ -128,13 +127,41 @@ def tiered(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def untiered(tmp_path_factory) -> Path:
-    return _build(tmp_path_factory.mktemp("login-tiers-untiered"), tiered=False)
+def asked(tiered: Path) -> Path:
+    """The tiered build, whose root and readwrite tier author ``asked``.
+
+    The admin tier keeps ``allowed``, so the build carries all three words.
+    """
+    _ask_in(tiered / "profile.yml")
+    _ask_in(tiered / "tiers" / "readwrite.yml")
+    return tiered
 
 
 @pytest.fixture(scope="module")
-def asked(tmp_path_factory) -> Path:
-    return _build(tmp_path_factory.mktemp("login-tiers-asked"), asked=True)
+def _pristine_tiered(tmp_path_factory) -> Restorable:
+    return Restorable(
+        tmp_path_factory.mktemp("login-tiers-edited"), lambda base: (_build(base), None)
+    )
+
+
+@pytest.fixture(scope="module")
+def _pristine_untiered(tmp_path_factory) -> Restorable:
+    return Restorable(
+        tmp_path_factory.mktemp("login-tiers-untiered"),
+        lambda base: (_build(base, tiered=False), None),
+    )
+
+
+@pytest.fixture
+def edited(_pristine_tiered: Restorable) -> Path:
+    """A tiered build of this test's own, to redeploy or edit."""
+    return _pristine_tiered.restore()
+
+
+@pytest.fixture
+def untiered(_pristine_untiered: Restorable) -> Path:
+    """An untiered build of this test's own."""
+    return _pristine_untiered.restore()
 
 
 # -- an authored `asked` -------------------------------------------------------
@@ -146,6 +173,7 @@ def test_an_asked_render_stages_the_word_verbatim(asked: Path) -> None:
 
     assert _load(build / _BLUESKY)["control_system"]["login_tiers"] == expected
     assert _load(build / _WORKER)["control_system"]["login_tiers"] == expected
+    assert _load(build / _APP)["control_system"]["login_tiers"] == expected
 
 
 def test_an_asked_render_holds_the_queue_token_and_a_never_render_does_not(asked: Path) -> None:
@@ -171,7 +199,7 @@ def test_tiered_worker_copy_is_the_tier_render_plus_the_map(tiered: Path) -> Non
     assert staged["control_system"]["login_tiers"] == _expected_map()
     assert _without_map(staged) == image
     assert staged["control_system"]["writes"] == "never"
-    # A copy of the root would not pass: the control-assistant root arms writes.
+    # A copy of the root would not pass: the demo root arms writes.
     assert root["control_system"]["writes"] == "asked"
 
 
@@ -206,7 +234,7 @@ def test_untiered_worker_and_bluesky_carry_the_same_map_over_the_root(untiered: 
 
 def test_no_other_render_carries_the_map(tiered: Path) -> None:
     build = tiered / "build"
-    staged = {build / _BLUESKY, build / _WORKER}
+    staged = {build / _BLUESKY, build / _WORKER, build / _APP}
     configs = [p for p in build.rglob("config.yml") if p not in staged]
     # The root, every terminal-served render, and every image render are among them.
     assert build / "config.yml" in configs
@@ -221,8 +249,8 @@ def test_no_other_render_carries_the_map(tiered: Path) -> None:
 # -- redeploy paths --------------------------------------------------------------
 
 
-def test_redeploy_in_place_stages_the_same_map_and_keeps_the_tiered_copy(tmp_path: Path) -> None:
-    repo = _build(tmp_path)
+def test_redeploy_in_place_stages_the_same_map_and_keeps_the_tiered_copy(edited: Path) -> None:
+    repo = edited
     build = repo / "build"
     tiered_copy = (build / _WORKER).read_bytes()
     built_map = _load(build / _BLUESKY)["control_system"]["login_tiers"]
@@ -233,9 +261,9 @@ def test_redeploy_in_place_stages_the_same_map_and_keeps_the_tiered_copy(tmp_pat
     assert (build / _WORKER).read_bytes() == tiered_copy
 
 
-def test_redeploy_without_build_stages_the_same_map(tmp_path: Path) -> None:
+def test_redeploy_without_build_stages_the_same_map(edited: Path) -> None:
     """``prepare_compose_files(config_path)`` alone — the ``deploy restart`` call."""
-    repo = _build(tmp_path)
+    repo = edited
     build = repo / "build"
     tiered_copy = (build / _WORKER).read_bytes()
     built_map = _load(build / _BLUESKY)["control_system"]["login_tiers"]
@@ -258,11 +286,11 @@ def test_redeploy_without_build_stages_the_same_map(tmp_path: Path) -> None:
 
 
 def test_flatten_failure_fallback_still_stages_the_map(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    untiered: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import osprey.deployment.compose_generator as compose_generator
 
-    repo = _build(tmp_path, tiered=False)
+    repo = untiered
     build = repo / "build"
 
     class _Broken:
@@ -286,12 +314,12 @@ def test_flatten_failure_fallback_still_stages_the_map(
 
 
 def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
-    tmp_path: Path,
+    edited: Path,
 ) -> None:
     from osprey_connectors.posture_store import owner_tier_term
     from osprey_connectors.types import tier_writes
 
-    repo = _build(tmp_path)
+    repo = edited
     build = repo / "build"
     config = _load(build / "config.yml")
     web_terminals = config["modules"]["web_terminals"]

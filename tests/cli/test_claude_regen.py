@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.agent_runner.provider_env import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
@@ -45,16 +46,16 @@ def _render_project(manager: TemplateManager, tmp_path: Path, name: str, recorde
     project = manager.create_project(
         project_name=name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical", "claude_md_template": render},
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
     manager.generate_manifest(
         project,
         name,
-        "control-assistant",
+        "demo",
         {"claude_md_template": recorded},
-        artifacts=manager._effective_artifacts("control_assistant", None),
+        artifacts=manager._effective_artifacts("demo", None),
     )
     return project
 
@@ -73,7 +74,13 @@ def _own(project_dir: Path, name: str) -> None:
 # Hook modules that are shipped into .claude/hooks/ as importable support code
 # rather than as hook entry points. They are deliberately absent from
 # settings.json and are excluded from the settings <-> hooks parity invariant.
-HOOK_LIBRARY_MODULES = {"osprey_hook_log.py", "osprey_safety_file.py", "osprey_target_state.py"}
+# The build catalog names them (``BuildArtifactCatalog.helpers()``).
+_CATALOG = BuildArtifactCatalog.default()
+HOOK_LIBRARY_MODULES = {
+    Path(a.output_path).name
+    for a in _CATALOG.all_artifacts()
+    if a.canonical_name in _CATALOG.helpers()
+}
 
 _HOOK_BASENAME_RE = re.compile(r"osprey_[A-Za-z0-9_]+\.py")
 
@@ -104,9 +111,9 @@ class TestBuildClaudeCodeContext:
             manager,
             project_name="ctx-basic",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -118,7 +125,7 @@ class TestBuildClaudeCodeContext:
         assert ctx["package_name"] == "ctx_basic"
         assert ctx["project_root"] == str(project_dir.absolute())
         assert "current_python_env" in ctx
-        assert ctx["preset"] == "control-assistant"
+        assert ctx["preset"] == "demo"
 
     def test_project_root_override(self, tmp_path):
         """project_root_override replaces project_root in context but keeps file I/O path."""
@@ -127,9 +134,9 @@ class TestBuildClaudeCodeContext:
             manager,
             project_name="ctx-override",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -146,26 +153,26 @@ class TestBuildClaudeCodeContext:
         # project_name still derived from actual project (file I/O uses project_dir)
         assert ctx["project_name"] == "ctx-override"
 
-    def test_control_assistant_config(self, tmp_path):
-        """Control assistant config produces channel_finder context vars."""
+    def test_demo_config(self, tmp_path):
+        """Demo config produces channel_finder context vars."""
         manager = TemplateManager()
         project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-control",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         # Generate manifest so build_claude_code_context can discover the preset
-        manager.generate_manifest(project_dir, "ctx-control", "control-assistant", {})
+        manager.generate_manifest(project_dir, "ctx-control", "demo", {})
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
 
-        assert ctx["preset"] == "control-assistant"
+        assert ctx["preset"] == "demo"
         assert "channel_finder_pipeline" in ctx
         assert "channel_finder_mode" in ctx
 
@@ -176,19 +183,19 @@ class TestBuildClaudeCodeContext:
             manager,
             project_name="ctx-manifest",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         # Generate manifest
-        manager.generate_manifest(project_dir, "ctx-manifest", "control-assistant", {})
+        manager.generate_manifest(project_dir, "ctx-manifest", "demo", {})
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
 
-        assert ctx["preset"] == "control-assistant"
+        assert ctx["preset"] == "demo"
 
 
 class TestManifestPresetStamp:
@@ -211,7 +218,7 @@ class TestManifestPresetStamp:
     def test_a_project_with_no_manifest_reads_no_preset(self, tmp_path):
         """No manifest is no answer, not a default.
 
-        The old reader substituted ``control_assistant`` here, which is a
+        The old reader substituted ``demo`` here, which is a
         guess: it names the common bundle, and for a project built from any
         other one it was simply wrong. Every real project has a manifest —
         the build writes it — so the guess only ever hid an incomplete one.
@@ -297,17 +304,17 @@ class TestManifestPresetStamp:
 
         manager = TemplateManager()
         project_dir = self._project(tmp_path, "stamp-legacy")
-        manager.generate_manifest(project_dir, "stamp-legacy", "control-assistant", {})
+        manager.generate_manifest(project_dir, "stamp-legacy", "demo", {})
         manifest_path = project_dir / ".osprey-manifest.json"
         stale = json.loads(manifest_path.read_text())
-        stale["creation"]["data_bundle"] = "control_assistant"
+        stale["creation"]["data_bundle"] = "demo"
         manifest_path.write_text(json.dumps(stale), encoding="utf-8")
 
         with caplog.at_level(logging.DEBUG, logger="osprey.cli.templates"):
             loaded = manifest_mod.load_project_manifest(project_dir)
 
         assert loaded is not None
-        assert loaded["creation"]["template"] == "control-assistant"
+        assert loaded["creation"]["template"] == "demo"
         assert "data_bundle" in caplog.text
 
         # And the context builder reads the preset past it, rather than
@@ -316,7 +323,7 @@ class TestManifestPresetStamp:
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
-        assert ctx["preset"] == "control-assistant"
+        assert ctx["preset"] == "demo"
         assert "data_bundle" not in ctx
 
     def test_a_hand_written_profile_stamps_none_and_still_regenerates(self, tmp_path):
@@ -368,7 +375,7 @@ class TestManifestPresetStamp:
         stamped = json.loads((repo / "build" / ".osprey-manifest.json").read_text())
         assert stamped["creation"]["template"] is None
         # The selection the render was made with, recorded verbatim.
-        assert stamped["artifacts"] == manager._effective_artifacts("control_assistant", None)
+        assert stamped["artifacts"] == manager._effective_artifacts("demo", None)
         assert stamped["artifacts"]["hooks"]
 
         # And the regen reads it back rather than needing a preset name.
@@ -382,7 +389,7 @@ class TestManifestPresetStamp:
     def test_a_child_preset_resolves_its_inherited_artifacts(self, tmp_path, monkeypatch):
         """A preset's artifact fallback follows ``extends:``.
 
-        A preset that extends ``control-assistant`` declares only its delta,
+        A preset that extends ``demo`` declares only its delta,
         so reading its file alone answers with a fraction of what it selects —
         this child declares one skill and no agents at all. A reader that took
         that literally would regenerate the child with none of the artifacts
@@ -394,16 +401,14 @@ class TestManifestPresetStamp:
         bundled = build_profile_presets._presets_dir()
         presets = tmp_path / "presets"
         presets.mkdir()
-        shutil.copyfile(bundled / "control-assistant.yml", presets / "control-assistant.yml")
+        shutil.copyfile(bundled / "demo.yml", presets / "demo.yml")
         (presets / "child.yml").write_text(
-            yaml.safe_dump(
-                {"name": "Child", "extends": "control-assistant", "skills": ["setup-mode"]}
-            ),
+            yaml.safe_dump({"name": "Child", "extends": "demo", "skills": ["setup-mode"]}),
             encoding="utf-8",
         )
         monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
 
-        base = manifest_mod.load_template_manifest("control-assistant")
+        base = manifest_mod.load_template_manifest("demo")
         assert base is not None
 
         resolved = manifest_mod.load_template_manifest("child")
@@ -439,17 +444,17 @@ class TestManifestPresetStamp:
         assert preset
         manager = TemplateManager()
         selection = manager._effective_artifacts(
-            "control_assistant", _collect_profile_artifacts(profile) or None
+            "demo", _collect_profile_artifacts(profile) or None
         )
         assert "setup-mode" in selection["skills"]
 
         project = manager.create_project(
             project_name="preset-named",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical", "preset": preset},
             artifacts=selection,
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         manager.generate_manifest(project, "preset-named", preset, {}, artifacts=selection)
 
@@ -498,11 +503,11 @@ class TestRegenerationCorrectness:
             manager,
             project_name="regen-idempotent",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
-        profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
+        profile, _profile_dir = resolve_build_profile(None, preset="demo")
         config_update_fields(project_dir / "config.yml", profile.config)
         manager.regenerate_claude_code(project_dir)
 
@@ -530,9 +535,9 @@ class TestRegenerationCorrectness:
             manager,
             project_name="regen-tz",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         # Set timezone to an env-var pattern in config.yml
@@ -556,9 +561,9 @@ class TestRegenerationCorrectness:
             manager,
             project_name="regen-tz-env",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -584,9 +589,9 @@ class TestSafetyPreservation:
             manager,
             project_name="safety-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
         return project_dir
@@ -599,9 +604,9 @@ class TestSafetyPreservation:
             manager,
             project_name="safety-writes-off",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         config_path = project_dir / "config.yml"
         config = yaml.safe_load(config_path.read_text())
@@ -774,8 +779,9 @@ class TestSafetyPreservation:
            pre/post rules.
         3. **Frontmatter ``wiring: standalone``** — hooks whose own YAML
            frontmatter declares the event and matcher tools, from which the
-           renderer builds the rule. Exactly two hooks use this route today:
-           ``osprey_memory_guard`` and ``osprey_notebook_update``.
+           renderer builds the rule. Exactly three hooks use this route today:
+           ``osprey_memory_guard``, ``osprey_notebook_update`` and
+           ``osprey_plan_mode``.
         """
         settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         hooks_dir = regen_project / ".claude" / "hooks"
@@ -799,7 +805,7 @@ class TestSafetyPreservation:
 
         The mirror of the test above. A hook file that is deployed but wired into
         no event is dead weight that reads, to anyone inspecting the project, as
-        an active safety layer. Under the default ``control_assistant`` shape the
+        an active safety layer. Under the default ``demo`` shape the
         controls server is enabled and the fixture enables channel-finder, so
         every event hook is unconditionally wired — there is no configuration in
         this fixture under which a shipped hook is legitimately unreferenced.
@@ -839,9 +845,9 @@ class TestUserFilePreservation:
             manager,
             project_name="header-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -866,9 +872,9 @@ class TestErrorHandling:
             manager,
             project_name="dry-run-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         # Record file mtimes
@@ -893,9 +899,9 @@ class TestErrorHandling:
             manager,
             project_name="dry-clean",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
 
@@ -913,9 +919,9 @@ class TestErrorHandling:
             manager,
             project_name="dry-owned",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         safety_file = project_dir / ".claude" / "rules" / "safety.md"
         safety_file.write_text("# My Custom Safety Rules\n")
@@ -936,9 +942,9 @@ class TestErrorHandling:
             manager,
             project_name="dry-detect",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         # Disable a core server in config (will cause .mcp.json to change)
@@ -961,9 +967,9 @@ class TestGitignore:
             manager,
             project_name="gitignore-gen-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -985,7 +991,7 @@ class TestDisableServers:
         disable_servers=None,
         disable_agents=None,
         custom_servers=None,
-        template="control_assistant",
+        template="demo",
     ):
         """Helper: create project, set claude_code overrides, regen."""
         manager = TemplateManager()
@@ -1036,8 +1042,10 @@ class TestDisableServers:
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
+        # A Read() entry holds a host path, whose directories may spell any word.
         for entry in allow:
-            assert "ariel" not in entry, f"ariel found in allow: {entry}"
+            if not entry.startswith("Read("):
+                assert "ariel" not in entry, f"ariel found in allow: {entry}"
 
     def test_disable_server_removes_from_claude_md(self, tmp_path):
         """Disabling ariel removes ariel row from CLAUDE.md tool table."""
@@ -1202,11 +1210,11 @@ class TestDisableServers:
             manager,
             project_name="override-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
-        manager.generate_manifest(project_dir, "override-test", "control-assistant", {})
+        manager.generate_manifest(project_dir, "override-test", "demo", {})
 
         result = manager.regenerate_claude_code(
             project_dir, project_root_override="/app/als-assistant"
@@ -1262,9 +1270,9 @@ class TestDisableServers:
             manager,
             project_name="ctx-overrides",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1290,9 +1298,9 @@ class TestDisableServers:
             manager,
             project_name="ctx-defaults",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1323,9 +1331,9 @@ class TestRegenRelocation:
             manager,
             project_name=name,
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
     def test_a_relocated_render_records_no_interpreter_path(self, tmp_path):
@@ -1432,16 +1440,16 @@ class TestFacilityMd:
             manager,
             project_name="facility-init",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
         assert facility_file.exists()
         content = facility_file.read_text()
-        assert "Facility Identity" in content
-        assert "Example Research Facility" in content
+        assert "data/facility_facts.md" in content
+        assert "Facility Identity" not in content
 
     def test_facility_md_user_owned_on_init(self, tmp_path):
         """Init auto-registers facility.md as user-owned in config.yml."""
@@ -1450,9 +1458,9 @@ class TestFacilityMd:
             manager,
             project_name="facility-owned",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1469,9 +1477,9 @@ class TestFacilityMd:
             manager,
             project_name="facility-preserve",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         # Customize facility.md in-place
@@ -1492,9 +1500,9 @@ class TestFacilityMd:
             manager,
             project_name="facility-regen-create",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         # Delete facility.md and remove from user_owned
@@ -1515,7 +1523,7 @@ class TestFacilityMd:
 
         assert facility_file.exists()
         content = facility_file.read_text()
-        assert "Facility Identity" in content
+        assert "data/facility_facts.md" in content
 
 
 class TestUserOwned:
@@ -1528,9 +1536,9 @@ class TestUserOwned:
             manager,
             project_name="owned-defaults",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1551,9 +1559,9 @@ class TestUserOwned:
             manager,
             project_name="owned-regen",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         # Customize safety.md
@@ -1583,9 +1591,9 @@ class TestUserOwned:
             manager,
             project_name="owned-agents",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         # Regen with some user_owned entries
@@ -1692,7 +1700,7 @@ class TestSettingsJsonValidity:
     producing invalid JSON (e.g., `},]`).
     """
 
-    @pytest.mark.parametrize("data_bundle", ["control_assistant"])
+    @pytest.mark.parametrize("data_bundle", ["demo"])
     def test_all_templates_produce_valid_settings_json(self, tmp_path, data_bundle):
         """Every built-in template produces valid settings.json."""
         manager = TemplateManager()
@@ -1730,9 +1738,9 @@ class TestSettingsJsonValidity:
             manager,
             project_name=f"json-{label}",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1754,12 +1762,12 @@ class TestSettingsJsonValidity:
             manager,
             project_name="json-all-features",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={
                 "channel_finder_pipeline": "hierarchical",
                 "channel_finder_mode": "hierarchical",
             },
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         settings_path = project_dir / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
@@ -1773,9 +1781,9 @@ class TestSettingsJsonValidity:
             manager,
             project_name="json-custom-servers",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1794,7 +1802,7 @@ class TestSettingsJsonValidity:
 
     def test_all_mcp_json_files_are_valid(self, tmp_path):
         """Every template also produces valid .mcp.json."""
-        for data_bundle in ["control_assistant"]:
+        for data_bundle in ["demo"]:
             project_dir = create_project_with_manifest(
                 TemplateManager(),
                 project_name=f"mcp-valid-{data_bundle}",
@@ -1829,9 +1837,9 @@ class TestWritesToggleRegen:
             manager,
             project_name="writes-toggle",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         config_path = project_dir / "config.yml"
 
@@ -1857,9 +1865,9 @@ class TestWritesToggleRegen:
             manager,
             project_name="drift-gate",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
 
@@ -1904,9 +1912,9 @@ class TestWritesToggleRegen:
             manager,
             project_name="mtime-stamp",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
 
@@ -1931,9 +1939,9 @@ class TestWritesToggleRegen:
             manager,
             project_name="no-claude",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         # A project with config.yml but no rendered settings.json (never built/regenerated).
         settings = project_dir / ".claude" / "settings.json"
@@ -1950,9 +1958,9 @@ class TestWritesToggleRegen:
             manager,
             project_name="drift-wiring",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())

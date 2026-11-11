@@ -46,6 +46,8 @@ from typing import Any
 
 import pytest
 
+from osprey.facility.bundled import header_line
+from osprey.facility.records import FacilityRecords
 from osprey.facility.sources import read_yaml
 from tests.facility.test_cf_view_parity import fingerprint_rows
 
@@ -93,6 +95,9 @@ RECORDS = [
 MERGED = [*RECORDS, "seeds.yaml"]
 
 
+_ORIGIN = f"{header_line('example')}\n"
+
+
 def _is_septum(record_id: str) -> bool:
     """A septum record the injector emits; each septum's interlock word is a peripheral's."""
     return record_id.startswith(("SR:MAG:SEPTUM:", "SR/SEPTUM")) and not record_id.endswith(
@@ -102,6 +107,12 @@ def _is_septum(record_id: str) -> bool:
 
 def _is_standin(record_id: str) -> bool:
     return record_id.split(":", 1)[0].split("/", 1)[0] in STANDIN_SECTIONS
+
+
+def _is_corrector_setpoint(address: str) -> bool:
+    """Every corrector setpoint carries a limits record, whatever its section."""
+    parts = address.split(":")
+    return parts[1:3] in (["MAG", "HCM"], ["MAG", "VCM"]) and address.endswith(":CURRENT:SP")
 
 
 def _is_transfer(record_id: str) -> bool:
@@ -135,7 +146,7 @@ def _is_generated(record_id: str) -> bool:
 def _chunks(text: str) -> list[str]:
     """A top-level YAML list's items, each as its exact text."""
     chunks: list[str] = []
-    for line in text.splitlines(keepends=True):
+    for line in text.removeprefix(_ORIGIN).splitlines(keepends=True):
         if line.startswith("- ") or not chunks:
             chunks.append(line)
         else:
@@ -161,7 +172,7 @@ def _stripped(text: str) -> str:
             kept.append(f"- id: {key}\n  description: stub\n")
         elif not _is_generated(key):
             kept.append(chunk)
-    return "".join(kept)
+    return _ORIGIN + "".join(kept)
 
 
 def _run_injector(tree: Path) -> None:
@@ -409,7 +420,10 @@ def test_the_middle_layer_view_keys_both_septa_under_the_septum_family() -> None
         "devices": _committed("records/devices.yaml"),
         "groups": _committed("records/groups.yaml"),
     }
-    assert middle_layer_families(doc)["Septum"] == [("BR", "SEPTUM"), ("SR", "SEPTUM")]
+    assert middle_layer_families(FacilityRecords(doc))["Septum"] == [
+        ("BR", "SEPTUM"),
+        ("SR", "SEPTUM"),
+    ]
 
 
 # --- the build ---------------------------------------------------------------------
@@ -518,9 +532,10 @@ def test_the_gun_on_offs_and_the_paddles_are_writable_bool_setpoints() -> None:
         assert address not in limited, address
 
 
-def test_no_gtl_or_ln_channel_has_a_limits_record() -> None:
+def test_no_gtl_or_ln_channel_but_a_corrector_has_a_limits_record() -> None:
     addresses = [record["address"] for record in _committed("limits.yaml")["records"]]
-    assert [address for address in addresses if _is_standin(address)] == []
+    standin = [address for address in addresses if _is_standin(address)]
+    assert standin and all(_is_corrector_setpoint(address) for address in standin)
 
 
 def test_every_gtl_and_ln_setpoint_carries_its_nominal() -> None:
@@ -776,9 +791,10 @@ def test_each_new_ltb_and_bts_setpoint_pairs_and_carries_its_nominal_unless_wire
         assert "nominal" not in seeds.get(channel["pair"], {}), channel["pair"]
 
 
-def test_no_ltb_or_bts_channel_has_a_limits_record() -> None:
+def test_no_ltb_or_bts_channel_but_a_corrector_has_a_limits_record() -> None:
     addresses = [record["address"] for record in _committed("limits.yaml")["records"]]
-    assert [a for a in addresses if a.split(":")[0] in TRANSFER_SECTIONS] == []
+    transfer = [a for a in addresses if a.split(":")[0] in TRANSFER_SECTIONS]
+    assert transfer and all(_is_corrector_setpoint(a) for a in transfer)
 
 
 def test_the_wired_frozen_bts_seeds_carry_no_nominal_and_keep_their_motion() -> None:

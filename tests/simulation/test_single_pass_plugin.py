@@ -3,7 +3,7 @@
 A ``single_pass`` model tracks one particle once through its line from the
 ``twiss_in`` its settings state: its monitors read that pass, its beta
 functions are propagated from ``twiss_in``, and it serves no tunes or
-chromaticity. The example facility's ``LINE`` model, as the control-assistant
+chromaticity. The example facility's ``LINE`` model, as the demo
 build renders it, serves the pass a direct track of its deck reads. The NSLS-II transport line, imported and built from its Middle
 Layer export, answers each corrector's step as the Middle Layer's transport
 calculator does.
@@ -24,6 +24,7 @@ import numpy as np  # noqa: E402
 from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
 
 from osprey.facility.errors import FacilityBuildError  # noqa: E402
+from osprey.facility.records import FacilityRecords  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.engines import pyat_single_pass  # noqa: E402
 from osprey.simulation.engines.pyat_model import (  # noqa: E402
@@ -325,15 +326,15 @@ DEMO_LINE_SETPOINTS = {
 
 
 @pytest.fixture(scope="module")
-def demo_line(built_control_assistant: Any) -> dict[str, Any]:
+def demo_line(built_demo: Any) -> dict[str, Any]:
     """The demo ``LINE`` model as the build renders it: wiring, deck and settings."""
     from osprey.facility.views.simulator import simulator_wiring
 
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     (model,) = [entry for entry in facility["models"] if entry["name"] == DEMO_LINE]
     return {
-        "wiring": simulator_wiring(facility, DEMO_LINE),
-        "deck": built_control_assistant.facility_dir / model["deck"],
+        "wiring": simulator_wiring(FacilityRecords(facility), DEMO_LINE),
+        "deck": built_demo.facility_dir / model["deck"],
         "settings": model["settings"],
     }
 
@@ -397,7 +398,7 @@ def _demo_line_readings(model: Any, demo_line: dict[str, Any]) -> np.ndarray:
 
 
 class TestDemoLine:
-    """The example facility's ``LINE`` model, built from the control-assistant build."""
+    """The example facility's ``LINE`` model, built from the demo build."""
 
     def test_the_demo_line_builds_on_the_single_pass_simulator(self, demo_line: dict[str, Any]):
         model = _demo_line_build(demo_line)

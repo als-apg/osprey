@@ -78,6 +78,7 @@ def test_only_a_skill_the_model_may_run_is_agent_invocable(tmp_path: Path) -> No
         "clear": False,
         "compact": False,
         "diagnose": True,
+        "mcp": False,
         "report": False,
     }
 
@@ -177,6 +178,7 @@ class TestUnavailableCommand:
             pytest.param("/cost" + _BLOCK + "- /u/a.png (image/png, 1 KB)", "cost", id="files"),
             pytest.param("/clear", None, id="builtin-clear"),
             pytest.param("/compact keep the BPM notes", None, id="builtin-compact"),
+            pytest.param("/mcp", "mcp", id="browser-mcp"),
             pytest.param("/diagnose SR03", None, id="project-skill"),
             pytest.param("/ops:check SR:DCCT", None, id="project-command"),
             pytest.param("/home/x/y is full", None, id="a-path"),
@@ -288,7 +290,7 @@ class TestCommandsRoute:
         resp = client.get("/api/chat/commands")
         assert resp.status_code == 200
         commands = resp.json()["commands"]
-        assert [c["name"] for c in commands] == ["check", "clear", "compact", "diagnose"]
+        assert [c["name"] for c in commands] == ["check", "clear", "compact", "diagnose", "mcp"]
         assert commands[0] == {
             "name": "check",
             "description": "Check a PV",
@@ -304,12 +306,19 @@ class TestCommandsRoute:
             "agent_invocable": True,
         }
         assert [c["kind"] for c in commands[1:3]] == ["builtin", "builtin"]
+        assert commands[4] == {
+            "name": "mcp",
+            "description": "List the MCP servers and their tools",
+            "argument_hint": "",
+            "kind": "browser",
+            "agent_invocable": False,
+        }
 
     def test_an_empty_project_lists_the_builtins(self, tmp_path: Path) -> None:
         _app, client = self._client(tmp_path)
         resp = client.get("/api/chat/commands")
         assert resp.status_code == 200
-        assert [c["name"] for c in resp.json()["commands"]] == ["clear", "compact"]
+        assert [c["name"] for c in resp.json()["commands"]] == ["clear", "compact", "mcp"]
 
     def test_post_chat_route_unchanged(self, tmp_path: Path) -> None:
         app, _client = self._client(tmp_path)
@@ -328,6 +337,15 @@ class TestBuiltinCommands:
     ) -> None:
         _write(tmp_path / ".claude" / "commands" / "clear.md", "Project clear\n")
         found = list_chat_slash_commands(tmp_path)
-        assert [c.name for c in found] == ["clear", "compact"]
+        assert [c.name for c in found] == ["clear", "compact", "mcp"]
         assert found[0].kind == "command"
         assert found[0].description == "Project clear"
+
+    def test_a_project_command_named_as_a_browser_command_is_listed_once_as_the_browsers(
+        self, tmp_path: Path
+    ) -> None:
+        """The chat runs ``/mcp`` before any prompt is sent, so the project's never runs."""
+        _write(tmp_path / ".claude" / "commands" / "mcp.md", "Project mcp\n")
+        found = list_chat_slash_commands(tmp_path)
+        assert [c.name for c in found] == ["clear", "compact", "mcp"]
+        assert found[2].kind == "browser"

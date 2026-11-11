@@ -8,7 +8,7 @@ that make a verdict actually land.
 
 Read the map from live sources, never from memory: the locked status quo, `osprey profile
 artifacts`, the emitted `profile.yml` (its commented blocks are the catalog of optional
-top-level features), and `src/osprey/profiles/presets/control-assistant.yml`, the
+top-level features), and `src/osprey/profiles/presets/demo.yml`, the
 reference example — it ships every config key it configures, each on the line that
 documents it, grouped under `# ── <Area> ──` headers inside `config:`.
 
@@ -85,18 +85,27 @@ facility), DEPLOYMENT is proposed `later` unless the user named a deploy host
 (the block is filled once the deployment leaves the laptop). The user changes any other
 area on the card.
 
-The areas, and where each one's components are read from at run time:
+The areas are read from the reference profile, not from this file. List the section
+headers of `demo.yml` (`grep -nE '# ── |^[a-z_]+:'`) and the menu from `osprey
+profile artifacts`, and give every section that configures something a facility
+could adopt one row. The table below is the areas as of this writing and where
+each one's components sit; a section it does not name is still a row, with its
+components read from the section's own comments, and a row whose section is gone
+is dropped.
 
-| Area | Source it consumes | Components, read from `control-assistant.yml` |
+| Area | Source it consumes | Components, read from `demo.yml` |
 | --- | --- | --- |
-| LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; app `logbook` (`apps/logbook.yml`, named under `shared:`); `data/ariel/vocabulary.yml` |
-| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; app `knowledge` (`apps/knowledge.yml`, named under `shared:`); `data/facility/knowledge/`; the build's graph view |
-| CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read the view the build writes under `data/channel_finder/`, `graph` reads the graph store; the build writes each from the facility file), `# ── Channel finder` group; agent `channel-finder` |
-| WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `deploy.fqdn`, the floor keys); the tiers in `tiers/` and the roster's `shared:` apps in `apps/`; the login wall |
-| SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `lattice` panel; `data/facility/models.yaml`, `data/facility/decks/`, `data/facility/measurement/` and `data/facility/scenarios/` (written by `osprey facility import mml`, or authored) |
+| LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; shared login `logbook` (`tiers/logbook.yml`, named under `shared:`); `data/facility/ariel/vocabulary.yml` |
+| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; shared login `knowledge` (`tiers/knowledge.yml`, named under `shared:`); `data/facility/knowledge/`; the build's graph view |
+| CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read the view the build writes under `data/channel_finder/`, `graph` reads the graph store; the build writes each from the facility file), `# ── Channel finder` group; agent `channel-finder`; shared login `channel-finder` (`tiers/channel-finder.yml`) |
+| WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `deploy.fqdn`, the floor keys); the login files in `tiers/`, one per tier and one per shared login the roster names under `shared:`; the login wall |
+| SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `data/facility/models.yaml`, `data/facility/decks/`, `data/facility/measurement/` and `data/facility/scenarios/` (written by `osprey facility import mml`, or authored) |
 | EVENT DISPATCH | a trigger source (facility events) | `dispatch:` block; `events` panel; `dispatch.triggers` |
 | AGENT RECORD | nothing external | top-level `agent_record:` block (`backend`, `retention_days`, `readers`) |
 | DEPLOYMENT | a CI platform and a deploy host | `deploy:` block; `osprey scaffold ci` |
+| OPERATOR SCREENS | control-room screens to port or build | `canopy` in `web_panels` and `default_panel`; skills `canopy-*`; the `canopy-payload` step under `lifecycle.pre_build`, which needs a prebuilt payload named by `OSPREY_CANOPY_PAYLOAD` — with none the build leaves the panel out and says so |
+| WATCHDOGS | a rule the facility wants every prompt judged against | top-level `watchdogs:` block (shipped `enabled: false`); `watchdogs/<name>/` instructions; `osprey watchdog replay` before relying on one |
+| APPLICATIONS | a physics tool the facility wants as a panel the agent can also drive | top-level `apps:` block, one `apps/<name>/` directory each; `osprey app new <name>`, `osprey app check`; none is on in the reference example |
 
 Read the component list from the preset each time — the table says where to look, the
 file says what is there. Skills and panels that exist only to show the reference
@@ -112,12 +121,12 @@ Adopting an area later is a resume: the row flips and the feature port runs for 
 Every `adopt`, and every `port` verdict on a data path, lands through this sequence and
 no other. It is what keeps the profile complete and the data facility-owned.
 
-1. **Keys.** In `control-assistant.yml`, find the area's `# ── <Area> ──` group inside
+1. **Keys.** In `demo.yml`, find the area's `# ── <Area> ──` group inside
    `config:`. Copy the whole group into the emitted profile's `config:` block, comments
    included — after its last key, before the top-level `data:`. A repo that was already
    `osprey init`-ed from that preset carries the same keys in its own `profile.yml`, so
    copy from there when you have one. From a pip install, the preset sits at
-   `profiles/presets/control-assistant.yml` under the package root
+   `profiles/presets/demo.yml` under the package root
    (`references/osprey-map.md`, "Without a source checkout").
 2. **Values.** Replace every facility-specific value in the copied group with
    `osprey set config.<dotted key>=<value>`: paths, URLs, adapter names, the facility's
@@ -127,15 +136,15 @@ no other. It is what keeps the profile complete and the data facility-owned.
 3. **Service.** Copy the area's `services.<name>.*` keys the same way, and add the name
    to `deployed_services`. The comments say which keys go together (`qmd` and `graphdb`
    each travel with their `services.<name>.*` keys: remove both or neither).
-4. **Panel.** Add the area's panel to the profile's top-level `web_panels`. An app
+4. **Panel.** Add the area's panel to the profile's top-level `web_panels`. A shared login
    whose `default_panel` names it must be under `shared:`, and the reverse: a panel no
-   tier or app lands on is a tab the deployment has to serve for a reason.
+   login lands on is a tab the deployment has to serve for a reason.
 5. **Artifacts.** Add the area's agents and skills to the six lists in the profile,
-   from `osprey profile artifacts`. An area that brings an app adds its
-   `apps/<name>.yml` (`osprey scaffold apps`) and its name under `shared:` in the same
-   step.
+   from `osprey profile artifacts`. An area that brings a shared login adds its
+   `tiers/<name>.yml` (`osprey scaffold tiers --from demo` writes it, with the
+   others) and its name under `shared:` in the same step.
 6. **Data.** Land the area's data path: a skeleton via `osprey scaffold pull
-   control-assistant:<path>` (never `--with-content`), the facility's own file on a
+   demo:<path>` (never `--with-content`), the facility's own file on a
    `port` verdict, or a built file from the harvest (`references/knowledge-starter.md`).
    Then the wiring rule: set every config key that binds that path, from the group you
    copied in step 1. Files nothing points at are invisible to the build.
@@ -146,7 +155,7 @@ no other. It is what keeps the profile complete and the data facility-owned.
 Worked example, the facility knowledge bundle:
 
 ```
-osprey scaffold pull control-assistant:data/facility/knowledge
+osprey scaffold pull demo:data/facility/knowledge
 osprey set config.facility_knowledge.bundle_path=data/facility/knowledge
 ```
 
@@ -165,20 +174,20 @@ osprey set config.ariel.ingestion.source_url=<the facility's logbook endpoint or
 The adapter list is `osprey ariel ingest --help` (`-a`) and
 `<OSPREY_ROOT>/services/ariel_search/ingestion/adapters/`; a facility whose logbook has no adapter uses
 `generic_json` over an export and logs a `worked-around` candidate for the native
-adapter. `data/ariel/vocabulary.yml` arrives as a `localize` stub, never as the
-reference example's twenty concepts.
+adapter. `data/facility/ariel/vocabulary.yml` arrives as a `localize` stub, never as the
+reference example's concepts.
 
 ## The web-terminal recipe
 
 Multi-user web terminals are absent from hello-world's emission, so they are one feature
 port with extra steps: the tier files in the reference example are deltas against the
-control-assistant base, its app files are written for that base's services, and
+demo base, its shared logins are written for that base's services, and
 several of that base's facts leak out of the block.
 Copying only the `modules.web_terminals` block does not validate and does not build on
 a hello-world base. Run all seven steps, in order.
 
 1. `osprey init <name> --preset hello-world`.
-2. From `src/osprey/profiles/presets/control-assistant.yml`, copy the
+2. From `src/osprey/profiles/presets/demo.yml`, copy the
    `modules.web_terminals:` block **and** its two floor keys into `profile.yml`. They go
    inside `config:`, after its last key, before the top-level `data:`.
 
@@ -188,7 +197,7 @@ a hello-world base. Run all seven steps, in order.
    web.config_panel.enabled: false
    ```
 
-   Why: without that floor the shared apps resolve as privileged, and validate
+   Why: without that floor the shared logins resolve as privileged, and validate
    refuses them. The preset sets a third key at the same
    floor, `web.scaffold_gallery.write_enabled: false`. That one is posture rather than
    a validate requirement, so carry it, or record the decision to drop it in
@@ -198,18 +207,18 @@ a hello-world base. Run all seven steps, in order.
 
    - **`landing.notices:`** names `data/landing/working-safely.md`, which hello-world does
      not ship. Nothing reports the missing file — validate and build both exit 0 and
-     render the dead path into every tier and app config. Delete the key. Dropping it is what
+     render the dead path into every login's config. Delete the key. Dropping it is what
      yields OSPREY's built-in safety notice; a facility that wants its own notice writes
      one as a `stated` file and points the key at it.
    - **The demo logins `alice`, `bob` and `carol`** under `users:`. This is the step where
      they leave; the rule is `references/knowledge-starter.md` §6.
-3. `osprey scaffold tiers --from control-assistant`, then
-   `osprey scaffold apps --from control-assistant`. The pasted block names a
-   `default_tier`, the tiers its roster entries use and the apps under `shared:`, and
-   until each has its file validate refuses and names the verb that writes it. The two
-   verbs write `tiers/<name>.yml` for every tier the roster names and
-   `apps/<name>.yml` for every app under `shared:`, all of them; there is no selection
-   flag, so pruning is the next step.
+3. `osprey scaffold tiers --from demo`. The pasted block names a
+   `default_tier`, the tiers its roster entries use and the shared logins under
+   `shared:`, and until each has its file validate refuses and names the verb that
+   writes it. The verb writes `tiers/<name>.yml` for every tier the roster names and
+   for every shared login under `shared:`, all of them; there is no selection
+   flag, so pruning is the next step. Nothing lands in `apps/`: that directory is
+   for applications (`osprey app new`), which this recipe does not touch.
 4. Prune to what the user named and what this base serves. That ordering is one rule
    and it lives in `references/knowledge-starter.md` §6.
    - **Dropping a tier** is three deletions that go together: `tiers/<name>.yml`, every
@@ -217,30 +226,30 @@ a hello-world base. Run all seven steps, in order.
      `authorization.roles.<role>.tier` that does), and, once a build has seeded them,
      those users' `web-terminal-context/<user>/` directories (step 7). `default_tier`
      must still name a surviving tier.
-   - **Dropping an app** is three deletions too: `apps/<name>.yml`, its name under
-     `shared:`, and its seeded context directory. A `shared:` name with no file fails
-     validate with the remedy to scaffold the app back.
+   - **Dropping a shared login** is three deletions too: `tiers/<name>.yml`, its name
+     under `shared:`, and its seeded context directory. A `shared:` name with no file
+     fails validate with the remedy to scaffold it back.
 
-   **An app whose panel or store this base does not run is dropped or rewired.** A
-   hello-world base declares `services: {}`, so an app that opens a service-backed
-   panel would put a landing card in front of nothing; it comes back with its area's
-   feature port, which adds the service block, the `shared:` name and the panel
-   together. An app that reads channels from a graph store this base does not deploy
-   moves to a file-based `channel_finder_mode`, and the subagent and server that read
-   the graph leave in the same edit.
+   **A shared login whose panel or store this base does not run is dropped or
+   rewired.** A hello-world base declares `services: {}`, so a login that opens a
+   service-backed panel would put a landing card in front of nothing; it comes back
+   with its area's feature port, which adds the service block, the `shared:` name and
+   the panel together. A login that reads channels from a graph store this base does
+   not deploy moves to a file-based `channel_finder_mode`, and the subagent and
+   server that read the graph leave in the same edit.
 5. Open every surviving `tiers/<name>.yml` and delete the whole `web_panels:` key
    wherever it names only panels this deployment does not have. Delete the key rather
    than emptying it, so the tier carries no panel selection at all and the host's list
    stands.
    Why: the write-capable tiers list panels that need service blocks a hello-world base
    does not deploy. The general rule is to remove from each tier every panel this
-   deployment lacks. An app file is a whole agent definition, so prune its own
-   `web_panels` the same way.
-6. Check `default_panel` in each surviving app. It must name a panel that is in the
-   profile's top-level `web_panels`. An app whose `default_panel` names a panel the
-   host does not select fails `osprey build`. Validate does not catch it; build does.
-   So the host's minimum list is exactly the `default_panel` values the surviving apps
-   name. Extra panels are legal, but each one is a tab this deployment has to serve,
+   deployment lacks. A shared login's file is a whole agent definition, so prune its
+   own `web_panels` the same way.
+6. Check `default_panel` in each surviving login file. It must name a panel that is in
+   the profile's top-level `web_panels`. A login whose `default_panel` names a panel
+   the host does not select fails `osprey build`. Validate does not catch it; build
+   does. So the host's minimum list is exactly the `default_panel` values the
+   surviving logins name. Extra panels are legal, but each one is a tab this deployment has to serve,
    so add them through the feature port above, not by habit.
 7. `osprey validate --drift=warn`, then `osprey build`. Drift warnings are expected here
    and are not marked.
@@ -257,7 +266,7 @@ end to end, so a step that stops working fails there rather than in a run.
 ## Base demo material
 
 hello-world emits two demo items of its own. Both are ledger rows from the first step.
-`osprey scaffold pull control-assistant --list` never surfaces the first, because it reads
+`osprey scaffold pull demo --list` never surfaces the first, because it reads
 the reference example, not what hello-world emitted; it does list the second, as the
 reference example's own copy — never pull it.
 

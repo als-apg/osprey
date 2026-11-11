@@ -56,10 +56,8 @@ from typing import Any, Final, Literal
 from osprey_connectors.safety_file import atomic_replace
 
 __all__ = [
-    "EXCERPT_LIMIT",
     "HOLD_DIR_ENV_VAR",
     "RECORD_NAME",
-    "SCHEMA_VERSION",
     "UNREADABLE_FLAG_ID",
     "HoldFlag",
     "answer_flags",
@@ -82,13 +80,13 @@ HOLD_DIR_ENV_VAR: Final = "OSPREY_SESSION_HOLD_DIR"
 RECORD_NAME: Final = "record.json"
 
 #: The record format. A record of any other schema is unreadable, and holds.
-SCHEMA_VERSION: Final = 1
+_SCHEMA_VERSION: Final = 1
 
 #: The id of the one flag reported for a missing or unreadable record.
 UNREADABLE_FLAG_ID: Final = "hold-record-unreadable"
 
 #: The longest prompt excerpt a flag stores; the writer truncates.
-EXCERPT_LIMIT: Final = 200
+_EXCERPT_LIMIT: Final = 200
 
 #: The source of the synthetic flag.
 _UNREADABLE_SOURCE: Final = "session_hold"
@@ -203,7 +201,7 @@ def _read_record(root: Path, session_key: str) -> list[dict[str, Any]] | None:
         return None
     if not isinstance(payload, dict):
         return None
-    if payload.get("schema") != SCHEMA_VERSION or payload.get("session_key") != session_key:
+    if payload.get("schema") != _SCHEMA_VERSION or payload.get("session_key") != session_key:
         return None
     flags = payload.get("flags")
     if not isinstance(flags, list) or not all(_valid_flag(entry) for entry in flags):
@@ -346,7 +344,7 @@ def _locked(root: Path, session_key: str) -> Iterator[Path]:
 
 
 def _write(path: Path, session_key: str, flags: list[dict[str, Any]]) -> None:
-    payload = {"schema": SCHEMA_VERSION, "session_key": session_key, "flags": flags}
+    payload = {"schema": _SCHEMA_VERSION, "session_key": session_key, "flags": flags}
     data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     atomic_replace(path, data, mode=_RECORD_MODE)
 
@@ -427,8 +425,8 @@ def open_flag(
     if resolved is None:
         return False
     key = _checked_key(session_key)
-    if len(prompt_excerpt) > EXCERPT_LIMIT:
-        prompt_excerpt = prompt_excerpt[: EXCERPT_LIMIT - 1] + "…"
+    if len(prompt_excerpt) > _EXCERPT_LIMIT:
+        prompt_excerpt = prompt_excerpt[: _EXCERPT_LIMIT - 1] + "…"
     with _locked(resolved, key) as path:
         flags = _read_record(resolved, key)
         if flags is None:

@@ -15,8 +15,8 @@ new tests.
 ## 1. Running the suite
 
 ```bash
-# Parallel — what CI runs, and what your change has to pass
-pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock and not canopy" -n 4 --dist loadgroup
+# Every check CI runs; `scripts/check.py run pytest -- -n auto` runs the parallel sweep alone
+uv run python scripts/check.py full
 
 # Serial — for debugging one failure, or reading full output in order
 pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests
@@ -72,8 +72,15 @@ removed. Never add `--basetemp` to a launcher.
 
 A run owns its ports the same way; section 6 says how a test takes one.
 
-**E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
-`-m e2e`.
+A test that reads a built project requests `built_demo`
+(`tests/_builds.py`): one `osprey build --skip-deps` per run, which every xdist
+worker reads. A test that writes to it takes its own copy with `copy_build`.
+`built_demo_watchdog_on` is shared the same way: that build
+copied, its watchdog turned on in `profile.yml`, and rebuilt in place.
+Only a test whose subject is the install makes its own full build, under
+`offline_build_env`.
+
+**E2E tests are separate.** Run them with `pytest tests/e2e/`.
 
 **CI caps every unit test at 600 seconds** (`--timeout=600
 --timeout-method=signal`, on the lane's pytest line only — an ini default would
@@ -100,7 +107,7 @@ harness's `_guards.py`) that changes how work is handed to workers:
 
 There are exactly **two** sanctioned groups today:
 
-- `"docker"`, shared by the ten files that start real containers (the MongoDB
+- `"docker"`, shared by the files that start real containers (the MongoDB
   connector tests and the Postgres-backed ARIEL tests). One group means one
   worker, one testcontainers session, one reaper — see section 6.
 - `"soft-ioc"`, shared by the files that start real EPICS soft IOCs through
@@ -186,7 +193,7 @@ The ones that exist today:
 - `osprey.health.offload.reset_abandoned_state()`
 - `osprey.mcp_server.http.reset_panel_token_latch()` — the last panel token the
   MCP HTTP client saw. Without it, one test's token is sent by the next.
-- `osprey.interfaces.web_terminal.routes.websocket.reset_rendered_config_memo()`
+- `osprey.interfaces.web_terminal.config_view.reset_rendered_config_memo()`
   — the parsed `config.yml`, memoized on path and stat signature. Without it, two
   renders at one path within an mtime tick share one parse.
 - `osprey.interfaces.web_terminal.routes.panels.reset_host_addrs_cache()` — the
@@ -636,25 +643,26 @@ Checklist for a new test area:
       can fix. Both carry a comment saying exactly that. If you cannot write
       that comment for your test, you have a leak, not a flake.
 - [ ] **Assert stdout on `result.stdout`**, never on click's `result.output`.
-- [ ] **No bare second in a parallel lane.** A time budget is either
-      `@pytest.mark.wallclock`, timed alone in the serial step that selects the
-      marker, or a ratio against a baseline measured in the same process seconds
-      earlier (`tests/services/channel_finder/graph_index/test_scale.py`); an
-      absolute bound asserted beside xdist workers measures the workers.
+- [ ] **No bare second in a parallel lane.** A time budget, absolute or a
+      ratio of two timings, is `@pytest.mark.wallclock`, timed alone in the
+      serial step that selects the marker; a budget asserted beside xdist
+      workers measures the workers.
       The JS lane follows the same rule: vitest's `testTimeout` and
       `hookTimeout` in `vitest.config.js` are one hang bound sized like
       pytest's `--timeout`, never a speed budget, and no test or invocation
       lowers it (pinned by `tests/deployment/test_vitest_hang_bound.py`); a JS
-      time budget takes one of the two shapes above.
-- [ ] **Both gates pass**: serially, and under `-n 4 --dist loadgroup`. Passing
+      time budget takes the same shape.
+- [ ] **Both gates pass**: serially, and in the parallel sweep
+      (`uv run python scripts/check.py quick --changed HEAD -- <your test files>`). Passing
       one is not evidence for the other.
 
-### If a new test flakes under `-n 4`
+### If a new test flakes in the parallel sweep
 
 1. Run the file alone, serially. If it passes, the problem is shared state, not
    your assertions.
-2. Run the file alongside its neighbours (`pytest tests/<area> -n 4 --dist loadgroup`)
-   to find the partner.
+2. Run the file alongside its neighbours
+   (`uv run python scripts/check.py quick --changed HEAD -- tests/<area>`) to find
+   the partner.
 3. Ask what is global: an environment variable, a module-level cache, the
    logging setup, the cwd, a port, a container, a singleton.
 4. Fix it with a reset seam plus an autouse fixture. Reach for `xdist_group` only

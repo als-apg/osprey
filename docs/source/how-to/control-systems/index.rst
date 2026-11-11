@@ -3,10 +3,10 @@ Control Systems
 ===============
 
 A connector is OSPREY's single interface to a control system. The agent, the
-plans and the safety layers are all written against that one interface, which
-is what makes the machine underneath it interchangeable: the simulator in
-process for development, the simulator served from its container for
-rehearsal, the real hardware for production.
+plans and the safety layers are all written against that one interface, so the
+machine underneath it is interchangeable. Use the simulator in process for
+development, the simulator served from its container for rehearsal, and the
+real hardware for production.
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -17,8 +17,16 @@ rehearsal, the real hardware for production.
       :shadow: md
 
       The two-layer connector abstraction, the connectors that ship in-tree,
-      and where to register your own -- and simulator to production is a
-      change of ``control_system.type``, not of code.
+      and where to register your own. Moving from simulator to production
+      changes ``control_system.type``, not code.
+
+   .. grid-item-card:: Use the Connectors Without the Framework
+      :link: use-connectors-standalone
+      :link-type: doc
+      :shadow: md
+
+      Read a control system and its archiver from a script of your own with
+      ``pip install osprey-connectors`` alone -- no agent, no built deployment.
 
    .. grid-item-card:: Use the Virtual Accelerator
       :link: use-virtual-accelerator
@@ -57,6 +65,7 @@ rehearsal, the real hardware for production.
    :hidden:
 
    use-connectors
+   use-connectors-standalone
    use-virtual-accelerator
    switch-control-target
    phoebus-bridge

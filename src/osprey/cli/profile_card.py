@@ -573,6 +573,11 @@ def _services_group(profile: BuildProfile) -> CardGroup | None:
             [[("bluesky web", Styles.DIM)], [(f":{profile.bluesky_web.port}", Styles.ACCENT)]]
         )
 
+    if profile.optimizer_web is not None:
+        rows.append(
+            [[("optimizer web", Styles.DIM)], [(f":{profile.optimizer_web.port}", Styles.ACCENT)]]
+        )
+
     if profile.dispatch is not None:
         dispatch = profile.dispatch
         noun = "worker" if dispatch.worker_count == 1 else "workers"
@@ -586,6 +591,8 @@ def _services_group(profile: BuildProfile) -> CardGroup | None:
         rows.append([[("bridge", Styles.DIM)], [("Google Chat", None)]])
     if profile.teams_bridge is not None:
         rows.append([[("bridge", Styles.DIM)], [("Microsoft Teams", None)]])
+    if profile.slack_bridge is not None:
+        rows.append([[("bridge", Styles.DIM)], [("Slack", None)]])
     rows.extend([[(name, Styles.DIM)], [("profile service", None)]] for name in profile.services)
 
     return CardGroup("services", rows=rows) if rows else None

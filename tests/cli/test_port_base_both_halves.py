@@ -72,7 +72,6 @@ PANEL_ENV_SLOTS = {
     "OSPREY_TERMINAL_WEB_PORT": "web",
     "OSPREY_ARTIFACT_SERVER_PORT": "artifact",
     "OSPREY_ARIEL_PORT": "ariel",
-    "OSPREY_LATTICE_DASHBOARD_PORT": "lattice",
     "OSPREY_CHANNEL_FINDER_PORT": "channel_finder",
     "OSPREY_FACILITY_KNOWLEDGE_PORT": "okf",
     "OSPREY_HEALTH_PORT": "system_health",

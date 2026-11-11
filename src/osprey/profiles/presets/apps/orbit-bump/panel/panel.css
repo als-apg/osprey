@@ -1,0 +1,729 @@
+/* The orbit-bump panel, inside a hub tile. Buttons, the plane toggle, chips and
+   cards are the design-system primitives; this file holds what is the app's
+   own: the strip, the legend, the tables and the layout. Tokens only. */
+
+.ob {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: var(--space-2, 8px) var(--space-3, 12px) var(--space-3, 12px);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+}
+
+.ob-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+  font-family: var(--font-display);
+}
+
+.ob-spacer {
+  flex: 1;
+}
+
+.ob select,
+.ob-model {
+  padding: 2px 5px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+}
+
+.ob-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ob-none,
+.ob-posture,
+.ob-notice,
+.ob-error {
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+.ob-posture,
+.ob-notice,
+.ob-error {
+  margin: var(--space-1, 4px) 0 0;
+}
+
+.ob-notice {
+  color: var(--color-warning);
+}
+
+.ob-error {
+  color: var(--color-error);
+}
+
+.ob-legend {
+  display: flex;
+  gap: var(--space-3, 12px);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.ob-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.ob-key-orbit {
+  background: var(--color-accent);
+}
+
+.ob-key-golden {
+  background: var(--color-accent-secondary);
+}
+
+.ob-key-target {
+  background: var(--color-warning);
+}
+
+.ob-key-predicted {
+  background: var(--art-violet-light);
+}
+
+.ob-legend i.ob-key-aim {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--color-warning);
+  border-radius: 50%;
+}
+
+/* The header's options menu: nudge step, legend, gestures. */
+
+.ob-menu {
+  display: inline-flex;
+}
+
+.ob-options {
+  min-width: 300px;
+  font-family: var(--font-display);
+}
+
+.ob-menu-seg {
+  margin: 0 var(--space-2, 8px) var(--space-1, 4px);
+}
+
+.ob-options .ob-legend {
+  padding: 0 var(--space-2, 8px) var(--space-1, 4px);
+}
+
+.ob-gestures {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-3, 12px);
+  padding: 0 var(--space-2, 8px) var(--space-1, 4px);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.ob-gesture {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-primary);
+}
+
+/* The strip: numbers in mono; the bump in the warning colour, the plan in violet. */
+
+.ob-strip {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-1, 4px);
+  user-select: none;
+  touch-action: none;
+}
+
+.ob-strip text {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  fill: var(--text-muted);
+}
+
+.ob-strip .ob-bg {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.ob-strip .ob-grid {
+  stroke: var(--surface-hairline);
+}
+
+.ob-strip .ob-golden {
+  opacity: 0.8;
+}
+
+.ob-strip .ob-orbit,
+.ob-strip .ob-predicted,
+.ob-strip .ob-target-line {
+  fill: none;
+  pointer-events: none;
+}
+
+.ob-strip .ob-aim {
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.ob-strip .ob-bpm {
+  cursor: pointer;
+}
+
+.ob-strip .ob-bpm:hover {
+  stroke-width: 3;
+}
+
+.ob-strip .ob-bpm.hollow {
+  stroke-width: 1.2;
+  cursor: not-allowed;
+}
+
+.ob-strip .on {
+  stroke: var(--color-warning);
+}
+
+.ob-strip .ob-band {
+  fill: var(--color-warning);
+  fill-opacity: 0.08;
+  pointer-events: none;
+}
+
+.ob-strip .ob-band-edge {
+  stroke: var(--color-warning);
+  stroke-opacity: 0.5;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ob-strip .ob-grip {
+  fill: var(--color-warning);
+  fill-opacity: 0.18;
+  stroke: var(--color-warning);
+  stroke-opacity: 0.6;
+  cursor: ns-resize;
+}
+
+.ob-strip .ob-grip:hover {
+  fill-opacity: 0.3;
+}
+
+.ob-strip .ob-grip-text {
+  fill: var(--color-warning);
+  font-weight: var(--weight-bold);
+  pointer-events: none;
+}
+
+/* A target handle: an invisible hit circle around the diamond; the value
+   shows on hover, focus and drag only, so neighbouring labels never collide. */
+.ob-strip .ob-target {
+  cursor: ns-resize;
+  outline: none;
+}
+
+.ob-strip .ob-hit {
+  fill: transparent;
+}
+
+.ob-strip .ob-target:focus .ob-hit {
+  fill: var(--color-warning);
+  fill-opacity: 0.18;
+}
+
+.ob-strip .ob-diamond {
+  fill: var(--color-warning);
+  stroke: var(--surface-canvas);
+  stroke-width: 1;
+}
+
+.ob-strip .ob-target:hover .ob-diamond,
+.ob-strip .ob-target:focus .ob-diamond {
+  stroke: var(--text-primary);
+  stroke-width: 1.5;
+}
+
+/* A target the plan misses: an error ring round its diamond. */
+.ob-strip .ob-miss-ring {
+  display: none;
+  fill: none;
+  stroke: var(--color-error);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ob-strip .ob-target.ob-missed .ob-miss-ring {
+  display: inline;
+}
+
+.ob-strip .ob-tline {
+  stroke: var(--color-warning);
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ob-strip .ob-handle-label {
+  fill: var(--color-warning);
+  font-weight: var(--weight-bold);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.ob-strip .ob-target:hover .ob-handle-label,
+.ob-strip .ob-target:focus .ob-handle-label,
+.ob-strip.dragging .ob-handle-label {
+  opacity: 1;
+}
+
+.ob-strip .ob-cor {
+  fill: var(--text-muted);
+  opacity: 0.55;
+}
+
+.ob-strip .ob-cor.pickable {
+  cursor: pointer;
+}
+
+.ob-strip .ob-cor.on {
+  fill: var(--color-warning);
+  opacity: 1;
+}
+
+.ob-strip .ob-cor.picked {
+  fill: var(--art-violet-light);
+  opacity: 1;
+}
+
+.ob-strip .ob-cor.unsolved,
+.ob-strip .ob-cor.hollow {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-dasharray: 2 1;
+  cursor: not-allowed;
+}
+
+.ob-strip .ob-delta {
+  fill: var(--art-violet-light);
+  fill-opacity: 0.9;
+  pointer-events: none;
+}
+
+.ob-strip .ob-marquee,
+.ob-strip .ob-zoom-select {
+  stroke-dasharray: 3 2;
+  pointer-events: none;
+}
+
+.ob-strip .ob-marquee {
+  fill: var(--color-accent);
+  fill-opacity: 0.08;
+  stroke: var(--color-accent);
+}
+
+.ob-strip .ob-zoom-select {
+  fill: var(--text-muted);
+  fill-opacity: 0.1;
+  stroke: var(--text-muted);
+}
+
+.ob-strip .ob-s,
+.ob-strip .ob-label {
+  pointer-events: none;
+}
+
+/* Layout of the controls: two cards side by side, actions under them. */
+
+.ob-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--space-3, 12px);
+  align-items: start;
+  margin-top: var(--space-2, 8px);
+}
+
+@media (max-width: 760px) {
+  .ob-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Visible overflow: the picker's list hangs out of the Bump card. */
+.ob-box {
+  padding: var(--space-2, 8px) var(--space-3, 12px) var(--space-3, 12px);
+  overflow: visible;
+}
+
+.ob-box > h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: var(--font-display);
+  gap: var(--space-2, 8px);
+  margin: 0 0 var(--space-2, 8px);
+  padding: 0;
+}
+
+.ob-box .osprey-list-empty {
+  font-family: var(--font-display);
+}
+
+/* The BPM picker: a search field over its listbox, anchored under it. */
+.ob-picker {
+  position: relative;
+  font-family: var(--font-display);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ob-picker .osprey-search-field {
+  width: 240px;
+}
+
+.ob-picker input {
+  font-family: var(--font-mono);
+}
+
+.ob-picker .osprey-popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  width: 100%;
+  max-height: 260px;
+  box-sizing: border-box;
+}
+
+.ob-picker .osprey-popover-item {
+  font-size: var(--text-md);
+}
+
+.ob-picker .osprey-popover-item.armed {
+  background: var(--surface-hover);
+  box-shadow: inset 0 0 0 2px var(--surface-focus);
+}
+
+.ob-check {
+  width: 14px;
+  flex: none;
+  color: var(--color-warning);
+  font-weight: var(--weight-bold);
+}
+
+.ob-picker .osprey-popover-aside {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* The shape row: amplitude, shape, widen. */
+.ob-shape {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+  padding: var(--space-2, 8px);
+  margin-bottom: var(--space-2, 8px);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-well);
+  font-family: var(--font-display);
+}
+
+/* The spectrum row under the Correctors head: the one sigma control across the
+   card, laid out as a shape row. */
+.ob-spectrum {
+  flex-wrap: nowrap;
+}
+
+.ob-stepper {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+}
+
+.ob-stepper:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--surface-focus);
+}
+
+.ob-stepper input {
+  width: 64px;
+  height: 100%;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  text-align: right;
+  outline: none;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.ob-stepper input::-webkit-inner-spin-button,
+.ob-stepper input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.ob-stepper .osprey-icon-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.ob-unit {
+  padding-right: 6px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.ob-stepper.ob-stepper-sm {
+  height: 24px;
+}
+
+.ob-stepper.ob-stepper-sm input {
+  width: 56px;
+}
+
+.ob-stepper.ob-stepper-sm .osprey-icon-btn {
+  width: 20px;
+  height: 20px;
+}
+
+.ob-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  grid-column: 1 / -1;
+}
+
+/* Apply writes to the machine: the warning outline, as in the mockup. */
+.osprey-btn.ob-apply {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+/* The bump and plan tables. */
+
+.ob-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+}
+
+.ob-table th,
+.ob-table td {
+  padding: 3px 5px;
+  text-align: right;
+  border-bottom: 1px solid var(--surface-hairline);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ob-table th {
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.ob-table th:first-child,
+.ob-table td:first-child,
+.ob-table [data-head='channel'],
+.ob-table [data-head='verdict'],
+.ob-table [data-head='outcome'],
+.ob-table [data-cell='channel'],
+.ob-table [data-cell='verdict'],
+.ob-table [data-cell='outcome'] {
+  text-align: left;
+}
+
+.ob-table [data-cell='verdict'],
+.ob-table [data-cell='outcome'] {
+  font-family: var(--font-display);
+  white-space: normal;
+}
+
+.ob-table [data-cell='verdict'] {
+  white-space: nowrap;
+}
+
+.ob-table td.ob-meta {
+  margin: 0;
+  text-align: left;
+  white-space: normal;
+}
+
+.ob-table [data-cell='predicted'],
+.ob-table [data-cell='delta'] {
+  color: var(--art-violet-light);
+}
+
+.ob-table td.ob-num {
+  font-family: var(--font-mono);
+}
+
+.ob-table tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+.ob-table tbody tr.ob-focus td {
+  background: var(--surface-selected);
+}
+
+.ob-table td .osprey-icon-btn {
+  width: 22px;
+  height: 22px;
+  color: var(--text-muted);
+}
+
+.ob-table td > .osprey-icon-btn:hover {
+  color: var(--color-error);
+}
+
+.ob-meta {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+.ob-refused,
+.ob-table td.ob-missed {
+  color: var(--color-error);
+}
+
+p.ob-refused {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+/* The confirm card over the panel. */
+
+.ob-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--surface-canvas) 72%, transparent);
+}
+
+.ob-modal[hidden] {
+  display: none;
+}
+
+.ob-modal > .ob-box {
+  min-width: min(440px, 92%);
+  max-width: 92%;
+  overflow: auto;
+  padding: 10px var(--space-4, 16px) 14px;
+  border-color: var(--color-warning);
+  box-shadow: var(--shadow-dialog);
+}
+
+.ob-modal .ob-table {
+  margin: 6px 0;
+}
+
+.ob-modal .ob-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.osprey-section-label .osprey-icon-btn[aria-pressed='true'] {
+  background: var(--surface-press);
+  color: var(--text-primary);
+}
+
+/* The corrector row: a drag along it picks the correctors it spans. */
+.ob-strip .ob-cor-row {
+  cursor: col-resize;
+}
+
+/* The singular-value spectrum in its row under the Correctors head: log-scale bars, kept ones
+   filled, and the cutoff the operator drags or keys. */
+.ob-sigma {
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  min-width: 160px;
+  gap: var(--space-2, 8px);
+  padding: 0 var(--space-1, 4px);
+  border-radius: var(--radius-md);
+  outline: none;
+}
+
+.ob-sigma:focus-visible {
+  box-shadow: 0 0 0 3px var(--surface-focus);
+}
+
+.ob-sigma-plot {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  border-bottom: 1px solid var(--surface-hairline);
+  touch-action: none;
+}
+
+.ob-sigma[aria-disabled='false'] .ob-sigma-plot {
+  cursor: col-resize;
+}
+
+.ob-sigma-bar {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 0.75;
+  vector-effect: non-scaling-stroke;
+}
+
+.ob-sigma-bar.kept {
+  fill: var(--color-accent);
+  stroke: none;
+}
+
+.ob-sigma-split {
+  stroke: var(--text-muted);
+  stroke-width: 0.75;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ob-sigma-cut {
+  stroke: var(--text-primary);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ob-sigma-k {
+  min-width: 6ch;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}

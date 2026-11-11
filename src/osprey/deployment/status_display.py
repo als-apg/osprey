@@ -18,10 +18,6 @@ repo on one host are told apart rather than merged. The label has an honest
 limit that the display states rather than hides: it is applied when a container
 is CREATED, so a stack whose containers were created by an OSPREY that did not
 stamp it carries none, and this module can only match it by project name.
-
-:func:`show_status` is the legacy project-scoped display behind
-``osprey status``. It shares the query and table helpers below with the
-repo-scoped verb, and goes away with the ``deploy`` group.
 """
 
 import json
@@ -54,7 +50,7 @@ from osprey.deployment.deployment_record import (
 )
 from osprey.deployment.errors import DeploymentError, DeploymentRecordError, NoComposeFilesError
 from osprey.deployment.runtime_helper import get_ps_command
-from osprey.deployment.staleness import BUILD_DIRNAME, staleness_reasons
+from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
@@ -555,84 +551,6 @@ def _show_web_terminal_users(config, all_containers, repo_root, record: Deployme
             _format_volume_status(agent_data_volume),
         )
     output.table(table)
-
-
-def show_status(
-    config_path,
-    *,
-    console=None,  # noqa: ARG001 - accepted and ignored; output goes through the CLI renderer, which resolves its own console per call
-    styles=None,  # noqa: ARG001 - accepted and ignored; output goes through the CLI renderer, which resolves its own console per call
-):
-    """Show detailed status of services with formatted output.
-
-    Uses direct container runtime ps to show actual container state, independent of compose files.
-    Displays containers for this project separately from other running containers.
-
-    The legacy project-scoped display, reached through ``osprey status``.
-    :func:`show_repo_status` is the repo-scoped verb that replaces it, and the
-    two share every helper above.
-
-    :param config_path: Path to the configuration file
-    :type config_path: str
-    :param console: Accepted and ignored. Output goes through the CLI renderer,
-        which resolves its own console per call.
-    :param styles: Accepted and ignored, for the same reason.
-    """
-    config = load_project_config(config_path, wrap_errors=True)
-
-    # Advisory render-provenance note: a stale project deploys an out-of-date
-    # service set that looks perfectly healthy here, so status is the other
-    # place (besides osprey up) the drift must be visible.
-    for reason in staleness_reasons(Path(config_path).resolve().parent):
-        output.warn(f"The build is out of date: {reason}", "Re-run `osprey build`.")
-
-    deployed_services = config.get("deployed_services", [])
-    deployed_service_names = (
-        [str(service) for service in deployed_services] if deployed_services else []
-    )
-
-    # This legacy verb is handed the project's own config.yml; the repo root,
-    # the record and the state zone all hang off the directory holding it.
-    repo_root = Path(config_path).resolve().parent
-    record = _recorded_deployment(repo_root)
-    if record is None:
-        return
-
-    # The project the last start pinned as COMPOSE_PROJECT_NAME and stamped into
-    # container labels. Status compares that label against this value, so a
-    # project a later rebuild renamed still finds its own containers instead of
-    # listing them under "other Osprey containers".
-    current_project = record.compose_project
-
-    all_containers = _query_containers(config, record.runtime)
-    if all_containers is None:
-        return
-
-    owned = deployment_containers(
-        all_containers, project_name=current_project, services=deployed_service_names
-    )
-    project_containers = [c.row for c in owned.ours]
-    other_containers = list(owned.other_projects)
-
-    output.report("")
-    output.section("Service Status:", ())
-
-    if project_containers:
-        output.table(_container_table(project_containers))
-    else:
-        output.note(f"No services running for project '{current_project}'")
-        if deployed_service_names:
-            output.note(f"Configured services: {', '.join(deployed_service_names)}")
-        output.note("Start them with `osprey up`.")
-
-    if other_containers:
-        output.report("")
-        output.section("Other Osprey Containers:", ())
-        output.table(_container_table(other_containers))
-
-    _show_web_terminal_users(config, all_containers, repo_root, record)
-
-    output.report("")
 
 
 # ---------------------------------------------------------------------------
@@ -1155,18 +1073,21 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                 agent_models = agent_file_models(build_dir / ".claude" / "agents")
                 if not agent_models:
                     rows.append(("agents", "none in build/.claude/agents"))
-                for agent_name, model_id in agent_models.items():
-                    if model_id is None:
+                for agent_name, agent_model_id in agent_models.items():
+                    if agent_model_id is None:
                         rows.append((agent_name, "no model: line (Claude Code chooses)"))
                         continue
-                    if spec.agent_models.get(agent_name) == model_id:
+                    if spec.agent_models.get(agent_name) == agent_model_id:
                         origin = "claude_code.agent_models"
-                    elif model_id == spec.default_model_id:
+                    elif agent_model_id == spec.default_model_id:
                         origin = "main model"
                     else:
                         origin = f"agents/{agent_name}.md"
                     rows.append(
-                        (agent_name, f"{display_model_name(model_id)}  {model_id}  ({origin})")
+                        (
+                            agent_name,
+                            f"{display_model_name(agent_model_id)}  {agent_model_id}  ({origin})",
+                        )
                     )
 
             conflicts = spec.detect_env_conflicts(dict(os.environ))
@@ -1174,16 +1095,16 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                 # Masked on the same rule as the block above: this is the second
                 # printer of the same values, and a secret that the env row
                 # withholds must not come back out of the conflict line beside it.
-                detail = [
+                conflict_lines = [
                     f"{var}: shell {_display_env_value(var, shell_val)} "
                     f"/ build {_display_env_value(var, settings_val)}"
                     for var, (shell_val, settings_val) in sorted(conflicts.items())
                 ]
-                detail.append("`osprey chat` resolves these in favour of the build.")
+                conflict_lines.append("`osprey chat` resolves these in favour of the build.")
                 troubles.append(
                     (
                         "this shell sets provider variables that disagree with the build",
-                        "\n".join(detail),
+                        "\n".join(conflict_lines),
                     )
                 )
 
@@ -1237,18 +1158,25 @@ CAPPED_AT_ASKED = "(capped: asked)"
 def _staged_login_tiers(repo_root):
     """The ``control_system`` section that carries the rendered login→tier map, or ``None``.
 
-    Read from the staged config of a tree-bound shared container
-    (``build/services/<svc>/config.yml``), the only place a build writes the
-    map; every copy carries the same one. ``None`` when no staged config
-    carries the leaf or none can be read.
+    Read from the staged config of a container that drives the target
+    (``build/services/<svc>/config.yml``, every service of the as-built config
+    that :func:`~osprey.deployment.compose_generator.drives_target_services`
+    names), the only place a build writes the map; every copy carries the same
+    one. ``None`` when no staged config carries the leaf or none can be read.
     """
-    from osprey.deployment.compose_generator import LOGIN_TIERS_SERVICES, SERVICES_DIR
+    from osprey.deployment.compose_generator import SERVICES_DIR, drives_target_services
     from osprey.deployment.container_lifecycle import as_built_config_path
     from osprey.deployment.web_terminals.login_tiers import LOGIN_TIERS_KEY
     from osprey_connectors import yaml_loader
 
-    services = as_built_config_path(repo_root).parent / SERVICES_DIR
-    for service in sorted(LOGIN_TIERS_SERVICES):
+    as_built = as_built_config_path(repo_root)
+    try:
+        built_config = yaml_loader.safe_load(as_built.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("Could not read the as-built config %s", as_built, exc_info=True)
+        return None
+    services = as_built.parent / SERVICES_DIR
+    for service in drives_target_services(built_config if isinstance(built_config, dict) else {}):
         path = services / service / "config.yml"
         try:
             if not path.is_file():
@@ -1378,6 +1306,7 @@ def writes_rows(config, repo_root):
     section = _staged_login_tiers(repo_root)
     login_tiers = _login_tiers(config, repo_root, section)
     recorded = _recorded_identities(tree)
+    logins: list[tuple[str, str]]
     if login_tiers is None:
         own_tier = tier_writes(config.get("control_system"))
         logins = [(name, own_tier) for name in recorded]
@@ -1517,6 +1446,106 @@ def _login_state_dir(config, repo_root, login):
         return None
 
 
+#: The lease column of a program's authorization whose holder has not opened
+#: its lease yet, and of one whose ledger cannot be read.
+LEASE_NOT_STARTED = "not started"
+LEASE_UNREADABLE = "ledger unreadable"
+
+
+def _lease_cell(ledger, grant, now_ns):
+    """The lease column of a grant in force: seconds left, or not started."""
+    if ledger is None:
+        return LEASE_NOT_STARTED
+    return f"{(ledger.lease_until_ns - now_ns) / 1e9:.0f}s left of {grant.lease_s:g}s"
+
+
+def authorization_rows(config, repo_root, *, now_ns=None):
+    """The programs' write authorizations in force: one row each, all strings.
+
+    ``(owner, holder, target, steps, expires, lease)``: *steps* is
+    ``used/total`` as the holder's ledger counts them — in the deployment's
+    write ledger (``var/write_ledger``) for a program in a container, beside
+    the grant for one run on the host — ``?/total`` where it cannot be read;
+    *expires* is the time left; *lease* is :func:`_lease_cell`'s. In force is
+    :func:`osprey_connectors.write_authorization.grant_standing`'s: not
+    revoked, not expired, issued under its owner's record's epoch, and its
+    lease not lapsed nor every step spent. Read from every login's
+    ``authorizations`` directory in the control-context tree, and from the
+    write ledger for self-issued grants. Nothing is written and nothing
+    pruned; a directory or grant that cannot be read is skipped.
+    """
+    import time
+
+    from osprey.deployment.compose_generator import (
+        control_target_tree_dir,
+        write_ledger_relpath,
+    )
+    from osprey_connectors import write_authorization as wa
+    from osprey_connectors.control_context import RECORD_FILENAME, read_record_status
+
+    now = time.time_ns() if now_ns is None else now_ns
+    try:
+        tree = control_target_tree_dir(config, repo_root)
+    except Exception:
+        return []
+    ledgers = [Path(repo_root) / write_ledger_relpath()]
+    found, _unreadable = wa.listed_grants(
+        [tree / login / wa.AUTHORIZATIONS_DIR_NAME for login in _recorded_identities(tree)],
+        ledgers,
+    )
+    rows = []
+    for grant, _directory in found:
+        record, status = read_record_status(path=tree / grant.owner / RECORD_FILENAME)
+        if status == "unreadable":
+            continue
+        own = tree / grant.owner / wa.AUTHORIZATIONS_DIR_NAME
+        standing = wa.grant_standing(grant, record, [*ledgers, own], now_ns=now)
+        if not standing.in_force:
+            continue
+        if standing.used is None:
+            used, lease = "?", LEASE_UNREADABLE
+        else:
+            used, lease = str(standing.used), _lease_cell(standing.ledger, grant, now)
+        left = max(0.0, (grant.expires_at_ns - now) / 1e9)
+        holder = grant.holder
+        if grant.approver.surface == wa.SELF_ISSUE_SURFACE:
+            holder = f"{holder} (self-issued)"
+        rows.append(
+            (
+                grant.owner,
+                holder,
+                grant.target,
+                f"{used}/{grant.steps}",
+                f"{left / 60:.0f} min",
+                lease,
+            )
+        )
+    return sorted(rows)
+
+
+#: How each lease cell is styled: muted before the holder starts, a warning
+#: where the ledger cannot be read, success while the lease runs.
+_LEASE_STYLES = {LEASE_NOT_STARTED: Styles.DIM, LEASE_UNREADABLE: Styles.WARNING}
+
+
+def _print_authorizations(config, repo_root):
+    """The programs' write authorizations in force, under the Writes section."""
+    rows = authorization_rows(config, repo_root)
+    if not rows:
+        return
+    table = data_table()
+    table.add_column("Owner", style=Styles.ACCENT, no_wrap=True)
+    table.add_column("Holder (program)", style=Styles.PRIMARY)
+    table.add_column("Target", style=Styles.INFO)
+    table.add_column("Steps", style=Styles.PRIMARY)
+    table.add_column("Expires in", style=Styles.PRIMARY)
+    table.add_column("Lease", style=Styles.PRIMARY)
+    for owner, holder, target, steps, expires, lease in rows:
+        lease_cell = Text(lease, style=_LEASE_STYLES.get(lease, Styles.SUCCESS))
+        table.add_row(owner, holder, target, steps, expires, lease_cell)
+    output.table(table)
+
+
 def _print_writes_section(config, repo_root):
     """Print who may write, at which machine each login points, and each switch position.
 
@@ -1530,6 +1559,7 @@ def _print_writes_section(config, repo_root):
     output.section("Writes:", ())
     if not rows:
         output.note("No login holds a writes record yet: every machine's writes are off.")
+        _print_authorizations(config, repo_root)
         return
 
     table = data_table()
@@ -1552,6 +1582,7 @@ def _print_writes_section(config, repo_root):
         target_cell = _target_cell(target, _login_state_dir(config, repo_root, login))
         table.add_row(login, tier_cell, target_cell, writes_cell)
     output.table(table)
+    _print_authorizations(config, repo_root)
 
 
 def show_repo_status(

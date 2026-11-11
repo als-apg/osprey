@@ -196,7 +196,7 @@ class TestAlsApgProvider:
         assert {"gpt-6-sol", "gpt-6-luna", "gpt-6-astra"} <= set(spec.served_models)
         assert spec.alias_models == {
             "haiku": "claude-haiku-5-5",
-            "sonnet": "claude-sonnet-5",
+            "sonnet": "claude-sonnet-5-5",
             "opus": "claude-opus-5-5",
         }
         assert spec.alias_origin == dict.fromkeys(TIER_MODEL_ENV_VARS, "derived")
@@ -773,9 +773,9 @@ class TestDefaultModel:
         message = str(excinfo.value)
         assert "`claude_code.default_model: sonnet` is not a model id" in message
         assert (
-            "Provider 'als-apg' serves: claude-fable-5-1, claude-opus-5-5, claude-sonnet-5, "
-            "claude-haiku-4-5-20251001, claude-haiku-5-5, gpt-6-sol, gpt-6-luna, gpt-6-astra."
-            in message
+            "Provider 'als-apg' serves: claude-fable-5-1, claude-opus-5-5, claude-sonnet-5-5, "
+            "claude-sonnet-5, claude-haiku-4-5-20251001, claude-haiku-5-5, gpt-6-sol, gpt-6-luna, "
+            "gpt-6-astra." in message
         )
 
     def test_an_unserved_id_is_trusted(self, caplog):

@@ -418,11 +418,8 @@ Logbook (ARIEL):
   its `source`) or `prebuilt` (the sidecar serves an index built elsewhere, such
   as on a GPU host, from `index_dir`). A new `qmd` health category shows each
   sidecar's documents and how many still have no vectors. (#1566)
-- Embedded ARIEL can offer Search in the terminal tile bar: set
-  `ariel.embedded_search: true` and the panel opens on Search, ahead of Browse and
-  New Entry (off by default; keyword search needs no embedding model). Viewable
-  stored logbook pictures offer **Use in Workspace**, which keeps the prepared
-  rendition with logbook provenance in the local artifact gallery for
+- Viewable stored logbook pictures offer **Use in Workspace**, which keeps the
+  prepared rendition with logbook provenance in the local artifact gallery for
   agent-assisted image reasoning. (#1822)
 - A facility adapter can publish an entry's files with the entry: one that
   declares `supports_attachments` receives them in `create_entry`, and the
@@ -448,7 +445,7 @@ Logbook (ARIEL):
   states yields to a span that is that place or inside it, stands under a span
   that holds it, and stops `place-conflict` against any other span. (#2189)
 - `osprey users list [USER]` shows who is on the roster and who can open which card: every card with its render, write posture and port, a grid of logins against shared cards, unused tiers, and with `--live` container state and last sign-in. `--json` prints the same document. (#2223)
-- A `shared:` app can say who may open it: `{name: <app>, access: [...]}` takes the same principals as a roster entry, and a new `tier:<tier>` principal admits every roster login of that tier. A bare app name still opens to the whole roster. (#2245)
+- A `shared:` login can say who may open it: `{name: <login>, access: [...]}` takes the same principals as a roster entry, and a new `tier:<tier>` principal admits every roster login of that tier. A bare name still opens to the whole roster. (#2245)
 - The virtual accelerator gains a model runner that serves a simulator view's composite on Channel Access and PVA beside the existing runner: writes are clamped into each setpoint's limits band, a refused write raises an alarm and is never echoed, chromaticity readings publish on the next periodic pass after a write, and the model RPC answers over the view's address set. A float channel in the facility file may state a display `precision`, which the model runner serves; the build stops when another value type states one.
 - `osprey build` stops on a scenario archiver event whose `at` or `until` lies outside 0 to 1, whose `width` is not greater than 0, whose `at_time` is not an `HH:MM[:SS]` time of day, whose `at_when` is not `{days_ago: <int>, time: HH:MM[:SS]}`, or whose `to` the channel's value type, options or shape refuses.
 - `web.panels.<id>.rewrite_prefixes` names further root-absolute prefixes the
@@ -475,7 +472,7 @@ Logbook (ARIEL):
   instead of carrying a concept ID over to the panel by hand. (#920)
 - The artifact gallery can delete several artifacts at once: Shift-click picks a
   run of rows, Cmd/Ctrl-click adds or removes one, and Delete in the bar above the
-  list removes them after one confirm. Pinned artifacts in a pick are kept. (#924)
+  list removes them after one confirm. (#924)
 - A web terminal can run on its user's own Claude subscription. With
   `claude_code.allow_personal_login: true` (off by default), a terminal whose
   `CLAUDE_CONFIG_DIR` holds a completed `/login` is launched with the deployment
@@ -575,8 +572,8 @@ Logbook (ARIEL):
   in the ARIEL panel; the panel opens the same view from a
   `#entry?id=<entry_id>&attachment=<attachment_id>` link. `attachment_to_artifact`
   keeps a stored picture's display rendition in the artifact gallery, with the entry,
-  attachment, filename and caption it came from; the same picture saved twice is one
-  artifact.
+  attachment, filename and caption it came from; the same picture saved twice in one
+  session is one artifact.
   The `control-assistant` preset turns all three on; each
   picture module runs when its server and model answer and is otherwise skipped,
   with `osprey ariel status` naming the skipped module and why.
@@ -873,8 +870,7 @@ Logbook (ARIEL):
   single-pass: 20 devices and 40 `LINE:` channels beside the periodic model `SR`.
   The simulator now serves `[LINE, SR]`, so it publishes one status channel per
   model (`<code>:SIM:LINE:STATUS` and `<code>:SIM:SR:STATUS`), `osprey sim status`
-  prints a line for each, and the lattice dashboard lists `LINE` first and opens
-  on it. The hierarchical and middle-layer channel-finder indexes gain the 40
+  prints a line for each. The hierarchical and middle-layer channel-finder indexes gain the 40
   `LINE:` addresses; the in-context index and `data/facility/limits.yaml` are
   unchanged, so a `LINE` setpoint is written with no limits record. The benchmark
   query "Show me the transfer line corrector setpoints for both planes" now names
@@ -1057,10 +1053,11 @@ Logbook (ARIEL):
   kind and the wiring count per model, each model's engine, served flag and solve
   setting, and each view of the main render with its path and whether it is
   written, naming the config key or model fact that leaves a view out. With an
-  ID it prints that record with its provenance and the fixes applied to it; an id
-  that names no record, or records of more than one kind, exits 1 with one line
-  on stderr. `--json` prints one JSON document on stdout and every other line on
-  stderr, and leaves stdout empty on an error.
+  ID it prints every record of that id, each under its kind, with its provenance
+  and the fixes applied to it; an id that names no record exits 1 with one line
+  on stderr. `--json` prints one JSON document on stdout — under an ID, a
+  `records` list — and every other line on stderr, and leaves stdout empty on an
+  error.
 - The config key `simulation.models` selects which models of the facility file
   the simulator serves. `null` or absent serves every model; `[texture]` and `[]`
   serve no physics. A name the facility file does not hold is a `profile-invalid`
@@ -1762,8 +1759,8 @@ Logbook (ARIEL):
 - The artifact gallery loads the newest artifacts straight away and fetches more
   as the list is scrolled, so a workspace with thousands of them opens as fast as
   a small one; `artifact_server.page_size` sets how many arrive at a time
-  (default 20). The gallery's filter searches the whole workspace, matching a
-  title, file name, description or type. (#924)
+  (default 20). The gallery's filter matches a title, file name, description or
+  type, within the session in view or across every session. (#924)
 - `osprey set config.claude_code.agent_models.<agent>=<id>` makes the checks
   `osprey set model=` makes: it refuses a bare `haiku`, `sonnet` or `opus` and
   notes an id the provider does not list. It also refuses, before anything is
@@ -2498,7 +2495,7 @@ Logbook (ARIEL):
   and **Refresh**. The **Script runs** row lists the records of executed
   scripts: the approval review, the notebook and the result record. The
   artifacts pane shows one artifact under one header row: `Artifacts › <title>`,
-  ‹ › with `N of M` to go through the list, **Open full size** and **Save**. Pin,
+  ‹ › with `N of M` to go through the list, **Open full size** and **Save**.
   Print, Compose logbook entry and Delete are in the pane's ⋯ menu. The panel
   label is now `Artifacts` (it was `WORKSPACE`). The gallery has no Simple layout
   now: in its own window, it shows the full gallery in both views.
@@ -2578,10 +2575,10 @@ Logbook (ARIEL):
 - The archiver seeder module is now `osprey_connectors.simulation.archive`.
   `archive.build(view, active_set)` builds a simulator view's history at one active scenario set's start state: archiver events, drift, keyed noise and clamp per timestamp, with `bool` and `enum` channels as option indices.
 - `osprey_connectors.simulation` no longer re-exports the engine, machine and expression names; import them from `osprey_connectors.simulation.engine`, `.machine` and `.expressions`.
-  The package root now imports neither numpy nor lume and holds the tick period (`resolve_tick_s`), `decode_char_waveform`, `coerce` and the active-scenario state helpers.
-- The simulator view says each binding's role and plane; a view built by an older OSPREY is refused with a rebuild message.
-- The build's simulator view, ``variables.json``, is now schema ``osprey.facility.simulator/2``: each
-  wiring record carries the ``role``, ``plane`` and ``refresh`` its engine's ``describe()`` states, and
+  The package root now imports neither numpy nor lume and holds the tick period (`resolve_tick_s`), `decode_char_waveform` and the model status lookups; `coerce` is imported from `osprey_connectors.simulation.values` and the active-scenario state helpers from `osprey_connectors.simulation.state`.
+- The simulator view says each binding's engine role and plane; a view built by an older OSPREY is refused with a rebuild message.
+- The build's simulator view, ``variables.json``, is now schema ``osprey.facility.simulator/3``: each
+  wiring record carries the ``engine_role``, ``plane`` and ``refresh`` its engine's ``describe()`` states, and
   each channel carries the node it is ``on``. ``osprey_connectors.simulation.view`` is the reader of
   the view; it refuses a render from an older OSPREY and asks for a rebuild with ``osprey build``.
 - When the commands an agent started cannot be told apart by name — two runs
@@ -2705,7 +2702,7 @@ Logbook (ARIEL):
   `SimulatorView`, and refuse a view from an older build with a message to rebuild with `osprey build`.
 - The pyAT engine's `describe()` also states the `kind` of device a wiring record drives or reads:
   `kick`, `strength`, `rf`, `energy` or `monitor`, and none for an optics output. The simulator view
-  stamps only the record's `role`, `plane` and `refresh`.
+  stamps only the record's `engine_role`, `plane` and `refresh`.
 - Every web-terminal service renders `init: true`, so the processes a headless
   browser in the image leaves behind are reaped.
 - `osprey status`, container seeding, `osprey reset` and `osprey feedback`
@@ -2723,7 +2720,7 @@ Logbook (ARIEL):
   the project its image was built from — for example `default_tier: main` with
   `renders: {main: {project: <that project>}}`. That keeps each user's saved
   Claude Code sessions, which are stored under the terminal's working directory.
-- The built facility file states what each model variable is — its role, plane and refresh — and
+- The built facility file states what each model variable is — its engine role, plane and refresh — and
   the simulator view reads it there instead of asking the engine; the wiring stage describes each
   record from the engine load it already does, and stops on a record its engine cannot describe.
 - The "working safely" landing notice no longer promises an approval before
@@ -3015,13 +3012,7 @@ Logbook (ARIEL):
   string in it contains a word such as `vacuum`, `set` or `update`, or a `;`.
   Forbidden keywords and statement separators are now matched only outside
   string literals. (#1450)
-- `/clear` sent as a message in the web terminal's Simple view no longer leaves
-  the session key on the conversation it just left. The chat child reports the
-  transcript it is on with every turn; the chat route now records that id in
-  the transcript map after each turn, as the expert view's hook already did,
-  so a replay, a hand-off to the Expert view and the next child under the key
-  all continue the conversation the operator is in. The stream marks the
-  boundary with a `session_reset`, which the Simple view draws as a divider. (#1483)
+- `/clear` sent as a message in the chat no longer leaves the session key on the conversation it just left: the chat child reports the transcript it is on with every turn, the chat route records that id in the transcript map, and a replay, a hand-off to the terminal and the next child under the key all continue the conversation the operator is in. The stream marks the boundary with a `session_reset`, drawn as a divider. (#1483)
 - The Tiled service no longer crash-loops on a catalog volume written by an
   older Tiled: it runs `tiled catalog upgrade-database` before serving, and a
   fresh volume still initialises. If the upgrade fails, the container logs the
@@ -3155,9 +3146,9 @@ Logbook (ARIEL):
   carry. `osprey status` says the alias substitution once instead of twice.
 - A request through the als-apg gateway no longer carries a temperature: its Claude 5 models (Haiku 5.5, Sonnet 5, Opus 5.5, Fable 5.1) refused every value but 1, which failed any completion that asked for 0.
 - The `als_logbook` adapter stores entry text as plain text. HTML entities are decoded and the logbook's markup becomes line breaks, paragraphs and list items, so ARIEL Browse, keyword search, embeddings and agent tools no longer show `&lt;br /&gt;`. The backslash escaping the logbook adds is undone as well, so `it didn\'t` reads `it didn't` and `Y:\\opstat` reads `Y:\opstat`. Entries stored earlier are rewritten once by `osprey ariel migrate` (which `osprey ariel sync` runs first) and are enhanced again on the next enhance pass.
-- An app render binds each facility guard once. A host's `claude_code.hooks.PreToolUse`
-  guard spelled as a mapping (`hook:` with a `matcher:`) was carried into the app
-  and then added again by the guard floor, so the app's settings ran it twice.
+- A login's render binds each facility guard once. A host's `claude_code.hooks.PreToolUse`
+  guard spelled as a mapping (`hook:` with a `matcher:`) was added again by the
+  guard floor, so the login's settings ran it twice.
 - A `config.yml` whose `approval.enabled` is edited after the build to anything but `true` or `false` (or whose `approval` section is left bare) no longer switches approval off: the approval hook denies every call it is wired to and a read-write Python run does not start, both naming the key and the fix.
 - The pre-execution review notebook now shows how the call ended. When an
   approved call runs, the notebook says it ran. When the call fails, the
@@ -4305,11 +4296,10 @@ Logbook (ARIEL):
   `no-new-privileges`, so no process in them can gain a privilege through a
   setuid binary. The deployment guide names the facility's EPICS access security
   as the write boundary that does not depend on OSPREY's own code. (#1784)
-- An app render built with `--set` now keeps every guard its host deployment
-  runs. Before, `--set hooks=…` dropped the host's library guards (approval,
-  limits, the memory guard) from the app, and a `--set` of
-  `config.claude_code.hooks` dropped the host's facility guards. Only the kill
-  switch was kept. (#2117)
+- A login's render built with `--set` now keeps every guard its host deployment
+  runs, whatever its lists say. Before, `--set hooks=…` dropped the host's library
+  guards (approval, limits, the memory guard), and a `--set` of
+  `config.claude_code.hooks` dropped the host's facility guards. (#2117)
 - The artifact gallery serves every content page (artifact files, rendered
   notebooks and markdown) with `Content-Security-Policy: sandbox allow-scripts
   allow-downloads`, so agent-authored HTML runs in an opaque origin without the

@@ -320,7 +320,7 @@ def _ipv4_host(host: str) -> str | None:
         return None
     value = tail
     for index, number in enumerate(head):
-        value += number * 256 ** (3 - index)  # type: ignore[operator]
+        value += number * 256 ** (3 - index)
     return str(ipaddress.IPv4Address(value))
 
 

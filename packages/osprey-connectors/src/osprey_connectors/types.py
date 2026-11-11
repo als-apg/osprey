@@ -1,7 +1,7 @@
 """Connector type constants, and the fallbacks a factory applies to them.
 
 Single source of truth for built-in connector type name strings.
-Custom connectors use dotted module paths (e.g., 'mypackage.MoatConnector')
+Custom connectors use dotted module paths (e.g., 'mypackage.SiteConnector')
 and don't need constants here.
 
 The resolvers at the bottom are here rather than in
@@ -57,7 +57,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 __all__ = [
-    "CLI_ARCHIVER_TYPES",
     "CLI_CONTROL_SYSTEM_TYPES",
     "CONTROL_TARGETS",
     "DEFAULT_VA_PORT",
@@ -92,9 +91,7 @@ __all__ = [
     "TIER_WORDS",
     "TierWord",
     "TRANSPORT_CA",
-    "TRANSPORT_DOOCS",
     "TRANSPORT_IN_PROCESS",
-    "TRANSPORT_TANGO",
     "UNSET_TYPE_WARNING",
     "VIRTUAL_ACCELERATOR",
     "WRITES_KEY",
@@ -166,8 +163,8 @@ SERVING_KEY = f"control_system.connector.{VIRTUAL_ACCELERATOR}.{SERVING_LEAF}"
 # -- Transports: the wire a connector speaks --
 TRANSPORT_IN_PROCESS = "in_process"
 TRANSPORT_CA = "ca"
-TRANSPORT_DOOCS = "doocs"
-TRANSPORT_TANGO = "tango"
+_TRANSPORT_DOOCS = "doocs"
+_TRANSPORT_TANGO = "tango"
 
 #: The wire each built-in type speaks when it is served over a network. There
 #: is no PVAccess row: the EPICS-family connectors carry PVAccess channels beside
@@ -177,8 +174,8 @@ _TRANSPORTS = {
     EPICS: TRANSPORT_CA,
     VIRTUAL_ACCELERATOR: TRANSPORT_CA,
     LIVE_STANDIN: TRANSPORT_CA,
-    DOOCS: TRANSPORT_DOOCS,
-    TANGO: TRANSPORT_TANGO,
+    DOOCS: _TRANSPORT_DOOCS,
+    TANGO: _TRANSPORT_TANGO,
 }
 
 # -- Retired type names --
@@ -203,7 +200,7 @@ MYA_ARCHIVER = "mya_archiver"
 
 # -- CLI choice lists (only types with implementations) --
 CLI_CONTROL_SYSTEM_TYPES = [EPICS, VIRTUAL_ACCELERATOR, DOOCS, TANGO]
-CLI_ARCHIVER_TYPES = [
+_CLI_ARCHIVER_TYPES = [
     MOCK_ARCHIVER,
     EPICS_ARCHIVER,
     MONGODB_ARCHIVER,
@@ -530,7 +527,7 @@ def archiver_settings_errors(section: Any) -> list[str]:
         return []
     selected = resolve_archiver_type(section)
     own = _own_name_block(selected)
-    known = {*_ARCHIVER_SECTION_LEAVES, *CLI_ARCHIVER_TYPES, *([own] if own else [])}
+    known = {*_ARCHIVER_SECTION_LEAVES, *_CLI_ARCHIVER_TYPES, *([own] if own else [])}
     errors = [
         f"`{key}:` under `archiver:` is a block no archiver reads; the selected "
         f"archiver, {selected}, takes its settings from `archiver.settings`"
@@ -991,7 +988,7 @@ class LimitsPosture:
         ``control_system.connector.<type>.limits_checking.<leaf>`` when a
         connector block answered, and ``control_system.limits_checking.<leaf>``
         when the deployment-wide block did. A custom connector's dotted module
-        path (``'mypackage.MoatConnector'``) is one key and is interpolated
+        path (``'mypackage.SiteConnector'``) is one key and is interpolated
         whole, never split on its dots.
 
         A posture holding no type at all — the deployment-wide answer, and the
@@ -1044,7 +1041,7 @@ def type_limits_posture(section: Any, connector_type: str | None) -> LimitsPostu
     ``control_system.connector.<type>.limits_checking`` when that block is
     there, and ``control_system.limits_checking`` when it is not, where
     *connector_type* is one key. A custom connector's dotted module path
-    (``'mypackage.MoatConnector'``) names a single block, never a path through
+    (``'mypackage.SiteConnector'``) names a single block, never a path through
     several, so the type is looked up whole and never split on its dots.
 
     The per-type block overrides **whole**, and that is the rule the rest of the

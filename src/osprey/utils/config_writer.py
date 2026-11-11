@@ -402,11 +402,11 @@ CONFIG_BACKUP_DIRNAME = "config-backups"
 def config_backup_path(config_path: Path) -> Path:
     """Where a backup of *config_path* belongs: inside the agent-data state zone.
 
-    The single spelling of the backup scheme. Three writers take config backups
-    — this module's :func:`update_yaml_file`, the Web Terminal's ``/api/config``
-    and ARIEL's ``PUT /config`` — and each of them writes into a project that the
-    container split will make read-only. One helper so the three cannot drift on
-    a location that has to be right in all three for the split to work at all.
+    The single spelling of the backup scheme. Two writers take config backups
+    through :func:`write_config_backup` — the Web Terminal's ``/api/config`` and
+    ARIEL's ``PUT /config`` — and each of them writes into a project that the
+    container split will make read-only. One helper so the two cannot drift on
+    a location that has to be right in both for the split to work at all.
 
     **The anchor is a fact about the config file, not a caller's choice.**
     ``agent_data.base_dir`` is documented and rendered relative to the deployment
@@ -860,7 +860,7 @@ def config_update_fields(
     data = load_config_document(config_path)
 
     for dotted_key, value in updates.items():
-        _set_dotted_anchored(data, data, dotted_key, value, create_only=True)
+        _set_dotted_anchored(data, data, dotted_key, value)
 
     save_config_document(config_path, data)
     logger.debug("config_update_fields: updated %d field(s) in %s", len(updates), config_path)
@@ -894,15 +894,14 @@ def config_delete_field(config_path: Path, dotted_key: str) -> bool:
     return True
 
 
-def _set_dotted_anchored(
-    root: Any, data: Any, dotted_key: str, value: Any, *, create_only: bool
-) -> None:
+def _set_dotted_anchored(root: Any, data: Any, dotted_key: str, value: Any) -> None:
     """Set a dotted key, re-anchoring a section comment displaced by new keys.
 
-    Walks ``dotted_key`` from *data*, creating missing intermediate maps. The
-    first key created inside an existing non-root mapping is where a trailing
-    section comment would be displaced — it is detached there, and re-attached
-    once the full subtree exists. New keys at the *root* mapping keep their
+    Walks ``dotted_key`` from *data*, walking into whatever an existing
+    intermediate key holds and creating missing intermediate maps. The first
+    key created inside an existing non-root mapping is where a trailing section
+    comment would be displaced — it is detached there, and re-attached once the
+    full subtree exists. New keys at the *root* mapping keep their
     tail-append placement: the shipped templates document appended top-level
     sections at the file tail, below banners written for exactly that purpose.
 
@@ -911,10 +910,6 @@ def _set_dotted_anchored(
         data: Mapping to walk from (the root itself, or a nested map).
         dotted_key: ``"dot.separated.key"`` path.
         value: Value to assign at the leaf.
-        create_only: If True, walk into whatever an existing intermediate key
-            holds (:func:`config_update_fields` semantics); if False, replace
-            non-mapping intermediates with empty maps
-            (:func:`_set_nested_value` semantics).
     """
     parts = dotted_key.split(".")
     node = data
@@ -931,8 +926,6 @@ def _set_dotted_anchored(
             if moved is None:
                 moved = _steal_here(node)
                 anchor = node if moved else None
-            node[part] = CommentedMap()
-        elif not create_only and not isinstance(node[part], dict):
             node[part] = CommentedMap()
         node = node[part]
 
@@ -957,197 +950,3 @@ def config_read(config_path: Path) -> dict:
     data = load_config_document(config_path)
     plain = json.loads(json.dumps(copy.deepcopy(data), default=str))
     return plain if isinstance(plain, dict) else {}
-
-
-# =============================================================================
-# Comment-Preserving YAML File Update
-# =============================================================================
-
-
-def update_yaml_file(
-    file_path: Path,
-    updates: dict[str, Any],
-    create_backup: bool = True,
-    section_comments: dict[str, str] | None = None,
-) -> Path | None:
-    """Update a YAML file while preserving comments and formatting.
-
-    Uses the shared ruamel.yaml handler to maintain comments, blank lines,
-    and original formatting when modifying YAML configuration files.
-
-    Args:
-        file_path: Path to the YAML file to update
-        updates: Dictionary of updates to apply. Supports nested paths using
-                dot notation in keys (e.g., {"control_system.type": "epics"})
-                or nested dictionaries that will be merged.
-        create_backup: If True, copies the file into the agent-data state zone
-                before modifying it (see :func:`config_backup_path`)
-        section_comments: Optional dict mapping top-level keys to comment headers.
-                         Comments are added with a blank line before them.
-                         Example: {"simulation": "Simulation Configuration"}
-
-    Returns:
-        Path to backup file if created, None otherwise
-
-    Examples:
-        >>> # Simple update
-        >>> update_yaml_file(Path("config.yml"), {"control_system.type": "epics"})
-
-        >>> # Nested update
-        >>> update_yaml_file(Path("config.yml"), {
-        ...     "control_system": {
-        ...         "type": "epics",
-        ...         "connector": {"epics": {"gateways": {"read_only": {"port": 5064}}}}
-        ...     }
-        ... })
-    """
-    data = load_config_document(file_path)
-
-    # Create backup before modifying
-    backup_path = None
-    if create_backup:
-        # Into the state zone, not beside the file -- see CONFIG_BACKUP_DIRNAME.
-        backup_path = write_config_backup(file_path)
-
-    # Track which keys are being added (for comment placement)
-    new_keys = set()
-    for key in updates:
-        top_key = key.split(".")[0] if "." in key else key
-        if top_key not in data:
-            new_keys.add(top_key)
-
-    # Apply updates
-    _apply_nested_updates(data, updates)
-
-    # Add section comments for new top-level keys
-    if section_comments:
-        for key, comment in section_comments.items():
-            if key in new_keys and key in data:
-                separator = "=" * 60
-                comment_text = f"\n{separator}\n{comment}\n{separator}"
-                data.yaml_set_comment_before_after_key(key, before=comment_text)
-
-    save_config_document(file_path, data)
-
-    return backup_path
-
-
-def _apply_nested_updates(data: dict, updates: dict, root: Any = None) -> None:
-    """Apply nested updates to a dictionary, supporting dot notation keys.
-
-    Args:
-        data: Target dictionary to update (modified in place)
-        updates: Updates to apply
-        root: The document's top-level mapping, threaded through recursion for
-            section-comment anchoring (defaults to *data*).
-    """
-    if root is None:
-        root = data
-    for key, value in updates.items():
-        if "." in key:
-            _set_nested_value(data, key, value, root=root)
-        elif isinstance(value, dict) and key in data and isinstance(data[key], dict):
-            _apply_nested_updates(data[key], value, root=root)
-        elif data is root:
-            data[key] = value
-        else:
-            anchored_put(data, key, value)
-
-
-def _set_nested_value(data: dict, path: str, value: Any, root: Any = None) -> None:
-    """Set a value at a nested path using dot notation.
-
-    Args:
-        data: Target dictionary
-        path: Dot-separated path (e.g., "control_system.connector.epics.port")
-        value: Value to set
-        root: The document's top-level mapping, for section-comment anchoring
-            (defaults to *data*).
-    """
-    _set_dotted_anchored(root if root is not None else data, data, path, value, create_only=False)
-
-
-# =============================================================================
-# Control System Type Configuration
-# =============================================================================
-
-
-def get_control_system_type(config_path: Path, key: str = "control_system.type") -> str | None:
-    """Get control system or archiver type from config.yml.
-
-    Args:
-        config_path: Path to config.yml
-        key: Config key to read (e.g., 'control_system.type' or 'archiver.type')
-
-    Returns:
-        Type string or None if not found
-    """
-    try:
-        data = load_config_document(config_path)
-
-        keys = key.split(".")
-        value = data
-        for k in keys:
-            value = value.get(k)
-            if value is None:
-                return None
-
-        return value if isinstance(value, str) else None
-    except Exception:
-        pass  # Config read/parse failed; return default below
-
-    return None
-
-
-def set_control_system_type(
-    config_path: Path,
-    control_type: str,
-    archiver_type: str | None = None,
-    create_backup: bool = True,
-) -> tuple[str, str]:
-    """Update control system and optionally archiver type in config.yml.
-
-    Retained as the config-side write path; the live CLI writes through the
-    profile (``osprey set`` + ``osprey build``), so this is currently
-    test-only.
-
-    Uses comment-preserving YAML update via update_yaml_file().
-
-    Args:
-        config_path: Path to config.yml
-        control_type: The connector name to write as ``control_system.type``: a
-            built-in from :data:`osprey_connectors.types.SET_CONTROL_SYSTEM_TYPES`,
-            or a custom connector's dotted module path. Written as given; not
-            validated here.
-        archiver_type: The connector name to write as ``archiver.type`` — a
-            built-in from :data:`osprey_connectors.types.CLI_ARCHIVER_TYPES`, or a
-            custom connector's dotted module path — or ``None`` to leave the key
-            untouched.
-        create_backup: If True, copies the file into the agent-data state zone
-                before modifying it (see :func:`config_backup_path`)
-
-    Returns:
-        Tuple of (updated_content, preview) where updated_content is the new file content
-    """
-    updates: dict[str, Any] = {"control_system.type": control_type}
-
-    if archiver_type:
-        updates["archiver.type"] = archiver_type
-
-    update_yaml_file(config_path, updates, create_backup=create_backup)
-
-    updated_content = config_path.read_text()
-
-    preview_lines = [
-        "[bold]Control System Configuration[/bold]\n",
-        f"control_system.type: {control_type}",
-    ]
-
-    if archiver_type:
-        preview_lines.append(f"archiver.type: {archiver_type}")
-
-    preview_lines.append("\n[dim]Updated config.yml[/dim]")
-
-    preview = "\n".join(preview_lines)
-
-    return updated_content, preview

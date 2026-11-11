@@ -1,6 +1,6 @@
 """Agentic e2e: the graph answers a sector question by place path and position.
 
-A deployment built from the ``control_assistant`` preset, its store seeded with
+A deployment built from the ``demo`` preset, its store seeded with
 the graph view the build writes, and an operator asking which beam position
 monitors sit in one section and in what order the beam meets them. The graph
 holds the answer as facts — each device's ``placePath``, ``sectionCode`` and
@@ -39,7 +39,7 @@ from tests.e2e.test_graph_mcp_smoke import (  # noqa: F401 - fixtures used by na
 logger = logging.getLogger(__name__)
 
 #: The monitors under ``SR/`` whose section code is ``SECT1``, ordered by
-#: ``sPositionM`` (metres), as the control-assistant build's graph view holds them.
+#: ``sPositionM`` (metres), as the demo build's graph view holds them.
 SECTOR_BPMS: tuple[tuple[str, float], ...] = (
     ("BPM01", 4.800),
     ("BPM02", 6.287),
@@ -91,9 +91,13 @@ def _expected() -> list[str]:
     return [name for name, _ in SECTOR_BPMS]
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
-@pytest.mark.agentic_benchmark
+@pytest.mark.agentic(
+    tier=1,
+    title="List a sector's BPMs",
+    asks="Which BPMs sit in sector 1 of the storage ring, in beam order, and where?",
+    passes_if="all six BPMs, in beam order",
+)
 @pytest.mark.requires_als_apg
 @pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed")
 @pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")

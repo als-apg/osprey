@@ -184,8 +184,8 @@ class TestRunFilter:
         assert "legacy" not in titles
 
     def test_empty_run_filter_matches_nothing(self, store):
-        # Symmetric foot-gun guard: an empty run tag must NOT match untagged
-        # artifacts (unlike session_filter's OR-empty clause).
+        # Foot-gun guard: an empty run tag must NOT match untagged artifacts;
+        # the run boundary is strict.
         assert store.list_entries(run_filter="") == []
 
     def test_none_run_filter_returns_all(self, store):
@@ -299,7 +299,7 @@ class TestDescribeRunArtifacts:
         async def _boom(*a, **k):  # pragma: no cover - must never run
             raise AssertionError("describe must not render")
 
-        import osprey.mcp_server.ariel.converters as conv
+        import osprey.stores.artifact_converters as conv
 
         monkeypatch.setitem(conv.CONVERTER_REGISTRY, "text/html", _boom)
         # describe only classifies (get_converter lookup), never calls the converter
@@ -307,29 +307,12 @@ class TestDescribeRunArtifacts:
         assert d["delivered_mime"] == "image/png"
 
 
-class TestResolveRunArtifacts:
-    """The public bulk resolver: created-by scoped, lenient about missing files."""
-
-    async def test_resolves_only_this_runs_artifacts(self, tmp_path, monkeypatch):
+class TestResolveSingleRunArtifact:
+    async def test_missing_file_is_none(self, tmp_path, monkeypatch):
         store = _rooted_store(tmp_path, monkeypatch)
-        a1 = _save(store, "run-1", title="a", filename="a.png", mime="image/png", body=PNG_BYTES)
-        _save(store, "run-1", title="b", filename="b.png", mime="image/png", body=PNG_BYTES)
-        _save(store, "run-2", title="c", filename="c.png", mime="image/png", body=PNG_BYTES)
-        refs = await resolve_mod.resolve_run_artifacts("run-1")
-        assert {r.artifact_id for r in refs} == {a1, refs[1].artifact_id}
-        assert len(refs) == 2  # run-2's artifact excluded
-
-    async def test_unknown_run_is_empty(self, tmp_path, monkeypatch):
-        _rooted_store(tmp_path, monkeypatch)
-        assert await resolve_mod.resolve_run_artifacts("nope") == []
-
-    async def test_skips_artifact_whose_file_was_deleted(self, tmp_path, monkeypatch):
-        store = _rooted_store(tmp_path, monkeypatch)
-        keep = _save(store, "run-1", title="k", filename="k.png", mime="image/png", body=PNG_BYTES)
         gone = _save(store, "run-1", title="g", filename="g.png", mime="image/png", body=PNG_BYTES)
         (store.get_file_path(gone)).unlink()  # tag survives, file removed
-        refs = await resolve_mod.resolve_run_artifacts("run-1")
-        assert [r.artifact_id for r in refs] == [keep]
+        assert await resolve_mod.resolve_single_run_artifact("run-1", gone) is None
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +445,7 @@ class TestListRoute:
         """Listing must not invoke a converter even for renderable artifacts."""
         c, store, _ = client
         _save(store, "run-1", title="h", filename="h.html", mime="text/html", body=HTML_BYTES)
-        import osprey.mcp_server.ariel.converters as conv
+        import osprey.stores.artifact_converters as conv
 
         async def _boom(*a, **k):  # pragma: no cover
             raise AssertionError("list must not render")
@@ -547,7 +530,7 @@ class TestConversionFidelity:
     def test_html_renders_to_png(self, client, monkeypatch):
         c, store, _ = client
         hid = _save(store, "run-1", title="h", filename="h.html", mime="text/html", body=HTML_BYTES)
-        import osprey.mcp_server.ariel.converters as conv
+        import osprey.stores.artifact_converters as conv
 
         async def _fake_png(source: Path, output_dir: Path) -> Path:
             out = output_dir / f"{source.stem}.png"
@@ -563,7 +546,7 @@ class TestConversionFidelity:
     def test_converter_failure_falls_back_to_original(self, client, monkeypatch):
         c, store, _ = client
         hid = _save(store, "run-1", title="h", filename="h.html", mime="text/html", body=HTML_BYTES)
-        import osprey.mcp_server.ariel.converters as conv
+        import osprey.stores.artifact_converters as conv
 
         async def _broken(*a, **k):
             raise RuntimeError("no playwright")
@@ -596,7 +579,7 @@ class TestTablesAreDeliveredAsFiles:
 
     @pytest.mark.parametrize("mime,filename,body", TABLES)
     def test_byte_route_serves_the_original_bytes(self, client, monkeypatch, mime, filename, body):
-        import osprey.mcp_server.ariel.converters as conv
+        import osprey.stores.artifact_converters as conv
 
         # A working renderer, so a table that reached it would come back as a PNG.
         monkeypatch.setattr(conv, "text_to_png", _rendering_png)
@@ -608,7 +591,7 @@ class TestTablesAreDeliveredAsFiles:
         assert r.content == body
 
     async def test_a_logbook_attachment_still_renders_a_table(self, tmp_path, monkeypatch):
-        import osprey.mcp_server.ariel.converters as conv
+        import osprey.stores.artifact_converters as conv
 
         monkeypatch.setattr(conv, "text_to_png", _rendering_png)
         store = _rooted_store(tmp_path, monkeypatch)

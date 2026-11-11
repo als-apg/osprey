@@ -42,12 +42,8 @@ git checkout -b feature/your-feature-name
 ### 4. Make Changes and Test
 
 ```bash
-# Run tests
-pytest tests/ --ignore=tests/e2e -v
-
-# Run linters
-ruff check .
-ruff format --check .
+# Lint, format, type and import checks, with the fast tests
+uv run python scripts/check.py quick
 ```
 
 **Changelog.** If your change touches a directory the changelog gate covers,
@@ -81,8 +77,8 @@ admins cannot bypass). Open Claude Code in the repo and describe what you want
 to contribute; the skill picks up wherever you are in the journey.
 
 The same plugin carries `/osprey:design-philosophy`, `/osprey:pre-commit`,
-`/osprey:release`, `/osprey:setup`, `/osprey:upstream-scout`, `/osprey:panel`, and
-`/osprey:test-audit`. The full
+`/osprey:release`, `/osprey:setup`, `/osprey:upstream-scout`, `/osprey:panel`,
+`/osprey:build-app`, and `/osprey:test-audit`. The full
 list, the Codex commands, and how to update are in the
 [Agent Skills guide](https://als-apg.github.io/osprey/contributing/agent-skills.html).
 
@@ -112,14 +108,20 @@ For details (CI gates, branch protection, release cuts) see the [full Contributi
 ## Running Tests
 
 ```bash
-# Unit tests, in parallel — this is what CI runs
-pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n auto --dist loadgroup
+# The merge gate's quick tier: lint, format, types, and the fast tests
+uv run python scripts/check.py quick
 
-# Serial, for debugging a single failure
-pytest tests/ --ignore=tests/e2e -v
+# Every check CI runs, the parallel sweep among them
+uv run python scripts/check.py full
+
+# The unit suite with CI's selection, in parallel
+uv run python scripts/check.py run pytest -- -n auto
+
+# One test file, serially, for debugging a single failure
+uv run pytest tests/path/to/test_file.py -v
 
 # E2E tests (requires API keys)
-pytest tests/e2e/ -v
+uv run pytest tests/e2e/ -v
 ```
 
 Because the unit suite runs across four worker processes, a test that changes

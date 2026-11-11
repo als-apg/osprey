@@ -233,8 +233,8 @@ class _StubConfig:
         workerinput: dict | None = None,
     ) -> None:
         self.markers: list[str] = []
-        self.option = SimpleNamespace(markexpr="")
         self.hook = _StubHook()
+        self.stash: dict = {}
         self._collect_only = collect_only
         if workerinput is not None:
             self.workerinput = workerinput
@@ -273,7 +273,7 @@ def test_configure_registers_the_markers_without_a_provider() -> None:
     among them."""
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
     assert any(line.startswith(f"{MODEL_FREE_MARKER}:") for line in config.markers)
 
 
@@ -284,7 +284,7 @@ def test_enumerating_the_suite_needs_no_provider() -> None:
     config = _StubConfig(collect_only=True)
     e2e_conftest.pytest_configure(config)
     e2e_conftest.pytest_collection_modifyitems(config, [])
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
 
 
 def test_a_named_provider_lets_configure_register_its_markers(
@@ -294,7 +294,7 @@ def test_a_named_provider_lets_configure_register_its_markers(
     monkeypatch.setenv(E2E_PROVIDER_ENV, "cborg")
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
 
 
 # ---------------------------------------------------------------------------
@@ -423,14 +423,14 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
 #: A module whose every test drives a model, and one whose every test is
 #: ``model_free``. Selected together they are the mixed run the refusal has to
 #: split: name the first, leave the second alone.
-_MODEL_DRIVEN = "tests/e2e/test_judge.py"
-_MODEL_FREE = "tests/e2e/test_sdk_helpers.py"
+_MODEL_DRIVEN = "tests/e2e/test_llm_providers.py"
+_MODEL_FREE = "tests/e2e/test_dispatch_deploy_render.py"
 _DISTRIBUTION = pytest.mark.parametrize("dist", [(), ("-n", "2")], ids=["single", "xdist"])
 
 
 @_DISTRIBUTION
 def test_a_model_free_module_is_not_refused(dist: tuple[str, ...]) -> None:
-    result = _run_pytest("tests/e2e/test_sdk_helpers.py", "--setup-plan", *dist)
+    result = _run_pytest(_MODEL_FREE, "--setup-plan", *dist)
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
     assert "names no provider" not in output
@@ -666,3 +666,31 @@ def test_a_module_pinning_its_own_provider_keeps_the_gateway_marker() -> None:
     lie."""
     source = (_TESTS_ROOT / PINNED_PROVIDER_MODULE).read_text(encoding="utf-8")
     assert GATEWAY_MARKER in source
+
+
+class TestLiveStreamOutcome:
+    """The live stream names an outcome the way the JUnit summary does."""
+
+    @staticmethod
+    def _report(when: str, outcome: str, text: str = "") -> SimpleNamespace:
+        return SimpleNamespace(when=when, outcome=outcome, longrepr=text)
+
+    def test_a_setup_failure_is_an_error_even_when_it_names_a_timeout(self) -> None:
+        report = self._report("setup", "failed", "VA did not answer within 180 s: Timeout")
+        assert e2e_conftest._live_outcome(report) == "error"
+
+    def test_a_setup_failure_is_an_error_even_with_the_timeout_signature(self) -> None:
+        report = self._report("setup", "failed", "Failed: Timeout (>1800s) from pytest-timeout.")
+        assert e2e_conftest._live_outcome(report) == "error"
+
+    def test_a_call_past_the_cap_is_a_timeout(self) -> None:
+        report = self._report("call", "failed", "Failed: Timeout (>1800s) from pytest-timeout.")
+        assert e2e_conftest._live_outcome(report) == "timeout"
+
+    def test_a_call_whose_source_says_timeout_is_a_failure(self) -> None:
+        report = self._report("call", "failed", "timeout = 5\nassert answer == 3")
+        assert e2e_conftest._live_outcome(report) == "failed"
+
+    def test_other_outcomes_pass_through(self) -> None:
+        assert e2e_conftest._live_outcome(self._report("call", "passed")) == "passed"
+        assert e2e_conftest._live_outcome(self._report("setup", "skipped")) == "skipped"
