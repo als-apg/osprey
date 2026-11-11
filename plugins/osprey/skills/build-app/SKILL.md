@@ -225,7 +225,8 @@ read-only login. Walk the parity table once more against the running panel.
 One `tools.approval` entry per write tool. `prompt` is the card's text, with
 `{{ input.<arg> }}` for call arguments and `{{ state.<key> }}` for the answer
 of `state_path`. `bind.state_fields` copies state values into the call as
-`approved_*` fields; `bind.input_digests` binds the arguments themselves;
+`approved_*` fields (a dotted `key`, `step.digest`, is a path into nested
+state); `bind.input_digests` binds the arguments themselves;
 `require` names the fields a call must carry. Three places then check one
 declaration: OSPREY's approval hook, the tool (`check_approved_call`), and the
 backend against its current state.
