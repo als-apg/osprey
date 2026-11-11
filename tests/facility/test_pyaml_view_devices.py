@@ -47,7 +47,7 @@ def test_a_paired_setpoint_reads_its_readback(tmp_path: Path) -> None:
 def test_a_bpm_reads_both_planes_in_its_channels_unit(tmp_path: Path) -> None:
     devices = _devices(tmp_path, measured_tree(), "SR")
     assert devices["SR_BPM1"] == {
-        "type": "pyaml.bpm.bpm",
+        "type": "pyaml.diagnostics.bpm.bpm",
         "name": "SR_BPM1",
         "lattice_names": "list(BPM1)",
         "x_pos": "BPM1:X[mm]",

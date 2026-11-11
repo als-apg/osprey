@@ -54,7 +54,7 @@ def _bpm_elements(view: Path) -> dict[str, str]:
     configuration = yaml.safe_load((view / CONFIGURATION_FILE).read_text(encoding="utf-8"))
     found: dict[str, str] = {}
     for device in configuration["devices"]:
-        if device["type"] == "pyaml.bpm.bpm":
+        if device["type"] == "pyaml.diagnostics.bpm.bpm":
             (element,) = re.fullmatch(r"list\((.+)\)", device["lattice_names"]).groups()
             found[device["name"]] = element
     return found
@@ -85,7 +85,7 @@ def test_a_design_corrector_step_moves_the_orbit_the_served_kick_does(
     bpms = _bpm_elements(view)
     design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
     magnet = design.magnet.get(address)
-    readers = [design.bpm.get(name) for name in bpms]
+    readers = [design.diagnostic.bpm.get(name) for name in bpms]
     before = np.array([reader.positions.get() for reader in readers])
     magnet.strength.set(magnet.strength.get() + KICK)
     after = np.array([reader.positions.get() for reader in readers])
@@ -138,7 +138,7 @@ def test_a_thin_corrector_steps_the_orbit_the_served_kick_does(
     bpms = _bpm_elements(view)
     design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
     magnet = design.magnet.get(address)
-    readers = [design.bpm.get(name) for name in bpms]
+    readers = [design.diagnostic.bpm.get(name) for name in bpms]
     before = np.array([reader.positions.get() for reader in readers])
     magnet.strength.set(magnet.strength.get() + KICK)
     after = np.array([reader.positions.get() for reader in readers])
@@ -202,7 +202,7 @@ def test_a_thin_multipole_s_kick_reads_back_and_a_step_moves_the_orbit_by_the_st
     magnet = design.magnet.get(address)
     held = magnet.strength.get()
     assert held == pytest.approx(np.sin(kick[plane]), rel=1e-9)
-    readers = [design.bpm.get(name) for name in bpms]
+    readers = [design.diagnostic.bpm.get(name) for name in bpms]
     before = np.array([reader.positions.get() for reader in readers])
     magnet.strength.set(held + KICK)
     after = np.array([reader.positions.get() for reader in readers])

@@ -213,5 +213,5 @@ def test_the_measurement_tools_load_in_pyaml(tmp_path: Path) -> None:
     }
     directory, _ = write_view(tmp_path, tree)
     sr = Accelerator.load(str(directory / "SR" / CONFIGURATION_FILE))
-    assert sr.design.trm is not None
-    assert sr.design.get_chromaticity_monitor("CHROMATICITY_MONITOR") is not None
+    assert sr.design.tool.trm is not None
+    assert sr.design.tool.get("CHROMATICITY_MONITOR") is not None
