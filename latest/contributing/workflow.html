@@ -627,16 +627,6 @@ python3<span class="w"> </span>scripts/ci/full_ci_on_main.py<span class="w"> </s
 every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
 run on every push. Those cost runner minutes, not tokens, and the deploy lanes
 are the per-PR proof that a render builds and starts.</p>
-<p>The one exception is a docs-only pull request: when every changed path is under
-<code class="docutils literal notranslate"><span class="pre">docs/</span></code>, <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code> or <code class="docutils literal notranslate"><span class="pre">tests/docs/</span></code>, the <code class="docutils literal notranslate"><span class="pre">changes</span></code> job sets
-<code class="docutils literal notranslate"><span class="pre">docs_only</span></code> and every pull-request-scoped lane (the e2e and deploy set)
-skips. The always-on lanes still run, including the docs build and the tests
-that read <code class="docutils literal notranslate"><span class="pre">docs/</span></code> (<code class="docutils literal notranslate"><span class="pre">tests/docs/</span></code> runs only in always-on lanes), and the
-gate’s run summary says the e2e lanes did not run. A docs-only run used to
-cost about 620 runner-minutes, nearly all of it in lanes a page cannot reach.
-Root files such as <code class="docutils literal notranslate"><span class="pre">README.md</span></code> do not count, because the package build and
-the Dockerfile lane copy them. The <code class="docutils literal notranslate"><span class="pre">full-ci</span></code> label turns the exception off;
-<code class="docutils literal notranslate"><span class="pre">scripts/ci/docs_only.py</span></code> holds the rule.</p>
 <p>Path filtering was measured and rejected as the mechanism for the
 model-spending lanes: over the 161 PRs
 merged in the two weeks before this landed, 86–91 % touched something under
@@ -648,6 +638,10 @@ run for the previous head. Before that grouping, superseded runs kept running
 and queued ahead of the live one on a saturated concurrent-job allowance:
 measured over 71 PR runs, 35 % were superseded runs still holding 31 % of all
 CI wall-clock.</p>
+<p>Once a cheap, deterministic lane fails (lint, the docs build, the package
+build, the frontend JS checks, the plugin smoke), the run cannot pass, so a
+pull request’s run cancels its remaining lanes, <code class="docutils literal notranslate"><span class="pre">All</span> <span class="pre">CI</span> <span class="pre">Checks</span> <span class="pre">Passed</span></code>
+included. Push a fix or re-run the workflow to merge.</p>
 </section>
 <section id="measured-ci-figures">
 <span id="contributing-ci-figures"></span><h2>Measured CI Figures<a class="headerlink" href="#measured-ci-figures" title="Link to this heading">#</a></h2>
