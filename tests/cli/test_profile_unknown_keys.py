@@ -216,7 +216,7 @@ def test_schema_min_osprey_is_pinned() -> None:
 
 
 def test_schema_floor_is_above_the_last_pre_vocabulary_release() -> None:
-    """A release that predates tiers/apps must refuse a repo spelled that way.
+    """A release that predates the login vocabulary must refuse a repo spelled that way.
 
     Such a release checks ``max(its lineage, its own floor)`` — at most the
     previous floor ``2026.9.0`` — against the stamped ``>=`` this floor, so

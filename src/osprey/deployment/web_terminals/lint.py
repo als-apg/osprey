@@ -1443,7 +1443,7 @@ def _check_render_charset(web_terminals: dict[str, Any]) -> list[Finding]:
             code="web_terminals.invalid_render_charset",
             message=(
                 f"modules.web_terminals.renders key {render_name!r} does not "
-                f"match {USERNAME_CHARSET_RE.pattern!r} (tier and app names become "
+                f"match {USERNAME_CHARSET_RE.pattern!r} (login names become "
                 "image-tag suffixes and path components)"
             ),
         )
@@ -2080,7 +2080,7 @@ def _check_unreadable_tier_privileges(
                 severity=severity,
                 code="web_terminals.render_privileges_unknown",
                 message=(
-                    f"modules.web_terminals tier or app {render_name!r} could not be read, so "
+                    f"modules.web_terminals login {render_name!r} could not be read, so "
                     f"this build cannot tell whether it holds "
                     f"{privilege_phrase(ALL_PRIVILEGES)} — and {', and '.join(reasons)}. "
                     # The shape clause is a whole sentence and brings its own
@@ -3009,7 +3009,7 @@ def _check_render_bundle_path_agreement(
                 severity="error",
                 code="web_terminals.render_bundle_path_divergence",
                 message=(
-                    f"tier or app {render_name!r} sets facility_knowledge.bundle_path to "
+                    f"login {render_name!r} sets facility_knowledge.bundle_path to "
                     f"{render_bundle!r}, but this deployment sets {deploy_bundle!r}. "
                     "The bundle is bind-mounted at the DEPLOYMENT's path while the "
                     "card's knowledge tools read its own, so that container would "
@@ -3078,17 +3078,17 @@ def _check_render_mirror_agreement(
             continue
         if deploy_mirror is None:
             message = (
-                f"tier or app {render_name!r} runs an ARIEL qmd export writing "
+                f"login {render_name!r} runs an ARIEL qmd export writing "
                 f"{render_mirror!r}, but this deployment runs none, so no mirror "
                 "directory is bound into that container: its exporter would write into "
                 "the container's writable layer, which the qmd sidecar never indexes and "
                 "the next recreate discards. Enable the export on the hosting profile "
                 "(one shared mirror, indexed by the sidecar) or switch it off in the "
-                "tier or app"
+                "login"
             )
         else:
             message = (
-                f"tier or app {render_name!r} sets ariel.enhancement_modules.qmd_export."
+                f"login {render_name!r} sets ariel.enhancement_modules.qmd_export."
                 f"mirror_path to {render_mirror!r}, but this deployment sets "
                 f"{deploy_mirror!r}. The mirror is bind-mounted at the DEPLOYMENT's path "
                 "while the card's exporter writes its own, so its entries would land "
@@ -3116,15 +3116,15 @@ def _check_render_project_collisions(
     rather than by a tag suffix. Config-only, so it runs at both altitudes —
     no filesystem is consulted. Two invariants:
 
-    * **Render vs render.** No two referenced tiers or apps may share a
+    * **Render vs render.** No two referenced logins may share a
       ``project``. Each one is its own render, so two of them on one
       ``project`` race their builds onto one tag: the last build wins, and
       every card of the losing render silently runs the winning render's
       image — an entitlement bleed, not just a naming wart. Pointing both at
-      one ``project_path`` does not make that safe: a tier and an app are
+      one ``project_path`` does not make that safe: two logins are
       separate definitions, and one render serving two names is a second
       name for one agent rather than a second agent.
-    * **Render vs project.** No tier or app ``project`` may equal the
+    * **Render vs project.** No login's ``project`` may equal the
       deployment's own project name: the project image already owns that
       ``<project>:local`` tag (the dispatch worker and the deployment's own
       services run it), and a render build would overwrite it (or be
@@ -3165,10 +3165,10 @@ def _check_render_project_collisions(
                     severity="error",
                     code="web_terminals.render_project_collision",
                     message=(
-                        f"tiers or apps {names} share project {project!r}; their builds "
+                        f"logins {names} share project {project!r}; their builds "
                         f"would race onto the one image tag '{project}:local', and the "
                         "cards of the losing one would silently run the winning one's "
-                        "image. Give each tier and app its own project (matching its "
+                        "image. Give each login its own project (matching its "
                         "render)"
                     ),
                 )
@@ -3179,7 +3179,7 @@ def _check_render_project_collisions(
                     severity="error",
                     code="web_terminals.render_shadows_project_image",
                     message=(
-                        f"tiers or apps {', '.join(repr(name) for name, _ in members)} "
+                        f"logins {', '.join(repr(name) for name, _ in members)} "
                         f"use project {project!r}, which is this deployment's own project "
                         f"name; their image tag '{project}:local' would collide with the "
                         "project image. Rename the render (osprey build names each one "
@@ -3257,7 +3257,7 @@ def _check_one_render_project_path(
                 message=(
                     f"modules.web_terminals.renders[{render_name!r}] has no "
                     "project_path set; image_source: local requires one to "
-                    "build this tier or app's image from"
+                    "build this login's image from"
                 ),
             )
         ]
@@ -3356,7 +3356,7 @@ def _check_one_render_project_path(
                 message=(
                     f"modules.web_terminals.renders[{render_name!r}]."
                     f"project_path {project_path_raw!r} has no Dockerfile; "
-                    "local mode builds each tier or app's image from its own "
+                    "local mode builds each login's image from its own "
                     "project directory"
                 ),
             )
@@ -3460,7 +3460,7 @@ def _check_render_missing_project(
                 code="web_terminals.render_missing_project",
                 message=(
                     f"modules.web_terminals.renders[{render_name!r}] has no project; "
-                    "a tier or app whose image is built elsewhere states the project that "
+                    "a login whose image is built elsewhere states the project that "
                     "image was built from (its directory is /app/<project>)"
                 ),
             )

@@ -312,8 +312,8 @@ def project_name_errors(project_name: Any) -> list[str]:
 def render_key_errors(config: Any) -> list[str]:
     """Refuse a profile that spells the render projection the build derives.
 
-    ``modules.web_terminals.renders`` is the build's account of every tier and
-    app it renders — each entry's ``kind``, ``project`` and ``project_path``
+    ``modules.web_terminals.renders`` is the build's account of every login
+    it renders — each entry's ``kind``, ``project`` and ``project_path``
     derived from the file's location and the top-level ``project_name:``
     (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`),
     its ``extra_mounts``, ``seed_base`` and ``image`` read from the file's top
@@ -425,7 +425,7 @@ class BuildProfile:
     models, decks, seeds, limits, scenarios) from that directory and only the
     deployment's own content (``knowledge/``, ``ariel/``, ``benchmarks/``)
     from ``<data>/facility``. Unset, ``<data>/facility`` plays both roles, as
-    for every deployment before the key existed. Root-only: a tier or app may
+    for every deployment before the key existed. Root-only: a login may
     not restate it, because the machine a deployment drives is deployment-wide.
     :meth:`validate` checks only that it is a non-empty string; the location
     itself is checked by :meth:`resolved_facility_roots`, which build,
@@ -1151,7 +1151,7 @@ class BuildProfile:
     def _runs_the_channel_finder(self) -> bool:
         """Whether this profile keeps the channel-finder MCP server switched on.
 
-        A tier or app narrows the deployment it is rendered from by switching
+        A login narrows the deployment it is rendered from by switching
         servers off in its ``config:`` overlay, and one of them takes the whole
         channel finder — server, tools and subagent — out of that render. Such a
         layer still inherits ``channel_finder_mode`` from the root profile,

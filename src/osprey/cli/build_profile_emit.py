@@ -219,7 +219,7 @@ _ANNOTATIONS: dict[str, tuple[str, ...]] = {
 # is a display label, the other the name every container, volume and image of
 # the deployment is derived from on the host.
 _PROJECT_NAME_COMMENT = (
-    "# Names the compose project, volumes, images, tier and app renders; not the folder."
+    "# Names the compose project, volumes, images, login renders; not the folder."
 )
 
 # The stamp is always written, so it carries its explanation rather than a

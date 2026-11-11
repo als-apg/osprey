@@ -951,7 +951,7 @@ const UNAUTHORIZED_HINT = IN_TERMINAL_PROXY
    behind the Info icon; the standalone advice is the next step, so it is the
    state's second line. */
 const UNAUTHORIZED_STATE = IN_TERMINAL_PROXY
-  ? { tip: 'This terminal has no EVENT_DISPATCHER_TOKEN. Its tier or app must declare the EVENTS panel, and `osprey up` must mint the token into the deployment’s .env.' }
+  ? { tip: 'This terminal has no EVENT_DISPATCHER_TOKEN. Its login must declare the EVENTS panel, and `osprey up` must mint the token into the deployment’s .env.' }
   : { detail: 'Open this panel from the terminal’s EVENTS tab, which supplies a token.' };
 
 /** True when a response was rejected for auth; the caller explains rather than retries. */

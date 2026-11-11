@@ -847,7 +847,7 @@ def _parse_layer_delta(text: str, shown: str, *, require_mapping: bool) -> Mappi
 
 
 def read_layer_deltas(repo_root: Path) -> dict[str, Mapping[str, Any]]:
-    """Read the on-disk delta of every tier and app layer a repo carries.
+    """Read the on-disk delta of every login layer a repo carries.
 
     The read half of what :func:`_layer_profile_texts` emits, over the same
     listing the build renders one project per layer from
@@ -1250,8 +1250,8 @@ def _privileged_tier_problems(
 ) -> list[str]:
     """Why this profile's roster must not deploy as written, from the layers it names.
 
-    The build-time half of the deployment-editing guard, run where every tier
-    and app the roster names has just been emitted and its privileges are
+    The build-time half of the deployment-editing guard, run where every login
+    the roster names has just been emitted and its privileges are
     therefore known exactly (see
     :func:`~osprey.deployment.web_terminals.roster.tier_privileges`). Two
     rules, both owned by that module so the lint belt behind this reports the
@@ -1277,9 +1277,9 @@ def _privileged_tier_problems(
         config: The host profile's ``config:`` block, from which the roster is
             folded out — and the baseline the relative map is measured
             against.
-        privileges: Tier or app name → what it holds BEYOND that baseline. A
+        privileges: Login name → what it holds BEYOND that baseline. A
             name absent from this mapping contributes nothing.
-        absolute_privileges: Tier or app name → what it holds outright. What
+        absolute_privileges: Login name → what it holds outright. What
             the shared-card rule is judged on.
 
     Returns:
@@ -1304,7 +1304,7 @@ def _privileged_tier_problems(
         problems.append(default_problem)
 
     # Every card the roster runs — people, then the derived app cards
-    # (`roster_entries`) — each resolved to the tier or app it renders from.
+    # (`roster_entries`) — each resolved to the login it renders from.
     # Lenient, exactly as the lint belt resolves it: an entry carrying an
     # `access` value the vocabulary does not recognise, or a role nothing
     # binds, is a different mistake, reported by the rule that owns it
@@ -1664,7 +1664,7 @@ class _MaterializedProfile(NamedTuple):
     than about what the inputs asked for."""
 
     layer_deltas: dict[str, Mapping[str, Any]]
-    """The emitted tier and app files, parsed, keyed by tier or app name — empty
+    """The emitted login files, parsed, keyed by login name — empty
     for a profile that emits none. The per-tier facts a summary needs (each
     tier's panels and its write posture) live in these, not in the host
     profile."""
@@ -1811,7 +1811,7 @@ def _materialize_profile_directory(
     except ValueError as e:
         raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
-    # How the emitted tier and app headers spell their own paths: repo-relative,
+    # How the emitted login headers spell their own paths: repo-relative,
     # because the repo root is where a reader stands.
     retired_layer_dirname = ""
 
@@ -1832,7 +1832,7 @@ def _materialize_profile_directory(
             "resolve:\n  - " + "\n  - ".join(access_problems)
         )
 
-    # A profile that deploys web terminals owns the tiers and apps its roster
+    # A profile that deploys web terminals owns the logins its roster
     # names: each is materialized beside this one as an explicit file, laid over
     # this profile by its location. Emitted before the first mkdir, like
     # everything else here, so a bad roster reference fails before mutating.
@@ -2006,7 +2006,7 @@ def _materialize_profile_directory(
                     # operator's, whatever else is in it.
                     run_written.append(FACILITY_RULE_DIR)
 
-        # The tier and app files. Validity was settled by `_parsed_layer_deltas`
+        # The login files. Validity was settled by `_parsed_layer_deltas`
         # above, before the first mkdir — nothing reaching here is unparsed, so
         # these writes need no guard of their own.
         for relative, layer_text in render_texts.items():
@@ -2014,7 +2014,7 @@ def _materialize_profile_directory(
             layer_path.parent.mkdir(exist_ok=True)
             layer_path.write_text(layer_text, encoding="utf-8")
         if render_texts:
-            logger.debug("  Tiers and apps: %s", ", ".join(render_texts))
+            logger.debug("  Logins: %s", ", ".join(render_texts))
         # Write-once seeds, outside the web-tier branch because they
         # are not a web-tier fact: a directory the deployment OWNS from its first
         # init — an operator's MCP servers, say — copied out of the bundle once

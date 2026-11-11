@@ -15,6 +15,11 @@ matching anything fails, so the list only shrinks.
 
 The example deployment name that named a site (``SITE_EXAMPLE_WORD``) is a
 third token, scanned over the core text under ``SITE_SCAN_PATHS``.
+
+The phrase that named two login kinds (``RETIRED_TWO_KIND_PHRASE``) is a fourth
+token, scanned line by line over ``TWO_KIND_SCAN_PATHS``. A file that must keep
+it is a ``RETIRED_TWO_KIND_READERS`` row with its reason; an allowlist row that
+stops matching anything fails, so the list only shrinks.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ import pytest
 from tests._vocabulary import (
     ENGINE_WORDS,
     RETIRED_ROSTER_WORD,
+    RETIRED_TWO_KIND_PHRASE,
     SITE_EXAMPLE_WORD,
 )
 
@@ -301,3 +307,114 @@ def test_a_planted_site_example_is_flagged(tmp_path: Path) -> None:
 
 def test_no_core_text_names_the_site_example() -> None:
     assert site_example_hits(REPO_ROOT) == []
+
+
+# --- the retired two-kind phrase --------------------------------------------------
+
+#: The core text the phrase never enters.
+TWO_KIND_SCAN_PATHS: tuple[str, ...] = ("src", "docs/source", "plugins")
+
+#: Where the phrase stays for good, each with why.
+RETIRED_TWO_KIND_READERS: dict[str, str] = {}
+
+
+def two_kind_phrase_hits(
+    root: Path, allowed: Mapping[str, str] = RETIRED_TWO_KIND_READERS
+) -> list[str]:
+    """Every ``path:line`` under ``TWO_KIND_SCAN_PATHS`` naming the two-kind phrase."""
+    excludes = [f":(exclude,glob){glob}" for glob in allowed]
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-I",
+            "-n",
+            "-P",
+            "-e",
+            RETIRED_TWO_KIND_PHRASE,
+            "--",
+            *TWO_KIND_SCAN_PATHS,
+            *excludes,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode in (0, 1), result.stderr
+    return sorted(":".join(line.split(":", 2)[:2]) for line in result.stdout.splitlines() if line)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a tier or app file",
+        "every Tier and App render",
+        "the tiers and apps its roster names",
+        "tiers or apps share a project",
+        "a tier and an app are",
+        "one per tier/app",
+        "Tier, app and image renders",
+        "TIER OR APP",
+    ],
+)
+def test_two_kind_phrase_finds_the_phrase(text: str) -> None:
+    assert re.search(RETIRED_TWO_KIND_PHRASE, text) is not None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the login's tier",
+        "an app's panel",
+        "tiers, apps, and secrets",
+        "tier and application",
+        "tiers/ and apps/ folders",
+        "tiers, apps = _roster_layers(config)",
+        "the tier and write switch",
+    ],
+)
+def test_two_kind_phrase_leaves_other_words(text: str) -> None:
+    assert re.search(RETIRED_TWO_KIND_PHRASE, text) is None
+
+
+def test_a_planted_two_kind_phrase_is_flagged(tmp_path: Path) -> None:
+    line = "names the tier or app file\n"
+    root = _planted_repo(
+        tmp_path,
+        {
+            "src/x.py": line,
+            "docs/source/x.rst": line,
+            "plugins/x/SKILL.md": line,
+            "docs/other/x.md": line,
+            "tests/x.py": line,
+            "CHANGELOG.md": line,
+            "src/clean.py": "# the login's tier; an app's panel\n",
+        },
+    )
+
+    assert two_kind_phrase_hits(root) == [
+        "docs/source/x.rst:1",
+        "plugins/x/SKILL.md:1",
+        "src/x.py:1",
+    ]
+
+
+def test_no_core_text_names_the_two_kind_phrase() -> None:
+    assert two_kind_phrase_hits(REPO_ROOT) == []
+
+
+def test_every_two_kind_allowlist_entry_still_matches() -> None:
+    hit_paths = {hit.rsplit(":", 1)[0] for hit in two_kind_phrase_hits(REPO_ROOT, allowed={})}
+    stale = []
+    for glob in RETIRED_TWO_KIND_READERS:
+        covered = subprocess.run(
+            ["git", "ls-files", "--", f":(glob){glob}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        if not hit_paths.intersection(covered):
+            stale.append(glob)
+    assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"

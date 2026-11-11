@@ -2314,7 +2314,7 @@ def profile_inputs(
        (``package:<path>``, in ``dependencies`` order);
     5. the overlay ``.env.variant`` in ``document.root_dir`` selects (``variant``).
 
-    Every entry anchors at ``document.root_dir``. A tier or app reads its
+    Every entry anchors at ``document.root_dir``. A login reads its
     deployment's overlay there, because the variant reaches its render through
     the deployment root.
 
@@ -2737,7 +2737,7 @@ def compute_preset_hash(preset_name: str) -> str | None:
     try:
         raw, path = _load_preset_raw(preset_name)
         if "/" in preset_name:
-            # A kind-qualified tier or app (`tiers/readonly`) is a layer, not a
+            # A kind-qualified login (`tiers/readonly`) is a layer, not a
             # profile: resolving it would lay it over a `profile.yml` beside it
             # that the package does not have. Its content is its own document.
             import hashlib
@@ -2763,8 +2763,8 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     whose variant arrived as an argument would be a fingerprint two call sites
     could spell differently — the exact way a stale build goes unnoticed. Read
     off the directory, both sides of the comparison see the same selection, and
-    a directory with no ``.env.variant`` (a preset's) folds nothing. A tier or
-    app reads it off its deployment root, because the variant reaches its
+    a directory with no ``.env.variant`` (a preset's) folds nothing. A login
+    reads it off its deployment root, because the variant reaches its
     render through that root.
     """
     try:
