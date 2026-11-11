@@ -737,7 +737,7 @@ jobs:
     - name: Run the watchdog browser suite
       timeout-minutes: 20
       env:
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/interfaces/test_watchdog_e2e.py -m browser -v --tb=short \
           -p no_skips --no-skips-message "every watchdog browser test ran; none skipped"
@@ -997,7 +997,7 @@ jobs:
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         PRESET: ${{ matrix.preset }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         # -k matches the snake_case test names (test_hello_world_*).
         PRESET_K="${PRESET//-/_}"
@@ -1040,7 +1040,7 @@ jobs:
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         E2E_FILTER: ${{ inputs.e2e_filter }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         if [ -n "$E2E_FILTER" ]; then
           echo "Running scoped E2E filter: $E2E_FILTER"
@@ -1164,7 +1164,7 @@ jobs:
     - name: Run the model-free E2E files
       timeout-minutes: 25
       env:
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         # Named by path, not marker: a vanished path reds (exit 4), a marker matching nothing greens.
         # The wiring test holds this list equal to the model_free tests.
@@ -1219,7 +1219,7 @@ jobs:
       timeout-minutes: 120
       env:
         CASE: ${{ matrix.case }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest \
           tests/e2e/test_agent_record_e2e.py \
@@ -1369,7 +1369,7 @@ jobs:
         EVENT_DISPATCHER_TOKEN: dev-token
         DISPATCH_WORKER_TOKEN: dev-token
         MODULE: ${{ matrix.module }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest "$MODULE" -v --tb=short \
           -p no_skips --no-skips-message "✅ every test of the dispatch stack module ran; none skipped"
@@ -1407,7 +1407,7 @@ jobs:
       timeout-minutes: 20
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_host_record_e2e.py -v --tb=short \
           -p no_skips --no-skips-message "✅ every host record test ran; none skipped"
@@ -1530,7 +1530,7 @@ jobs:
       env:
         MODULE: ${{ matrix.module }}
         PYTEST_ARGS: ${{ matrix.pytest_args }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       # The gate also reds a graph cell whose n10s jar went missing: the fixture would skip.
       run: |
         # The cell's pytest_args are empty or several flags: split on purpose.
@@ -1629,7 +1629,7 @@ jobs:
       env:
         OSPREY_QMD_IMAGE: osprey-qmd:ci
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_plan_stack_agentic.py -v --tb=short \
           -p no_skips --no-skips-message "✅ every scan-stack agentic test ran; none skipped"
@@ -1679,7 +1679,7 @@ jobs:
       timeout-minutes: 40
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_nextcloud_talk_bridge_e2e.py -v --tb=short \
           -p no_skips --no-skips-message "✅ every Nextcloud Talk test ran; none skipped"
@@ -1715,7 +1715,7 @@ jobs:
     # Separate steps, no xdist: both files use one fixed-name emulator container.
     - name: Run Google Chat fixture smoke tests
       env:
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/fixtures/test_gchat_fixture_smoke.py -v --tb=short \
           -p no_skips --no-skips-message "✅ every Google Chat test ran; none skipped"
@@ -1723,7 +1723,7 @@ jobs:
     - name: Run Google Chat bridge E2E
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_gchat_bridge_e2e.py -v --tb=short \
           -p no_skips --no-skips-message "✅ every Google Chat test ran; none skipped"
@@ -1748,7 +1748,7 @@ jobs:
     - name: Run Microsoft Teams and Slack bridge E2E
       timeout-minutes: 16
       env:
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         # `--no-sync`: a bare `uv run` re-syncs and strips the `teams` extra back out.
         uv run --no-sync pytest \
@@ -1779,7 +1779,7 @@ jobs:
     - name: Run privilege split E2E
       timeout-minutes: 85
       env:
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_privilege_split.py -v --tb=short \
           -p no_skips --no-skips-message "✅ the privilege split module ran" --no-skips-allow-partial
@@ -1789,7 +1789,7 @@ jobs:
       if: success() || failure()
       timeout-minutes: 35
       env:
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_audit_two_container.py -v --tb=short \
           -p no_skips --no-skips-message "✅ the audit two-container module ran" --no-skips-allow-partial
@@ -1828,7 +1828,7 @@ jobs:
       env:
         OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha || github.sha }}
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_dockerfile_agent_e2e.py -v --tb=short \
           -p no_skips --no-skips-message "✅ the Dockerfile agent turn ran; nothing skipped"
@@ -2049,7 +2049,7 @@ jobs:
     - name: Run full-chain auth E2E
       timeout-minutes: 75
       env:
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_full_chain_auth.py -v --tb=short \
           -p no_skips --no-skips-message "✅ every full-chain auth test ran; none skipped"
@@ -2230,7 +2230,7 @@ jobs:
       timeout-minutes: 35
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/e2e/test_target_switch_agentic.py -v --tb=short \
           -p no_skips --no-skips-message "✅ every control-target switch agentic test ran; none skipped"
@@ -2317,7 +2317,7 @@ jobs:
       env:
         OSPREY_VA_E2E_ENABLE: "1"
         SUITES: ${{ matrix.suites }}
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       # No xdist: the conftest keeps ONE session container per process.
       run: |
         # The cell's suites are several paths: split on purpose.
@@ -2331,7 +2331,7 @@ jobs:
       timeout-minutes: 10
       env:
         OSPREY_ALS_LANE_STAND_IN: tests/fixtures/mml/nsls2
-        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
+        PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         uv run pytest tests/cli/test_als_lane.py -v --tb=short \
           -p no_skips --no-skips-message "✅ the real-facility lane ran; none skipped"

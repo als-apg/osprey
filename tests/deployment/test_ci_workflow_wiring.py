@@ -15791,6 +15791,8 @@ def test_no_expression_is_pasted_into_a_run_script__mutation_inlines_one() -> No
 # tests/scripts/test_no_skips_plugin.py; this pins that each lane loads it.
 
 NO_SKIPS_PLUGIN_DIR = "scripts/ci/pytest_plugins"
+#: Absolute, so a step's ``working-directory`` cannot hide the plugin from pytest.
+NO_SKIPS_PLUGIN_PATH = "${{ github.workspace }}/" + NO_SKIPS_PLUGIN_DIR
 _NO_SKIPS_LOAD = re.compile(r"(?:^|\s)-p\s+no_skips(?=\s|$)")
 _NO_SKIPS_MESSAGE = re.compile(r'--no-skips-message\s+"[^"]+"')
 _NO_SKIPS_PARTIAL = "--no-skips-allow-partial"
@@ -15866,8 +15868,8 @@ def _no_skips_errors(wf: dict[str, Any], job_id: str) -> list[str]:
             if "||" in call or "set +e" in code or step.get("continue-on-error"):
                 errors.append(f"{where}: the gate must fail the job, not just print")
         path = (_resolved_env(wf, job, step, "PYTHONPATH") or "").split(":")
-        if NO_SKIPS_PLUGIN_DIR not in path:
-            errors.append(f"{where}: PYTHONPATH must hold {NO_SKIPS_PLUGIN_DIR} for -p no_skips")
+        if NO_SKIPS_PLUGIN_PATH not in path:
+            errors.append(f"{where}: PYTHONPATH must hold {NO_SKIPS_PLUGIN_PATH} for -p no_skips")
     return errors
 
 
@@ -15921,6 +15923,13 @@ def test_skip_gated_lanes__mutation_drops_the_plugin_path(job_id: str) -> None:
     mutated = _load_workflow()
     del _first_gated_step(mutated, job_id)["env"]["PYTHONPATH"]
     with pytest.raises(AssertionError, match="PYTHONPATH"):
+        test_skip_gated_lanes_fail_on_any_skipped_test(mutated)
+
+
+def test_skip_gated_lanes__mutation_uses_a_relative_plugin_path() -> None:
+    mutated = _load_workflow()
+    _first_gated_step(mutated, STACK_JOB)["env"]["PYTHONPATH"] = NO_SKIPS_PLUGIN_DIR
+    with pytest.raises(AssertionError, match="PYTHONPATH must hold"):
         test_skip_gated_lanes_fail_on_any_skipped_test(mutated)
 
 

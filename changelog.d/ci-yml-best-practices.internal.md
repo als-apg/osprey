@@ -34,7 +34,8 @@ past the commit that rendered the baselines; the check is pure git and reads tha
 
 The skip-gated lanes no longer run a separate "Fail the lane on any skipped test" step over junit
 reports. Their pytest steps load `scripts/ci/pytest_plugins/no_skips.py` instead (`-p no_skips`,
-with that directory on `PYTHONPATH`), which fails the session on any skipped test, xfail or module
+with `${{ github.workspace }}/scripts/ci/pytest_plugins` on `PYTHONPATH`, so a step's working
+directory cannot hide it), which fails the session on any skipped test, xfail or module
 skipped at collection, under xdist too, and says why in an `::error::` annotation; a session that
 collects nothing still exits 5. `--no-skips-message` prints the lane's message when nothing
 skipped, and `--no-skips-allow-partial` keeps `privilege-split-e2e`'s module-wide rule. The gate
