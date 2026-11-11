@@ -157,6 +157,7 @@ def _scope(repo: Path | None, config_option: Path | None) -> _Scope:
             raise
         root = None
     if root is not None:
+        from osprey.agent_record.credentials import export_built_host_identity
         from osprey.deployment.compose_generator import (
             control_target_tree_dir,
             write_ledger_relpath,
@@ -164,6 +165,9 @@ def _scope(repo: Path | None, config_option: Path | None) -> _Scope:
         )
         from osprey_connectors.workspace import rendered_config_path
 
+        # Who approves and revokes here, to the grants and the record: the one
+        # name the build recorded, as the commands that launch a session say it.
+        export_built_host_identity(os.environ, root)
         config_path = config_option or rendered_config_path(root)
         config = _load(config_path) if config_path.is_file() else None
         return _Scope(
