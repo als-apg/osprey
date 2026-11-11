@@ -1523,13 +1523,23 @@ class _SharedRenderInputs(NamedTuple):
     which asks the host nothing and writes nothing.
     """
 
+    host_identity_said: set[str] | None = None
+    """What this build has already said about the host identity it records, by text.
+
+    The deployment is rendered twice, once for the host and once for its
+    image, and both record the same identity: the first says how it was
+    chosen, the second logs it at DEBUG. ``None`` says it every time.
+    """
+
 
 #: Parsed ``config.yml`` documents by (path, content digest); see
 #: :func:`_rendered_config`. Cleared at the start of every ``osprey build``.
 _rendered_config_cache: dict[tuple[str, bytes], dict[str, Any]] = {}
 
 
-def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
+def _record_host_identity(
+    render_dir: Path, rendered: dict[str, Any], *, said: set[str] | None = None
+) -> bool:
     """Record ``deployment.host_identity`` in a render that states none.
 
     A session launched on the host sends its OTLP events to the record under
@@ -1540,15 +1550,53 @@ def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
     Every deployment records it: the agent record is always deployed, and it
     reads the host's transcripts and spool under this name.
 
+    The account's name is recorded as the identity derived from it
+    (:func:`~osprey.agent_record.identities.derived_host_identity`), which is
+    the name itself when it is already a lowercase one; the build says so when
+    it is not. A derived name another login of the deployment already holds, or
+    an account no identity can be derived from, is recorded as nothing: the
+    build goes on, and the host launchers refuse until the profile states a
+    name. A name the profile states is kept as written, and said when no host
+    launch will accept it.
+
+    Args:
+        render_dir: The deployment's render.
+        rendered: Its ``config.yml``.
+        said: What this build has already said about the host identity
+            (:attr:`_SharedRenderInputs.host_identity_said`); a line in it is
+            logged at DEBUG instead of said again.
+
     Returns:
         Whether the render's ``config.yml`` was changed.
     """
     import getpass
 
-    from osprey.agent_record.identities import host_identity
+    from osprey.agent_record.identities import derived_host_identity, host_identity
+    from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
     from osprey.utils.config_writer import config_update_fields
 
-    if host_identity(rendered) is not None:
+    from . import output
+
+    def say(summary: str, detail: str | None = None, remedy: str | None = None) -> None:
+        if said is not None:
+            if summary in said:
+                logger.debug(summary)
+                return
+            said.add(summary)
+        if remedy is None:
+            output.note(summary)
+        else:
+            output.warn_fact(logger, summary, detail, remedy)
+
+    shape = "lowercase letters and digits, then also '_' and '-'"
+    stated = host_identity(rendered)
+    if stated is not None:
+        if not USERNAME_CHARSET_RE.fullmatch(stated):
+            say(
+                f"deployment.host_identity {stated!r} is not a usable host identity ({shape})",
+                "osprey web, chat and query will refuse to start.",
+                "State such a name in profile.yml and run `osprey build`",
+            )
         return False
     try:
         account = getpass.getuser()
@@ -1556,8 +1604,124 @@ def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
         # A uid with no passwd entry has no name to record; host launches
         # then fall back to the ledger's own ladder.
         return False
-    config_update_fields(render_dir / "config.yml", {"deployment.host_identity": account})
+    identity = derived_host_identity(account)
+    if identity is None:
+        say(
+            f"Host sessions are not recorded: no host identity can be made from the login "
+            f"{account!r}",
+            f"A host identity is {shape}.",
+            "State such a name as `deployment.host_identity` in profile.yml and run `osprey build`",
+        )
+        return False
+    if identity != account:
+        # Asked only of a name the build made: a login that is an identity as
+        # it stands is refused where any other claimed login is.
+        claimed = _host_identity_clash(rendered, identity)
+        if claimed is not None:
+            say(
+                f"Host sessions are not recorded: the login {account!r} would be recorded as "
+                f"{identity!r}, which another login of this deployment already holds",
+                claimed,
+                "State a different `deployment.host_identity` in profile.yml and run "
+                "`osprey build` if sessions will be started on this host",
+            )
+            return False
+        say(f"Host identity: {identity} (login {account})")
+    config_update_fields(render_dir / "config.yml", {"deployment.host_identity": identity})
     return True
+
+
+def _host_identity_clash(rendered: Mapping[str, Any], identity: str) -> str | None:
+    """Why *identity* cannot be the host identity of *rendered*, or ``None`` when it can.
+
+    Asked of the record's own login check, with and without the identity: a
+    render that clashes without it is refused by the credential step anyway,
+    for its own reason.
+    """
+    from osprey.agent_record.credentials import _grants
+
+    def clash(config: Mapping[str, Any]) -> str | None:
+        try:
+            _grants(config)
+        except ValueError as exc:
+            return str(exc)
+        return None
+
+    if clash(rendered) is not None:
+        return None
+    deployment = rendered.get("deployment")
+    stamped = {**(deployment if isinstance(deployment, Mapping) else {}), "host_identity": identity}
+    return clash({**rendered, "deployment": stamped})
+
+
+def _carry_host_identity_dirs(repo_root: Path, rendered: Mapping[str, Any]) -> None:
+    """Move what the building account's own name filed into the identity derived from it.
+
+    Only for a build whose host identity is the one derived from a login that
+    is not itself one (``GMartino`` → ``gmartino``). A session or command run
+    under the login before then wrote into ``var/spool``, ``var/state`` and the
+    control-context tree under the login's own spelling. Names are compared as
+    the directory lists them, never by asking whether a path exists:
+
+    * Where the filesystem ignores case, the two spellings are one directory,
+      and the record would go on filing the host's entries under the spelling
+      the directory lists. It is renamed to the identity.
+    * Where it does not, they are two. The old one is left where it is, and
+      still read under its own name; the build says once, before the new one
+      is made, that new host entries go elsewhere.
+    """
+    import getpass
+
+    from osprey.agent_record.identities import derived_host_identity, host_identity
+    from osprey.deployment.compose_generator import control_target_tree_dir
+    from osprey.utils.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
+
+    from . import output
+
+    identity = host_identity(rendered)
+    try:
+        account = getpass.getuser()
+    except (KeyError, OSError):
+        return
+    if identity is None or identity == account or derived_host_identity(account) != identity:
+        return
+
+    def shown(path: Path) -> str:
+        try:
+            return str(path.relative_to(repo_root))
+        except ValueError:
+            return str(path)
+
+    zones = (
+        repo_root / SPOOL_DIR_RELPATH,
+        repo_root / STATE_DIR_RELPATH,
+        control_target_tree_dir(dict(rendered), repo_root),
+    )
+    for zone in zones:
+        try:
+            listed = set(os.listdir(zone))
+        except OSError:
+            continue
+        old, new = zone / account, zone / identity
+        if account not in listed or identity in listed or old.is_symlink() or not old.is_dir():
+            continue
+        if not new.exists():
+            output.note(
+                f"{shown(old)} holds entries written before this build; "
+                f"new host entries go to {shown(new)}."
+            )
+            continue
+        try:
+            os.rename(old, new)
+        except OSError as exc:
+            output.warn_fact(
+                logger,
+                f"{shown(old)} could not be renamed to {shown(new)}",
+                str(exc),
+                f"Rename it by hand; until then the record files host entries under {account!r}",
+            )
+        else:
+            logger.debug("renamed %s to %s", shown(old), shown(new))
 
 
 def _ensure_agent_record_credentials(repo_root: Path, rendered: dict[str, Any]) -> None:
@@ -2575,7 +2739,9 @@ def _render_project(
         # agree whichever account later runs them. The deployment's render
         # only: a render's runs in a container the compose file names.
         if deployment:
-            _record_host_identity(render_dir, _rendered_config(render_dir))
+            _record_host_identity(
+                render_dir, _rendered_config(render_dir), said=shared.host_identity_said
+            )
 
         applied = _apply_conventions(
             repo_root,
@@ -4131,6 +4297,7 @@ def _build_repo(
             applications=applications,
             deployment_packages=deployment_packages,
             image_platform=image_platform,
+            host_identity_said=set(),
         )
 
         # One reported phase over every render pass this build makes — the
@@ -4236,6 +4403,10 @@ def _build_repo(
             # files belong to the host that deploys.
             if not runtime_root:
                 _ensure_agent_record_credentials(zones.repo_root, rendered)
+                # Before the compose files provision the host identity's
+                # directories, so a directory filed under the login's own
+                # spelling is still told apart from the one this build makes.
+                _carry_host_identity_dirs(zones.repo_root, rendered)
 
             config = _render_compose_files(zones, runtime_root, dev_mode=dev)
             phase.step("compose files")
