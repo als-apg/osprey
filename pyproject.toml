@@ -495,6 +495,11 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 # operator's terminal. Pinned by tests/cli/test_main.py::TestConsoleScriptWiring.
 osprey = "osprey.cli.main:main"
 
+# The fixtures an application's own test suite gets by installing the framework:
+# synthetic_deployment and rendered_tree (osprey.apps.sdk.testing).
+[project.entry-points.pytest11]
+osprey_apps = "osprey.apps.sdk.testing.pytest_plugin"
+
 # Built-in trigger sources for the event dispatcher, discovered by
 # osprey.dispatch.source_registry.SourceRegistry at startup.
 [project.entry-points."osprey.trigger_sources"]
