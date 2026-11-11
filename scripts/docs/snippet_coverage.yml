@@ -95,6 +95,12 @@ tested:
     kind: runs
     what: DuckDB runs the query unchanged over a real record export
 
+  - test: tests/docs/test_measurement_kind_page.py
+    pages: [how-to/register-a-measurement-kind.rst]
+    languages: [literalinclude]
+    kind: checks
+    what: each include is a file of the fixture kind package test_fixture_kind_deployment builds, and each object it selects is in it
+
   - test: tests/docs/test_hello_world_addresses.py
     pages: [getting-started/hello-world-tutorial.rst]
     languages: [text, yaml, json]
