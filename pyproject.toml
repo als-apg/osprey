@@ -150,7 +150,7 @@ dependencies = [
     # all. Declared here as well as in osprey-connectors: three framework modules
     # (simulation.apply, deployment.container_lifecycle, services.archiver_recorder)
     # import pymongo directly rather than through a connector.
-    "pymongo>=4.17.0",
+    "pymongo>=4.18.3",
     # Neo4j driver for the graph store (osprey.services.graphdb). Pure Python,
     # no build step, so it carries none of the platform-wheel concerns that
     # justify keeping other clients optional. Core rather than an extra.
