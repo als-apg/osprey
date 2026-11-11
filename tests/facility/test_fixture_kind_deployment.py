@@ -24,6 +24,7 @@ import ast
 import asyncio
 import copy
 import json
+import logging
 import shutil
 import zipfile
 from collections.abc import Callable, Iterator
@@ -171,6 +172,17 @@ def test_osprey_build_validates_and_renders_the_deployments_kind(built) -> None:
     assert set(facts["measurement_models"]["LINE"]["kinds"]) == {"orm"}
     assert set(facts["measurement_kinds"]) == {*BUILT_INS, KIND}
     assert facts["measurement_kinds"][KIND] == kinds.kind_table_row(kinds.registered()[KIND])
+
+
+def test_the_package_source_under_kinds_is_no_unrecognized_root_entry(
+    installed: kinds.KindDeclaration, deploy: Deploy, caplog: pytest.LogCaptureFixture
+) -> None:
+    del installed
+    with caplog.at_level(logging.WARNING):
+        _project, result = deploy(fixture_tree())
+
+    assert result.exit_code == 0, result.output
+    assert "unrecognized top-level" not in caplog.text, caplog.text
 
 
 def test_the_built_in_orm_goes_through_the_same_registry(built) -> None:
