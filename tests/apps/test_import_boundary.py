@@ -96,6 +96,8 @@ def test_allowed_import(tmp_path: Path, source: str) -> None:
         ("from osprey.apps.sdk import _approval", "osprey.apps.sdk._approval"),
         ("from osprey.facility import other", "osprey.facility.other"),
         ("from osprey.facility.kinds_extra import x", "osprey.facility.kinds_extra.x"),
+        ("from osprey.facility.kinds._private import x", "osprey.facility.kinds._private.x"),
+        ("import osprey.facility.kinds._private", "osprey.facility.kinds._private"),
         ("from osprey_connectors import _version", "osprey_connectors._version"),
         (
             "from osprey_connectors.control_system._base import ControlSystemConnector",

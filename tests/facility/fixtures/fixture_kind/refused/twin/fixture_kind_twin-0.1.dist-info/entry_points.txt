@@ -1,0 +1,2 @@
+[osprey.facility.kinds]
+fixture_kind = fixture_kind_twin:TWIN
