@@ -1369,7 +1369,10 @@ class TestDemoComposite:
     def test_the_status_channel_stays_a_char_array(self, demo_server: _Server) -> None:  # noqa: ARG002
         import aioca
 
-        assert _ca_text(SR_STATUS) == "ok"
+        # The text is whatever the model's last pass reported, so a sibling test's
+        # scenario may have changed it; the wire type is what this test pins.
+        text = _ca_text(SR_STATUS)
+        assert isinstance(text, str) and text
         assert _ca_datatype(SR_STATUS) == aioca.DBR_CHAR
 
 
