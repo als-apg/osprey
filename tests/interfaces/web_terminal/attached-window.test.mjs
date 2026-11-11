@@ -163,8 +163,9 @@ describe('open', () => {
     expect(onDress).toHaveBeenCalledExactlyOnceWith(root);
   });
 
-  test('the mount carries the ready mark only once onDress has run', () => {
-    let markedDuringDress = null;
+  test("the window's page carries the ready mark only once onDress has run", () => {
+    /** @type {string | null | undefined} */
+    let markDuringDress;
     const win = mod.openAttached({
       key: 'k',
       title: 't',
@@ -172,11 +173,33 @@ describe('open', () => {
       name: 'w-k',
       anchor: anchorEl(),
       onDress: (/** @type {HTMLElement} */ mount) => {
-        markedDuringDress = mount.hasAttribute('data-window-ready');
+        markDuringDress = mount.ownerDocument.documentElement.getAttribute('data-page-ready');
       },
     });
-    expect(markedDuringDress).toBe(false);
-    expect(win.document.querySelector('.attached-window-root[data-window-ready]')).not.toBeNull();
+    expect(markDuringDress).toBeNull();
+    expect(win.document.documentElement.getAttribute('data-page-ready')).toBe('true');
+  });
+
+  test("the hub's ready mark is never mirrored into an undressed window", () => {
+    document.documentElement.setAttribute('data-page-ready', 'true');
+    try {
+      /** @type {string | null | undefined} */
+      let markDuringDress;
+      const win = mod.openAttached({
+        key: 'k',
+        title: 't',
+        content,
+        name: 'w-k',
+        anchor: anchorEl(),
+        onDress: (/** @type {HTMLElement} */ mount) => {
+          markDuringDress = mount.ownerDocument.documentElement.getAttribute('data-page-ready');
+        },
+      });
+      expect(markDuringDress).toBeNull();
+      expect(win.document.documentElement.getAttribute('data-page-ready')).toBe('true');
+    } finally {
+      document.documentElement.removeAttribute('data-page-ready');
+    }
   });
 
   test('the node moves only once the shell has loaded', () => {
