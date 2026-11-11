@@ -47,12 +47,12 @@ every channel address the facility declares, then one
 view's ``ioc_health`` list: read-only ``<code>:SIM:<model>:HEARTBEAT``,
 ``UPTIME`` and ``ENGINEER`` addresses for every served model, texture
 included. Which models are served is the view's ``served_models.json``, with
-the texture model always last. A physics model is one child of the composite, built from the
-view's ``variables.json`` and its deck, ``decks/<model>.<its suffix>``, through the
-engine plug-in its record names; the texture serves every channel no model
-wires. The container's ready line prints how many channels it serves, so the
-count is read off the running service rather than kept in prose that would
-rot.
+the texture model always last. A physics model is one child of the composite,
+built from the view's ``variables.json`` and its deck,
+``decks/<model>.<its suffix>``, through the engine plug-in its record names;
+the texture serves every channel no model wires. The container's ready line
+prints how many channels it serves, so the count is read off the running
+service rather than kept in prose that would rot.
 
 The entrypoint, the runner and the model surface read the view through
 ``osprey_connectors.simulation.view.SimulatorView``, the one reader every
@@ -362,9 +362,9 @@ element under ``error_elements``:
 A declared element carries ``dx``, ``dy`` and ``roll``, and with ``multipoles:
 true`` also ``dB<n>`` and ``dA<n>``, with the bounds and the seeding of a bound
 element. ``multipoles`` is false when left out, and may be true only on an
-element that has both ``PolynomB`` and ``PolynomA``. Declaring an element the wiring
-already binds is allowed and can only add slots: it carries the union of the
-two. The build stops, naming the element, when a declared element is not in
+element that has both ``PolynomB`` and ``PolynomA``. Declaring an element the
+wiring already binds is allowed and can only add slots: it carries the union of
+the two. The build stops, naming the element, when a declared element is not in
 the deck or is in it more than once, and when the list names an element twice.
 A monitor's element takes readout faults instead, so declaring one is refused,
 with the same words by the scenario check of ``osprey build`` and when the
