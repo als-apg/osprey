@@ -2209,8 +2209,11 @@ async def _forward_to_panel(
             ``<prefix>/panel/<id>`` — a C-CAP path. Redirects, the forwarded
             prefix and the root-path rewrite all target it.
     """
+    # A panel whose `access` does not admit this caller is answered as an
+    # unpublished one, on every method and before any refusal, so the caller
+    # learns neither the application nor that a session is held.
     backend_url = _resolve_panel_url(request, panel_id)
-    if not backend_url:
+    if not backend_url or _panel_withheld(request, panel_id):
         return _panel_unavailable(panel_id)
 
     # An application panel on a login that does not arm it is read-only here:
@@ -2236,11 +2239,6 @@ async def _forward_to_panel(
         if held is not None:
             logger.warning("Refused a write to application panel %s while held", panel_id)
             return Response(content=held, status_code=403)
-
-    # A panel whose `access` does not admit this caller is answered as an
-    # unpublished one.
-    if _panel_withheld(request, panel_id):
-        return _panel_unavailable(panel_id)
 
     outer_prefix = compute_url_prefix()
     panel_prefix = panel_base or f"{outer_prefix}/panel/{panel_id}"
