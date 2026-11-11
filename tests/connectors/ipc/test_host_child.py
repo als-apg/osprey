@@ -41,7 +41,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey_connectors import posture_store
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -1129,10 +1130,10 @@ def switched_off_va(tmp_path, monkeypatch, va_deployment):  # noqa: ARG001 - arm
     """
     root = tmp_path / "agent-data"
     write_control_context(root, switch={})
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
+    control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def _install_name_server(monkeypatch, address, port):

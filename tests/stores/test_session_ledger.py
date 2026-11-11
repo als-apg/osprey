@@ -20,9 +20,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.stores import session_ledger
 from osprey.stores.artifact_store import ArtifactEntry, owner_of
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 
 KEY = "aaaaaaaa-1111-2222-3333-444444444444"
 OTHER_KEY = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -227,9 +228,9 @@ class TestLookups:
 @pytest.fixture
 def clean_env(monkeypatch):
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield monkeypatch
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 class TestOnePathFromHubAndArtifactsApp:
@@ -249,15 +250,15 @@ class TestOnePathFromHubAndArtifactsApp:
     def test_container_bind_set(self, tmp_path, clean_env):
         bound = tmp_path / "bound-state"
         clean_env.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(bound))
-        clean_env.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "elsewhere"))
-        posture_store.invalidate_cache()
+        clean_env.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path / "elsewhere"))
+        control_context.invalidate_cache()
         self._hub_appends_and_app_reads(bound)
 
     def test_container_bind_unset(self, tmp_path, clean_env):
         root = tmp_path / "agent-data"
         root.mkdir()
-        clean_env.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-        posture_store.invalidate_cache()
+        clean_env.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
+        control_context.invalidate_cache()
         expected = posture_store.state_dir()
         assert expected is not None and expected.is_relative_to(root)
         self._hub_appends_and_app_reads(expected)

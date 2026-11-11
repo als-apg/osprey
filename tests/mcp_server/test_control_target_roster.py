@@ -21,6 +21,7 @@ import os
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.mcp_server.control_system.target_eligibility import (
@@ -33,7 +34,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     target_availability,
 )
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 from osprey_connectors_tests._harness import owner, write_control_context
 from tests.mcp_server._switch_harness import (
     LIVE_PROBE,
@@ -74,7 +75,7 @@ def control_context_record(root, monkeypatch, target: str):
     into ``<repo>/var/agent_data`` and the session guard would fail a later,
     unrelated test.
     """
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     control_context.invalidate_cache()
     return write_control_context(
         root,
@@ -1211,7 +1212,7 @@ class TestEndpointFollowsThePosture:
         assert widened["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert widened["standin"]["selected_role"] == "write_access"
 
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         narrowed = target_display_metadata(config, write_allowed={"standin": False})
         assert narrowed["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert narrowed["standin"]["selected_role"] == "read_only"

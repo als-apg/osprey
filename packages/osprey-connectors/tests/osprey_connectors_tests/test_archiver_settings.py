@@ -140,3 +140,11 @@ class TestArchiverSettingsErrors:
 
     def test_a_scalar_is_not_a_block(self):
         assert archiver_settings_errors({"type": "a.b.C", "url": "x"}) == []
+
+
+def test_the_known_archiver_names_are_the_factory_builtins():
+    """A built-in's own name block is read, so every built-in has to be a known name."""
+    from osprey_connectors import types
+    from osprey_connectors.factory import _BUILTIN_ARCHIVERS
+
+    assert sorted(types._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)

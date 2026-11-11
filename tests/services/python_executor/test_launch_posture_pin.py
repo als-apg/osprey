@@ -32,6 +32,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.audit import posture
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import pin_identity, state_dir_under, write_control_context
@@ -56,13 +57,13 @@ ARMED_TIER = {
 @pytest.fixture
 def data_root(tmp_path, monkeypatch):
     """A scratch agent-data root, stamped, with every posture env name cleared."""
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield tmp_path
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +83,7 @@ class TestStampFormat:
         stamp = posture_store.launch_posture_stamp(None, "sandbox")
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
 
-        assert stamp == f"{posture_store.LAUNCH_POSTURE_ALL_TARGETS}=sandbox"
+        assert stamp == "*=sandbox"
         for target in posture_store.CONTROL_TARGETS:
             assert posture_store._launch_pin_term(target) == "pinned", target
 
@@ -182,15 +183,14 @@ class TestASwitchAgainstARunningSandbox:
     def _launch(monkeypatch, target: str) -> str:
         """Launch a run on *target*: compute the pin and stamp it as the sandbox sees it."""
         monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         stamp = host_executor._launch_posture(target)
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         return stamp
 
     @staticmethod
     def _next_write(target: str) -> posture_store.WriteVerdict:
-        posture_store.invalidate_cache()
         control_context.invalidate_cache()
         return posture_store.write_verdict(ARMED_TIER, target)
 
@@ -231,7 +231,7 @@ class TestMarkerCarriesThePin:
 
         root = tmp_path / "var" / "agent_data"
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-        monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+        monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
         (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
 
         # Act

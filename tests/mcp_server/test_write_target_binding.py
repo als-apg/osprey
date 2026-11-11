@@ -185,7 +185,7 @@ def _root():
     the ``control_target/<identity>`` hops itself, so a directory that already
     carries them names a file no reader ever resolves.
     """
-    return posture_store.agent_data_root()
+    return posture_store.stamped_agent_data_root()
 
 
 def _write_record(target, generation, **fields):

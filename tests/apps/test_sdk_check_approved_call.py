@@ -86,7 +86,7 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     def write_record(target: str = "va", switch: dict[str, str] | None = None) -> None:
         write_control_context(
-            posture_store.agent_data_root(),
+            posture_store.stamped_agent_data_root(),
             target,
             1,
             switch={"va": "on", "live": "on"} if switch is None else switch,

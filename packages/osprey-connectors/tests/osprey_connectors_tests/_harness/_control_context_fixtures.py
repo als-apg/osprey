@@ -127,7 +127,6 @@ VERDICT_ENV_VARS: tuple[str, ...] = (
 def reset_verdict_state() -> None:
     """No bound owner, and neither the posture store's nor the record's cache."""
     posture_store._owner_var.set(posture_store.NO_OWNER)
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
 
 
@@ -140,7 +139,7 @@ def isolate_verdict_environment(monkeypatch: Any, root: Path) -> None:
     """
     for name in VERDICT_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
     pin_identity(monkeypatch)
     reset_verdict_state()
 
@@ -316,7 +315,9 @@ def write_server_report(
         targets=dict(targets or {}),
         updated_at=updated_at,
     )
-    path = control_context.report_path_under(root, pid)
+    path = control_context._record_path_under(root).parent / (
+        f"{control_context.REPORT_FILE_PREFIX}{pid}{control_context.REPORT_FILE_SUFFIX}"
+    )
     write_payload(path, report.to_payload())
     return path
 
@@ -378,7 +379,7 @@ def mark(name):
 def data_root(tmp_path, monkeypatch):
     """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, cache cleared."""
     root = tmp_path / "root"
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     control_context.invalidate_cache()
     yield root
@@ -401,7 +402,7 @@ def race_record_writers(
     signals = tmp_path / "signals"
     signals.mkdir()
     env = dict(os.environ)
-    env[posture_store.AGENT_DATA_ROOT_ENV_VAR] = str(data_root)
+    env["OSPREY_AGENT_DATA_ROOT"] = str(data_root)
     env.pop(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, None)
     runs = [
         (person, "read", 0.5 if interleaved else 0.0),

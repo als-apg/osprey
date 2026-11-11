@@ -201,7 +201,7 @@ def session_posture_leak_guard(monkeypatch):
         otherwise hand every record-touching test a session id and an
         agent-data root no test asked for — and, worse, a test that
         redirects the record by patching ``resolve_shared_data_root`` would be
-        silently inert, because ``posture_store.agent_data_root()`` reads the
+        silently inert, because the posture store's root resolution reads the
         variable FIRST and only falls back to the resolver.
 
         Two more carry the container's own control-state binds:
@@ -919,7 +919,7 @@ def control_context_root(tmp_path, monkeypatch):
 
     root = tmp_path / "agent_data"
     (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
     control_context.invalidate_cache()
     yield root
     control_context.invalidate_cache()

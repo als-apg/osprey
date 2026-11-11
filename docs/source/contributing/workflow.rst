@@ -201,17 +201,6 @@ every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
 run on every push. Those cost runner minutes, not tokens, and the deploy lanes
 are the per-PR proof that a render builds and starts.
 
-The one exception is a docs-only pull request: when every changed path is under
-``docs/``, ``changelog.d/`` or ``tests/docs/``, the ``changes`` job sets
-``docs_only`` and every pull-request-scoped lane (the e2e and deploy set)
-skips. The always-on lanes still run, including the docs build and the tests
-that read ``docs/`` (``tests/docs/`` runs only in always-on lanes), and the
-gate's run summary says the e2e lanes did not run. A docs-only run used to
-cost about 620 runner-minutes, nearly all of it in lanes a page cannot reach.
-Root files such as ``README.md`` do not count, because the package build and
-the Dockerfile lane copy them. The ``full-ci`` label turns the exception off;
-``scripts/ci/docs_only.py`` holds the rule.
-
 Path filtering was measured and rejected as the mechanism for the
 model-spending lanes: over the 161 PRs
 merged in the two weeks before this landed, 86–91 % touched something under
@@ -224,6 +213,11 @@ run for the previous head. Before that grouping, superseded runs kept running
 and queued ahead of the live one on a saturated concurrent-job allowance:
 measured over 71 PR runs, 35 % were superseded runs still holding 31 % of all
 CI wall-clock.
+
+Once a cheap, deterministic lane fails (lint, the docs build, the package
+build, the frontend JS checks, the plugin smoke), the run cannot pass, so a
+pull request's run cancels its remaining lanes, ``All CI Checks Passed``
+included. Push a fix or re-run the workflow to merge.
 
 .. _contributing-ci-figures:
 

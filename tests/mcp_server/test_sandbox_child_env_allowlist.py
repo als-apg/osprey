@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.python_executor.executor import execute_code
 from osprey.mcp_server.sandbox_env import (
     CHILD_ENV_PASSTHROUGH_KEY,
@@ -84,7 +85,7 @@ def _child_read_names() -> list[tuple[str, str]]:
     from osprey_connectors import identity, posture_store
 
     return [
-        ("posture_store.AGENT_DATA_ROOT_ENV_VAR", posture_store.AGENT_DATA_ROOT_ENV_VAR),
+        ("OSPREY_AGENT_DATA_ROOT", OSPREY_AGENT_DATA_ROOT),
         ("posture_store.CONTROL_CONTEXT_DIR_ENV_VAR", posture_store.CONTROL_CONTEXT_DIR_ENV_VAR),
         ("posture_store.CONTROL_CONTEXT_TREE_ENV_VAR", posture_store.CONTROL_CONTEXT_TREE_ENV_VAR),
         ("posture_store.CONTROL_OWNER_ENV_VAR", posture_store.CONTROL_OWNER_ENV_VAR),

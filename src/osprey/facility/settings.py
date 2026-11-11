@@ -25,7 +25,7 @@ from osprey.facility.served import SIMULATION_MODELS_KEY, _served_scope, resolve
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.utils.config_paths import resolve_config_relative_path
-from osprey_connectors.simulation import STILL_SCENARIO
+from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.workspace import BUILD_DIR_NAME
 

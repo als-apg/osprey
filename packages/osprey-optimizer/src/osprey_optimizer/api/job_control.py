@@ -11,9 +11,10 @@ from typing import NoReturn
 
 from fastapi import HTTPException, status
 
-from osprey_optimizer.api.job_tracker import JobTracker, create_job_state
-from osprey_optimizer.models.enums import JobStatus, JobType
+from osprey_optimizer.api.job_tracker import JobTracker
+from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.protocols import JobStateWriter
+from osprey_optimizer.optimization.state import get_optimization_writer
 from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.cancellation import CancellationToken, get_cancellation_token
 from osprey_optimizer.utils.job_keys import config_key, meta_key, state_prefix
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 # The workers this API process launched, for stop_launched_jobs. Process-local
 # on purpose: a worker is the child of the API process that spawned it, so under
 # ``--workers N`` each API process stops only its own.
-_launched: dict[str, tuple[JobType, BaseProcess]] = {}
+_launched: dict[str, BaseProcess] = {}
 
 # After the shutdown grace: how long a terminated worker gets to exit before it
 # is killed, and how long the kill gets to take effect. With the grace they
@@ -79,7 +80,6 @@ def persist_created_job(
     *,
     tracker: JobTracker,
     job_id: str,
-    job_type: JobType,
     payload_json: str,
     make_writer: Callable[[str], JobStateWriter],
 ) -> None:
@@ -90,7 +90,7 @@ def persist_created_job(
     register with the tracker.
     """
     make_writer(job_id).set_status(JobStatus.CREATED)
-    tracker.register_created_job(job_id, job_type=job_type)
+    tracker.register_created_job(job_id)
     store_created_config(job_id, payload_json)
 
 
@@ -112,9 +112,7 @@ def store_created_config(job_id: str, payload_json: str) -> None:
     if stored == -1:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
     if stored != 1:
-        require_created_or_409(
-            job_id, "update", create_job_state(JobType.OPTIMIZATION, job_id).get_status()
-        )
+        require_created_or_409(job_id, "update", get_optimization_writer(job_id).get_status())
 
 
 def draft_changed_409(job_id: str) -> HTTPException:
@@ -212,7 +210,6 @@ def launch_job(
     *,
     tracker: JobTracker,
     job_id: str,
-    job_type: JobType,
     config_json: str,
     make_writer: Callable[[str], JobStateWriter],
     spawn_target: Callable[..., None],
@@ -242,14 +239,14 @@ def launch_job(
     validation, the friendly active-job 409 label, and any pre-spawn resource
     setup (e.g. results-dir init) stay in the caller.
     """
-    if not tracker.claim_active_job(job_id, 0, job_type=job_type):
+    if not tracker.claim_active_job(job_id, 0):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A job is already running. Cancel it or wait for completion.",
         )
 
     try:
-        started = tracker.start_claimed_job(job_id, config_json, job_type)
+        started = tracker.start_claimed_job(job_id, config_json)
     except Exception as e:
         logger.exception("Failed to pre-initialize job state")
         tracker.mark_completed(job_id)
@@ -280,12 +277,12 @@ def launch_job(
             detail=f"Failed to start job process: {e}",
         ) from e
 
-    for finished in [jid for jid, (_, p) in _launched.items() if not p.is_alive()]:
+    for finished in [jid for jid, p in _launched.items() if not p.is_alive()]:
         del _launched[finished]
-    _launched[job_id] = (job_type, process)
+    _launched[job_id] = process
 
     if process.pid:
-        tracker.register_job(job_id, process.pid, job_type=job_type)
+        tracker.register_job(job_id, process.pid)
 
     return process.pid
 
@@ -311,7 +308,7 @@ def stop_launched_jobs(tracker: JobTracker, grace_s: float | None = None) -> Non
     """
     if grace_s is None:
         grace_s = shutdown_grace_seconds()
-    running = {jid: entry for jid, entry in _launched.items() if entry[1].is_alive()}
+    running = {jid: process for jid, process in _launched.items() if process.is_alive()}
     if not running:
         return
     logger.warning(
@@ -321,10 +318,10 @@ def stop_launched_jobs(tracker: JobTracker, grace_s: float | None = None) -> Non
         ", ".join(running),
     )
 
-    for job_id, (job_type, _) in running.items():
+    for job_id in running:
         try:
             cancel_with_reread(
-                job_id, create_job_state(job_type, job_id), get_cancellation_token(job_id), tracker
+                job_id, get_optimization_writer(job_id), get_cancellation_token(job_id), tracker
             )
         except HTTPException as e:
             # 409: the worker drove the job terminal in the gap; it exits on its own.
@@ -333,10 +330,10 @@ def stop_launched_jobs(tracker: JobTracker, grace_s: float | None = None) -> Non
             # Still wait for, then end, the worker below: a shutdown is not optional.
             logger.exception("Shutdown cancel of job %s failed", job_id)
 
-    _join_all([process for _, process in running.values()], grace_s)
+    _join_all(list(running.values()), grace_s)
 
     # Every stuck worker at once, so the bound holds whatever their number.
-    stuck = {jid: process for jid, (_, process) in running.items() if process.is_alive()}
+    stuck = {jid: process for jid, process in running.items() if process.is_alive()}
     for job_id, process in stuck.items():
         logger.warning("Job %s did not stop within %.1f s; terminating it", job_id, grace_s)
         process.terminate()
@@ -347,12 +344,12 @@ def stop_launched_jobs(tracker: JobTracker, grace_s: float | None = None) -> Non
         process.kill()
     _join_all(survivors, KILL_WAIT_SECONDS)
 
-    for job_id, (job_type, process) in running.items():
+    for job_id, process in running.items():
         if process.is_alive():
             logger.error("Job %s's worker is still alive after a kill; its slot expires", job_id)
             continue
         try:
-            _end_stopped_job(job_id, job_type, process, killed=job_id in stuck, tracker=tracker)
+            _end_stopped_job(job_id, process, killed=job_id in stuck, tracker=tracker)
         except Exception:
             logger.exception("Could not record the end of job %s; its slot expires", job_id)
         _launched.pop(job_id, None)
@@ -366,7 +363,7 @@ def _join_all(processes: list[BaseProcess], timeout: float) -> None:
 
 
 def _end_stopped_job(
-    job_id: str, job_type: JobType, process: BaseProcess, *, killed: bool, tracker: JobTracker
+    job_id: str, process: BaseProcess, *, killed: bool, tracker: JobTracker
 ) -> None:
     """Record the end of a job whose worker has exited, unless the worker did.
 
@@ -375,7 +372,7 @@ def _end_stopped_job(
     outcome, leaves the job non-terminal: it is ended here with the reason.
     The status CAS keeps a terminal status from being overwritten.
     """
-    writer = create_job_state(job_type, job_id)
+    writer = get_optimization_writer(job_id)
     if killed:
         new, message = JobStatus.CANCELLED, SHUTDOWN_KILLED_MESSAGE
     else:

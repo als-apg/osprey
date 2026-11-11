@@ -20,6 +20,7 @@ from osprey.deployment.web_terminals import roster
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.deployment.web_terminals.roster import (
     BLUESKY_PANEL_ID,
+    OPTIMIZER_PANEL_ID,
     PanelRosterGrant,
     panel_roster_grant_table,
     service_panel_grant,
@@ -36,9 +37,10 @@ def _projected(panel_id: str = "knob-demo", single_user_alias: object = False) -
 # ---------------------------------------------------------------------------
 
 
-def test_the_bluesky_row_is_built_in() -> None:
+def test_the_bluesky_and_optimizer_rows_are_built_in() -> None:
     assert panel_roster_grant_table({}) == {
-        BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web")
+        BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
+        OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web"),
     }
 
 
@@ -46,7 +48,7 @@ def test_a_projected_row_is_read_off_the_rendered_service_block() -> None:
     config = {"services": {"knob-demo": _projected(single_user_alias=True), "plain": {}}}
     table = panel_roster_grant_table(config)
     assert table["knob-demo"] == PanelRosterGrant(service="knob-demo", single_user_alias=True)
-    assert set(table) == {BLUESKY_PANEL_ID, "knob-demo"}
+    assert set(table) == {BLUESKY_PANEL_ID, OPTIMIZER_PANEL_ID, "knob-demo"}
 
 
 @pytest.mark.parametrize("value", ["true", 1, None])
@@ -209,6 +211,38 @@ def test_an_alias_panel_on_a_roster_gets_only_the_roster_grant(tmp_path: Path) -
     alice = terminal_secret_var("alice")
     assert grant["credentials"] == [
         {"var": alice, "source": alice, "owner": "alice", "required": False}
+    ]
+
+
+def test_an_alias_panel_on_a_roster_of_shared_cards_alone_gets_the_roster_grant(
+    tmp_path: Path,
+) -> None:
+    """A roster with no people is still a roster: the card holds its own secret, not the deployment's."""
+    project = tmp_path / "build" / "demo-radiation"
+    project.mkdir(parents=True)
+    (project / "config.yml").write_text(
+        yaml.safe_dump({"web": {"panels": {"knob-demo": {"url": "http://localhost:1"}}}}),
+        encoding="utf-8",
+    )
+    config = {
+        "services": {"knob-demo": _projected(single_user_alias=True)},
+        "modules": {
+            "web_terminals": {
+                "renders": {
+                    "radiation": tier_render(
+                        "radiation", "demo-radiation", project_path="build/demo-radiation"
+                    )
+                },
+                "shared": ["radiation"],
+            }
+        },
+    }
+    card = terminal_secret_var("radiation")
+
+    grant = service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops")
+
+    assert grant["credentials"] == [
+        {"var": card, "source": card, "owner": "radiation", "required": False}
     ]
 
 

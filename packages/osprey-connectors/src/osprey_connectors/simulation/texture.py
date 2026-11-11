@@ -327,6 +327,39 @@ class TextureModel(LUMEModel):
         """
         return {name: self._held_value(name) for name in names}
 
+    def reach(self) -> dict[str, frozenset[str]]:
+        """What a write to each settable channel can change, by address.
+
+        The channel itself, the readback it echoes into, and every channel
+        downstream of either: a ``linear`` channel summing it, a ``gate``
+        channel it blocks, a ``pulse`` waveform it drives or enables.
+        """
+        downstream: dict[str, set[str]] = {}
+        for address in self._variables:
+            seed = self._seeds.get(address) or {}
+            sources = [source for source, _ in _linear_terms(seed.get("linear") or {})]
+            sources += [
+                source for source, _ in _gate_inputs((seed.get("gate") or {}).get("inputs"))
+            ]
+            record = self._pulse(address)
+            if record is not None:
+                sources += [str(record["driver"]), str(record["enable"])]
+            for source in sources:
+                downstream.setdefault(source, set()).add(address)
+        reach: dict[str, frozenset[str]] = {}
+        for address, variable in self._variables.items():
+            if variable.read_only:
+                continue
+            found = {address, self._echo.get(address, address)}
+            pending = list(found)
+            while pending:
+                for dependent in downstream.get(pending.pop(), ()):
+                    if dependent not in found:
+                        found.add(dependent)
+                        pending.append(dependent)
+            reach[address] = frozenset(found)
+        return reach
+
     def _held_value(self, address: str) -> Any:
         return self._derived(address, self._held)
 

@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import CONTROL_TARGETS
@@ -33,12 +34,12 @@ from osprey_connectors_tests._harness import write_control_context, write_payloa
 @pytest.fixture
 def data_root(tmp_path, monkeypatch):
     """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, caches cleared."""
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield tmp_path
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def _write_record(
@@ -57,7 +58,7 @@ def _write_record(
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["posture"] = posture
     write_payload(path, payload)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return path
 
 
@@ -66,7 +67,7 @@ def _switch_record(root: Path, *switched_on: str, target: str = "live") -> Path:
     path = write_control_context(
         root, target=target, owned_by=None, switch=dict.fromkeys(switched_on, "asked")
     )
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return path
 
 
@@ -85,33 +86,31 @@ def _mirror() -> dict[str, str]:
 
 
 def test_root_prefers_the_env_stamp(data_root):
-    assert posture_store.agent_data_root() == data_root
     assert posture_store.state_dir() == data_root / "control_target" / acting_identity()
 
 
 def test_root_falls_back_to_the_shared_data_root(tmp_path, monkeypatch):
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", lambda: tmp_path / "var")
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     assert posture_store.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
 
 
 def test_blank_env_stamp_is_not_a_stamp(tmp_path, monkeypatch):
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, "   ")
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, "   ")
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", lambda: tmp_path / "var")
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     assert posture_store.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
 
 
 def test_unresolvable_root_answers_none(monkeypatch):
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
 
     def _boom():
         raise OSError("no project root")
 
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
-    posture_store.invalidate_cache()
-    assert posture_store.agent_data_root() is None
+    control_context.invalidate_cache()
     assert posture_store.state_dir() is None
     # A caller that cannot resolve the root reads no record, not a crash.
     assert control_context.read_record() is None
@@ -123,20 +122,20 @@ def test_the_next_read_answers_once_the_root_is_back(tmp_path, monkeypatch):
     A transient config failure answers "no record"; a cached answer would keep
     saying so after the root came back, hiding the record that is on disk.
     """
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
 
     def _boom():
         raise RuntimeError("no project root")
 
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     assert _mirror() == {}
 
     root = tmp_path / "recovered"
     _write_record(root, {"standin": posture_store.POSTURE_SANDBOX})
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
 
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     assert _mirror() == {"standin": posture_store.POSTURE_SANDBOX}
 
 
@@ -169,7 +168,7 @@ def test_the_retired_store_file_is_gone(data_root):
 # --- parse_posture_value: the entry grammar ----------------------------------------
 #
 # The record carries ONE posture value of this grammar and applies this filter
-# to it (``control_context.parse_posture``). What survives it decides whether a
+# to it (``control_context.parse_record``). What survives it decides whether a
 # real machine is written to.
 
 
@@ -262,19 +261,8 @@ def test_a_moved_root_is_seen(data_root, tmp_path, monkeypatch):
     assert _mirror().get("live") == "sandbox"
     other = tmp_path / "elsewhere"
     other.mkdir()
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(other))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(other))
     assert _mirror() == {}
-
-
-def test_invalidate_cache_forgets_the_records_cache(data_root, monkeypatch):
-    """One cache, held by the record reader; this module's hook drops that one."""
-    _write_record(data_root, {"live": "sandbox"})
-    assert _mirror().get("live") == "sandbox"
-
-    dropped: list[bool] = []
-    monkeypatch.setattr(control_context, "invalidate_cache", lambda: dropped.append(True))
-    posture_store.invalidate_cache()
-    assert dropped == [True]
 
 
 # --- the read-only tree (a lane's queueserver, the dispatch worker) --------
@@ -305,7 +293,7 @@ def _write_tree_record(tree: Path, owner: str, switched_on=(), *, target: str = 
         switch_epoch=1,
     )
     write_payload(path, record.to_payload())
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return path
 
 
@@ -444,7 +432,7 @@ def test_a_corrupt_or_foreign_record_in_the_tree_is_unavailable(tmp_path):
         json.dumps({"schema": 1, "target": "elsewhere", "generation": 0, "posture": "sandbox"}),
     ):
         path.write_text(payload, encoding="utf-8")
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         record, unavailable = _read_tree(tree, "alice")
         assert record is None, payload
         assert unavailable is not None, payload
@@ -456,7 +444,7 @@ def test_an_undecodable_record_in_the_tree_is_unavailable(tmp_path):
     path = tree / "alice" / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True)
     path.write_bytes(b"\xff\xfe{\x00k\x00: sandbox}")
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     record, unavailable = _read_tree(tree, "alice")
     assert record is None
@@ -523,7 +511,7 @@ def test_a_tree_or_dir_bind_naming_an_unknown_user_does_not_raise(monkeypatch):
     """``Path.expanduser`` raises for ``~nosuchuser``; the ``os.path`` form does not."""
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, "~nosuchuser0/state")
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "~nosuchuser0/control_target")
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, "~nosuchuser0/agent_data")
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, "~nosuchuser0/agent_data")
 
     # Left unexpanded it is not absolute, so it is no bind — and never an exception.
     assert posture_store.bound_state_dir() is None
@@ -600,9 +588,9 @@ def bound_tree(tmp_path, monkeypatch):
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield tree
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def test_an_oversized_record_in_the_tree_is_unavailable(bound_tree):
@@ -616,7 +604,7 @@ def test_an_oversized_record_in_the_tree_is_unavailable(bound_tree):
     path = bound_tree / "alice" / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True)
     path.write_text("x" * (64 * 1024 + 1), encoding="utf-8")
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     record, unavailable = _read_tree(bound_tree, "alice")
     assert record is None

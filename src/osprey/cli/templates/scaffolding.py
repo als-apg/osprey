@@ -199,7 +199,9 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
         "arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft "
         "IOC (only on a deployment with `bluesky.second_lane`)"
     ),
-    "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
+    "OSPREY_TERMINAL_SECRET": (
+        "the operator login secret for the bluesky-web and optimizer-web panels' web gates"
+    ),
     "OPTIMIZER_LAUNCH_TOKEN": (
         "arms the optimizer API's routes that start runs, write to the machine or load a model"
     ),
