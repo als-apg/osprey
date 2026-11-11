@@ -1002,21 +1002,27 @@ jobs:
 
     - *install-pinned-cli
 
+    # --no-skips-allow-partial: the rest of tests/e2e/ skips by design on CI (opt-in provider
+    # matrix, upstreams with no key, no ARIEL logbook backend), so only a session that skipped
+    # everything reds.
     - name: Run E2E tests
       timeout-minutes: 45
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         E2E_FILTER: ${{ inputs.e2e_filter }}
+        PYTHONPATH: scripts/ci/pytest_plugins  # for -p no_skips
       run: |
         if [ -n "$E2E_FILTER" ]; then
           echo "Running scoped E2E filter: $E2E_FILTER"
           # $E2E_FILTER may hold several paths or pytest args: split on purpose.
           # shellcheck disable=SC2086
-          uv run pytest $E2E_FILTER -v --tb=short
+          uv run pytest $E2E_FILTER -v --tb=short \
+            -p no_skips --no-skips-message "✅ the scoped E2E filter ran" --no-skips-allow-partial
         else
           # Every --ignore runs in another job (or is opt-in / dispatch-only); none is untested.
           # -n 4 --dist loadfile: real-LLM round-trips at near-zero CPU.
           uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
+            -p no_skips --no-skips-message "✅ the E2E suite ran" --no-skips-allow-partial \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_plan_stack_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \

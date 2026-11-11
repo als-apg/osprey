@@ -37,8 +37,9 @@ skipped at collection, under xdist too, and says why in an `::error::` annotatio
 collects nothing still exits 5. `--no-skips-message` prints the lane's message when nothing
 skipped, and `--no-skips-allow-partial` keeps `privilege-split-e2e`'s module-wide rule. The gate
 now also holds `agentic-per-preset`, `dispatch-stack-e2e`, `nextcloud-talk-bridge-e2e` and every
-`stack-e2e` cell, so every model-spending lane but `e2e-tests`, whose skips are by design (opt-in
-provider matrices, backends no runner provisions), fails on a skip.
+`stack-e2e` cell, so every model-spending lane fails on a skip; `e2e-tests`, whose skips are by
+design (opt-in provider matrices, backends no runner provisions), runs with
+`--no-skips-allow-partial`, so it reds only when every test skipped.
 `scripts/ci/junit_no_skips.py` is gone. The capture-diagnostics action's `name` input now defaults
 to the job id, so a plain job's capture step is one shared YAML anchor, and only matrix jobs, whose
 cells need distinct artifact names, pass a name.

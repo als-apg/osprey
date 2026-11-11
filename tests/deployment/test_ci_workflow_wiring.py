@@ -15651,22 +15651,20 @@ NO_SKIPS_GATED: dict[str, tuple[str, ...] | None] = {
     TARGET_SWITCH_AGENTIC_JOB: None,
     VA_LIVE_JOB: None,
     "agentic-per-preset": None,
+    E2E_TESTS_JOB: None,
     DISPATCH_STACK_JOB: None,
     NEXTCLOUD_JOB: None,
     # One template step for every stack cell; a graph cell whose n10s jar is missing would skip.
     STACK_JOB: None,
 }
-#: The one lane whose gate tolerates a partial skip: its audit module carries
-#: documented per-test guards, so only a session that skipped everything reds.
-NO_SKIPS_PARTIAL_JOBS = frozenset({PRIVSPLIT_JOB})
-#: Spending lanes the gate does not hold, and why. ``e2e-tests`` runs the rest of
-#: tests/e2e/, whose skips are by design on CI: the paid provider × model matrix
-#: is opt-in (OSPREY_LLM_MATRIX_ENABLE), the proxy round-trip skips upstreams CI
-#: holds no key for, and the ARIEL scenarios need a logbook backend no runner
-#: provisions (62 skipped beside 92 passed on a green dispatch run).
-NO_SKIPS_EXEMPT_SPENDING = {
-    "e2e-tests": "skips by design: opt-in matrices and unprovisioned backends"
-}
+#: The lanes whose gate tolerates a partial skip, so only a session that skipped
+#: everything reds. privilege-split's audit module carries documented per-test
+#: guards; ``e2e-tests`` runs the rest of tests/e2e/, whose skips are by design on
+#: CI: the paid provider × model matrix is opt-in (OSPREY_LLM_MATRIX_ENABLE), the
+#: proxy round-trip skips upstreams CI holds no key for, and the ARIEL scenarios
+#: need a logbook backend no runner provisions (62 skipped beside 92 passed on a
+#: green dispatch run).
+NO_SKIPS_PARTIAL_JOBS = frozenset({PRIVSPLIT_JOB, E2E_TESTS_JOB})
 
 
 def _shell_code(run: str) -> str:
@@ -15796,12 +15794,10 @@ def test_every_spending_lane_and_stack_cell_fails_on_any_skipped_test(
     workflow: dict[str, Any],
 ) -> None:
     """A spending lane that skips its way to green spent nothing to prove nothing,
-    and a stack cell that skips proves no stack. Each is gated, or exempt with a
-    reason; no stack cell switches the gate off through its matrix values."""
-    ungated = sorted(SPENDING_LANES - set(NO_SKIPS_GATED) - set(NO_SKIPS_EXEMPT_SPENDING))
+    and a stack cell that skips proves no stack. Each is gated, and
+    no stack cell switches the gate off through its matrix values."""
+    ungated = sorted(SPENDING_LANES - set(NO_SKIPS_GATED))
     assert ungated == [], f"spending lanes without the no-skips gate: {ungated}"
-    stale = sorted(set(NO_SKIPS_EXEMPT_SPENDING) - SPENDING_LANES)
-    assert stale == [], f"exempt lanes that no longer spend: {stale}"
     assert STACK_JOB in NO_SKIPS_GATED and NO_SKIPS_GATED[STACK_JOB] is None
     cells = _jobs(workflow)[STACK_JOB]["strategy"]["matrix"]["include"]
     opted_out = sorted(str(c.get("lane")) for c in cells if "no_skips" in json.dumps(c))
