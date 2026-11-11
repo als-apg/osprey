@@ -349,5 +349,5 @@ class TestReport:
         assert fake.writes() == []
 
 
-def test_the_spending_lane_map_has_the_eight_lanes() -> None:
-    assert len(full_ci_on_main.SPENDING_LANES) == 8
+def test_the_spending_lane_map_has_the_nine_lanes() -> None:
+    assert len(full_ci_on_main.SPENDING_LANES) == 9

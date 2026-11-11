@@ -7288,6 +7288,7 @@ def test_parse_only_step_proves_the_env_chain_interpolates__mutation_drops_a_sen
 # a green step while proving nothing.
 
 DOCKERFILE_E2E_JOB = "dockerfile-e2e"
+DOCKERFILE_AGENT_JOB = "dockerfile-agent-e2e"
 PROXY_START_STEP = "Start a logging forward proxy (tinyproxy)"
 PROXY_CONTRACT_STEP = "Assert the uppercase-only proxy contract reaches the build"
 PROXY_BUILD_STEP = "Build the web-terminal auth sidecar through the proxy"
@@ -9134,7 +9135,7 @@ def test_no_lane_builds_the_virtual_accelerator_image_inline__mutation_pastes_th
 
 
 # ---------------------------------------------------------------------------
-# deploy-e2e skips Dependabot; lint proves the lockfile before sync can heal it
+# deploy-e2e holds no key and runs on Dependabot; lint proves the lockfile before sync can heal it
 # ---------------------------------------------------------------------------
 
 DEPLOY_JOB = "deploy-e2e"
@@ -9144,27 +9145,35 @@ INSTALL_STEP = "Install dependencies"
 _DEPENDABOT_GUARD = "github.event.pull_request.user.login != 'dependabot[bot]'"
 
 
-def test_deploy_e2e_skips_dependabot(workflow: dict[str, Any]) -> None:
-    """Dependabot branches live in this repo, so the same-repo fork check does
-    not exclude them — but Dependabot runs resolve secrets against the (empty)
-    Dependabot store, and `osprey up`'s .env preflight then fails on the
-    missing ALS_APG_API_KEY. The lane must carry the same PR-author guard and
-    revalidation arm as every other secret-gated lane."""
-    condition = _jobs(workflow)[DEPLOY_JOB]["if"]
-    assert _DEPENDABOT_GUARD in condition
-    assert "inputs.revalidate_secret_lanes" in condition
+def test_deploy_e2e_boots_on_a_placeholder_key_and_runs_on_dependabot(
+    workflow: dict[str, Any],
+) -> None:
+    """`osprey up`'s .env preflight refuses an EMPTY provider key, and that is
+    all the lane needs it for: nothing it runs calls a model. So it gets a
+    non-empty value that is not a secret, and with no secret to withhold it
+    keeps no PR-author guard: a Dependabot bump is exactly the change whose
+    build-and-deploy this lane should prove. The key must not go empty, or the
+    preflight reds every run."""
+    job = _jobs(workflow)[DEPLOY_JOB]
+    assert SECRET_TOKEN not in json.dumps(job), "deploy-e2e holds the gateway secret"
+    key = str((job.get("env") or {}).get("ALS_APG_API_KEY", "")).strip()
+    assert key and "${{" not in key, f"deploy-e2e's key is not a non-empty literal: {key!r}"
+    assert _DEPENDABOT_GUARD not in job["if"], "deploy-e2e skips Dependabot with no secret"
+    assert "inputs.revalidate_secret_lanes" in job["if"]
 
 
-def test_deploy_e2e_skips_dependabot__mutation_reverts_to_fork_only_guard() -> None:
-    """The exact guard this lane shipped with for months: same-repo check
-    only, which Dependabot passes — and then reds every one of its PRs."""
+def test_deploy_e2e_placeholder__mutation_restores_the_secret() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[DEPLOY_JOB]["if"] = (
-        "github.event_name == 'pull_request'"
-        " && github.event.pull_request.head.repo.full_name == github.repository"
-    )
-    with pytest.raises(AssertionError):
-        test_deploy_e2e_skips_dependabot(mutated)
+    _jobs(mutated)[DEPLOY_JOB]["env"]["ALS_APG_API_KEY"] = "${{ secrets.ALS_APG_API_KEY }}"
+    with pytest.raises(AssertionError, match="holds the gateway secret"):
+        test_deploy_e2e_boots_on_a_placeholder_key_and_runs_on_dependabot(mutated)
+
+
+def test_deploy_e2e_placeholder__mutation_drops_the_key() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)[DEPLOY_JOB]["env"]["ALS_APG_API_KEY"]
+    with pytest.raises(AssertionError, match="non-empty literal"):
+        test_deploy_e2e_boots_on_a_placeholder_key_and_runs_on_dependabot(mutated)
 
 
 def _step_names(wf: dict[str, Any], job_name: str) -> list[str]:
@@ -10280,13 +10289,14 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 #: LANES tables mark ``why="models"``, held below against ci.yml and release.yml.
 SPENDING_PREFIXES = check_set.kit.spending(check_set.LANES)
 SPENDING_LANES = frozenset(SPENDING_PREFIXES)
-# Lanes that carry the secret but spend nothing worth gating: deploy-e2e needs
-# the key only for `osprey up`'s .env preflight and never calls a model;
-# dockerfile-e2e drives a single haiku turn; the two benchmark jobs run only on
-# a deliberate run_benchmarks dispatch, never on a PR. Gating them by label would drop
-# per-PR deploy coverage for no saving, so they keep the per-PR shape — and a
-# NEW secret-bearing lane must be listed in one set or the other, on purpose.
-SECRET_FREE_LANES = frozenset({"deploy-e2e", "dockerfile-e2e", BENCHMARKS_JOB, TIER2_JOB})
+# Lanes that carry the secret but spend nothing worth gating: the two benchmark
+# jobs run only on a deliberate run_benchmarks dispatch, never on a PR. A NEW
+# secret-bearing lane must be listed in one set or the other, on purpose. A lane
+# that calls a model on a PR is a spending lane, however cheap the call:
+# dockerfile-e2e's one agent turn moved to dockerfile-agent-e2e for that reason.
+# A lane that needs a key only to pass a preflight gets a placeholder, as
+# deploy-e2e does, and holds no secret at all.
+NON_SPENDING_KEY_LANES = frozenset({BENCHMARKS_JOB, TIER2_JOB})
 FULL_CI_LABEL_CLAUSE = "contains(github.event.pull_request.labels.*.name, 'full-ci')"
 SCHEDULE_ARM = "github.event_name == 'schedule'"
 # The pre-gating shape: the PR conjunction closed right after the actor guard.
@@ -10301,10 +10311,10 @@ def _secret_bearing_jobs(wf: dict[str, Any]) -> set[str]:
 
 def test_every_secret_bearing_lane_declares_its_spend_posture(workflow: dict[str, Any]) -> None:
     """A lane that holds the gateway key is either a spending lane (label /
-    revalidation) or listed as secret-free. No third category: a new
+    revalidation) or listed as holding it without spending. No third category: a new
     agentic lane that nobody classifies would run on every push by default,
     which is exactly how the bill got where it was."""
-    unclassified = _secret_bearing_jobs(workflow) - SPENDING_LANES - SECRET_FREE_LANES
+    unclassified = _secret_bearing_jobs(workflow) - SPENDING_LANES - NON_SPENDING_KEY_LANES
     assert unclassified == set(), (
         f"secret-bearing lanes with no declared posture: {sorted(unclassified)}"
     )
@@ -10405,7 +10415,7 @@ def test_workflow_has_no_schedule_trigger__mutation_adds_a_cron() -> None:
 def test_secret_free_lanes_keep_the_per_pr_shape(workflow: dict[str, Any]) -> None:
     """deploy-e2e and dockerfile-e2e are the per-PR proof that a render builds
     and boots; they cost runner minutes, not tokens, and must not hide behind
-    the label."""
+    the label (dockerfile-agent-e2e carries the image's one model call)."""
     for lane in ("deploy-e2e", "dockerfile-e2e"):
         condition = _jobs(workflow)[lane]["if"]
         assert FULL_CI_LABEL_CLAUSE not in condition, f"{lane}: label-gated but spends nothing"
@@ -10417,6 +10427,98 @@ def test_secret_free_lanes_keep_the_per_pr_shape__mutation_gates_deploy_by_label
     _jobs(mutated)["deploy-e2e"]["if"] = _jobs(mutated)["scan-agentic-e2e"]["if"]
     with pytest.raises(AssertionError, match="spends nothing"):
         test_secret_free_lanes_keep_the_per_pr_shape(mutated)
+
+
+# The Dockerfile image is proven in two lanes: dockerfile-e2e, every same-repo
+# PR, holds no key and runs the model-free module; dockerfile-agent-e2e, a
+# spending lane, runs the one module that drives an agent turn through the
+# image. The split is by file, so the model-free lane cannot skip its way past
+# the turn: the turn is not in what it runs.
+
+DOCKERFILE_MODULE = "tests/e2e/test_dockerfile_e2e.py"
+DOCKERFILE_AGENT_MODULE = "tests/e2e/test_dockerfile_agent_e2e.py"
+_MODEL_MARK = "requires_als_apg"
+
+
+def _pytest_modules(wf: dict[str, Any], job: str) -> list[str]:
+    """Every ``tests/`` path a pytest call in *job* names, in step order."""
+    runs = [str(step.get("run", "")) for step in _jobs(wf)[job]["steps"]]
+    return [
+        path
+        for run in runs
+        if "pytest" in run
+        for path in re.findall(r"(?<![=\w/])tests/[\w./-]+\.py\b", run)
+    ]
+
+
+def _model_marked_tests(module: str) -> dict[str, bool]:
+    """Each test function in *module* to whether it carries ``requires_als_apg``."""
+    tree = ast.parse((REPO_ROOT / module).read_text())
+    return {
+        node.name: any(_MODEL_MARK in ast.unparse(d) for d in node.decorator_list)
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    }
+
+
+def test_the_dockerfile_agent_turn_runs_only_in_its_spending_lane(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    wf = workflow if workflow is not None else _load_workflow()
+    assert DOCKERFILE_AGENT_JOB in SPENDING_LANES, "the agent turn is not a spending lane"
+    assert _pytest_modules(wf, DOCKERFILE_E2E_JOB) == [DOCKERFILE_MODULE]
+    assert _pytest_modules(wf, DOCKERFILE_AGENT_JOB) == [DOCKERFILE_AGENT_MODULE], (
+        f"{DOCKERFILE_AGENT_JOB} runs {_pytest_modules(wf, DOCKERFILE_AGENT_JOB)}"
+    )
+    assert "secrets." not in json.dumps(_jobs(wf)[DOCKERFILE_E2E_JOB]), (
+        f"{DOCKERFILE_E2E_JOB} holds a secret"
+    )
+    free, agent = (
+        _model_marked_tests(DOCKERFILE_MODULE),
+        _model_marked_tests(DOCKERFILE_AGENT_MODULE),
+    )
+    assert free and not any(free.values()), f"a model-calling test in {DOCKERFILE_MODULE}"
+    assert agent and all(agent.values()), f"an unmarked test in {DOCKERFILE_AGENT_MODULE}"
+    # The turn skips without the key, so the lane fails on any skip.
+    reports = [
+        r
+        for step in _jobs(wf)[DOCKERFILE_AGENT_JOB]["steps"]
+        for r in _JUNIT_RE.findall(str(step.get("run", "")))
+        if "pytest" in str(step.get("run", ""))
+    ]
+    gates = [
+        str(step["run"])
+        for step in _jobs(wf)[DOCKERFILE_AGENT_JOB]["steps"]
+        if SKIP_GATE_SCRIPT in str(step.get("run", ""))
+    ]
+    assert len(reports) == 1 and len(gates) == 1, f"{DOCKERFILE_AGENT_JOB} has no skip gate"
+    assert reports[0] in _skip_gate_reads(gates[0]), "the skip gate reads another report"
+    _assert_skip_gate_fails_the_job(gates[0])
+
+
+def test_the_dockerfile_agent_turn__mutation_hands_the_model_free_lane_the_key() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, "Run Dockerfile E2E")
+    step["env"]["ALS_APG_API_KEY"] = "${{ secrets.ALS_APG_API_KEY }}"
+    with pytest.raises(AssertionError, match="holds a secret"):
+        test_the_dockerfile_agent_turn_runs_only_in_its_spending_lane(mutated)
+
+
+def test_the_dockerfile_agent_turn__mutation_drops_the_skip_gate() -> None:
+    mutated = _load_workflow()
+    steps = _jobs(mutated)[DOCKERFILE_AGENT_JOB]["steps"]
+    steps[:] = [s for s in steps if SKIP_GATE_SCRIPT not in str(s.get("run", ""))]
+    with pytest.raises(AssertionError, match="no skip gate"):
+        test_the_dockerfile_agent_turn_runs_only_in_its_spending_lane(mutated)
+
+
+def test_the_dockerfile_agent_turn__mutation_runs_both_modules_in_the_model_free_lane() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, DOCKERFILE_E2E_JOB, "Run Dockerfile E2E")
+    step["run"] = step["run"].replace(DOCKERFILE_MODULE, "tests/e2e/test_dockerfile_*.py")
+    step["run"] += f" {DOCKERFILE_AGENT_MODULE}"
+    with pytest.raises(AssertionError):
+        test_the_dockerfile_agent_turn_runs_only_in_its_spending_lane(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -13842,10 +13944,11 @@ def test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_reques
     workflow: dict[str, Any],
 ) -> None:
     """Under a dispatch `github.event.pull_request.head.sha` is empty, so the
-    pip spec falls back to the run's own sha."""
-    spec = json.dumps(_jobs(workflow)[DOCKERFILE_E2E_JOB])
-    assert "${{ github.event.pull_request.head.sha || github.sha }}" in spec
-    assert "@${{ github.event.pull_request.head.sha }}" not in spec
+    pip spec falls back to the run's own sha, in both jobs that build the image."""
+    for job in (DOCKERFILE_E2E_JOB, DOCKERFILE_AGENT_JOB):
+        spec = json.dumps(_jobs(workflow)[job])
+        assert "${{ github.event.pull_request.head.sha || github.sha }}" in spec, job
+        assert "@${{ github.event.pull_request.head.sha }}" not in spec, job
 
 
 def test_dockerfile_e2e_installs_the_dispatched_sha__mutation_drops_the_fallback() -> None:
@@ -15789,6 +15892,12 @@ _SECRET_FREE_LANES = [
     # Every assertion in that file reads the store or the render; no model is
     # reached.
     GRAPH_RESEED_JOB,
+    # The image's one agent turn runs in dockerfile-agent-e2e, a spending lane;
+    # the key here would put a model call back on every pull request.
+    DOCKERFILE_E2E_JOB,
+    # `osprey up` only needs a non-empty provider key; the lane calls no model,
+    # so it boots on a placeholder.
+    DEPLOY_JOB,
 ]
 
 

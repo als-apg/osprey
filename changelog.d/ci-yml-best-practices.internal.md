@@ -10,3 +10,10 @@ and action. Job timeouts that used to sit at a generic 60 minutes now sit at abo
 90th-percentile duration of recent green runs on main. The two proxy-probe base images are pinned by
 tag and digest, podman-compose's dependencies are pinned, and Dependabot pull requests are
 recognised by their author rather than by whoever triggered the run.
+
+`dockerfile-e2e` no longer holds `ALS_APG_API_KEY`. Its one model call, the agent turn through the
+generated image, moved to `tests/e2e/test_dockerfile_agent_e2e.py` and runs in the new
+`dockerfile-agent-e2e` lane, which is model-spending: it runs under the `full-ci` label or the
+revalidation dispatch, the release gate and `full_ci_on_main.py` count it, and it fails on a skipped
+test. `deploy-e2e` holds no secret either: it calls no model, and `osprey up` only refuses an empty
+provider key, so it boots on a placeholder value and now runs on Dependabot pull requests too.

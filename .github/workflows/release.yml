@@ -96,6 +96,7 @@ jobs:
           scan-agentic-e2e=Scan Stack Agentic E2E
           nextcloud-talk-bridge-e2e=Nextcloud Talk Bridge E2E
           gchat-bridge-e2e=Google Chat Bridge E2E
+          dockerfile-agent-e2e=Dockerfile Agent E2E
           target-switch-agentic-e2e=Control-Target Switch Agentic E2E
       run: |
         python3 scripts/ci/require_green_lanes.py --lanes "$REQUIRED_LANES" \

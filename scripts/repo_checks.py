@@ -2222,7 +2222,14 @@ LANES: tuple[Lane, ...] = (
         "fixtures/test_slack_fixture_smoke.py",
         why="loopback services",
     ),
-    _e2e("dockerfile-e2e", "test_dockerfile_e2e.py"),
+    _e2e("dockerfile-e2e", "test_dockerfile_e2e.py", "_dockerfile_image.py"),
+    _e2e(
+        "dockerfile-agent-e2e",
+        "test_dockerfile_agent_e2e.py",
+        "_dockerfile_image.py",
+        why=SPENDS,
+        prefix="Dockerfile Agent E2E",
+    ),
     _e2e("privilege-split-e2e", "test_privilege_split.py", "test_audit_two_container.py"),
     _e2e(
         "agentic-per-preset",

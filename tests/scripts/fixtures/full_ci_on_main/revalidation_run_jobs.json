@@ -270,6 +270,11 @@
   "conclusion": "skipped"
  },
  {
+  "name": "Dockerfile Agent E2E (one agent turn through the generated image)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
   "name": "Archiver World E2E (VA + mongodb store + recorder, full Docker stack)",
   "status": "completed",
   "conclusion": "skipped"
