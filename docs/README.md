@@ -37,8 +37,10 @@ runs for you.
   deployment on the default one can keep running). The `--now` anchor freezes the seeded dates, so
   repeat captures are byte-stable.
 - `SCREENSHOTOPTS=--agentic` — the Web Terminal hero. Sends its prompt through
-  the operator chat of a live agent session to produce a real beam-current plot, so it needs a live Claude
-  session on your subscription budget. Success is a structural check (non-blank
+  the operator chat of a live agent session to produce a real beam-current plot, so it needs
+  the provider's API key in the environment and spends its budget. The session
+  runs on a Claude Code config directory of its own, so a login on the host does
+  not reach it; `OSPREY_DOCSHOTS_PROVIDER=<name>` picks the provider. Success is a structural check (non-blank
   image, correct viewport, plot present), not a byte comparison.
 
 ```console
@@ -121,7 +123,8 @@ matches the reader's theme. Like the screenshots, it is capture-only and never a
 CI gate.
 
 **What it needs.** A container runtime (every take builds and starts its own
-tutorial stack), a live Claude session on your subscription budget, `ffmpeg`
+tutorial stack), the provider's API key in the environment (a Claude Code login
+on the host does not reach the take's session), `ffmpeg`
 and `ffprobe` on the `PATH`, and the development environment of this checkout
 (`uv sync --extra dev`, which provides Playwright and this checkout's `osprey`
 CLI; install the browser once with `uv run playwright install chromium`, and
