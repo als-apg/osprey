@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-flight check that the ALS-APG gateway answers one tiny Messages call, so a
+# Pre-flight check that the model gateway answers one tiny Messages call, so a
 # model-spending lane reds in seconds on a missing key, a rotated key or an
 # outage instead of failing deep inside its first agent turn.
 #
@@ -30,11 +30,11 @@ code=$(curl -sS -o "$body" -w "%{http_code}" --max-time 15 \
   -H "Authorization: Bearer $ALS_APG_API_KEY" \
   -d "{\"model\":\"$OSPREY_E2E_FORCE_MODEL\",\"max_tokens\":4,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}") || true
 if [ "$code" != "200" ]; then
-  echo "❌ ALS-APG endpoint probe failed (HTTP ${code:-none})"
+  echo "❌ model gateway probe failed (HTTP ${code:-none})"
   echo "   Body (first 500 chars):"
   head -c 500 "$body"; echo
   echo "   If 401/403: rotate ALS_APG_API_KEY or check IP allowlist."
-  echo "   If 5xx: ALS-APG outage — retry, or contact the proxy admin."
+  echo "   If 5xx: gateway outage — retry, or contact the proxy admin."
   exit 1
 fi
-echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+echo "✅ model gateway reachable (HTTP 200)"
