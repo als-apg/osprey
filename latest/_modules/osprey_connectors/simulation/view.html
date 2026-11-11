@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 10, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 11, 2026"/>
   </head>
   
   
@@ -442,7 +442,7 @@
 <span class="sd">A wiring record of a physics model carries what its engine&#39;s ``describe()``</span>
 <span class="sd">stated at build time: its ``engine_role`` (one of :data:`ENGINE_ROLES`), the transverse</span>
 <span class="sd">``plane`` it steers or reads (``x``, ``y`` or ``None``), its ``refresh``</span>
-<span class="sd">(``pass`` or ``periodic``) and, when it carries any, its ``marks`` (of</span>
+<span class="sd">(one of :data:`REFRESH`) and, when it carries any, its ``marks`` (of</span>
 <span class="sd">:data:`MARKS`). The words are the facility schema&#39;s. A ``readback`` is any read of an element&#39;s setting, paired</span>
 <span class="sd">with a setpoint or not; a reader wanting the readback of a setpoint reads that</span>
 <span class="sd">setpoint channel&#39;s ``pair``.</span>
@@ -538,8 +538,9 @@
 <span class="n">PLANES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">)</span>
 <span class="n">PERIODIC</span> <span class="o">=</span> <span class="s2">&quot;periodic&quot;</span>
 <span class="c1">#: The refresh a wiring record&#39;s description names: ``pass`` with each</span>
-<span class="c1">#: write&#39;s solve, ``periodic`` with the periodic solve alone.</span>
-<span class="n">REFRESH</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;pass&quot;</span><span class="p">,</span> <span class="n">PERIODIC</span><span class="p">)</span>
+<span class="c1">#: write&#39;s solve, ``periodic`` with the periodic solve alone, ``fast`` at the</span>
+<span class="c1">#: fast period, ``event`` with each event the engine raises.</span>
+<span class="n">REFRESH</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;pass&quot;</span><span class="p">,</span> <span class="n">PERIODIC</span><span class="p">,</span> <span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;event&quot;</span><span class="p">)</span>
 <span class="c1">#: The mark of a record whose write is a command; only a ``write`` record</span>
 <span class="c1">#: carries it.</span>
 <span class="n">COMMAND_MARK</span> <span class="o">=</span> <span class="s2">&quot;command&quot;</span>
@@ -672,7 +673,7 @@
 <span class="sd">            or not; the setpoint channel&#39;s ``pair`` names its readback.</span>
 <span class="sd">        plane: ``x`` or ``y`` for a record steering or reading one transverse</span>
 <span class="sd">            plane, else ``None``.</span>
-<span class="sd">        refresh: ``pass`` or ``periodic``.</span>
+<span class="sd">        refresh: One of :data:`REFRESH`.</span>
 <span class="sd">        element: The element the record names, or ``None`` (a record naming</span>
 <span class="sd">            slices, or none).</span>
 <span class="sd">        record: The wiring record as the view states it, read-only; the</span>

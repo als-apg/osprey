@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 10, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 11, 2026"/>
   </head>
   
   
@@ -500,6 +500,20 @@
 <span class="sd">A set whose scenarios touch one target twice is served without its</span>
 <span class="sd">scenarios.</span>
 
+<span class="sd">**Evolution.** A composite built with ``evolve=True`` drives the children</span>
+<span class="sd">whose engine states the time contract (``advance``, ``next_deadline``,</span>
+<span class="sd">``emitted``, ``client_write``), each looked up on the engine the way</span>
+<span class="sd">``readout`` is: it calls ``advance(model, t)`` at its clock&#39;s reading right</span>
+<span class="sd">after it builds or rebuilds a child, right after :meth:`Composite.reset`, and</span>
+<span class="sd">before every read and write; :meth:`Composite.next_deadline` is the earliest</span>
+<span class="sd">of the children&#39;s deadlines and :meth:`Composite.emitted` the union of what</span>
+<span class="sd">they emitted, drained. Only a write through :meth:`Composite.set` that reaches</span>
+<span class="sd">a child&#39;s model is a client write, handed to ``client_write(model, values,</span>
+<span class="sd">t)``; :meth:`Composite.restore`, the start state and the scenario writes are</span>
+<span class="sd">not, and neither is a write a ``stuck`` or ``disconnected`` setpoint holds. A</span>
+<span class="sd">rebuild discards what a child had pending. Built without it, the default, the</span>
+<span class="sd">composite calls none of the four names.</span>
+
 <span class="sd">**The model log.** Each physics child appends JSON lines ``{instance, pid,</span>
 <span class="sd">...}`` to ``var/simulator/&lt;model&gt;.log`` under the repo root of the loaded</span>
 <span class="sd">config, one ``os.write`` per record of under :data:`_LOG_RECORD_MAX_BYTES`</span>
@@ -695,6 +709,8 @@
 <span class="sd">            only, for a composite no instance serves.</span>
 <span class="sd">        log_dir: The directory the model logs are appended in; ``None`` takes</span>
 <span class="sd">            :func:`log_dir` when ``model_log`` is set.</span>
+<span class="sd">        evolve: Drive the children&#39;s time contract with ``clock``; ``False``</span>
+<span class="sd">            never calls it, so every channel holds its start state until written.</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: ``instance`` is not one of :data:`_INSTANCES`.</span>
@@ -713,6 +729,7 @@
         <span class="n">clock</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">,</span>
         <span class="n">model_log</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
         <span class="n">log_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">evolve</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">instance</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_INSTANCES</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;instance is </span><span class="si">{</span><span class="n">instance</span><span class="si">!r}</span><span class="s2">; use one of </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">_INSTANCES</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -720,6 +737,7 @@
             <span class="n">view</span> <span class="o">=</span> <span class="n">SimulatorView</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_instance</span> <span class="o">=</span> <span class="n">instance</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_clock</span> <span class="o">=</span> <span class="n">clock</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_evolve</span> <span class="o">=</span> <span class="n">evolve</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_state_path</span> <span class="o">=</span> <span class="p">(</span>
             <span class="kc">None</span> <span class="k">if</span> <span class="n">state_dir</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Path</span><span class="p">(</span><span class="n">state_dir</span><span class="p">)</span> <span class="o">/</span> <span class="n">ACTIVE_SCENARIOS_FILENAME</span>
         <span class="p">)</span>
@@ -866,6 +884,7 @@
             <span class="k">return</span>
         <span class="n">child</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">STATUS_OK</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;event&quot;</span><span class="p">:</span> <span class="s2">&quot;built&quot;</span><span class="p">,</span> <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="n">STATUS_OK</span><span class="p">})</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_advance_child</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()))</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_fail</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">child</span><span class="p">:</span> <span class="n">_Child</span><span class="p">,</span> <span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Mark a child failed with the text its engine gives for ``exc``.</span>
@@ -883,6 +902,90 @@
         <span class="n">child</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="n">child</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">_cap_status</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;event&quot;</span><span class="p">:</span> <span class="s2">&quot;failed&quot;</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="n">text</span><span class="p">})</span>
+
+    <span class="c1"># -- the time contract ---------------------------------------------------</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_time_function</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">child</span><span class="p">:</span> <span class="n">_Child</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A built child&#39;s time-contract function ``name``; ``None`` unless evolving.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_evolve</span> <span class="ow">or</span> <span class="n">child</span><span class="o">.</span><span class="n">model</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">function</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">engine</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">function</span> <span class="k">if</span> <span class="nb">callable</span><span class="p">(</span><span class="n">function</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_call_time</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">child</span><span class="p">:</span> <span class="n">_Child</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Call ``child``&#39;s time-contract function ``name`` on its model with ``args``.</span>
+
+<span class="sd">        Returns what it returns, or ``None`` when the child states no such</span>
+<span class="sd">        function or is not evolving; a raise fails the child and returns ``None``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">function</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_time_function</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">function</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">function</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">model</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fail</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_advance_child</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">child</span><span class="p">:</span> <span class="n">_Child</span><span class="p">,</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply every step of ``child`` due by ``t_s``; a raise fails the child.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_call_time</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="s2">&quot;advance&quot;</span><span class="p">,</span> <span class="n">t_s</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_advance</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_advance_child</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">t_s</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Composite.advance">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.advance">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">advance</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Advance every time-driven child to the clock; nothing unless built to evolve.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_advance</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()))</span></div>
+
+
+<div class="viewcode-block" id="Composite.next_deadline">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.next_deadline">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">next_deadline</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The earliest epoch second a time-driven child has a step due, else ``None``.</span>
+
+<span class="sd">        ``None`` too when the composite does not evolve; a child whose engine</span>
+<span class="sd">        raises is failed and has no deadline.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
+        <span class="n">deadlines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">deadline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call_time</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="s2">&quot;next_deadline&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">deadline</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">deadlines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">deadline</span><span class="p">))</span>
+        <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">deadlines</span><span class="p">)</span> <span class="k">if</span> <span class="n">deadlines</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="Composite.emitted">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.emitted">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">emitted</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The addresses the time-driven children emitted since the last call, drained.</span>
+
+<span class="sd">        Empty when the composite does not evolve; a child whose engine raises</span>
+<span class="sd">        is failed and emits nothing.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
+        <span class="n">fired</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">emitted</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_time_function</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="s2">&quot;emitted&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">emitted</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">fired</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">emitted</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">model</span><span class="p">))</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fail</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">fired</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_client_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">forwarded</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Hand each child the client writes that reached its model.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">model</span><span class="p">,</span> <span class="n">written</span> <span class="ow">in</span> <span class="n">forwarded</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">written</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_call_time</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="p">[</span><span class="n">model</span><span class="p">],</span> <span class="s2">&quot;client_write&quot;</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">written</span><span class="p">),</span> <span class="n">t_s</span><span class="p">)</span>
 
     <span class="c1"># -- the active scenarios ------------------------------------------------</span>
 
@@ -1075,6 +1178,18 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_moving</span></div>
 
 
+<div class="viewcode-block" id="Composite.texture_reach">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.texture_reach">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">texture_reach</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;What a write to each settable texture channel can change, by address.</span>
+
+<span class="sd">        The channel, the readback it echoes into, and the texture channels</span>
+<span class="sd">        derived from either. No physics model reads a texture channel, so the</span>
+<span class="sd">        write changes nothing else.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">reach</span><span class="p">()</span></div>
+
+
 <div class="viewcode-block" id="Composite.get">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.get">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="n">Any</span><span class="p">:</span>
@@ -1122,7 +1237,9 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
-        <span class="n">outputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_served</span><span class="p">(</span><span class="n">names</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()))</span>
+        <span class="n">t_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_advance</span><span class="p">(</span><span class="n">t_s</span><span class="p">)</span>
+        <span class="n">outputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_served</span><span class="p">(</span><span class="n">names</span><span class="p">,</span> <span class="n">t_s</span><span class="p">)</span>
         <span class="n">outputs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_held_demands</span><span class="p">(</span><span class="n">names</span><span class="p">))</span>
         <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
             <span class="n">fault</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_faulted</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
@@ -1349,6 +1466,7 @@
         <span class="n">wanted</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_require</span><span class="p">(</span><span class="n">wanted</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_advance</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()))</span>
         <span class="n">outputs</span><span class="p">,</span> <span class="n">texture</span><span class="p">,</span> <span class="n">physics</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_partition</span><span class="p">(</span><span class="n">wanted</span><span class="p">)</span>
         <span class="n">outputs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">held</span><span class="p">(</span><span class="n">texture</span><span class="p">))</span>
         <span class="k">for</span> <span class="n">model</span><span class="p">,</span> <span class="n">owned</span> <span class="ow">in</span> <span class="n">physics</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
@@ -1417,6 +1535,25 @@
 <span class="sd">                ``address`` names the channel when one channel was refused.</span>
 <span class="sd">            ReadOnlyError: A name is not a settable channel.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">,</span> <span class="n">client</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Composite.restore">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.restore">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">restore</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Put channels back as :meth:`set` writes them, without a client write.</span>
+
+<span class="sd">        For a rollback or a replay: the children&#39;s models take the values, and</span>
+<span class="sd">        no engine is told a client wrote them.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            WriteRefusedError: As :meth:`set`.</span>
+<span class="sd">            ReadOnlyError: As :meth:`set`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">,</span> <span class="n">client</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">client</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">values_by_name</span><span class="p">:</span>
             <span class="k">return</span>
@@ -1440,14 +1577,19 @@
                 <span class="n">variable</span><span class="o">.</span><span class="n">validate_value</span><span class="p">(</span><span class="n">_for_variable</span><span class="p">(</span><span class="n">variable</span><span class="p">,</span> <span class="n">coerced</span><span class="p">[</span><span class="n">name</span><span class="p">]))</span>
             <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="n">WriteRefusedError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span> <span class="n">address</span><span class="o">=</span><span class="n">name</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_set</span><span class="p">(</span><span class="n">coerced</span><span class="p">)</span></div>
+        <span class="n">t_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_advance</span><span class="p">(</span><span class="n">t_s</span><span class="p">)</span>
+        <span class="n">forwarded</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set</span><span class="p">(</span><span class="n">coerced</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">client</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_client_write</span><span class="p">(</span><span class="n">forwarded</span><span class="p">,</span> <span class="n">t_s</span><span class="p">)</span>
 
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>  <span class="c1"># type: ignore[override]</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write the children, then the texture; returns what reached each child&#39;s model.&quot;&quot;&quot;</span>
         <span class="n">batches</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
             <span class="n">batches</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="p">{})[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
         <span class="n">restores</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[],</span> <span class="kc">None</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">forwarded</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="n">texture</span> <span class="o">=</span> <span class="n">batches</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">TEXTURE_OWNER</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
         <span class="n">demands</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">texture</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held_writes</span><span class="p">}</span>
         <span class="n">writing</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
@@ -1455,7 +1597,8 @@
             <span class="k">for</span> <span class="n">model</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
                 <span class="k">if</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">batches</span><span class="p">:</span>
                     <span class="n">writing</span> <span class="o">=</span> <span class="n">batches</span><span class="p">[</span><span class="n">model</span><span class="p">]</span>
-                    <span class="n">restores</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_set_child</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">writing</span><span class="p">))</span>
+                    <span class="n">restore</span><span class="p">,</span> <span class="n">forwarded</span><span class="p">[</span><span class="n">model</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_child</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">writing</span><span class="p">)</span>
+                    <span class="n">restores</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">restore</span><span class="p">)</span>
             <span class="n">forward</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">texture</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">demands</span><span class="p">}</span>
             <span class="k">if</span> <span class="n">forward</span><span class="p">:</span>
                 <span class="n">writing</span> <span class="o">=</span> <span class="n">forward</span>
@@ -1473,9 +1616,12 @@
             <span class="n">address</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">writing</span><span class="p">))</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">writing</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="kc">None</span>
             <span class="k">raise</span> <span class="n">WriteRefusedError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="n">address</span><span class="o">=</span><span class="n">address</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_texture_demands</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">demands</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">forwarded</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_set_child</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">child</span><span class="p">:</span> <span class="n">_Child</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="kc">None</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write one child&#39;s batch; returns what puts its previous inputs back.</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_set_child</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">child</span><span class="p">:</span> <span class="n">_Child</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[],</span> <span class="kc">None</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write one child&#39;s batch; returns its undo and the values that reached the model.</span>
 
 <span class="sd">        Every name of the batch lands in the child&#39;s inputs; only the names the</span>
 <span class="sd">        active scenarios do not hold reach the model.</span>
@@ -1483,6 +1629,7 @@
         <span class="n">forward</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">batch</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held_writes</span><span class="p">}</span>
         <span class="n">previous</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">child</span><span class="o">.</span><span class="n">inputs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">batch</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">child</span><span class="o">.</span><span class="n">inputs</span><span class="p">}</span>
         <span class="n">model</span> <span class="o">=</span> <span class="n">child</span><span class="o">.</span><span class="n">model</span>
+        <span class="n">reached</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">forward</span><span class="p">)</span> <span class="k">if</span> <span class="n">model</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">{}</span>
         <span class="k">if</span> <span class="n">model</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">forward</span><span class="p">:</span>
             <span class="n">model</span><span class="o">.</span><span class="n">set</span><span class="p">(</span>
                 <span class="p">{</span>
@@ -1506,7 +1653,7 @@
                 <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">_fail</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
 
-        <span class="k">return</span> <span class="n">restore</span>
+        <span class="k">return</span> <span class="n">restore</span><span class="p">,</span> <span class="n">reached</span>
 
 <div class="viewcode-block" id="Composite.reset">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.reset">[docs]</a>
@@ -1516,7 +1663,8 @@
 <span class="sd">        Setpoints return to their active writes or defaults, the texture to its</span>
 <span class="sd">        nominals and active writes; session writes are dropped, the ones a</span>
 <span class="sd">        channel fault holds among them. A faulted reading keeps the value it</span>
-<span class="sd">        served when its fault became active.</span>
+<span class="sd">        served when its fault became active. An evolving composite advances</span>
+<span class="sd">        each child to the clock right after, which anchors its time anew.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
@@ -1529,6 +1677,7 @@
                 <span class="bp">self</span><span class="o">.</span><span class="n">_fail</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
                 <span class="k">continue</span>
             <span class="n">child</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_inputs</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_advance_child</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()))</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_texture_demands</span> <span class="o">=</span> <span class="p">{}</span></div>
 

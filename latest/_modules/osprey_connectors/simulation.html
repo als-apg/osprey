@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 10, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 11, 2026"/>
   </head>
   
   
@@ -431,10 +431,11 @@
 <span></span><span class="sd">&quot;&quot;&quot;The simulated machine behind OSPREY&#39;s simulator connectors.</span>
 
 <span class="sd">The package root holds only what every reader needs without loading a model:</span>
-<span class="sd">the tick period, char-waveform decoding, the gated and labelled value types</span>
-<span class="sd">and the model status lookups. It imports neither numpy nor lume; the</span>
-<span class="sd">active-scenario state, value coercion, the composite, the texture engine, the</span>
-<span class="sd">archive and the series primitives are imported from their own modules.</span>
+<span class="sd">the tick period and the fast period of timed passes, char-waveform decoding,</span>
+<span class="sd">the gated and labelled value types and the model status lookups. It imports</span>
+<span class="sd">neither numpy nor lume; the active-scenario state, value coercion, the</span>
+<span class="sd">composite, the texture engine, the archive and the series primitives are</span>
+<span class="sd">imported from their own modules.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
@@ -444,13 +445,16 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.values</span><span class="w"> </span><span class="kn">import</span> <span class="n">GATED_TYPES</span><span class="p">,</span> <span class="n">LABELLED_TYPES</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;DEFAULT_FAST_TICK_S&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DEFAULT_TICK_S&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;FAST_TICK_KEY&quot;</span><span class="p">,</span>
     <span class="s2">&quot;GATED_TYPES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;LABELLED_TYPES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;TICK_KEY&quot;</span><span class="p">,</span>
     <span class="s2">&quot;decode_char_waveform&quot;</span><span class="p">,</span>
     <span class="s2">&quot;model_status&quot;</span><span class="p">,</span>
     <span class="s2">&quot;read_model_status&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;resolve_fast_tick_s&quot;</span><span class="p">,</span>
     <span class="s2">&quot;resolve_tick_s&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
@@ -477,14 +481,47 @@
 <span class="sd">        ValueError: If the value is not a number greater than zero; the</span>
 <span class="sd">            message names the key.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">section</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;simulation&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
-    <span class="n">raw</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tick_s&quot;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">raw</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">DEFAULT_TICK_S</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">)</span> <span class="ow">or</span> <span class="n">raw</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">TICK_KEY</span><span class="si">}</span><span class="s2"> must be a number of seconds greater than 0 (got </span><span class="si">{</span><span class="n">raw</span><span class="si">!r}</span><span class="s2">)&quot;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="n">_resolve_period</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">TICK_KEY</span><span class="p">,</span> <span class="n">DEFAULT_TICK_S</span><span class="p">)</span></div>
 
+
+
+<span class="c1">#: The config key holding the fast period, in seconds: how often the served</span>
+<span class="c1">#: machine advances its timed state between ticks.</span>
+<span class="n">FAST_TICK_KEY</span> <span class="o">=</span> <span class="s2">&quot;simulation.fast_tick_s&quot;</span>
+
+<span class="c1">#: The fast period when the config does not set one, in seconds.</span>
+<span class="n">DEFAULT_FAST_TICK_S</span> <span class="o">=</span> <span class="mf">0.1</span>
+
+
+<div class="viewcode-block" id="resolve_fast_tick_s">
+<a class="viewcode-back" href="../../reference/connectors-api/simulation.html#osprey_connectors.simulation.resolve_fast_tick_s">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_fast_tick_s</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The fast period a config asks for.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: The full project config.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``simulation.fast_tick_s`` in seconds, or :data:`DEFAULT_FAST_TICK_S`</span>
+<span class="sd">        when the ``simulation`` section or its ``fast_tick_s`` entry is absent.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If the value is not a number greater than zero; the</span>
+<span class="sd">            message names the key.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_resolve_period</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">FAST_TICK_KEY</span><span class="p">,</span> <span class="n">DEFAULT_FAST_TICK_S</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_resolve_period</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``simulation.&lt;entry&gt;`` period ``key`` names, in seconds; ``default`` when absent.&quot;&quot;&quot;</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;simulation&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">raw</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">removeprefix</span><span class="p">(</span><span class="s2">&quot;simulation.&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">raw</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">default</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">)</span> <span class="ow">or</span> <span class="n">raw</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> must be a number of seconds greater than 0 (got </span><span class="si">{</span><span class="n">raw</span><span class="si">!r}</span><span class="s2">)&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="decode_char_waveform">
