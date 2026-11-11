@@ -81,8 +81,8 @@ A row also shows the description, current value, record type, IOC and status.
 An inactive PV is dimmed. A value reads ``no answer`` when the PV did not
 answer.
 
-Tick rows to act on them; the selection survives new words, filters and
-paging.
+Tick rows to act on them; the selection survives new words, filters, paging
+and a visit to a PV or IOC page.
 
 - **Export CSV** downloads the search result as CSV.
 - **Plot** opens the selection in CANOPY's trace view, at most 12 PVs. It is

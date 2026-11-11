@@ -5,6 +5,8 @@
  * Event-emitter pattern: views subscribe to state changes.
  */
 
+import { familyOf } from './route.js';
+
 /** @typedef {(data: any) => void} StateListener */
 
 /**
@@ -60,6 +62,11 @@ class ChannelFinderState {
     // directions.
     /** @type {string} */
     this.scopeQuery = '';
+
+    // The All PVs basket, in selection order, kept across the family's pages
+    // (All PVs and its PV and IOC pages).
+    /** @type {Set<string>} */
+    this.selection = new Set();
 
     // Set by app.js on each /api/info fetch; null when the section is not
     // configured, and the allpvs, pv and ioc routes then do not exist.
@@ -138,6 +145,7 @@ class ChannelFinderState {
    */
   setActiveView(view) {
     this.activeView = view;
+    if (familyOf(view) !== 'allpvs') this.selection.clear();
     this.emit('viewChanged', view);
   }
 }

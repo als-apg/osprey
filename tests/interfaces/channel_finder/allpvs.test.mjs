@@ -498,15 +498,33 @@ describe('the selection basket', () => {
     expect(selection(container)).not.toContain('selected');
   });
 
-  test('a new mount starts with nothing selected', async () => {
-    const { view, container } = await mount();
+  /**
+   * Select a row, then leave and come back the way app.js does: the active
+   * view changes before each mount.
+   * @param {string} away
+   */
+  async function visit(away) {
+    const { state, view, container } = await mount();
     await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
     select(container, 0);
     expect(selection(container)).toContain('1 selected');
     view.unmountAllPvs();
+    state.setActiveView(away);
+    state.setActiveView('allpvs');
     view.mountAllPvs(container, {});
     await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
-    expect(selection(container)).not.toContain('selected');
+    return container;
+  }
+
+  test.each([
+    ['a PV', 'pv'],
+    ['an IOC', 'ioc'],
+  ])('%s page and Back keep it', async (_, away) => {
+    expect(selection(await visit(away))).toContain('1 selected');
+  });
+
+  test('leaving All PVs empties it', async () => {
+    expect(selection(await visit('explore'))).not.toContain('selected');
   });
 });
 
