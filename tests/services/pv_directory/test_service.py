@@ -453,6 +453,65 @@ async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path:
     await directory.aclose()
 
 
+def _described_rows(name: str) -> None:
+    FakeDirectory.rows = [_row(name, description="Cavity temperature", ioc="ioc-a")]
+    FakeDirectory.records = {
+        name: contract.DirectoryRecord(row=_row(name, description="Cavity temperature"))
+    }
+
+
+async def test_hiding_the_configured_description_property_clears_the_description(
+    tmp_path: Path,
+) -> None:
+    _described_rows("SR:BPM1")
+    hidden = {**FACILITY, "description_property": "Comment"}
+    directory = _service(
+        _config(tmp_path, LIVE_BUILD, {**hidden, "display": {"hidden_properties": ["Comment"]}}),
+        tmp_path,
+    )
+
+    page = await directory.search(words="SR")
+    found = await directory.describe("SR:BPM1")
+
+    assert [row["description"] for row in page["rows"]] == [None]
+    assert found["record"]["row"]["description"] is None
+    await directory.aclose()
+
+    directory = _service(
+        _config(tmp_path, LIVE_BUILD, {**hidden, "display": {"hidden_properties": ["recordDesc"]}}),
+        tmp_path,
+    )
+
+    page = await directory.search(words="SR")
+    found = await directory.describe("SR:BPM1")
+
+    assert [row["description"] for row in page["rows"]] == ["Cavity temperature"]
+    assert found["record"]["row"]["description"] == "Cavity temperature"
+    await directory.aclose()
+
+
+async def test_hiding_reads_the_description_property_the_backend_was_built_with(
+    tmp_path: Path,
+) -> None:
+    _described_rows("SR:BPM1")
+    section = {
+        **FACILITY,
+        "description_property": "Comment",
+        "display": {"hidden_properties": ["Comment"]},
+    }
+    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+
+    page = await directory.search(words="SR")
+    found = await directory.describe("SR:BPM1")
+    backend, source, _reason = await directory.backend("pv_directory")
+
+    assert (backend.spec.type, source.target) == ("simulator_view", "va")
+    assert backend.spec.settings["description_property"] == "Comment"
+    assert [row["description"] for row in page["rows"]] == [None]
+    assert found["record"]["row"]["description"] is None
+    await directory.aclose()
+
+
 # -- targets ------------------------------------------------------------------
 
 
