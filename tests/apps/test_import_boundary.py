@@ -16,7 +16,7 @@ from osprey.apps.boundary import check_package
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_APP = REPO_ROOT / "tests/apps/fixtures/boundary_fixture_app"
-LATER_PACKAGES = (
+SHIPPED_PACKAGES = (
     "src/osprey/profiles/presets/apps/orbit-bump/orbit_bump",
     "src/osprey/apps/scaffold-app/scaffold_app",
     "tests/facility/fixtures/fixture_kind",
@@ -36,12 +36,9 @@ def test_the_fixture_app_stays_inside_the_boundary() -> None:
     assert check_package(FIXTURE_APP) == []
 
 
-@pytest.mark.parametrize("relative", LATER_PACKAGES)
+@pytest.mark.parametrize("relative", SHIPPED_PACKAGES)
 def test_a_shipped_package_stays_inside_the_boundary(relative: str) -> None:
-    package = REPO_ROOT / relative
-    if not package.is_dir():
-        pytest.skip(f"{relative} is not in this tree")
-    assert check_package(package) == []
+    assert check_package(REPO_ROOT / relative) == []
 
 
 def test_a_private_import_added_to_the_fixture_app_fails(tmp_path: Path) -> None:
@@ -62,6 +59,9 @@ def test_a_private_import_added_to_the_fixture_app_fails(tmp_path: Path) -> None
         "import osprey.apps.sdk as sdk",
         "from osprey.apps.sdk import serve_tools",
         "from osprey.apps import sdk",
+        "import osprey.apps.sdk.testing",
+        "from osprey.apps.sdk.testing import synthetic_deployment",
+        "from osprey.apps.sdk import testing",
         "import osprey.facility.kinds",
         "from osprey.facility import kinds",
         "from osprey.facility.kinds import declare",
@@ -94,6 +94,11 @@ def test_allowed_import(tmp_path: Path, source: str) -> None:
         ("from osprey.apps import loader", "osprey.apps.loader"),
         ("from osprey.apps.manifest import AppManifest", "osprey.apps.manifest.AppManifest"),
         ("from osprey.apps.sdk import _approval", "osprey.apps.sdk._approval"),
+        ("import osprey.apps.sdk.testing._facility", "osprey.apps.sdk.testing._facility"),
+        (
+            "from osprey.apps.sdk.testing._build import invoke_build",
+            "osprey.apps.sdk.testing._build.invoke_build",
+        ),
         ("from osprey.facility import other", "osprey.facility.other"),
         ("from osprey.facility.kinds_extra import x", "osprey.facility.kinds_extra.x"),
         ("from osprey.facility.kinds._private import x", "osprey.facility.kinds._private.x"),
