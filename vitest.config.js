@@ -32,6 +32,10 @@ export default {
   },
   test: {
     environment: 'happy-dom',
+    // happy-dom 21 stops loading iframe pages by default, an SSRF guard for
+    // untrusted HTML. The suites build their own iframes and read their
+    // windows, so they turn it back on; the setting is a no-op before 21.
+    environmentOptions: { happyDOM: { settings: { enableIframePageLoading: true } } },
     testTimeout: HANG_BOUND_MS,
     hookTimeout: HANG_BOUND_MS,
     // Every test file gets a fresh VM context (its own happy-dom window and its
