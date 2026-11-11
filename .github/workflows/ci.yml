@@ -1838,7 +1838,8 @@ jobs:
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Above the 25 + 15 of the step caps, with room for setup and the proxy steps.
+    timeout-minutes: 50
     # No model key: the agent turn through the image is dockerfile-agent-e2e's.
     if: *same-repo-pr-or-secret-revalidation
 
