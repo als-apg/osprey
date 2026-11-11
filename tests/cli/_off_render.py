@@ -52,8 +52,8 @@ REPO_NAME = "demo"
 
 #: What a baseline ref has to hold for the three configurations to render from it.
 DEMO_PRESET = "src/osprey/profiles/presets/demo.yml"
-#: Where the demo preset lives until the rename reaches ``origin/main``.
-BASELINE_REFS = ("origin/main", "origin/feature/rename-control-assistant-to-demo")
+#: The branch every render is compared against.
+BASELINE_BRANCH = "origin/main"
 
 #: Removed from every render's environment: either would stage or check Canopy's payload.
 UNSET_ENV = ("OSPREY_CANOPY_PAYLOAD", "OSPREY_CANOPY_PAYLOAD_CHECK")
@@ -191,18 +191,17 @@ def _holds(commit: str, path: str, root: Path) -> bool:
 def baseline_ref(root: Path = ROOT) -> str:
     """The commit a branch's render is compared against, resolved to a full id.
 
-    The merge-base with ``origin/main`` when that commit holds the demo preset, otherwise
-    the merge-base with the rename's branch. Fails when neither does, because no baseline
-    can then render the configurations; silently comparing against something else would
-    prove nothing about ``main``.
+    The merge-base with ``origin/main``. Fails when there is no ``origin/main``, or when
+    the merge-base does not hold the demo preset, because no baseline can then render
+    the configurations; silently comparing against another commit would prove nothing
+    about ``main``.
     """
-    bases = {ref: _merge_base(ref, root) for ref in BASELINE_REFS}
-    if bases[BASELINE_REFS[0]] is None:
-        pytest.fail("the render baseline needs origin/main")
-    for base in bases.values():
-        if base is not None and _holds(base, DEMO_PRESET, root):
-            return base
-    pytest.fail(f"no merge-base holds {DEMO_PRESET}: {bases}")
+    base = _merge_base(BASELINE_BRANCH, root)
+    if base is None:
+        pytest.fail(f"the render baseline needs {BASELINE_BRANCH}")
+    if not _holds(base, DEMO_PRESET, root):
+        pytest.fail(f"the merge-base with {BASELINE_BRANCH} does not hold {DEMO_PRESET}")
+    return base
 
 
 @contextmanager

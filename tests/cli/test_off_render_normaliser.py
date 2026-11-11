@@ -429,21 +429,11 @@ def test_the_baseline_is_the_main_merge_base_once_it_holds_the_preset(history: P
     assert baseline_ref(history) == base
 
 
-def test_the_baseline_falls_back_to_the_rename_branch(history: Path) -> None:
-    main = _commit(history, "base")
-    _set_ref(history, "origin/main", main)
-    rename = _commit(history, "rename", DEMO_PRESET)
-    _set_ref(history, "origin/feature/rename-control-assistant-to-demo", rename)
-    _commit(history, "feature")
-    assert baseline_ref(history) == rename
-
-
 def test_a_baseline_without_the_preset_fails_rather_than_compares(history: Path) -> None:
     main = _commit(history, "base")
     _set_ref(history, "origin/main", main)
-    _set_ref(history, "origin/feature/rename-control-assistant-to-demo", main)
     _commit(history, "feature", DEMO_PRESET)
-    with pytest.raises(pytest.fail.Exception, match="no merge-base holds"):
+    with pytest.raises(pytest.fail.Exception, match="does not hold"):
         baseline_ref(history)
 
 
