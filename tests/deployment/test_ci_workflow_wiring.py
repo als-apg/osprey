@@ -3183,7 +3183,10 @@ def test_tier2_job_leaves_the_stack_benchmarks_to_the_board(workflow: dict[str, 
 def test_tier2_job_leaves_the_stack_benchmarks_to_the_board__mutation_drops_ignore() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, TIER2_JOB, "Run Tier 2 model benchmarks")
-    step["run"] = _drop_ignore_line(step["run"], TIER2_BOARD_ONLY_FILES[-1])
+    board_only = TIER2_BOARD_ONLY_FILES[-1]
+    step["run"] = _drop_lines(
+        step["run"], lambda line: f"--ignore={board_only}" in line, f"no --ignore={board_only}"
+    )
     with pytest.raises(AssertionError):
         test_tier2_job_leaves_the_stack_benchmarks_to_the_board(mutated)
 
