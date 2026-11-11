@@ -186,6 +186,30 @@ def test_a_failed_build_names_what_the_build_said(tmp_path: Path, app_source: Pa
         deployment.build()
 
 
+# --- the pytest plugin ----------------------------------------------------------------
+
+
+def test_the_framework_declares_the_fixtures_as_a_pytest_plugin() -> None:
+    (entry,) = [
+        entry
+        for entry in metadata.entry_points(group="pytest11")
+        if entry.value == "osprey.apps.sdk.testing.pytest_plugin"
+    ]
+
+    assert entry.dist is not None and entry.dist.name == "osprey-framework"
+
+
+def test_the_plugins_fixtures_make_and_build_a_deployment(
+    synthetic_deployment, rendered_tree, app_source: Path
+) -> None:
+    first = synthetic_deployment(apps={APP: app_source})
+    tree = rendered_tree(apps={APP: app_source}, logins={"viewer": "never"})
+
+    assert isinstance(first, Deployment) and first.logins == ("operator",)
+    assert isinstance(tree, RenderedTree) and set(tree.configs) == {"viewer"}
+    assert tree.root != first.root
+
+
 # --- a deployment's own measurement kind, through the same fixture -----------------------
 
 # The kind's package, the tree that lists it and the wheel stand-in are the ones
