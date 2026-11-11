@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -24,10 +25,13 @@ from osprey.facility import kinds
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
+from tests.facility._fixture_kind import read_entry_points_afresh
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
 pytest.importorskip("pyaml")
+
+pytestmark = pytest.mark.usefixtures("entry_points_read_afresh")
 
 BUILT_INS = ("chromaticity_monitor", "crm", "dispersion", "orm", "trm")
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
@@ -99,6 +103,37 @@ def test_a_package_registers_a_kind_through_the_entry_point_group(registry_kind)
     assert kinds.kind_source(REGISTRY_KIND) == "package registry-kind-fixture"
     assert REGISTRY_KIND not in kinds.builtin_kinds()
     assert list(kinds.registered()) == [*BUILT_INS, REGISTRY_KIND]
+
+
+def test_a_module_imported_while_a_kind_is_installed_keeps_no_registry_of_it(tmp_path):
+    """A module that binds ``entry_points`` while the fixture is installed reads afresh after.
+
+    A reader imported for the first time during an install test (``wheel_build``
+    and ``source_registry`` bind ``from importlib.metadata import entry_points``)
+    keeps whatever object that name held then. The reading it makes once the
+    test has gone must not still list the fixture distribution.
+    """
+    reader = tmp_path / "late_reader"
+    reader.mkdir()
+    (reader / "late_entry_points_reader.py").write_text(
+        "from importlib.metadata import entry_points\n", encoding="utf-8"
+    )
+    read_entry_points_afresh()
+    with pytest.MonkeyPatch.context() as during:
+        install(during)
+        during.syspath_prepend(str(reader))
+        during.delitem(sys.modules, "late_entry_points_reader", raising=False)
+        import late_entry_points_reader
+
+        assert REGISTRY_KIND in {
+            e.name for e in late_entry_points_reader.entry_points(group=kinds.ENTRY_POINT_GROUP)
+        }
+    # What the shared helper does once the test's sys.path is back.
+    read_entry_points_afresh()
+    sys.modules.pop("late_entry_points_reader", None)
+
+    after = {e.name for e in late_entry_points_reader.entry_points(group=kinds.ENTRY_POINT_GROUP)}
+    assert REGISTRY_KIND not in after, "a module imported during the install kept its registry"
 
 
 def test_a_kind_named_like_a_built_in_stops_the_build_naming_both_sources(tmp_path, monkeypatch):

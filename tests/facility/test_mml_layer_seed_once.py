@@ -49,7 +49,10 @@ from tests.facility._mml_built import (
 at = pytest.importorskip("at")
 
 #: The module's readers share one import per tree, which only holds on one worker.
-pytestmark = pytest.mark.xdist_group("mml_layer_seed_once")
+pytestmark = [
+    pytest.mark.xdist_group("mml_layer_seed_once"),
+    pytest.mark.usefixtures("entry_points_read_afresh"),
+]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
