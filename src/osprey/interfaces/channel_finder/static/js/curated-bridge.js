@@ -13,16 +13,7 @@
 import { state } from './state.js';
 import { esc } from './utils.js';
 import { countDirectory } from './directory-api.js';
-
-/**
- * The All PVs route for `words`.
- * @param {string} words
- * @returns {string}
- */
-export function allPvsHash(words) {
-  const text = words.trim();
-  return text ? `#/allpvs?q=${encodeURIComponent(text)}` : '#/allpvs';
-}
+import { allPvsHash } from './route.js';
 
 /**
  * The line under curated results: "Not here?" with the route to All PVs, or,

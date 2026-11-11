@@ -30,6 +30,7 @@ import {
   plotUrl,
   readValues,
 } from './directory-api.js';
+import { formatRoute } from './route.js';
 import { state } from './state.js';
 import { messageOf } from './utils.js';
 import {
@@ -327,7 +328,7 @@ function header(name, sections) {
     if (row.description) line.append(node('span', '', row.description));
     if (row.ioc) {
       const ioc = /** @type {HTMLAnchorElement} */ (node('a', 'pvp-ioc', row.ioc));
-      ioc.href = `#/ioc/${encodeURIComponent(row.ioc)}`;
+      ioc.href = formatRoute({ view: 'ioc', params: { name: row.ioc } });
       line.append(node('span', '', 'IOC '), ioc);
     }
     head.append(line);
@@ -405,7 +406,7 @@ async function load(container, name) {
       action: {
         label: `Search ${label}`,
         onClick: () => {
-          location.hash = `#/allpvs?q=${encodeURIComponent(name)}`;
+          location.hash = formatRoute({ view: 'allpvs', params: { q: name } });
         },
       },
     });

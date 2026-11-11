@@ -65,7 +65,7 @@ describe('the view switch', () => {
     expect(views()).toEqual(['explore:true', 'feedback:false']);
 
     /** @type {HTMLElement} */ (document.querySelector('[data-view="feedback"]')).click();
-    expect(location.hash).toBe('#feedback');
+    expect(location.hash).toBe('#/feedback');
 
     state.setActiveView('feedback');
     expect(views()).toEqual(['explore:false', 'feedback:true']);

@@ -7,21 +7,21 @@
  * system are escaped here.
  */
 
+import { FACET_KEYS, formatRoute } from './route.js';
 import { esc } from './utils.js';
 
 /** @typedef {import('./directory-api.js').DirectoryPage} DirectoryPage */
 /** @typedef {import('./directory-api.js').ValueRow} ValueRow */
-/** @typedef {'origin'|'ioc'|'record_type'} FacetKey */
+/** @typedef {import('./route.js').FacetKey} FacetKey */
 
 /** Rows per page: the most the values route reads at once. */
 export const PAGE_SIZE = 50;
 
-/** @type {{ key: FacetKey, title: string }[]} */
-const FACETS = [
-  { key: 'origin', title: 'Origin' },
-  { key: 'ioc', title: 'IOC' },
-  { key: 'record_type', title: 'Record type' },
-];
+/**
+ * The sidebar title of each route filter.
+ * @type {Record<FacetKey, string>}
+ */
+const FACET_TITLES = { origin: 'Origin', ioc: 'IOC', record_type: 'Record type' };
 
 /** @type {Record<string, string>} */
 const MARKS = { curated: '◆', directory: '◇' };
@@ -88,7 +88,7 @@ export function facetsHtml(answer, filters) {
       ? `<p class="allpvs-facets-reason">${esc(answer.facets_reason)}</p>`
       : '';
   }
-  return FACETS.map(({ key, title }) => {
+  return FACET_KEYS.map((key) => {
     const counts = new Map(facets[key].map((entry) => [entry.value, entry.count]));
     for (const value of filters[key]) if (!counts.has(value)) counts.set(value, 0);
     if (!counts.size) return '';
@@ -103,7 +103,7 @@ export function facetsHtml(answer, filters) {
         );
       })
       .join('');
-    return `<div class="allpvs-facet-group"><div class="osprey-section-label">${esc(title)}</div>${items}</div>`;
+    return `<div class="allpvs-facet-group"><div class="osprey-section-label">${esc(FACET_TITLES[key])}</div>${items}</div>`;
   }).join('');
 }
 
@@ -151,13 +151,13 @@ export function tableHtml(answer, selected, values, valuesReason) {
         .join(' ');
       const markClass = row.origin === 'curated' ? 'mark' : 'mark cs';
       const ioc = row.ioc
-        ? `<a href="#/ioc/${encodeURIComponent(row.ioc)}">${esc(row.ioc)}</a>`
+        ? `<a href="${esc(formatRoute({ view: 'ioc', params: { name: row.ioc } }))}">${esc(row.ioc)}</a>`
         : '';
       return (
         `<tr class="${classes}" data-name="${esc(row.name)}">` +
         `<td><input type="checkbox" ${on ? 'checked' : ''} aria-label="Select ${esc(row.name)}"></td>` +
         `<td><span class="${markClass}">${MARKS[row.origin] ?? ''}</span></td>` +
-        `<td class="name"><a href="#/pv/${encodeURIComponent(row.name)}">${esc(row.name)}</a></td>` +
+        `<td class="name"><a href="${esc(formatRoute({ view: 'pv', params: { name: row.name } }))}">${esc(row.name)}</a></td>` +
         `<td class="desc${row.description ? '' : ' dim'}">${esc(row.description || 'no description')}</td>` +
         valueCell(values?.get(row.name), values !== null, valuesReason) +
         `<td class="dim">${esc(row.record_type ?? '')}</td>` +

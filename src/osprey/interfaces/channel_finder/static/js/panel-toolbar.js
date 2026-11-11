@@ -27,7 +27,7 @@
 import { icon } from '/design-system/js/icons.js';
 import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
 import { writeTitle } from '/design-system/js/tooltip.js';
-import { allPvsHash } from './curated-bridge.js';
+import { allPvsHash, formatRoute } from './route.js';
 import { state } from './state.js';
 
 /** @typedef {import('/design-system/js/panel-sidebar.js').PanelSidebarApi} PanelSidebarApi */
@@ -128,7 +128,7 @@ export function initToolbar() {
   byId(TOOLBAR_IDS.views)?.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const view = target?.closest('button[data-view]')?.getAttribute('data-view');
-    if (view) location.hash = view;
+    if (view) location.hash = formatRoute({ view, params: {} });
   });
   searchInput()?.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || !searchRedirects()) return;

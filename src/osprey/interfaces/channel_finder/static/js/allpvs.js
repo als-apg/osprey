@@ -34,6 +34,7 @@ import {
   skeletonHtml,
   tableHtml,
 } from './allpvs-render.js';
+import { FACET_KEYS } from './route.js';
 import { state } from './state.js';
 import { attachSidebar, claimToolbar, searchInput, setResultCount } from './panel-toolbar.js';
 import {
@@ -51,7 +52,8 @@ import {
 /** @typedef {import('./directory-api.js').ValueRow} ValueRow */
 /** @typedef {import('/design-system/js/panel-sidebar.js').PanelSidebarApi} PanelSidebarApi */
 
-/** @typedef {import('./allpvs-render.js').FacetKey} FacetKey */
+/** @typedef {import('./route.js').FacetKey} FacetKey */
+/** @typedef {import('./route.js').RouteParams} RouteParams */
 
 const SEARCH_DEBOUNCE_MS = 200;
 const SIDEBAR_KEY = 'cf-allpvs-filters';
@@ -82,7 +84,7 @@ let view = null;
 
 /**
  * @param {HTMLElement} container
- * @param {Pick<DirectoryFilters, 'q'|'origin'|'ioc'|'record_type'>} [params]
+ * @param {RouteParams} [params]
  */
 export function mountAllPvs(container, params = {}) {
   unmountAllPvs();
@@ -108,11 +110,7 @@ export function mountAllPvs(container, params = {}) {
   view = {
     root,
     page: 0,
-    filters: {
-      origin: new Set(params.origin),
-      ioc: new Set(params.ioc),
-      record_type: new Set(params.record_type),
-    },
+    filters: facetRecord((key) => new Set(params[key])),
     answer: null,
     values: null,
     valuesReason: '',
@@ -176,14 +174,24 @@ function restart() {
   void runSearch();
 }
 
+/**
+ * One entry per route filter key.
+ * @template T
+ * @param {(key: FacetKey) => T} make
+ * @returns {Record<FacetKey, T>}
+ */
+function facetRecord(make) {
+  return /** @type {Record<FacetKey, T>} */ (
+    Object.fromEntries(FACET_KEYS.map((key) => [key, make(key)]))
+  );
+}
+
 /** @returns {DirectoryFilters} the current search's filters */
 function currentFilters() {
   const { filters, page } = /** @type {View} */ (view);
   return {
     q: state.scopeQuery.trim(),
-    origin: [...filters.origin],
-    ioc: [...filters.ioc],
-    record_type: [...filters.record_type],
+    ...facetRecord((key) => [...filters[key]]),
     page,
     page_size: PAGE_SIZE,
   };
