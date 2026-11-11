@@ -399,7 +399,6 @@
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Build Your Own OSPREY Apps</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="build-your-own-app.html">Build Your Own App</a></li>
-<li class="toctree-l2"><a class="reference internal" href="orbit-bump.html">Example: Orbit Bump</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -536,25 +535,34 @@
                   
   <section id="build-your-own-osprey-apps">
 <span id="how-to-apps"></span><h1>Build Your Own OSPREY Apps<a class="headerlink" href="#build-your-own-osprey-apps" title="Link to this heading">#</a></h1>
-<p>An <strong>app</strong> is your deployment’s own tool for one task on the machine — solve a
-local orbit bump, show and set a channel, step a magnet through a table — used
+<p>An <strong>app</strong> is your deployment’s own tool for one task on the machine — trim a
+corrector, show and set a channel, step a magnet through a table — used
 by the operator from a page in the web terminal and by the agent from its
 tools. It is how a facility extends OSPREY with its own workflows without
 changing OSPREY itself: the app lives in your deployment repository, is built
 and started with the rest of the deployment, and writes to the machine only
 through the same chain as every other write.</p>
-<p>An app has three parts, all described by one file, <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/app.yml</span></code>:</p>
+<p>An app is made of up to five parts, all described by one file,
+<code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/app.yml</span></code>. None is required by itself; an app has at least one
+and carries only the parts its task needs:</p>
 <ul class="simple">
 <li><p>a <strong>backend container</strong> — a small web service, in Python, that holds the
 app’s code and state, reads the machine and writes it;</p></li>
 <li><p>a <strong>panel</strong> — the page the operator opens from the sidebar, served by the
 backend and shown inside the web terminal;</p></li>
 <li><p>a <strong>tool server</strong> — an MCP server that gives the agent tools for the same
-task, each tool calling the backend.</p></li>
+task;</p></li>
+<li><p><strong>skills</strong> — instructions that tell the agent when and how to use the app;</p></li>
+<li><p><strong>subagents</strong> — agents of the app’s own that the main agent hands a task
+to, each with the tools it needs.</p></li>
 </ul>
-<p>Panel and tools share one backend, so what the agent computes is what the
-operator sees in the panel, and what the operator sets in the panel is what the
-agent reads back.</p>
+<p>A panel always needs a backend, which serves the page and holds what it shows.
+A tool server needs one for a tool that writes to the machine and for any state
+the tools keep; without one it only reads or computes, keeps nothing between
+calls and opens no data store of the deployment. Skills and subagents need no
+backend. So an app can be a skill and a subagent with no code of its own, a set of
+read-only tools, a backend with a panel, or all five. The diagram shows the
+full shape, the one this section builds:</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 680 320" role="img" aria-labelledby="apps-title apps-desc">
   <title id="apps-title">An app: a panel for the operator and a tool server for the agent, over one backend container that reaches the machine through the connector</title>
@@ -625,10 +633,14 @@ agent reads back.</p>
   <text class="ts" x="10" y="286">and the approval before it reaches the connector</text>
 </svg>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> turns <code class="docutils literal notranslate"><span class="pre">app.yml</span></code> into the three parts; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts
-them with the rest of the deployment. OSPREY ships one app,
-<a class="reference internal" href="orbit-bump.html"><span class="doc">orbit bump</span></a>, off in the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset, which this section
-uses as its example; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> copies a minimal scaffold for your own.</p>
+<p>With a panel and a tool server over one backend, what the agent computes is
+what the operator sees in the panel, and what the operator sets in the panel is
+what the agent reads back.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> turns <code class="docutils literal notranslate"><span class="pre">app.yml</span></code> into the parts it lists; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts
+them with the rest of the deployment. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> copies a minimal
+working app — one channel, shown in a panel, read and set by two tools — as
+the starting point for your own. This section uses it as its example, under
+the name <code class="docutils literal notranslate"><span class="pre">corrector-trim</span></code>.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -636,13 +648,12 @@ uses as its example; <code class="docutils literal notranslate"><span class="pre
 <li><p class="sd-card-text">What an app looks like to the operator and to the agent</p></li>
 <li><p class="sd-card-text">When a task is an app, and when it is a skill, a Python run or a
 Bluesky plan instead</p></li>
-<li><p class="sd-card-text">What you write — one manifest, one Python package, one page — and
-what OSPREY supplies</p></li>
+<li><p class="sd-card-text">Which parts an app can have, and which of them yours needs</p></li>
+<li><p class="sd-card-text">What you write and what OSPREY supplies</p></li>
 <li><p class="sd-card-text">How an app’s writes stay inside the login’s tier, the write switch and
 the approval card</p></li>
 <li><p class="sd-card-text">The path from <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> to a running app
-(<a class="reference internal" href="build-your-own-app.html"><span class="doc">Build Your Own App</span></a>) and a real app read end to end
-(<a class="reference internal" href="orbit-bump.html"><span class="doc">Example: Orbit Bump</span></a>)</p></li>
+(<a class="reference internal" href="build-your-own-app.html"><span class="doc">Build Your Own App</span></a>)</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> a deployment repository (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>) and the
 terms from <a class="reference internal" href="../web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>: a <strong>login</strong> opens
@@ -651,8 +662,8 @@ decides whether a write is refused, asked or allowed.</p>
 </div>
 </details><section id="what-the-operator-sees">
 <h2>What the operator sees<a class="headerlink" href="#what-the-operator-sees" title="Link to this heading">#</a></h2>
-<p>In the web terminal’s sidebar, under <strong>Apps</strong>, the app is a row with its
-label — <em>Orbit bump</em> for the example. Clicking it opens the panel as a tile
+<p>In the web terminal’s sidebar, under <strong>Apps</strong>, the app is a row with the
+label its manifest gives it. Clicking it opens the panel as a tile
 beside the chat; the panel takes the terminal’s theme, light or dark, because
 it uses the terminal’s design tokens. The row dims while the backend does not
 answer its health check and lights up again when it does
@@ -660,13 +671,14 @@ answer its health check and lights up again when it does
 <p>The panel talks to the backend for that operator: the terminal passes the
 login’s name along, so the backend answers from the machine that login’s
 session is on — the one named on the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> — and shows that login’s plan, not another’s.</p>
-<p>A write started from the panel (orbit bump’s <em>Apply…</em>) opens the panel’s own
+<p>A write started from the panel (a button such as <em>Apply…</em>) opens the panel’s own
 confirmation with the exact setpoints. A write the agent starts shows in the
 chat as an <strong>approval card</strong> when the operator’s switch for that machine is at
 <em>asked</em>: the card names the app, the tool, the machine (<em>Live — writes move
 hardware</em>, <em>Simulator — nothing moves</em>), the switch position, and then the
-text the app wrote for it, filled in from the backend’s state — for orbit
-bump, the plan id and one line per corrector with its current and new value.
+text the app wrote for it, filled in from the backend’s state — the channel,
+the new value and the current readback, or one line per channel for a write of
+several setpoints.
 The operator approves or refuses. At <em>allowed</em> the same write runs without a
 card; at <em>off</em> it is refused.</p>
 <p>On a login whose tier is <code class="docutils literal notranslate"><span class="pre">never</span></code>, and on every shared login, the panel is
@@ -675,8 +687,9 @@ before they reach the backend.</p>
 </section>
 <section id="what-the-agent-sees">
 <h2>What the agent sees<a class="headerlink" href="#what-the-agent-sees" title="Link to this heading">#</a></h2>
-<p>The app’s tools, named <code class="docutils literal notranslate"><span class="pre">mcp__&lt;app&gt;__&lt;tool&gt;</span></code> — <code class="docutils literal notranslate"><span class="pre">mcp__orbit-bump__plan_bump</span></code>
-and <code class="docutils literal notranslate"><span class="pre">mcp__orbit-bump__apply_bump</span></code> for the example — beside OSPREY’s own
+<p>The app’s tools, named <code class="docutils literal notranslate"><span class="pre">mcp__&lt;app&gt;__&lt;tool&gt;</span></code> —
+<code class="docutils literal notranslate"><span class="pre">mcp__corrector-trim__read_channel</span></code> and
+<code class="docutils literal notranslate"><span class="pre">mcp__corrector-trim__set_channel</span></code> for the example — beside OSPREY’s own
 tools. Each tool’s docstring is what the agent reads to decide when to call it,
 and the manifest says which tools only read and which write:</p>
 <ul class="simple">
@@ -684,11 +697,16 @@ and the manifest says which tools only read and which write:</p>
 <li><p>a <strong>write tool</strong> is listed under <code class="docutils literal notranslate"><span class="pre">approval</span></code> in <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>, so every call
 meets the tier, the write switch and the approval before the tool runs.</p></li>
 </ul>
-<p>An app can also carry a <strong>skill</strong>: a <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code> that tells the agent when to
-use the app and how to read its answers. Orbit bump’s skill says, for instance,
-to compute first, show the operator the plan, and only then ask to apply it.
-The build installs the skill into every login that shows the app.</p>
-<p>The agent reaches the backend only at the routes the manifest declares, through
+<p>An app can carry a <strong>skill</strong>: a <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code> that tells the agent when to
+use the app and how to read its answers. The example’s skill says to read
+first, tell the operator the current value, and only then call the write tool.</p>
+<p>An app can carry a <strong>subagent</strong>: an agent of its own, with its own
+instructions and tool list, that the main agent hands a task to. The main
+agent’s brief gets one note per subagent saying when to delegate, and the work
+runs in the subagent’s context instead of filling the main one — the right
+shape for a task that reads a lot to answer a little, such as a search.</p>
+<p>The build installs skills and subagents into every login that shows the app.</p>
+<p>Where the app has a backend, the agent’s tools reach it only at the routes the manifest declares, through
 the web terminal, under the login’s name — never directly, never as another
 login. When the backend does not answer or refuses a call, the agent sees the
 sentence you wrote for that case in <code class="docutils literal notranslate"><span class="pre">app.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">errors.unreachable</span></code>,
@@ -696,9 +714,9 @@ sentence you wrote for that case in <code class="docutils literal notranslate"><
 </section>
 <section id="when-to-build-an-app">
 <h2>When to build an app<a class="headerlink" href="#when-to-build-an-app" title="Link to this heading">#</a></h2>
-<p>An app is the right shape when a task needs <strong>its own state and its own view,
-for the operator and the agent alike, the same in every session</strong>. Other
-shapes cover the rest:</p>
+<p>The full shape — backend, panel and tools — is right when a task needs <strong>its
+own state and its own view, for the operator and the agent alike, the same in
+every session</strong>. Other shapes cover the rest:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 42.0%" />
@@ -716,7 +734,8 @@ and switch (<a class="reference internal" href="../../architecture/python-execut
 </tr>
 <tr class="row-odd"><td><p>To tell the agent how to do a task with the tools it already has</p></td>
 <td><p>A skill — instructions, no code of your own runs
-(<a class="reference internal" href="../../contributing/agent-skills.html"><span class="doc">Agent Skills</span></a>).</p></td>
+(<a class="reference internal" href="../../contributing/agent-skills.html"><span class="doc">Agent Skills</span></a>). Put it in an app with no other
+part when it should be switched per login like an app.</p></td>
 </tr>
 <tr class="row-even"><td><p>A measurement sequence with a queue, a run record and live plots</p></td>
 <td><p>A Bluesky plan (<a class="reference internal" href="../bluesky/index.html"><span class="doc">Bluesky Plans</span></a>).</p></td>
@@ -732,19 +751,19 @@ and tools so the agent can do it too</p></td>
 </tbody>
 </table>
 </div>
-<p>The orbit bump app shows the difference. A bump is not one write: it is a plan
-— a model, a set of BPMs, the correctors a rule picks, the predicted orbit, a
-limit verdict per setpoint — that the operator inspects and the agent reasons
-about before anything moves. The plan has to be the same object for both, has
-to survive a page reload, and has to be the thing the approval card binds the
-write to. That is an app.</p>
+<p>A task that ends in several coordinated writes shows the difference. It is not
+one write: it is a plan — the inputs, the setpoints computed from them, the
+predicted effect, a limit verdict per setpoint — that the operator inspects and
+the agent reasons about before anything moves. The plan has to be the same
+object for both, has to survive a page reload, and has to be the thing the
+approval card binds the write to. That is an app.</p>
 </section>
 <section id="what-you-write">
 <h2>What you write<a class="headerlink" href="#what-you-write" title="Link to this heading">#</a></h2>
 <p>One directory in your deployment repository. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span> <span class="pre">&lt;name&gt;</span></code> writes
 all of it from the scaffold, with your name in place:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>apps/corrector-trim/
-  app.yml                 the manifest: name, container, panel, tools
+  app.yml                 the manifest: name and the parts the app has
   pyproject.toml          the Python package the backend and tools are in
   corrector_trim/
     __init__.py           the app&#39;s name and the routes the two sides share
@@ -755,12 +774,17 @@ all of it from the scaffold, with your name in place:</p>
     index.html            the page, using the terminal&#39;s design tokens
     panel.js              reads the backend&#39;s state and shows it
     panel.css
+  skills/
+    corrector-trim/
+      SKILL.md            the skill: when and how the agent uses the app
   tests/
     panel.test.js         Vitest over the panel
 </pre></div>
 </div>
-<p>Everything in it is ordinary FastAPI, JavaScript and YAML. What OSPREY
-supplies, so the app does not have to:</p>
+<p>The scaffold is the full shape with one skill. Delete the parts your app does
+not need, with their blocks in <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>; add a subagent as one file,
+<code class="docutils literal notranslate"><span class="pre">agents/&lt;name&gt;.md</span></code>. Everything in it is ordinary FastAPI, JavaScript, YAML
+and Markdown. What OSPREY supplies, so the app does not have to:</p>
 <ul class="simple">
 <li><p><strong>the connection to the machine</strong> — the backend asks for a connector and
 reads or writes channels through it; the connector applies the write
@@ -774,7 +798,8 @@ terminal;</p></li>
 MCP server with the right name, and the approval card, the stamp and the
 re-check on the tool side come from the manifest’s <code class="docutils literal notranslate"><span class="pre">approval</span></code> entry;</p></li>
 <li><p><strong>the build</strong> — the wheel, the image, the container, the port, the config
-file, the state directory, the skill’s installation per login.</p></li>
+file, the state directory, the installation of skills and subagents per
+login.</p></li>
 </ul>
 <p>App code imports OSPREY only through <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk</span></code> (plus
 <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code> and the public <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code> modules). Every
@@ -795,8 +820,9 @@ each write: <em>off</em> refuses, <em>asked</em> shows the approval card, <em>al
 without one.</p></li>
 <li><p><strong>The approval</strong> binds the write to what was approved: the app’s manifest
 says what the card shows and which values of the backend’s state the call
-is held to — orbit bump binds the plan id and a digest of its setpoints, so
-a plan that changed after approval is refused.</p></li>
+is held to. The example binds the readback the operator saw; an app that
+applies a computed plan binds the plan’s id and a digest of its setpoints,
+so a plan that changed after approval is refused.</p></li>
 <li><p><strong>The connector</strong> judges the write once more — verdict, limits, read-back
 — and records it, as it does for every write in OSPREY
 (<a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a>).</p></li>
@@ -809,9 +835,7 @@ declare a write tool and what each key does.</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="build-your-own-app.html"><span class="doc">Build Your Own App</span></a> — from <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> to a running panel and
 tools on your deployment: the manifest, the backend, the tool server, the
-panel, writes and approvals, logins and skills.</p></li>
-<li><p><a class="reference internal" href="orbit-bump.html"><span class="doc">Example: Orbit Bump</span></a> — the bundled example, read as an operator, as the agent,
-and as its source.</p></li>
+panel, writes and approvals, logins, skills and subagents.</p></li>
 <li><p><a class="reference internal" href="../../reference/cli.html#cli-osprey-app"><span class="std std-ref">osprey app</span></a> — the command reference.</p></li>
 </ul>
 <div class="toctree-wrapper compound">

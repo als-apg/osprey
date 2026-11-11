@@ -399,7 +399,6 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="apps/build-your-own-app.html">Build Your Own App</a></li>
-<li class="toctree-l2"><a class="reference internal" href="apps/orbit-bump.html">Example: Orbit Bump</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -665,9 +664,8 @@ preset does not reach an existing deployment.</p>
 <code class="docutils literal notranslate"><span class="pre">watchdogs/</span></code> and <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code> appear only when the preset calls for them. A
 <code class="docutils literal notranslate"><span class="pre">demo</span></code> deployment has all of them except <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>; a
 <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> deployment has only <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>.</p>
-<p>No bundled preset lists an application, so <code class="docutils literal notranslate"><span class="pre">apps/</span></code> appears only when you list
-one: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">demo</span> <span class="pre">--set</span> <span class="pre">'apps.orbit-bump={}'</span></code> writes
-<code class="docutils literal notranslate"><span class="pre">apps/orbit-bump/</span></code>. A preset’s applications come with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, never
+<p>No bundled preset lists an application, so <code class="docutils literal notranslate"><span class="pre">apps/</span></code> appears only when you add
+one (<a class="reference internal" href="apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>). A preset’s applications come with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, never
 through <code class="docutils literal notranslate"><span class="pre">extends:</span></code>: a profile runs the applications it lists and holds.</p>
 <p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and an initial commit run at the end. There is no CI pipeline yet:
 the profile ships its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no
