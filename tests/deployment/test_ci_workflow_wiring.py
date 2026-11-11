@@ -4960,6 +4960,8 @@ BROWSER_JOB = "visual-theming"
 #: The browser lane's second job, run beside the first: the watchdog suite and
 #: the visual-regression suite with its baseline steps.
 BROWSER_AGENT_JOB = "visual-theming-agent"
+#: The job that pushes what BROWSER_AGENT_JOB rendered: the one job holding a write scope.
+BASELINE_PUSH_JOB = "visual-baselines-push"
 BROWSER_JOBS = (BROWSER_JOB, BROWSER_AGENT_JOB)
 BROWSER_RUN_STEP = "Run behavioral theming suite"
 #: The serial step of the browser lane's second job: the suites that start
@@ -7588,12 +7590,22 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 #: and ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), ``qmd-cache-warmup``
 #: runs on main pushes only, whose own run its failure already turns red (needed,
 #: it failed every revalidation as a skipped lane), ``stop-on-failed-cheap-lane`` only cancels
-#: the run (pinned by ``test_cheap_lanes_cancel_a_failed_pull_request_run``), and the gate
+#: the run (pinned by ``test_cheap_lanes_cancel_a_failed_pull_request_run``), ``visual-baselines-push``
+#: checks nothing and runs on same-repo PRs only, so a revalidation would read it as a skipped
+#: lane (its failure is a red check of its own; pinned by
+#: ``test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code``), and the gate
 #: cannot depend on itself. Anything else that is not in
 #: ``needs`` can go red forever inside a green check — the 17 privilege-split
 #: Docker tests did exactly that for a phase.
 JOBS_OUTSIDE_THE_GATE = frozenset(
-    {BENCHMARKS_JOB, TIER2_JOB, QMD_WARMUP_JOB, GATE_JOB, "stop-on-failed-cheap-lane"}
+    {
+        BENCHMARKS_JOB,
+        TIER2_JOB,
+        QMD_WARMUP_JOB,
+        GATE_JOB,
+        "stop-on-failed-cheap-lane",
+        "visual-baselines-push",
+    }
 )
 
 
@@ -10405,6 +10417,139 @@ def test_secret_free_lanes_keep_the_per_pr_shape__mutation_gates_deploy_by_label
     _jobs(mutated)["deploy-e2e"]["if"] = _jobs(mutated)["scan-agentic-e2e"]["if"]
     with pytest.raises(AssertionError, match="spends nothing"):
         test_secret_free_lanes_keep_the_per_pr_shape(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The write token sits in one job that runs no code under test
+# ---------------------------------------------------------------------------
+#
+# The workflow token is read-only, and no job but the canceller (actions: write)
+# and the baseline push widens it. visual-theming-agent renders the Linux
+# baselines from the PR's code, so its checkout keeps no credentials;
+# visual-baselines-push, the only job with a write scope, checks out the PR
+# branch, downloads what the test job uploaded and commits it through the
+# pinned auto-commit action, and runs no step of its own.
+
+BASELINE_ARTIFACT = "visual-baselines-linux"
+BASELINE_DIR = "tests/interfaces/design_system/baselines"
+_PUSH_JOB_ACTIONS = (
+    "actions/checkout@",
+    "actions/download-artifact@",
+    "stefanzweifel/git-auto-commit-action@",
+)
+_SAME_REPO_PR_CLAUSES = (
+    "github.event_name == 'pull_request'",
+    "github.event.pull_request.head.repo.full_name == github.repository",
+)
+
+
+def _write_scopes(wf: dict[str, Any]) -> dict[str, set[str]]:
+    scopes = {
+        name: {scope for scope, level in (job.get("permissions") or {}).items() if level == "write"}
+        for name, job in _jobs(wf).items()
+    }
+    return {name: held for name, held in scopes.items() if held}
+
+
+def _step_using(job: dict[str, Any], action: str) -> dict[str, Any]:
+    steps = [s for s in job["steps"] if str(s.get("uses", "")).startswith(action)]
+    assert len(steps) == 1, f"expected one {action} step, found {len(steps)}"
+    return steps[0]
+
+
+def test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    wf = workflow if workflow is not None else _load_workflow()
+    assert wf["permissions"] == {"contents": "read"}, "the workflow token is not read-only"
+    # The canceller's actions: write cancels the run and nothing else (pinned with it).
+    assert _write_scopes(wf) == {BASELINE_PUSH_JOB: {"contents"}, CANCEL_JOB: {"actions"}}, (
+        f"write scopes outside the push job: {_write_scopes(wf)}"
+    )
+    persisting = [
+        name
+        for name, job in _jobs(wf).items()
+        if name != BASELINE_PUSH_JOB
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+        and (step.get("with") or {}).get("persist-credentials") is not False
+    ]
+    assert persisting == [], f"checkouts that keep the token in the git config: {persisting}"
+    push = _jobs(wf)[BASELINE_PUSH_JOB]
+    own = [
+        s.get("name")
+        for s in push["steps"]
+        if not str(s.get("uses", "")).startswith(_PUSH_JOB_ACTIONS)
+    ]
+    assert own == [], f"the push job runs steps of its own: {own}"
+    assert [str(s["uses"]).split("@")[0] + "@" for s in push["steps"]] == list(_PUSH_JOB_ACTIONS)
+
+
+def test_only_the_baseline_push_job_can_write__mutation_test_job_writes() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[BROWSER_AGENT_JOB]["permissions"] = {"contents": "write"}
+    with pytest.raises(AssertionError, match="write scopes outside the push job"):
+        test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
+
+
+def test_only_the_baseline_push_job_can_write__mutation_test_checkout_persists() -> None:
+    mutated = _load_workflow()
+    checkout = _step_using(_jobs(mutated)[BROWSER_AGENT_JOB], "actions/checkout@")
+    del checkout["with"]["persist-credentials"]
+    with pytest.raises(AssertionError, match=BROWSER_AGENT_JOB):
+        test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
+
+
+def test_only_the_baseline_push_job_can_write__mutation_push_job_runs_repo_code() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[BASELINE_PUSH_JOB]["steps"].insert(
+        1, {"name": "Install deps", "run": "uv sync --locked --extra dev"}
+    )
+    with pytest.raises(AssertionError, match="steps of its own"):
+        test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
+
+
+def test_the_baseline_push_commits_what_the_test_job_rendered(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """Same-repo PRs only, after the suites passed, the artifact laid where it
+    was rendered, and the commit the in-job step made before the split."""
+    wf = workflow if workflow is not None else _load_workflow()
+    test_job, push = _jobs(wf)[BROWSER_AGENT_JOB], _jobs(wf)[BASELINE_PUSH_JOB]
+    assert push["needs"] in (BROWSER_AGENT_JOB, [BROWSER_AGENT_JOB])
+    condition = " ".join(str(push["if"]).split())
+    assert all(c in condition for c in _SAME_REPO_PR_CLAUSES) and "||" not in condition, (
+        f"the push is not gated to same-repo PRs only: {condition}"
+    )
+    assert "git-auto-commit-action" not in json.dumps(test_job), "the test job still pushes"
+    upload = _step_using(test_job, "actions/upload-artifact@")["with"]
+    download = _step_using(push, "actions/download-artifact@")["with"]
+    assert upload["name"] == download["name"] == BASELINE_ARTIFACT
+    assert (upload["path"], download["path"]) == (f"{BASELINE_DIR}/*.png", BASELINE_DIR)
+    checkout = _step_using(push, "actions/checkout@")["with"]
+    assert checkout["ref"] == "${{ github.head_ref }}", "the push job checks out another ref"
+    commit = _step_using(push, "stefanzweifel/git-auto-commit-action@")
+    assert "if" not in commit, "the commit step carries a gate of its own"
+    assert commit["with"]["file_pattern"] == f"{BASELINE_DIR}/*.png"
+    assert commit["with"]["commit_message"].endswith("[skip ci]")
+    assert "branch" not in commit["with"], "the action's default branch is the PR head"
+
+
+def test_the_baseline_push__mutation_runs_on_a_dispatch() -> None:
+    mutated = _load_workflow()
+    job = _jobs(mutated)[BASELINE_PUSH_JOB]
+    job["if"] = f"({job['if']}) || github.event_name == 'workflow_dispatch'"
+    with pytest.raises(AssertionError, match="same-repo PRs only"):
+        test_the_baseline_push_commits_what_the_test_job_rendered(mutated)
+
+
+def test_the_baseline_push__mutation_downloads_elsewhere() -> None:
+    mutated = _load_workflow()
+    _step_using(_jobs(mutated)[BASELINE_PUSH_JOB], "actions/download-artifact@")["with"]["path"] = (
+        "."
+    )
+    with pytest.raises(AssertionError):
+        test_the_baseline_push_commits_what_the_test_job_rendered(mutated)
 
 
 def test_workflow_fires_when_the_full_ci_label_is_applied(workflow: dict[str, Any]) -> None:
@@ -13646,8 +13791,8 @@ def test_the_unit_shards_cover_the_test_tree__mutation_cli_globs_disagree() -> N
 # arm beside its pull-request arm, and the set of lanes that must carry it is
 # derived from the workflow, not listed: a new pull-request-only lane without
 # the arm fails here. The benchmark lanes run on their own dispatch input, the
-# roll-up gate runs on every event, and the cheap-lane canceller is no lane, so
-# none of them is in the set.
+# roll-up gate runs on every event, and the cheap-lane canceller and the
+# baseline push are no lanes, so none of them is in the set.
 
 REVALIDATION_ARM = "(github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)"
 #: e2e-tests runs on every dispatch that is not a benchmark run, which
@@ -13656,13 +13801,14 @@ _E2E_DISPATCH_ARM = "(github.event_name == 'workflow_dispatch' && !inputs.run_be
 
 
 def _lanes_a_push_skips(wf: dict[str, Any]) -> set[str]:
-    """Jobs whose `if:` names no push arm, minus the benchmarks, the gate and the canceller."""
+    """Jobs whose `if:` names no push arm, minus the benchmarks, the gate, the canceller
+    and the baseline push (no lane: it delivers a PR's baselines, so it has no main run)."""
     return {
         name
         for name, job in _jobs(wf).items()
         if "if" in job
         and "push" not in str(job["if"])
-        and name not in {BENCHMARKS_JOB, TIER2_JOB, GATE_JOB, CANCEL_JOB}
+        and name not in {BENCHMARKS_JOB, TIER2_JOB, GATE_JOB, CANCEL_JOB, BASELINE_PUSH_JOB}
     }
 
 
