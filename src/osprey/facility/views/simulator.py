@@ -77,10 +77,18 @@ from osprey_connectors.simulation.view import (
     SEEDS_SCHEMA,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
+    SETPOINT,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
     SimulatorView,
 )
+
+try:
+    from osprey_connectors.simulation.view import IOC_HEALTH_SIGNALS
+except ImportError:  # a connectors release whose view names no IOC health signals
+    from osprey_connectors.simulation.view import ADDRESSES_FILE as _FLOOR_STAND_IN  # noqa: F401
+
+    IOC_HEALTH_SIGNALS = ()  # type: ignore[assignment]
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -245,9 +253,10 @@ def ioc_health_addresses(code: str, model: str) -> list[str]:
         model: The model's name.
 
     Returns:
-        ``<code>:SIM:<model>:<signal>`` for ``HEARTBEAT``, ``UPTIME`` and ``ENGINEER``.
+        ``<code>:SIM:<model>:<signal>`` for each signal of the view's
+        ``IOC_HEALTH_SIGNALS``; none with a connectors release that names none.
     """
-    return [f"{code}:SIM:{model}:{signal}" for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")]
+    return [f"{code}:SIM:{model}:{signal}" for signal in IOC_HEALTH_SIGNALS]
 
 
 def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
@@ -285,12 +294,12 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
             bounds = (entry.get("min_value"), entry.get("max_value"))
             value_range = list(bounds) if None not in bounds else None
         else:
-            writable = role == "setpoint" and unlisted_writable
+            writable = role == SETPOINT and unlisted_writable
             value_range = None
         channel: dict[str, Any] = {
             "address": address,
             "role": role,
-            "pair": (record.get("pair") or address) if role == "setpoint" else None,
+            "pair": (record.get("pair") or address) if role == SETPOINT else None,
             "value_type": record.get("value_type", DEFAULT_VALUE_TYPE),
             "unit": record.get("unit"),
             "description": record.get("description"),

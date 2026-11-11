@@ -30,7 +30,12 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA, SimulatorView
+from osprey_connectors.simulation.view import (
+    IOC_HEALTH_SIGNALS,
+    SCENARIOS_SCHEMA,
+    SEEDS_SCHEMA,
+    SimulatorView,
+)
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
@@ -154,7 +159,7 @@ def test_the_reader_groups_the_written_ioc_health_addresses_by_model(
     view = SimulatorView.open(render_dir / "data" / "simulator")
 
     assert view.ioc_health_by_model() == {
-        name: tuple(f"ca:SIM:{name}:{signal}" for signal in ("HEARTBEAT", "UPTIME", "ENGINEER"))
+        name: {signal: f"ca:SIM:{name}:{signal}" for signal in IOC_HEALTH_SIGNALS}
         for name in ("SR", TEXTURE)
     }
 

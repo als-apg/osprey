@@ -109,8 +109,8 @@ def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
         records[address] = _channel_record(channel, ioc)
     for model, address in view.status_addresses().items():
         records[address] = _served_record(address, f"sim-{model}")
-    for model, addresses in view.ioc_health_by_model().items():
-        for address in addresses:
+    for model, signals in view.ioc_health_by_model().items():
+        for address in signals.values():
             records[address] = _served_record(address, f"sim-{model}")
     return dict(sorted(records.items()))
 

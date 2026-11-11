@@ -295,8 +295,8 @@ class _ViewSurface(ModelSurface):
             *(str(address) for address in status),
             *(
                 address
-                for addresses in (ioc_health() if ioc_health is not None else {}).values()
-                for address in addresses
+                for signals in (ioc_health() if ioc_health is not None else {}).values()
+                for address in signals.values()
             ),
         ]
         self._served_set = frozenset(self._served)

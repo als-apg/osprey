@@ -337,7 +337,11 @@ class VAInProcessConnector(ControlSystemConnector):
             self._served = (
                 self._channels
                 | frozenset(view.status_addresses().values())
-                | {name for names in view.ioc_health_by_model().values() for name in names}
+                | {
+                    address
+                    for signals in view.ioc_health_by_model().values()
+                    for address in signals.values()
+                }
             )
             self._composite = Composite(view, state_dir=state_dir, instance="inprocess")
         except ViewSchemaError as error:
