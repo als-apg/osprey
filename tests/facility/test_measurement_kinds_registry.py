@@ -136,6 +136,22 @@ def test_a_module_imported_while_a_kind_is_installed_keeps_no_registry_of_it(tmp
     assert REGISTRY_KIND not in after, "a module imported during the install kept its registry"
 
 
+def test_the_registry_orders_the_kinds_whatever_order_the_metadata_yields(monkeypatch):
+    """Built-ins sorted by name, then every other kind sorted by name, read in any order."""
+    install(monkeypatch)
+    from importlib import metadata
+
+    read = metadata.entry_points
+
+    def reversed_reading(**selection: Any) -> list[Any]:
+        return list(reversed(list(read(**selection))))
+
+    monkeypatch.setattr(metadata, "entry_points", reversed_reading)
+
+    assert list(kinds.registered()) == [*sorted(BUILT_INS), REGISTRY_KIND]
+    assert list(kinds.builtin_kinds()) == sorted(BUILT_INS)
+
+
 def test_a_kind_named_like_a_built_in_stops_the_build_naming_both_sources(tmp_path, monkeypatch):
     install(monkeypatch, "collision")
 

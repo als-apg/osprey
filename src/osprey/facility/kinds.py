@@ -502,8 +502,7 @@ def _step_factory(name: str) -> bool:
 def registered() -> dict[str, KindDeclaration]:
     """Every registered measurement kind, by name.
 
-    The built-in kinds first, in the order their distribution lists them, then
-    every other kind, sorted by name.
+    The built-in kinds first, then every other kind, each sorted by name.
 
     Raises:
         KindRegistryError: Two distributions declare one name, or a declaration
@@ -546,7 +545,7 @@ def _load() -> tuple[dict[str, KindDeclaration], dict[str, str]]:
         sources[name] = source
         declaration = _declaration(entry.load(), name, source)
         (builtin if source == "built-in" else others)[name] = declaration
-    found = {**builtin, **dict(sorted(others.items()))}
+    found = {**dict(sorted(builtin.items())), **dict(sorted(others.items()))}
     sorted_by: dict[str, tuple[str, str]] = {}
     for name, declaration in found.items():
         for role, sort in declaration.member_sorts.items():
