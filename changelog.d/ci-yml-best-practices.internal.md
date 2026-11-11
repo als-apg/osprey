@@ -1,0 +1,10 @@
+CI workflows follow GitHub Actions hardening practice. `ci.yml` grants a read-only token at the
+workflow level, and every checkout but the one in the baseline-pushing job leaves no token in the
+git config. Every external action in `.github/workflows/` and `.github/actions/` is pinned by commit
+SHA with a `# vX.Y.Z` comment, and Dependabot now updates the composite actions too. No `run:`
+script pastes in a `${{ }}` expression any more: the values arrive through `env:`, and the wiring
+tests hold both rules for every workflow and action. Job timeouts that used to sit at a generic 60
+minutes now sit at about three times the 90th-percentile duration of recent green runs on main. The
+two proxy-probe base images are pinned by tag and digest, podman-compose's dependencies are pinned,
+and Dependabot pull requests are recognised by their author rather than by whoever triggered the
+run.

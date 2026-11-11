@@ -411,7 +411,7 @@ def _check_calls(step: dict[str, Any]) -> list[list[str]]:
 def _resolved(call: list[str]) -> list[list[str]]:
     """The command lines *call* resolves to on a GitHub runner, without running them.
 
-    A shard named by a matrix expression is dropped, so the unit sweep resolves
+    A shard named by a matrix value (``"$SHARD"``, bound in the step's ``env:``) is dropped, so the unit sweep resolves
     to the selection all five shards add up to; ``$COV_ARGS`` is the empty
     string every cell but one sets.
     """
@@ -421,7 +421,7 @@ def _resolved(call: list[str]) -> list[list[str]]:
         if skip:
             skip = False
             continue
-        if word == "--shard" and "${{" in call[index + 1]:
+        if word == "--shard" and call[index + 1].startswith("$"):
             skip = True
             continue
         if word != "$COV_ARGS":
@@ -613,9 +613,27 @@ def _cell_condition(condition: Any, cell: dict[str, Any]) -> str | None:
     return "" if text == "true" else text
 
 
+def _inline_matrix_env(step: dict[str, Any]) -> dict[str, Any]:
+    """*step* with each ``$VAR`` its ``run`` reads from a matrix-valued ``env:`` entry
+    replaced by that entry's ``${{ matrix.* }}`` expression. A matrix value reaches the
+    shell through ``env:``, never ``${{ }}`` in ``run:``; inlined, a cell's script reads
+    as the cell runs it once its values are substituted. The quotes around ``"$VAR"`` go
+    too: a matrix value is one word or a list split on purpose."""
+    run = step.get("run")
+    if not isinstance(run, str):
+        return step
+    for key, raw in (step.get("env") or {}).items():
+        if isinstance(raw, str) and _MATRIX_EXPR.fullmatch(raw.strip()):
+            pattern = rf'"\${key}"|"\$\{{{key}\}}"|\$\{{{key}\}}|\${key}\b'
+            run = re.sub(pattern, raw.strip().replace("\\", "\\\\"), run)
+    return {**step, "run": run}
+
+
 def _expand_cell(job: dict[str, Any], cell: dict[str, Any]) -> dict[str, Any]:
     """One cell of a matrix job as the job it runs: matrix values substituted, its steps only."""
-    expanded = _substitute({k: v for k, v in job.items() if k != "strategy"}, cell)
+    template = {k: v for k, v in job.items() if k != "strategy"}
+    template["steps"] = [_inline_matrix_env(step) for step in job.get("steps", [])]
+    expanded = _substitute(template, cell)
     steps = []
     for step in expanded.get("steps", []):
         if "if" in step:
@@ -1615,10 +1633,9 @@ CODECOV_STEP = "Upload coverage reports to Codecov"
 
 def _coverage_cell_version(wf: dict[str, Any]) -> str:
     """The Python version whose ubuntu cell builds a non-empty ``COV_ARGS``."""
-    run_text = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")["run"]
-    found = re.findall(
-        r'\[\s+"\$\{\{\s*matrix\.python-version\s*\}\}"\s*=\s*"(\d+\.\d+)"', run_text
-    )
+    step = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")
+    assert (step.get("env") or {}).get("PYTHON_VERSION") == "${{ matrix.python-version }}"
+    found = re.findall(r'\[\s+"\$PYTHON_VERSION"\s*=\s*"(\d+\.\d+)"', step["run"])
     assert len(found) == 1, f"expected one coverage-cell guard in the run block; got {found}"
     return found[0]
 
@@ -1704,7 +1721,7 @@ def test_coverage_cell_pins__mutation_back_to_the_floor_version() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     original = step["run"]
-    step["run"] = original.replace('}}" = "3.12" ]', '}}" = "3.11" ]')
+    step["run"] = original.replace('"$PYTHON_VERSION" = "3.12" ]', '"$PYTHON_VERSION" = "3.11" ]')
     assert step["run"] != original, "coverage-cell guard not found -- mutation is stale"
     assert _coverage_cell_version(mutated) == "3.11"
 
@@ -3252,7 +3269,7 @@ def _gate_exit(
     }
     with tempfile.TemporaryDirectory() as tmp:
         summary = Path(tmp) / "summary"
-        defaults = {"EVENT_NAME": "pull_request", "REVALIDATE": "", "ACTOR": "someone"}
+        defaults = {"EVENT_NAME": "pull_request", "REVALIDATE": "", "PR_AUTHOR": "someone"}
         done = subprocess.run(
             ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", _gate_run_text(wf)],
             env={
@@ -4551,10 +4568,11 @@ def test_record_lane_cells_cover_every_case_once(workflow: dict[str, Any]) -> No
         assert [c for c in defined if case in c] == [case], f"-k {case!r} selects more than itself"
     strategy = _jobs(workflow)[RECORD_E2E_JOB]["strategy"]
     assert strategy.get("fail-fast") is False, "a red cell must not cancel the other backend"
-    run = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
-    assert '-k "${{ matrix.case }}"' in run, (
-        f"'{RECORD_E2E_RUN_STEP}' does not select its cell's case"
+    step = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    assert (step.get("env") or {}).get("CASE") == "${{ matrix.case }}", (
+        f"'{RECORD_E2E_RUN_STEP}' does not bind its cell's case"
     )
+    assert '-k "$CASE"' in step["run"], f"'{RECORD_E2E_RUN_STEP}' does not select its cell's case"
 
 
 def test_record_lane_cells_cover_every_case_once__mutation_drops_a_cell() -> None:
@@ -7675,11 +7693,13 @@ def _va_live_lane_named_files(wf: dict[str, Any], job_name: str) -> list[str]:
     the partition check below must still see.
 
     A lane split into matrix cells names its files in each cell's ``suites``
-    and the run step reads them as ``${{ matrix.suites }}``; the lane's files
+    and the run step reads them as ``$SUITES``, bound to ``${{ matrix.suites }}``; the lane's files
     are then every cell's, concatenated, so a file in two cells is a duplicate
     too.
     """
-    run = _find_named_step(wf, job_name, VA_LIVE_LANE_RUN_STEPS[job_name])["run"]
+    run = _inline_matrix_env(_find_named_step(wf, job_name, VA_LIVE_LANE_RUN_STEPS[job_name]))[
+        "run"
+    ]
     if VA_LIVE_MATRIX_SUITES in run:
         cells = " ".join(str(cell["suites"]) for cell in _va_live_cells(wf, job_name))
         run = run.replace(VA_LIVE_MATRIX_SUITES, cells)
@@ -7788,7 +7808,9 @@ def test_va_live_cells_split_the_suites_once(workflow: dict[str, Any]) -> None:
     assert not repeats, f"suites in more than one '{VA_LIVE_JOB}' cell: {repeats}"
     strategy = _jobs(workflow)[VA_LIVE_JOB]["strategy"]
     assert strategy.get("fail-fast") is False, "a red cell must not cancel the other cells"
-    run = _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])["run"]
+    run = _inline_matrix_env(
+        _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    )["run"]
     named_in_run = [t for t in run.replace(VA_LIVE_MATRIX_SUITES, "").split() if t.endswith(".py")]
     assert VA_LIVE_MATRIX_SUITES in run and not named_in_run, (
         f"'{VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB]}' must run its cell's suites and only them"
@@ -7829,9 +7851,7 @@ def test_va_live_cells_split_the_suites_once__mutation_fails_fast() -> None:
 def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_the_run_step() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(
-        VA_LIVE_MATRIX_SUITES, f"{VA_LIVE_MATRIX_SUITES} {CHAIN_BOOT_MODULE}"
-    )
+    step["run"] = step["run"].replace("$SUITES", f"$SUITES {CHAIN_BOOT_MODULE}")
     with pytest.raises(AssertionError, match="only them"):
         test_va_live_cells_split_the_suites_once(mutated)
 
@@ -9109,14 +9129,14 @@ DEPLOY_JOB = "deploy-e2e"
 LINT_JOB = "lint"
 LOCK_CHECK_STEP = "Lockfile is current with pyproject"
 INSTALL_STEP = "Install dependencies"
-_DEPENDABOT_GUARD = "github.actor != 'dependabot[bot]'"
+_DEPENDABOT_GUARD = "github.event.pull_request.user.login != 'dependabot[bot]'"
 
 
 def test_deploy_e2e_skips_dependabot(workflow: dict[str, Any]) -> None:
     """Dependabot branches live in this repo, so the same-repo fork check does
     not exclude them — but Dependabot runs resolve secrets against the (empty)
     Dependabot store, and `osprey up`'s .env preflight then fails on the
-    missing ALS_APG_API_KEY. The lane must carry the same actor guard and
+    missing ALS_APG_API_KEY. The lane must carry the same PR-author guard and
     revalidation arm as every other secret-gated lane."""
     condition = _jobs(workflow)[DEPLOY_JOB]["if"]
     assert _DEPENDABOT_GUARD in condition
@@ -10260,7 +10280,7 @@ SCHEDULE_ARM = "github.event_name == 'schedule'"
 # The pre-gating shape: the PR conjunction closed right after the actor guard.
 # Its absence is what proves the label clause sits INSIDE that conjunction,
 # not OR-ed beside it (where it would admit every PR again).
-_UNLABELED_PR_ARM_CLOSE = "&& github.actor != 'dependabot[bot]')"
+_UNLABELED_PR_ARM_CLOSE = "&& github.event.pull_request.user.login != 'dependabot[bot]')"
 
 
 def _secret_bearing_jobs(wf: dict[str, Any]) -> set[str]:
@@ -10418,7 +10438,7 @@ def test_gate_summary_says_how_to_run_the_skipped_lanes(workflow: dict[str, Any]
     assert step["env"]["HAS_FULL_CI"] == "${{ " + FULL_CI_LABEL_CLAUSE + " }}"
     _, out, summary = _gate_exit(workflow, HAS_FULL_CI="false")
     assert "gh pr edit 7 --add-label full-ci" in summary, out
-    _, out, summary = _gate_exit(workflow, HAS_FULL_CI="false", ACTOR="dependabot[bot]")
+    _, out, summary = _gate_exit(workflow, HAS_FULL_CI="false", PR_AUTHOR="dependabot[bot]")
     assert "gh workflow run ci.yml --ref some-branch -f revalidate_secret_lanes=true" in summary, (
         out
     )
@@ -12332,7 +12352,7 @@ def test_podman_lane_cleanup_runs_podman__mutation_drops_the_engine() -> None:
     (key,) = [k for k in _REGISTRY_CLEANUP_STEPS if k[0] == PODMAN_LIFECYCLE_JOB]
     step = _find_named_step(mutated, *key)
     before = step["run"]
-    step["run"] = before.replace("ENGINE=${{ matrix.runtime }} ", "")
+    step["run"] = before.replace('ENGINE="$RUNTIME" ', "")
     assert step["run"] != before, "no matrix ENGINE in the cleanup — mutation is stale"
     with pytest.raises(AssertionError, match="docker"):
         test_podman_lane_cleanup_runs_podman(mutated)
@@ -13515,7 +13535,7 @@ def test_the_unit_macos_cells_are_one_job_each__mutation_adds_a_pr_cell() -> Non
 
 #: The arms that keep every Python on a pull request.
 UNIT_FULL_MATRIX_ARMS = (
-    "github.actor != 'dependabot[bot]'",
+    "github.event.pull_request.user.login != 'dependabot[bot]'",
     "!contains(github.event.pull_request.labels.*.name, 'full-ci')",
 )
 
@@ -14248,7 +14268,10 @@ def test_canopy_contract_installs_at_the_package_pin(workflow: dict[str, Any]) -
         assert pinned is not None, (
             f'the install step must install {requirement}${{{clone}}}@${{{variable}}}"'
         )
-    literals = _COMMIT_LITERAL_RE.findall(json.dumps(_jobs(workflow)[CANOPY_CONTRACT_JOB]))
+    # `uses:` is out of scope: every external action is pinned by commit on purpose.
+    job = dict(_jobs(workflow)[CANOPY_CONTRACT_JOB])
+    job["steps"] = [{k: v for k, v in step.items() if k != "uses"} for step in job["steps"]]
+    literals = _COMMIT_LITERAL_RE.findall(json.dumps(job))
     assert literals == [], f"'{CANOPY_CONTRACT_JOB}' names a literal commit: {literals}"
 
 
@@ -15946,7 +15969,8 @@ def _qmd_deploy_problems(wf: dict[str, Any]) -> list[str]:
                 continue
             if index < calls[0]:
                 problems.append(f"{name}: '{step_name}' runs before the image is built")
-            image = (steps[index].get("env") or {}).get(QMD_IMAGE_ENV)
+            env = {**(_jobs(wf)[name].get("env") or {}), **(steps[index].get("env") or {})}
+            image = env.get(QMD_IMAGE_ENV)
             if image != QMD_IMAGE_TAG:
                 problems.append(f"{name}: '{step_name}' sets {QMD_IMAGE_ENV}={image!r}")
     return problems
@@ -16107,3 +16131,96 @@ def test_cheap_lanes_cancel__mutations() -> None:
         steps.append(steps.pop([st.get("id") for st in steps].index(DOCS_BUILD_FAILED_STEP)))
 
     assert mutated(link_check_first) == ["docs: build-failed comes after the link check"]
+
+
+# ---------------------------------------------------------------------------
+# Supply chain and injection invariants over every workflow and composite action
+# ---------------------------------------------------------------------------
+
+#: Every file GitHub runs steps from: the workflows and the composite actions.
+ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
+DEPENDABOT_YML = REPO_ROOT / ".github" / "dependabot.yml"
+_USES_LINE = re.compile(r"^\s*(?:-\s+)?uses:\s*(?P<ref>\S+)(?P<comment>.*)$")
+_SHA_PINNED = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@[0-9a-f]{40}$")
+_VERSION_COMMENT = re.compile(r"^\s+#\s*v\d+\.\d+\.\d+\b")
+
+
+def _step_files() -> list[Path]:
+    return sorted([*CI_YML.parent.glob("*.yml"), *ACTIONS_DIR.glob("*/action.yml")])
+
+
+def _unpinned_uses(texts: dict[str, str]) -> list[str]:
+    """Each external ``uses:`` that is not a full commit SHA with a ``# vX.Y.Z`` comment."""
+    problems = []
+    for name, text in texts.items():
+        for number, line in enumerate(text.splitlines(), 1):
+            match = _USES_LINE.match(line)
+            if match is None or match["ref"].startswith("./"):
+                continue
+            if not _SHA_PINNED.match(match["ref"]) or not _VERSION_COMMENT.match(match["comment"]):
+                problems.append(f"{name}:{number}: {line.strip()}")
+    return problems
+
+
+def _dependabot_action_dirs() -> list[str]:
+    config = yaml.safe_load(DEPENDABOT_YML.read_text())
+    (block,) = [u for u in config["updates"] if u["package-ecosystem"] == "github-actions"]
+    return list(block.get("directories") or [block["directory"]])
+
+
+def test_every_external_action_is_pinned_by_commit_and_dependabot_reaches_it() -> None:
+    """A tag can be moved to any commit by whoever controls the action, and
+    Dependabot's cooldown only quarantines what it proposes: a pinned SHA is
+    the one reference that runs what was reviewed. The ``# vX.Y.Z`` comment
+    is what Dependabot rewrites with it, and a composite action's directory
+    is outside Dependabot's ``/`` unless listed."""
+    texts = {str(p.relative_to(REPO_ROOT)): p.read_text() for p in _step_files()}
+    assert len(texts) > len(list(CI_YML.parent.glob("*.yml"))), "no composite action found"
+    assert _unpinned_uses(texts) == []
+    dirs = _dependabot_action_dirs()
+    uncovered = [
+        str(p.parent.relative_to(REPO_ROOT))
+        for p in ACTIONS_DIR.glob("*/action.yml")
+        if not any(fnmatch.fnmatch(f"/{p.parent.relative_to(REPO_ROOT)}", d) for d in dirs)
+    ]
+    assert uncovered == [], f"Dependabot never updates the pins in {uncovered}"
+
+
+def test_every_external_action_is_pinned_by_commit__mutation_back_to_a_tag() -> None:
+    text = CI_YML.read_text()
+    mutated = re.sub(r"actions/checkout@[0-9a-f]{40}", "actions/checkout@v7", text, count=1)
+    assert mutated != text, "no SHA-pinned checkout -- mutation is stale"
+    assert len(_unpinned_uses({"ci.yml": mutated})) == 1
+
+
+def test_every_external_action_is_pinned_by_commit__mutation_drops_the_version_comment() -> None:
+    text = CI_YML.read_text()
+    mutated = re.sub(r"(actions/checkout@[0-9a-f]{40})\s+#[^\n]*", r"\1", text, count=1)
+    assert mutated != text, "no commented checkout pin -- mutation is stale"
+    assert len(_unpinned_uses({"ci.yml": mutated})) == 1
+
+
+def _expressions_in_run(docs: dict[str, Any]) -> list[str]:
+    """Each ``run:`` holding ``${{``: the expression is pasted into the script
+    before the shell sees it, so any attacker-shaped value (a branch name, a
+    title, an output) becomes code. Values go through ``env:`` instead."""
+    found = []
+    for name, doc in docs.items():
+        jobs = (doc.get("jobs") or {}).items() if "jobs" in doc else [("runs", doc["runs"])]
+        for job_name, job in jobs:
+            for step in job.get("steps") or []:
+                if "${{" in str(step.get("run", "")):
+                    found.append(f"{name}: {job_name} / {step.get('name') or step.get('id')}")
+    return found
+
+
+def test_no_expression_is_pasted_into_a_run_script() -> None:
+    docs = {str(p.relative_to(REPO_ROOT)): yaml.safe_load(p.read_text()) for p in _step_files()}
+    assert _expressions_in_run(docs) == []
+
+
+def test_no_expression_is_pasted_into_a_run_script__mutation_inlines_one() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, "lint", "Run gitleaks (secret scan)")
+    step["run"] = step["run"].replace('"$BASE"', '"${{ github.event.pull_request.base.ref }}"')
+    assert _expressions_in_run({"ci.yml": mutated}) == ["ci.yml: lint / Run gitleaks (secret scan)"]
