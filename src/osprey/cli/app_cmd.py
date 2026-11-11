@@ -202,6 +202,7 @@ def check(ctx: click.Context, repo: Path | None) -> None:
     violations = [
         *_boundary_violations(app_dirs),
         *_style_violations(app_dirs),
+        *_ready_violations(app_dirs),
         *_js_violations(app_dirs),
     ]
     if violations:
@@ -344,6 +345,48 @@ def _used_classes(app_dir: Path) -> list[tuple[str, set[str]]]:
         }
         used.append((rel, names))
     return used
+
+
+#: The line a panel's script adds to set the page-ready mark (design-system/js/page-ready.js).
+READY_IMPORT = "import { markPageReady } from '/design-system/js/page-ready.js';"
+_READY_IMPORT = re.compile(
+    r"\bimport\s*\{[^}]*\bmarkPageReady\b[^}]*\}\s*from\s*"
+    r"""(["'])/design-system/js/page-ready\.js\1"""
+)
+_READY_IN_MARKUP = re.compile(r"""<html\b[^>]*\bdata-page-ready\s*=\s*["']?true\b""", re.IGNORECASE)
+
+
+def _ready_violations(app_dirs: Iterable[Path]) -> list[Violation]:
+    """Each panel sets the page-ready mark, or whatever waits to drive it hangs.
+
+    A script of the panel imports the writer, or a panel with no script carries the mark
+    in its markup.
+    """
+    found: list[Violation] = []
+    for app_dir in app_dirs:
+        index = app_dir / "panel" / "index.html"
+        if not index.is_file():
+            continue
+        page = index.read_text(encoding="utf-8")
+        scripts = [page] + [
+            _JS_LINE_COMMENT.sub(
+                "", _BLOCK_COMMENT.sub("", (app_dir / rel).read_text(encoding="utf-8"))
+            )
+            for rel in _panel_js(app_dir)
+        ]
+        if _READY_IN_MARKUP.search(page) or any(_READY_IMPORT.search(s) for s in scripts):
+            continue
+        found.append(
+            Violation(
+                app_dir.name,
+                "",
+                "page_ready",
+                "never sets the page-ready mark; the panel's script adds "
+                f"`{READY_IMPORT}` and calls markPageReady() once its first state is drawn",
+                source=f"{APPS_DIRNAME}/{app_dir.name}/panel/index.html",
+            )
+        )
+    return found
 
 
 def _js_violations(app_dirs: Iterable[Path]) -> list[Violation]:

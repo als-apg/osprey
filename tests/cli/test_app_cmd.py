@@ -200,9 +200,13 @@ def test_an_application_with_no_package_passes_the_boundary_saying_so(
 # --- the panel's design-system styling ------------------------------------------
 
 
-def _page(*sheets: str, body: str = '<main class="osprey-card knob"></main>') -> str:
+def _page(
+    *sheets: str,
+    body: str = '<main class="osprey-card knob"></main>',
+    html: str = '<html data-page-ready="true">',
+) -> str:
     links = "".join(f'<link rel="stylesheet" href="/design-system/css/{s}">\n' for s in sheets)
-    return f"<head>\n{links}</head>\n<body>{body}</body>\n"
+    return f"{html}\n<head>\n{links}</head>\n<body>{body}</body>\n</html>\n"
 
 
 STYLED_PAGE = _page("tokens.css", "base.css", "primitives.css")
@@ -274,6 +278,55 @@ def test_classes_the_panel_js_sets_need_a_rule_and_classes_it_only_reads_do_not(
         "apps/knob/panel/main.js: no rule in the panel's or the linked design-system "
         "stylesheets for class knob-on, knob-row, knob-unit [undefined_class]"
     ) in result.output
+
+
+# --- the panel's page-ready mark ------------------------------------------------
+
+#: The line a panel's script adds to set the mark.
+READY_IMPORT = "import { markPageReady } from '/design-system/js/page-ready.js';\n"
+PENDING = '<html data-page-ready="pending">'
+
+
+@pytest.mark.usefixtures("js")
+def test_a_panel_whose_script_marks_it_ready_passes(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _panel(
+        lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html=PENDING)
+    )
+    _write(app_dir, "panel/main.js", READY_IMPORT + "void load().finally(() => markPageReady());\n")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.usefixtures("js")
+def test_a_panel_whose_scripts_never_mark_it_ready_is_refused_with_the_line_to_add(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _panel(
+        lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html=PENDING)
+    )
+    _write(app_dir, "panel/main.js", "// " + READY_IMPORT + "void load();\n")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    assert "apps/knob/panel/index.html: " in result.output
+    assert READY_IMPORT.strip() in result.output
+    assert result.output.count("[page_ready]") == 1
+
+
+def test_a_panel_with_no_script_carries_the_mark_in_its_markup(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _panel(lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html="<html>"))
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    assert "[page_ready]" in result.output
 
 
 # --- the JS halves, with a stubbed runner ---------------------------------------

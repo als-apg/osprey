@@ -336,6 +336,27 @@ def test_the_copy_passes_app_check_and_builds(runner: CliRunner, lifecycle_repo:
     assert "demo-x" in yaml.safe_dump(rendered_config(lifecycle_repo))
 
 
+@pytest.mark.usefixtures("no_js")
+def test_a_copy_whose_panel_never_marks_itself_ready_is_refused(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    assert _new(runner, lifecycle_repo, "demo-x").exit_code == 0
+    script = lifecycle_repo / "apps" / "demo-x" / "panel" / "panel.js"
+    text = script.read_text(encoding="utf-8")
+    script.write_text(
+        text.replace(
+            "import { markPageReady } from '/design-system/js/page-ready.js';\n", ""
+        ).replace(".finally(() => markPageReady())", ""),
+        encoding="utf-8",
+    )
+
+    checked = _check(runner, lifecycle_repo)
+
+    assert checked.exit_code == 1
+    assert "apps/demo-x/panel/index.html: " in checked.output
+    assert "[page_ready]" in checked.output
+
+
 @pytest.mark.skipif(
     os.environ.get("OSPREY_JS_CHECK") != "1", reason="fetches a JS toolchain: OSPREY_JS_CHECK=1"
 )
