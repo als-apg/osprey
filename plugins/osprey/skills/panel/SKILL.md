@@ -40,8 +40,11 @@ the validator checks two of these lines:
 1. `theme-boot.js` **FIRST** in `<head>` — a plain (non-module) script that
    resolves and applies `data-theme` before first paint, so the panel never
    flashes the wrong theme. It reads the `?theme=` query param for free.
-2. The `tokens.css` stylesheet — the `var(--…)` custom properties everything
-   styles against.
+2. The three design-system sheets, in this order: `tokens.css` (the `var(--…)`
+   custom properties everything styles against), `base.css`, and `primitives.css`
+   (the shared `osprey-*` components — buttons, cards, chips, banners, fields;
+   `interfaces/design_system/DESIGN.md` §9, §12 and §13 under the same package
+   root).
 3. A `type="module"` script that calls `initTheme({ role: 'follower' })` (this
    surface is a follower, never the theme hub — the web terminal is the hub) and
    `applyEmbedded()` (reads `?embedded=true` and hides standalone chrome).
@@ -58,6 +61,8 @@ module:
      paint (reads ?theme=), so the panel never flashes the wrong theme. -->
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>My Panel</title>
 <script type="module">
@@ -117,6 +122,13 @@ If you need a color that isn't in this list, look it up in
 `interfaces/design_system/static/css/tokens.css` under that same package root —
 never invent a hex value. A `--…-tint-NN` token is a low-opacity fill of the base color (e.g.
 `--success-tint-08`), useful for badge/pill backgrounds.
+
+---
+
+Reach for an `osprey-*` class from `primitives.css` before writing your own: a
+button is `osprey-btn`, a card `osprey-card`, a status pill `osprey-chip`. Every
+class the panel sets must be defined, in the panel's own `*.css` or one of the
+three linked sheets.
 
 ---
 
@@ -194,6 +206,13 @@ the fragment — never loosen the token-only rule.
 
 The panel is complete when the one-liner raises nothing.
 
+A panel that belongs to an application (`apps/<name>/panel/`) is also judged by
+`osprey app check`, which says exactly what `osprey build` would: it refuses a
+panel that does not link all three sheets (`design_system_css`) and any class the
+panel's HTML or JS sets that no rule in its own `*.css` or a linked design-system
+sheet defines (`undefined_class`). Run it from the deployment and fix until it
+passes.
+
 ---
 
 ## Step 6 — Re-theme reality (know this, don't fight it)
@@ -216,7 +235,9 @@ remains the robust path and is what you should build against.
 
 Do NOT:
 
-- Reorder the head — `theme-boot.js` must be first, before `tokens.css`.
+- Reorder the head — `theme-boot.js` must be first, then `tokens.css`,
+  `base.css`, `primitives.css`.
+- Set a class no stylesheet defines — `osprey app check` refuses it.
 - Convert the boot script to `type="module"` — it must run synchronously,
   pre-paint.
 - Use any raw hex color literal, anywhere, in HTML/CSS/JS — always a `var(--…)`.
