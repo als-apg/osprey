@@ -38,8 +38,11 @@ class EnginePlugin(Protocol):
     ``element_index(deck, element, *,       the element's lattice index: ring order,      the SDK's ``model_members`` raises
     model=None)``                           which tells co-located elements apart
     ``error_text(exc)``                     the one line a failed build reports           the exception's own text
-    ``fault_variables(wiring)``             every fault a model built from the wiring     the model declares no faults
-                                            declares, by address or by element
+    ``fault_variables(wiring, settings)``   every fault a model built from the wiring     the model declares no faults
+                                            and its settings declares, by address or by
+                                            element, without a deck load. Raising
+                                            ``ValueError`` refuses the model: the build
+                                            stops ``engine-invalid`` with its text
     ``polynomial_kicks(deck, elements)``    a deck copy carrying named kicks as dipole    the pyAML view stops ``engine-invalid``
                                             polynomials; stand-in until pyAML reads a     when design correctors need it
                                             dipole kick held in ``KickAngle``
