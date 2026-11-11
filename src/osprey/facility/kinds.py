@@ -12,7 +12,9 @@ distribution".
 
 The declarations are read by ``osprey build`` alone. The build writes what
 every runtime reader needs into the facts document: the per-model kind block
-``measurement_models[<model>].kinds[<kind>]`` and the deployment-wide table
+``measurement_models[<model>].kinds[<kind>]``, which holds everything about the
+kind on that model (its sub-block and the facts its writer wrote from it), and
+the deployment-wide table
 ``measurement_kinds`` (:func:`kind_table_row`). The approval hook, the MCP
 servers and the measure script read those and import neither this module nor a
 kind's package.
@@ -597,8 +599,8 @@ def written_facts(
     """What each listed kind's ``facts_writer`` writes, for every model whose file lists it.
 
     The writer is handed the facility file and the model's ``kind_blocks.<kind>``
-    (absent: empty). A kind's own facts are one per deployment: the build stops
-    when two models' blocks make its writer write two things.
+    (absent: empty); what it writes is the kind's ``facts`` in that model's kind
+    block, so two models giving the kind two blocks carry two sets of facts.
 
     Args:
         document: The facility file.

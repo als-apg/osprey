@@ -6,7 +6,7 @@ Written to ``<render>/data/``::
                            place_levels, places, unplaced_devices,
                            device_classes, vocabulary, models,
                            measurement_models, measurement_kinds,
-                           channel_count, snapshot, kinds?}
+                           channel_count, snapshot}
     facility_facts.md     the same facts as one page, rendered once from
                           ``_facility_facts.md.j2``
 
@@ -26,16 +26,15 @@ and its engine's ``solve`` setting. ``measurement_models`` holds one record per
 pyAML view the render carries, ``{path, sha256, files, kinds, names,
 instruments, rf}``: the configuration's path under the render and its digest,
 the digest of each other file of the view by its name in the view's directory,
-and the model's kind block (:func:`osprey.facility.views.pyaml.kind_records`);
-the facts view is written after the pyAML view and reads it from disk.
+and the model's kind block (:func:`osprey.facility.views.pyaml.kind_records`),
+where each listed kind's ``facts_writer`` output for the model's sub-block is
+the kind's ``facts`` (:func:`osprey.facility.kinds.written_facts`), present only
+when the kind wrote some; the facts view is written after the pyAML view and
+reads it from disk.
 ``measurement_kinds`` is every registered measurement kind's row
 (:func:`osprey.facility.kinds.kind_table_row`), a model's ``kinds`` the subset
 its measurement file allows; a render with no pyAML view has none. ``channel_count`` counts the channels, and
-``snapshot`` is ``null``. ``kinds`` is the namespace of the kinds' own facts:
-each listed kind's ``facts_writer`` output by kind
-(:func:`osprey.facility.kinds.written_facts`), present only when a kind wrote
-some; it is no key of the zero-source facts, and a reader takes its absence
-for ``{}``.
+``snapshot`` is ``null``.
 
 A render with no facts file is read as the zero-source facts: the identity of
 its facility file or project name, no place, no class, ``texture`` alone and no
@@ -278,7 +277,6 @@ def facts_document(
     project_name: str | None = None,
     measurement_models: Mapping[str, Any] | None = None,
     measurement_kinds: Mapping[str, Any] | None = None,
-    kind_facts: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The agent facts of one render.
 
@@ -290,13 +288,11 @@ def facts_document(
         measurement_models: The render's pyAML view records, as
             :func:`measurement_records` reads them; none when omitted.
         measurement_kinds: Every registered kind's row; none when omitted.
-        kind_facts: Each kind's own facts, by kind; the document has no
-            ``kinds`` key when there are none.
 
     Returns:
         The document ``facility_facts.json`` holds.
     """
-    document = {
+    return {
         "schema": FACTS_SCHEMA,
         "identity": _identity(records, project_name),
         "place_levels": _place_levels(records),
@@ -310,9 +306,6 @@ def facts_document(
         "channel_count": len(records.of_kind("channel")),
         "snapshot": None,
     }
-    if kind_facts:
-        document["kinds"] = {kind: dict(facts) for kind, facts in kind_facts.items()}
-    return document
 
 
 def zero_source_facts(identity: Mapping[str, Any]) -> dict[str, Any]:
@@ -407,7 +400,8 @@ def measurement_records(
         configuration under the render, ``sha256`` its digest, ``files`` each
         other file of the view by its name in the view's directory, with its
         digest; with ``records``, ``kinds``, ``names``, ``instruments`` and
-        ``rf`` as :func:`osprey.facility.views.pyaml.kind_records` reads them.
+        ``rf`` as :func:`osprey.facility.views.pyaml.kind_records` reads them,
+        each kind with the ``facts`` its writer wrote for the model's sub-block.
     """
     found: dict[str, dict[str, Any]] = {}
     for configuration in sorted((data_root / PYAML_DIR).glob(f"*/{CONFIGURATION_FILE}")):
@@ -432,6 +426,13 @@ def measurement_records(
                 yaml_loader.safe_load(raw.decode("utf-8")) or {},
                 list(found[view.name]["files"]),
             )
+    if records is not None and found:
+        from osprey.facility.kinds import registered, written_facts
+
+        for kind, by_model in written_facts(records.document, registered()).items():
+            for model, facts in by_model.items():
+                if model in found:
+                    found[model]["kinds"][kind]["facts"] = facts
     return found
 
 
@@ -528,22 +529,17 @@ def write_facts_view(root: Path, inputs: ViewInputs) -> list[Path]:
         The files written, sorted.
     """
     project_name = inputs.rendered_config.get("project_name")
-    from osprey.facility.kinds import kind_table_row, registered, written_facts
+    from osprey.facility.kinds import kind_table_row, registered
 
     models = measurement_records(root, inputs.records)
     declared = registered() if models else {}
     table = {name: kind_table_row(declaration) for name, declaration in declared.items()}
-    own = {
-        kind: next(iter(by_model.values()))
-        for kind, by_model in written_facts(inputs.records.document, declared).items()
-    }
     facts = facts_document(
         inputs.records,
         inputs.served,
         str(project_name) if project_name else None,
         models,
         table,
-        own,
     )
     root.mkdir(parents=True, exist_ok=True)
     document = root / FACTS_FILE

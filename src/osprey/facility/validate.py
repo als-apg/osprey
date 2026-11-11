@@ -2421,13 +2421,11 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
 def _kind_facts_stops(
     document: dict[str, Any], declared: Mapping[str, Any]
 ) -> Iterator[FacilityBuildError]:
-    """A kind's facts writer failing on a block, or two models making it write two things."""
-    import json
-
+    """A kind's facts writer failing on a model's block."""
     from osprey.facility.kinds import KindFactsError, kind_source, written_facts
 
     try:
-        written = written_facts(document, declared)
+        written_facts(document, declared)
     except KindFactsError as failed:
         yield FacilityBuildError(
             "value-invalid",
@@ -2438,23 +2436,6 @@ def _kind_facts_stops(
             record_kind="measurement",
             detail=f"kind {failed.kind}'s facts writer fails on this file's block: {failed.cause}",
         )
-        return
-    for kind, by_model in written.items():
-        (first, facts), *others = by_model.items()
-        for model, theirs in others:
-            if json.dumps(theirs, sort_keys=True) != json.dumps(facts, sort_keys=True):
-                yield FacilityBuildError(
-                    "value-invalid",
-                    model,
-                    [f"measurement/{first}.yaml", f"measurement/{model}.yaml"],
-                    f"give `kind_blocks.{kind}` of {model} what {first} gives it",
-                    record_kind="measurement",
-                    detail=(
-                        f"kind {kind}'s facts are one per deployment; models {first} and "
-                        f"{model} give it blocks it writes two ways"
-                    ),
-                )
-                break
 
 
 def _block_stops(
