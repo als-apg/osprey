@@ -586,10 +586,11 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     lays down history. *sets* adds ``--set KEY=VALUE`` values to the init,
     after the shared ones. Yields the deployment repo directory
     (``<build_root>/<name>``). The ``finally`` block always tears the deployment
-    down with the repo-scoped ``osprey reset --yes`` — containers, volumes and
-    built images carrying this repo's identity, so the next run's fresh
-    credentials never meet a store initialized with this run's — and removes the
-    build root. It never issues any prune or system-wide command.
+    down with the repo-scoped ``osprey reset --yes --purge-audit`` — containers,
+    volumes and built images carrying this repo's identity, so the next run's
+    fresh credentials never meet a store initialized with this run's, and the
+    agent record with them, so the next run's session list starts empty — and
+    removes the build root. It never issues any prune or system-wide command.
     """
     try:
         build_root = Path(tempfile.mkdtemp(prefix="osprey-docshot-"))
@@ -668,7 +669,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
             # stack, and a silent failure leaks it for the rest of the run.
             # A raise here is caught below and reported rather than dropped.
             subprocess.run(
-                ["osprey", "reset", "--yes"],
+                ["osprey", "reset", "--yes", "--purge-audit"],
                 cwd=str(project_dir),
                 capture_output=True,
                 check=True,

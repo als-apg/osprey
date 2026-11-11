@@ -150,7 +150,7 @@ def test_command_assembly_is_exact_and_project_scoped(monkeypatch, tmp_path) -> 
     # this deployment's volumes too, so the next run's fresh credentials never
     # meet a store initialized with the last run's.
     down_call = next(c for c in run.call_args_list if _cmd_of(c)[:2] == ["osprey", "reset"])
-    assert _cmd_of(down_call) == ["osprey", "reset", "--yes"]
+    assert _cmd_of(down_call) == ["osprey", "reset", "--yes", "--purge-audit"]
     assert down_call.kwargs["cwd"] == proj
 
 
