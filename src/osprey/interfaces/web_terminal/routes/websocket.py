@@ -66,7 +66,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.session_hold import has_no_record, is_held, is_safe_session_key
-from osprey_connectors.types import published_machine_kind
+from osprey_connectors.types import TARGET_STANDIN, published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:
@@ -2802,6 +2802,30 @@ def _target_display(
     return meta
 
 
+def _row_display_name(config: Any, target: str, kind: str, meta: Mapping[str, Any]) -> str:
+    """The row's name, describing the same machine as its kind.
+
+    The kind is the published report's and the name falls back to a render of
+    the config, so before a live server has vouched for the stand-in the two
+    disagree: the rendered name says rehearsal, the kind says real. That row is
+    named again under its kind. An unreadable config names nothing.
+    """
+    name = str(meta.get("display_name") or "")
+    if target != TARGET_STANDIN or kind == "rehearsal":
+        return name
+    if config is UNREADABLE or not isinstance(config, dict):
+        return ""
+    try:
+        from osprey.mcp_server.control_system.connector_host_manager import (
+            display_name_for_kind,
+        )
+
+        return display_name_for_kind(config, target, kind)
+    except Exception:  # the roster must render, not 500
+        logger.warning("Could not name the stand-in row under its published kind")
+        return ""
+
+
 def _row_verdict(section: Any, target: str, login: str) -> posture_store.WriteVerdict:
     """The write verdict for a new call by *login* to *target* (C-GET, FR 5).
 
@@ -2967,7 +2991,7 @@ def _posture_view(
                 # D4: the label is the kind's banner, never a writer's string, so
                 # a stand-in no live server vouches for reads as the real machine.
                 "label": KIND_BANNERS.get(kind, KIND_BANNERS["real"]),
-                "display_name": str(meta.get("display_name") or ""),
+                "display_name": _row_display_name(config, target, kind, meta),
                 "short_label": _short_label(kind),
                 "machine_kind": kind,
                 "endpoint": str(meta.get("endpoint") or ""),

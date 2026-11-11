@@ -707,6 +707,17 @@ def _display_name(config: Any, target: str, *, standin: bool = False) -> str:
     return _DISPLAY_NAME_DEFAULTS["machine"]
 
 
+def display_name_for_kind(config: Any, target: str, kind: str) -> str:
+    """The operator-facing name for *target* when its published kind is *kind*.
+
+    For a reader that takes the kind from a server's report (C-KIND) and has no
+    published name to go with it: the name is derived under that kind, so a
+    stand-in no live server vouched for is not called the rehearsal beside the
+    live machine's mark. A configured name still wins.
+    """
+    return _display_name(config, target, standin=kind == "rehearsal")
+
+
 # ---------------------------------------------------------------------------
 # Start-up report
 # ---------------------------------------------------------------------------

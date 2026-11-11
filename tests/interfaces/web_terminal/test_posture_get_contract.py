@@ -1048,6 +1048,30 @@ class TestTargetIdentity:
         assert row["machine_kind"] == "real"
         assert row["short_label"] == "LIVE"
 
+    def test_a_stand_in_no_server_vouched_for_is_not_named_the_rehearsal(
+        self, client, agent_data_root
+    ):
+        """The name and the kind describe one machine: no live report, no rehearsal name."""
+        write_server_report(agent_data_root, DEAD_PID, targets=TARGET_META)
+        with only_alive(SERVER_A):
+            row = row_for(get_posture(client), "standin")
+        assert row["machine_kind"] == "real"
+        assert row["display_name"] == "Live"
+
+    def test_a_vouched_stand_in_is_named_the_rehearsal(self, client, agent_data_root):
+        write_server_report(agent_data_root, SERVER_A, targets=TARGET_META)
+        with only_alive(SERVER_A):
+            row = row_for(get_posture(client), "standin")
+        assert row["machine_kind"] == "rehearsal"
+        assert row["display_name"] == "Rehearsal"
+
+    def test_a_renamed_stand_in_keeps_its_name_unvouched(self, make_client, tmp_path):
+        config = render(tmp_path=tmp_path, display_names={"standin": "Test Ring"})
+        with make_client(config) as client, only_alive(SERVER_A):
+            row = row_for(get_posture(client), "standin")
+        assert row["machine_kind"] == "real"
+        assert row["display_name"] == "Test Ring"
+
     def test_a_dead_servers_rehearsal_claim_is_ignored(self, client, agent_data_root):
         write_server_report(agent_data_root, DEAD_PID, targets=TARGET_META)
         with only_alive(SERVER_A):
