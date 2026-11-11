@@ -1,0 +1,1 @@
+The simulator view names its status and IOC health signals once and groups `ioc_health` as `{model: {signal: address}}`; the simulator directory marks each status and health row with a `signal` property, which the IOC page reads instead of name endings on the virtual accelerator.

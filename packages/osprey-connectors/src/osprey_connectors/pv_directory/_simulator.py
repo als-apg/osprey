@@ -20,6 +20,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Literal
 
 from osprey_connectors.pv_directory.contract import (
+    SERVED_SIGNAL_PROPERTY,
     DirectoryPage,
     DirectoryRecord,
     DirectoryRow,
@@ -28,7 +29,16 @@ from osprey_connectors.pv_directory.contract import (
     SearchQuery,
     Unavailable,
 )
-from osprey_connectors.simulation.view import Channel, NoSimulatorView, SimulatorView
+from osprey_connectors.simulation.view import (
+    ENGINEER,
+    HEARTBEAT,
+    SETPOINT,
+    STATUS_SIGNAL,
+    UPTIME,
+    Channel,
+    NoSimulatorView,
+    SimulatorView,
+)
 
 _HOST = "virtual-accelerator"
 _REQUEST_PREFIX = "simulator data"
@@ -52,12 +62,12 @@ _INPUT_RECORD_TYPES = {
     "waveform": "waveform",
 }
 
-#: What each simulator-served address suffix is: its record type and its description.
+#: What each simulator-served signal is: its record type and its description.
 _SERVED_ADDRESSES = {
-    "STATUS": ("stringin", "simulation status of IOC {ioc}"),
-    "HEARTBEAT": ("longin", "heartbeat counter of IOC {ioc}"),
-    "UPTIME": ("ai", "seconds since IOC {ioc} started"),
-    "ENGINEER": ("stringin", "responsible engineer of IOC {ioc}"),
+    STATUS_SIGNAL: ("stringin", "simulation status of IOC {ioc}"),
+    HEARTBEAT: ("longin", "heartbeat counter of IOC {ioc}"),
+    UPTIME: ("ai", "seconds since IOC {ioc} started"),
+    ENGINEER: ("stringin", "responsible engineer of IOC {ioc}"),
 }
 
 
@@ -67,7 +77,7 @@ def _first_sentence(text: str | None) -> str | None:
 
 
 def _channel_record(channel: Channel, ioc: str) -> DirectoryRecord:
-    types = _OUTPUT_RECORD_TYPES if channel.role == "setpoint" else _INPUT_RECORD_TYPES
+    types = _OUTPUT_RECORD_TYPES if channel.role == SETPOINT else _INPUT_RECORD_TYPES
     properties = {"role": channel.role, "valueType": channel.value_type}
     if channel.unit is not None:
         properties["unit"] = str(channel.unit)
@@ -84,9 +94,8 @@ def _channel_record(channel: Channel, ioc: str) -> DirectoryRecord:
     )
 
 
-def _served_record(address: str, ioc: str) -> DirectoryRecord:
-    suffix = address.rpartition(":")[2]
-    record_type, description = _SERVED_ADDRESSES.get(suffix, (None, f"{suffix} of IOC {{ioc}}"))
+def _served_record(address: str, ioc: str, signal: str) -> DirectoryRecord:
+    record_type, description = _SERVED_ADDRESSES[signal]
     return DirectoryRecord(
         row=DirectoryRow(
             name=address,
@@ -95,7 +104,8 @@ def _served_record(address: str, ioc: str) -> DirectoryRecord:
             record_type=record_type,
             ioc=ioc,
             host=_HOST,
-        )
+        ),
+        properties={SERVED_SIGNAL_PROPERTY: signal},
     )
 
 
@@ -108,10 +118,10 @@ def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
         ioc = f"sim-{channel.owner}" if channel.owner in physics else _TEXTURE_IOC
         records[address] = _channel_record(channel, ioc)
     for model, address in view.status_addresses().items():
-        records[address] = _served_record(address, f"sim-{model}")
+        records[address] = _served_record(address, f"sim-{model}", STATUS_SIGNAL)
     for model, signals in view.ioc_health_by_model().items():
-        for address in signals.values():
-            records[address] = _served_record(address, f"sim-{model}")
+        for signal, address in signals.items():
+            records[address] = _served_record(address, f"sim-{model}", signal)
     return dict(sorted(records.items()))
 
 

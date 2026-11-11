@@ -26,7 +26,10 @@ _NEW_MODULES = (
 _CONTRACT_NAMES = (
     "ALARM_STALE_WINDOW_S",
     "DEFAULT_DESCRIPTION_PROPERTY",
+    "ENGINEER",
+    "IOC_HEALTH_SIGNALS",
     "ROW_FIELD_PROPERTIES",
+    "SERVED_SIGNAL_PROPERTY",
     "AlarmConfigRecord",
     "AlarmHistoryRow",
     "AlarmLog",
