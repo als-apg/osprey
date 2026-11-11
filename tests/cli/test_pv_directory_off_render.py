@@ -142,22 +142,20 @@ ALLOW_LIST = (
 )
 
 
-def _drop_null_leaves(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: _drop_null_leaves(item) for key, item in value.items() if item is not None}
-    return value
+def _without_off_spelling(text: str) -> str:
+    document = yaml.safe_load(text)
+    if isinstance(document, dict) and SECTION in document and document[SECTION] is None:
+        del document[SECTION]
+    return yaml.safe_dump(document, sort_keys=True)
 
 
-def _without_null_leaves(text: str) -> str:
-    return yaml.safe_dump(_drop_null_leaves(yaml.safe_load(text)), sort_keys=True)
-
-
-#: The Off spelling stays in the rendered config, as ``models: null`` does, and in each
-#: copy of it: the image's, every app's and every service's.
+#: The Off spelling stays in the rendered config and in each copy of it (the image's,
+#: every login's and every service's); the comparison takes out that one key and nothing
+#: else.
 OFF_SPELLING = Allowed(
     ("**/config.yml",),
     "the rendered config carries the section's null as the resolved config",
-    _without_null_leaves,
+    _without_off_spelling,
 )
 
 
@@ -454,6 +452,39 @@ def test_the_stripped_demo_preset_hashes_as_the_baseline_preset(baseline: Path) 
 @pytest.fixture(scope="module")
 def no_section(store: Path) -> Path:
     return _render_kept(ROOT, store, "guard-no-section", DEMO, strip_section)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("pv_directory: null\nx: 1\n", {"x": 1}),
+        (
+            "pv_directory: null\nsimulation:\n  models: null\n",
+            {"simulation": {"models": None}},
+        ),
+        ("other: null\n", {"other": None}),
+        ("pv_directory:\n  type: channelfinder\n", {"pv_directory": {"type": "channelfinder"}}),
+        ("a:\n  pv_directory: null\n", {"a": {"pv_directory": None}}),
+    ],
+)
+def test_the_off_rule_takes_out_only_the_sections_own_null(
+    text: str, expected: dict[str, Any]
+) -> None:
+    assert yaml.safe_load(_without_off_spelling(text)) == expected
+
+
+def test_a_moved_value_null_is_seen_by_the_off_guard(tmp_path: Path) -> None:
+    def tree(name: str, config: str) -> Path:
+        path = tmp_path / name / "build" / "config.yml"
+        path.parent.mkdir(parents=True)
+        path.write_text(config, encoding="utf-8")
+        return tmp_path / name
+
+    off = tree("off", "pv_directory: null\nsimulation:\n  models: null\n")
+    moved = tree("moved", "simulation:\n  models: all\n")
+    same = tree("same", "simulation:\n  models: null\n")
+    assert compare(off, moved, (OFF_SPELLING,))[0] == ["build/config.yml"]
+    assert compare(off, same, (OFF_SPELLING,))[0] == []
 
 
 def test_the_off_spelling_renders_what_no_section_renders(store: Path, no_section: Path) -> None:
