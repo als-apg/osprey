@@ -643,9 +643,10 @@ def unmet_needs(
 
 
 def _hosts_over(paths: Sequence[str]) -> list[str]:
-    """The checks with a derived scope and the CI lanes whose scope holds one of
-    *paths*, a file or a directory, or lies beneath one of the directories: what
-    runs the tests the sweep deselects. A node id is read as its file."""
+    """The checks with a derived scope and the CI lanes whose scope (a lane's
+    ``modules``, where it names them) holds one of *paths*, a file or a
+    directory, or lies beneath one of the directories: what runs the tests the
+    sweep deselects. A node id is read as its file."""
     paths = [path.partition("::")[0] for path in paths]
     inside = [candidate for path in paths for candidate in (path, path.rstrip("/") + "/")]
     above = tuple(path.rstrip("/") + "/" for path in paths)
@@ -656,7 +657,10 @@ def _hosts_over(paths: Sequence[str]) -> list[str]:
     derived = [check for check in CHECKS if check.derive_scope]
     files = repository_files() if derived else []
     checks = [c.id for c in derived if c.derive_scope and hosts(c.derive_scope(files))]
-    lanes = [lane.job for lane in LANES if hosts(lane.scope)]
+    # A lane's ``modules`` are the tests it runs where its scope names more.
+    lanes = [
+        lane.job for lane in LANES if hosts(lane.scope if lane.modules is None else lane.modules)
+    ]
     return list(dict.fromkeys([*checks, *lanes]))
 
 

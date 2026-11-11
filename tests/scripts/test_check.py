@@ -2283,6 +2283,14 @@ def test_a_node_id_names_the_hosts_of_its_file() -> None:
     assert check._hosts_over(["tests/integration/test_build_boot.py::test_x"]) == hosts
 
 
+def test_a_lane_naming_modules_hosts_only_those() -> None:
+    # orm-roundtrip-e2e's scope reaches stack-e2e's tiled module through SCAN_STACK.
+    hosts = check._hosts_over(["tests/e2e/test_tiled_roundtrip.py"])
+    assert "stack-e2e" in hosts
+    assert "orm-roundtrip-e2e" not in hosts
+    assert "benchmarks" in check._hosts_over(["tests/e2e/tier2/test_ariel_picture_run_id.py"])
+
+
 def test_the_pytest_line_carries_a_named_node_id() -> None:
     pytest_check = BY_ID["pytest"]
     selection = check.Selection(check.PATHS, ("tests/cli/test_main.py::test_x",))
