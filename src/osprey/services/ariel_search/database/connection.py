@@ -3,9 +3,11 @@
 This module provides async connection pool management for the ARIEL database.
 """
 
+import asyncio
+import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
@@ -21,6 +23,12 @@ async def create_connection_pool(
 ) -> "AsyncConnectionPool":
     """Create async connection pool for ARIEL repository.
 
+    The open keeps no clock of its own: the caller's deadline (a request, a CLI
+    command, a start-up probe) is the only one. The pool is returned once its
+    first connection is in it, however long a loaded store takes to accept
+    it; a store that refuses -- nothing listening, a login it rejects -- ends
+    the open at once with that connection's error.
+
     Args:
         config: Database configuration with connection URI
         uri: Connect with this DSN instead of ``config.uri``. The one caller
@@ -35,8 +43,10 @@ async def create_connection_pool(
 
     Raises:
         ImportError: If psycopg_pool is not installed
+        psycopg.OperationalError: If the store refuses the first connection
     """
     try:
+        from psycopg import AsyncConnection, OperationalError
         from psycopg_pool import AsyncConnectionPool
     except ImportError as e:
         raise ImportError(
@@ -44,22 +54,50 @@ async def create_connection_pool(
             "Install with: pip install 'psycopg[pool]'"
         ) from e
 
+    conninfo = uri if uri is not None else config.uri
+    gave_up = asyncio.Event()
+    # ``prepare_threshold=None`` keeps every statement unprepared on the
+    # server. A migration may ADD COLUMN to a table while this process's other
+    # pools are serving readers; a server-prepared ``SELECT *`` on a pooled
+    # connection then fails with "cached plan must not change result type"
+    # until that connection is recycled. Unprepared statements are planned
+    # afresh and see the new column.
+    connect_kwargs: dict[str, Any] = {"autocommit": True, "prepare_threshold": None}
     pool = AsyncConnectionPool(
-        conninfo=uri if uri is not None else config.uri,
+        conninfo=conninfo,
         min_size=1,
         max_size=max_size,
-        # ``prepare_threshold=None`` keeps every statement unprepared on the
-        # server. A migration may ADD COLUMN to a table while this process's
-        # other pools are serving readers; a server-prepared ``SELECT *`` on a
-        # pooled connection then fails with "cached plan must not change
-        # result type" until that connection is recycled. Unprepared
-        # statements are planned afresh and see the new column.
-        kwargs={"autocommit": True, "prepare_threshold": None},
+        kwargs=connect_kwargs,
         open=False,  # Don't open immediately
         reconnect_timeout=0,  # Don't retry on failure
+        # With no retries the pool gives up after its first failed connection;
+        # that, not a deadline, is what ends a refused open.
+        reconnect_failed=lambda _pool: gave_up.set(),
     )
-    await pool.open(wait=True, timeout=5.0)
-    return pool
+    try:
+        await pool.open()
+        filled = asyncio.ensure_future(pool.wait(timeout=math.inf))
+        refused = asyncio.ensure_future(gave_up.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                {filled, refused}, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            refused.cancel()
+            filled.cancel()
+        if filled in done and filled.exception() is None:
+            return pool
+        # The pool keeps the error it gave up on to its log; connecting once
+        # more, as the pool connects, raises the store's own answer to the
+        # caller. This attempt runs on the caller's clock like the open itself.
+        await (await AsyncConnection.connect(conninfo, **connect_kwargs)).close()
+        raise OperationalError(
+            "the ARIEL store refused the pool's first connection and accepted the next; "
+            "the error the pool gave up on is in its log"
+        )
+    except BaseException:
+        await pool.close()
+        raise
 
 
 @asynccontextmanager
