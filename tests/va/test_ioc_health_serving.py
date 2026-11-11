@@ -245,6 +245,10 @@ def test_two_periodic_passes_publish_an_advanced_heartbeat(
     )
     monkeypatch.setattr(Runner, "_post_outputs", lambda _self, values, _ts: posted.append(values))
     runner = object.__new__(ModelRunner)
+    runner.model = composite
+    runner._cycle_requested_names = ()
+    runner._timed_names = frozenset()
+    runner._needs_timed = False
     runner._periodic = periodic_addresses(view)
     runner._setting_records = setting_records(view)
     runner._served = {}
