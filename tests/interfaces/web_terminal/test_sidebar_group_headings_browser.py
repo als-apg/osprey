@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.interfaces._browser import wait_for_hub_ready
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -63,7 +63,7 @@ def _page(browser: Browser, workspace_dir: Path, stored: dict | None = None) -> 
             )
         try:
             page.goto(base_url, wait_until="domcontentloaded")
-            wait_for_hub_ready(page)
+            wait_for_page_ready(page)
             yield page
         finally:
             ctx.close()
@@ -212,7 +212,7 @@ def test_dragging_a_heading_moves_its_whole_group_and_survives_reload(tmp_path, 
         expect(page.locator("#panel-rail > .sidebar-group.dragging")).to_have_count(0)
 
         page.reload(wait_until="domcontentloaded")
-        wait_for_hub_ready(page)
+        wait_for_page_ready(page)
         assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
             "workspace",
             "system",

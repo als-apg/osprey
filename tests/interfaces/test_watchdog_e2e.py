@@ -70,7 +70,7 @@ from tests.e2e.test_watchdog_hold_scripted import (
     _point_jev_at,
     read,
 )
-from tests.interfaces._browser import wait_for_hub_ready
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
@@ -368,7 +368,7 @@ def _open_page(context: BrowserContext, served: Served) -> tuple[Page, str]:
     """Open a tab on the app; the tab and the session key it settled on."""
     page = context.new_page()
     page.goto(served.base_url, wait_until="domcontentloaded")
-    wait_for_hub_ready(page)
+    wait_for_page_ready(page)
     expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT_MS)
     key = _session_key(page)
     served.keys.add(key)
@@ -658,7 +658,7 @@ def test_the_hold_survives_reload_a_closed_tab_and_a_restart(
     flag_ids = {flag.flag_id for flag in served.flags(key)}
 
     page.reload(wait_until="domcontentloaded")
-    wait_for_hub_ready(page)
+    wait_for_page_ready(page)
     _assert_dialog_names_both_watchdogs(page, prompt)
     _assert_chip_held(page)
 
