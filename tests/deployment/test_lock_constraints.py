@@ -134,7 +134,7 @@ def _wheel(directory: Path, name: str, requires: list[str], extras: list[str] = 
 FRAMEWORK_REQUIRES = [
     "aiohttp>=3.14",
     "aioca>=1.7; extra == 'virtual-accelerator'",
-    "lume-pva-apg[ca,pva]==0.1.5; (sys_platform == 'linux' and (platform_machine == "
+    "lume-pva-apg[ca,pva]==0.1.6; (sys_platform == 'linux' and (platform_machine == "
     "'x86_64' or platform_machine == 'aarch64')) and extra == 'virtual-accelerator'",
     "osprey-optimizer>=2026.6.2; extra == 'virtual-accelerator'",
     "azure-servicebus>=7.11; extra == 'teams'",
@@ -203,7 +203,7 @@ def test_an_extras_image_is_handed_the_extras_own_requirements(tmp_path):
     assert wb._copy_local_framework_for_override(str(ctx), extras=("virtual-accelerator",))
     assert (ctx / wb.EXTRA_REQUIREMENTS_FILENAME).read_text() == (
         "aioca>=1.7\n"
-        'lume-pva-apg[ca,pva]==0.1.5; sys_platform == "linux" and '
+        'lume-pva-apg[ca,pva]==0.1.6; sys_platform == "linux" and '
         '(platform_machine == "x86_64" or platform_machine == "aarch64")\n'
     )
 

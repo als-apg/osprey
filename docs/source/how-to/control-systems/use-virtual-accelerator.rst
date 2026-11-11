@@ -63,12 +63,12 @@ exactly as it does a real machine; only the backend changes.
 The physics behind the channels comes from the profile's ``simulation.models``.
 The container builds each served physics model through the engine its record
 names. It serves those models together with the texture model as one composite.
-The shipped engine is pyAT, built on the facility-agnostic ``lume-pyat``
+The shipped lattice engine is pyAT, built on the facility-agnostic ``lume-pyat``
 package, over the deck your facility tree stages. A render that serves
 ``texture`` alone serves the same channels with no physics behind them: a
-setpoint holds the value written to it and a readback follows its seed. A
-physics engine other than pyAT is an engine plug-in, covered in
-:ref:`va-serving-your-own-model`.
+setpoint holds the value written to it and a readback follows its seed. The
+second shipped engine models an injection chain, and any other engine is a
+plug-in; both are covered in :ref:`va-serving-your-own-model`.
 
 What channels it serves
 =======================
@@ -315,7 +315,7 @@ environment setup is needed.
 What the IOC serves, and how often
 ==================================
 
-Two settings reach the container through its compose environment rather
+Three settings reach the container through its compose environment rather
 than being fixed in the image. Each is a property of the machine you are
 standing in for, or of who may alter it, rather than of OSPREY:
 
@@ -331,13 +331,19 @@ standing in for, or of who may alter it, rather than of OSPREY:
        ``simulation.tick_s`` (default ``1.0``), which ``osprey build`` renders
        into the compose file; a project ``.env`` value is not read. Lower it
        for a demo that should look live; raise it on a very large namespace.
+   * - ``VA_FAST_INTERVAL_S``
+     - The fast period: seconds between publications of the readings a model
+       serves faster than its passes, such as an injection chain's
+       fast current (:ref:`va-injection-chain`). Set by
+       ``simulation.fast_tick_s`` (default ``0.1``) in the same way. A
+       facility with no such reading publishes nothing at this period.
    * - ``VA_MODEL_WRITE_TOKEN``
      - The credential a write to the model's own variables must present over
        the model RPC (see :doc:`/architecture/virtual-accelerator`). Unset, the
        container refuses every such write; reads need no token. There is no
        default to fall back on --- set it in the deployment's ``.env``.
 
-The poll interval is refused at boot if it is not a number, or not greater
+Either interval is refused at boot if it is not a number, or not greater
 than zero, rather than being clamped. A typo therefore shows up in
 ``docker logs`` instead of quietly changing what the machine looks like.
 
@@ -372,10 +378,84 @@ A pyAT lattice
 ``decks/<model>.json``, and the container builds the model from that copy when
 ``simulation.models`` serves it. No code and no image are involved.
 
+.. _va-injection-chain:
+
+An injection chain
+------------------
+
+A lattice answers a corrector write, but nothing in it injects. Software that
+fills the machine --- a fill script, or a facility's own bucket-loading IOC
+run unmodified beside the simulator --- asks for a shot and then watches
+counters, charges and the stored current step. The shipped ``injection``
+engine gives it an injector to ask. It models no beam dynamics and needs no
+deck: the model record's ``settings`` and ``wiring`` are the whole chain, and
+each address is a channel the facility declares. With invented addresses:
+
+.. code-block:: yaml
+
+   - name: INJECTOR
+     engine: injection
+     settings:
+       injection:
+         cycle:
+           period_s: 2.0   # one cycle every 2 s
+           width_s: 0.4    # the cycle signal stays high for 0.4 s
+         stages: [transport, storage]
+         current_per_charge: 1.5
+     wiring:
+       - address: INJ:REQ
+         engine: {signal: request}
+       - address: INJ:SRC:Q:SP
+         engine: {signal: parameter, quantity: charge, start: 1.0}
+       - address: INJ:TL:EFF:SP
+         engine: {signal: parameter, quantity: efficiency, stage: 0, start: 0.9}
+       - address: INJ:STORE:EFF:SP
+         engine: {signal: parameter, quantity: efficiency, stage: 1, start: 0.7}
+       - address: INJ:STORE:I:SP
+         engine: {signal: parameter, quantity: current, start: 10.0}
+       - address: INJ:SHOTS
+         engine: {signal: counter, offset_s: 0.02}
+       - address: INJ:TL:Q
+         engine: {signal: charge, offset_s: 0.05, stage: 0}
+       - address: INJ:STORE:EFF
+         engine: {signal: efficiency, offset_s: 0.08, stage: 1}
+       - address: INJ:STORE:I
+         engine: {signal: current, offset_s: 0.1}
+       - address: INJ:STORE:I:FAST
+         engine: {signal: current_fast}
+       - address: INJ:CYCLE
+         engine: {signal: busy}
+
+A client write of ``INJ:REQ`` starts one shot; a request while a shot is in
+flight is ignored. Each wiring record's ``signal`` says what the shot does to
+its channel:
+
+- ``parameter``: a setpoint of the chain, starting at ``start``. Its
+  ``quantity`` is ``charge``, the source charge per shot; ``efficiency``, that
+  of the stage at index ``stage`` of ``stages``; or ``current``, the stored
+  current.
+- ``counter``, ``charge`` and ``efficiency``: readings the shot steps
+  ``offset_s`` seconds after its request. A counter adds one. A charge shows
+  the charge after the stage at index ``stage``, the source charge times
+  every efficiency up to that stage's, and an efficiency shows that stage's.
+- ``current``: the stored current, which the shot raises at ``offset_s`` by
+  the final charge times ``current_per_charge``. Nothing saturates or decays
+  it.
+- ``current_fast``: the stored current again, published at the fast period
+  (`What the IOC serves, and how often`_). Either current reading may state a
+  ``scale``: ``{signal: current_fast, scale: 0.001}`` reads a stored current
+  in mA as A.
+- ``busy``: the cycle signal, high for ``width_s`` every ``period_s`` whether
+  or not a shot runs.
+
+Shots run only in the container: in process the chain serves its start
+values and a request starts nothing. What scenarios and channel faults do to
+a chain is in :doc:`/how-to/run-scenarios`.
+
 Another backend
 ---------------
 
-A physics engine other than pyAT is an engine plug-in. The container looks up
+An engine OSPREY does not ship is an engine plug-in. The container looks up
 the ``engine`` each model record names in the ``osprey.simulation.engines``
 entry-point group. It calls the registered module's ``build``, which returns
 the ``LUMEModel`` serving that model's wiring over its deck. ``osprey build``

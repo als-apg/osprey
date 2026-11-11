@@ -875,6 +875,49 @@ describe('polling', () => {
     expect(chipModule.getState()?.last_switch?.synthesized).toBeUndefined();
   });
 
+  test('the pending switch draws its steps as a bar on the chip', async () => {
+    const bar = () => /** @type {HTMLElement} */ (chipEl()?.querySelector('.ctc-progress'));
+    const drawn = () => Number(bar().style.getPropertyValue('--ctc-progress'));
+    await boot();
+    expect(bar().hidden).toBe(true);
+
+    // Sent: one step of three (the request, the record, the one server).
+    chipModule.markPending('r-7f21', 'live', 4);
+    expect(bar().hidden).toBe(false);
+    expect(chipModule.pendingProgress()).toMatchObject({ done: 1, total: 3 });
+    expect(drawn()).toBeCloseTo(1 / 3, 2);
+
+    // The record accepts; the server is still on 3.
+    const accepted = {
+      control_target: 'live',
+      generation: 4,
+      last_switch: { request_id: 'r-7f21', status: 'applied', generation: 4, age_s: 0 },
+      targets: [rowOf({ ...KINDS.live, active: true })],
+    };
+    served = viewOf({ ...accepted, servers: [serverOf({ applied_generation: 3 })] });
+    await chipModule.refetch();
+    expect(drawn()).toBeCloseTo(2 / 3, 2);
+
+    // A second server starts mid-switch: one more step, and the bar holds.
+    served = viewOf({
+      ...accepted,
+      servers: [serverOf({ applied_generation: 3 }), serverOf({ pid: 99, applied_generation: 3 })],
+    });
+    await chipModule.refetch();
+    expect(chipModule.pendingProgress()).toMatchObject({ done: 2, total: 4 });
+    expect(drawn()).toBeCloseTo(2 / 3, 2);
+
+    // Both arrive: landed, and the bar goes with `switching…`.
+    served = viewOf({
+      ...accepted,
+      servers: [serverOf({ applied_generation: 4 }), serverOf({ pid: 99, applied_generation: 4 })],
+    });
+    await chipModule.refetch();
+    expect(chipModule.isPending()).toBe(false);
+    expect(chipModule.pendingProgress()).toBeNull();
+    expect(bar().hidden).toBe(true);
+  });
+
   test('the record accepting the switch is not yet the end of switching…', async () => {
     await boot();
     chipModule.markPending('r-7f21', 'live', 4);

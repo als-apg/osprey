@@ -43,7 +43,8 @@ deployment's content directories; each file is removed under its own root):
 what the tree holds                         what the step does
 ==========================================  ==========================================
 hand-written records of a kind the format   refuses, naming them; nothing changes
-writes
+writes, in a tree with no imported layer
+hand-written records beside a layer         keeps them; the build combines them
 bundled files                               replaces them and says so in one line
 anything else of the deployment's own       keeps it
 ==========================================  ==========================================
@@ -645,6 +646,17 @@ def _prune_empty(facility_dir: Path) -> None:
             directory.rmdir()
 
 
+def _holds_a_layer(facility_dir: Path) -> bool:
+    """Whether an import has written a layer under *facility_dir*.
+
+    Every format's layer holds a ``channels.yaml``. A mapping or a source file
+    waiting in the layer directory for a first import is no layer.
+    """
+    from osprey.facility.bundled import LAYER_ROOT
+
+    return any((facility_dir / LAYER_ROOT).glob("*/channels.yaml"))
+
+
 def _replace_or_refuse(
     ctx: click.Context, verb: str, roots: FacilityRoots, repo_root: Path
 ) -> None:
@@ -652,7 +664,10 @@ def _replace_or_refuse(
 
     Refuses only on overlap: hand-written records of the kinds this verb writes
     exit 1 with nothing changed, and files seeded under the former header are
-    named apart with the line that fixes them. Otherwise bundled files are replaced, and the
+    named apart with the line that fixes them. A tree that already holds an
+    imported layer is past the first: records written by hand beside a layer
+    are the facility's own additions, which the build combines with the layers,
+    and no later import refuses them. Otherwise bundled files are replaced, and the
     line that says so prints at once, so a later stop of the format never hides
     the deletion. Everything else stays; the knowledge indexes are settled, and a
     blank index is left when no page remains.
@@ -679,6 +694,8 @@ def _replace_or_refuse(
     if overlap:
         former = [path for path, _kind in overlap if under_former_header(facility_dir / path)]
         written = [(path, kind) for path, kind in overlap if path not in former]
+        if _holds_a_layer(facility_dir):
+            written = []
         lines = []
         if written:
             found = {kind for _path, kind in written}
@@ -697,8 +714,9 @@ def _replace_or_refuse(
                 *(_shown(facility_dir / path, repo_root) for path in former),
                 f"set line 1 of each to: {HEADER}",
             ]
-        click.echo("\n".join(lines), err=True)
-        ctx.exit(1)
+        if lines:
+            click.echo("\n".join(lines), err=True)
+            ctx.exit(1)
     if kinds.bundled:
         _remove_bundled(roots, kinds.bundled)
         click.echo(

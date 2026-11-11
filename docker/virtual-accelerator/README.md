@@ -65,7 +65,10 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   two machines apart by where a record sits.
 - **`VA_POLL_INTERVAL_S`** is the period of the runner's own passes, in
   seconds, greater than zero (the compose block fills it from
-  `simulation.tick_s`); unset, the default tick applies. **`VA_MODEL_WRITE_TOKEN`**
+  `simulation.tick_s`); unset, the default tick applies.
+  **`VA_FAST_INTERVAL_S`** is the fast period of the timed passes between
+  ticks, in seconds, greater than zero (filled from `simulation.fast_tick_s`);
+  unset, the default `0.1` applies. **`VA_MODEL_WRITE_TOKEN`**
   arms model RPC writes; unset refuses them.
 - **Port `5064/tcp`**, Channel Access name-server mode
   (`EPICS_CA_NAME_SERVERS=<host>:5064`, `EPICS_CA_AUTO_ADDR_LIST=NO` on the

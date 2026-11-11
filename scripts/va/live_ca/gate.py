@@ -80,15 +80,19 @@ _STOP_GRACE_S = 2.0
 LIVE_SUITES = ("tests/va/test_apply_fault.py",)
 
 #: Added in --pva mode: the model runner's seam, which serves a composite on
-#: both transports.
-PVA_SUITES = ("tests/va/test_lume_pva_seam.py",)
+#: both transports, its timed passes over an evolving composite, and the
+#: entrypoint serving the injection chain.
+PVA_SUITES = (
+    "tests/va/test_lume_pva_seam.py",
+    "tests/va/test_timed_passes_live.py",
+    "tests/va/test_injection_live.py",
+)
 
 #: Modules that must import in --pva mode. This is a precondition, not a
 #: preference, and it is checked *before* pytest runs.
 #:
-#: tests/va/test_lume_pva_seam.py skips at module level when pcaspy, p4p or
-#: lume_pva_apg is missing, so on a host lacking any of them the whole module
-#: skips. Asserting the imports before pytest runs turns that skip into
+#: Each of PVA_SUITES skips at module level when pcaspy, p4p or lume_pva_apg
+#: is missing, so on a host lacking any of them the whole module skips. Asserting the imports before pytest runs turns that skip into
 #: a failure here, with the missing module named, rather than leaving it to the
 #: skip check after the run.
 PVA_REQUIRED_MODULES = ("pcaspy", "p4p", "lume_pva_apg")

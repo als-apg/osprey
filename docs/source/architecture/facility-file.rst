@@ -48,7 +48,8 @@ from a preset is *bundled*: every copied text file opens with the
 bundled-origin line. The exception is the knowledge indexes, which
 ``osprey knowledge regen-index`` writes. Delete the line to make a file yours.
 The import, in every format, replaces the bundled files and refuses only
-hand-written records of the kinds that format writes. A bundled facility
+hand-written records of the kinds that format writes, and those only while the
+facility holds no imported layer. A bundled facility
 carries data only: records, decks, models, limits, seeds, scenarios, knowledge
 pages, benchmark query sources and the ARIEL vocabulary, and never a skill,
 agent or rule.
@@ -368,11 +369,11 @@ Simulation models
 A facility file's ``models`` are what stands behind the channels when the
 deployment runs against a simulator. Each model record names an ``engine``, a
 ``deck`` and the ``wiring`` that ties channel addresses to elements of the
-deck.
+deck; a model of the ``injection`` engine names no deck.
 
 **Engines are plug-ins.** An engine is a module registered in the
 ``osprey.simulation.engines`` entry-point group under the name a model's
-``engine`` gives. OSPREY ships ``pyat``. The build reaches the engine to read
+``engine`` gives. OSPREY ships ``pyat`` and ``injection``. The build reaches the engine to read
 the deck (where each element sits, each wired channel's operating point, what
 each wiring record is) without building a model, and stops with
 ``engine-missing`` when no installed package registers the name. The contract

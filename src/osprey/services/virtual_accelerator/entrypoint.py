@@ -32,6 +32,10 @@ Environment:
 ``VA_POLL_INTERVAL_S``
     The period of the runner's own passes, in seconds, greater than zero;
     :data:`~osprey_connectors.simulation.DEFAULT_TICK_S` when unset.
+``VA_FAST_INTERVAL_S``
+    The fast period of the runner's timed passes between ticks, in seconds,
+    greater than zero;
+    :data:`~osprey_connectors.simulation.DEFAULT_FAST_TICK_S` when unset.
 ``VA_MODEL_WRITE_TOKEN``
     The secret a model RPC write must present. Unset refuses every model
     write.
@@ -130,18 +134,39 @@ def _resolve_tick_interval() -> float:
     """
     from osprey_connectors.simulation import DEFAULT_TICK_S
 
-    raw = os.environ.get("VA_POLL_INTERVAL_S", "").strip()
+    return _resolve_seconds("VA_POLL_INTERVAL_S", DEFAULT_TICK_S)
+
+
+def _resolve_fast_interval() -> float:
+    """Read ``VA_FAST_INTERVAL_S`` as seconds greater than zero.
+
+    Returns:
+        The stated fast period, or
+        :data:`~osprey_connectors.simulation.DEFAULT_FAST_TICK_S` when the
+        variable is unset or empty.
+
+    Raises:
+        SystemExit: The value is not a number, or is zero or below.
+    """
+    from osprey_connectors.simulation import DEFAULT_FAST_TICK_S
+
+    return _resolve_seconds("VA_FAST_INTERVAL_S", DEFAULT_FAST_TICK_S)
+
+
+def _resolve_seconds(variable: str, default: float) -> float:
+    """Read the environment ``variable`` as seconds greater than zero; ``default`` when unset."""
+    raw = os.environ.get(variable, "").strip()
     if not raw:
-        return DEFAULT_TICK_S
+        return default
     try:
         value = float(raw)
     except ValueError:
         raise SystemExit(
-            f"FATAL: VA_POLL_INTERVAL_S={raw!r} is not a number. Set it to seconds "
-            f"greater than 0, or unset it for {DEFAULT_TICK_S}."
+            f"FATAL: {variable}={raw!r} is not a number. Set it to seconds "
+            f"greater than 0, or unset it for {default}."
         ) from None
     if not value > 0:
-        raise SystemExit(f"FATAL: VA_POLL_INTERVAL_S={raw!r} must be greater than 0.")
+        raise SystemExit(f"FATAL: {variable}={raw!r} must be greater than 0.")
     return value
 
 
@@ -230,6 +255,7 @@ def main() -> None:
 
     instance = _resolve_instance()
     tick_interval_s = _resolve_tick_interval()
+    fast_interval_s = _resolve_fast_interval()
     state_dir = _resolve_state_dir()
     model_write_token = _resolve_model_write_token()
     view = _open_view(view_dir())
@@ -256,7 +282,11 @@ def main() -> None:
 
     from osprey_connectors.simulation.composite import Composite
 
-    composite = Composite(view, state_dir=state_dir, instance=instance, log_dir=LOG_DIR)
+    # The served machine evolves: the runner's timed passes advance it between
+    # ticks at the fast period.
+    composite = Composite(
+        view, state_dir=state_dir, instance=instance, log_dir=LOG_DIR, evolve=True
+    )
 
     # The runner module reaches the Channel Access server extension at import.
     # Constructing the runner creates the servers and starts serving.
@@ -267,6 +297,7 @@ def main() -> None:
         view,
         model_write_token=model_write_token,
         tick_interval_s=tick_interval_s,
+        fast_interval_s=fast_interval_s,
         instance=instance,
         health_file=HEALTH_FILE,
     )

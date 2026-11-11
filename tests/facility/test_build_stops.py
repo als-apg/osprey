@@ -704,6 +704,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a `simulation.tick_s` at or below zero",
     ),
     (
+        "profile_invalid__simulation_fast_tick_s",
+        "profile-invalid",
+        "a `simulation.fast_tick_s` at or below zero",
+    ),
+    (
         "profile_invalid__default_scenarios_not_a_list",
         "profile-invalid",
         "a `simulation.default_scenarios` that is not a list",
@@ -2507,6 +2512,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "number of seconds greater than 0"
         ),
     ),
+    "profile_invalid__simulation_fast_tick_s": (
+        _plain(),
+        (
+            "facility: profile-invalid: path simulation.fast_tick_s — simulation.fast_tick_s "
+            "must be a number of seconds greater than 0 (got 0); fix: set "
+            "`simulation.fast_tick_s` to a number of seconds greater than 0"
+        ),
+    ),
     "profile_invalid__default_scenarios_not_a_list": (
         _plain(),
         (
@@ -2662,6 +2675,13 @@ def _set_tick_zero(repo: Path) -> None:
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
+def _set_fast_tick_zero(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data.setdefault("config", {})["simulation.fast_tick_s"] = 0
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
 def _state_limits_database(key: str) -> Callable[[Path], None]:
     def edit(repo: Path) -> None:
         profile = repo / "profile.yml"
@@ -2798,6 +2818,7 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "profile_invalid__render_served_models": _render_serves_models,
     "profile_invalid__tier": _spell_tier,
     "profile_invalid__simulation_tick_s": _set_tick_zero,
+    "profile_invalid__simulation_fast_tick_s": _set_fast_tick_zero,
     "profile_invalid__default_scenarios_not_a_list": _start_in("rf-thermal"),
     "profile_invalid__default_scenarios_entry_not_a_string": _start_in([1]),
     "profile_invalid__default_scenarios_entry_empty": _start_in([""]),
