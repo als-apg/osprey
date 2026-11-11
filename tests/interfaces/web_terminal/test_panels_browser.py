@@ -669,7 +669,7 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
         assert r.status_code == 200
 
         # Assert — the artifacts dock tab is gone and its overlay iframe hidden.
-        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
+        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=10_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
 
         # Assert — the terminal is the sole remaining group and fills the dock.
@@ -733,14 +733,16 @@ def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser)
             json={"panel": "data-viz", "visible": False},
         )
         assert r.status_code == 200
-        expect(data_viz_tab).to_have_count(0, timeout=5_000)  # removed, not dimmed
+        # A full POST → broadcast → SSE handler round trip: the 10 s budget this
+        # file gives every such echo under suite load (see the rail-menu close test).
+        expect(data_viz_tab).to_have_count(0, timeout=10_000)  # removed, not dimmed
 
         r = requests.post(
             f"{base_url}/api/panel-visibility",
             json={"panel": "data-viz", "visible": True},
         )
         assert r.status_code == 200
-        expect(data_viz_tab).to_be_visible(timeout=5_000)
+        expect(data_viz_tab).to_be_visible(timeout=10_000)
 
         page.close()
 
@@ -1305,7 +1307,7 @@ def test_agent_hide_of_active_panel_posts_no_focus(tmp_path, chromium_browser):
         assert r.status_code == 200
 
         # The active panel retires and the server-order fallback (artifacts) takes over.
-        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=10_000)
         expect(page.locator('#right-panel[data-active-panel="artifacts"]')).to_have_count(
             1, timeout=5_000
         )
@@ -1743,7 +1745,7 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
             json={"panel": "data-viz", "visible": False},
         )
         assert r.status_code == 200
-        expect(data_viz_rail).to_have_count(0, timeout=5_000)
+        expect(data_viz_rail).to_have_count(0, timeout=10_000)
 
         # Open the "+" menu; the removed panel is offered as an add target.
         page.locator("#panel-add-btn").click()
