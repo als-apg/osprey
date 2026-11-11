@@ -1,9 +1,11 @@
-"""The facts document's ``kinds`` namespace: what each listed kind's facts writer wrote.
+"""A kind's own facts: what its facts writer wrote, in each model's kind block.
 
-A registered kind may write facts of its own from its sub-block; they land in
-``facts["kinds"][<kind>]``, apart from the per-model kind block. The namespace
-is absent from a document no kind wrote into, is no key of the zero-source
-facts, and a reader of the document takes its absence for ``{}``.
+A registered kind may write facts of its own from a model's sub-block; they
+land beside the block in ``measurement_models[<model>].kinds[<kind>].facts``,
+so everything about a kind on a model is in that model's kind block. Two
+models may give one kind different blocks, and each carries what its own block
+writes. The facts document has no namespace of the kinds' facts apart from the
+models.
 """
 
 from __future__ import annotations
@@ -14,9 +16,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import render_facility_outputs
-from osprey.facility.views.facts import FACTS_FILE, FACTS_KEYS, read_facts, zero_source_facts
+from osprey.facility.views.facts import FACTS_FILE, FACTS_KEYS, zero_source_facts
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
@@ -67,37 +68,32 @@ def _facts(render: Path) -> dict[str, Any]:
     return loaded
 
 
-def test_no_kind_writing_facts_leaves_the_document_without_the_namespace(tmp_path):
+def test_no_kind_writing_facts_leaves_every_kind_block_without_facts(tmp_path):
     facts = _facts(_render(tmp_path, measured_tree()))
 
     assert "kinds" not in facts
     assert "kinds" not in FACTS_KEYS
     assert "kinds" not in zero_source_facts({"code": "x", "name": "x", "description": None})
+    for record in facts["measurement_models"].values():
+        assert all("facts" not in entry for entry in record["kinds"].values())
 
 
 @pytest.mark.usefixtures("registry_kind")
-def test_a_kinds_facts_writer_writes_its_own_namespace(tmp_path):
+def test_a_kinds_facts_writer_writes_into_the_models_kind_block(tmp_path):
     from osprey.apps import sdk
 
     render = _render(tmp_path, _tree())
 
     expected = {"chain": ["arm"], "trigger_sample": 12, "settings": ["gain"]}
-    assert _facts(render)["kinds"] == {REGISTRY_KIND: expected}
-    assert sdk.read_facts(render)["kinds"][REGISTRY_KIND] == expected
-    assert "kinds" not in _facts(render)["measurement_models"]["SR"]["kinds"][REGISTRY_KIND]
-
-
-def test_a_document_without_the_namespace_is_still_read_as_facts(tmp_path):
-    render = _render(tmp_path, measured_tree())
-
-    facts = read_facts(render, "demo")
-
-    assert facts["measurement_models"]
-    assert facts.get("kinds", {}) == {}
+    entry = _facts(render)["measurement_models"]["SR"]["kinds"][REGISTRY_KIND]
+    assert entry["facts"] == expected
+    assert entry["block"] == BLOCK
+    assert sdk.read_facts(render)["measurement_models"]["SR"]["kinds"][REGISTRY_KIND] == entry
+    assert "kinds" not in _facts(render)
 
 
 @pytest.mark.usefixtures("registry_kind")
-def test_two_models_writing_one_kinds_facts_two_ways_stop_the_build(tmp_path):
+def test_two_models_giving_one_kind_two_blocks_each_carry_their_own_facts(tmp_path):
     tree = _tree()
     tree["measurement/LINE.yaml"] |= {
         "kinds": ["orm", REGISTRY_KIND],
@@ -105,14 +101,8 @@ def test_two_models_writing_one_kinds_facts_two_ways_stop_the_build(tmp_path):
         "kind_blocks": {REGISTRY_KIND: {**BLOCK, "trigger_sample": 3}},
     }
 
-    with pytest.raises(FacilityBuildError) as stopped:
-        built_document(tmp_path / "tree", tree)
+    models = _facts(_render(tmp_path, tree))["measurement_models"]
 
-    assert stopped.value.format_message() == (
-        f"facility: value-invalid: measurement SR — kind {REGISTRY_KIND}'s facts are one per "
-        "deployment; models LINE and SR give it blocks it writes two ways; fix: give "
-        f"`kind_blocks.{REGISTRY_KIND}` of SR what LINE gives it"
-    )
-
-    tree["measurement/LINE.yaml"]["kind_blocks"][REGISTRY_KIND] = dict(BLOCK)
-    built_document(tmp_path / "same", tree)
+    assert models["SR"]["kinds"][REGISTRY_KIND]["facts"]["trigger_sample"] == 12
+    assert models["LINE"]["kinds"][REGISTRY_KIND]["facts"]["trigger_sample"] == 3
+    assert "facts" not in models["LINE"]["kinds"]["orm"]
