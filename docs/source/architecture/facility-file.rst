@@ -356,10 +356,12 @@ The graph view writes the facility file back in NARAD's terms.
    :file: ../_diagrams/facility-vocabulary.html
 
 A facility adds device classes in ``classes.yaml``, each under a vocabulary
-class or one it added earlier; they reach the facts view and the graph with their aliases. Signal
-roles are closed: a channel's ``signal`` is one the vocabulary lists. The
-build pairs setpoints with readbacks by the quantity their signals name, so a
-quantity the vocabulary lacks pairs only through an explicit ``pair``.
+class or one it added earlier; they reach the facts view and the graph with their aliases. A
+channel's ``signal`` is a role the vocabulary lists or one the facility adds in
+``signals.yaml``. The build pairs setpoints with readbacks by the quantity their signals name, so a
+quantity the vocabulary lacks pairs only through an explicit ``pair``. The
+roles a measurement kind and an engine use are in
+:doc:`/reference/contracts/facility-kinds`.
 
 .. _architecture-simulation-models:
 

@@ -102,9 +102,9 @@ is refused without asking.
      - Description
    * - ``kind``
      - *(required)*
-     - A kind the deployment registers: the built-ins ``orm``, ``dispersion``, ``trm``, ``crm`` and ``chromaticity_monitor``, or one an installed package declares.
-       A kind the model's measurement file does not list is refused, naming
-       the group or instrument the model lacks, or the kinds the file lists.
+     - A kind the model's rendered measurement block lists
+       (:doc:`facility-kinds`). Any other kind is refused, naming the group or
+       instrument the model lacks, or the kinds the file lists.
    * - ``model``
      - the one model
      - The model measured; may be omitted only when exactly one model has a
