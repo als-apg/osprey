@@ -103,6 +103,8 @@ What ``osprey init`` writes
                      your own words
      watchdogs/      one directory per watchdog the profile declares
      mcp_servers/    the MCP server packages the preset ships
+     .osprey/        what the presets produced, so --revalidate can tell their
+                     changes from yours; commit it, never edit it
      ci-extra.yml    the facility's own CI jobs; never regenerated
      .gitignore      keeps build/, var/, the .env files and apps/*/panel/vendor/
                      out of version control
