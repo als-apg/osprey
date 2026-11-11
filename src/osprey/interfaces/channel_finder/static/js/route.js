@@ -14,6 +14,16 @@
 /** The repeatable All PVs filters a route carries beside `q`, in hash order. */
 export const FACET_KEYS = /** @type {const} */ (['origin', 'ioc', 'record_type']);
 
+/**
+ * The family a view belongs to: the pv and ioc routes are pages of All PVs;
+ * any other view is its own.
+ * @param {string} view
+ * @returns {string}
+ */
+export function familyOf(view) {
+  return view === 'pv' || view === 'ioc' ? 'allpvs' : view;
+}
+
 /** @typedef {typeof FACET_KEYS[number]} FacetKey */
 
 /**

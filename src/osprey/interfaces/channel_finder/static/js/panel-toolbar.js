@@ -27,7 +27,7 @@
 import { icon } from '/design-system/js/icons.js';
 import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
 import { writeTitle } from '/design-system/js/tooltip.js';
-import { allPvsHash, formatRoute } from './route.js';
+import { allPvsHash, familyOf, formatRoute } from './route.js';
 import { state } from './state.js';
 
 /** @typedef {import('/design-system/js/panel-sidebar.js').PanelSidebarApi} PanelSidebarApi */
@@ -50,17 +50,12 @@ const REASONS = Object.freeze({
   search: ['Search applies to', 'No search for this view'],
 });
 
-/** The view whose button is pressed for a route: a PV or IOC page is part of All PVs. */
-const PRESSED_VIEW = Object.freeze(
-  /** @type {Record<string, string>} */ ({ pv: 'allpvs', ioc: 'allpvs' })
-);
-
 /** Whether a view holds the search field. */
 let searchClaimed = false;
 
 /** Whether the search field is the toolbar's own: unclaimed, on a page of All PVs. */
 function searchRedirects() {
-  return !searchClaimed && PRESSED_VIEW[state.activeView] === 'allpvs';
+  return !searchClaimed && familyOf(state.activeView) === 'allpvs';
 }
 /** Whether a drawn sidebar drives the toggle. */
 let sidebarAttached = false;
@@ -92,7 +87,7 @@ function reason(kind) {
 
 /** Bring every control in line with the view and with what is claimed. @returns {void} */
 function refresh() {
-  const pressed = PRESSED_VIEW[state.activeView] ?? state.activeView;
+  const pressed = familyOf(state.activeView);
   for (const btn of byId(TOOLBAR_IDS.views)?.querySelectorAll('button[data-view]') ?? []) {
     btn.setAttribute('aria-pressed', String(btn.getAttribute('data-view') === pressed));
   }
