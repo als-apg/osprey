@@ -14,7 +14,7 @@ seeded into every web-terminal user's session; per-user additions live in
   are synthesized: fine for browsing and demos, but say so if a user asks
   whether readings are real.
 
-## Tiers and apps
+## Logins
 
 Each user's terminal runs the render of that user's tier, with its own
 capability set. The control-room tiers monitor, diagnose, and author and
@@ -22,7 +22,7 @@ validate plans (orbit response matrix, n-dimensional grid scan); only the
 read-write tier can execute writes — setpoint changes and plan runs. Operator
 tiers can also ask about the machine's structure — which devices exist,
 where they sit, what each exposes — answered from the facility knowledge
-graph when the deployment configures one. A shared card can also host an
-app, a different product entirely, such as the logbook research assistant,
+graph when the deployment configures one. A shared card can also host a
+narrow login, a different product entirely, such as the logbook research assistant,
 which carries no control-system tools at all. Capabilities are
 enforced per project — what you can do is defined by the session you are in.

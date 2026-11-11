@@ -122,7 +122,7 @@ class LoadedProfile:
 
 
 def layer_file_label(path: Path) -> str:
-    """How a refusal names a tier or app file: ``<layer dir>/<file name>``."""
+    """How a refusal names a login file: ``<layer dir>/<file name>``."""
     return f"{path.parent.name}/{path.name}"
 
 
@@ -193,8 +193,8 @@ def load_profile_document(path: Path) -> LoadedProfile:
 
 # Minimum OSPREY release that understands the current profile schema — the one
 # whose ``config:`` block is the deployment's whole declarative statement, whose
-# ``data:`` tree is required, and whose roster speaks tiers and apps
-# (``tiers/``, ``apps/``, ``users[].tier``, ``default_tier``, ``shared:``). A
+# ``data:`` tree is required, and whose roster speaks the login vocabulary
+# (``tiers/``, ``users[].tier``, ``default_tier``, ``shared:``). A
 # release older than this reads a repo spelled that way only in part, so it
 # must refuse it with the version message instead. Emitted profiles stamp
 # ``requires_osprey_version`` from this constant (as ``>=<value>``) rather than
@@ -209,7 +209,7 @@ _PROFILE_SCHEMA_MIN_OSPREY = "2026.10.0"
 #: default tier, the role target and the render catalog) are refused rather than rewritten to their ``tier``
 #: successors at parse time. The rewrite is a two-release migration window
 #: (owner ruling 2026-11-02, moved from 2026.11.0 so the first stable release
-#: after the tiers/apps vocabulary still reads the old spellings): the release
+#: after the login vocabulary still reads the old spellings): the release
 #: that carries the vocabulary (:data:`_PROFILE_SCHEMA_MIN_OSPREY`) and the
 #: minor release after it read them, and the second minor release after it
 #: does not. A test asserts the running release sits below this value, so the

@@ -25,7 +25,7 @@ Two readings of the same provenance live here, and they differ in severity:
   ``UNRESOLVABLE`` so a start verb refuses rather than guessing. ``--as-built``
   is the documented escape from both refusals — ``build/`` is self-contained,
   so starting it as rendered stays a valid, knowing choice. A render stamped by
-  a release older than the tiers/apps vocabulary is refused the same way,
+  a release older than the login vocabulary is refused the same way,
   ahead of the fingerprint, because an old-spelled profile hashes identically
   to its rewrite and the hash alone would call that render clean.
 
@@ -505,7 +505,7 @@ def _version_skew(stamped: Any) -> VersionSkew | None:
 
 
 def predates_vocabulary(stamped: Any) -> TypeGuard[str]:
-    """Whether a render stamped *stamped* was made before the tiers/apps vocabulary.
+    """Whether a render stamped *stamped* was made before the login vocabulary.
 
     The vocabulary release is the profile-schema floor
     (:data:`~osprey.cli.build_profile_load._PROFILE_SCHEMA_MIN_OSPREY`). The
@@ -542,8 +542,8 @@ def predates_vocabulary(stamped: Any) -> TypeGuard[str]:
 
 
 def pre_vocabulary_message(stamped: str) -> str:
-    """The refusal sentence for a render that predates the tiers/apps vocabulary."""
-    return f"rendered by osprey {stamped} before tiers/apps; run osprey build"
+    """The refusal sentence for a render that predates the login vocabulary."""
+    return f"rendered by osprey {stamped} before the login vocabulary; run osprey build"
 
 
 def check_drift(repo_root: Path) -> DriftReport:
@@ -612,7 +612,7 @@ def check_drift(repo_root: Path) -> DriftReport:
     stamped_version = creation.get("osprey_version")
     if predates_vocabulary(stamped_version):
         # Judged before the fingerprint on purpose: a profile spelled the
-        # retired way hashes identically to its tiers/apps rewrite, so the hash
+        # retired way hashes identically to its login-vocabulary rewrite, so the hash
         # would read CLEAN over a render whose config still says the old words.
         return report(
             DriftState.UNRESOLVABLE,

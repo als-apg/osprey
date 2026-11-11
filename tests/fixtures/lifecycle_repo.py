@@ -176,7 +176,7 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   preset content hash: @PRESET_HASH:demo@
 
 name: Als Exemplar
-# Names the compose project, volumes, images, tier and app renders; not the folder.
+# Names the compose project, volumes, images, login renders; not the folder.
 project_name: als-exemplar
 
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit

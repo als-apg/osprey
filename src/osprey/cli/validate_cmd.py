@@ -39,7 +39,7 @@ def profile_file_at(target: Path) -> Path:
 
     Both spellings are accepted because both are things an operator has on
     hand: a directory (the repo root, or any directory holding a
-    ``profile.yml``) and an explicit path to a profile file (how tiers and apps
+    ``profile.yml``) and an explicit path to a profile file (how logins
     are named, since each is a file beside its siblings, not a directory).
 
     Raises:
@@ -57,7 +57,7 @@ def profile_file_at(target: Path) -> Path:
 
 
 def _reject_unknown_layer_keys(profile_file: Path) -> None:
-    """Refuse a tier or app file spelling a key not legal in its kind.
+    """Refuse a login file spelling a key not legal in its kind.
 
     Checked on the file's own document, before it is merged over the root
     profile, so a deployment key in a tier is named against the tier's key set
@@ -93,7 +93,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
 
     Args:
         profile_file: An existing profile file — a repo's ``profile.yml`` or a
-            tier or app file.
+            login file.
         drift: ``error`` refuses a profile that differs STRUCTURALLY from its
             preset in a place no marker comment claims — a key, block or list
             member one document has and the other has not; ``warn`` prints
@@ -127,7 +127,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     variant = VariantSelection(name=None, path=None)
     try:
         # Only a deployment has a host variant, and it overlays the deployment's
-        # profile.yml: a tier or app named directly is judged over the root its
+        # profile.yml: a login file named directly is judged over the root its
         # render merges over, so the setting is read off that root, never off
         # the `tiers/` or `apps/` directory.
         root_dir, kind = resolve_profile_root(profile_file)
@@ -182,7 +182,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         *system_timezone_errors(build_profile.config),
     ]
     # The CANOPY home screen, as `osprey build` judges it: a repo's profile
-    # together with every tier and app file the build renders, a file named
+    # together with every login file the build renders, a file named
     # directly on its own, against the library under the profile's data root.
     try:
         if profile_file.name == PROFILE_FILENAME:
@@ -216,7 +216,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         note(f"⚠ {warning}")
 
     # A materialized profile against the preset it was written from, and each
-    # tier and app file against the bundled tier or app its own provenance
+    # login file against the bundled login its own provenance
     # names. Only a document `osprey init` stamped has a source to be compared
     # with; a hand-written one has nothing to drift from — the lint reports
     # nothing for it, so it runs whether or not the root carries a stamp.
@@ -309,7 +309,7 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
     Every problem found is reported, not just the first.
 
     A profile `osprey init` wrote is also compared with the preset it came from,
-    and each tier and app file with the bundled tier or app its provenance
+    and each login file with the bundled login its provenance
     names. A key, block or list member one of them has and the
     other has not is refused unless a marker comment (`# DEVIATION: <why>`, tag
     set by provenance.deviation_marker) claims it; --drift=warn reports those

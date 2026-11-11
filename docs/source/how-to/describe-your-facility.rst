@@ -583,7 +583,7 @@ Build
 ``osprey build`` runs the checks of ``osprey facility validate`` but the
 response check, stops at the first that fails, and then writes
 ``build/facility.json`` and the views into the deployment's render and each
-tier, app and image render.
+login and image render.
 
 .. seealso::
 

@@ -10,6 +10,9 @@ the second scan in :mod:`tests.facility.test_word_ratchet` matches it.
 ``SITE_EXAMPLE_WORD`` is the example deployment name that named a site, which no
 core text carries; the third scan in :mod:`tests.facility.test_word_ratchet`
 matches it.
+``RETIRED_TWO_KIND_PHRASE`` is the phrase that named two login kinds, which no
+core text carries; the fourth scan in :mod:`tests.facility.test_word_ratchet`
+matches it.
 
 ``HARDCODED_VOCABULARY_TOKENS`` hold the facility-vocabulary rule: facility
 terminology has exactly one source of truth. For the graph paradigm that source
@@ -68,6 +71,16 @@ ENGINE_WORDS = r"\bKickAngle\b|\bPolynom[AB]\b|[\"']axis[\"']"
 #: impersonation) are not matches. A string for ``git grep -P``, as
 #: ``ENGINE_WORDS``; its own source line carries the scan's line marker.
 RETIRED_ROSTER_WORD = r"(?<![A-Za-z])[Pp]ersonas?(?![a-z])|(?<=[a-z0-9])Personas?(?![a-z])|(?<![A-Za-z])PERSONAS?(?![A-Za-z])"  # retired-spelling
+
+#: The phrase that named two login kinds: a tier and an app, in any case, joined
+#: by ``or``, ``and`` or a slash, or opening a comma list. There is one kind, the
+#: login. The words ``tier`` and ``app`` on their own stay product words; only
+#: the pair is retired. A string for ``git grep -P``, as ``ENGINE_WORDS``.
+RETIRED_TWO_KIND_PHRASE = (
+    r"(?i)\btiers?,?\s+(?:or|and|/)\s+(?:an?\s+)?apps?\b"
+    r"|\btiers?/apps?\b"
+    r"|\btiers?,\s+(?:an?\s+)?apps?\s+and\b"
+)
 
 #: The example deployment name that named a site; examples use ``my-assistant``.
 SITE_EXAMPLE_WORD = r"\bals-assistant\b"

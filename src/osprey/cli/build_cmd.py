@@ -1351,7 +1351,7 @@ def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str
 class _SharedRenderInputs(NamedTuple):
     """What every project one ``osprey build`` renders has in common.
 
-    A repo with tier and app files renders several projects — the deployment's own and one
+    A repo with login files renders several projects — the deployment's own and one
     per delta — and the whole point of a render is that it differs from its host
     in the profile and in NOTHING ELSE. Everything that is a property of the
     build rather than of the profile therefore lives here and is passed to each
@@ -1673,7 +1673,7 @@ def _pin_rendered_container_runtime(
     the build writes that answer (:attr:`_SharedRenderInputs.container_runtime`);
     a render outside a build asks nothing and writes nothing. An explicit
     ``docker``/``podman`` is the operator's answer and is left as written; a
-    tier or app cannot state one (:func:`~osprey.cli.build_profile_merge._refuse_layer_spellings`),
+    login cannot state one (:func:`~osprey.cli.build_profile_merge._refuse_layer_spellings`),
     so every render of one build states the same runtime. A host where no
     runtime answers keeps ``auto``: there is nothing to pin to, such a host
     cannot start anything, and a build there is still a valid thing to do.
@@ -2340,9 +2340,9 @@ def _render_project(
         # health_url_key_errors refuses any other value at validation, so the
         # overwrite never silently replaces a different value. The render
         # projection `modules.web_terminals.renders` is DERIVED from this repo's
-        # tier and app files (validation refuses a profile spelling of it). The
+        # login files (validation refuses a profile spelling of it). The
         # deployment projects it when it stands up web terminals or runs its
-        # dispatch workers at a tier; a tier's or app's render stands up neither,
+        # dispatch workers at a tier; a login's render stands up neither,
         # so no render projects renders-of-a-render. The `facility` entry is
         # OVERRIDE-CHECKED: `osprey.facility.settings` derives each key the
         # profile leaves unstated and refuses a stated one the facility
@@ -3878,7 +3878,7 @@ def _build_repo(
         # reporting the same half-written block a second time. The zone is
         # judged here, profile-side, because the render bakes it into the
         # agent's rules and every container's `TZ`. The CANOPY home screen is
-        # judged for the profile and every tier and app file the build renders.
+        # judged for the profile and every login file the build renders.
         web_errors = [
             *web_errors,
             *limits_block_errors(build_profile.config),
@@ -4191,7 +4191,7 @@ def _build_repo(
             if injected:
                 phase.step(f"services injected: {', '.join(injected)}")
 
-            # Tiers and apps BEFORE the compose files: the services render reads
+            # Logins BEFORE the compose files: the services render reads
             # their rendered config.yml files for its per-render grants (the
             # bluesky_web sidecar's roster secrets), and the start verbs are
             # as-built — a grant this pass misses reaches no container.
@@ -4218,12 +4218,12 @@ def _build_repo(
                     output.note(
                         f"⚠ {artifact} reaches no render: no claude_code.hooks declaration "
                         f"wires it. Declare it under claude_code.hooks.<event> in profile.yml, "
-                        f"or in the tier or app that should run it."
+                        f"or in the login that should run it."
                     )
                     continue
                 output.note(
                     f"⚠ {artifact} reaches no render: no list names it. Add it to the "
-                    f"{field}: list of profile.yml, or of the tier or app that should "
+                    f"{field}: list of profile.yml, or of the login that should "
                     f"carry it, or run `osprey init --revalidate`."
                 )
 

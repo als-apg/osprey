@@ -116,10 +116,10 @@ RETIRED_DEFAULT_TIER_KEY = "default_persona"
 #: The retired render catalog under ``modules.web_terminals``.
 RETIRED_CATALOG_KEY = "personas"
 
-#: Catalog fields the build derives from the tier or app file's location.
+#: Catalog fields the build derives from the login file's location.
 _DERIVED_CATALOG_KNOBS = frozenset({"build_profile", "project", "project_path"})
 
-#: Per-render keys a tier or app file may spell and a root profile never does:
+#: Per-render keys a login file may spell and a root profile never does:
 #: what the card running that render mounts, seeds from, and runs as. They are
 #: also the retired catalog's fields that moved to the top of those files. Read
 #: from the file by the render projection
@@ -886,7 +886,7 @@ def governed_policy_tools(raw: dict[str, Any]) -> frozenset[str]:
     """The bare tool names whose ``approval.tools`` policy *raw* may no longer state.
 
     The framework's governed tools plus the ones this same document's servers
-    declare (:func:`_declared_governed_tools`). A tier or app declares no
+    declare (:func:`_declared_governed_tools`). A login declares no
     servers, so the framework set is what applies there.
     """
     return _framework_governed_tools() | _declared_governed_tools(raw)

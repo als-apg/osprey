@@ -2495,7 +2495,7 @@ def _build_referenced_renders(
 
     A worker running at a tier runs ``<p>-<tier>:local`` in local mode, and
     nothing in ``compose up`` builds that tag: so ``osprey up`` builds the whole
-    reference set (the roster's tiers and apps, plus the dispatch tier) in one
+    reference set (the roster's logins, plus the dispatch tier) in one
     step beside the project image, after checking each has a render. The web
     stack's own pass later finds those tags built
     (:func:`~osprey.deployment.web_terminals.render_images.render_build_session`).
