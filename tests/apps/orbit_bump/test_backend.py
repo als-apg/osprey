@@ -1969,6 +1969,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
         seen.append({"config": config, "target": control_target, "order": list(order)})
         return SimpleNamespace()
 
+    monkeypatch.setattr(backend, "_ca_target", None)  # a fresh process: no Channel Access yet
     monkeypatch.setattr(backend, "register_builtin_connectors", lambda: order.append("register"))
     monkeypatch.setattr(
         backend.ConnectorFactory, "create_control_system_connector", staticmethod(create)
@@ -2013,6 +2014,47 @@ def test_in_a_container_bring_up_drops_gateways_and_keeps_only_the_name_server_p
     epics = sorted(name for name in os.environ if name.startswith("EPICS_"))
     assert epics == ["EPICS_CA_AUTO_ADDR_LIST", "EPICS_CA_NAME_SERVERS"]
     assert os.environ["EPICS_CA_NAME_SERVERS"] == "ioc:5064"
+
+
+def test_in_a_container_a_target_other_than_the_baseline_keeps_its_gateways(
+    monkeypatch, captured
+) -> None:
+    """The container's name server is the baseline's: ``live`` beside a stand-in keeps its route."""
+    for name in [n for n in os.environ if n.startswith("EPICS_")]:
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "live-standin:19090")
+    monkeypatch.setenv("EPICS_CA_AUTO_ADDR_LIST", "NO")
+    section = {
+        "type": "live_standin",
+        "connector": {
+            "live_standin": {"gateways": {"read_only": {"address": "localhost", "port": 19090}}},
+            **EPICS_SECTION["connector"],
+        },
+    }
+    monkeypatch.setattr(backend, "_section", lambda: json.loads(json.dumps(section)))
+
+    asyncio.run(backend.build_connector("live"))
+    monkeypatch.setattr(backend, "_ca_target", None)  # the baseline, in another process
+    asyncio.run(backend.build_connector("standin"))
+
+    live, standin = captured
+    assert live["config"]["connector"]["epics"] == EPICS_SECTION["connector"]["epics"]
+    assert "gateways" not in standin["config"]["connector"]["live_standin"]
+
+
+def test_a_second_channel_access_target_in_one_process_is_refused(monkeypatch, captured) -> None:
+    """One context per process: building it for a second machine would move the first."""
+    section = {
+        "type": "live_standin",
+        "connector": {"live_standin": {}, **EPICS_SECTION["connector"]},
+    }
+    monkeypatch.setattr(backend, "_section", lambda: json.loads(json.dumps(section)))
+
+    asyncio.run(backend.build_connector("standin"))
+    with pytest.raises(ValueError, match="serves standin.*to serve live"):
+        asyncio.run(backend.build_connector("live"))
+
+    assert [call["target"] for call in captured] == ["standin"]
 
 
 def test_the_backend_imports_nothing_from_the_runtime() -> None:

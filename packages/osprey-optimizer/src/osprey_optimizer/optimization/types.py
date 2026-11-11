@@ -17,20 +17,13 @@ from osprey_optimizer.models.types import BestPoint
 
 
 @dataclass
-class OptimizationMetadata:
-    """Metadata describing an optimization run."""
-
-    config: OptimizationConfig
-    job_id: str | None = None
-
-
-@dataclass
 class OptimizationResult:
     """Structured result returned by the optimization engine."""
 
     data: pl.DataFrame
     best_point: BestPoint
-    metadata: OptimizationMetadata
+    config: OptimizationConfig
+    job_id: str | None = None
     initial_point: dict[str, float] | None = None
     model: Any | None = None
     model_variables: list[str] | None = None

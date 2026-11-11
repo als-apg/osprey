@@ -31,7 +31,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     JOURNAL_REJECTED_EVENT,
     simulation_state_dir,
 )
-from osprey_connectors.simulation import OVERLAP_EVENT
+from osprey_connectors.simulation.state import OVERLAP_EVENT
 from tests._facility_file import demo_facility_document
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._simulator_view import (

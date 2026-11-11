@@ -82,7 +82,10 @@ on the difference:
   answer in time. It names the channel under ``channel_address`` and is no
   ``ConnectionError``: the connector keeps serving every other channel, and
   nothing is restarted. The controls tools report it as error type
-  ``channel_unreachable``, naming the channel under ``details.channel``.
+  ``channel_unreachable``, naming the channel under ``details.channel``. The
+  error also states whether the active target's gateway answered when the
+  channel failed, under ``details.target_reachability``: ``state`` is
+  ``reached``, ``down``, or ``unmeasured`` when no gateway could be probed.
 - ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
   context, its service or its connector-host child. It is a
   ``ConnectionError``. Its supervisor replaces the connector once per
@@ -698,11 +701,6 @@ applied independently to each channel's own samples:
   grid of its own is the documented exception -- the Archiver Appliance's
   operators are epoch-anchored, and the window merely clips them.
 
-The shared helpers in ``osprey_connectors.archiver`` (``to_utc``,
-``require_datetime``, ``resolve_processing``, ``long_frame``, ``decimate_raw``,
-``aggregate_series``, ``reject_non_numeric``) implement all of the above --
-every in-tree connector builds on them rather than reimplementing binning.
-
 **The dtype rule for** ``value``\ **.** Enum/status channels carry string
 values, and ``get_data`` never coerces them: a channel's own dtype flows
 through, and only mixing non-numeric with numeric channels in one query promotes
@@ -714,4 +712,4 @@ string.)
 
 Query windows must be normalized to UTC before touching the wire: a naive
 ``start_date``/``end_date`` is facility-local and must be converted -- not
-relabeled -- to your backend's UTC wire format; ``to_utc()`` does this.
+relabeled -- to your backend's UTC wire format.

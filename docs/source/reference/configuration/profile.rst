@@ -109,9 +109,9 @@ Profile YAML reference
    * - ``default_panel``
      - string
      - ``None``
-     - Panel id the web terminal opens on. Must be a built-in, an entry in
-       ``web_panels``, or a custom panel backed by a ``web.panels.<id>.url``
-       setting. Renders ``web.default_panel``.
+     - Panel id the web terminal opens on. Must be an entry in
+       ``web_panels``, a panel every render serves, or the panel of an
+       application the login shows. Renders ``web.default_panel``.
    * - ``panel_presets``
      - mapping
      - ``{}``
@@ -167,8 +167,8 @@ Profile YAML reference
      - mapping
      - absent
      - Where the project is built, pushed and run: ``ci``, ``host``,
-       ``registry``, ``image_source``, ``ci_image_prefix`` and
-       ``external_projects``. ``osprey scaffold ci`` renders the CI files from
+       ``registry``, ``image_source`` and ``external_projects``.
+       ``osprey scaffold ci`` renders the CI files from
        it. When the profile configures web terminals, the build also writes
        its image source, and its registry URL when ``config:`` names none, into
        the rendered config the web-terminal stack reads (see
@@ -501,7 +501,8 @@ Three rules follow from the catalog being the one home for these facts:
   claims it. Entries you added are not compared. The comparison is with the
   catalog this OSPREY release ships, not with the hash under ``provenance:``.
   ``osprey init --revalidate`` keeps every value in the file and adds the
-  entries and keys OSPREY ships that it lacks.
+  entries and keys OSPREY ships that it lacks, except one such a comment
+  names as absent (``# DEVIATION: providers.openrouter: …``).
 
 .. _profile-posture-floor:
 

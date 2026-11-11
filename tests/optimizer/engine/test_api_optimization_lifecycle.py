@@ -298,7 +298,6 @@ def test_start_launches_when_created(seam_redis_mock: MagicMock) -> None:
 
     assert resp.status is JobStatus.RUNNING
     assert resp.job_id == "job-1"
-    assert launch.call_args.kwargs["job_type"] is JobType.OPTIMIZATION
     # The worker runs the config the start gates passed, never a re-read of the draft.
     assert launch.call_args.kwargs["spawn_args"][1] == _config().model_dump()
     # ... and starts only while the stored draft is still the JSON the start read.
@@ -466,7 +465,7 @@ def test_update_config_writes_only_while_the_draft_is_created(
     redis.flushdb()
     job_id = "edited"
     status_key = f"job:{job_id}:state:status"
-    tracker.register_created_job(job_id, job_type=JobType.OPTIMIZATION)
+    tracker.register_created_job(job_id)
     get_optimization_writer(job_id).set_status(JobStatus.CREATED)
     original = _config().model_dump_json()
     redis.set(config_key(job_id), original, ex=5)

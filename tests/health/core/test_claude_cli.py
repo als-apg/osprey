@@ -1,6 +1,6 @@
 """Tests for the core ``claude_cli`` and ``claude_cli_pinned`` categories.
 
-Branch coverage patches the module's ``_run_version_command`` helper; a few
+Branch coverage patches the module's ``_run_command`` helper; a few
 tests patch ``asyncio.create_subprocess_exec`` directly to exercise the real
 subprocess helper (success, timeout-kill, missing executable).
 """
@@ -18,14 +18,14 @@ from tests.health._fakes import FakeProc
 
 
 def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
-    """Patch ``_run_version_command`` to return canned output or raise."""
+    """Patch ``_run_command`` to return canned output or raise."""
 
     async def _fake(_argv, _timeout_s):
         if raises is not None:
             raise raises
         return (returncode, stdout, stderr)
 
-    monkeypatch.setattr(mod, "_run_version_command", _fake)
+    monkeypatch.setattr(mod, "_run_command", _fake)
 
 
 # --------------------------------------------------------------------------- #
@@ -183,7 +183,7 @@ class TestClaudeCliPinned:
 
 
 # --------------------------------------------------------------------------- #
-# _run_version_command against a fake asyncio subprocess
+# _run_command against a fake asyncio subprocess
 # --------------------------------------------------------------------------- #
 
 
@@ -195,7 +195,7 @@ class TestRunVersionCommand:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
-        rc, out, err = await mod._run_version_command(["claude", "--version"], 5.0)
+        rc, out, err = await mod._run_command(["claude", "--version"], 5.0)
         assert rc == 0
         assert out == "1.2.3\n"
         assert err == ""
@@ -208,7 +208,7 @@ class TestRunVersionCommand:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
         with pytest.raises((TimeoutError, asyncio.TimeoutError)):
-            await mod._run_version_command(["claude", "--version"], 0.01)
+            await mod._run_command(["claude", "--version"], 0.01)
         assert proc.killed is True
 
     async def test_missing_executable_propagates(self, monkeypatch):
@@ -217,4 +217,4 @@ class TestRunVersionCommand:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
         with pytest.raises(FileNotFoundError):
-            await mod._run_version_command(["nope"], 5.0)
+            await mod._run_command(["nope"], 5.0)

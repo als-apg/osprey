@@ -176,7 +176,7 @@ def _correctors(model: Any, correctors: object) -> dict[str, Any]:
     wired = {
         binding.address: binding
         for binding in model.bindings
-        if binding.role == "setpoint" and binding.plane in _PLANES
+        if binding.engine_role == "setpoint" and binding.plane in _PLANES
     }
     if correctors is None:
         chosen = [

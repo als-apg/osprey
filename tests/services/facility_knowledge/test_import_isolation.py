@@ -5,7 +5,7 @@ rdflib is a core dependency, but inside the facility-knowledge package only
 the offline TTL seeder imports it — as does the graph-mode channel snapshot
 (:mod:`osprey.deployment.channel_snapshot`) — and both do so lazily, keeping it
 out of the runtime read path;
-neo4j belongs exclusively to the graph seeder (:mod:`.seeder.graph_seeder`) and
+neo4j belongs exclusively to the graph store (:mod:`osprey.services.graph_store`) and
 the graph MCP server (:mod:`osprey.mcp_server.graph`), both of which import it
 lazily inside the functions that dial the store. Importing any of those modules
 — or constructing the graph MCP server — must never pull in either driver, even
@@ -154,7 +154,7 @@ def _run_neo4j_isolation_check(import_stmt: str) -> tuple[bool, str]:
     """Run *import_stmt* in a subprocess and check that neo4j is not in sys.modules.
 
     Mirrors :func:`_run_isolation_check` for the neo4j driver, which
-    :mod:`osprey.services.facility_knowledge.seeder.graph_seeder` imports lazily
+    :mod:`osprey.services.graph_store.seeder` imports lazily
     inside ``open_session`` rather than at module top.
 
     Args:
@@ -336,14 +336,13 @@ class TestRdflibImportIsolation:
         )
 
     def test_services_facility_knowledge_does_not_export_graph_seeder(self):
-        """The services.facility_knowledge __init__ must not re-export graph_seeder.
+        """The services.facility_knowledge __init__ must not re-export the graph seeder.
 
-        ``graph_seeder`` (added in task 2.1) is only importable from
-        ``osprey.services.facility_knowledge.seeder`` (or ``.seeder.graph_seeder``
-        directly) — never from the parent ``facility_knowledge`` package. Presence
-        of any of its public symbols on ``fk``, or of the ``graph_seeder`` module
-        itself in ``sys.modules``, would indicate the neo4j-driven seeder (and its
-        lazy neo4j import path) was exposed on the main read path.
+        The graph seeder lives in :mod:`osprey.services.graph_store` and is never
+        reachable from the ``facility_knowledge`` package. Presence of any of its
+        public symbols on ``fk``, or of the ``graph_store`` seeder module itself in
+        ``sys.modules``, would indicate the neo4j-driven seeder (and its lazy neo4j
+        import path) was exposed on the main read path.
         """
         code = (
             "import osprey.services.facility_knowledge as fk\n"
@@ -354,7 +353,7 @@ class TestRdflibImportIsolation:
             "'open_session must not appear in facility_knowledge namespace'\n"
             "assert not hasattr(fk, 'import_ttl'), "
             "'import_ttl must not appear in facility_knowledge namespace'\n"
-            "assert 'osprey.services.facility_knowledge.seeder.graph_seeder' not in sys.modules, "
+            "assert 'osprey.services.graph_store.seeder' not in sys.modules, "
             "'graph_seeder module must not be imported via facility_knowledge'\n"
             "print('OK')\n"
         )
@@ -372,7 +371,7 @@ class TestRdflibImportIsolation:
 class TestNeo4jImportIsolation:
     """neo4j must not appear in sys.modules after importing the runtime read path.
 
-    ``graph_seeder.open_session`` imports the neo4j driver lazily (see task 2.1),
+    ``graph_store.seeder.open_session`` imports the neo4j driver lazily,
     mirroring how ``ttl_seeder`` treats rdflib. This mirrors
     ``TestRdflibImportIsolation`` above to pin that contract.
     """
@@ -386,6 +385,11 @@ class TestNeo4jImportIsolation:
         """Importing osprey.services.facility_knowledge must not pull in neo4j."""
         ok, stderr = _run_neo4j_isolation_check("import osprey.services.facility_knowledge")
         assert ok, f"neo4j leaked after importing services.facility_knowledge:\n{stderr}"
+
+    def test_services_graph_store_does_not_import_neo4j(self):
+        """Importing osprey.services.graph_store must not pull in neo4j."""
+        ok, stderr = _run_neo4j_isolation_check("import osprey.services.graph_store")
+        assert ok, f"neo4j leaked after importing services.graph_store:\n{stderr}"
 
 
 class TestIsolationDetectorsFire:
@@ -655,20 +659,8 @@ DRIVER_API_FLOOR_FILES = tuple(
     sorted(
         [*(REPO_ROOT / "src" / "osprey" / "mcp_server" / "graph").rglob("*.py")]
         + [
-            REPO_ROOT
-            / "src"
-            / "osprey"
-            / "services"
-            / "facility_knowledge"
-            / "seeder"
-            / "graph_seeder.py",
-            REPO_ROOT
-            / "src"
-            / "osprey"
-            / "services"
-            / "facility_knowledge"
-            / "seeder"
-            / "prompt_snapshot.py",
+            REPO_ROOT / "src" / "osprey" / "services" / "graph_store" / "seeder.py",
+            REPO_ROOT / "src" / "osprey" / "services" / "graph_store" / "prompt_snapshot.py",
             REPO_ROOT / "src" / "osprey" / "health" / "core" / "graphdb.py",
         ]
     )
@@ -711,7 +703,7 @@ class TestDriverApiFloor:
         """Anti-vacuity: the scan must actually have files to walk."""
         assert DRIVER_API_FLOOR_FILES, "driver-API floor found no files to scan"
         names = {path.name for path in DRIVER_API_FLOOR_FILES}
-        assert {"server_context.py", "graph_seeder.py", "graphdb.py"} <= names, sorted(names)
+        assert {"server_context.py", "seeder.py", "graphdb.py"} <= names, sorted(names)
 
     @pytest.mark.parametrize(
         "path", DRIVER_API_FLOOR_FILES, ids=lambda p: str(p.relative_to(REPO_ROOT))
@@ -747,7 +739,7 @@ class TestDriverApiFloor:
     def test_checker_ignores_prose_mentions(self):
         """A docstring or comment naming a forbidden API is not a violation.
 
-        ``graph_seeder.py`` documents the floor in its module docstring; a
+        ``graph_store/seeder.py`` documents the floor in its module docstring; a
         textual grep would flag it, an AST walk must not.
         """
         source = (

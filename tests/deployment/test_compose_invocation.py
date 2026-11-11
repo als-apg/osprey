@@ -571,45 +571,6 @@ def test_up_emits_the_podman_shape_on_every_invocation_it_makes(
     assert any("up" in run["cmd"] for run in runs), runs
 
 
-def test_the_legacy_down_verb_emits_the_podman_shape(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """``deploy_down`` is the last thing its process does, so it propagates the
-    child's own exit status rather than returning — the argv and its env are
-    asserted from the recorded run."""
-    repo = _started_repo(tmp_path)
-    runs = _podman_host(monkeypatch)
-
-    with pytest.raises(SystemExit) as exit_info:
-        container_lifecycle.deploy_down(str(container_lifecycle.as_built_config_path(repo)))
-
-    assert exit_info.value.code == 0
-    assert runs, "deploy_down never reached a compose invocation"
-    _assert_podman_shaped(runs[-1], repo)
-    assert runs[-1]["cmd"][-1] == "down"
-
-
-def test_the_legacy_restart_verb_emits_the_podman_shape(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    repo = _started_repo(tmp_path)
-    runs = _podman_host(monkeypatch)
-    config = yaml.safe_load(
-        container_lifecycle.as_built_config_path(repo).read_text(encoding="utf-8")
-    )
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (config, [f"{BUILD_DIR_NAME}/services/docker-compose.yml"]),
-    )
-
-    container_lifecycle.deploy_restart(str(container_lifecycle.as_built_config_path(repo)))
-
-    assert runs, "deploy_restart never reached a compose invocation"
-    _assert_podman_shaped(runs[-1], repo)
-    assert runs[-1]["cmd"][-1] == "restart"
-
-
 @pytest.mark.parametrize(
     ("deployed_check", "stage_step", "never_ran"),
     [

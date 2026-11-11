@@ -37,17 +37,15 @@ from osprey_connectors.write_authorization import (
     Ledger,
     LedgerStep,
     Revocation,
-    auth_overlap,
-    authorization_verdict,
+    _auth_overlap,
+    _issue_grant,
+    _parse_grant,
+    _parse_ledger,
     authorized_execution_verdict,
-    issue_grant,
     list_grants,
-    parse_grant,
-    parse_ledger,
     renew_lease,
     revoke_grants,
     self_issue,
-    spend_step,
     start_lease,
 )
 from osprey_connectors_tests._harness import (
@@ -91,6 +89,11 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv(session_hold.HOLD_DIR_ENV_VAR, raising=False)
     write_control_context(data, switch={})
     return data
+
+
+def spend(section: Any, target: str, operations: Any, *, authorization: str) -> Any:
+    """One write call judged and its step spent, with no switch verdict read first."""
+    return wa._spend(section, target, operations, authorization, None, None)
 
 
 def record() -> control_context.ControlContext:
@@ -145,13 +148,13 @@ def make_grant(**fields: Any) -> Grant:
 def approve(**fields: Any) -> Grant:
     """Issue a grant into this login's directory and start this process's lease."""
     grant = make_grant(**fields)
-    issue_grant(grant)
+    _issue_grant(grant)
     start_lease(grant.id)
     return grant
 
 
 def verdict(grant_id: str, operations: Any = OPS, section: Any = SECTION) -> Any:
-    return authorization_verdict(section, TARGET, operations, authorization=grant_id)
+    return wa._verdict(section, TARGET, operations, grant_id, None, None)
 
 
 def ledger_path(grant_id: str) -> Path:
@@ -161,7 +164,7 @@ def ledger_path(grant_id: str) -> Path:
 
 
 def ledger(grant_id: str) -> Ledger:
-    return parse_ledger(ledger_path(grant_id).read_text())
+    return _parse_ledger(ledger_path(grant_id).read_text())
 
 
 def grant_path(grant_id: str) -> Path:
@@ -230,8 +233,8 @@ def _stage(row: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str:
         payload = Ledger(
             authorization=grant.id,
             holder_pid=os.getpid(),
-            holder_start=wa.process_start_time(os.getpid()),
-            pid_ns=wa.pid_namespace(),
+            holder_start=wa._process_start_time(os.getpid()),
+            pid_ns=wa._pid_namespace(),
             lease_until_ns=FAR_FUTURE_NS,
         ).to_payload()
         overrides = dict(row.get("ledger", {}))
@@ -279,13 +282,13 @@ def test_spending_answers_as_the_verdict_does(row: dict[str, Any], monkeypatch):
     grant_id = _stage(row, monkeypatch)
     before = ledger_path(grant_id).read_bytes() if ledger_path(grant_id).exists() else None
 
-    answer = spend_step(SECTION, TARGET, _operations(row), authorization=grant_id)
+    answer = spend(SECTION, TARGET, _operations(row), authorization=grant_id)
 
     assert (answer.allowed, answer.reason) == (row["expect"]["allowed"], row["expect"]["reason"])
     after = ledger_path(grant_id).read_bytes() if ledger_path(grant_id).exists() else None
     if answer.allowed:
         assert before is not None and after is not None
-        assert len(parse_ledger(after).steps) == len(parse_ledger(before).steps) + 1
+        assert len(_parse_ledger(after).steps) == len(_parse_ledger(before).steps) + 1
     elif not row["id"].startswith("self-issued"):
         assert after == before
 
@@ -296,7 +299,7 @@ def test_spending_answers_as_the_verdict_does(row: dict[str, Any], monkeypatch):
 class TestFormats:
     def test_a_grant_round_trips(self):
         grant = make_grant(revoked=Revocation(at_ns=5, by="bob"))
-        assert parse_grant(json.dumps(grant.to_payload())) == grant
+        assert _parse_grant(json.dumps(grant.to_payload())) == grant
 
     def test_a_ledger_round_trips(self):
         entry = Ledger(
@@ -307,7 +310,7 @@ class TestFormats:
             lease_until_ns=9,
             steps=(LedgerStep(n=1, at_ns=3, channels=("A:SP", "B:SP")),),
         )
-        assert parse_ledger(json.dumps(entry.to_payload())) == entry
+        assert _parse_ledger(json.dumps(entry.to_payload())) == entry
 
     @pytest.mark.parametrize(
         "change",
@@ -353,14 +356,14 @@ class TestFormats:
         payload = make_grant().to_payload()
         payload.update(change)
         with pytest.raises(ValueError):
-            parse_grant(json.dumps(payload))
+            _parse_grant(json.dumps(payload))
 
     @pytest.mark.parametrize("missing", sorted(wa._GRANT_KEYS))
     def test_a_grant_missing_any_field_is_refused(self, missing: str):
         payload = make_grant().to_payload()
         del payload[missing]
         with pytest.raises(ValueError):
-            parse_grant(payload)
+            _parse_grant(payload)
 
     @pytest.mark.parametrize(
         "text",
@@ -374,14 +377,14 @@ class TestFormats:
     )
     def test_a_grant_that_is_not_one_object_is_refused(self, text: str):
         with pytest.raises(ValueError):
-            parse_grant(text)
+            _parse_grant(text)
 
     @pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
     def test_a_non_finite_bound_is_refused(self, constant: str):
         text = json.dumps(make_grant().to_payload()).replace('"max": 10.0', f'"max": {constant}')
         assert constant in text
         with pytest.raises(ValueError):
-            parse_grant(text)
+            _parse_grant(text)
 
     @pytest.mark.parametrize(
         ("change", "refused"),
@@ -404,13 +407,13 @@ class TestFormats:
             lease_s=wa._MAX_LEASE_S,
         )
         grant = replace(at_ceilings, **change)
-        assert parse_grant(json.dumps(grant.to_payload())) == grant
+        assert _parse_grant(json.dumps(grant.to_payload())) == grant
         if refused:
             with pytest.raises(ValueError, match="ceiling|more than"):
-                issue_grant(grant)
+                _issue_grant(grant)
             assert not grant_path(grant.id).exists()
         else:
-            issue_grant(grant)
+            _issue_grant(grant)
             assert grant_path(grant.id).exists()
 
     @pytest.mark.parametrize(
@@ -445,7 +448,7 @@ class TestFormats:
         ).to_payload()
         payload.update(change)
         with pytest.raises(ValueError):
-            parse_ledger(json.dumps(payload))
+            _parse_ledger(json.dumps(payload))
 
     def test_a_channel_range_holds_finite_reals_only(self):
         bound = ChannelRange(0.0, 1.0)
@@ -559,8 +562,8 @@ class TestFailClosedReads:
         _relocate(ledger_path(grant.id), elsewhere)
         ledger_path(grant.id).symlink_to(elsewhere)
         assert verdict(grant.id).reason == "auth_unreadable"
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
-        assert len(parse_ledger(elsewhere.read_text()).steps) == 0
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
+        assert len(_parse_ledger(elsewhere.read_text()).steps) == 0
 
     def test_a_ledger_naming_another_authorization(self):
         grant = approve()
@@ -573,19 +576,19 @@ class TestFailClosedReads:
         grant = approve()
         monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(tmp_path / "nowhere"))
         assert verdict(grant.id).reason == "auth_unreadable"
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
 
     def test_a_ledger_directory_that_is_a_file(self, tmp_path: Path, monkeypatch):
         grant = approve()
         planted = tmp_path / "file"
         planted.write_text("")
         monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(planted))
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
 
     @pytest.mark.parametrize("named", ["", "x", "A" * 32, "../" + "a" * 29, "a" * 33, None, 7])
     def test_an_id_that_names_no_file(self, named: Any):
         assert verdict(named).reason == "auth_unreadable"  # type: ignore[arg-type]
-        answer = spend_step(SECTION, TARGET, OPS, authorization=named)  # type: ignore[arg-type]
+        answer = spend(SECTION, TARGET, OPS, authorization=named)  # type: ignore[arg-type]
         assert answer.reason == "auth_unreadable"
 
     def test_an_approval_planted_in_the_holders_own_directory(self, tmp_path: Path, monkeypatch):
@@ -594,7 +597,7 @@ class TestFailClosedReads:
         ledgers.mkdir()
         monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(ledgers))
         grant = make_grant()
-        issue_grant(grant, directory=ledgers)
+        _issue_grant(grant, directory=ledgers)
         with pytest.raises(AuthorizationRefused) as refused:
             start_lease(grant.id)
         assert refused.value.reason == "auth_unreadable"
@@ -608,14 +611,14 @@ class TestFailClosedReads:
 
         monkeypatch.setattr(wa, "_judge", boom)
         assert verdict(grant.id).reason == "auth_unreadable"
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
 
     def test_a_ledger_lock_that_is_a_link_refuses(self, tmp_path: Path):
         grant = approve()
         lock = ledger_path(grant.id).with_name(ledger_path(grant.id).name + ".lock")
         lock.unlink(missing_ok=True)
         lock.symlink_to(tmp_path / "elsewhere")
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
         assert ledger(grant.id).steps == ()
 
 
@@ -698,29 +701,29 @@ class TestComposition:
 class TestSteps:
     def test_a_batch_is_one_step(self):
         grant = approve()
-        assert spend_step(SECTION, TARGET, [("A:SP", 1.0), ("B:SP", 0.0)], authorization=grant.id)
+        assert spend(SECTION, TARGET, [("A:SP", 1.0), ("B:SP", 0.0)], authorization=grant.id)
         (entry,) = ledger(grant.id).steps
         assert (entry.n, entry.channels) == (1, ("A:SP", "B:SP"))
 
     def test_the_budget_ends_the_run_and_nothing_renews_it(self):
         grant = approve(steps=2)
-        answers = [spend_step(SECTION, TARGET, OPS, authorization=grant.id) for _ in range(4)]
+        answers = [spend(SECTION, TARGET, OPS, authorization=grant.id) for _ in range(4)]
         assert [a.allowed for a in answers] == [True, True, False, False]
         assert answers[-1].reason == "auth_exhausted"
         assert [entry.n for entry in ledger(grant.id).steps] == [1, 2]
         assert renew_lease(grant.id)
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_exhausted"
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_exhausted"
 
     def test_a_one_shot_batch_is_judged_and_recorded_whole(self):
         grant = approve()
         batch = iter([("A:SP", 1.0), ("B:SP", 0.0)])
-        assert spend_step(SECTION, TARGET, batch, authorization=grant.id).allowed
+        assert spend(SECTION, TARGET, batch, authorization=grant.id).allowed
         assert ledger(grant.id).steps[0].channels == ("A:SP", "B:SP")
 
     def test_a_refused_write_spends_nothing(self):
         grant = approve()
         before = ledger_path(grant.id).read_bytes()
-        assert spend_step(SECTION, TARGET, [("A:SP", 99.0)], authorization=grant.id).reason == (
+        assert spend(SECTION, TARGET, [("A:SP", 99.0)], authorization=grant.id).reason == (
             "auth_range"
         )
         assert ledger_path(grant.id).read_bytes() == before
@@ -739,7 +742,7 @@ class TestSteps:
             raise OSError(28, "No space left on device")
 
         monkeypatch.setattr(wa, "atomic_replace", disk_full)
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
         assert ledger_path(grant.id).read_bytes() == before
 
     def test_a_ledger_held_locked_refuses_rather_than_waits_forever(self, monkeypatch):
@@ -753,7 +756,7 @@ class TestSteps:
             fcntl.flock(fd, fcntl.LOCK_EX)
             # flock is per open file description, so this process's own second
             # open contends with it like another process would.
-            answer = spend_step(SECTION, TARGET, OPS, authorization=grant.id)
+            answer = spend(SECTION, TARGET, OPS, authorization=grant.id)
         finally:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
@@ -772,7 +775,7 @@ SPENDER = textwrap.dedent(
         time.sleep(0.001)
     spent = 0
     for _ in range(tries):
-        answer = wa.spend_step(section, "va", [("A:SP", 1.0), ("B:SP", 0.5)], authorization=grant_id)
+        answer = wa._spend(section, "va", [("A:SP", 1.0), ("B:SP", 0.5)], grant_id, None, None)
         if answer.allowed:
             spent += 1
         elif answer.reason != "auth_exhausted":
@@ -813,9 +816,7 @@ class TestConcurrentAppenders:
         grant = approve(steps=10)
         with ThreadPoolExecutor(max_workers=8) as pool:
             answers = list(
-                pool.map(
-                    lambda _: spend_step(SECTION, TARGET, OPS, authorization=grant.id), range(24)
-                )
+                pool.map(lambda _: spend(SECTION, TARGET, OPS, authorization=grant.id), range(24))
             )
         assert sum(answer.allowed for answer in answers) == 10
         assert {a.reason for a in answers if not a.allowed} == {"auth_exhausted"}
@@ -830,8 +831,8 @@ class TestLease:
         grant = approve()
         entry = ledger(grant.id)
         assert entry.holder_pid == os.getpid()
-        assert entry.pid_ns == wa.pid_namespace()
-        assert entry.holder_start == wa.process_start_time(os.getpid())
+        assert entry.pid_ns == wa._pid_namespace()
+        assert entry.holder_start == wa._process_start_time(os.getpid())
         assert entry.steps == ()
 
     def test_a_lease_is_started_once(self):
@@ -850,7 +851,7 @@ class TestLease:
     )
     def test_a_lease_is_not_started_on_a_grant_out_of_force(self, fields, reason):
         grant = make_grant(**fields)
-        issue_grant(grant)
+        _issue_grant(grant)
         with pytest.raises(AuthorizationRefused) as refused:
             start_lease(grant.id)
         assert refused.value.reason == reason
@@ -894,7 +895,7 @@ class TestLease:
 
     def test_a_missing_ledger_is_not_renewed(self):
         grant = make_grant()
-        issue_grant(grant)
+        _issue_grant(grant)
         assert not renew_lease(grant.id)
         assert not ledger_path(grant.id).exists()
 
@@ -916,7 +917,7 @@ class TestHolderProcess:
     def test_a_dead_holder_lapses_the_lease_before_its_time(self, sig: signal.Signals):
         """Same PID namespace: the kernel's answer ends the lease, not the clock."""
         grant = make_grant(lease_s=600.0)
-        issue_grant(grant)
+        _issue_grant(grant)
         process = subprocess.Popen(
             [sys.executable, "-c", HOLDER, grant.id],
             stdout=subprocess.PIPE,
@@ -944,7 +945,7 @@ class TestHolderLiveness:
             "authorization": "a" * 32,
             "holder_pid": os.getpid(),
             "holder_start": "100",
-            "pid_ns": wa.pid_namespace(),
+            "pid_ns": wa._pid_namespace(),
             "lease_until_ns": FAR_FUTURE_NS,
         }
         values.update(fields)
@@ -985,7 +986,7 @@ class TestHolderLiveness:
         rest = " ".join(str(n) for n in range(4, 22))
         stat_file.write_text(f"123 (odd) name)) S {rest} 777 0 0\n")
         monkeypatch.setattr(wa, "_PROC_STAT", str(stat_file))
-        assert wa.process_start_time(123) == "777"
+        assert wa._process_start_time(123) == "777"
 
 
 class TestPidNamespaces:
@@ -1005,7 +1006,7 @@ class TestPidNamespaces:
     )
     def test_the_comparison(self, monkeypatch, reader, holder, live):
         """The Linux and macOS answers, with both forged, on either platform."""
-        monkeypatch.setattr(wa, "pid_namespace", lambda: reader)
+        monkeypatch.setattr(wa, "_pid_namespace", lambda: reader)
         entry = Ledger(
             authorization="a" * 32,
             holder_pid=ABSENT_PID,
@@ -1030,14 +1031,14 @@ class TestPidNamespaces:
             return "pid:[42]"
 
         monkeypatch.setattr(os, "readlink", link)
-        assert wa.pid_namespace() == "pid:[42]"
+        assert wa._pid_namespace() == "pid:[42]"
 
     def test_no_link_is_no_namespace(self, monkeypatch):
         def no_link(path: str) -> str:
             raise FileNotFoundError(path)
 
         monkeypatch.setattr(os, "readlink", no_link)
-        assert wa.pid_namespace() is None
+        assert wa._pid_namespace() is None
 
 
 # -- stops --------------------------------------------------------------------
@@ -1049,7 +1050,7 @@ class TestStops:
         control_context.set_switch("all", "off")
         control_context.invalidate_cache()
         assert verdict(grant.id).reason == "auth_revoked"
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_revoked"
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_revoked"
         assert not renew_lease(grant.id)
 
     def test_a_named_off_keeps_the_epoch_and_the_revocation_ends_it(self):
@@ -1072,8 +1073,8 @@ class TestStops:
         assert verdict(on_va.id).allowed
         assert revoke_grants(by="bob") == (on_va.id,)
         assert revoke_grants(by="carol") == ()
-        assert parse_grant(grant_path(on_va.id).read_text()).revoked == Revocation(
-            at_ns=parse_grant(grant_path(on_va.id).read_text()).revoked.at_ns,  # type: ignore[union-attr]
+        assert _parse_grant(grant_path(on_va.id).read_text()).revoked == Revocation(
+            at_ns=_parse_grant(grant_path(on_va.id).read_text()).revoked.at_ns,  # type: ignore[union-attr]
             by="bob",
         )
 
@@ -1118,7 +1119,7 @@ class TestSelfIssue:
         assert grant.approver.surface == "write_switch"
         assert (grant.owner, grant.holder, grant.switch_epoch) == (ME, ME, epoch())
         start_lease(grant.id)
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).allowed
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
         assert verdict(grant.id, [("A:SP", 11.0)]).reason == "auth_range"
 
     @pytest.mark.parametrize(
@@ -1141,7 +1142,7 @@ class TestSelfIssue:
 
     def test_a_stop_during_the_issue_removes_the_grant(self, monkeypatch):
         switch("allowed")
-        real = wa.issue_grant
+        real = wa._issue_grant
 
         def stop_after(grant: Grant, *, directory: Path | None = None, peers: Any = ()) -> Path:
             path = real(grant, directory=directory, peers=peers)
@@ -1149,7 +1150,7 @@ class TestSelfIssue:
             control_context.invalidate_cache()
             return path
 
-        monkeypatch.setattr(wa, "issue_grant", stop_after)
+        monkeypatch.setattr(wa, "_issue_grant", stop_after)
         with pytest.raises(AuthorizationRefused):
             _self_issue()
         assert list_grants(grants_dir()) == ((), ())
@@ -1163,7 +1164,7 @@ class TestSelfIssue:
         switch("allowed")
         grant = _self_issue()
         start_lease(grant.id)
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).allowed
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
         switch(gesture)
         refused = authorized_execution_verdict(
             SECTION, TARGET, OPS, authorization=grant.id, spend=True
@@ -1220,14 +1221,14 @@ class TestOverlap:
     def test_what_overlaps(self, fields: dict[str, Any], overlaps: bool):
         existing = make_grant(**fields)
         candidate = make_grant(channels={"A:SP": ChannelRange(0, 1)})
-        assert (auth_overlap(candidate, [existing]) is existing) is overlaps
+        assert (_auth_overlap(candidate, [existing]) is existing) is overlaps
 
     def test_an_overlapping_approval_writes_nothing(self):
         held = make_grant(holder="optimizer")
-        issue_grant(held)
+        _issue_grant(held)
         candidate = make_grant(holder="bluesky")
         with pytest.raises(AuthorizationRefused) as refused:
-            issue_grant(candidate)
+            _issue_grant(candidate)
         assert refused.value.reason == "auth_overlap"
         assert held.id in (refused.value.detail or "")
         assert not grant_path(candidate.id).exists()
@@ -1283,27 +1284,27 @@ class TestOverlap:
                 }[lease],
             )
             path.write_text(json.dumps(entry.to_payload()))
-        held = auth_overlap(candidate, [existing], now_ns=now, ledger_dirs=dirs)
+        held = _auth_overlap(candidate, [existing], now_ns=now, ledger_dirs=dirs)
         assert (held is existing) is blocks
 
     def test_a_dead_holders_grant_blocks_until_its_lease_time_passes(self):
         """The clock alone decides, even where the holder's PID could be asked."""
         held = make_grant(holder="optimizer")
-        issue_grant(held)
+        _issue_grant(held)
         leased = Ledger(
             authorization=held.id,
             holder_pid=ABSENT_PID,
             holder_start=None,
-            pid_ns=wa.pid_namespace(),
+            pid_ns=wa._pid_namespace(),
             lease_until_ns=time.time_ns() + 60 * 10**9,
         )
         ledger_path(held.id).write_text(json.dumps(leased.to_payload()))
         candidate = make_grant(holder="bluesky")
         with pytest.raises(AuthorizationRefused):
-            issue_grant(candidate)
+            _issue_grant(candidate)
         lapsed = replace(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
         ledger_path(held.id).write_text(json.dumps(lapsed.to_payload()))
-        issue_grant(candidate)
+        _issue_grant(candidate)
         assert grant_path(candidate.id).exists()
 
     def test_a_grant_on_disk_past_a_ceiling_still_blocks(self):
@@ -1313,7 +1314,7 @@ class TestOverlap:
         grant_path(held.id).write_text(json.dumps(held.to_payload()))
         candidate = make_grant(holder="bluesky")
         with pytest.raises(AuthorizationRefused) as refused:
-            issue_grant(candidate)
+            _issue_grant(candidate)
         assert refused.value.reason == "auth_overlap"
         assert held.id in (refused.value.detail or "")
         assert not grant_path(candidate.id).exists()
@@ -1324,7 +1325,7 @@ class TestOverlap:
     ):
         """The run's ledger is in a peer or the view directory, not the grants directory."""
         held = make_grant(holder="optimizer")
-        issue_grant(held)
+        _issue_grant(held)
         assert not ledger_path(held.id).exists()
         elsewhere = tmp_path / "holders-ledgers"
         elsewhere.mkdir()
@@ -1342,7 +1343,7 @@ class TestOverlap:
         def approve_candidate() -> str:
             if where == "peer":
                 candidate = make_grant(holder="bluesky")
-                issue_grant(candidate, peers=[elsewhere])
+                _issue_grant(candidate, peers=[elsewhere])
                 return candidate.id
             request = wa.WriteRequest(
                 id=uuid.uuid4().hex,
@@ -1368,20 +1369,20 @@ class TestOverlap:
 
     def test_an_unreadable_grant_beside_it_is_left_out_not_a_veto(self):
         broken = make_grant(holder="optimizer")
-        issue_grant(broken)
+        _issue_grant(broken)
         grant_path(broken.id).write_text("{")
         candidate = make_grant(holder="bluesky")
-        issue_grant(candidate)
+        _issue_grant(candidate)
         assert grant_path(candidate.id).exists()
 
     def test_an_id_is_issued_once(self):
         grant = approve()
         with pytest.raises(FileExistsError):
-            issue_grant(grant)
+            _issue_grant(grant)
 
     def test_ledgers_and_locks_are_not_grants(self):
         grant = approve()
-        assert spend_step(SECTION, TARGET, OPS, authorization=grant.id).allowed
+        assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
         assert list_grants(grants_dir()) == ((grant,), ())
 
     def test_simultaneous_approvals_have_exactly_one_winner(self, tmp_path: Path):
@@ -1412,11 +1413,11 @@ ISSUER = textwrap.dedent(
     from pathlib import Path
     from osprey_connectors import write_authorization as wa
 
-    grant, directory, go = wa.parse_grant(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+    grant, directory, go = wa._parse_grant(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
     while not go.exists():
         time.sleep(0.001)
     try:
-        wa.issue_grant(grant, directory=directory)
+        wa._issue_grant(grant, directory=directory)
         print("issued", flush=True)
     except wa.AuthorizationRefused as refused:
         print("refused", refused.reason, flush=True)
@@ -1463,7 +1464,7 @@ class TestTree:
             lease_s=60.0,
             approver=Approver(identity="alice", surface="chip", at_ns=now),
         )
-        issue_grant(grant, directory=tree / "alice" / wa.AUTHORIZATIONS_DIR_NAME)
+        _issue_grant(grant, directory=tree / "alice" / wa.AUTHORIZATIONS_DIR_NAME)
         start_lease(grant.id)
         return grant
 
@@ -1502,7 +1503,7 @@ class TestTree:
         monkeypatch.delenv(wa.LEDGER_DIR_ENV_VAR)
         assert wa.ledger_dir() is None
         assert verdict(grant.id, section=self.SECTION).reason == "auth_unreadable"
-        answer = spend_step(self.SECTION, TARGET, OPS, authorization=grant.id)
+        answer = spend(self.SECTION, TARGET, OPS, authorization=grant.id)
         assert answer.reason == "auth_unreadable"
 
     def test_an_unprovisioned_tree_refuses_as_the_switch_does(self, tree: Path):

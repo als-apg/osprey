@@ -22,9 +22,9 @@ from mcp.types import CallToolResult
 from osprey.mcp_server.control_system.server_context import (
     reset_server_context,
 )
-from osprey.mcp_server.errors import extract_error_envelope
 from osprey.mcp_server.workspace.tools.screen_capture_backends import reset_backend
 from osprey.stores.artifact_store import reset_artifact_store
+from osprey_connectors import control_context
 from osprey_connectors.workspace import reset_config_cache
 from tests._config_lookup import reset_config_caches  # noqa: F401 - fixture, used by name
 
@@ -72,6 +72,30 @@ def hook_error_class_map() -> dict[str, str]:
         ):
             return ast.literal_eval(node.value)
     raise AssertionError(f"ERROR_CLASS_MAP not found in {hook}")
+
+
+def extract_error_envelope(result: CallToolResult) -> dict | None:
+    """Pull the structured envelope out of a wire-form error CallToolResult.
+
+    Returns ``None`` when the result is not an error or its content cannot be
+    parsed as the envelope dict. Used by :func:`assert_error` to inspect the
+    structured payload behind ``isError=True``.
+    """
+    if not isinstance(result, CallToolResult):
+        return None
+    if result.isError is not True:
+        return None
+    for block in result.content or []:
+        text = getattr(block, "text", None)
+        if not text:
+            continue
+        try:
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(parsed, dict) and parsed.get("error") is True:
+            return parsed
+    return None
 
 
 def get_tool_fn(tool_or_fn):
@@ -335,10 +359,9 @@ class WebSession:
     def clear(self, transcript: str) -> None:
         """Move the key to *transcript*, as the turn-state hook does on a ``/clear``."""
         from osprey.stores import session_ledger
-        from osprey_connectors import posture_store
 
         assert session_ledger.append(self.state_dir, self.key, transcript)
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         self.transcript = transcript
 
 
@@ -382,9 +405,9 @@ def web_session(tmp_path, monkeypatch) -> WebSession:
     session = WebSession(state_dir)
     assert session_ledger.append(state_dir, session.key, session.transcript, session_ledger.EPOCH)
     monkeypatch.setenv("OSPREY_SESSION_ID", session.key)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield session
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -408,6 +431,6 @@ def cli_session(tmp_path, monkeypatch) -> CliSession:
     monkeypatch.setenv("OSPREY_TERMINAL_SESSION", session.terminal_session)
     monkeypatch.setenv("OSPREY_CLI_LAUNCH", session.launch)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session.transcript)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield session
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()

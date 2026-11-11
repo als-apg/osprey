@@ -300,7 +300,7 @@ def test_variables_carries_its_schema_and_key_sets(built_demo: BuiltProject) -> 
     facility = built_demo.facility
 
     assert set(variables) == {"schema", "code", "models", "channels"}
-    assert variables["schema"] == "osprey.facility.simulator/2"
+    assert variables["schema"] == "osprey.facility.simulator/3"
     assert variables["code"] == facility["identity"]["code"]
     assert [model["name"] for model in variables["models"]] == sorted(
         model["name"] for model in facility["models"]
@@ -367,7 +367,7 @@ def test_the_demo_wiring_is_simulator_wiring_serialised(
     }
 
 
-DESCRIPTION_KEYS = ("role", "plane", "refresh")
+DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
 
 
 def test_every_wiring_entry_carries_the_engines_description(
@@ -386,7 +386,7 @@ def test_every_wiring_entry_carries_the_engines_description(
             key: described[key] for key in DESCRIPTION_KEYS
         }
         assert "kind" not in entry
-        roles.add(entry["role"])
+        roles.add(entry["engine_role"])
     assert roles == {"setpoint", "readback", "monitor", "output"}
     facility_sr = next(m for m in built_demo.facility["models"] if m["name"] == "SR")
     assert {k: facility_sr["wiring"][0][k] for k in DESCRIPTION_KEYS} == {
@@ -820,7 +820,7 @@ def _physics_monitors(root: Path) -> dict[str, list[str]]:
     """Each physics model's float monitor addresses, sorted, in the view at ``root``."""
     view = SimulatorView.open(root / "data" / "simulator")
     monitors: dict[str, list[str]] = {}
-    for binding in view.bindings(role="monitor", served_only=False):
+    for binding in view.bindings(engine_role="monitor", served_only=False):
         if view.channel(binding.address).value_type == "float":
             monitors.setdefault(binding.model, []).append(binding.address)
     return {model: sorted(addresses) for model, addresses in monitors.items()}
@@ -834,7 +834,7 @@ def test_an_authored_all_renders_every_float_channel(
     assert _still_of(scenarios, "hush") == _float_channels(tmp_path / "render")
 
 
-def test_a_still_selection_renders_the_float_addresses_of_its_model_and_role(
+def test_a_still_selection_renders_the_float_addresses_of_its_model_and_engine_role(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     model, monitors = next(iter(_physics_monitors(built_demo.build_dir).items()))
@@ -842,7 +842,7 @@ def test_a_still_selection_renders_the_float_addresses_of_its_model_and_role(
     scenarios = _rendered_scenarios(
         tmp_path,
         built_demo,
-        [{"name": "quiet", "still": [{"model": model, "role": "monitor"}]}],
+        [{"name": "quiet", "still": [{"model": model, "engine_role": "monitor"}]}],
     )
 
     assert _still_of(scenarios, "quiet") == monitors
@@ -885,7 +885,7 @@ def test_a_still_selection_scoped_to_an_unserved_model_still_resolves(
     scenarios = _rendered_scenarios(
         tmp_path,
         built_demo,
-        [{"name": "quiet", "still": [{"model": unserved, "role": "monitor"}]}],
+        [{"name": "quiet", "still": [{"model": unserved, "engine_role": "monitor"}]}],
         {"simulation": {"models": [served]}},
     )
 
@@ -903,7 +903,7 @@ def test_a_still_mixes_addresses_and_selections_sorted_without_repeats(
     scenarios = _rendered_scenarios(
         tmp_path,
         built_demo,
-        [{"name": "quiet", "still": [monitors[-1], {"model": model, "role": "monitor"}]}],
+        [{"name": "quiet", "still": [monitors[-1], {"model": model, "engine_role": "monitor"}]}],
     )
 
     assert _still_of(scenarios, "quiet") == monitors
@@ -935,7 +935,7 @@ def test_a_still_selection_meeting_the_scenarios_own_motion_stops_the_build(
     model, monitors = next(iter(_physics_monitors(built_demo.build_dir).items()))
     scenario = {
         "name": "quiet",
-        "still": [{"model": model, "role": "monitor"}],
+        "still": [{"model": model, "engine_role": "monitor"}],
         slot: {monitors[0]: block},
     }
 

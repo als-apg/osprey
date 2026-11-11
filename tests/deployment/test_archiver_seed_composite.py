@@ -51,6 +51,9 @@ def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 
+#: Samples per pulse trace, as the trace function gives them.
+TRACE_POINTS = len(pulse.trace("TRACE:LENGTH", 0.0, 1.0, True))
+
 #: An anchor on the coarse cadence, so the spike's peak is a grid timestamp.
 ANCHOR = datetime(2026, 3, 14, 9, 26, tzinfo=UTC)
 
@@ -237,7 +240,7 @@ def _pulse_view(root: Path) -> None:
     variables = json.loads((view / "variables.json").read_text())
     for record in variables["channels"]:
         if record["address"] == WAVE:
-            record["shape"] = [pulse.TRACE_POINTS]
+            record["shape"] = [TRACE_POINTS]
     (view / "variables.json").write_text(json.dumps(variables))
     seeds = json.loads((view / "seeds.json").read_text())
     seeds["seeds"][WAVE] = {"pulse": {"driver": DRIVER, "enable": ENABLE}}

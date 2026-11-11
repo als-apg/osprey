@@ -209,7 +209,9 @@ def deployment(va_render: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv(launch_token_env(APP_NAME), TOKEN)
     monkeypatch.chdir(tmp_path)
     reset_config_cache()
-    write_control_context(posture_store.agent_data_root(), "va", 1, switch={"va": "allowed"})
+    write_control_context(
+        posture_store.stamped_agent_data_root(), "va", 1, switch={"va": "allowed"}
+    )
     control_context.invalidate_cache()
     yield section
     reset_config_cache()

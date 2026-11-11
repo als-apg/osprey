@@ -51,6 +51,7 @@ from osprey.deployment.compose_generator import (
     guarded_run_relpath,
     repo_identity,
     repo_relative_mount_source,
+    resolve_base_registry,
     resolve_project_name,
     resolve_repo_root,
     simulated_target_configured,
@@ -62,6 +63,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.qmd_service import is_loopback_bind
+from osprey.deployment.upstream_images import upstream_image
 from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,
@@ -84,6 +86,7 @@ from osprey.deployment.web_terminals.roster import (
     effective_image_source,
     entry_is_shared,
     expand_tier_principals,
+    image_tag_problem,
     is_app_entry,
     resolve_access_principals,
     resolve_cards,
@@ -154,11 +157,6 @@ _SIGN_IN_LABEL = "Log in to your terminal"
 # off-host would defeat the single-origin chokepoint this module exists to
 # provide.
 _LOOPBACK_BIND_HOST = "127.0.0.1"
-
-# Default nginx image when `modules.web_terminals.nginx_image` is unset. Kept
-# byte-identical to docker-compose.web.yml.j2's own `| default(...)` fallback so
-# an absent config value renders the same image from either side.
-_DEFAULT_NGINX_IMAGE = "nginx:1.31-alpine"
 
 #: The TLS seam's listener port when ``modules.web_terminals.tls.port`` is
 #: unset: HTTPS's own default rather than a slot in this deployment's port
@@ -1118,7 +1116,9 @@ def render_web_terminals(
             ``per_container_stdio`` (see :func:`_check_mcp_topology`), or if
             the deployment is in registry mode (``image_source`` unset or
             ``registry``) with no ``registry.url``, catalog or not, because
-            every terminal image is named under it, or if
+            every terminal image is named under it, or if registry mode's
+            ``image_tag`` expands to an empty tag or tag part (see
+            :func:`osprey.deployment.web_terminals.roster.image_tag_problem`), or if
             ``terminal_secrets`` is supplied and a roster user has no non-blank
             secret in it, or a roster name is not usable as one snippet filename
             (both :func:`_terminal_secret_artifacts`), or if
@@ -1141,6 +1141,8 @@ def render_web_terminals(
         registry
     ):
         raise ValueError(REGISTRY_MODE_MISSING_URL)
+    if (problem := image_tag_problem(web_terminals)) is not None:
+        raise ValueError(problem)
 
     resolved_users = resolve_cards(
         web_terminals,
@@ -1599,11 +1601,12 @@ def render_web_terminals(
         # separator the parser splits on is spelled in one place.
         "perimeter_deny_ports": ",".join(str(port) for port in perimeter_deny_ports),
         "bind_host": _LOOPBACK_BIND_HOST,
-        # Read defensively (as everywhere else in this module); the template
-        # carries the same default, so an absent/blank value still renders the
-        # public tag. Facilities whose images all come from a private registry
-        # override this so the nginx image is pullable too.
-        "nginx_image": web_terminals.get("nginx_image") or _DEFAULT_NGINX_IMAGE,
+        # Read defensively (as everywhere else in this module). An absent/blank
+        # value renders the public tag, moved onto the site's Docker Hub mirror
+        # when ``images.base_registry`` declares one; a named image is rendered
+        # as named.
+        "nginx_image": web_terminals.get("nginx_image")
+        or upstream_image("nginx", resolve_base_registry(root)),
         # The auth sidecar's service (image, listen port, session lifetime, the
         # env-var names its OIDC credentials arrive under) is rendered from the
         # same parsed stanza the nginx seam reads, so the two ends of the

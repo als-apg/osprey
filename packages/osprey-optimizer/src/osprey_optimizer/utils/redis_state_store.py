@@ -36,6 +36,12 @@ RUNNING_STATE_TTL_SECONDS = 60
 # (never started) self-reclaims. Comfortably longer than RUNNING_STATE_TTL so a
 # human can create then start without the config expiring underneath them.
 CREATED_STATE_TTL_SECONDS = 600
+# How long a finished job's Redis footprint (tracker metadata + state keys)
+# lingers before self-reclaiming. Long enough for the UI to fetch final
+# status/logs after a run ends, but bounded so completed-run keys don't
+# accumulate forever. Only applied once a job is terminal — never to a running
+# job, whose keys back the single active-slot guard.
+TERMINAL_STATE_TTL_SECONDS = 3600
 
 
 def _truncate_repr(value: Any, limit: int = _TRUNCATE_LIMIT) -> str:

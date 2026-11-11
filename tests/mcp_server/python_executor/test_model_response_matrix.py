@@ -29,6 +29,7 @@ at = pytest.importorskip("at")
 import numpy as np  # noqa: E402
 from fastmcp.exceptions import ToolError  # noqa: E402
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT  # noqa: E402
 from osprey.facility.records import FacilityRecords  # noqa: E402
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
 from osprey.mcp_server.errors import MISSING_KEY  # noqa: E402
@@ -39,6 +40,7 @@ from osprey.mcp_server.python_executor.tools import (  # noqa: E402
 from osprey.simulation import model_request  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.response import RESULT_TAG, solve_and_print  # noqa: E402
+from osprey_connectors.simulation.view import VARIABLES_SCHEMA  # noqa: E402
 from tests._simulator_view import view_channel  # noqa: E402
 from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
 
@@ -119,7 +121,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
             "direction": "read",
             "element": f"BPM_{cell}",
             "engine": {"axis": axis},
-            "role": "monitor",
+            "engine_role": "monitor",
             "plane": axis,
             "refresh": "pass",
         }
@@ -134,7 +136,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
             "element": "COR_1",
             "engine": {"attribute": "KickAngle", "index": 0},
             "default": 0.0,
-            "role": "setpoint",
+            "engine_role": "setpoint",
             "plane": "x",
             "refresh": "pass",
         }
@@ -157,7 +159,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
         },
         "served_models.json": {"schema": "osprey.facility.served_models/1", "models": [LINE]},
         "variables.json": {
-            "schema": "osprey.facility.simulator/2",
+            "schema": VARIABLES_SCHEMA,
             "code": "TEST",
             "models": [
                 {
@@ -194,7 +196,6 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     collects each execution folder handed out, and ``state["seed"]`` maps file
     names to text each new folder receives first.
     """
-    from osprey_connectors import posture_store
     from osprey_connectors.workspace import reset_config_cache
 
     root = tmp_path / "deployment"
@@ -210,7 +211,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root / "var" / "agent_data"))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root / "var" / "agent_data"))
     reset_config_cache()
 
     state: dict[str, Any] = {"render": None, "folders": [], "seed": {}, "timeout": TIMEOUT_S}

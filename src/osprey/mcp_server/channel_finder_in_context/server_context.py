@@ -18,7 +18,6 @@ Usage in tools:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
 
@@ -40,33 +39,28 @@ class ChannelFinderICContext:
     """Singleton registry for in-context channel finder MCP server state.
 
     Responsibilities:
-      1. Load and cache config.yml once at startup
+      1. Load config.yml once at startup
       2. Parse channel_finder.pipelines.in_context config section
       3. Load the flat in_context index the build writes
       4. Provide a cached database instance for all tools
     """
 
     def __init__(self) -> None:
-        self._raw_config: dict[str, Any] = {}
         self._database: BaseDatabase | None = None
         self._facility_name: str = "control system"
         self._subagent_model_id: str = ""
         self._subagent_provider: str = ""
         self._system_prompt_with_db: str = ""
         self._system_prompt_input_tokens: int = 0
-        self._initialized = False
 
     def initialize(self) -> None:
         """Load config and the in_context index.
 
-        Called once during create_server(). Subsequent calls are no-ops.
+        Called once, on a fresh instance, by the module's ``initialize_*`` function.
         """
-        if self._initialized:
-            return
+        raw_config = load_cf_config(logger)
 
-        self._raw_config = load_cf_config(logger)
-
-        cf_config = self._raw_config.get("channel_finder", {})
+        cf_config = raw_config.get("channel_finder", {})
         ic_config = cf_config.get("pipelines", {}).get("in_context", {})
         db_config = ic_config.get("database", {})
         db_path = db_config.get("path")
@@ -89,7 +83,7 @@ class ChannelFinderICContext:
                 "channel finder tools will fail until config is provided"
             )
 
-        identity = facility_identity(config_path().parent, self._raw_config.get("project_name"))
+        identity = facility_identity(config_path().parent, raw_config.get("project_name"))
         if identity is not None:
             self._facility_name = identity["name"]
 
@@ -106,7 +100,7 @@ class ChannelFinderICContext:
         # server agrees with what the rest of the toolchain considers "the
         # configured model" — that's `claude_code.default_model` (a model id),
         # else the provider entry's `default_model`.
-        cc_config = self._raw_config.get("claude_code", {})
+        cc_config = raw_config.get("claude_code", {})
         ic_model = ic_config.get("subagent_model")
         ic_provider = ic_config.get("subagent_provider")
 
@@ -116,7 +110,7 @@ class ChannelFinderICContext:
         else:
             from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
 
-            api_providers = self._raw_config.get("api", {}).get("providers", {})
+            api_providers = raw_config.get("api", {}).get("providers", {})
             # Model-id reader only (consumes default_model_id); a telemetry
             # misconfig must not crash subagent model resolution.
             spec = ClaudeCodeModelResolver.resolve(
@@ -138,7 +132,7 @@ class ChannelFinderICContext:
         # not paced.
         from osprey.models.config import provider_requests_per_minute
 
-        rpm_cap = provider_requests_per_minute(self._raw_config, self._subagent_provider)
+        rpm_cap = provider_requests_per_minute(raw_config, self._subagent_provider)
         if rpm_cap is not None:
             configure_rate_limiter(rpm_cap, window=60.0)
             logger.info(
@@ -190,7 +184,6 @@ class ChannelFinderICContext:
             )
             self._system_prompt_input_tokens = 0
 
-        self._initialized = True
         logger.info(
             "ChannelFinderICContext: initialized (system_prompt_tokens=%d)",
             self._system_prompt_input_tokens,
@@ -238,11 +231,6 @@ class ChannelFinderICContext:
         re-tokenizing the (large) channel-database prompt on every call.
         """
         return self._system_prompt_input_tokens
-
-    @property
-    def raw_config(self) -> dict[str, Any]:
-        """Full raw config dict."""
-        return self._raw_config
 
 
 # ---------------------------------------------------------------------------

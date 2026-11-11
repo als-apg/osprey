@@ -210,8 +210,9 @@ _NON_SOURCE_ROOT_ENTRIES: frozenset[str] = frozenset(
 #: render its honest answer is this machine's — a path no container has, which
 #: leaves every server and every hook in the image unable to start. Its value is
 #: the interpreter of ``templates/project/Dockerfile.j2``'s
-#: ``FROM python:<IMAGE_PYTHON>-slim`` base, which the official python images
-#: install at ``/usr/local/bin/python``; the version is
+#: ``FROM ${OSPREY_BASE_REGISTRY}/library/python:<IMAGE_PYTHON>-slim`` base,
+#: which the official python images install at ``/usr/local/bin/python``; the
+#: version is
 #: :data:`osprey.deployment.image_facts.IMAGE_PYTHON`. The coupling to that base
 #: image is pinned by a test, so a base change cannot silently invalidate this
 #: constant.
@@ -1384,7 +1385,7 @@ class _SharedRenderInputs(NamedTuple):
     hashes the same copies the file it wrote.
 
     Keyed on the digest of the corpus TEXT
-    (:func:`~osprey.services.facility_knowledge.seeder.graph_seeder.ttl_sha256`),
+    (:func:`~osprey.services.graph_store.seeder.ttl_sha256`),
     which is the same number the index's ``meta`` row and the store's seed
     marker carry. A file key would not work: each render pass re-copies the
     profile's ``data/`` tree, so the staged corpus is a different file with a
@@ -1949,7 +1950,7 @@ def _build_graph_index(
     import duckdb
 
     from osprey.services.channel_finder.graph_index import GraphIndexBuildError, build_graph_index
-    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_sha256
 
     def _no_index(error: Exception) -> None:
         from . import output

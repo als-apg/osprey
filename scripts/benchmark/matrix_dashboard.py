@@ -1,16 +1,19 @@
 #!/usr/bin/env python
-"""Render a self-contained HTML dashboard for the e2e model-capability matrix.
+"""Render a self-contained HTML dashboard for the agentic benchmark matrix.
 
 Reads results/<model>__seed<seed>.json (the summary schema emitted by
 run_e2e_for_model.sh) and produces a single static HTML file (inline CSS, no
-external deps) with:
+external deps) grouped by the tier each test's ``agentic`` marker carries
+(tests/e2e/agentic_tiers.py):
 
-  * run metadata + methodology footer (override mechanism, proxy, cap, drops),
-  * a model x seed summary matrix (capability-lane pass rate, harness-lane line, counts, wall-clock)
-    with latency columns (median task time, share spent waiting on the model, tok/s),
-  * a per-test heatmap (one row per model-driving test x model cols; cell = passes across seeds),
-    grouped by test file, so you can see exactly which capabilities each model
-    holds up on weak -> strong.
+  * Tier 1, basic: a model x seed table whose headline is time and tokens per
+    task, with an all-green check, then one row per test;
+  * Tier 2, benchmark: one row per test, its first-attempt result per seed and
+    each model's total;
+  * a methodology footer (override mechanism, proxy, cap, exclusions, judge).
+
+Each test row shows the marker's title and expands to what the test asks and
+what passes; the file name is small grey text under it.
 
 Partial-data friendly: missing (model,seed) runs render as "pending". Usage:
     scripts/benchmark/matrix_dashboard.py --results-dir results --out results/dashboard.html
@@ -43,16 +46,31 @@ MODEL_ORDER = [
     "gpt-oss-120b",
     "google/qwen-3-coder",
     "google/qwen-3",
+    "kolibri-1",
     "deepseek-v4-flash",
     "deepseek-v4-pro",
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
     "claude-haiku-4-5-20251001",
     "claude-sonnet-4-6",
     "claude-opus-4-6",
 ]
 # Anthropic Claude models as a control/ceiling reference, flagged "(ref)".
-# Ordered weak->strong (haiku < sonnet < opus) to bracket the open subjects.
-REFERENCE_MODELS = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"}
+# Ordered weak->strong (haiku < sonnet < opus) to bracket the open subjects;
+# the 4.x ids label earlier runs' results.
+REFERENCE_MODELS = {
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+}
 SEEDS = [1, 2, 3]
+# The skip-reason prefix of a test that does not apply to the model under test
+# (tests/e2e/agentic_tiers.py NOT_APPLICABLE).
+NOT_APPLICABLE = "n/a: "
 OUTCOME_COLORS = {
     "passed": "#1a7f37",
     "failed": "#cf222e",
@@ -158,7 +176,7 @@ def load(results_dir: str) -> dict:
     # completed runs: authoritative summary parsed from junit at end of run
     for f in glob.glob(os.path.join(results_dir, "*__seed*.json")):
         if f.endswith(".lanes.json"):
-            continue  # per-cell lane manifest, not a run summary (load_lanes reads it)
+            continue  # per-cell lane manifest, not a run summary (load_tiers reads it)
         try:
             with open(f) as fh:
                 d = json.load(fh)
@@ -233,92 +251,101 @@ def _provider_from_run_log(run_log_path: str) -> str:
     return ""
 
 
-def load_lanes(results_dir: str) -> dict[tuple, str]:
-    """(file, qualname) -> 'agentic' | 'harness', unioned across every per-cell
-    ``*.lanes.json`` manifest in the results dir.
-
-    Each matrix cell writes a manifest at collection time (tests/e2e/conftest.py,
-    ``OSPREY_E2E_LANES``) mapping pytest nodeids to their benchmark lane, derived
-    live from the ``agentic_benchmark``/``harness_benchmark`` markers — so the
-    markers on the tests are the single source of truth and this map can never
-    drift from the code. Manifests are identical across cells (same checkout);
-    unioning simply tolerates missing/partial files. Empty result = no manifest
-    yet (results predate the lane split) → the dashboard falls back to the
-    blended single-score rendering. The invalid 'both' state maps to 'agentic'
-    here only for display robustness; the runner's lane gate refuses to produce
-    results in that state.
-    """
-    lanes: dict[tuple, str] = {}
+def _manifests(results_dir: str):
+    """Every per-cell ``*.lanes.json`` manifest in the results dir, parsed."""
     for f in glob.glob(os.path.join(results_dir, "*.lanes.json")):
         try:
             with open(f) as fh:
-                manifest = json.load(fh)
+                yield json.load(fh)
         except Exception:
             continue
-        for nodeid, lane in manifest.items():
-            if lane in ("agentic", "both"):
-                lanes[canon_name(nodeid)] = "agentic"
-            elif lane == "harness":
-                lanes[canon_name(nodeid)] = "harness"
-    return lanes
+
+
+def load_tiers(results_dir: str) -> dict[tuple, dict]:
+    """(file, qualname) -> the agentic marker's ``tier``, ``title``, ``asks`` and
+    ``passes_if``, unioned across every per-cell manifest. Manifests written
+    before the tiers carry none, and the result is then empty."""
+    tiers: dict[tuple, dict] = {}
+    for manifest in _manifests(results_dir):
+        for nodeid, entry in manifest.items():
+            if isinstance(entry, dict) and entry.get("lane") == "agentic" and entry.get("tier"):
+                tiers[canon_name(nodeid)] = entry
+    return tiers
 
 
 def load_query_timing(results_dir: str) -> dict[str, list[dict]]:
     """model -> every per-query timing record across its seeds.
 
     Each cell's ``*.queries.jsonl`` (tests/e2e/sdk_helpers.py,
-    ``OSPREY_E2E_QUERY_LOG``) holds one line per agent query: wall time, time
-    spent waiting on the model, turns and tokens. Cells run before the log
+    ``OSPREY_E2E_QUERY_LOG``) holds one line per agent query: the test it ran
+    in, wall time, time spent waiting on the model, turns and tokens. Each
+    record gains ``_seed``, the cell it came from. Cells run before the log
     existed simply contribute nothing."""
     out: dict[str, list[dict]] = defaultdict(list)
     for f in glob.glob(os.path.join(results_dir, "*__seed*.queries.jsonl")):
-        model = os.path.basename(f)[: -len(".queries.jsonl")].rsplit("__seed", 1)[0]
+        model, seed_s = os.path.basename(f)[: -len(".queries.jsonl")].rsplit("__seed", 1)
         model = model.replace("__", "/")
         with open(f) as fh:
             for line in fh:
                 line = line.strip()
                 if line:
                     with contextlib.suppress(Exception):
-                        out[model].append(json.loads(line))
+                        out[model].append({**json.loads(line), "_seed": seed_s})
     return out
 
 
-def latency_stats(
-    model: str, runs: dict, queries: dict[str, list[dict]], lane_map: dict[tuple, str]
-) -> dict:
-    """Latency figures for one model across its seeds.
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    values = sorted(values)
+    mid = len(values) // 2
+    return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
 
-    ``median_task_s`` is the median wall time of the model's capability-lane tests (all
-    tests when there is no lane manifest), skips excluded. ``model_share`` and
-    ``tokens_per_s`` come from the per-query log: the share of query time spent
-    waiting on the model, and output tokens per second of model time. Each is
-    None when its data is missing."""
+
+def _keep_all(_key: tuple) -> bool:
+    return True
+
+
+def latency_stats(model: str, runs: dict, queries: dict[str, list[dict]], keep=_keep_all) -> dict:
+    """Time and token figures for one model across its seeds, over the tests
+    ``keep`` accepts (by canonical name).
+
+    ``median_task_s`` is the median wall time of those tests, skips excluded.
+    ``tokens_per_task`` is the median, over (seed, test), of the output tokens
+    the test's queries spent. ``model_share`` is the share of the queries' span
+    spent waiting on the model (``model_wait_ms`` over ``span_ms``, measured
+    from the session transcripts with concurrent requests counted once; records
+    from before that measurement carry neither and are left out).
+    ``tokens_per_s`` is output tokens per second of summed request time
+    (``duration_api_ms``), the per-request throughput. Each is None when its
+    data is missing; a query record with no test name counts toward every
+    selection."""
     durations = []
     for (m, _s), d in runs.items():
         if m != model:
             continue
         for t in d.get("tests", []):
-            if t.get("outcome") == "skipped":
-                continue
-            if lane_map and lane_map.get(canon_name(t["name"])) != "agentic":
+            if t.get("outcome") in ("skipped", "error") or not keep(canon_name(t["name"])):
                 continue
             durations.append(float(t.get("duration_s", 0) or 0))
-    median_task = None
-    if durations:
-        durations.sort()
-        mid = len(durations) // 2
-        median_task = (
-            durations[mid] if len(durations) % 2 else (durations[mid - 1] + durations[mid]) / 2
-        )
-    total_ms = api_ms = out_tok = 0
+    wait_ms = span_ms = api_ms = out_tok = 0
+    per_task: dict[tuple, int] = defaultdict(int)
     for q in queries.get(model, []):
-        if q.get("duration_ms") and q.get("duration_api_ms") is not None:
-            total_ms += q["duration_ms"]
+        test = q.get("test")
+        if test and not keep(canon_name(test)):
+            continue
+        if test:
+            per_task[(q.get("_seed"), canon_name(test))] += q.get("output_tokens") or 0
+        if q.get("span_ms") and q.get("model_wait_ms") is not None:
+            span_ms += q["span_ms"]
+            wait_ms += q["model_wait_ms"]
+        if q.get("duration_api_ms"):
             api_ms += q["duration_api_ms"]
             out_tok += q.get("output_tokens") or 0
     return {
-        "median_task_s": median_task,
-        "model_share": (api_ms / total_ms) if total_ms else None,
+        "median_task_s": _median(durations),
+        "tokens_per_task": _median([v for v in per_task.values() if v]),
+        "model_share": (wait_ms / span_ms) if span_ms else None,
         "tokens_per_s": (out_tok / (api_ms / 1000)) if api_ms and out_tok else None,
     }
 
@@ -330,19 +357,43 @@ def fmt_duration(seconds: float | None) -> str:
     return f"{m}m {sec:02d}s" if m else f"{sec}s"
 
 
-def lane_conclusive(d: dict, lane_map: dict[tuple, str], lane: str) -> tuple[int, int]:
-    """conclusive() restricted to one lane: (passed, denominator) over the cell's
-    tests whose canonical name maps to ``lane``. Tests absent from the manifest
-    (stale results of renamed tests) count toward neither lane."""
+def fmt_tokens(n: float | None) -> str:
+    if n is None:
+        return "—"
+    return f"{n / 1000:.1f}k" if n >= 1000 else f"{n:.0f}"
+
+
+def not_applicable_label(test: dict) -> str | None:
+    """``n/a: <label>`` for a result skipped because the test does not apply to
+    the model (a skip reason ``n/a: <label> (<detail>)``, tests/e2e/agentic_tiers.py),
+    else None."""
+    reason = test.get("reason") or ""
+    if test.get("outcome") != "skipped" or not reason.startswith(NOT_APPLICABLE):
+        return None
+    return reason.split(" (", 1)[0]
+
+
+def tier_of(test: dict, tiers: dict[tuple, dict]) -> int | None:
+    """The tier a result belongs to: the manifest's, else the one the worker
+    recorded with the result, else None (no tier: harness, or renamed since)."""
+    meta = tiers.get(canon_name(test["name"]))
+    return (meta or {}).get("tier") or test.get("tier")
+
+
+def conclusive_where(d: dict, keep) -> tuple[int, int]:
+    """The cell's score over the tests ``keep`` accepts by canonical name:
+    (passed, denominator), a timeout counting as a failure. Skips and errors are
+    excluded: an error is a test that died in setup or teardown, which says nothing
+    about the model."""
     p = den = 0
     for t in d.get("tests", []):
-        if lane_map.get(canon_name(t["name"])) != lane:
+        if not keep(canon_name(t["name"])):
             continue
         o = t.get("outcome")
         if o == "passed":
             p += 1
             den += 1
-        elif o in ("failed", "timeout", "error"):
+        elif o in ("failed", "timeout"):
             den += 1
     return p, den
 
@@ -394,8 +445,8 @@ def provider_display(provider: str) -> str:
     """Render the canonical provider for the [provider] line. ds4 is the keyless
     local-server entry, so flag it as self-hosted to set it apart from the
     remote providers."""
-    if provider == "ds4":
-        return "ds4 · self-hosted"
+    if provider in ("ds4", "vllm"):
+        return f"{provider} · self-hosted"
     return provider
 
 
@@ -499,18 +550,6 @@ def run_counts(d: dict) -> dict:
     }
 
 
-def conclusive(d: dict):
-    """Pass rate = passed / (passed + failed + timeout + errors). A timeout counts
-    as a failure: the model did not complete the task within the per-test cap, so
-    it is scored against it. Only genuine skips (tests gated off as not-applicable)
-    are excluded from the denominator. Returns (passed, denominator)."""
-    p = d.get("passed", 0)
-    f = d.get("failed", 0)
-    e = d.get("errors", 0)
-    t = d.get("timeout", 0)
-    return p, p + f + e + t
-
-
 def stacked_bar(counts: dict, width: int = 130, height: int = 14) -> str:
     tot = sum(counts.values())
     if not tot:
@@ -558,10 +597,10 @@ def main() -> int:
     # excluded still carry its tests, so strip them here to match the footer.
     exclusions = load_exclusions(args.config)  # (rel_path, reason); rel_path == canon_name key
     apply_exclusions(runs, {rel for rel, _ in exclusions})
-    # Benchmark-lane manifest (marker-derived). Non-empty → score the capability
-    # (agentic_benchmark) and harness (harness_benchmark) lanes separately; empty
-    # (results predate the lane split) → legacy blended rendering.
-    lane_map = load_lanes(args.results_dir)
+    # Tier manifest (marker-derived, tests/e2e/agentic_tiers.py): each agentic
+    # test's tier and plain-words description. Results that predate the tiers
+    # carry none and render as one untiered section.
+    tiers = load_tiers(args.results_dir)
     started, ended, matrix_done = parse_progress(args.results_dir)
     running = started - ended  # combos START-ed but not END-ed in matrix.log
     # A combo with a finalized .json is done even if the driver died before
@@ -589,11 +628,16 @@ def main() -> int:
     # union of all test names, grouped by file; (file,test) -> model -> {seed: outcome}
     all_tests: dict[str, set] = defaultdict(set)
     test_results: dict[tuple, dict] = defaultdict(lambda: defaultdict(dict))
+    # (file,test) -> model -> label, for a test that does not apply to the model
+    not_applicable: dict[tuple, dict] = defaultdict(dict)
     for (m, s), d in runs.items():
         for t in d.get("tests", []):
             file, short = canon_name(t["name"])
             all_tests[file].add(short)
             test_results[(file, short)][m][s] = t["outcome"]
+            label_na = not_applicable_label(t)
+            if label_na:
+                not_applicable[(file, short)][m] = label_na
 
     done = sum(1 for d in runs.values() if not d.get("_partial"))
     live_n = sum(1 for d in runs.values() if d.get("_partial") and not d.get("_stalled"))
@@ -631,6 +675,12 @@ def main() -> int:
     .pill{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;color:#fff}
     .legend span{margin-right:14px} .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}
     .filerow td{background:#eef1f4;font-weight:600;text-align:left}
+    .totrow td{background:#f6f8fa;font-weight:600}
+    td.l details summary{cursor:pointer;font-weight:600}
+    td.l .ask{color:#1f2328;font-size:12.5px;margin:4px 0 0 14px;max-width:420px}
+    td.l .ask b{color:#636c76;font-weight:600}
+    td.l .file{color:#8c959f;font-size:11px;margin-top:2px}
+    .ok{color:#1a7f37;font-weight:700} .no{color:#cf222e;font-weight:700}
     footer{margin-top:34px;color:#636c76;font-size:12.5px;border-top:1px solid #d0d7de;padding-top:14px}
     code{background:#eff1f3;padding:1px 5px;border-radius:4px;font-size:12px}
     """
@@ -652,7 +702,7 @@ def main() -> int:
         if args.artifact
         else ('<meta http-equiv="refresh" content="60">' if running_active else "")
     )
-    title = "OSPREY model-capability benchmark"
+    title = "OSPREY agentic benchmark"
 
     H = []
     H.append(
@@ -662,13 +712,13 @@ def main() -> int:
     if args.artifact:
         # Timeless artifact: no issue ref, progress counters, live status,
         # timestamp, auto-refresh or running-now line — just title and data.
-        H.append("<h1>OSPREY model-capability benchmark</h1>")
+        H.append(f"<h1>{title}</h1>")
         H.append(
-            f"<p class=sub>Open-weight &amp; self-hosted models across the "
-            f"<code>tests/e2e/</code> suite · {len(models)} model{'s' if len(models) != 1 else ''} × {len(SEEDS)} seeds</p>"
+            f"<p class=sub>Open-weight &amp; self-hosted models on OSPREY's agentic tests, "
+            f"Tier 1 and Tier 2 · {len(models)} model{'s' if len(models) != 1 else ''} × {len(SEEDS)} seeds</p>"
         )
     else:
-        H.append("<h1>OSPREY model-capability benchmark</h1>")
+        H.append(f"<h1>{title}</h1>")
         H.append(
             f"<p class=sub>{len(models)} model{'s' if len(models) != 1 else ''} × {len(SEEDS)} seeds · "
             f"per-test hang-breaker 1800s · <b>{done}/{total_cells}</b> runs complete · "
@@ -695,190 +745,270 @@ def main() -> int:
         H.append(f"<span><span class=dot style='background:{c}'></span>{k}</span>")
     H.append("</div>")
 
-    # ---- model x seed matrix (full outcome breakdown per cell) ----
-    H.append("<h2>Outcome breakdown by model × seed</h2>")
-    if lane_map:
+    # A test's section: its tier, or "other" for a result no tier claims
+    # (harness results from before the board ran agentic tests only, or a test
+    # renamed since). Results with no tier anywhere render as one section.
+    tier_by_key: dict[tuple, int] = {}
+    for d in runs.values():
+        for t in d.get("tests", []):
+            tier = tier_of(t, tiers)
+            if tier:
+                tier_by_key[canon_name(t["name"])] = tier
+    tiered = bool(tier_by_key)
+
+    def in_tier(tier):
+        return lambda key: tier_by_key.get(key) == tier
+
+    def summary_table(keep) -> None:
+        """Model x seed: passes over the tests ``keep`` accepts, the all-green
+        check, and time and tokens per task over the same tests."""
+        H.append("<table>")
         H.append(
-            "<p class=sub>The headline pass% per cell is the <b>capability lane</b> — the "
-            "tests where the model itself can fail (passed / passed+failed+timeout+error; a "
-            "<b>timeout counts as a failure</b>, only skips are excluded). The <b>harness lane</b> line "
-            "below it scores the harness tests (model-independent OSPREY safety and plumbing) "
-            "separately, so they can never inflate a model's capability score. Bar and counts show the "
-            "full outcome mix across both lanes. Latency: <i>median task</i> is the median wall "
-            "time of a capability-lane test, <i>in model</i> the share of agent time spent waiting on the "
-            "model, <i>tok/s</i> output tokens per second of model time.</p>"
+            "<tr><th class=l>model</th>"
+            + "".join(f"<th>seed {s}</th>" for s in SEEDS)
+            + "<th>all green</th><th>median task</th><th>tokens / task</th>"
+            "<th>in model</th><th>tok/s</th></tr>"
         )
-    else:
-        H.append(
-            "<p class=sub>Each cell shows the full mix for one run — pass% "
-            "(passed / passed+failed+timeout+error; a <b>timeout counts as a failure</b>, only skips "
-            "are excluded) plus a stacked bar and counts (✓ pass · ✗ fail · ⧗ timeout · ∅ skip · ! error).</p>"
-        )
-    H.append("<table>")
-    H.append(
-        "<tr><th class=l>model</th>"
-        + "".join(f"<th>seed {s}</th>" for s in SEEDS)
-        + ("<th>mean capability</th>" if lane_map else "<th>mean pass</th>")
-        + "<th>median task</th><th>in model</th><th>tok/s</th></tr>"
-    )
-    sep_done = False
-    for m in models:
-        # Light divider between the self-hosted/open models and the Anthropic
-        # reference bracket (drawn once, before the first reference row).
-        if not sep_done and m in REFERENCE_MODELS:
-            H.append(f"<tr class=sep><td colspan='{len(SEEDS) + 5}'></td></tr>")
-            sep_done = True
-        H.append(
-            f"<tr><td class=l>{html.escape(label(m))}"
-            f"<div class=prov>[{html.escape(provider_display(provider_of(m, runs)))}]</div></td>"
-        )
-        fracs = []
-        m_seeds = seeds_for(m, runs)
-        for s in SEEDS:
-            if s not in m_seeds:  # seed not planned for this model (e.g. single-seed)
-                H.append("<td style='background:#fafbfc'><span class=muted>N/A</span></td>")
-                continue
-            d = runs.get((m, s))
-            if d and d["total"]:
-                if args.artifact and d.get("_partial"):
-                    # Static artifact: never show a partial cell's interim pass%
-                    # as if it were final — mark it as still running.
-                    H.append("<td style='background:#fafbfc'><span class=muted>running</span></td>")
+        sep_done = False
+        for m in models:
+            # Light divider between the self-hosted/open models and the Anthropic
+            # reference bracket (drawn once, before the first reference row).
+            if not sep_done and m in REFERENCE_MODELS:
+                H.append(f"<tr class=sep><td colspan='{len(SEEDS) + 6}'></td></tr>")
+                sep_done = True
+            H.append(
+                f"<tr><td class=l>{html.escape(label(m))}"
+                f"<div class=prov>[{html.escape(provider_display(provider_of(m, runs)))}]</div></td>"
+            )
+            tot_p = tot_den = tot_err = 0
+            m_seeds = seeds_for(m, runs)
+            for s in SEEDS:
+                if s not in m_seeds:  # seed not planned for this model (e.g. single-seed)
+                    H.append("<td style='background:#fafbfc'><span class=muted>N/A</span></td>")
                     continue
-                if lane_map:
-                    # Two-lane scoring: headline = capability lane only; the
-                    # harness lane renders as its own subline so its (near-
-                    # constant) passes never pad the capability number.
-                    p_s, den_s = lane_conclusive(d, lane_map, "agentic")
-                    hp, hden = lane_conclusive(d, lane_map, "harness")
-                    harness_line = f"<div class=muted>harness {hp}/{hden}</div>" if hden else ""
+                d = runs.get((m, s))
+                if d and d["total"]:
+                    if args.artifact and d.get("_partial"):
+                        # Static artifact: never show a partial cell's interim
+                        # score as if it were final — mark it as still running.
+                        H.append(
+                            "<td style='background:#fafbfc'><span class=muted>running</span></td>"
+                        )
+                        continue
+                    p_s, den_s = conclusive_where(d, keep)
+                    if not d.get("_partial"):
+                        tot_p += p_s  # the all-green check is over COMPLETED seeds only
+                        tot_den += den_s
+                        tot_err += sum(
+                            1
+                            for t in d["tests"]
+                            if t.get("outcome") == "error" and keep(canon_name(t["name"]))
+                        )
+                    c = dict.fromkeys(OUTCOME_ORDER, 0)
+                    for t in d["tests"]:
+                        if keep(canon_name(t["name"])):
+                            c[t.get("outcome") if t.get("outcome") in c else "error"] += 1
+                    # Incomplete cell (still filling, or interrupted): its real
+                    # partial bar with a plain progress count over the whole run.
+                    tag = (
+                        f"<div class=muted>{d['total']}/{model_driving_n or '?'}</div>"
+                        if d.get("_partial")
+                        else ""
+                    )
+                    H.append(
+                        f"<td><div style='font-weight:600'>{p_s}/{den_s}</div>"
+                        f"<div style='display:flex;justify-content:center;margin:3px 0'>"
+                        f"{stacked_bar(c)}</div>"
+                        f"<div class=muted>{counts_text(c)}</div>"
+                        f"{tag}</td>"
+                    )
+                elif d and d.get("setup_error"):
+                    # The provider refused the cell at its start: nothing ran.
+                    H.append(
+                        "<td style='background:#ffd8c2'>setup error<div class=muted "
+                        f"title='{html.escape(d['setup_error'])}'>"
+                        f"{html.escape(d['setup_error'][:90])}</div></td>"
+                    )
+                elif d and not d["total"]:
+                    H.append(
+                        "<td style='background:#ffd8c2'>err<div class=muted>0 tests</div></td>"
+                    )
+                elif (m, s) in running_active:
+                    H.append("<td style='background:#fff3cd'>●<div class=muted>running</div></td>")
                 else:
-                    p_s, den_s = conclusive(d)
-                    harness_line = ""
-                fr = (p_s / den_s) if den_s else None
-                if fr is not None and not d.get("_partial"):
-                    fracs.append(fr)  # mean is over COMPLETED seeds only
-                c = run_counts(d)
-                if d.get("_partial"):
-                    # Incomplete cell (still filling, or interrupted before all
-                    # tests ran): show its REAL partial bar + pass% with a plain
-                    # progress count. No live/died/stalled ops-language on a
-                    # shared dashboard — just "<ran>/<total>".
-                    tag = f"<div class=muted>{d['total']}/{model_driving_n or '?'}</div>"
-                else:
-                    tag = f"<div class=muted>{d['total']}t · {d['total_duration_s'] // 60}m</div>"
-                H.append(
-                    f"<td><div style='font-weight:600'>{pct(p_s, den_s)}</div>"
-                    f"{harness_line}"
-                    f"<div style='display:flex;justify-content:center;margin:3px 0'>{stacked_bar(c)}</div>"
-                    f"<div class=muted>{counts_text(c)}</div>"
-                    f"{tag}</td>"
+                    H.append("<td style='background:#fafbfc'><span class=muted>N/A</span></td>")
+            if tot_den and tot_p < tot_den:
+                green = (
+                    f"<td style='background:{heat(tot_p / tot_den)}'><span class=no>✗</span>"
+                    f"<div class=muted>{tot_den - tot_p} failed</div></td>"
                 )
-            elif d and not d["total"]:
-                H.append("<td style='background:#ffd8c2'>err<div class=muted>0 tests</div></td>")
-            elif (m, s) in running_active:
-                H.append("<td style='background:#fff3cd'>●<div class=muted>running</div></td>")
+            elif tot_err:
+                # Nothing the model did went wrong, and not everything was measured.
+                green = f"<td>·<div class=muted>{tot_err} setup error(s)</div></td>"
+            elif not tot_den:
+                green = "<td>·</td>"
             else:
-                H.append("<td style='background:#fafbfc'><span class=muted>N/A</span></td>")
-        mean = sum(fracs) / len(fracs) if fracs else None
-        lat = latency_stats(m, runs, queries, lane_map)
-        share = lat["model_share"]
-        tps = lat["tokens_per_s"]
-        H.append(
-            f"<td style='background:{heat(mean)}'><b>{(f'{100 * mean:.0f}%' if mean is not None else '·')}</b></td>"
-            f"<td>{fmt_duration(lat['median_task_s'])}</td>"
-            f"<td>{f'{100 * share:.0f}%' if share is not None else '—'}</td>"
-            f"<td>{f'{tps:.0f}' if tps is not None else '—'}</td></tr>"
+                green = f"<td style='background:{heat(1.0)}'><span class=ok>✓</span></td>"
+            lat = latency_stats(m, runs, queries, keep)
+            share = lat["model_share"]
+            tps = lat["tokens_per_s"]
+            H.append(
+                green + f"<td><b>{fmt_duration(lat['median_task_s'])}</b></td>"
+                f"<td><b>{fmt_tokens(lat['tokens_per_task'])}</b></td>"
+                f"<td>{f'{100 * share:.0f}%' if share is not None else '—'}</td>"
+                f"<td>{f'{tps:.0f}' if tps is not None else '—'}</td></tr>"
+            )
+        H.append("</table>")
+
+    def row_label(file: str, short: str) -> str:
+        """A test row's label: the marker's title, expanding to what the test
+        asks and what passes, with the file name small and grey beneath."""
+        meta = tiers.get((file, short))
+        where = f"<div class=file>{html.escape(file)}::{html.escape(short)}</div>"
+        if not meta or not meta.get("title"):
+            return f"{html.escape(short)}<div class=file>{html.escape(file)}</div>"
+        return (
+            f"<details><summary>{html.escape(meta['title'])}</summary>"
+            f"<div class=ask><b>asks</b> {html.escape(meta.get('asks') or '')}</div>"
+            f"<div class=ask><b>passes if</b> {html.escape(meta.get('passes_if') or '')}</div>"
+            f"</details>{where}"
         )
-    H.append("</table>")
 
-    # ---- per-test heatmap (one square per seed) ----
-    H.append("<h2>Per-test outcomes — one square per seed</h2>")
-    H.append(
-        "<p class=sub>For every test, the three squares are seed 1·2·3 colored by outcome "
-        "(green pass · red fail · orange timeout · yellow skip · purple error · grey pending). "
-        "Lets you spot a test a model passes once but times out on another seed.</p>"
-    )
-
-    def render_test_table(tests_by_file: dict[str, list]) -> None:
+    def render_test_table(keys: list[tuple], totals: bool = False) -> None:
+        """One row per test, one square per seed per model. With ``totals``, a
+        last row counts each model's first-attempt passes."""
         H.append(
             "<table><tr><th class=l>test</th>"
             + "".join(f"<th>{html.escape(label(m))}</th>" for m in models)
             + "</tr>"
         )
-        for file in sorted(tests_by_file):
-            H.append(
-                f"<tr class=filerow><td colspan={len(models) + 1}>{html.escape(file)}</td></tr>"
-            )
-            for short in sorted(tests_by_file[file]):
-                H.append(f"<tr><td class=l>{html.escape(short)}</td>")
-                for m in models:
-                    seeds_map = test_results[(file, short)].get(m, {})
-                    m_seeds = seeds_for(m, runs)
-                    dots = []
-                    for s in m_seeds:  # ref models render a single square, not 3
-                        o = seeds_map.get(s)
-                        col = OUTCOME_COLORS.get(o, "#eaeef2")
-                        dots.append(
-                            f"<span title='seed{s}: {o or 'pending'}' style='display:inline-block;"
-                            f"width:13px;height:13px;border-radius:2px;margin:1px;background:{col}'></span>"
-                        )
-                    H.append(f"<td>{''.join(dots)}</td>")
-                H.append("</tr>")
+
+        def order(key):
+            meta = tiers.get(key) or {}
+            return (meta.get("title") or "~", key)
+
+        for file, short in sorted(keys, key=order):
+            H.append(f"<tr><td class=l>{row_label(file, short)}</td>")
+            for m in models:
+                seeds_map = test_results[(file, short)].get(m, {})
+                if m in not_applicable[(file, short)]:
+                    # Not applicable to this model: said so, never hidden, and
+                    # (as a skip) counted against neither passes nor all-green.
+                    H.append(
+                        f"<td class=muted>{html.escape(not_applicable[(file, short)][m])}</td>"
+                    )
+                    continue
+                dots = []
+                for s in seeds_for(m, runs):  # ref models render a single square, not 3
+                    o = seeds_map.get(s)
+                    col = OUTCOME_COLORS.get(o, "#eaeef2")
+                    dots.append(
+                        f"<span title='seed{s}: {o or 'pending'}' style='display:inline-block;"
+                        f"width:13px;height:13px;border-radius:2px;margin:1px;background:{col}'></span>"
+                    )
+                H.append(f"<td>{''.join(dots)}</td>")
+            H.append("</tr>")
+        if totals:
+            H.append("<tr class=totrow><td class=l>first-attempt passes</td>")
+            for m in models:
+                p = den = 0
+                for key in keys:
+                    for o in test_results[key].get(m, {}).values():
+                        if o == "passed":
+                            p += 1
+                        if o in ("passed", "failed", "timeout"):
+                            den += 1
+                H.append(f"<td>{p}/{den}</td>" if den else "<td>·</td>")
+            H.append("</tr>")
         H.append("</table>")
 
-    if lane_map:
-        # Partition per-test rows by benchmark lane so a reader never mistakes a
-        # harness-integrity row for a capability signal. Tests seen in results
-        # but absent from the manifest (renamed since the run) land in a
-        # trailing "unclassified" section rather than being hidden.
-        sections: dict[str, dict[str, list]] = {"agentic": {}, "harness": {}, "other": {}}
-        for file in all_tests:
-            for short in all_tests[file]:
-                lane = lane_map.get((file, short)) or "other"
-                sections[lane].setdefault(file, []).append(short)
-        H.append("<h2 style='font-size:15px'>Capability lane</h2>")
-        render_test_table(sections["agentic"])
-        H.append("<h2 style='font-size:15px'>Harness lane</h2>")
-        render_test_table(sections["harness"])
-        if sections["other"]:
-            H.append("<h2 style='font-size:15px'>Unclassified (not in the lane manifest)</h2>")
-            render_test_table(sections["other"])
+    keys_all = [(file, short) for file in all_tests for short in all_tests[file]]
+    if tiered:
+        t1 = [k for k in keys_all if tier_by_key.get(k) == 1]
+        t2 = [k for k in keys_all if tier_by_key.get(k) == 2]
+        other = [k for k in keys_all if k not in tier_by_key]
+        H.append("<h2>Tier 1 · basic</h2>")
+        H.append(
+            "<p class=sub>Tasks a capable model should complete: the stack works, the model "
+            "calls the right tools, a simple workflow goes through. All green is the check; "
+            "the comparison is <i>median task</i> (wall time of a Tier 1 test) and "
+            "<i>tokens / task</i> (output tokens a test's queries spent, median). <i>In "
+            "model</i> is the share of agent time spent waiting on the model, concurrent "
+            "requests counted once, <i>tok/s</i> "
+            "output tokens per second of model time. Each cell counts first-attempt passes "
+            "(a timeout counts as a failure; a skip or a setup error scores nothing).</p>"
+        )
+        summary_table(in_tier(1))
+        H.append("<h2 style='font-size:15px'>Tier 1 tests — one square per seed</h2>")
+        render_test_table(t1)
+        H.append("<h2>Tier 2 · benchmark</h2>")
+        H.append(
+            "<p class=sub>Harder tasks a capable model may still miss. Each test on its own: "
+            "one square per seed, first attempt only (green pass · red fail · orange timeout "
+            "· yellow skip · purple error · grey pending). Too few tests for a single "
+            "score.</p>"
+        )
+        render_test_table(t2, totals=True)
+        if other:
+            H.append("<h2 style='font-size:15px'>Other results (no tier)</h2>")
+            H.append(
+                "<p class=sub>Results no tier claims (harness checks from earlier runs, or "
+                "tests renamed since). They count toward neither tier.</p>"
+            )
+            render_test_table(other)
     else:
-        render_test_table(all_tests)
+        H.append("<h2>All tests</h2>")
+        H.append(
+            "<p class=sub>These results predate the agentic tiers, so they render as one "
+            "section (a timeout counts as a failure; a skip or a setup error scores nothing).</p>"
+        )
+        summary_table(_keep_all)
+        render_test_table(keys_all)
 
     # ---- methodology ----
     # Scope sentence is DERIVED: the model-driving count from the run data and the
     # excluded-file list (with reasons) from matrix_e2e_config.json — so it tracks
     # the suite instead of asserting frozen totals (was "36 of 92", long stale).
     n_txt = str(model_driving_n) if model_driving_n is not None else "—"
+    if tiered:
+        n_1 = sum(1 for v in tier_by_key.values() if v == 1)
+        n_2 = sum(1 for v in tier_by_key.values() if v == 2)
+        what = (
+            f"The <b>{n_1 + n_2}</b> agentic e2e tests ({n_1} in Tier 1, {n_2} in Tier 2) — those "
+            f"carrying an <code>agentic</code> marker, whose tier, title and description are "
+            f"re-derived from live collection every cell — run once per seed with reruns off, "
+            f"so every result is a first attempt. Tier 3 (facility-scale tasks) is not built yet. "
+        )
+    else:
+        what = f"The <b>{n_txt}</b> model-driving e2e tests. "
     if exclusions:
-        excl_html = ", ".join(
-            f"<code title='{html.escape(reason)}'>{html.escape(os.path.basename(rel))}</code>"
+        # The names stay one click away: the page names tests by what they ask,
+        # never by file.
+        excl_items = "".join(
+            f"<li><code>{html.escape(os.path.basename(rel))}</code> — {html.escape(reason)}</li>"
             for rel, reason in exclusions
         )
         scope = (
-            f"The <b>{n_txt}</b> model-driving e2e tests — the full <code>tests/e2e/</code> suite "
-            f"minus the {len(exclusions)} files that don't call an LLM and/or don't route through the "
-            f"model under test (hover for the reason: {excl_html}) — are forced"
+            f"{what}{len(exclusions)} e2e files that don't drive a model are not on the board. "
+            f"The tests are forced"
+        )
+        excl_details = (
+            f"<details><summary>The {len(exclusions)} files not on the board</summary>"
+            f"<ul>{excl_items}</ul></details>"
         )
     else:
-        scope = (
-            f"The <b>{n_txt}</b> model-driving e2e tests (the full <code>tests/e2e/</code> suite minus "
-            f"the files that don't call an LLM and/or don't route through the model under test) are forced"
-        )
-    if lane_map:
-        n_a = sum(1 for v in lane_map.values() if v == "agentic")
-        n_h = sum(1 for v in lane_map.values() if v == "harness")
-        scope += (
-            f" — split into the <b>capability lane</b>, {n_a} tests "
-            f"(<code>agentic_benchmark</code>: agentic tasks the model itself can fail; the "
-            f"headline score) and the <b>harness lane</b>, {n_h} tests "
-            f"(<code>harness_benchmark</code>: model-independent safety and plumbing assertions, "
-            f"scored separately so they never pad the capability number), with lane membership "
-            f"declared by pytest markers on the tests and re-derived from live collection every "
-            f"cell —"
-        )
+        scope = f"{what}The tests are forced"
+        excl_details = ""
+    # The judge each cell ran with, as the worker recorded it; results that
+    # predate the field name none.
+    judges = sorted({d["judge"] for d in runs.values() if d.get("judge")})
+    judged = (
+        "Answers the tests judge are graded by "
+        + ", ".join(f"<code>{html.escape(j)}</code>" for j in judges)
+        + ". "
+        if judges
+        else ""
+    )
     H.append(
         "<footer><b>Methodology.</b> " + scope + " onto each model suite-wide via "
         "<code>OSPREY_E2E_FORCE_PROVIDER</code> + <code>OSPREY_E2E_FORCE_MODEL</code> (every model "
@@ -886,11 +1016,15 @@ def main() -> int:
         "Anthropic↔OpenAI translation proxy; Anthropic models connect directly. The per-test "
         "timeout is 1800s; a timeout <b>counts as a failure</b> (the model did not complete the "
         "task within the cap) and is shown as a distinct category so it can be told apart from a "
-        "logic failure. Anthropic Claude models, where present, are a reference ceiling: the "
-        "models the tests were written for. Latency figures come from the agent SDK's own "
+        "logic failure. A test that dies in setup, or a session the provider refused (auth, "
+        "network, unserved model), says nothing about the model: it shows as an error and "
+        "scores neither way. Anthropic Claude models, where present, are a reference ceiling: the "
+        "models the tests were written for. "
+        + judged
+        + "Latency figures come from the agent SDK's own "
         "accounting of each query (<code>OSPREY_E2E_QUERY_LOG</code>) and from per-test wall time; "
         "a self-hosted model's speed depends on its hardware, named under each model with its "
-        "provider.</footer>"
+        "provider." + excl_details + "</footer>"
     )
     H.append("</div>")
 

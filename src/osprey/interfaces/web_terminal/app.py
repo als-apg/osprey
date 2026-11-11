@@ -36,7 +36,7 @@ from osprey.interfaces.common_middleware import (
     resolve_storage_scope,
 )
 from osprey.interfaces.design_system.favicon import FAVICON_PATH
-from osprey.interfaces.vendor import vendor_url
+from osprey.interfaces.vendor import is_offline, vendor_url
 from osprey.interfaces.web_terminal import scenario_sessions, session_meta
 from osprey.interfaces.web_terminal.config_view import (
     UNREADABLE,
@@ -2227,6 +2227,8 @@ def create_app(
                 # page under (panel-help.js). "" when web.docs_url is blank,
                 # and the template then leaves the attribute out.
                 "docs_url": getattr(request.app.state, "docs_url", "") or "",
+                # The page reads it to name where the terminal's assets come from.
+                "vendor_offline": is_offline(),
                 # The registry's own labels for the built-in panels, stamped so
                 # panel-catalog.js can read them at module load. /api/panels
                 # answers for the ENABLED panels only and resolves after that

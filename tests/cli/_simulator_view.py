@@ -24,8 +24,8 @@ import pytest
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
+from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey_connectors.simulation import composite as composite_module
-from osprey_connectors.simulation.composite import ENGINE_GROUP
 from osprey_connectors.simulation.view import SCHEMAS
 from tests._simulator_view import view_channel, write_scenarios_view
 
@@ -96,7 +96,7 @@ def register_stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     real = importlib.metadata.entry_points
 
     def entry_points(**selection: Any) -> Any:
-        if selection == {"group": ENGINE_GROUP, "name": "stub"}:
+        if selection == {"group": ENTRY_POINT_GROUP, "name": "stub"}:
             return [SimpleNamespace(load=lambda: _STUB)]
         return real(**selection)
 
@@ -136,7 +136,7 @@ def write_simulator_view(
                             "id": "0",
                             "address": _BPM,
                             "direction": "read",
-                            "role": "monitor",
+                            "engine_role": "monitor",
                             "plane": "x",
                             "refresh": "pass",
                         }
@@ -190,7 +190,7 @@ def add_deck_models(view: Path) -> None:
                     "id": "1",
                     "address": AR_READBACK,
                     "direction": "read",
-                    "role": "monitor",
+                    "engine_role": "monitor",
                     "plane": "x",
                     "refresh": "pass",
                 }

@@ -286,7 +286,7 @@ def measurement_groups(
         for device in _device_order(records, members):
             for address in sorted({str(c["id"]) for c in records.channels_on(device)}):
                 entry = wiring.get(address)
-                if entry is None or entry.get("role") != wanted:
+                if entry is None or entry.get("engine_role") != wanted:
                     continue
                 if plane is not None and entry.get("plane") != plane:
                     continue
@@ -530,7 +530,7 @@ def tune_references(records: FacilityRecords, model: str, address: str) -> tuple
     partners = [
         str(candidate["address"])
         for candidate in entries
-        if candidate.get("role") == entry.get("role")
+        if candidate.get("engine_role") == entry.get("engine_role")
         and candidate.get("plane") == other
         and _differ_in_one_key(candidate.get("engine") or {}, block)
     ]

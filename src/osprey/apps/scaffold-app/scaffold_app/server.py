@@ -41,7 +41,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-from osprey_connectors.types import resolve_target
+from osprey_connectors.types import baseline_target, resolve_target, speaks_channel_access
 from scaffold_app import APP_NAME, CHANNEL_KEY, CHANNEL_SETTING, STATE_ROUTE, WRITE_ROUTE
 
 #: Where the deployment hands this application its rendered ``apps.<name>.config``.
@@ -50,6 +50,9 @@ APP_CONFIG_ENV = "OSPREY_APP_CONFIG"
 NO_CHANNEL = f"no channel is configured: set {CHANNEL_SETTING} in the deployment's profile"
 
 ConnectorFor = Callable[[str], Awaitable[Any]]
+
+#: The target this process's Channel Access serves, once a connector to it is built.
+_ca_target: str | None = None
 
 
 def panel_dir() -> Path:
@@ -80,18 +83,43 @@ def _section() -> dict[str, Any]:
 
 
 async def build_connector(target: str) -> Any:
-    """A connector for the control target *target*, connected."""
+    """A connector for the control target *target*, connected.
+
+    Channel Access has one context per process, and each connect points it at its
+    own machine, so a second target's Channel Access connector would move the
+    first one's reads and writes onto the second machine. It is refused instead.
+
+    Raises:
+        ValueError: *target* resolves to no connector, or this process's Channel
+            Access already serves another target.
+    """
+    global _ca_target
     section = _section()
     kind = resolve_target(section, target)
     config = {**section, "type": kind}
-    if os.environ.get("EPICS_CA_NAME_SERVERS"):
-        # In its container: compose names the name server it reaches. The config's
+    channel_access = speaks_channel_access(section, kind)
+    if channel_access and _ca_target not in (None, target):
+        raise ValueError(
+            f"this backend's Channel Access serves {_ca_target}, and a process has one "
+            f"Channel Access context: restart the application to serve {target}"
+        )
+    if os.environ.get("EPICS_CA_NAME_SERVERS") and target == baseline_target(section):
+        # In its container: compose names the baseline's name server. The config's
         # gateways are the host's view, and connecting through them would replace it.
+        # Any other target is reached through its own gateways.
         connectors = dict(section.get("connector") or {})
         block = {k: v for k, v in (connectors.get(kind) or {}).items() if k != "gateways"}
         config["connector"] = {**connectors, kind: block}
     register_builtin_connectors()  # idempotent; a fresh process has none registered
-    return await ConnectorFactory.create_control_system_connector(config, control_target=target)
+    claimed = channel_access and _ca_target is None
+    if claimed:
+        _ca_target = target  # before the connect, which is what points the context
+    try:
+        return await ConnectorFactory.create_control_system_connector(config, control_target=target)
+    except BaseException:
+        if claimed:
+            _ca_target = None
+        raise
 
 
 class WriteRequest(BaseModel):

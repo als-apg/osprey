@@ -23,7 +23,7 @@ from ..optimization.runner import (
     report_results,
     run_optimization_phase,
 )
-from ..optimization.types import OptimizationMetadata, OptimizationResult
+from ..optimization.types import OptimizationResult
 from ..optimization.xopt_backend import XoptOptimizer
 from ..utils.cancellation import CancellationToken
 from .draft_resolution import read_current_setpoints
@@ -31,7 +31,6 @@ from .write_authorization import WritePlan, write_plan
 
 __all__ = [
     "OptimizationEngine",
-    "OptimizationMetadata",
     "OptimizationResult",
     "RunnerServices",
     "apply_best_point",
@@ -159,8 +158,6 @@ class OptimizationEngine:
                 f"'{environment_name}'. Available observables: {list(env.observables.keys())}"
             )
 
-        metadata = OptimizationMetadata(config=self.config, job_id=self.job_id)
-
         with env:
             all_vars = env.variables
 
@@ -281,7 +278,8 @@ class OptimizationEngine:
             return OptimizationResult(
                 data=data,
                 best_point=best_row,
-                metadata=metadata,
+                config=self.config,
+                job_id=self.job_id,
                 initial_point=self.initial_point,
                 model=optimizer.trained_model(),
                 model_variables=optimizer.model_variables(),

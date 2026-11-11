@@ -2,7 +2,9 @@
 
 Every ``image:`` line in a shipped service template resolves through an
 ``OSPREY_<SVC>_IMAGE`` variable, and its packaged default is either an upstream
-pin spelled in the template or an OSPREY-built name from
+pin (spelled in the template, or an
+:data:`~osprey.deployment.compose_generator.UPSTREAM_IMAGES` entry) or an
+OSPREY-built name from
 :func:`~osprey.deployment.compose_generator.resolve_image_defaults`. The
 configuration reference lists those images one row each, and the mirroring
 guide shows a mirror for every upstream pin. This module holds both pages to
@@ -18,7 +20,11 @@ from pathlib import Path
 
 import yaml
 
-from osprey.deployment.compose_generator import _OSPREY_IMAGE_SUFFIXES
+from osprey.deployment.compose_generator import (
+    _OSPREY_IMAGE_SUFFIXES,
+    UPSTREAM_IMAGES,
+    hub_image,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _TEMPLATES = _REPO_ROOT / "src" / "osprey" / "templates" / "services"
@@ -32,6 +38,7 @@ _IMAGE_LINE = re.compile(
 )
 _BUILT = re.compile(r"default\(osprey_images\.(?P<key>\w+)\)")
 _PIN = re.compile(r"default\('(?P<ref>[^']+)'")
+_UPSTREAM = re.compile(r"default\(upstream_images\.(?P<key>\w+)")
 _ROW = re.compile(
     r"^   \* - (?P<service>.+)\n"
     r"     - ``(?P<env>OSPREY_\w+_IMAGE)``\n"
@@ -56,6 +63,8 @@ def _template_defaults() -> dict[str, set[tuple[str, str]]]:
         for match in _IMAGE_LINE.finditer(path.read_text(encoding="utf-8")):
             if built := _BUILT.search(match["expr"]):
                 default = ("built", built["key"])
+            elif upstream := _UPSTREAM.search(match["expr"]):
+                default = ("pin", UPSTREAM_IMAGES[upstream["key"]])
             else:
                 pin = _PIN.search(match["expr"])
                 assert pin is not None, f"{path.name}: no packaged default in {match[0]!r}"
@@ -109,10 +118,19 @@ def test_every_osprey_built_image_is_one_a_template_renders() -> None:
 
 
 def test_the_mirror_example_mirrors_every_upstream_pin() -> None:
-    """A host that copies the example pulls no upstream pin from its publisher."""
+    """A host that copies the example pulls no upstream pin from its publisher.
+
+    A Docker Hub pin is mirrored by the example's ``images.base_registry``; a
+    pin on another registry needs its own row.
+    """
     example = _mirror_example()
+    defaults = _template_defaults()
+    hub_mirrored = bool((example.get("images") or {}).get("base_registry"))
     for row in _table_rows():
         if row["default"] != "upstream pin":
+            continue
+        ((_, ref),) = defaults[row["env"]]
+        if hub_mirrored and hub_image(ref, "m") != ref:
             continue
         node = example
         for part in row["key"].split("."):

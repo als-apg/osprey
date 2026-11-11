@@ -38,6 +38,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.utils.owner_header import OWNER_HEADER
@@ -123,7 +124,7 @@ def _switch_off(tmp_path, monkeypatch, target: str) -> Path:
     """A host record with *target* switched off, for the bridge startup-guard cases."""
     root = tmp_path / "agent_data"
     path = write_control_context(root, switch={target: "off"})
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     reset_verdict_state()
     return path
 

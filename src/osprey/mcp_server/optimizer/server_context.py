@@ -48,6 +48,13 @@ def _refuse(method: str, path: str, resp: httpx.Response) -> NoReturn:
         make_error("not_found", message, details=details)
     if status == 422:
         make_error("validation_error", message, details=details)
+    if status == 409:
+        make_error(
+            "optimizer_conflict",
+            message,
+            ["The job or run is not in the state this needs; the detail says which."],
+            details=details,
+        )
     make_error("optimizer_error", message, details=details)
 
 
@@ -56,22 +63,24 @@ async def request(
     path: str,
     *,
     params: dict[str, Any] | None = None,
+    json_body: dict[str, Any] | None = None,
     header: str | None = None,
 ) -> Any:
     """Send one request to the optimizer and return its parsed JSON body.
 
-    With *header*, return ``(body, value of that response header or None)``.
+    *json_body* is sent as the request's JSON body. With *header*, return
+    ``(body, value of that response header or None)``.
 
     Raises ``ToolError`` through ``make_error``: ``optimizer_unreachable`` when
     no answer came (a timeout says the service may still be working);
-    ``not_found`` (404), ``validation_error`` (422) or ``optimizer_error`` (any
-    other non-2xx, or a 2xx whose body is not JSON), with ``details`` holding
-    the HTTP ``status`` and the service's ``detail``.
+    ``not_found`` (404), ``validation_error`` (422), ``optimizer_conflict`` (409)
+    or ``optimizer_error`` (any other non-2xx, or a 2xx whose body is not JSON),
+    with ``details`` holding the HTTP ``status`` and the service's ``detail``.
     """
     url = f"{optimizer_url(load_osprey_config())}{path}"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-            resp = await client.request(method, url, params=params)
+            resp = await client.request(method, url, params=params, json=json_body)
     except httpx.TimeoutException as exc:
         if isinstance(exc, httpx.ConnectTimeout):
             make_error(

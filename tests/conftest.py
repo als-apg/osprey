@@ -57,6 +57,7 @@ from tests._builds import (  # noqa: F401 - the session's shared builds
     built_demo_watchdog_on,
     offline_build_env,
 )
+from tests.e2e import refusals
 
 if TYPE_CHECKING:
     from tests._graphdb_container import WatchedStore
@@ -1492,7 +1493,7 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
         # that counts builder calls by patching the package attribute still
         # sees this path go through it.
         from osprey.services.channel_finder.graph_index import build_graph_index
-        from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+        from osprey.services.graph_store.seeder import ttl_sha256
 
         try:
             digest = ttl_sha256(target.corpus_path.read_text(encoding="utf-8"))
@@ -1603,10 +1604,15 @@ def pytest_runtest_makereport(
     item: pytest.Item,
     call: pytest.CallInfo[None],  # noqa: ARG001 - the hook's signature
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
-    """A ``canopy``-marked test never skips, and its report says it carries the mark."""
+    """A ``canopy``-marked test never skips, and its report says it carries the mark.
+
+    A test whose agent session the provider refused becomes a setup error here too, which
+    happens only on the benchmark board (``tests/e2e/refusals.py``).
+    """
     report = yield
     _canopy_contract.refuse_skip(item, report)
     _canopy_contract.stamp(item, report)
+    refusals.apply_to_report(report)
     return report
 
 

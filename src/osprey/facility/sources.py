@@ -84,7 +84,7 @@ COMPUTED_SLOTS: dict[str, frozenset[str]] = {
             "unit",
             "default",
             "value_range",
-            "role",
+            "engine_role",
             "plane",
             "refresh",
             "marks",

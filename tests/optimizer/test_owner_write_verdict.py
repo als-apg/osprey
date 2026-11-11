@@ -53,7 +53,7 @@ def _switch(tree: Path, owner: str, state: str) -> None:
     ).to_payload()
     payload["switch"] = {TARGET: state}
     write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -109,10 +109,10 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path
             [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
         ),
     )
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield tree
     iface_module.reset_bridge()
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def _refused(reason: str) -> str:

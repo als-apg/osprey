@@ -1,18 +1,15 @@
 """Human-readable tree previews of the hierarchical database.
 
-Renders compact, indented overviews of the database structure - either the full
-tree or the subtree at a given navigation position - to help an LLM understand
-where channels live before drilling in. Builds on the navigation provided by
+Renders a compact, indented overview of the full database structure to help an
+LLM understand where channels live before drilling in. Builds on the navigation provided by
 :class:`_HierarchicalQueryMixin`.
 """
-
-from typing import Any
 
 from ._hierarchical_query import _HierarchicalQueryMixin
 
 
 class _HierarchicalPreviewMixin(_HierarchicalQueryMixin):
-    """Compact text previews of the tree and its subtrees."""
+    """Compact text preview of the tree."""
 
     def generate_tree_preview(self, max_depth: int = 3, max_children: int = 5) -> str:
         """
@@ -53,66 +50,6 @@ class _HierarchicalPreviewMixin(_HierarchicalQueryMixin):
         preview = "\n".join(lines)
         self._tree_preview_cache[cache_key] = preview
         return preview
-
-    def generate_subtree_preview(
-        self,
-        previous_selections: dict[str, Any],
-        max_depth: int = 2,
-        max_children: int = 5,
-    ) -> str:
-        """
-        Generate a preview from the current navigation position.
-
-        Args:
-            previous_selections: Selections made so far at previous levels
-            max_depth: Maximum depth to render below current position
-            max_children: Maximum children to show per node
-
-        Returns:
-            Indented text preview of the subtree, or empty string if position invalid
-        """
-        # Determine which level we're at
-        current_level_idx = 0
-        for i, level in enumerate(self.hierarchy_levels):
-            if level not in previous_selections:
-                current_level_idx = i
-                break
-        else:
-            current_level_idx = len(self.hierarchy_levels)
-
-        # Navigate to position
-        target_level = (
-            self.hierarchy_levels[current_level_idx]
-            if current_level_idx < len(self.hierarchy_levels)
-            else None
-        )
-        if target_level is None:
-            return ""
-
-        node = self._navigate_to_node(target_level, previous_selections)
-        if not node:
-            return ""
-
-        # Build path string
-        path_parts = [f"{k}={v}" for k, v in previous_selections.items()]
-        path_str = " → ".join(path_parts) if path_parts else "ROOT"
-
-        lines: list[str] = []
-        lines.append(f"Subtree at: {path_str}")
-        channel_count = self._count_channels(node)
-        lines.append(f"({channel_count} channels below this point)")
-        lines.append("")
-
-        self._render_tree_node(
-            node=node,
-            depth=0,
-            max_depth=max_depth,
-            max_children=max_children,
-            lines=lines,
-            level_idx=current_level_idx,
-        )
-
-        return "\n".join(lines)
 
     def _render_tree_node(
         self,

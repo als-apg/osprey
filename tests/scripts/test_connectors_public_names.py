@@ -28,7 +28,7 @@ def _tree(root: Path, files: dict[str, str]) -> Path:
 
 
 def _strays(root: Path, extension_points: dict[str, str] | None = None) -> list[str]:
-    return names.stray_exports(root, extension_points=extension_points or {}, baseline=frozenset())
+    return names.stray_exports(root, extension_points=extension_points or {})
 
 
 def test_an_unused_listed_name_fails_with_its_line(tmp_path: Path) -> None:
@@ -93,21 +93,6 @@ def test_a_stale_extension_point_fails(tmp_path: Path) -> None:
     root = _tree(tmp_path, {f"{PACKAGE}/__init__.py": "", f"{PACKAGE}/a.py": "__all__ = []\n"})
     [line] = _strays(root, {"osprey_connectors.a.gone": "was a hook"})
     assert "osprey_connectors.a.gone is in EXTENSION_POINTS and no __all__ lists it" in line
-
-
-def test_a_baseline_entry_that_gains_a_user_fails(tmp_path: Path) -> None:
-    root = _tree(
-        tmp_path,
-        {
-            f"{PACKAGE}/__init__.py": "",
-            f"{PACKAGE}/a.py": '__all__ = ["now_used"]\n',
-            "src/osprey/x.py": "from osprey_connectors import a\na.now_used\n",
-        },
-    )
-    [line] = names.stray_exports(
-        root, extension_points={}, baseline=frozenset({"osprey_connectors.a.now_used"})
-    )
-    assert "osprey_connectors.a.now_used is in UNUSED_BASELINE and has a user" in line
 
 
 def test_the_tree_passes() -> None:

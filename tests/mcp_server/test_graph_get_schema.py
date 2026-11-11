@@ -28,7 +28,7 @@ from osprey.mcp_server.graph.server_context import (
     QueryResult,
 )
 from osprey.mcp_server.graph.tools import get_schema as mod
-from osprey.services.facility_knowledge.seeder import NARAD_PREFIXES
+from osprey.services.graph_store import NARAD_PREFIXES
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn, registered_tool_names
 
 get_schema_fn = get_tool_fn(mod.get_schema)

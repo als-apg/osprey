@@ -123,9 +123,9 @@ def _view(path: Path, settings: Mapping[str, Any] | None = None) -> Path:
                     "deck": None,
                     "wiring": [
                         {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0}
-                        | {"role": "setpoint", "plane": None, "refresh": "pass"},
+                        | {"engine_role": "setpoint", "plane": None, "refresh": "pass"},
                         {"id": "2", "address": "M:BPM:X", "direction": "read", "default": 0.5}
-                        | {"role": "monitor", "plane": "x", "refresh": "pass"},
+                        | {"engine_role": "monitor", "plane": "x", "refresh": "pass"},
                     ],
                 },
                 {

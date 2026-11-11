@@ -294,7 +294,7 @@ What a plug-in is given and asked for:
 - **Registration.** A plug-in is a module registered under the
   ``osprey.simulation.engines`` entry-point group in its package's own
   ``pyproject.toml``, under the name a model record's ``engine`` gives. The
-  composite looks it up with ``metadata.entry_points(group=ENGINE_GROUP,
+  composite looks it up with ``metadata.entry_points(group="osprey.simulation.engines",
   name=...)``; an engine no package registers fails that model.
 - **Build-time contract.** ``osprey build`` calls four pure functions of the
   module, none of which builds a model:
@@ -305,9 +305,9 @@ What a plug-in is given and asked for:
     deck.
   - ``describe(record)`` says what one wiring record is.
 
-  ``describe`` returns ``{role, plane, refresh}``:
+  ``describe`` returns ``{engine_role, plane, refresh}``:
 
-  - ``role`` is ``setpoint``, ``readback``, ``monitor`` or ``output``.
+  - ``engine_role`` is ``setpoint``, ``readback``, ``monitor`` or ``output``.
   - ``plane`` is ``x`` or ``y`` for a record that steers or reads one
     transverse plane, else ``None``.
   - ``refresh`` is ``pass`` for a value each write's solve updates, or

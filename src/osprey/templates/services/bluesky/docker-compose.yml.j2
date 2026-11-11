@@ -953,7 +953,7 @@ services:
   {{ lane }}-redis:
     # Public upstream image, overridable env -> config -> default like every
     # other service image here.
-    image: ${OSPREY_BLUESKY_REDIS_IMAGE:-{{ svc.redis_image | default('redis:7.4-alpine') }}}
+    image: ${OSPREY_BLUESKY_REDIS_IMAGE:-{{ svc.redis_image | default(upstream_images.redis) }}}
     container_name: {{ osprey_labels.project_name }}-{{ lane }}-redis
     restart: unless-stopped
     # Append-only persistence: a queue that survives a bridge restart but not
@@ -989,12 +989,12 @@ services:
   # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
   # only, same as the bridge itself.
   tiled:
-    # Public upstream image, overridable like every other service image
-    # (env → config → default): set OSPREY_TILED_IMAGE, or
+    # The upstream image catalogue's `tiled` entry, overridable like every
+    # other service image (env → config → default): set OSPREY_TILED_IMAGE, or
     # services.bluesky.tiled_image in config.yml, to point at a mirror or a
     # pinned digest. The tag is a published bluesky/tiled release no older than
     # the `tiled[client]` floor in the framework's own dependencies.
-    image: ${OSPREY_TILED_IMAGE:-{{ services.bluesky.tiled_image | default('ghcr.io/bluesky/tiled:0.2.18') }}}
+    image: ${OSPREY_TILED_IMAGE:-{{ services.bluesky.tiled_image | default(upstream_images.tiled) }}}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy Tiled on one host without colliding on one
     # name. The bridge reaches this service by its compose service key `tiled`

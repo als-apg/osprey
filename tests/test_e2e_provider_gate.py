@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -233,6 +234,7 @@ class _StubConfig:
     ) -> None:
         self.markers: list[str] = []
         self.hook = _StubHook()
+        self.stash: dict = {}
         self._collect_only = collect_only
         if workerinput is not None:
             self.workerinput = workerinput
@@ -664,3 +666,31 @@ def test_a_module_pinning_its_own_provider_keeps_the_gateway_marker() -> None:
     lie."""
     source = (_TESTS_ROOT / PINNED_PROVIDER_MODULE).read_text(encoding="utf-8")
     assert GATEWAY_MARKER in source
+
+
+class TestLiveStreamOutcome:
+    """The live stream names an outcome the way the JUnit summary does."""
+
+    @staticmethod
+    def _report(when: str, outcome: str, text: str = "") -> SimpleNamespace:
+        return SimpleNamespace(when=when, outcome=outcome, longrepr=text)
+
+    def test_a_setup_failure_is_an_error_even_when_it_names_a_timeout(self) -> None:
+        report = self._report("setup", "failed", "VA did not answer within 180 s: Timeout")
+        assert e2e_conftest._live_outcome(report) == "error"
+
+    def test_a_setup_failure_is_an_error_even_with_the_timeout_signature(self) -> None:
+        report = self._report("setup", "failed", "Failed: Timeout (>1800s) from pytest-timeout.")
+        assert e2e_conftest._live_outcome(report) == "error"
+
+    def test_a_call_past_the_cap_is_a_timeout(self) -> None:
+        report = self._report("call", "failed", "Failed: Timeout (>1800s) from pytest-timeout.")
+        assert e2e_conftest._live_outcome(report) == "timeout"
+
+    def test_a_call_whose_source_says_timeout_is_a_failure(self) -> None:
+        report = self._report("call", "failed", "timeout = 5\nassert answer == 3")
+        assert e2e_conftest._live_outcome(report) == "failed"
+
+    def test_other_outcomes_pass_through(self) -> None:
+        assert e2e_conftest._live_outcome(self._report("call", "passed")) == "passed"
+        assert e2e_conftest._live_outcome(self._report("setup", "skipped")) == "skipped"

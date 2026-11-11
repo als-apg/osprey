@@ -31,6 +31,7 @@ from osprey.services.code_review.contract import (
     code_digest,
 )
 from osprey.services.code_review.review import AUDIT_REASON, agent_message, decide
+from osprey_connectors import control_context
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
@@ -186,14 +187,13 @@ def switch(monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_ambient_deployment(control_context_root, monkeypatch):
     """A scratch deployment whose record is on the simulator with the switch on."""
-    from osprey_connectors import posture_store
 
     monkeypatch.delenv("OSPREY_CONTROL_TARGET", raising=False)
     monkeypatch.delenv(_execution_gates.TOOL_PREFIX_ENV_VAR, raising=False)
     monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
     arm_switch(monkeypatch, control_context_root, ARMED_TARGET, stamp=False)
     yield control_context_root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)

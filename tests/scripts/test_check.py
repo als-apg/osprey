@@ -1644,6 +1644,17 @@ def test_a_reason_does_not_change_what_a_selection_is() -> None:
     ("runner", "path", "rule"),
     [
         ("pytest", "tests/conftest.py", fw.WIDENS_ROOT_CONFTEST),
+        ("pytest", "tests/__init__.py", fw.WIDENS_ROOT_PACKAGE),
+        (
+            "pytest",
+            "packages/osprey-connectors/tests/osprey_connectors_tests/_soft_ioc.py",
+            fw.WIDENS_SWEEP_HELPER,
+        ),
+        (
+            "pytest",
+            "packages/osprey-connectors/tests/osprey_connectors_tests/ipc/conftest.py",
+            fw.WIDENS_SWEEP_CONFTEST,
+        ),
         ("pytest", "tests/_shared_contract.py", fw.WIDENS_UNMIRRORED),
         ("pytest", "pyproject.toml", fw.WIDENS_PROJECT),
         ("pytest", "tests/fixtures/config.yml", fw.WIDENS_NO_TEST_MODULE),
@@ -1814,6 +1825,102 @@ def test_the_shared_conftests_of_this_tree_widen(monkeypatch: pytest.MonkeyPatch
         assert not importer.startswith(path.rsplit("/", 1)[0] + "/")
 
 
+GOLDEN = "EXAMPLE_CONFIG = {}\n\n\ndef test_render():\n    assert EXAMPLE_CONFIG == {}\n"
+IMPORTS_GOLDEN = "from tests.a.web.test_golden import EXAMPLE_CONFIG\n"
+
+
+@pytest.mark.parametrize("changed", ["tests/a/__init__.py", "tests/a/web/test_golden.py"])
+def test_a_test_module_another_directory_imports_selects_its_importer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, changed: str
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/__init__.py": "BASE = 1\n",
+            "tests/a/web/__init__.py": "",
+            "tests/a/web/test_golden.py": GOLDEN,
+            "tests/b/__init__.py": "",
+            "tests/b/test_identities.py": IMPORTS_GOLDEN,
+            "tests/c/test_unrelated.py": "def test_c():\n    assert 'test_golden'\n",
+        },
+    )
+    got = fw._select_pytest([changed], files)
+    assert got.state == check.PATHS
+    assert "tests/b/test_identities.py" in got.paths
+    assert not any(path.startswith("tests/c") for path in got.paths)
+
+
+@pytest.mark.parametrize(
+    ("spelling", "reaches_package"),
+    [
+        ("from tests.a.web.test_golden import EXAMPLE_CONFIG\n", True),
+        ("from tests.a.web import test_golden\n", True),
+        ("import tests.a.web.test_golden\n", True),
+        ("from tests.a import BASE\n", True),
+        ("import tests.a\n", True),
+        ("from tests.other import test_golden\n", False),
+    ],
+)
+def test_every_spelling_of_an_import_reaches_the_package_it_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, spelling: str, reaches_package: bool
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/__init__.py": "BASE = 1\n",
+            "tests/a/web/test_golden.py": GOLDEN,
+            "tests/b/test_y.py": spelling,
+        },
+    )
+    got = fw._select_pytest(["tests/a/__init__.py"], files)
+    assert ("tests/b/test_y.py" in got.paths) is reaches_package
+
+
+def test_an_import_through_a_helper_or_a_conftest_reaches_their_tests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(
+        tmp_path,
+        {
+            "tests/a/test_golden.py": GOLDEN,
+            "tests/b/_kit.py": "from tests.a.test_golden import EXAMPLE_CONFIG\n",
+            "tests/c/test_z.py": "from tests.b._kit import EXAMPLE_CONFIG\n",
+            "tests/d/conftest.py": "from tests.a.test_golden import EXAMPLE_CONFIG\n",
+            "tests/d/test_w.py": "",
+            "tests/e2e/test_live.py": "from tests.a.test_golden import EXAMPLE_CONFIG\n",
+        },
+    )
+    got = fw._select_pytest(["tests/a/test_golden.py"], files)
+    assert got.state == check.PATHS
+    assert set(got.paths) == {"tests/a/test_golden.py", "tests/c/test_z.py", "tests/d"}
+
+
+def test_a_test_module_that_imports_itself_selects_only_itself(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    files = _tree(tmp_path, {"tests/a/test_x.py": "from tests.a.test_x import thing\n"})
+    got = fw._select_pytest(["tests/a/test_x.py"], files)
+    assert got == check.Selection(check.PATHS, ("tests/a/test_x.py",))
+
+
+@pytest.mark.parametrize(
+    "changed",
+    ["tests/deployment/__init__.py", "tests/deployment/web_terminals/test_golden_render.py"],
+)
+def test_the_deployment_tests_reach_the_agent_record_tests_that_import_them(
+    monkeypatch: pytest.MonkeyPatch, changed: str
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    files = check.repository_files()
+    got = fw._select_pytest([changed], files)
+    assert got.state == check.PATHS
+    assert "tests/agent_record/test_identities.py" in got.paths
+
+
 def test_a_source_file_walks_up_to_the_nearest_tested_package() -> None:
     files = [
         "src/osprey/cli/__init__.py",
@@ -1881,6 +1988,61 @@ def test_a_file_under_a_tests_directory_selects_that_directory() -> None:
 def test_a_file_under_a_tests_directory_without_test_modules_widens() -> None:
     assert not any(name.startswith("tests/fixtures/") for name in FILES)
     assert selected("quick", "tests/fixtures/config.yml")["pytest"].state == check.WHOLE
+
+
+_CONNECTORS_TESTS = "packages/osprey-connectors/tests/osprey_connectors_tests"
+_TEST_ONLY = [
+    "tests/cli/__init__.py",
+    "tests/cli/test_main.py",
+    "tests/empty/__init__.py",
+    f"{_CONNECTORS_TESTS}/__init__.py",
+    f"{_CONNECTORS_TESTS}/test_session_hold.py",
+    f"{_CONNECTORS_TESTS}/ipc/__init__.py",
+    f"{_CONNECTORS_TESTS}/ipc/test_pool_soft_ioc.py",
+]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (
+            f"{_CONNECTORS_TESTS}/test_session_hold.py",
+            (f"{_CONNECTORS_TESTS}/test_session_hold.py",),
+        ),
+        (f"{_CONNECTORS_TESTS}/ipc/__init__.py", fw.WIDENS_SWEEP_HELPER),
+        ("tests/cli/__init__.py", ("tests/cli",)),
+        ("tests/empty/__init__.py", fw.WIDENS_NO_TEST_MODULE),
+        ("tests/__init__.py", fw.WIDENS_ROOT_PACKAGE),
+        ("packages/osprey-connectors/tests/conftest.py", fw.WIDENS_ROOT_CONFTEST),
+        (f"{_CONNECTORS_TESTS}/ipc/conftest.py", fw.WIDENS_SWEEP_CONFTEST),
+        (f"{_CONNECTORS_TESTS}/_soft_ioc.py", fw.WIDENS_SWEEP_HELPER),
+        ("packages/osprey-connectors/src/osprey_connectors/epics.py", fw.WIDENS_UNMIRRORED),
+        ("packages/osprey-optimizer/tests/test_bounds.py", fw.WIDENS_UNMIRRORED),
+        ("pyproject.toml", fw.WIDENS_PROJECT),
+    ],
+    ids=[
+        "packages-test-file",
+        "packages-test-package-init-widens",
+        "tests-package-init",
+        "init-without-test-modules-widens",
+        "top-level-init-widens",
+        "packages-conftest-widens",
+        "packages-nested-conftest-widens",
+        "packages-test-helper-widens",
+        "packages-source-widens",
+        "packages-outside-sweep-roots-widens",
+        "pyproject-widens",
+    ],
+)
+def test_a_test_only_path_selects_only_its_tests(
+    path: str, expected: tuple[str, ...] | str
+) -> None:
+    got = fw._select_pytest([path], _TEST_ONLY)
+    if isinstance(expected, str):
+        assert got == check.Selection(check.WHOLE)
+        assert got.reason == f"{path}: {expected}"
+    else:
+        assert got == check.Selection(check.PATHS, expected)
 
 
 def test_a_new_check_naming_a_script_makes_it_shaping(monkeypatch: pytest.MonkeyPatch) -> None:

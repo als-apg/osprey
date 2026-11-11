@@ -13,7 +13,6 @@ from osprey_optimizer.models.exceptions import CancellationError
 from osprey_optimizer.services.execution import ExecutionService
 from osprey_optimizer.services.orchestration import (
     OptimizationEngine,
-    OptimizationMetadata,
     OptimizationResult,
 )
 from osprey_optimizer.utils.cancellation import CancellationToken
@@ -73,8 +72,7 @@ def simulate_background_worker(
     def patched_run(self):
         """Run optimization with patched dependencies."""
         data, best_point = mock_run_optimization(self)
-        metadata = OptimizationMetadata(config=self.config)
-        return OptimizationResult(data=data, best_point=best_point, metadata=metadata)
+        return OptimizationResult(data=data, best_point=best_point, config=self.config)
 
     try:
         # Real client against the test server, despite the mock_ name.

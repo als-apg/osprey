@@ -37,7 +37,6 @@ from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
     _dedupe_compose_files,
     claude_projects_volumes,
-    clean_deployment,
     compose_base_cmd,
     compose_provider_env,
     configured_ariel_mirror_path,
@@ -47,6 +46,7 @@ from osprey.deployment.compose_generator import (
     resolve_image_platform,
     resolve_project_name,
     resolve_repo_root,
+    resolve_site_build_args,
     resolve_site_image_axes,
 )
 from osprey.deployment.compose_watch import watched_compose_up
@@ -2042,20 +2042,19 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
     honours them. Before this, the Dockerfiles declared the ARGs and no builder
     passed them: the settings existed only for a hand-run ``docker build``.
 
-    Three producers feed it:
+    Two resolvers feed it:
 
-    * :func:`~osprey.deployment.compose_generator.resolve_site_image_axes` for
-      the ``images.*`` block — the site CA, pip's proxy bypass list and the two
-      index URLs;
+    * :func:`~osprey.deployment.compose_generator.resolve_site_build_args` for
+      the build args: the ``images.*`` block (the site CA, pip's proxy bypass
+      list, the two index URLs and the base-image registry) and the top-level
+      ``offline`` key, read exactly as :func:`osprey.interfaces.vendor.is_offline`
+      reads it, so build-time vendoring and the runtime check that decides
+      whether to SERVE the vendored assets cannot disagree. A deployment that
+      sets ``offline: true`` and gets an image that never ran
+      ``osprey vendor fetch`` serves broken asset paths with nothing to point at;
     * :func:`~osprey.deployment.compose_generator.resolve_image_platform` for
       ``images.platform``, passed as ``--platform``, the platform the wheel fit
-      check judged and the rendered ``FROM`` names; and
-    * the top-level ``offline`` key, read exactly as
-      :func:`osprey.interfaces.vendor.is_offline` reads it, so build-time
-      vendoring and the runtime check that decides whether to SERVE the
-      vendored assets cannot disagree. A deployment that sets ``offline: true``
-      and gets an image that never ran ``osprey vendor fetch`` serves broken
-      asset paths with nothing to point at.
+      check judged and the rendered ``FROM`` names.
 
     An axis the deployment did not set contributes nothing, so an unconfigured
     deployment's build command is exactly what it was before this existed.
@@ -2069,18 +2068,11 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
         verification against the site proxy much later.
     :raises ValueError: If ``images.platform`` names no accepted platform.
     """
-    from osprey.interfaces.vendor import offline_from_config
-
     args: list[str] = []
-    axes = resolve_site_image_axes(config)
-    for arg_name, value in axes.items():
+    for arg_name, value in resolve_site_build_args(config).items():
         if arg_name == "OSPREY_SITE_CA":
             value = _stage_site_ca(value, context_dir)
         args.extend(["--build-arg", f"{arg_name}={value}"])
-    if offline_from_config(config):
-        # "1" is the one spelling the Dockerfiles compare against; the config
-        # layer accepts every truthy spelling `is_offline` does.
-        args.extend(["--build-arg", "OSPREY_OFFLINE=1"])
     stated = resolve_image_platform(config)
     if stated:
         args.extend(["--platform", stated])
@@ -5548,7 +5540,7 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
     :param deadline: :func:`time.monotonic` instant to give up at.
     :raises RuntimeError: if the store is still unreachable at ``deadline``.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     last: Exception | None = None
     while True:
@@ -5577,7 +5569,7 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
     One session for the whole sequence, and each step gated on the one before:
 
     * **bootstrap** — always, and idempotent. A store whose graph config is not
-      osprey's (:attr:`~osprey.services.facility_knowledge.seeder.graph_seeder.BootstrapStatus.DIFFERS`)
+      osprey's (:attr:`~osprey.services.graph_store.seeder.BootstrapStatus.DIFFERS`)
       does not hold this corpus whatever its marker says: n10s refuses to
       re-initialize a configured store, so it is replaced like a stamp mismatch.
     * **stamp** — the store's ``(:_OspreySeed)`` marker is compared with
@@ -5603,7 +5595,7 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
         GRAPHDB_TTL_PATH_CONFIG_KEY,
         resolve_graphdb_service_config,
     )
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     settings = resolve_graphdb_service_config(config)
     ttl_path = settings.ttl_path if settings is not None else None
@@ -5669,7 +5661,7 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
     :param session: The staging step's open driver session.
     :param project_dir: Root of the built project.
     """
-    from osprey.services.facility_knowledge.seeder import prompt_snapshot
+    from osprey.services.graph_store import prompt_snapshot
 
     try:
         patched = prompt_snapshot.bake_snapshot(session, _graphdb_config_dir(project_dir))
@@ -7799,9 +7791,9 @@ def down_deployment(
     """Stop a deployment repo's stack, keeping every volume.
 
     The four-zone stop path, and the mirror of :func:`up_as_built`: it acts on
-    what a build left in ``build/`` and renders nothing. Where the legacy
-    :func:`deploy_down` re-renders the compose files when it cannot find them,
-    this refuses to render at stop time — the compose files that declared
+    what a build left in ``build/`` and renders nothing. Where a missing compose
+    file could be re-rendered from ``profile.yml``, this refuses to render at
+    stop time — the compose files that declared
     the running containers are a fact about the past, and re-deriving them from
     a since-edited profile can only produce a ``down`` aimed at a stack that was
     never started. :func:`_down_by_label` covers that case instead.
@@ -8014,186 +8006,3 @@ def restart_deployment(
         keep_archiver_base=keep_archiver_base,
         reuse_stores=reuse_stores,
     )
-
-
-def deploy_down(config_path, dev_mode=False):
-    """Stop services using container runtime (Docker or Podman).
-
-    When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
-    torn down first via its own compose invocation
-    (:func:`osprey.deployment.web_terminals.provision.deploy_down_web_terminals`):
-    the two stacks are separate invocations of one pinned base, and the
-    services ``down`` ends this process, so the web ``down`` must happen
-    before it.
-
-    :param config_path: Path to the configuration file
-    :type config_path: str
-    :raises SystemExit: Always — with the ``compose down`` child's own exit code.
-    """
-    config = load_project_config(config_path, wrap_errors=True)
-    repo_root = resolve_repo_root(config, config_path)
-    provider = _compose_provider(config)
-
-    if _web_terminals_enabled(config):
-        deploy_down_web_terminals(
-            config,
-            os.environ.copy(),
-            _env_file_args(repo_root, provider),
-            repo_root=repo_root,
-        )
-
-    deployed_services = config.get("deployed_services", [])
-    deployed_service_names = (
-        [str(service) for service in deployed_services] if deployed_services else []
-    )
-
-    # Try to use existing compose files (suppress warnings for status check)
-    from osprey.deployment.compose_generator import find_existing_compose_files
-
-    compose_files = _dedupe_compose_files(
-        find_existing_compose_files(config, deployed_service_names, quiet=True, base=repo_root)
-    )
-
-    # If no existing compose files found, rebuild them
-    if not compose_files:
-        logger.debug("No existing compose files found, rebuilding...")
-        _, compose_files = prepare_compose_files(config_path, dev_mode)
-    else:
-        logger.debug("Using existing compose files for 'down' operation:")
-        for f in compose_files:
-            logger.debug(f"  - {f}")
-
-    cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config), provider=provider),
-        compose_files,
-        repo_root,
-        _env_file_args(repo_root, provider),
-        provider,
-    )
-    cmd.append("down")
-
-    logger.debug(f"Running command:\n    {' '.join(cmd)}")
-    # The COMPOSE_PROJECT_NAME pin must reach compose: `down` must target the
-    # same project `up` created, or it either misses this deploy's containers
-    # or (unpinned) tears down the shared "services" project. That pin is why
-    # this used to `execvpe` rather than `execvp`; the captured run carries the
-    # same environment through `env=`.
-    run_env = runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
-    # check=False, then exit on the child's own code: `down` is the last thing
-    # this process does, and propagating the code verbatim keeps the exit
-    # status callers see identical to the exec'd child's.
-    proc = run_captured(
-        cmd, env=run_env, spool_name="compose-down", repo_root=repo_root, check=False
-    )
-    if proc.returncode == 0:
-        _report_step("containers stopped")
-        _hand_record_back_to_host(config, repo_root)
-    # A signal-killed child reports a NEGATIVE returncode, which sys.exit would
-    # mask to its low byte (-15 -> 241). Shells spell "killed by signal N" as
-    # 128+N, and 128+N is exactly what the exec'd child's own status used to be.
-    sys.exit(proc.returncode if proc.returncode >= 0 else 128 - proc.returncode)
-
-
-def deploy_restart(config_path, detached=False, expose_network=False):
-    """Restart services using container runtime (Docker or Podman).
-
-    :param config_path: Path to the configuration file
-    :type config_path: str
-    :param detached: Run in detached mode
-    :type detached: bool
-    :param expose_network: Expose services to all network interfaces (0.0.0.0)
-    :type expose_network: bool
-    """
-    config, compose_files = prepare_compose_files(config_path, expose_network=expose_network)
-
-    # config.yml is bind-mounted, so a restart is how an edit takes effect —
-    # including an edit into the pairing deploy_up refuses. Same guard, same
-    # reason. (`rebuild_deployment` reaches it through deploy_up.)
-    _refuse_invented_history(config)
-
-    # Verify container runtime is actually running
-    is_running, error_msg = verify_runtime_is_running(config)
-    if not is_running:
-        raise RuntimeError(error_msg)
-
-    # Honor the same fail-closed/expose guard as deploy_up when re-rendering with
-    # a (possibly newly exposed) bind address.
-    #
-    # ANCHORED, deliberately: this mints REAL SECRETS, and without an explicit
-    # env_path it falls back to a cwd-relative `.env`. Run from anywhere but the
-    # repo root that wrote tokens into a stray file — where the operator would
-    # never find them and the next deploy would mint different ones — and the
-    # containers pinned to the originals would not come back up.
-    _ensure_service_tokens(
-        config, expose_network, resolve_repo_root(config, config_path) / COMPOSE_ENV_FILENAME
-    )
-
-    # Same reason the token mint above runs on this path: the bluesky compose
-    # template expands the manager's private key with a `:?` guard, so an unset
-    # value aborts the whole `compose restart` rather than degrading. A project
-    # whose .env carries no key must not be broken by a restart. The
-    # document-plane certificates are NOT
-    # provisioned here -- they are bind-mount sources, and `compose restart`
-    # reuses each container's existing config rather than re-resolving mounts,
-    # so generating them would change nothing until the next `osprey up`.
-    # Anchored for the same reason as the token mint above — this mints a
-    # keypair, and a cwd-relative `.env` would strand it.
-    _ensure_bluesky_control_plane_keys(
-        config, resolve_repo_root(config, config_path) / COMPOSE_ENV_FILENAME
-    )
-
-    repo_root = resolve_repo_root(config, config_path)
-    provider = _compose_provider(config)
-    cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config), provider=provider),
-        compose_files,
-        repo_root,
-        _env_file_args(repo_root, provider),
-        provider,
-    )
-    cmd.append("restart")
-
-    logger.debug(f"Running command:\n    {' '.join(cmd)}")
-    subprocess.run(
-        cmd, env=runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
-    )
-
-    # If detached mode requested, detach after restart
-    if detached:
-        logger.debug("Services restarted. Running in detached mode.")
-
-
-def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_network=False):
-    """Rebuild deployment from scratch (clean + up).
-
-    Tears down this project's containers, volumes, and images via
-    :func:`clean_deployment`, then delegates the start-up to :func:`deploy_up`
-    so every up-path behavior — the web-terminals branch, the dev-mode
-    build/up split, the stale-container preflight — stays defined in exactly
-    one place. ``clean``'s ``down --rmi all`` removes the images, so the
-    delegated ``up`` rebuilds or pulls everything ``clean`` removed, so this
-    verb needs no build step of its own. The web-terminal
-    stack's per-user volumes are declared only in ``docker-compose.web.yml``
-    (never in the services compose files ``clean`` operates on), so a rebuild
-    recreates web containers but preserves user volumes.
-
-    :param config_path: Path to the configuration file
-    :type config_path: str
-    :param detached: Run in detached mode
-    :type detached: bool
-    :param dev_mode: Development mode for local framework testing
-    :type dev_mode: bool
-    :param expose_network: Expose services to all network interfaces (0.0.0.0)
-    :type expose_network: bool
-    """
-    config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
-
-    # Verify container runtime is actually running (for the clean phase;
-    # deploy_up re-verifies for its own).
-    is_running, error_msg = verify_runtime_is_running(config)
-    if not is_running:
-        raise RuntimeError(error_msg)
-
-    clean_deployment(compose_files, config, repo_root=resolve_repo_root(config, config_path))
-
-    deploy_up(config_path, detached=detached, dev_mode=dev_mode, expose_network=expose_network)

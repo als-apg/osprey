@@ -1,8 +1,9 @@
 """The computed slots of every wiring record.
 
 A wiring record carries eight slots the build fills and no author states:
-``direction``, ``unit``, ``default``, ``value_range``, ``role``, ``plane``,
-``refresh`` and ``marks``. ``default`` waits for a deck; ``role``, ``plane``,
+``direction``, ``unit``, ``default``, ``value_range``, ``engine_role``,
+``plane``, ``refresh`` and ``marks``. ``default`` waits for a deck;
+``engine_role``, ``plane``,
 ``refresh`` and ``marks`` wait for an engine, and are what the model's engine
 ``describe()`` says the record is, in the facility schema's words;
 ``direction``, ``unit`` and ``value_range`` are filled for every model. This module is their one writer: it loads each physics model's engine
@@ -43,7 +44,7 @@ __all__ = ["element_stop", "fill_wiring_slots"]
 _MODELS_FILE = "models.yaml"
 
 #: The keys of an engine's description every described wiring record carries.
-_DESCRIPTION_KEYS = ("role", "plane", "refresh")
+_DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
 #: The key of an engine's description listing its marks; written only when it lists one.
 _MARKS_KEY = "marks"
 
@@ -59,7 +60,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     * ``unit``: the channel's unit, when the channel states one;
     * ``value_range``: ``[min_value, max_value]`` of the channel's limits
       record, when that record states both bounds;
-    * ``role``, ``plane``, ``refresh`` and ``marks``: what the model's engine
+    * ``engine_role``, ``plane``, ``refresh`` and ``marks``: what the model's engine
       ``describe()`` says the record is; ``plane`` is null for a record that
       steers or reads no plane, and ``marks`` is absent for a record the
       engine marks with none.
@@ -186,7 +187,7 @@ def _fill_model(
                 stating_files(model, None, fallback=_MODELS_FILE),
                 "add describe() to the engine plug-in",
                 record_kind="model",
-                detail=f"engine {name} states no describe(), so its wiring records carry no role",
+                detail=f"engine {name} states no describe(), so its wiring records carry no engine_role",
             )
         ]
     records = [r for r in model.get("wiring", []) if r["address"] in channels]
@@ -307,7 +308,7 @@ def _check_description(
 
     address = str(record["address"])
     words: dict[str, frozenset[Any]] = {
-        "role": frozenset(member.value for member in core.WiringRoleEnum),
+        "engine_role": frozenset(member.value for member in core.EngineRoleEnum),
         "plane": frozenset(member.value for member in core.PlaneEnum) | {None},
         "refresh": frozenset(member.value for member in core.RefreshEnum),
         _MARKS_KEY: frozenset(member.value for member in core.WiringMarkEnum),
@@ -346,7 +347,7 @@ def _check_description(
         expected, why = "output", "it names no element"
     else:
         return
-    if description.get("role") != expected:
+    if description.get("engine_role") != expected:
         raise FacilityBuildError(
             "engine-invalid",
             str(model["name"]),
@@ -354,7 +355,7 @@ def _check_description(
             f"make the engine's describe() call {address} a {expected}",
             record_kind="model",
             detail=(
-                f"the engine describes {address} as a {description.get('role')}; "
+                f"the engine describes {address} as a {description.get('engine_role')}; "
                 f"it is a {expected}: {why}"
             ),
         )

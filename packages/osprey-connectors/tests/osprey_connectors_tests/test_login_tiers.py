@@ -36,8 +36,8 @@ def _section(login_tiers):
     return {"writes": "allowed", "login_tiers": login_tiers}
 
 
-def test_the_key_names_the_documented_location():
-    assert posture_store.LOGIN_TIERS_KEY == "control_system.login_tiers"
+def test_the_leaf_names_the_documented_location():
+    assert f"control_system.{posture_store._LOGIN_TIERS_LEAF}" == "control_system.login_tiers"
 
 
 @pytest.mark.parametrize(
@@ -194,7 +194,7 @@ def _shape() -> dict:
 
 def test_the_shape_fixture_states_location_shape_sources_and_arms():
     shape = _shape()
-    assert shape["location"] == posture_store.LOGIN_TIERS_KEY
+    assert shape["location"] == f"control_system.{posture_store._LOGIN_TIERS_LEAF}"
     assert shape["value_shape"]["values"] == ["allowed", "never"]
     assert shape["sources"]
     assert set(shape["terms"]) == {"skip", "allowed", "never", "unknown"}

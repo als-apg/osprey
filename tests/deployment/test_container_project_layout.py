@@ -320,7 +320,11 @@ def test_the_pinned_container_interpreter_is_the_base_images() -> None:
     framework hook in every image naming a path that is not there, and nothing
     would say so until an agent tried to start one.
     """
-    assert re.search(r"^FROM python:3\.12-slim\b", _rendered_dockerfile(), flags=re.M), (
+    assert re.search(
+        r"^FROM \$\{OSPREY_BASE_REGISTRY\}/library/python:3\.12-slim\b",
+        _rendered_dockerfile(),
+        flags=re.M,
+    ), (
         "the project image's base changed; re-derive _CONTAINER_INTERPRETER "
         "against the new base and update this pin"
     )
@@ -757,8 +761,8 @@ def test_a_produced_context_reports_neither_drift_nor_staleness(
 
     Two independent things read a build's provenance inside a container and an
     operator meets both: :func:`check_drift`, the gate every lifecycle verb goes
-    through, and :func:`staleness_reasons`, the advisory behind ``osprey status``
-    and the warning ``osprey up`` prints. They must agree, and on a freshly built
+    through, and :func:`staleness_reasons`, the advisory behind the warning
+    ``osprey up`` prints. They must agree, and on a freshly built
     image the agreement they owe is "nothing has changed".
 
     They agree only if they hash the SAME file. The gate reads ``profile.yml``

@@ -18,12 +18,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import session_handoff, session_meta
 from osprey.interfaces.web_terminal.routes import chat as chat_route
 from osprey.interfaces.web_terminal.routes.agent_turn import router as agent_turn_router
 from osprey.stores import session_ledger
 from osprey.stores.artifact_store import ArtifactStore, owner_of
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 from tests.interfaces.web_terminal._handoff_harness import (
     KEY as HARNESS_KEY,
 )
@@ -55,10 +56,10 @@ def shared_root(tmp_path, monkeypatch):
     root = tmp_path / "shared_agent_data"
     root.mkdir()
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
+    control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def _rows() -> list[tuple[str, str]]:

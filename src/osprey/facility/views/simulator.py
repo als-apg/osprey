@@ -5,7 +5,7 @@ Written into ``<render>/data/simulator/``::
     served_models.json   {schema: osprey.facility.served_models/1, models: [...]}
     addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...]}
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
-    variables.json       {schema: osprey.facility.simulator/2, code, models: [...], channels: [...]}
+    variables.json       {schema: osprey.facility.simulator/3, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
     scenarios.json       {schema: osprey.facility.scenarios/3, scenarios: [...]}
     scenarios/<name>/    a byte copy of each file a scenario's logbook entries attach
@@ -47,7 +47,7 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
 its element (or slices), engine block and calibration, plus the slots the build
 filled from the channel, its limits record and the model's engine (direction,
-unit, default, value_range, role, plane, refresh, marks) and, for a waveform
+unit, default, value_range, engine_role, plane, refresh, marks) and, for a waveform
 channel, its ``value_type`` and ``shape``.
 """
 
@@ -63,8 +63,8 @@ from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
-from osprey_connectors.simulation import STILL_SCENARIO
-from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
+from osprey_connectors.simulation.state import STILL_SCENARIO
+from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
@@ -142,7 +142,7 @@ _WIRING_ENTRY_KEYS = (
     "unit",
     "default",
     "value_range",
-    "role",
+    "engine_role",
     "plane",
     "refresh",
     "marks",
@@ -217,7 +217,7 @@ def served_deck_path(model: Mapping[str, Any]) -> str | None:
 
 def _waveform(channel: Mapping[str, Any]) -> dict[str, Any]:
     """A waveform channel's ``value_type`` and ``shape``; nothing for any other channel."""
-    if channel.get("value_type") != "waveform":
+    if not is_waveform(channel.get("value_type")):
         return {}
     return {"value_type": "waveform", "shape": list(channel.get("shape") or [])}
 

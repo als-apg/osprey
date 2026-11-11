@@ -59,6 +59,12 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
 )
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.upstream_images import (  # noqa: F401  (re-exported)
+    DOCKER_HUB,
+    UPSTREAM_IMAGES,
+    hub_image,
+    upstream_image,
+)
 
 # The dev-wheel build, per-process cache, and staging-copy helpers live in
 # wheel_build; the copy helper is invoked here by _stage_dev_wheel_for_context,
@@ -1153,7 +1159,8 @@ def _resolve_qmd_corpora(config, repo_root):
     * ARIEL's markdown mirror (``ariel``), when
       ``ariel.enhancement_modules.qmd_export`` is enabled AND names a
       ``mirror_path`` (an enabled export with no path is a config error the
-      exporter itself refuses at runtime; there is nothing to mount here).
+      exporter itself refuses at runtime; there is nothing to mount here); it
+      embeds only when ARIEL's hybrid search queries vectors.
 
     The corpora ``services.qmd.corpora`` declares follow, in list order.
 
@@ -1164,9 +1171,12 @@ def _resolve_qmd_corpora(config, repo_root):
     :return: Corpus descriptors with ``collection``, ``service``, ``port``,
         ``index`` (``managed`` or ``prebuilt``), ``source`` and ``target`` (the
         corpus mount, ``None`` for a prebuilt corpus without one), ``index_dir``
-        (the prebuilt index's bind source, else ``None``) and ``volume`` (the
-        managed index's named volume, else ``None``)
+        (the prebuilt index's bind source, else ``None``), ``volume`` (the
+        managed index's named volume, else ``None``) and ``embed`` (``False``
+        for a keyword-only index: a declared corpus's own ``embed``, and for
+        ``ariel`` whether ARIEL's hybrid search queries qmd's vectors)
     :rtype: list[dict]
+    :raises ValueError: If ARIEL's hybrid search is enabled with malformed settings
     """
     from osprey.deployment.qmd_service import (
         INDEX_MANAGED,
@@ -1180,7 +1190,7 @@ def _resolve_qmd_corpora(config, repo_root):
         bind_address=resolve_bind_address(config)
     )
 
-    def corpus(collection, raw_source, index=INDEX_MANAGED, raw_index_dir=None):
+    def corpus(collection, raw_source, index=INDEX_MANAGED, raw_index_dir=None, embed=True):
         managed = index == INDEX_MANAGED
         return {
             "collection": collection,
@@ -1193,6 +1203,7 @@ def _resolve_qmd_corpora(config, repo_root):
                 None if managed else repo_relative_mount_source(raw_index_dir, repo_root)
             ),
             "volume": f"qmd_index_{collection}" if managed else None,
+            "embed": embed,
         }
 
     corpora = []
@@ -1204,10 +1215,18 @@ def _resolve_qmd_corpora(config, repo_root):
 
     mirror_path = configured_ariel_mirror_path(config)
     if mirror_path is not None:
-        corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path))
+        from osprey.services.ariel_search.config import SearchModuleConfig
+        from osprey.services.ariel_search.search.qmd import qmd_lanes
+
+        hybrid = ((config.get("ariel") or {}).get("search_modules") or {}).get("hybrid")
+        lanes = qmd_lanes(
+            SearchModuleConfig.from_dict(hybrid) if isinstance(hybrid, dict) else None
+        )
+        # The ariel index holds vectors exactly when ARIEL's hybrid search queries them.
+        corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path, embed="vec" in lanes))
 
     corpora.extend(
-        corpus(declared.name, declared.source, declared.index, declared.index_dir)
+        corpus(declared.name, declared.source, declared.index, declared.index_dir, declared.embed)
         for declared in resolved.corpora
     )
 
@@ -1236,18 +1255,28 @@ def configured_ariel_mirror_path(config):
         or ``None``
     :rtype: str | None
     """
+    mirror_path = _qmd_export_setting(config, "mirror_path")
+    if isinstance(mirror_path, str) and mirror_path.strip():
+        return mirror_path.strip()
+    return None
+
+
+def _qmd_export_setting(config, key):
+    """One key of an enabled ARIEL qmd export, or ``None``.
+
+    The key may be written on the module block or inside its ``settings:``
+    mapping; ARIEL's loader merges the two with ``settings`` winning, so a key
+    present there wins. A disabled or absent export names nothing.
+    """
     ariel = (config or {}).get("ariel")
     modules = ariel.get("enhancement_modules") if isinstance(ariel, dict) else None
     export = modules.get("qmd_export") if isinstance(modules, dict) else None
     if not isinstance(export, dict) or not export.get("enabled"):
         return None
     settings = export.get("settings")
-    mirror_path = export.get("mirror_path")
-    if isinstance(settings, dict) and settings.get("mirror_path"):
-        mirror_path = settings["mirror_path"]
-    if isinstance(mirror_path, str) and mirror_path.strip():
-        return mirror_path.strip()
-    return None
+    if isinstance(settings, dict) and key in settings:
+        return settings[key]
+    return export.get(key)
 
 
 def resolve_ariel_mirror_dir(
@@ -1792,14 +1821,15 @@ def _image_axis_block(config):
 #: The site's build-time network settings, as ``Dockerfile ARG -> images.<key>``.
 #:
 #: These are the knobs a site network needs and the public internet does not: a
-#: TLS-intercepting proxy's CA, the proxy bypass list pip is given, and an
-#: internal package index. They are axes in the same sense ``images.registry``
-#: and ``images.tag`` are — one value per deployment, carried by every image
-#: OSPREY builds — which is why they share the block and its precedence rules
-#: rather than growing a section of their own.
+#: TLS-intercepting proxy's CA, the proxy bypass list pip is given, an internal
+#: package index, and the registry that stands in for docker.io, for a site that
+#: mirrors Docker Hub. They are axes in the same sense
+#: ``images.registry`` and ``images.tag`` are — one value per deployment,
+#: carried by every image OSPREY builds — which is why they share the block and
+#: its precedence rules rather than growing a section of their own.
 #:
 #: The ARG name doubles as the environment override, exactly as the two axes
-#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: three of the four
+#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: three of the five
 #: are names pip and the CA layer already read, so a build host that exports
 #: them for its own tooling does not then have to spell them again for OSPREY.
 SITE_IMAGE_AXES = {
@@ -1807,7 +1837,44 @@ SITE_IMAGE_AXES = {
     "PIP_NO_PROXY": "pip_no_proxy",
     "PIP_INDEX_URL": "pip_index_url",
     "PIP_EXTRA_INDEX_URL": "pip_extra_index_url",
+    "OSPREY_BASE_REGISTRY": "base_registry",
 }
+
+
+def resolve_base_registry(config):
+    """The registry standing in for docker.io this deployment declares.
+
+    The ``OSPREY_BASE_REGISTRY`` member of :func:`resolve_site_image_axes`, so
+    the environment-over-config layering and the trailing-``/`` drop are the
+    axis's own.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: The registry, or ``""`` when the deployment declares none.
+    :rtype: str
+    :raises ValueError: If ``images`` is not a block, or an axis declares a
+        value no build arg can carry.
+    """
+    return resolve_site_image_axes(config).get("OSPREY_BASE_REGISTRY", "")
+
+
+def resolve_upstream_images(config):
+    """The default reference of every pulled upstream image this deployment renders.
+
+    Each :data:`~osprey.deployment.upstream_images.UPSTREAM_IMAGES` entry passed
+    through :func:`~osprey.deployment.upstream_images.upstream_image` with
+    :func:`resolve_base_registry`, so a declared Docker Hub mirror moves every
+    one and an undeclared one leaves each spelled as Docker Hub names it.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: Template key -> image reference.
+    :rtype: dict[str, str]
+    :raises ValueError: If ``images`` is not a block, or an axis declares a
+        value no build arg can carry.
+    """
+    base_registry = resolve_base_registry(config)
+    return {key: upstream_image(key, base_registry) for key in UPSTREAM_IMAGES}
 
 
 def resolve_site_image_axes(config):
@@ -1822,6 +1889,10 @@ def resolve_site_image_axes(config):
     and passing one with an empty value is not the same as not passing it. The
     Dockerfiles declare each ARG with a default that means "no site setting",
     so an unset axis leaves the argv a deployment produces today unchanged.
+
+    ``base_registry`` names the registry that stands in for docker.io and loses
+    any trailing ``/``, so both spellings of a mirror resolve alike and ``/``
+    alone counts as unset.
 
     ``site_ca`` is a HOST path here — the file the operator points at. Staging
     it into a build context and rewriting the value to the name COPY can reach
@@ -1839,8 +1910,35 @@ def resolve_site_image_axes(config):
     resolved = {}
     for arg_name, key in SITE_IMAGE_AXES.items():
         value = _image_axis(arg_name, f"images.{key}", images.get(key), "")
+        if arg_name == "OSPREY_BASE_REGISTRY":
+            value = value.rstrip("/")
         if value:
             resolved[arg_name] = value
+    return resolved
+
+
+def resolve_site_build_args(config):
+    """Every value the site hands an OSPREY image build, keyed by ARG name.
+
+    The :func:`resolve_site_image_axes` values, plus ``OSPREY_OFFLINE`` when the
+    deployment is offline. That flag is read exactly as
+    :func:`osprey.interfaces.vendor.offline_from_config` reads it for the
+    serving check, so the mode an image is built for and the mode it serves in
+    cannot disagree. Its value is ``"1"``, the one spelling the recipes compare
+    against; an online deployment contributes no entry at all.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: ARG name -> value, the site axes in table order and
+        ``OSPREY_OFFLINE`` last.
+    :rtype: dict[str, str]
+    :raises ValueError: As :func:`resolve_site_image_axes`.
+    """
+    from osprey.interfaces.vendor import offline_from_config
+
+    resolved = resolve_site_image_axes(config)
+    if offline_from_config(config):
+        resolved["OSPREY_OFFLINE"] = "1"
     return resolved
 
 
@@ -1926,7 +2024,8 @@ def drives_target_write_posture(services, control_system):
     over ``control_system.writes``), not the service's target: the tier is a
     ceiling, not a selection, so an ``asked`` or ``allowed`` render arms every
     such service — each one binds the limits database and the control-context
-    tree its writes are judged against — and a ``never`` render arms none. Which
+    tree its writes are judged against — and a ``never`` render arms none (an
+    application container binds the tree on every render: its reads need it). Which
     machine a write actually reaches is the session's switch to decide at
     runtime, never the render's. The answer is computed here, once, and read off
     each service's own ``services.<key>`` block, because a template makes no
@@ -2567,7 +2666,10 @@ def _inject_project_metadata(config):
     to its entry — ``<project>:local`` until the registry or tag axis moves it,
     the tag ``osprey up`` builds from the project ``Dockerfile`` — unless the
     profile pinned an explicit ``services.dispatch_worker.image``, or the
-    worker runs at a tier, whose render image it then runs. The
+    worker runs at a tier, whose render image it then runs. It injects the
+    default reference of every pulled upstream image as ``upstream_images``
+    (:func:`resolve_upstream_images`), moved onto ``images.base_registry`` when
+    the deployment declares one. The
     event-dispatcher's own image is left to its template (it builds its tag via
     a compose ``build:`` block; the worker deliberately has none). It also injects
     the lane registry's second-lane keys (``bluesky_second_lane_keys``), so every
@@ -2835,6 +2937,9 @@ def _inject_project_metadata(config):
         write_ledger_relpath()
     )
     config_with_labels["write_ledger_container_dir"] = WRITE_LEDGER_CONTAINER_DIR
+    from osprey_connectors.write_authorization import LEDGER_DIR_ENV_VAR
+
+    config_with_labels["write_ledger_env"] = LEDGER_DIR_ENV_VAR
 
     # ARIEL's markdown mirror, in the same two spellings and for the same
     # reason as the spool and state zones above: the HOST bind source compose resolves
@@ -2939,6 +3044,12 @@ def _inject_project_metadata(config):
     # line reads a value rather than restating how a name is built, and so a
     # stack cannot end up half on the registry and half on ``:local``.
     config_with_labels["osprey_images"] = image_defaults = resolve_image_defaults(config)
+
+    # The default reference of each pulled upstream image, already moved onto
+    # the site's Docker Hub mirror when one is declared
+    # (:func:`resolve_upstream_images`). A template's own image override still
+    # names its image outright.
+    config_with_labels["upstream_images"] = resolve_upstream_images(config)
 
     # Default the dispatch worker's image to the project image that
     # ``osprey up`` builds. The worker compose template renders
@@ -3146,9 +3257,6 @@ APP_RUNTIME_CONTEXT: Mapping[str, str] = {
     ),
     "osprey_container_guarded_run_dir": "the guarded-run directory inside the project image",
     "services.<k>.state_mounts": "the declared state directories, `[{source, target}]`",
-    "services.<k>.writes_enabled": (
-        "the render's `control_system.writes` tier arms writes (`asked` or `allowed`)"
-    ),
     "services.<k>.stop_grace_period": "the grace compose gives the container to stop",
     "services.<k>.ca_env": "the Channel Access addressing block",
 }
@@ -3873,8 +3981,9 @@ def _refuse_retired_grant_names(env, template_path, output_filepath):
 def _site_image_args_for_context(config, out_dir):
     """The site build args a service's compose fragment renders.
 
-    The three images ``osprey up`` builds from a command line of its own get
-    these as ``--build-arg`` flags
+    The site settings and the deployment's offline flag
+    (:func:`resolve_site_build_args`). The three images ``osprey up`` builds
+    from a command line of its own get these as ``--build-arg`` flags
     (:func:`osprey.deployment.container_lifecycle.site_image_build_args`). A
     managed service image has no such command line — ``docker compose build``
     builds it from its own rendered context — so the same values have to reach
@@ -3898,7 +4007,8 @@ def _site_image_args_for_context(config, out_dir):
     :type config: dict
     :param out_dir: The service's build context.
     :type out_dir: str
-    :return: ARG name -> value, empty when the deployment declares no axis.
+    :return: ARG name -> value, empty when the deployment declares no axis and
+        is not offline.
     :rtype: dict[str, str]
     """
     # Function-local: container_lifecycle imports this module at module level,
@@ -3910,7 +4020,7 @@ def _site_image_args_for_context(config, out_dir):
 
     return {
         arg_name: SITE_CA_CONTEXT_FILENAME if arg_name == "OSPREY_SITE_CA" else value
-        for arg_name, value in resolve_site_image_axes(config).items()
+        for arg_name, value in resolve_site_build_args(config).items()
     }
 
 

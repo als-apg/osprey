@@ -7,9 +7,9 @@ which refuses a file whose ``schema`` is not the one this OSPREY reads, so a
 render from an older OSPREY is rebuilt rather than misread.
 
 A wiring record of a physics model carries what its engine's ``describe()``
-stated at build time: its ``role`` (one of :data:`ROLES`), the transverse
+stated at build time: its ``engine_role`` (one of :data:`ENGINE_ROLES`), the transverse
 ``plane`` it steers or reads (``x``, ``y`` or ``None``), its ``refresh``
-(``pass`` or ``periodic``) and, when it carries any, its ``marks`` (of
+(one of :data:`REFRESH`) and, when it carries any, its ``marks`` (of
 :data:`MARKS`). The words are the facility schema's. A ``readback`` is any read of an element's setting, paired
 with a setpoint or not; a reader wanting the readback of a setpoint reads that
 setpoint channel's ``pair``.
@@ -33,15 +33,14 @@ __all__ = [
     "ADDRESSES_SCHEMA",
     "COMMAND_MARK",
     "DECKS_DIR",
+    "ENGINE_ROLES",
     "MARKS",
     "MONITOR",
-    "NO_VIEW_MESSAGE",
     "OUTPUT",
     "PERIODIC",
     "PLANES",
     "READBACK",
     "REFRESH",
-    "ROLES",
     "SCENARIOS_DIR",
     "SCENARIOS_FILE",
     "SCENARIOS_SCHEMA",
@@ -70,7 +69,7 @@ SERVED_MODELS_SCHEMA = "osprey.facility.served_models/1"
 ADDRESSES_FILE = "addresses.json"
 ADDRESSES_SCHEMA = "osprey.facility.addresses/1"
 VARIABLES_FILE = "variables.json"
-VARIABLES_SCHEMA = "osprey.facility.simulator/2"
+VARIABLES_SCHEMA = "osprey.facility.simulator/3"
 SEEDS_FILE = "seeds.json"
 SEEDS_SCHEMA = "osprey.facility.seeds/2"
 SCENARIOS_FILE = "scenarios.json"
@@ -99,15 +98,16 @@ SETPOINT = "setpoint"
 READBACK = "readback"
 MONITOR = "monitor"
 OUTPUT = "output"
-#: The roles a wiring record's description names. A channel's facility role
+#: The engine roles a wiring record's description names. A channel's facility role
 #: is ``setpoint`` or ``readback``.
-ROLES = (SETPOINT, READBACK, MONITOR, OUTPUT)
+ENGINE_ROLES = (SETPOINT, READBACK, MONITOR, OUTPUT)
 #: The planes a wiring record's description names; ``None`` is no plane.
 PLANES = ("x", "y")
 PERIODIC = "periodic"
 #: The refresh a wiring record's description names: ``pass`` with each
-#: write's solve, ``periodic`` with the periodic solve alone.
-REFRESH = ("pass", PERIODIC)
+#: write's solve, ``periodic`` with the periodic solve alone, ``fast`` at the
+#: fast period, ``event`` with each event the engine raises.
+REFRESH = ("pass", PERIODIC, "fast", "event")
 #: The mark of a record whose write is a command; only a ``write`` record
 #: carries it.
 COMMAND_MARK = "command"
@@ -115,10 +115,10 @@ COMMAND_MARK = "command"
 MARKS = (COMMAND_MARK,)
 
 #: The text a missing view reports.
-NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
+_NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
 
 #: The keys a wiring record's description adds.
-_DESCRIPTION_KEYS = ("role", "plane", "refresh")
+_DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
 #: The key listing the marks a wiring record carries; absent when it carries none.
 _MARKS_KEY = "marks"
 
@@ -221,12 +221,12 @@ class Binding:
         model: The model the record belongs to.
         address: The channel address the record serves.
         direction: ``write`` or ``read``.
-        role: One of :data:`ROLES`.
+        engine_role: One of :data:`ENGINE_ROLES`.
             A ``readback`` reads an element's setting, paired with a setpoint
             or not; the setpoint channel's ``pair`` names its readback.
         plane: ``x`` or ``y`` for a record steering or reading one transverse
             plane, else ``None``.
-        refresh: ``pass`` or ``periodic``.
+        refresh: One of :data:`REFRESH`.
         element: The element the record names, or ``None`` (a record naming
             slices, or none).
         record: The wiring record as the view states it, read-only; the
@@ -239,7 +239,7 @@ class Binding:
     model: str
     address: str
     direction: str
-    role: str
+    engine_role: str
     plane: str | None
     refresh: str
     element: str | None
@@ -251,7 +251,7 @@ class Binding:
         """Read one wiring record of ``variables.json``.
 
         Raises:
-            ViewSchemaError: the record lacks ``role``, ``plane`` or
+            ViewSchemaError: the record lacks ``engine_role``, ``plane`` or
                 ``refresh``.
         """
         missing = [key for key in _DESCRIPTION_KEYS if key not in record]
@@ -265,7 +265,7 @@ class Binding:
             model=model,
             address=str(record["address"]),
             direction=str(record.get("direction")),
-            role=record["role"],
+            engine_role=record["engine_role"],
             plane=record["plane"],
             refresh=record["refresh"],
             element=record.get("element"),
@@ -319,7 +319,7 @@ class SimulatorView:
         self._channel_records: Mapping[str, Channel] | None = None
         self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
         if not (self.path / ADDRESSES_FILE).is_file():
-            raise NoSimulatorView(NO_VIEW_MESSAGE.format(path=self.path))
+            raise NoSimulatorView(_NO_VIEW_MESSAGE.format(path=self.path))
         self.document(ADDRESSES_FILE)
 
     @classmethod
@@ -483,7 +483,7 @@ class SimulatorView:
         self,
         *,
         model: str | None = None,
-        role: str | None = None,
+        engine_role: str | None = None,
         plane: str | None = None,
         node: str | None = None,
         served_only: bool = True,
@@ -492,7 +492,7 @@ class SimulatorView:
 
         Args:
             model: Only this model's records.
-            role: Only records of this role.
+            engine_role: Only records of this engine role.
             plane: Only records of this plane.
             node: Only records whose channel is on this node (a value of the
                 channel's ``on``).
@@ -503,7 +503,7 @@ class SimulatorView:
             binding
             for binding in self._all_bindings(served_only)
             if (model is None or binding.model == model)
-            and (role is None or binding.role == role)
+            and (engine_role is None or binding.engine_role == engine_role)
             and (plane is None or binding.plane == plane)
             and (node is None or node in _on_nodes(channels.get(binding.address)))
         )

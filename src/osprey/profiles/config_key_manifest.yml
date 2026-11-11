@@ -353,6 +353,21 @@ keys:
       The second index, consulted after `images.pip_index_url`; same layering
       and the same empty-versus-unset handling.
     default: ''
+  images.base_registry:
+    rendered: false
+    evidence: '"OSPREY_BASE_REGISTRY": "base_registry"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the
+      presets. The registry that stands in for docker.io. Every shipped recipe
+      builds FROM `<it>/library/<image>`, and the pulled upstream defaults
+      (postgres, mongodb, graphdb, the Redis pair, ClickHouse, nginx, the
+      transcripts copy) and the scaffolded pipeline's job images are rendered
+      `<it>/<Docker Hub path>`; a per-image override wins unchanged. Unset, the
+      recipes' default docker.io stands and rendered references are spelled
+      as Docker Hub names them. The mirror must keep Docker Hub's paths. A
+      trailing slash is dropped. OSPREY_BASE_REGISTRY overrides it in the
+      environment (not in the scaffolded pipeline, which reads the profile).
+    default: ''
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}
@@ -437,7 +452,8 @@ keys:
       mirror), each served by its own sidecar at `port + 2` onwards in list
       order. An entry is `name`, `index` (`managed`, the default: the sidecar
       indexes `source`; `prebuilt`: it serves the index in `index_dir`, built
-      elsewhere) and the path that mode needs. `preflight_qmd_corpora` refuses
+      elsewhere), the path that mode needs, and `embed` (default true; false on
+      a managed corpus builds the keyword index only). `preflight_qmd_corpora` refuses
       the deploy when a declared path has nothing in it to index or serve.
     default: null
   # `services.qmd.bind_address` is deliberately absent: the sidecar publishes on
@@ -2084,7 +2100,7 @@ keys:
     evidence: 'lists no models and names no default_model'
     note: >-
       Provider NAMES are user-extensible data, not schema — membership
-      deliberately differs (11 providers in project/demo/
+      deliberately differs (13 providers in project/demo/
       hello_world; a deployment may list a subset). The
       guard checks SHAPE per provider (base_url present, default_model
       present and in the models list, models a non-empty list of ids), never
@@ -3147,11 +3163,11 @@ keys:
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
   # have usable defaults, so a facility writes a block only to ADD its own
-  # checks or retune the timing. Only the three sub-blocks the configuration
-  # reference names as dotted paths (`categories`, `auto`, `disk`) are carried
-  # here; the scalar suite settings
-  # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`) are documented as
-  # bare leaf names and read straight off the same mapping.
+  # checks or retune the timing. The keys carried here are the ones the
+  # configuration reference names as dotted paths: the sub-blocks
+  # (`categories`, `auto`, `disk`) and the scalar suite settings
+  # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`), all read off the
+  # same mapping.
   health.categories:
     rendered: false
     evidence: 'categories_raw = health\.get\("categories"\) or \{\}'
@@ -3902,7 +3918,7 @@ keys:
     default: latest
   modules.web_terminals.nginx_image:
     rendered: false
-    evidence: 'web_terminals\.get\("nginx_image"\) or _DEFAULT_NGINX_IMAGE'
+    evidence: 'upstream_image\("nginx", resolve_base_registry\(root\)\)'
     default: nginx:1.31-alpine
   modules.web_terminals.tls:
     rendered: false
@@ -4230,6 +4246,10 @@ deleted:
 - modules.web_terminals.default_persona  # retired-spelling
   # OSPREY no longer deletes channel readings, so no window bounds them.
 - control_system.channel_read_artifact_retention
+  # The ariel corpus's embed switch. The ariel qmd sidecar embeds exactly when
+  # ARIEL hybrid search queries qmd's vectors. No orphan_sites row, because the
+  # back-test baseline never held a site of it.
+- ariel.enhancement_modules.qmd_export.settings.embed
 
 # ---------------------------------------------------------------------------
 # orphan_sites — per deleted key, regexes for its removed code sites. Every
@@ -4660,7 +4680,7 @@ render_contexts:
       claude_code.servers: <server>
       apps: <app>
       apps.<app>.approval: <tool>
-  expected_union_size: 429
+  expected_union_size: 434
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

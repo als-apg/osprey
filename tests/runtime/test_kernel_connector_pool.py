@@ -26,6 +26,7 @@ import pytest
 import yaml
 
 import osprey.runtime as runtime
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
@@ -105,7 +106,7 @@ def state_root(tmp_path, monkeypatch):
     """A throwaway agent-data root the write pin reads its record from."""
     root = tmp_path / "var" / "agent_data"
     state_dir_under(root).mkdir(parents=True)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     control_context.invalidate_cache()
     yield root
     control_context.invalidate_cache()

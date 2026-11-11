@@ -37,74 +37,53 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 __all__ = [
-    "DECAY_FORM",
-    "LIFETIME_KEY",
-    "REFILL_PHASE",
-    "SECONDS_PER_HOUR",
-    "SHAPE_CONSTANT_NAMES",
     "SHAPE_VERSION",
-    "TOPOFF_KEY",
     "held_value",
     "period_mean",
-    "shape",
-    "shape_version",
     "tau_period",
     "tooth_depth",
     "topoff_record",
 ]
 
 #: The seed key of a decaying, refilling channel.
-TOPOFF_KEY = "topoff"
+_TOPOFF_KEY = "topoff"
 #: The seed key of a channel holding a ``topoff`` seed's lifetime.
-LIFETIME_KEY = "topoff_lifetime"
+_LIFETIME_KEY = "topoff_lifetime"
 #: Seconds per lifetime hour.
-SECONDS_PER_HOUR = 3600.0
+_SECONDS_PER_HOUR = 3600.0
 #: Form of the decay between refills; part of the shape digest.
-DECAY_FORM = "exponential"
+_DECAY_FORM = "exponential"
 #: Where in a period the refill lands; part of the shape digest.
-REFILL_PHASE = "period_start"
+_REFILL_PHASE = "period_start"
 
-#: The constants :data:`SHAPE_VERSION` digests, in a fixed order.
-SHAPE_CONSTANT_NAMES: tuple[str, ...] = ("SECONDS_PER_HOUR", "DECAY_FORM", "REFILL_PHASE")
+#: The constants :data:`SHAPE_VERSION` digests, in a fixed order. Each is
+#: digested under its name without the leading underscore, the spelling it had
+#: while it was public, so making them private left the digest unchanged.
+_SHAPE_CONSTANT_NAMES: tuple[str, ...] = ("_SECONDS_PER_HOUR", "_DECAY_FORM", "_REFILL_PHASE")
 
 
-def shape_version() -> str:
-    """Digest of the current shape constants (see :data:`SHAPE_CONSTANT_NAMES`)."""
+def _shape_version() -> str:
+    """Digest of the current shape constants (see :data:`_SHAPE_CONSTANT_NAMES`)."""
     module = globals()
-    text = ";".join(f"{name}={module[name]!r}" for name in SHAPE_CONSTANT_NAMES)
+    text = ";".join(f"{name.lstrip('_')}={module[name]!r}" for name in _SHAPE_CONSTANT_NAMES)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 #: Digest of the shape constants; the archive seed fingerprint consumes it.
-SHAPE_VERSION = shape_version()
+SHAPE_VERSION = _shape_version()
 
 
 def topoff_record(seed: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
     """The ``topoff`` record of a seed, or None when it has none."""
     if not seed:
         return None
-    record = seed.get(TOPOFF_KEY)
+    record = seed.get(_TOPOFF_KEY)
     return record if isinstance(record, Mapping) else None
 
 
 def tau_period(record: Mapping[str, Any]) -> tuple[float, float]:
     """``(tau, period_s)`` of a ``topoff`` record, both in seconds."""
-    return float(record["lifetime_h"]) * SECONDS_PER_HOUR, float(record["period_s"])
-
-
-def shape(record: Mapping[str, Any], t_s: float) -> float:
-    """The unit sawtooth ``s(t)`` of a ``topoff`` record at epoch second ``t_s``.
-
-    Args:
-        record: The ``topoff`` record, ``{ceiling, lifetime_h, period_s}``.
-        t_s: Absolute epoch seconds.
-
-    Returns:
-        ``exp(-((t_s mod period_s) / tau))``: 1.0 at each refill, falling
-        towards ``exp(-period_s / tau)`` just before the next.
-    """
-    tau, period = tau_period(record)
-    return math.exp(-(float(t_s) % period) / tau)
+    return float(record["lifetime_h"]) * _SECONDS_PER_HOUR, float(record["period_s"])
 
 
 def period_mean(record: Mapping[str, Any]) -> float:
@@ -145,7 +124,7 @@ def held_value(
     record = topoff_record(seed)
     if record is not None:
         return float(record["ceiling"]) * period_mean(record)
-    lifetime = (seed or {}).get(LIFETIME_KEY)
+    lifetime = (seed or {}).get(_LIFETIME_KEY)
     if not isinstance(lifetime, Mapping) or lookup is None:
         return None
     source = topoff_record(lookup(str(lifetime.get("of"))))

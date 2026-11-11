@@ -451,13 +451,13 @@ Suite timing
 
 Three scalar settings tune the suite as a whole:
 
-- ``suite_timeout_s`` (default 30) — the wall-clock budget bounding all
+- ``health.suite_timeout_s`` (default 30) — the wall-clock budget bounding all
   poll-class categories collectively. It is also the default budget for a
   poll-class callable category.
-- ``on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
+- ``health.on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
   categories collectively (only relevant under ``--full``). When omitted it
   defaults to the sum of the selected on_demand categories' budgets.
-- ``interval_s`` — the minimum interval between server-side re-runs. When
+- ``health.interval_s`` — the minimum interval between server-side re-runs. When
   omitted it derives as ``max(60, 2 × suite_timeout_s)``; an explicit value must
   be greater than ``suite_timeout_s`` or the config is rejected. This value is
   validated but not yet enforced by ``osprey health`` itself.
@@ -1383,8 +1383,8 @@ Two things about *when* and *where* this applies are worth having straight:
   deployment that never heard of them is unaffected.
 
 The axes never touch an upstream pin. Prefixing ``mongo:7`` with your
-registry would name an image that exists in no registry; mirror those through
-their own row instead.
+registry would name an image that exists in no registry.
+``images.base_registry`` moves the Docker Hub ones onto a mirror; a ``services.<name>.image`` pin moves one.
 
 .. _compose-interpolation-precedence:
 

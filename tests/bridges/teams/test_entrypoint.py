@@ -47,15 +47,13 @@ import httpx
 import pytest
 
 import osprey.bridges.teams.__main__ as main_module
-from osprey.bridges.core import CoreConfig, PipelineDeps
+from osprey.bridges.core import CoreConfig, PipelineDeps, install_signal_handlers
 from osprey.bridges.teams.__main__ import (
     CANNOT_START,
     QUIET_LIBRARIES,
     Wiring,
     build_wiring,
     config_from_env,
-    configure_logging,
-    install_signal_handlers,
     main,
     run,
     serve_events,
@@ -672,8 +670,12 @@ def test_the_chatty_libraries_are_demoted(monkeypatch: pytest.MonkeyPatch) -> No
     seconds."""
     for name in QUIET_LIBRARIES:
         monkeypatch.setattr(logging.getLogger(name), "level", logging.NOTSET)
+    monkeypatch.setattr(os, "environ", {})
 
-    configure_logging()
+    # Through ``main`` — which sets up logging before it refuses the empty environment —
+    # so what is proven is that this bridge hands core its own list.
+    with pytest.raises(SystemExit):
+        main()
 
     assert all(logging.getLogger(name).level == logging.WARNING for name in QUIET_LIBRARIES)
 

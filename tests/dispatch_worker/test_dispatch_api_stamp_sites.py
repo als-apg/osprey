@@ -15,17 +15,22 @@ import time
 
 import pytest
 
-from osprey.mcp_server.dispatch_worker import dispatch_api, failure_class, run_stats, sdk_runner
+from osprey.mcp_server.dispatch_worker import (
+    counters,
+    dispatch_api,
+    failure_class,
+    run_stats,
+    sdk_runner,
+)
 from osprey.mcp_server.dispatch_worker.dispatch_api import DispatchRequest
 
 
 @pytest.fixture
-def counter_calls():
-    """Observe every _stamp counter increment via the register_counter_hook seam."""
+def counter_calls(monkeypatch):
+    """Observe every _stamp counter increment by replacing ``counters.increment``."""
     calls: list[str] = []
-    failure_class.register_counter_hook(calls.append)
-    yield calls
-    failure_class.register_counter_hook(None)
+    monkeypatch.setattr(counters, "increment", calls.append)
+    return calls
 
 
 @pytest.fixture

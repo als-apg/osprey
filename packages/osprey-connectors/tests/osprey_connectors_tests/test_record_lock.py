@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import control_context
+from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import (
     data_root,
     race_record_writers,
@@ -54,7 +54,7 @@ def test_the_lock_follows_an_explicit_path(tmp_path):
     )
     assert elsewhere.is_file()
     assert (tmp_path / "elsewhere" / "record.json.lock").is_file()
-    assert not control_context.state_dir().exists()
+    assert not posture_store.state_dir().exists()
 
 
 def test_a_symlinked_lock_refuses_the_write_and_leaves_its_target_alone(data_root):

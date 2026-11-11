@@ -1115,7 +1115,7 @@ def renders_declaring_panel(
 def _panel_roster_grants(
     config: Any, project_root: Any, panel_id: str, layer_root: Any = None
 ) -> list[tuple[str, str]]:
-    """The roster users a panel's service is handed a secret for.
+    """The roster cards a panel's service is handed a secret for.
 
     The one entitlement walk behind every rendered form of a roster grant: the
     variable list the service's compose declares and the owner map its gate
@@ -1125,8 +1125,11 @@ def _panel_roster_grants(
     Entitlement is decided the way the web-terminal render decides every
     per-user grant: a user with a render (their own, else ``default_tier``)
     by whether that render's rendered ``config.yml`` declares the panel
-    (:func:`renders_declaring_panel`). Roster order, so the rendered compose is
-    stable across runs.
+    (:func:`renders_declaring_panel`). A shared login's card is walked too, by
+    its own render: its terminal proxies the panel with the secret its container
+    holds and acts as the card's name, so the grant names it by that name.
+    Roster order (people, then shared cards), so the rendered compose is stable
+    across runs.
 
     Read off the renders' rendered ``config.yml`` files. The render that
     carries it is ``osprey build``'s — the start verbs are as-built and
@@ -1141,14 +1144,14 @@ def _panel_roster_grants(
     :param panel_id: The panel whose declaration is the entitlement.
     :param layer_root: Where a build in flight has rendered its renders;
         see :func:`_render_configs`.
-    :return: ``(username, OSPREY_TERMINAL_SECRET_<SUFFIX>)`` pairs, one per
-        entitled user, in roster order; empty when no user shows the panel.
+    :return: ``(card name, OSPREY_TERMINAL_SECRET_<SUFFIX>)`` pairs, one per
+        entitled card, in roster order; empty when no card shows the panel.
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
-    people = roster_people(web_terminals)
-    if not people:
+    cards = roster_entries(web_terminals)
+    if not cards:
         return []
     raw_users = authored_people(web_terminals)
     # A read, not a gate: an authorization block that does not parse binds no
@@ -1166,8 +1169,8 @@ def _panel_roster_grants(
     entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
 
     grants: list[tuple[str, str]] = []
-    for entry in people:
-        tier = refs.get(entry["name"]) or default_tier
+    for entry in cards:
+        tier = entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier
         if tier in entitled_renders:
             grants.append((entry["name"], terminal_secret_var(entry["name"])))
     return grants
@@ -1210,7 +1213,8 @@ def service_panel_grant(
             continue
         web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
         # Switched-off per-user terminals hold no secret: only the one terminal is left.
-        has_roster = web_terminals.get("enabled") is not False and roster_people(web_terminals)
+        # A roster of shared cards alone is a roster: each card holds its own secret.
+        has_roster = web_terminals.get("enabled") is not False and roster_entries(web_terminals)
         if not row.single_user_alias or has_roster:
             grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
             return {
@@ -3400,8 +3404,9 @@ def resolve_image_tag(web_terminals: dict[str, Any]) -> str:
     compose-side ``${...}`` the runtime would re-interpolate at ``up`` time. A
     referenced variable that is unset expands to the empty string (unlike
     :func:`os.path.expandvars`, which would leave the reference in place and leak
-    a ``${...}`` into the output); an image_tag that resolves entirely empty is a
-    lint warning (``_check_image_tag_empty``), never a silent bad tag.
+    a ``${...}`` into the output). In registry mode a reference that expands to
+    empty is refused by :func:`image_tag_problem`, which lint, render and the
+    ``up`` preflight all call.
 
     This is the single source of that resolution — :func:`resolve_cards` and
     lint both route through it so the tag is read and expanded identically.
@@ -3410,6 +3415,41 @@ def resolve_image_tag(web_terminals: dict[str, Any]) -> str:
     if not isinstance(raw, str):
         raw = "latest"
     return _ENV_REF_RE.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), raw)
+
+
+def image_tag_problem(web_terminals: dict[str, Any]) -> str | None:
+    """The refusal for a registry-mode ``image_tag`` that expands to an empty
+    tag or tag part, else ``None``.
+
+    Registry mode bakes the resolved tag into every pulled image ref, so each
+    referenced variable that is unset or empty in the process environment is
+    named, in order of first reference. Local mode never reads ``image_tag``,
+    and an absent or non-string value resolves to ``latest``.
+    """
+    if effective_image_source(web_terminals) != "registry":
+        return None
+    raw = web_terminals.get("image_tag")
+    if not isinstance(raw, str):
+        return None
+    empty: list[str] = []
+    for match in _ENV_REF_RE.finditer(raw):
+        name = match.group(1) or match.group(2)
+        if not os.environ.get(name, "") and name not in empty:
+            empty.append(name)
+    if empty:
+        resolved = resolve_image_tag(web_terminals)
+        shown = f"'{resolved}'" if resolved else "an empty string"
+        verb, pronoun = ("is", "it") if len(empty) == 1 else ("are", "them")
+        return (
+            f"modules.web_terminals.image_tag '{raw}' resolved to {shown}: "
+            f"{', '.join(empty)} {verb} not set; export {pronoun} in the shell that runs "
+            "osprey build and osprey up"
+        )
+    if raw == "":
+        return (
+            "modules.web_terminals.image_tag is empty; set a tag, or remove the key to use latest"
+        )
+    return None
 
 
 def _render_ref_by_name(

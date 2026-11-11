@@ -24,6 +24,8 @@ from typing import Any, Literal
 
 import yaml
 
+from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
+
 _FRONTMATTER_DELIM = "---"
 
 # Validation levels supported by :py:meth:`OKFDocument.validate`.
@@ -75,28 +77,10 @@ class OKFDocument:
             OKFDocumentError: If the frontmatter block is unterminated or
                 contains non-mapping YAML.
         """
-        lines = text.splitlines()
-        if not lines or lines[0].strip() != _FRONTMATTER_DELIM:
-            return cls(frontmatter={}, body=text)
-
-        end_idx: int | None = None
-        for i in range(1, len(lines)):
-            if lines[i].strip() == _FRONTMATTER_DELIM:
-                end_idx = i
-                break
-        if end_idx is None:
-            raise OKFDocumentError("Unterminated YAML frontmatter block")
-
-        fm_text = "\n".join(lines[1:end_idx])
         try:
-            fm = yaml.safe_load(fm_text) or {}
-        except yaml.YAMLError as exc:
-            raise OKFDocumentError(f"Invalid YAML in frontmatter: {exc}") from exc
-        if not isinstance(fm, dict):
-            raise OKFDocumentError("Frontmatter must be a YAML mapping")
-
-        body = "\n".join(lines[end_idx + 1 :])
-        body = body.removeprefix("\n")
+            fm, body = split_frontmatter(text)
+        except FrontmatterError as exc:
+            raise OKFDocumentError(str(exc)) from exc
         return cls(frontmatter=fm, body=body)
 
     # ------------------------------------------------------------------

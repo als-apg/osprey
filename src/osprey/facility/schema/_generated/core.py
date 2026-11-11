@@ -663,7 +663,7 @@ class RoleEnum(str, Enum):
     """
 
 
-class WiringRoleEnum(str, Enum):
+class EngineRoleEnum(str, Enum):
     """
     What a model's engine says a wiring record is.
     """
@@ -710,6 +710,14 @@ class RefreshEnum(str, Enum):
     periodic = "periodic"
     """
     With the periodic solve alone.
+    """
+    fast = "fast"
+    """
+    At the fast period, faster than the periodic solve.
+    """
+    event = "event"
+    """
+    With each event the engine raises, such as a shot.
     """
 
 
@@ -1440,7 +1448,7 @@ class Channel(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
-    role: Optional[RoleEnum] = Field(default=None, description="""Absent means readback.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
+    role: Optional[RoleEnum] = Field(default=None, description="""Absent means readback.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     pair: Optional[str] = Field(default=None, description="""The readback address of a setpoint. Absent, the build pairs the setpoint with the one readback on the same device, place or nothing whose signal names the same quantity, else with itself.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     tolerance: Optional[Tolerance] = Field(default=None, description="""On a float setpoint: how close its readback (its pair, else itself) must come.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     on: Optional[OnTarget] = Field(default=None, description="""Absent means the channel belongs to nothing.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
@@ -1632,7 +1640,7 @@ class Wiring(ConfiguredBaseModel):
     unit: Optional[str] = Field(default=None, description="""Computed from the channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
     default: Optional[Any] = Field(default=None, description="""Computed; the operating point from the deck.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     value_range: Optional[list[float]] = Field(default=None, description="""Computed from the channel's limits record.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring'], 'list_elements_ordered': True} })
-    role: Optional[WiringRoleEnum] = Field(default=None, description="""Computed; what the model's engine says the record is.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
+    engine_role: Optional[EngineRoleEnum] = Field(default=None, description="""Computed; what the model's engine says the record is.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     plane: Optional[PlaneEnum] = Field(default=None, description="""Computed; the plane the engine says the record steers or reads, null for none.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     refresh: Optional[RefreshEnum] = Field(default=None, description="""Computed; when the engine recomputes the record's value.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     marks: Optional[list[WiringMarkEnum]] = Field(default=None, description="""Computed; the marks the engine sets on the record, absent for none.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
@@ -1746,7 +1754,7 @@ class Scenario(ConfiguredBaseModel):
     couple: Optional[Any] = Field(default=None, description="""`{<address>: [{driver, gain, gain_wander?}]}`: the channel adds `gain` times each named driver to its value; `gain_wander` `{amplitude, period_s}` lets that gain wax and wane.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     noise: Optional[Any] = Field(default=None, description="""`{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the channel's noise while the scenario is active, in place of its seed's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
     start: Optional[bool] = Field(default=None, description="""True puts the scenario in the deployment's start set, the scenarios the simulator activates when it first comes up; absent means false.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
-    still: Optional[Any] = Field(default=None, description="""`all`, or a list of addresses and selections: while the scenario is active, those readings serve without drift, couplings or noise. A selection is `{model|place, group, signal, role, plane}` and names a model or a place; its `role` is the wiring record's role (`setpoint|readback|monitor|output`), not the channel's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
+    still: Optional[Any] = Field(default=None, description="""`all`, or a list of addresses and selections: while the scenario is active, those readings serve without drift, couplings or noise. A selection is `{model|place, group, signal, engine_role, plane}` and names a model or a place.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
 
 
 # Model rebuild

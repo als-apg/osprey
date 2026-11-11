@@ -249,9 +249,9 @@ class TestTheInstance:
             entrypoint.main()
 
     def test_the_instances_are_the_composites_served_ones(self) -> None:
-        from osprey_connectors.simulation.composite import INSTANCES
+        from osprey_connectors.simulation.composite import _INSTANCES
 
-        assert set(entrypoint.VA_INSTANCES) == set(INSTANCES) - {"inprocess"}
+        assert set(entrypoint.VA_INSTANCES) == set(_INSTANCES) - {"inprocess"}
 
 
 class TestTheTick:

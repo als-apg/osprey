@@ -20,7 +20,7 @@ import numbers
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
+_VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
 #: The value types whose channels carry labels.
 LABELLED_TYPES = ("bool", "enum")
 #: The value types a seed's ``gate`` applies to.
@@ -28,15 +28,13 @@ GATED_TYPES = ("float", "int", *LABELLED_TYPES)
 DEFAULT_VALUE_TYPE = "float"
 DEFAULT_BOOL_OPTIONS = ("FALSE", "TRUE")
 #: The value type of a channel that carries a flat ``list[float]`` trace.
-WAVEFORM = "waveform"
+_WAVEFORM = "waveform"
 
 __all__ = [
-    "WAVEFORM",
     "DEFAULT_BOOL_OPTIONS",
     "DEFAULT_VALUE_TYPE",
     "GATED_TYPES",
     "LABELLED_TYPES",
-    "VALUE_TYPES",
     "channel_labels",
     "coerce",
     "is_waveform",
@@ -46,7 +44,7 @@ __all__ = [
 
 def is_waveform(value_type: str | None) -> bool:
     """Whether a channel of ``value_type`` carries a trace rather than a scalar."""
-    return value_type == WAVEFORM
+    return value_type == _WAVEFORM
 
 
 def _refuse(value: Any, value_type: str, reason: str) -> ValueError:
@@ -119,7 +117,7 @@ def coerce(
 
     Args:
         value: The value to coerce.
-        value_type: One of :data:`VALUE_TYPES`; ``None`` means ``float``.
+        value_type: One of :data:`_VALUE_TYPES`; ``None`` means ``float``.
         options: The labels of a ``bool`` or ``enum`` channel; a ``bool``
             without options uses :data:`DEFAULT_BOOL_OPTIONS`.
         shape: The dimensions of a ``waveform`` channel.
@@ -161,7 +159,7 @@ def coerce(
                 value, value_type, f"expected {size} values for shape {list(shape or ())}"
             )
         return [float(item) for item in flat]
-    raise ValueError(f"unknown value_type {value_type!r} (expected one of {list(VALUE_TYPES)})")
+    raise ValueError(f"unknown value_type {value_type!r} (expected one of {list(_VALUE_TYPES)})")
 
 
 def zero(
@@ -172,7 +170,7 @@ def zero(
     """Return the zero value of ``value_type`` in its stored representation.
 
     Args:
-        value_type: One of :data:`VALUE_TYPES`; ``None`` means ``float``.
+        value_type: One of :data:`_VALUE_TYPES`; ``None`` means ``float``.
         options: The labels of a ``bool`` or ``enum`` channel.
         shape: The dimensions of a ``waveform`` channel.
 
@@ -196,4 +194,4 @@ def zero(
         return ""
     if value_type == "waveform":
         return [0.0] * _size(shape)
-    raise ValueError(f"unknown value_type {value_type!r} (expected one of {list(VALUE_TYPES)})")
+    raise ValueError(f"unknown value_type {value_type!r} (expected one of {list(_VALUE_TYPES)})")

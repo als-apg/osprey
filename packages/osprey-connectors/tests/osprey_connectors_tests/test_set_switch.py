@@ -116,7 +116,7 @@ def test_the_gesture_keeps_every_other_field(data_root):
     set_switch(["live"], "asked", epoch=before["switch_epoch"])
     after = _payload(path)
     assert after["switch"] == {"va": "asked", "live": "asked"}
-    assert after["posture"] == control_context.posture_mirror(after["switch"])
+    assert after["posture"] == control_context._posture_mirror(after["switch"])
     assert {k: v for k, v in after.items() if k not in ("switch", "posture")} == {
         k: v for k, v in before.items() if k not in ("switch", "posture")
     }
@@ -302,7 +302,7 @@ def test_an_unknown_stored_value_reads_as_off(data_root, value):
     ids=["empty", "asked", "allowed", "legacy-on", "unknown", "every-machine"],
 )
 def test_the_mirror_refuses_only_the_machines_at_off(switch, sandboxed):
-    mirror = control_context.posture_mirror(switch)
+    mirror = control_context._posture_mirror(switch)
     assert mirror == dict.fromkeys(sandboxed, posture_store.POSTURE_SANDBOX)
 
 
@@ -594,7 +594,7 @@ def test_a_turn_off_of_an_unknown_key_clears_it(data_root):
 
 
 def test_no_agent_data_root_is_a_runtime_error(monkeypatch):
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(control_context, "record_path", lambda: None)
     with pytest.raises(RuntimeError):

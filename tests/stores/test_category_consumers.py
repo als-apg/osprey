@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
+from osprey_connectors import control_context
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
 CHANNEL = "SR:C01:BPM1:X"
@@ -219,7 +220,7 @@ class TestSummaryByForm:
         state = tmp_path / "state"
         state.mkdir()
         monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state))
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         assert session_ledger.append(state, key, key, "2000-01-01T00:00:00+00:00")
         for entry in _seed_forms(store):
             store.update_entry_metadata(entry.id, session_id=key)
@@ -228,7 +229,7 @@ class TestSummaryByForm:
             query_params={"session_id": key},
         )
         result = asyncio.run(session_artifacts(request))
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
 
         totals = result["totals"]
         assert "categories" not in totals

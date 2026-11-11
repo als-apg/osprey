@@ -40,12 +40,9 @@ Example structure:
 import json
 from typing import Any
 
-from ..core.base_database import BaseDatabase
+from osprey.facility.layers.mml.family import CHANNEL_KEYS
 
-#: Keys under which a middle-layer field lists its channel addresses, in the
-#: order readers consult them. ``ChannelNames`` holds Channel Access names and
-#: ``TangoNames`` Tango device attributes; a field may carry either or both.
-CHANNEL_KEYS: tuple[str, ...] = ("ChannelNames", "TangoNames")
+from ..core.base_database import BaseDatabase
 
 #: Top-level keys of an index that describe the document, not a system.
 DOCUMENT_KEYS = frozenset({"schema", "count"})
