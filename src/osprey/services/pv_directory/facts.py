@@ -276,7 +276,7 @@ class Facts:
         }
         total = await self._service.count(ioc=[ioc])
         if total["outcome"] == "unavailable":
-            return {**empty, **total}
+            return {**empty, **{key: total[key] for key in ("outcome", "source", "reason")}}
         source = total["source"]
         if not total["total"]:
             return {

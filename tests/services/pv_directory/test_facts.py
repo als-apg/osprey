@@ -788,6 +788,30 @@ async def test_an_ioc_on_an_unavailable_directory(tmp_path: Path) -> None:
     assert ioc["health_pvs"] == []
 
 
+async def test_ioc_facts_with_no_source_carries_no_count_fields(tmp_path: Path) -> None:
+    page = _facts(_config(tmp_path, LIVE_BUILD, {"display": {}}), tmp_path)
+
+    ioc = await page.ioc_facts("ioc-a")
+
+    assert set(ioc) == {
+        "ioc",
+        "outcome",
+        "source",
+        "host",
+        "ports",
+        "pv_count",
+        "inactive_count",
+        "curated_count",
+        "engineer",
+        "engineer_source",
+        "health_pvs",
+        "links",
+        "reason",
+    }
+    assert ioc["outcome"] == "unavailable"
+    assert ioc["reason"] == _connectors.NO_SOURCE_REASON
+
+
 async def test_the_va_ioc(tmp_path: Path, record: _Record) -> None:
     record.move("va", 1)
     FakeDirectory.records = _records(
