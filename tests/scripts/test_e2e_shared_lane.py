@@ -46,7 +46,7 @@ def test_ignores_prints_the_arguments_and_names_each_host(
     [
         ("tests/e2e/test_single_user_narrowing_e2e.py -k narrowing", ["suproj"]),
         ("tests/e2e/test_dispatch_deploy.py::test_x", ["osprey-e2e-dispatch"]),
-        ("tests/e2e/tier2/", ["chart-value-reading"]),
+        ("tests/e2e/tier2/", ["chart-value-reading", "pv-directory-agentic"]),
         ("tests/va/e2e/test_bluesky_lanes.py", ["lane-e2e"]),
         ("tests/e2e/test_rf_cavity_correlation_scenario.py", []),
         ("-k nothing_is_a_path", []),
