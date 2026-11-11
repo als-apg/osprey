@@ -102,6 +102,7 @@ export default [
       'src/osprey/profiles/presets/apps/*/tests/**/*.{js,mjs}',
       'src/osprey/apps/scaffold-app/panel/**/*.js',
       'src/osprey/apps/scaffold-app/tests/**/*.{js,mjs}',
+      'src/osprey/interfaces/optimizer_web/panels/**/*.js',
       'tests/**/*.{js,mjs}',
     ],
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },

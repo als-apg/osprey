@@ -1205,6 +1205,24 @@ class OptimizerConfig:
     environment plugins are offered."""
 
 
+@dataclass
+class OptimizerWebConfig:
+    """Optimizer-web sidecar configuration for a build profile (opt-in via the
+    ``optimizer_web:`` key, beside an ``optimizer:`` block).
+
+    Consumed by the build pipeline's optimizer-web-injection step
+    (``_inject_optimizer_web`` in ``build_cmd.py``) to deploy the FastAPI
+    sidecar (compose service ``optimizer-web``) that serves the OPTIMIZER panel
+    and relays to the optimizer service: the panel where a person starts the
+    run an agent drafted. Validated by :meth:`BuildProfile.validate`.
+    """
+
+    port: int = default_port("optimizer_web")
+    """Host/container port the sidecar's uvicorn process binds and publishes,
+    at the layout's ``optimizer_web`` slot — filled from the profile's resolved
+    base when the key is left unspelled."""
+
+
 def optimizer_errors(optimizer: OptimizerConfig) -> list[str]:
     """What is wrong with an ``optimizer:`` block, one message per problem."""
     errors: list[str] = []

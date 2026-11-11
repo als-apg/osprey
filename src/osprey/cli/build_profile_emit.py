@@ -111,6 +111,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "watchdogs",
         "bluesky_web",
         "optimizer",
+        "optimizer_web",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -552,6 +553,16 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   targets: [va]
 #   environments_dir: optimizer/environments
 """,
+    "optimizer_web": """
+# --- Optimizer web panel -----------------------------------------------------
+# The OPTIMIZER tab for the web terminal (requires the optimizer block): where
+# a person reviews and starts the run an agent drafted. The sidecar takes the
+# optimizer_web slot of this deployment's port block; the override below pins
+# it outside that block.
+#
+# optimizer_web:
+#   port: <host port>
+""",
     "nextcloud_bridge": """
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
@@ -666,6 +677,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "watchdogs",
     "bluesky_web",
     "optimizer",
+    "optimizer_web",
     "nextcloud_bridge",
     "gchat_bridge",
     "teams_bridge",

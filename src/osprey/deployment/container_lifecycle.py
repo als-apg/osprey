@@ -211,6 +211,11 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # The gate on the optimizer's routes that move hardware. The service
     # refuses those routes while it is empty, so the mint is what arms them.
     "optimizer": ("OPTIMIZER_LAUNCH_TOKEN",),
+    # The OPTIMIZER panel's sidecar: its own web gate's operator credential,
+    # and the optimizer's launch token, which it attaches to the start and
+    # resume it relays. The same .env entry the optimizer reads, so the two
+    # always agree.
+    "optimizer_web": ("OSPREY_TERMINAL_SECRET", "OPTIMIZER_LAUNCH_TOKEN"),
     # Two identities on one store: the owner ingestion writes with, and the
     # SELECT-only role the agent's raw-SQL path connects as. Both are read by
     # Postgres only while it initializes a fresh volume, and both fill the

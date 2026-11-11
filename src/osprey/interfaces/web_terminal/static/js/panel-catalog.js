@@ -124,6 +124,7 @@ export const PANEL_ICONS = Object.freeze({
   okf: 'library',
   'channel-finder': 'radio',
   bluesky: 'bluesky',
+  optimizer: 'crosshair',
   'system-health': 'stethoscope',
 });
 
@@ -157,6 +158,7 @@ export const PANEL_DESCRIPTIONS = Object.freeze({
   okf: 'Browse the facility knowledge bundle',
   'system-health': 'Health checks for the framework and its services',
   bluesky: 'Write plans, run the queue and watch live results',
+  optimizer: 'Review and start an optimizer run, then watch it converge',
 });
 
 /**
