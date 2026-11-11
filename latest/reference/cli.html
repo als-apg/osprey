@@ -1596,6 +1596,8 @@ failure with its cause and exits 1. Before it reads an export, the import runs o
 Hand-written records of a kind the format writes print
 <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">data/facility/</span> <span class="pre">holds</span> <span class="pre">hand-written</span> <span class="pre">&lt;kinds&gt;</span> <span class="pre">records,</span> <span class="pre">which</span> <span class="pre">this</span>
 <span class="pre">import</span> <span class="pre">writes:</span></code>, each file, and a remedy, then exit 1 with nothing changed.
+A facility that already holds an imported layer is not refused: records
+written by hand beside a layer stay.
 Otherwise bundled files are replaced, printing
 <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">replaced</span> <span class="pre">the</span> <span class="pre">bundled</span> <span class="pre">&lt;name&gt;</span> <span class="pre">facility</span> <span class="pre">(&lt;n&gt;</span> <span class="pre">files)</span></code>, everything
 else stays, the knowledge indexes are regenerated, and a blank

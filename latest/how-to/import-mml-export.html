@@ -811,6 +811,9 @@ names each file, changes nothing and exits 1. The mml format writes channel,
 device, group, model, deck, seed, limit, identity and measurement records; the
 list format writes channel and device records. A file is hand-written once its
 bundled-origin line is gone. Corrections belong in <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>.</p></li>
+<li><p>Once the facility holds an imported layer, records written by hand beside it
+stay and stop no import. They are the facility’s own additions, such as a
+model no export states, and the build combines them with the layers.</p></li>
 <li><p>Bundled files are replaced, and one line says so:
 <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">replaced</span> <span class="pre">the</span> <span class="pre">bundled</span> <span class="pre">example</span> <span class="pre">facility</span> <span class="pre">(&lt;n&gt;</span> <span class="pre">files)</span></code>. The line
 prints before the export is read, so a stop that follows it, such as a mapping

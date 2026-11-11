@@ -694,7 +694,9 @@ always runs the shipped <code class="docutils literal notranslate"><span class="
 different physics backend is a different plug-in, never a different
 entrypoint. A different pyAT deck needs no code at all (see “Bringing your own
 model” on <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>). The shipped pyat plug-in,
-<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code>, is the reference implementation.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code>, is the reference implementation; the
+shipped injection plug-in, <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.injection</span></code>, is the
+reference for one that reads no deck and is time-driven.</p>
 <p>What a plug-in is given and asked for:</p>
 <ul>
 <li><p><strong>Registration.</strong> A plug-in is a module registered under the
@@ -708,7 +710,8 @@ module, none of which builds a model:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">locate</span></code> gives an element’s place along the deck.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">prepare</span></code> checks the deck against the model’s settings.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">start_values</span></code> derives each wired channel’s operating point from the
-deck.</p></li>
+deck. A plug-in setting <code class="docutils literal notranslate"><span class="pre">deckless_start_values</span> <span class="pre">=</span> <span class="pre">True</span></code> is called with
+<code class="docutils literal notranslate"><span class="pre">deck</span></code> <code class="docutils literal notranslate"><span class="pre">None</span></code> for a model that names no deck.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">describe(record)</span></code> says what one wiring record is.</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">describe</span></code> returns <code class="docutils literal notranslate"><span class="pre">{engine_role,</span> <span class="pre">plane,</span> <span class="pre">refresh}</span></code>:</p>
@@ -716,8 +719,10 @@ deck.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">engine_role</span></code> is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">plane</span></code> is <code class="docutils literal notranslate"><span class="pre">x</span></code> or <code class="docutils literal notranslate"><span class="pre">y</span></code> for a record that steers or reads one
 transverse plane, else <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">refresh</span></code> is <code class="docutils literal notranslate"><span class="pre">pass</span></code> for a value each write’s solve updates, or
-<code class="docutils literal notranslate"><span class="pre">periodic</span></code> for one only the periodic solve publishes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">refresh</span></code> is <code class="docutils literal notranslate"><span class="pre">pass</span></code> for a value each write’s solve updates,
+<code class="docutils literal notranslate"><span class="pre">periodic</span></code> for one only the periodic solve publishes, <code class="docutils literal notranslate"><span class="pre">fast</span></code> for one
+read at the fast period, or <code class="docutils literal notranslate"><span class="pre">event</span></code> for one that changes with each
+event the engine raises.</p></li>
 </ul>
 <p>It may add <code class="docutils literal notranslate"><span class="pre">marks</span></code>, a list: <code class="docutils literal notranslate"><span class="pre">command</span></code> marks a write record whose write
 is a command. The words are the facility schema’s, and a word it does not
@@ -745,17 +750,32 @@ optional <code class="docutils literal notranslate"><span class="pre">error_text
 rest of the namespace is still served.</p></li>
 <li><p><strong>The contract in code.</strong> <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.EnginePlugin</span></code> names
 the five functions above, and <code class="docutils literal notranslate"><span class="pre">isinstance(module,</span> <span class="pre">EnginePlugin)</span></code> checks a
-module states them. Its docstring lists the optional functions —
-<code class="docutils literal notranslate"><span class="pre">error_text</span></code>, <code class="docutils literal notranslate"><span class="pre">fault_variables</span></code>, <code class="docutils literal notranslate"><span class="pre">polynomial_kicks</span></code>,
-<code class="docutils literal notranslate"><span class="pre">response_matrix</span></code>, <code class="docutils literal notranslate"><span class="pre">scenario_stops</span></code> — and what a model whose engine
-lacks each gets. <code class="docutils literal notranslate"><span class="pre">fault_variables</span></code> is called as
-<code class="docutils literal notranslate"><span class="pre">fault_variables(wiring,</span> <span class="pre">settings)</span></code>, with the model’s <code class="docutils literal notranslate"><span class="pre">settings</span></code> second.</p></li>
+module states them. <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.OPTIONAL_NAMES</span></code> lists
+every optional name, and the protocol’s docstring says what each gives and
+what a model whose engine lacks it gets.
+<code class="docutils literal notranslate"><span class="pre">fault_variables</span></code> is called as <code class="docutils literal notranslate"><span class="pre">fault_variables(wiring,</span> <span class="pre">settings)</span></code>,
+with the model’s <code class="docutils literal notranslate"><span class="pre">settings</span></code> second.</p></li>
+<li><p><strong>The time contract.</strong> A model that changes between solves, as an
+injection chain does during a shot, is <em>time-driven</em>: its engine states the
+four optional functions <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.TIME_CONTRACT</span></code> names.
+<code class="docutils literal notranslate"><span class="pre">advance(model,</span> <span class="pre">t_s)</span></code> applies every step due by epoch second <code class="docutils literal notranslate"><span class="pre">t_s</span></code>;
+<code class="docutils literal notranslate"><span class="pre">next_deadline(model)</span></code> gives the next due step’s epoch second, or
+<code class="docutils literal notranslate"><span class="pre">None</span></code>; <code class="docutils literal notranslate"><span class="pre">emitted(model)</span></code> gives the <code class="docutils literal notranslate"><span class="pre">event</span></code> addresses fired since the
+last call, cleared; <code class="docutils literal notranslate"><span class="pre">client_write(model,</span> <span class="pre">values,</span> <span class="pre">t_s)</span></code> tells the engine a
+client wrote these setpoints. The model has no thread or clock of its own,
+and the same calls with the same clock readings always yield the same
+values. Its <code class="docutils literal notranslate"><span class="pre">set</span></code> only stores values, because restores and scenario
+writes reach it too; what a client write triggers lives behind
+<code class="docutils literal notranslate"><span class="pre">client_write</span></code> alone. <code class="docutils literal notranslate"><span class="pre">build</span></code> receives no clock, so the composite calls
+<code class="docutils literal notranslate"><span class="pre">advance</span></code> right after a build, a rebuild or a reset. Only the served
+venue drives the contract; in process the model serves its start values.</p></li>
 </ul>
 <p>What the container keeps the same for every engine:</p>
 <ul class="simple">
 <li><p><strong>The environment.</strong> <code class="docutils literal notranslate"><span class="pre">VA_INSTANCE</span></code> is required; <code class="docutils literal notranslate"><span class="pre">VA_DATA_DIR</span></code> (default
 <code class="docutils literal notranslate"><span class="pre">/data</span></code>) is the data root the simulator view sits under; <code class="docutils literal notranslate"><span class="pre">VA_STATE_DIR</span></code>,
-<code class="docutils literal notranslate"><span class="pre">VA_POLL_INTERVAL_S</span></code> and <code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code> are read as the
+<code class="docutils literal notranslate"><span class="pre">VA_POLL_INTERVAL_S</span></code>, <code class="docutils literal notranslate"><span class="pre">VA_FAST_INTERVAL_S</span></code> and
+<code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code> are read as the
 entrypoint describes them. Channel Access is served on
 <code class="docutils literal notranslate"><span class="pre">EPICS_CAS_SERVER_PORT</span></code>, which the image’s command exports from
 <code class="docutils literal notranslate"><span class="pre">EPICS_CA_SERVER_PORT</span></code>.</p></li>

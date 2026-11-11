@@ -711,12 +711,17 @@ mounts the render’s <code class="docutils literal notranslate"><span class="pr
 zero. Set by <code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code>; a project <code class="docutils literal notranslate"><span class="pre">.env</span></code> value is not
 read.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_STATE_DIR</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_FAST_INTERVAL_S</span></code></p></td>
+<td><p>The fast period, at which the served model publishes its <code class="docutils literal notranslate"><span class="pre">fast</span></code>
+channels, in seconds, greater than zero. Set by
+<code class="docutils literal notranslate"><span class="pre">simulation.fast_tick_s</span></code>; a project <code class="docutils literal notranslate"><span class="pre">.env</span></code> value is not read.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_STATE_DIR</span></code></p></td>
 <td><p>The directory holding the active scenarios <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code>
 writes; the container re-reads them when they change. Unset serves
 <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code></p></td>
 <td><p>The secret a model RPC write must present, passed through from the
 project <code class="docutils literal notranslate"><span class="pre">.env</span></code> to the virtual accelerator instance only. Unset or
 empty refuses every model write.</p></td>

@@ -467,7 +467,10 @@ a deck sits a physics model built through the <a class="reference external" href
 pyAT lattice as a <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code> via <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code>, so that writing a corrector
 moves the orbit that the BPMs report. The texture model serves every channel no
 model wires, so a client sees one machine rather than a physics island
-surrounded by dead addresses. Served in process
+surrounded by dead addresses. A second shipped engine, <code class="docutils literal notranslate"><span class="pre">injection</span></code>, needs no
+deck: it steps an injection chain through each shot a client requests, so
+software that fills the machine has an injector to ask (<a class="reference internal" href="#time-driven-models">Time-driven models</a>).
+Served in process
 (<code class="docutils literal notranslate"><span class="pre">control_system.connector.virtual_accelerator.serving:</span> <span class="pre">in_process</span></code>), the
 same simulator reads the same view through the same composite, with no
 container and no network.</p>
@@ -555,23 +558,42 @@ into the facility file:</p>
 <ul class="simple">
 <li><p>its <code class="docutils literal notranslate"><span class="pre">engine_role</span></code>: <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>;</p></li>
 <li><p>the transverse <code class="docutils literal notranslate"><span class="pre">plane</span></code> it steers or reads: <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> or none;</p></li>
-<li><p>its <code class="docutils literal notranslate"><span class="pre">refresh</span></code>.</p></li>
+<li><p>its <code class="docutils literal notranslate"><span class="pre">refresh</span></code>: <code class="docutils literal notranslate"><span class="pre">pass</span></code>, a value each write’s solve updates;
+<code class="docutils literal notranslate"><span class="pre">periodic</span></code>, one only the periodic solve publishes; <code class="docutils literal notranslate"><span class="pre">fast</span></code>, one read at
+the fast period, <code class="docutils literal notranslate"><span class="pre">simulation.fast_tick_s</span></code> (default <code class="docutils literal notranslate"><span class="pre">0.1</span></code> seconds); or
+<code class="docutils literal notranslate"><span class="pre">event</span></code>, one that changes with each event the engine raises, such as a
+shot.</p></li>
 </ul>
 <p>Each channel also names the node it is <code class="docutils literal notranslate"><span class="pre">on</span></code>.</p>
 <p>The server publishes channel values in <em>passes</em>: one after each write, one at
-start-up, and the periodic passes:</p>
+start-up, the periodic passes, and the timed passes of a view holding a
+<code class="docutils literal notranslate"><span class="pre">fast</span></code> or <code class="docutils literal notranslate"><span class="pre">event</span></code> channel:</p>
 <ul class="simple">
 <li><p><strong>What a write’s pass reads.</strong> It reads what the write can change, and
 never a channel whose binding refreshes <code class="docutils literal notranslate"><span class="pre">periodic</span></code>; the next periodic pass
 publishes those. A physics setting reads itself, its readback and what its
-model computes from its settings. Any other write reads every served
-channel.</p></li>
+model computes from its settings. A setting no model binds reads itself,
+the readback it pairs with and the channels derived from it. A write to any
+other channel reads every served channel.</p></li>
 <li><p><strong>What a write’s pass posts.</strong> Of what it reads, it posts the written
 channels and those whose value or undefined condition changed. An unchanged
 channel keeps the timestamp of its last post.</p></li>
 <li><p><strong>What the periodic pass does.</strong> The start-up pass and every periodic pass
-post every channel.</p></li>
+post every channel but the <code class="docutils literal notranslate"><span class="pre">fast</span></code> and <code class="docutils literal notranslate"><span class="pre">event</span></code> ones, which they post
+only when changed.</p></li>
+<li><p><strong>What a timed pass does.</strong> A timed pass runs at the earlier of the next
+fast period and the composite’s next deadline, such as a shot’s next step.
+It advances the composite and posts the <code class="docutils literal notranslate"><span class="pre">event</span></code> channels that fired and,
+when the fast period fell due, the <code class="docutils literal notranslate"><span class="pre">fast</span></code> channels. Each raises a Channel
+Access event even at a repeated value, unless a <code class="docutils literal notranslate"><span class="pre">frozen</span></code> or
+<code class="docutils literal notranslate"><span class="pre">disconnected</span></code> fault holds it. A view with no <code class="docutils literal notranslate"><span class="pre">fast</span></code> or <code class="docutils literal notranslate"><span class="pre">event</span></code>
+channel runs no timed pass.</p></li>
 </ul>
+<p>Timed passes take their turn with the others, so one waits while a write’s or
+a periodic pass’s solve runs: the fast period and a shot’s step offsets hold
+between solves, not through one. A long post holds them back less: a pass
+posting more than 2000 channels posts them in slices and runs a due timed
+pass between two.</p>
 <p>A view an older OSPREY wrote is refused before the ready line, with a message
 asking for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 </section>
@@ -603,6 +625,29 @@ physics model adds: a setpoint latches its written value and a readback
 follows its seed. That is what makes the service usable for a facility that has
 a channel list but no model behind it yet.</p>
 </section>
+<section id="time-driven-models">
+<h2>Time-driven models<a class="headerlink" href="#time-driven-models" title="Link to this heading">#</a></h2>
+<p>A lattice model changes only when it is solved. An injector does not wait for
+a solve: a shot plays out over a fraction of a second, and the software
+watching it expects each reading to step on time. A model whose engine states
+the time contract (see <a class="reference internal" href="../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>) is therefore
+<em>time-driven</em>: a state machine with no thread or clock of its own, which the
+composite advances.</p>
+<p>Served, the composite advances each time-driven model at its build, rebuild
+and reset and before every read and write, and hands it the client writes
+that reach it. Only a client write starts what a write triggers; a restore, a
+scenario’s start state and a write a <code class="docutils literal notranslate"><span class="pre">stuck</span></code> or <code class="docutils literal notranslate"><span class="pre">disconnected</span></code> setpoint
+holds start nothing. A rebuild, which a scenario change makes, discards what
+a model had pending. In process nothing advances the model: it serves its
+start values and a write starts nothing.</p>
+<p>The shipped <code class="docutils literal notranslate"><span class="pre">injection</span></code> engine (<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.injection</span></code>) is
+the one time-driven engine. A model naming it names no deck: its wiring
+records and settings are the whole chain. A client write of its request
+starts a shot, which steps each reading at its own offset; those readings and
+the free-running cycle signal refresh <code class="docutils literal notranslate"><span class="pre">event</span></code>, the fast copy of the stored
+current refreshes <code class="docutils literal notranslate"><span class="pre">fast</span></code>, and the setpoints and the stored current refresh
+<code class="docutils literal notranslate"><span class="pre">pass</span></code>. Declaring a chain is in <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-injection-chain"><span class="std std-ref">An injection chain</span></a>.</p>
+</section>
 <section id="the-lume-stack-and-its-pins">
 <h2>The LUME stack and its pins<a class="headerlink" href="#the-lume-stack-and-its-pins" title="Link to this heading">#</a></h2>
 <p>Three young upstream packages are pinned exactly, because their surfaces are
@@ -631,10 +676,10 @@ multi-variable writes, one solve per batch, rollback on a lost closed
 orbit.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lume-pva-apg[ca,pva]</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">0.1.5</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.1.6</span></code></p></td>
 <td><p>The serving stack <code class="docutils literal notranslate"><span class="pre">runner.py</span></code> subclasses — <code class="docutils literal notranslate"><span class="pre">pcaspy</span></code> for Channel
 Access, <code class="docutils literal notranslate"><span class="pre">p4p</span></code> for PVAccess.</p>
-<p>Releases 0.1.3 to 0.1.5 add the features OSPREY relies on, listed
+<p>Releases 0.1.3 to 0.1.6 add the features OSPREY relies on, listed
 below the table.</p>
 </td>
 </tr>
@@ -655,6 +700,11 @@ namespace is not advertised as one.</p></li>
 runner configuration, raises an alarm on an output the model names as
 failed, serves integer variables as integers on PVAccess, and exposes a
 public tick period whose ticks coalesce.</p></li>
+<li><p><strong>0.1.6</strong> adds the forced-event hook, through which a repeated value on a
+<code class="docutils literal notranslate"><span class="pre">fast</span></code> or <code class="docutils literal notranslate"><span class="pre">event</span></code> channel reaches a Channel Access monitor; lets the
+runner narrow a pass’s rollback snapshot; and raises the Channel Access
+events of a post at the cost of the channels posted, not of every channel
+served.</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">pcaspy</span></code> publishes wheels for linux-x86_64 only, so the <code class="docutils literal notranslate"><span class="pre">lume-pva-apg</span></code>
 entry that brings it is marked accordingly, and <code class="docutils literal notranslate"><span class="pre">serving/runner.py</span></code> alone is
@@ -876,6 +926,7 @@ the composite’s own value.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-served">What gets served</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-transports-one-write-path">Two transports, one write path</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#physics-is-optional">Physics is optional</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#time-driven-models">Time-driven models</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-lume-stack-and-its-pins">The LUME stack and its pins</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bringing-your-own-model">Bringing your own model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#served-and-model-only-variables">Served and model-only variables</a></li>

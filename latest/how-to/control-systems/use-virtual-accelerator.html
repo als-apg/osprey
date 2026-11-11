@@ -603,12 +603,12 @@ exactly as it does a real machine; only the backend changes.</p>
 <p>The physics behind the channels comes from the profile’s <code class="docutils literal notranslate"><span class="pre">simulation.models</span></code>.
 The container builds each served physics model through the engine its record
 names. It serves those models together with the texture model as one composite.
-The shipped engine is pyAT, built on the facility-agnostic <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code>
+The shipped lattice engine is pyAT, built on the facility-agnostic <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code>
 package, over the deck your facility tree stages. A render that serves
 <code class="docutils literal notranslate"><span class="pre">texture</span></code> alone serves the same channels with no physics behind them: a
-setpoint holds the value written to it and a readback follows its seed. A
-physics engine other than pyAT is an engine plug-in, covered in
-<a class="reference internal" href="#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
+setpoint holds the value written to it and a readback follows its seed. The
+second shipped engine models an injection chain, and any other engine is a
+plug-in; both are covered in <a class="reference internal" href="#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
 </section>
 <section id="what-channels-it-serves">
 <h2>What channels it serves<a class="headerlink" href="#what-channels-it-serves" title="Link to this heading">#</a></h2>
@@ -822,7 +822,7 @@ environment setup is needed.</p>
 </section>
 <section id="what-the-ioc-serves-and-how-often">
 <h2>What the IOC serves, and how often<a class="headerlink" href="#what-the-ioc-serves-and-how-often" title="Link to this heading">#</a></h2>
-<p>Two settings reach the container through its compose environment rather
+<p>Three settings reach the container through its compose environment rather
 than being fixed in the image. Each is a property of the machine you are
 standing in for, or of who may alter it, rather than of OSPREY:</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -843,7 +843,14 @@ republishes the values it reads out of the composite. Set by
 into the compose file; a project <code class="docutils literal notranslate"><span class="pre">.env</span></code> value is not read. Lower it
 for a demo that should look live; raise it on a very large namespace.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_FAST_INTERVAL_S</span></code></p></td>
+<td><p>The fast period: seconds between publications of the readings a model
+serves faster than its passes, such as an injection chain’s
+fast current (<a class="reference internal" href="#va-injection-chain"><span class="std std-ref">An injection chain</span></a>). Set by
+<code class="docutils literal notranslate"><span class="pre">simulation.fast_tick_s</span></code> (default <code class="docutils literal notranslate"><span class="pre">0.1</span></code>) in the same way. A
+facility with no such reading publishes nothing at this period.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code></p></td>
 <td><p>The credential a write to the model’s own variables must present over
 the model RPC (see <a class="reference internal" href="../../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>). Unset, the
 container refuses every such write; reads need no token. There is no
@@ -852,7 +859,7 @@ default to fall back on — set it in the deployment’s <code class="docutils l
 </tbody>
 </table>
 </div>
-<p>The poll interval is refused at boot if it is not a number, or not greater
+<p>Either interval is refused at boot if it is not a number, or not greater
 than zero, rather than being clamped. A typo therefore shows up in
 <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code> instead of quietly changing what the machine looks like.</p>
 </section>
@@ -880,9 +887,78 @@ deployment, keep them in a <a class="reference internal" href="machine-repositor
 <code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.json</span></code>, and the container builds the model from that copy when
 <code class="docutils literal notranslate"><span class="pre">simulation.models</span></code> serves it. No code and no image are involved.</p>
 </section>
+<section id="an-injection-chain">
+<span id="va-injection-chain"></span><h3>An injection chain<a class="headerlink" href="#an-injection-chain" title="Link to this heading">#</a></h3>
+<p>A lattice answers a corrector write, but nothing in it injects. Software that
+fills the machine — a fill script, or a facility’s own bucket-loading IOC
+run unmodified beside the simulator — asks for a shot and then watches
+counters, charges and the stored current step. The shipped <code class="docutils literal notranslate"><span class="pre">injection</span></code>
+engine gives it an injector to ask. It models no beam dynamics and needs no
+deck: the model record’s <code class="docutils literal notranslate"><span class="pre">settings</span></code> and <code class="docutils literal notranslate"><span class="pre">wiring</span></code> are the whole chain, and
+each address is a channel the facility declares. With invented addresses:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJECTOR</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">injection</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">injection</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">cycle</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">period_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">   </span><span class="c1"># one cycle every 2 s</span>
+<span class="w">        </span><span class="nt">width_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span><span class="w">    </span><span class="c1"># the cycle signal stays high for 0.4 s</span>
+<span class="w">      </span><span class="nt">stages</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">transport</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">storage</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">current_per_charge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.5</span>
+<span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:REQ</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">request</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:SRC:Q:SP</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">parameter</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">charge</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:TL:EFF:SP</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">parameter</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">efficiency</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">0.9</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:EFF:SP</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">parameter</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">efficiency</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">0.7</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:I:SP</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">parameter</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">current</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">10.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:SHOTS</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">counter</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.02</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:TL:Q</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">charge</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.05</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:EFF</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">efficiency</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.08</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:I</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">current</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.1</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:I:FAST</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">current_fast</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:CYCLE</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">busy</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>A client write of <code class="docutils literal notranslate"><span class="pre">INJ:REQ</span></code> starts one shot; a request while a shot is in
+flight is ignored. Each wiring record’s <code class="docutils literal notranslate"><span class="pre">signal</span></code> says what the shot does to
+its channel:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">parameter</span></code>: a setpoint of the chain, starting at <code class="docutils literal notranslate"><span class="pre">start</span></code>. Its
+<code class="docutils literal notranslate"><span class="pre">quantity</span></code> is <code class="docutils literal notranslate"><span class="pre">charge</span></code>, the source charge per shot; <code class="docutils literal notranslate"><span class="pre">efficiency</span></code>, that
+of the stage at index <code class="docutils literal notranslate"><span class="pre">stage</span></code> of <code class="docutils literal notranslate"><span class="pre">stages</span></code>; or <code class="docutils literal notranslate"><span class="pre">current</span></code>, the stored
+current.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">counter</span></code>, <code class="docutils literal notranslate"><span class="pre">charge</span></code> and <code class="docutils literal notranslate"><span class="pre">efficiency</span></code>: readings the shot steps
+<code class="docutils literal notranslate"><span class="pre">offset_s</span></code> seconds after its request. A counter adds one. A charge shows
+the charge after the stage at index <code class="docutils literal notranslate"><span class="pre">stage</span></code>, the source charge times
+every efficiency up to that stage’s, and an efficiency shows that stage’s.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">current</span></code>: the stored current, which the shot raises at <code class="docutils literal notranslate"><span class="pre">offset_s</span></code> by
+the final charge times <code class="docutils literal notranslate"><span class="pre">current_per_charge</span></code>. Nothing saturates or decays
+it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">current_fast</span></code>: the stored current again, published at the fast period
+(<a class="reference internal" href="#what-the-ioc-serves-and-how-often">What the IOC serves, and how often</a>). Either current reading may state a
+<code class="docutils literal notranslate"><span class="pre">scale</span></code>: <code class="docutils literal notranslate"><span class="pre">{signal:</span> <span class="pre">current_fast,</span> <span class="pre">scale:</span> <span class="pre">0.001}</span></code> reads a stored current
+in mA as A.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">busy</span></code>: the cycle signal, high for <code class="docutils literal notranslate"><span class="pre">width_s</span></code> every <code class="docutils literal notranslate"><span class="pre">period_s</span></code> whether
+or not a shot runs.</p></li>
+</ul>
+<p>Shots run only in the container: in process the chain serves its start
+values and a request starts nothing. What scenarios and channel faults do to
+a chain is in <a class="reference internal" href="../run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
+</section>
 <section id="another-backend">
 <h3>Another backend<a class="headerlink" href="#another-backend" title="Link to this heading">#</a></h3>
-<p>A physics engine other than pyAT is an engine plug-in. The container looks up
+<p>An engine OSPREY does not ship is an engine plug-in. The container looks up
 the <code class="docutils literal notranslate"><span class="pre">engine</span></code> each model record names in the <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code>
 entry-point group. It calls the registered module’s <code class="docutils literal notranslate"><span class="pre">build</span></code>, which returns
 the <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code> serving that model’s wiring over its deck. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
@@ -1281,6 +1357,7 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-ioc-serves-and-how-often">What the IOC serves, and how often</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-your-facility-s-own-model">Serving your facility’s own model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-pyat-lattice">A pyAT lattice</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#an-injection-chain">An injection chain</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#another-backend">Another backend</a></li>
 </ul>
 </li>

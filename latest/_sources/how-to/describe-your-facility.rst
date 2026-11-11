@@ -265,7 +265,9 @@ when they do not exist, and never rewrites them afterwards. It creates
 ``classes.yaml`` when absent; when the file exists, the import appends only
 the classes it lacks and leaves its rows as written. It replaces a bundled
 facility, saying so in one line, and refuses only hand-written records of the
-kinds it writes, naming each file.
+kinds it writes, naming each file. That refusal guards the first import: once
+an imported layer exists, records you write by hand beside it stay through
+every later import, and the build combines them with the layers.
 
 A channel list
 --------------

@@ -710,7 +710,8 @@ the error names the file.</p></li>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">overrides</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{&lt;address&gt;:</span> <span class="pre">&lt;value&gt;}</span></code>, the value each channel reads live while the
-scenario is active.</p></td>
+scenario is active. On an injection chain’s setpoint it is the value
+the chain starts at, and an override of the request starts no shot.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">faults</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{&lt;model&gt;:</span> <span class="pre">{&lt;address</span> <span class="pre">or</span> <span class="pre">engine</span> <span class="pre">variable&gt;:</span> <span class="pre">&lt;value&gt;}}</span></code>, faults written
@@ -843,6 +844,10 @@ became active</p></td>
 that is its own readback reads its demand and reports <code class="docutils literal notranslate"><span class="pre">udf</span></code> itself.</p>
 <p>A channel fault holds in both venues of the simulator. <code class="docutils literal notranslate"><span class="pre">offline</span></code>, a read
 that never answers, is not one of these faults.</p>
+<p>On an injection chain (<a class="reference internal" href="control-systems/use-virtual-accelerator.html#va-injection-chain"><span class="std std-ref">An injection chain</span></a>) a <code class="docutils literal notranslate"><span class="pre">stuck</span></code> or
+<code class="docutils literal notranslate"><span class="pre">disconnected</span></code> request starts no shot, and a <code class="docutils literal notranslate"><span class="pre">frozen</span></code> reading raises no
+monitor event while the fault is active. Applying a scenario mid-shot
+abandons the shot: the chain restarts at the new scenario’s start state.</p>
 </section>
 </section>
 </section>

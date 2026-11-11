@@ -668,7 +668,8 @@ from a preset is <em>bundled</em>: every copied text file opens with the
 bundled-origin line. The exception is the knowledge indexes, which
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span></code> writes. Delete the line to make a file yours.
 The import, in every format, replaces the bundled files and refuses only
-hand-written records of the kinds that format writes. A bundled facility
+hand-written records of the kinds that format writes, and those only while the
+facility holds no imported layer. A bundled facility
 carries data only: records, decks, models, limits, seeds, scenarios, knowledge
 pages, benchmark query sources and the ARIEL vocabulary, and never a skill,
 agent or rule.</p>
@@ -1107,10 +1108,10 @@ quantity the vocabulary lacks pairs only through an explicit <code class="docuti
 <p>A facility file’s <code class="docutils literal notranslate"><span class="pre">models</span></code> are what stands behind the channels when the
 deployment runs against a simulator. Each model record names an <code class="docutils literal notranslate"><span class="pre">engine</span></code>, a
 <code class="docutils literal notranslate"><span class="pre">deck</span></code> and the <code class="docutils literal notranslate"><span class="pre">wiring</span></code> that ties channel addresses to elements of the
-deck.</p>
+deck; a model of the <code class="docutils literal notranslate"><span class="pre">injection</span></code> engine names no deck.</p>
 <p><strong>Engines are plug-ins.</strong> An engine is a module registered in the
 <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point group under the name a model’s
-<code class="docutils literal notranslate"><span class="pre">engine</span></code> gives. OSPREY ships <code class="docutils literal notranslate"><span class="pre">pyat</span></code>. The build reaches the engine to read
+<code class="docutils literal notranslate"><span class="pre">engine</span></code> gives. OSPREY ships <code class="docutils literal notranslate"><span class="pre">pyat</span></code> and <code class="docutils literal notranslate"><span class="pre">injection</span></code>. The build reaches the engine to read
 the deck (where each element sits, each wired channel’s operating point, what
 each wiring record is) without building a model, and stops with
 <code class="docutils literal notranslate"><span class="pre">engine-missing</span></code> when no installed package registers the name. The contract

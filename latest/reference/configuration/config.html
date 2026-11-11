@@ -537,7 +537,14 @@ and <code class="docutils literal notranslate"><span class="pre">[]</span></code
 shipped preset sets <code class="docutils literal notranslate"><span class="pre">1.0</span></code>. A value of <code class="docutils literal notranslate"><span class="pre">0</span></code> or less stops the build
 with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line naming the key.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.fast_tick_s</span></code></p></td>
+<td><p>The served simulator’s fast period: seconds between publications of
+the readings a model serves faster than the tick, such as an
+injection chain’s fast current. Absent means <code class="docutils literal notranslate"><span class="pre">0.1</span></code>; no shipped
+preset sets it. A value of <code class="docutils literal notranslate"><span class="pre">0</span></code> or less stops the build with a
+<code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line naming the key.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code></p></td>
 <td><p>The scenarios a deployment that has never chosen a set starts in, by
 name from the facility’s scenarios. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> activates them
 the way <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> would, before it seeds the archive and the
