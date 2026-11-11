@@ -46,12 +46,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import quote
 
 import pytest
 import yaml
 from pydantic import BaseModel, Field
 
+from osprey.services.pv_directory.facts import panel_link
 from tests.e2e import _orm_stack
 from tests.e2e._deploy_diagnostics import dead_container_logs
 from tests.e2e._deploy_support import (
@@ -109,18 +109,10 @@ PV_DIRECTORY_PREFIX = "mcp__pv-directory__"
 OPEN_PANEL = "mcp__osprey_workspace__open_panel"
 CHANNEL_READ = "mcp__controls__channel_read"
 
-#: The panel page the directory tools link a PV or IOC to (Channels, ``links.panel``).
-PANEL = "/panel/channel-finder/"
-
 #: The value the simulator serves on every IOC's ENGINEER PV.
 DEMO_ENGINEER = "demo engineer"
 #: The host the simulator's directory gives every IOC.
 SIMULATOR_HOST = "virtual-accelerator"
-
-
-def panel_link(kind: Literal["pv", "ioc"], name: str) -> str:
-    """The ``links.panel`` URL the directory tools return for *name*."""
-    return f"{PANEL}#/{kind}/{quote(name, safe='')}"
 
 
 @dataclass(frozen=True)
@@ -424,7 +416,9 @@ async def _ask(
         labelling = await judge.extract(final, Labelling, LABELLING_INSTRUCTIONS)
         scores["labelled"] = bool(labelling.directory_label)
     if expected.show is not None:
-        link = panel_link(expected.show, expected.pv if expected.show == "pv" else expected.ioc)
+        link = panel_link(expected.show, expected.pv if expected.show == "pv" else expected.ioc)[
+            "panel"
+        ]
         scores["opened_panel"] = _opened_panel(result, link)
         scores["link_returned"] = link in final
     for name, value in scores.items():
