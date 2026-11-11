@@ -23,7 +23,7 @@ placeholders the owner fills at tag time.
 Final fold on main c25b1301a9 (2026-11-10): every fragment on main is folded
 into the sections below and changelog.d/ is empty. Still open before the tag:
 - The condensation pass (release skill, Step 4) ran on 2026-11-10 and awaits
-  the owner's review of its diff: 1237 entries became 875. Supersession
+  the owner's review of its diff: 1237 entries became 874. Supersession
   chains and per-PR snippets about one surface are merged into the entry for
   what ships, and fixes to bugs introduced since v2026.9.0b3 are dropped. No
   Removed, Deprecated, Security, breaking or migration entry was dropped.
@@ -2065,7 +2065,7 @@ Logbook (ARIEL):
   the composer. From 80 percent it warns and suggests `/compact` or a new
   conversation. The reading comes from the agent CLI when each response ends,
   and the meter never shows a cost.
-- In the Simple view, a skill has a row of its own, with a book icon and the
+- In the Agent pane, a skill has a row of its own, with a book icon and the
   skill's name. The row says "Used skill" when the agent chose the skill, and
   "Ran skill" when the operator ran it by its slash command. The status line
   says "Using skill <name>…" while the skill loads. A reloaded conversation
@@ -3392,7 +3392,7 @@ Logbook (ARIEL):
   states `[rf-thermal]`; a value that is not a list of names stops the build
   with `profile-invalid`. `osprey sim apply` still means exactly the set it names,
   and a deployment that already chose a set (including `nominal` alone) keeps it.
-- In the Simple view, each action of an agent turn — a thought, a tool call, a
+- In the Agent pane, each action of an agent turn — a thought, a tool call, a
   subagent — is one row of the same shape: an icon in a left column, a short
   phrase, the detail dimmed, and the result at the right edge. A hairline joins
   the rows, so a turn reads as a timeline. The icon shows the action's state: a
@@ -3451,7 +3451,7 @@ Logbook (ARIEL):
     call allowed for the whole session also shows "Allowed by you", because the
     transcript does not record that difference. A call that a safety check
     refused shows no decision.
-- In the Simple view, a drawing that the agent is still writing shows as a box
+- In the Agent pane, a drawing that the agent is still writing shows as a box
   that says "Drawing…", and the status line also says "Drawing…". Before, the
   drawing's code showed in the reply until the drawing was complete. The drawing
   replaces the box when it is complete.
@@ -5119,7 +5119,7 @@ Logbook (ARIEL):
   is planning, so the approval card shows the plan the operator is asked to
   approve. The chat refuses an exit from plan mode when no plan is on file; the
   operator is not shown a card for it, and the agent writes the plan first.
-- The Simple view chat now refuses a slash command that it does not list, such
+- The Agent pane's chat now refuses a slash command that it does not list, such
   as `/login`, `/model` or `/config`. The server refuses the prompt before the
   turn starts, and the chat shows that the command is not available. The chat
   lists the project's skills and commands, `/clear` and `/compact`. A prompt
@@ -5132,8 +5132,8 @@ Logbook (ARIEL):
   process ended. The next prompt starts a new agent process that continues the
   same conversation. Before, every prompt failed until the operator started a
   new conversation.
-- In the Simple view, a subagent keeps its activity when the view loads the
-  conversation again. Before, a reload or a switch from the Expert view showed
+- In the Agent pane, a subagent keeps its activity when the pane loads the
+  conversation again. Before, a reload showed
   "Nothing yet." under Activity. Now it shows the tool calls and text that the
   subagent showed live.
 - A single-pass line with an enabled RF cavity now solves: its optics are
@@ -6111,10 +6111,6 @@ the last stable release and skips betas; install this one with
   one background thread, so a `max_step` pre-read no longer stalls everything
   else the assistant is doing. Outcomes are unchanged: a write refused by
   validation sends nothing, and a value the device did not take is a failure.
-- Switching between the Simple and Expert views no longer shows "Finishing in
-  the other view" with a running clock while the other view's agent is idle.
-  The clock and "Stop and switch now" appear only when the other view is
-  mid-turn or a restart takes longer than expected.
 - The web-terminal front proxy image moves from `nginx:1.27-alpine` (end of
   life) to `nginx:1.31-alpine`; `modules.web_terminals.nginx_image` still
   overrides it.
