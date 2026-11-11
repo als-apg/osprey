@@ -11,7 +11,7 @@ served deck element's name. Those take the engine-name spelling, or the map
 spelling with the element in place of the address, ``{<element>: {dx: ...}}``.
 
 The engine plug-in names what a model built from a wiring declares through
-``fault_variables(wiring)``: fault name -> a slot carrying ``address``,
+``fault_variables(wiring, settings)``: fault name -> a slot carrying ``address``,
 ``field``, ``value_range`` and ``options``. A plug-in is reached through the
 ``osprey.simulation.engines`` entry-point group, never by import. Every value
 is coerced as a float and must lie inside its slot's ``value_range`` or equal
@@ -162,6 +162,8 @@ class FaultRoster:
         engine: The engine's name.
         slots: Fault name -> slot (``address``, ``field``, ``value_range``,
             ``options``, ``element``).
+        refusal: The engine's own words when it refused to declare the
+            model's faults (the roster then has no slot), else ``None``.
     """
 
     def __init__(
@@ -171,9 +173,11 @@ class FaultRoster:
         *,
         wiring: list[dict[str, Any]] | None = None,
         scenario_stops: Any = None,
+        refusal: str | None = None,
     ) -> None:
         self.engine = engine
         self.slots = dict(slots)
+        self.refusal = refusal
         self._wiring = list(wiring or [])
         self._scenario_stops = scenario_stops
 
@@ -224,7 +228,7 @@ class FaultRoster:
 def fault_roster(
     model: Mapping[str, Any], channels: Mapping[str, Mapping[str, Any]]
 ) -> FaultRoster | None:
-    """The faults ``model``'s engine declares for its wiring.
+    """The faults ``model``'s engine declares for its wiring and settings.
 
     A wiring record without a ``direction`` takes ``write`` when its channel
     is a setpoint, else ``read``.
@@ -236,7 +240,9 @@ def fault_roster(
     Returns:
         The roster; ``None`` when no plug-in is registered under the model's
         engine name. A plug-in without ``fault_variables`` declares no faults;
-        one without ``scenario_stops`` refuses no scenario.
+        one without ``scenario_stops`` refuses no scenario. A plug-in whose
+        ``fault_variables`` raises ``ValueError`` refuses the model: the
+        roster has no slot and carries the text as its ``refusal``.
     """
     from osprey.simulation.engines import ENTRY_POINT_GROUP
 
@@ -251,9 +257,17 @@ def fault_roster(
         if isinstance(record, dict)
     ]
     declare = getattr(plugin, "fault_variables", None)
-    slots = declare(wiring) if declare is not None else {}
+    refusal = None
+    try:
+        slots = declare(wiring, model.get("settings")) if declare is not None else {}
+    except ValueError as exc:
+        slots, refusal = {}, str(exc)
     return FaultRoster(
-        name, slots, wiring=wiring, scenario_stops=getattr(plugin, "scenario_stops", None)
+        name,
+        slots,
+        wiring=wiring,
+        scenario_stops=getattr(plugin, "scenario_stops", None),
+        refusal=refusal,
     )
 
 
@@ -896,7 +910,9 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
     its value is coerced as a float and held to that fault's range. The
     engine's optional ``scenario_stops(wiring, faults)`` sees every fault of
     the model, channel-keyed ones included, and each refusal it returns is an
-    ``engine-invalid`` stop carrying the plug-in's remedy.
+    ``engine-invalid`` stop carrying the plug-in's remedy. A model whose
+    engine refuses to declare its faults at all is one ``engine-invalid`` stop
+    on the model, and none of its scenario faults is judged.
 
     Args:
         document: The combined document, its wiring slots filled.
@@ -919,7 +935,12 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
                 continue
             if str(model_name) not in rosters:
                 rosters[str(model_name)] = fault_roster(model, channels)
+                refused = rosters[str(model_name)]
+                if refused is not None and refused.refusal is not None:
+                    errors.append(_roster_refused(model, refused))
             roster = rosters[str(model_name)]
+            if roster is not None and roster.refusal is not None:
+                continue
             if roster is not None:
                 errors.extend(
                     _error(
@@ -939,6 +960,20 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
                     _named_fault(name, files, str(model_name), str(key), targets[key], roster)
                 )
     return errors
+
+
+def _roster_refused(model: Mapping[str, Any], roster: FaultRoster) -> FacilityBuildError:
+    from osprey.facility.validate import stating_files
+
+    return FacilityBuildError(
+        "engine-invalid",
+        str(model.get("name")),
+        stating_files(model, None, fallback="models.yaml"),
+        f"correct the model's settings or wiring so its {roster.engine} engine can declare its "
+        "faults",
+        record_kind="model",
+        detail=str(roster.refusal),
+    )
 
 
 def _named_fault(

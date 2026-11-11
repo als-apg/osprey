@@ -40,13 +40,20 @@ They are seeded once, when the model is built, never written afterwards: the
 misalignment as the element's entrance and exit transforms, the multipole as
 an additive delta the element holds (:func:`multipole_attribute`) and every
 write of a setpoint on the same coefficient keeps (:func:`multipole_error`).
+
+**A model may declare more error-bearing elements than its wiring binds.** A
+magnet whose supply is wired to a deck property -- a bend on the deck energy
+-- is bound by no record. The model's ``pyat`` settings name such elements
+under ``error_elements`` (:func:`error_elements`), each ``{element: <name>,
+multipoles: <bool>}``, and :func:`fault_variables` merges them with what the
+wiring implies: one roster, whichever way an element came to be on it.
 """
 
 from __future__ import annotations
 
 import math
 import weakref
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -54,8 +61,6 @@ from osprey.simulation.engines.calibration import field as _slot
 from osprey.simulation.engines.calibration import to_hardware, to_physics
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Mapping
-
     from osprey.simulation.engines.calibration import Calibration
 
 #: The readout fields every monitor readback carries on its own axis, each at
@@ -132,6 +137,14 @@ ADDRESS_SCOPE = "address"
 ELEMENT_SCOPE = "element"
 
 _MULTIPOLE_PREFIX = "error_"
+
+#: The engine's settings block, and its key that lists the elements carrying
+#: element errors whether or not a wiring record binds them.
+SETTINGS_BLOCK = "pyat"
+ERROR_ELEMENTS_KEY = "error_elements"
+
+#: The keys one ``error_elements`` item may carry.
+_ERROR_ELEMENT_KEYS: frozenset[str] = frozenset({"element", "multipoles"})
 
 #: A polarity is a direction: it lands exactly on one of these two values.
 POLARITY_OPTIONS: tuple[float, float] = (-1.0, 1.0)
@@ -344,8 +357,61 @@ def _bound_elements(record: Any) -> list[str]:
     return [] if element is None else [str(element)]
 
 
-def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
-    """Every fault a model built from ``wiring`` declares, by fault name.
+class ErrorElementsError(ValueError):
+    """A model's ``error_elements`` list that no roster can be built from."""
+
+
+def error_elements(settings: Any) -> tuple[dict[str, bool], list[str]]:
+    """The elements a model's settings declare as error-bearing, and what is wrong with the list.
+
+    ``settings`` is the model's, ``{pyat: {error_elements: [...]}}``. Each
+    item is ``{element: <name>, multipoles: <bool>}``: the element carries
+    ``dx``, ``dy`` and ``roll``, and with ``multipoles: true`` also ``dB<n>``
+    and ``dA<n>``. ``multipoles`` is ``false`` when omitted. No deck is read.
+
+    Args:
+        settings: The model's settings, or ``None``.
+
+    Returns:
+        ``(declared, problems)``: element name -> whether it carries the
+        multipole slots, in list order, and one line per item that is not of
+        that shape or names an element a second time. A malformed item
+        declares nothing; an element named twice carries the multipole slots
+        when either item says so.
+    """
+    declared: dict[str, bool] = {}
+    problems: list[str] = []
+    block = _slot(settings, SETTINGS_BLOCK)
+    items = block.get(ERROR_ELEMENTS_KEY) if isinstance(block, Mapping) else None
+    if items is None:
+        return declared, problems
+    key = f"settings key {SETTINGS_BLOCK}.{ERROR_ELEMENTS_KEY}"
+    if not isinstance(items, (list, tuple)):
+        return declared, [f"{key} is not a list"]
+    for position, item in enumerate(items):
+        where = f"{key}[{position}]"
+        if not isinstance(item, Mapping):
+            problems.append(f"{where} is {item!r}, not a map")
+            continue
+        if unknown := sorted(str(name) for name in set(item) - _ERROR_ELEMENT_KEYS):
+            problems.append(f"{where} carries unknown keys {', '.join(unknown)}")
+            continue
+        element = item.get("element")
+        multipoles = item.get("multipoles", False)
+        if not isinstance(element, str) or not element:
+            problems.append(f"{where} names element {element!r}, not a name")
+            continue
+        if not isinstance(multipoles, bool):
+            problems.append(f"{where} has multipoles {multipoles!r}, not true or false")
+            continue
+        if element in declared:
+            problems.append(f"{where} names element {element} a second time")
+        declared[element] = declared.get(element, False) or multipoles
+    return declared, problems
+
+
+def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, FaultSlot]:
+    """Every fault a model built from ``wiring`` and ``settings`` declares, by fault name.
 
     A fault name is ``<address>/<field>`` or, for an element error,
     ``<element>/<field>``. A monitor readback (an engine
@@ -358,17 +424,31 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
     Every element a record that is no monitor reading binds (its ``element``
     or each of its ``slices``) carries ``dx``, ``dy`` and ``roll``; one bound
     on ``PolynomB`` or ``PolynomA`` also carries ``dB<n>`` and ``dA<n>`` for
-    every ``n`` of :data:`MULTIPOLE_INDICES`. These slots are of ``element``
-    scope and keyed by the element's name. An element whose name is also a
-    wired address carries none, so the two keyings never share a name.
-    Nothing is imported and no deck is read.
+    every ``n`` of :data:`MULTIPOLE_INDICES`. An element the settings declare
+    (:func:`error_elements`) carries the same slots whether or not a record
+    binds it, the multipole ones when its item states ``multipoles: true``; an
+    element both bound and declared carries the union. These slots are of
+    ``element`` scope and keyed by the element's name. An element whose name
+    is also a wired address carries none, so the two keyings never share a
+    name, and neither does a wired monitor's element. Nothing is imported and
+    no deck is read.
 
     Args:
         wiring: The model's wiring records, each with its ``direction``.
+        settings: The model's settings, ``{pyat: {...}}``, or ``None``.
 
     Returns:
         Fault name -> its slot, sorted by name.
+
+    Raises:
+        ErrorElementsError: the settings' ``error_elements`` list is
+            malformed or names an element twice, or it declares an element
+            that can carry no element error (a wired monitor's element, or
+            one named like a wired address).
     """
+    declared, problems = error_elements(settings)
+    if problems:
+        raise ErrorElementsError(problems[0])
     slots: dict[str, FaultSlot] = {}
     monitors: dict[str, dict[str, str]] = {}
     magnets: dict[str, bool] = {}
@@ -404,6 +484,15 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
             for field in READOUT_IDENTITY:
                 declare(address, field, element)
         declare(axes.get("x") or next(iter(axes.values())), ROLL, element)
+    slotless = sorted(e for e in declared if e in addresses or e in monitors)
+    if slotless:
+        raise ErrorElementsError(
+            f"settings key {SETTINGS_BLOCK}.{ERROR_ELEMENTS_KEY} names {', '.join(slotless)}, "
+            "which can carry no element error: a wired monitor's element takes its readout "
+            "faults, and an element named like a wired address takes none"
+        )
+    for element, polynomial in declared.items():
+        magnets[element] = magnets.get(element, False) or polynomial
     for element, polynomial in magnets.items():
         if element in addresses or element in monitors:
             continue
@@ -568,11 +657,14 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
 
 __all__ = [
     "ELEMENT_SCOPE",
+    "ERROR_ELEMENTS_KEY",
+    "ErrorElementsError",
     "MISALIGNMENT_BOUNDS",
     "MULTIPOLE_INDICES",
     "READOUT_IDENTITY",
     "SUPPLY_IDENTITY",
     "bpm_read",
+    "error_elements",
     "magnet_cal",
     "multipole_attribute",
     "multipole_error",
