@@ -1,4 +1,14 @@
 {
+  "agent_record": {
+    "captured_utc": "2026-11-11T00:26:41.745532+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6888+g82ba71940"
+  },
+  "apps_orbit_bump": {
+    "captured_utc": "2026-11-11T00:36:27.289192+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6888+g82ba71940"
+  },
   "ariel": {
     "captured_utc": "2026-11-02T21:19:12.931951+00:00",
     "kind": "static",
@@ -19,6 +29,11 @@
     "kind": "static",
     "osprey_version": "2026.6.2.post2455+g031c71899.d20260906"
   },
+  "multi_user_landing": {
+    "captured_utc": "2026-11-11T00:26:38.198223+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6888+g82ba71940"
+  },
   "qmd_query_pipeline": {
     "captured_utc": "2026-08-19T04:20:17.523563+00:00",
     "kind": "static",
@@ -28,6 +43,11 @@
     "captured_utc": "2026-11-07T02:16:47.545940+00:00",
     "kind": "static",
     "osprey_version": "2026.9.0b3.post5869+g88799cf62.d20261107"
+  },
+  "sign_in": {
+    "captured_utc": "2026-11-11T00:26:39.995788+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6888+g82ba71940"
   },
   "web_terminal_hero": {
     "captured_utc": "2026-11-05T15:04:22.420135+00:00",

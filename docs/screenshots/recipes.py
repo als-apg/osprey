@@ -35,6 +35,9 @@ MANIFEST_NAME = "manifest.json"
 
 _ALLOWED_THEMES = frozenset({"light", "dark"})
 
+# The seeded session the ``agent_record`` recipe opens (docs/screenshots/pages.py).
+HISTORY_SESSION = "3f8a1c02-0000-4000-8000-000000000001"
+
 
 @dataclass(frozen=True)
 class SubView:
@@ -179,6 +182,41 @@ REGISTRY: list[DocShot] = [
         themes=("light", "dark"),
         viewport=(1400, 1000),
     ),
+    # Multi-user pages (container-free), each from the code a deployment serves
+    # them with, on seeded state: docs/screenshots/pages.py.
+    # The landing page ``osprey build`` renders for the demo preset's roster.
+    DocShot(
+        name="multi_user_landing",
+        environment="standalone_interface",
+        kind="static",
+        app_factory="docs.screenshots.pages:landing_app",
+        wait_selector=".landing-main",
+        themes=("light", "dark"),
+        viewport=(1280, 800),
+    ),
+    # The password sign-in page, reached from alice's card.
+    DocShot(
+        name="sign_in",
+        environment="standalone_interface",
+        kind="static",
+        app_factory="docs.screenshots.pages:sign_in_app",
+        path="/auth/login?user=alice&next=/u/alice/",
+        wait_selector="main.login-card #password",
+        themes=("light", "dark"),
+        viewport=(1280, 800),
+    ),
+    # One session on the history page: prompt, thinking, tool calls with their
+    # decisions and results, a subagent's steps, a refused write, the answer.
+    DocShot(
+        name="agent_record",
+        environment="standalone_interface",
+        kind="static",
+        app_factory="docs.screenshots.pages:history_app",
+        path=f"/history/session/{HISTORY_SESSION}",
+        wait_selector=".transcript .entry.answer",
+        themes=("light", "dark"),
+        viewport=(1280, 420),
+    ),
     # ARIEL (opt-in ``--stack``), in the live web terminal. One tutorial stack →
     # one PNG of the one screen: rail, list and the seeded logbook's newest
     # entry, clicked into the reader. Single-theme (light) → no theme suffix;
@@ -225,6 +263,20 @@ REGISTRY: list[DocShot] = [
         kind="static",
         capture_mode="element",
         element_selector=".ctc-popover:not([hidden])",
+        themes=("light", "dark"),
+        viewport=(1280, 800),
+    ),
+    # An app panel (opt-in ``--stack``): the sidebar's Apps group with the
+    # example app's panel open, once its orbit response matrix is ready. The
+    # demo preset leaves the app off, so the recipe turns it on for a stack of
+    # its own.
+    DocShot(
+        name="apps_orbit_bump",
+        environment="tutorial_stack",
+        kind="static",
+        panel="orbit-bump",
+        init_sets=("apps.orbit-bump={}",),
+        wait_selector='[data-field="orm"].osprey-chip--ok',
         themes=("light", "dark"),
         viewport=(1280, 800),
     ),

@@ -21,21 +21,25 @@ $ python -m docs.screenshots list
 the makefile lives — captures the container-free recipes: `standalone_interface`,
 `static_page` and `hermetic_hub`. A `standalone_interface` recipe boots a single
 interface `create_app()` on a throwaway port, so it needs neither a container
-runtime nor seeded data. A `hermetic_hub` recipe boots the web terminal the
-contact sheet uses. Regenerate one recipe with
+runtime nor seeded data. The landing and sign-in pages come from a throwaway
+`osprey init` + `osprey build` of the `demo` preset (under a minute, no
+container); without the `osprey` CLI they are skipped. A `hermetic_hub` recipe
+boots the web terminal the contact sheet uses. Regenerate one recipe with
 `make screenshots-<name>`. The equivalent without the makefile is
 `python -m docs.screenshots` from the repository root, which is what the target
 runs for you.
 
 **Two opt-in environments** cover the images that need real data:
 
-- `SCREENSHOTOPTS=--stack` — the ARIEL search/browse/create/status views and
-  the control-target popover. Builds the `demo` tutorial project, brings up Postgres
+- `SCREENSHOTOPTS=--stack` — the ARIEL search/browse/create/status views, the
+  control-target popover and the app panel. Builds the `demo` tutorial project, brings up Postgres
   (`osprey up -d`), and seeds the logbook with
   `osprey sim apply nominal --yes --now <anchor>`. Needs a container runtime
   and free host ports 26000–26999, 27064 and 27075 (its own port block, so a
   deployment on the default one can keep running). The `--now` anchor freezes the seeded dates, so
   repeat captures are byte-stable.
+  A recipe that names `init_sets` (the app panel turns the orbit bump app on)
+  is captured on a stack of its own, after the shared one.
 - `SCREENSHOTOPTS=--agentic` — the Web Terminal hero. Sends its prompt through
   the operator chat of a live agent session to produce a real beam-current plot, so it needs
   the provider's API key in the environment and spends its budget. The session
