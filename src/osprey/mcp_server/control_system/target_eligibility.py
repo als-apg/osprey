@@ -119,10 +119,13 @@ from osprey_connectors.honesty import (
     target_section,
 )
 from osprey_connectors.ipc import (
+    GATEWAYS_MISSING,
+    GATEWAYS_NONE_DECLARED,
     Endpoint,
     TargetDerivation,
     config_section,
     connector_block,
+    declared_gateways,
     derive_endpoints,
     live_collision,
     subsection,
@@ -563,7 +566,7 @@ def evaluate_eligibility(
                 "— what it cannot do is move a session onto it.",
             )
 
-        if raw_block.get("gateways") == []:
+        if derivation.gateways_declared == GATEWAYS_NONE_DECLARED:
             return Eligibility(
                 False,
                 REASON_GATEWAYS_MISSING,
@@ -571,7 +574,7 @@ def evaluate_eligibility(
                 "so a switch has no gateway to point a connector at. Only a return to "
                 "the deployment baseline accepts a target with nothing to probe.",
             )
-        if not subsection(raw_block, "gateways"):
+        if derivation.gateways_declared == GATEWAYS_MISSING:
             return Eligibility(
                 False,
                 REASON_GATEWAYS_MISSING,
@@ -1128,21 +1131,14 @@ def target_reachability(reports: Iterable[Any], target: str) -> tuple[str, str, 
     return REACHABILITY_NOT_PROBED, "", {}
 
 
-#: A Channel Access block's gateways, as the reachability rung reads them:
-#: an explicit ``gateways: []`` (nothing to probe), no table at all, or rows.
-GATEWAYS_NONE_DECLARED = "none_declared"
-GATEWAYS_MISSING = "missing"
-GATEWAYS_ROWS = "rows"
-
-
 def _declared_gateways(config: Any, target: str) -> tuple[str | None, str]:
     """How *target*'s Channel Access block spells its gateways, and its connector type.
 
     The shape is ``None`` for a target that does not resolve, or whose connector does not
     speak Channel Access: the gateways table is that protocol's shape, and the
-    rung asks nothing of a block it cannot apply to. Only the explicit empty
-    list is :data:`GATEWAYS_NONE_DECLARED`; a table nobody wrote is
-    :data:`GATEWAYS_MISSING`, so a forgotten table never reads as "direct".
+    rung asks nothing of a block it cannot apply to. Otherwise it is
+    :func:`~osprey_connectors.ipc.declared_gateways` of the block, the one
+    reader of that fact, so a forgotten table never reads as "direct".
     """
     control_system = config_section(config, "control_system")
     try:
@@ -1151,13 +1147,7 @@ def _declared_gateways(config: Any, target: str) -> tuple[str | None, str]:
         return None, ""
     if not speaks_channel_access(control_system, connector_type):
         return None, connector_type
-    block = connector_block(config, connector_type)
-    if not isinstance(block, dict):
-        return GATEWAYS_MISSING, connector_type
-    if block.get("gateways") == []:
-        return GATEWAYS_NONE_DECLARED, connector_type
-    shape = GATEWAYS_ROWS if subsection(block, "gateways") else GATEWAYS_MISSING
-    return shape, connector_type
+    return declared_gateways(connector_block(config, connector_type)), connector_type
 
 
 def _gateway_of(row: Mapping[str, Any]) -> str:
