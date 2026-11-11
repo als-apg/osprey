@@ -715,5 +715,10 @@ not_testable:
     contains: "why-asked-twice.jsonl    benign"
     reason: illustration
     why: a tree of four hypothetical fixture files and their prompts; the real fixture format is the JSONL block after it
+  - pages: [how-to/apps/build-your-own-app.rst]
+    languages: [markdown]
+    contains: "name: trim-history"
+    reason: illustration
+    why: a hypothetical agent file for the example app; no app in the repository has an agents/ directory to compare it with
 
 pending: []
