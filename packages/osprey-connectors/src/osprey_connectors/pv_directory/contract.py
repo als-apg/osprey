@@ -208,7 +208,6 @@ class HistoryPage:
     rows: Sequence[AlarmHistoryRow | PutRow] = field(default_factory=list)
     truncated: bool = False
     retention_known: bool = False
-    caveats: list[str] = field(default_factory=list)
     reason: str | None = None
 
     def __post_init__(self) -> None:

@@ -140,8 +140,7 @@ class PhoebusAlarmLogger(AlarmLog):
         return Unavailable(_MALFORMED_REASON)
 
     def _page(self, outcome: Outcome, **fields: Any) -> HistoryPage:
-        caveats = list(self.spec.settings.get("caveats") or ())
-        return HistoryPage(outcome=outcome, source=self.source, caveats=caveats, **fields)
+        return HistoryPage(outcome=outcome, source=self.source, **fields)
 
 
 def _rows_of(answer: list[Any], pv: str) -> list[Mapping[str, Any]]:

@@ -78,14 +78,12 @@ class FakeBackend:
             return contract.HistoryPage(
                 outcome=contract.Outcome.NO_MATCH,
                 source=self.source,
-                caveats=list(self.spec.settings.get("caveats") or ()),
                 reason=self.empty_reason,
             )
         return contract.HistoryPage(
             outcome=contract.Outcome.FOUND,
             source=self.source,
             rows=rows,
-            caveats=list(self.spec.settings.get("caveats") or ()),
         )
 
 

@@ -26,7 +26,6 @@ DEADLINE = 6.0
 PV = "DEMO:RF1:CAV:Temp-I"
 PATH = f"/Demo/RF/Cavity1/{PV}"
 LABEL = "last logged configuration"
-CAVEAT = "Legacy alarms are not recorded here."
 
 
 def _state(when: str, *, severity: str = "MAJOR", status: str = "NO_ALARM", **extra: Any) -> dict:
@@ -144,7 +143,7 @@ def loopback() -> Iterator[Any]:
 
 async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
     transport = Recording(search=RECORDED)
-    page = await _logger(transport, caveats=[CAVEAT]).history(PV, None, 50, DEADLINE)
+    page = await _logger(transport).history(PV, None, 50, DEADLINE)
 
     assert page.outcome is Outcome.FOUND
     assert [row.kind for row in page.rows] == ["state", "config", "state", "config", "state"]
@@ -164,7 +163,6 @@ async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
     )
     assert page.truncated is False
     assert page.retention_known is False
-    assert page.caveats == [CAVEAT]
     assert page.source.target == "live"
     assert transport.requests == [
         {
@@ -237,11 +235,10 @@ async def test_history_filtered_rows_on_a_full_page_still_report_truncation():
 
 
 async def test_history_no_rows_is_no_logged_events_not_no_alarm():
-    page = await _logger(Recording(search=[]), caveats=[CAVEAT]).history(PV, None, 50, DEADLINE)
+    page = await _logger(Recording(search=[])).history(PV, None, 50, DEADLINE)
     assert page.outcome is Outcome.NO_MATCH
     assert page.rows == []
     assert page.reason == "no logged events"
-    assert page.caveats == [CAVEAT]
 
 
 async def test_history_drops_rows_of_a_name_the_search_matched_loosely():

@@ -52,7 +52,7 @@ class CaPutLog(PutLog):
     """Read one PV's logged writes, its field puts included.
 
     Args:
-        spec: The backend's spec; ``settings`` holds the connection block and ``caveats``.
+        spec: The backend's spec; ``settings`` holds the connection block.
         project_dir: Unused; every backend takes it.
         transport: What sends the requests; by default the read-only one built from
             ``spec.settings``.
@@ -72,7 +72,6 @@ class CaPutLog(PutLog):
         if transport is None:
             transport = ReadOnlyTransport(spec.settings, self.ALLOWED_REQUESTS, where=_WHERE)
         self._transport = transport
-        self._caveats = list(spec.settings.get("caveats") or [])
 
     async def history(
         self, pv: str, since: datetime | None, limit: int, deadline: float
@@ -135,7 +134,6 @@ class CaPutLog(PutLog):
             rows=rows or [],
             truncated=truncated,
             retention_known=False,
-            caveats=list(self._caveats),
             reason=reason,
         )
 

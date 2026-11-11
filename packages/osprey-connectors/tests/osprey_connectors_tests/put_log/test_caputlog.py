@@ -21,7 +21,6 @@ from osprey_connectors.pv_directory.contract import (
 )
 
 PV = "DEMO:RF1:CAV:TempLimit-SP"
-CAVEAT = "Retention is not known; no rows is not evidence of no change."
 
 #: One result as the service boxes it, field for field.
 RECORDED_HIT = {
@@ -117,7 +116,7 @@ async def test_the_search_is_the_measured_body_and_never_a_get() -> None:
 
 
 async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
-    backend, _ = _backend(_envelope([RECORDED_HIT]), caveats=[CAVEAT])
+    backend, _ = _backend(_envelope([RECORDED_HIT]))
 
     page = await backend.history(PV, None, 25, 5.0)
 
@@ -134,7 +133,6 @@ async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
         )
     ]
     assert page.retention_known is False
-    assert page.caveats == [CAVEAT]
     assert page.truncated is False
     assert page.reason is None
     assert (page.source.target, page.source.service) == ("live", "caputlog")
@@ -283,7 +281,7 @@ async def test_since_past_every_row_is_no_logged_puts() -> None:
 
 
 async def test_an_empty_result_says_no_logged_puts_and_never_that_it_never_changed() -> None:
-    backend, _ = _backend(_envelope([]), caveats=[CAVEAT])
+    backend, _ = _backend(_envelope([]))
 
     page = await backend.history(PV, None, 25, 5.0)
 
@@ -292,19 +290,17 @@ async def test_an_empty_result_says_no_logged_puts_and_never_that_it_never_chang
     assert page.reason == "no logged puts"
     assert "never" not in page.reason
     assert page.retention_known is False
-    assert page.caveats == [CAVEAT]
     assert page.truncated is False
 
 
-async def test_a_service_with_no_answer_is_unavailable_with_its_reason_and_caveats() -> None:
-    backend, _ = _backend(Unavailable("no answer within 5 s"), caveats=[CAVEAT])
+async def test_a_service_with_no_answer_is_unavailable_with_its_reason() -> None:
+    backend, _ = _backend(Unavailable("no answer within 5 s"))
 
     page = await backend.history(PV, None, 25, 5.0)
 
     assert page.outcome is Outcome.UNAVAILABLE
     assert page.reason == "no answer within 5 s"
     assert page.rows == []
-    assert page.caveats == [CAVEAT]
     assert page.retention_known is False
 
 
@@ -396,7 +392,7 @@ async def test_without_a_transport_it_builds_the_read_only_one_from_its_settings
     caputlog_server: tuple[str, list[dict[str, Any]]],
 ) -> None:
     url, received = caputlog_server
-    backend = CaPutLog(_spec(url=url, caveats=[CAVEAT]))
+    backend = CaPutLog(_spec(url=url))
 
     page = await backend.history(PV, None, 25, 5.0)
 
