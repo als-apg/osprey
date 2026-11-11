@@ -13,6 +13,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-theme-switcher.js';
 import {
@@ -201,7 +202,9 @@ export function wireActivityStrip(strip) {
 const activityStrip = bootActivityStrip();
 if (activityStrip) wireActivityStrip(activityStrip);
 
-refreshActive();
+// The page is ready once the first transcript (or its failure toast) is drawn;
+// session.html declares the mark pending until then.
+void refreshActive().finally(() => markPageReady());
 
 setInterval(() => {
   if (document.hidden) return;

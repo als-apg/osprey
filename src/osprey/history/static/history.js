@@ -1,7 +1,12 @@
-// The history page's one behaviour: the session list's source filter.
+// The history page's behaviour: the session list's source filter, then the
+// page-ready mark.
 // Without this script the list shows every source and the filter stays hidden.
 (function () {
   'use strict';
+
+  // The page-ready writer is a design-system module, served beside this
+  // script's own root; a classic script reaches it through import().
+  const readyModule = new URL('../design-system/js/page-ready.js', document.currentScript.src).href;
 
   function applyFilter(select) {
     const wanted = select.value;
@@ -18,7 +23,7 @@
     });
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
+  function wireFilter() {
     const label = document.querySelector('label.source-filter');
     if (!label) return;
     const select = label.querySelector('select');
@@ -27,5 +32,14 @@
       applyFilter(select);
     });
     applyFilter(select);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    wireFilter();
+    // The page is ready once the filter is wired (base.html declares the mark
+    // pending until then).
+    import(readyModule).then(function (ready) {
+      ready.markPageReady();
+    });
   });
 })();

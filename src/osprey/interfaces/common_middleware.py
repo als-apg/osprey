@@ -1318,7 +1318,8 @@ def _refusal_page(status: int, detail: str) -> str:
     """
     return (
         "<!DOCTYPE html>\n"
-        '<html lang="en"><head><meta charset="utf-8">'
+        # No script runs here, so the page-ready mark is in the markup.
+        '<html lang="en" data-page-ready="true"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         "<title>OSPREY — sign in required</title><style>"
         "body{margin:0;min-height:100vh;display:flex;align-items:center;"
