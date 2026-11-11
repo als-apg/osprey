@@ -25,11 +25,6 @@ the deployment's own store is the virtual accelerator's — see
 :mod:`osprey_connectors.archive_targets`, which decides whose history an
 ``archiver:`` block holds, and reads no stand-in key to do so.
 
-:func:`archive_belongs_to_standin`, :data:`ARCHIVER_RECORDER_SERVICE` and
-:data:`DEPLOYED_SERVICES_KEY` are the predicate that attribution replaces,
-kept while the framework releases that import them are supported and removed
-in a later connectors release. Nothing new reads them.
-
 ``live_standin_active`` — the ``standin`` target's deployed-container gate
 ----------------------------------------------------------------------------
 
@@ -90,26 +85,9 @@ from osprey_connectors._config_read import LOOPBACK_HOSTNAME, coerce_port, is_lo
 #: it. One key, because one key is the whole evidence that a stand-in exists.
 LIVE_STANDIN_PORT_KEY = "services.live_standin.port"
 
-#: The top-level list of services a rendered ``config.yml`` deploys. Empty or
-#: absent on an attached render, which deploys none. Read only by
-#: :func:`archive_belongs_to_standin`; goes with it.
-DEPLOYED_SERVICES_KEY = "deployed_services"
-
-#: The ``deployed_services`` entry naming the host-side writer that samples this
-#: deployment's machine into its archive. Goes with :func:`archive_belongs_to_standin`.
-ARCHIVER_RECORDER_SERVICE = "archiver_recorder"
-
-#: Where a rendered ``config.yml`` carries the recorder's own block, written by
-#: the build's service injector on a deploying render and projected into an
-#: attached render from its host's. Goes with :func:`archive_belongs_to_standin`.
-_ARCHIVER_RECORDER_BLOCK_KEY = "services.archiver_recorder"
-
 __all__ = [
-    "ARCHIVER_RECORDER_SERVICE",
-    "DEPLOYED_SERVICES_KEY",
     "LIVE_STANDIN_PORT_KEY",
     "LOOPBACK_HOSTNAME",
-    "archive_belongs_to_standin",
     "live_standin_active",
     "live_standin_port",
 ]
@@ -159,34 +137,3 @@ def live_standin_active(
     if port is None or port != endpoint_port:
         return False
     return is_loopback(endpoint_host)
-
-
-def archive_belongs_to_standin(config: Mapping[str, Any]) -> bool:
-    """Whether the deployment built a stand-in and runs the archive recorder.
-
-    The predicate :mod:`osprey_connectors.archive_targets` replaces: under
-    attribution the deployment's store is the virtual accelerator's and no
-    store belongs to the stand-in, so nothing in this package reads this. It
-    is kept, unchanged, for the framework releases that still import it — the
-    ``live`` switch gate, the recorder's enablement gate and the reach contract
-    — and is removed in a later connectors release once none does.
-
-    True exactly when :func:`live_standin_port` names a port *and* the render
-    says the deployment runs the recorder: ``archiver_recorder`` in
-    ``deployed_services``, or a non-empty recorder block under
-    :data:`_ARCHIVER_RECORDER_BLOCK_KEY` (the spelling an attached render is
-    told). No endpoint is consulted.
-
-    Args:
-        config: The full config mapping, as loaded from ``config.yml``.
-
-    Returns:
-        ``True`` only for a render whose deployment records beside its stand-in.
-    """
-    if live_standin_port(config) is None:
-        return False
-    deployed = nested_value(config, DEPLOYED_SERVICES_KEY)
-    if isinstance(deployed, list) and ARCHIVER_RECORDER_SERVICE in {str(s) for s in deployed}:
-        return True
-    block = nested_value(config, _ARCHIVER_RECORDER_BLOCK_KEY)
-    return isinstance(block, Mapping) and bool(block)

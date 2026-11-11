@@ -92,7 +92,7 @@ def test_the_catch_all_is_the_last_row_and_the_only_one():
 def test_no_failure_reaches_two_steps():
     for row in _rows(catch_all=False):
         exc = _instance(row.failure)
-        for origin in recovery.Origin:
+        for origin in recovery._Origin:
             for write_timeout in (False, True):
                 steps = {
                     other.step
@@ -105,21 +105,21 @@ def test_no_failure_reaches_two_steps():
 @pytest.mark.parametrize(
     ("exc", "origin", "write_timeout", "step"),
     [
-        (ConnectorInternalError("bug"), recovery.Origin.CHILD, False, _Step.NONE),
-        (ConnectorInternalError("bug"), recovery.Origin.LINK, False, _Step.NONE),
-        (ChannelUnreachableError("SR:X"), recovery.Origin.CHILD, False, _Step.NONE),
-        (ChannelUnreachableError("SR:X"), recovery.Origin.IN_PROCESS, False, _Step.NONE),
-        (ChannelReadFailedError(["SR:X"]), recovery.Origin.CHILD, False, _Step.NONE),
-        (ClientLibraryRefusedError(package="epics"), recovery.Origin.CHILD, False, _Step.NONE),
-        (TimeoutError("deadline"), recovery.Origin.LINK, True, _Step.REPLACE),
-        (TimeoutError("deadline"), recovery.Origin.LINK, False, _Step.PROBE),
-        (TimeoutError("control system"), recovery.Origin.CHILD, False, _Step.NONE),
-        (TimeoutError("control system"), recovery.Origin.IN_PROCESS, False, _Step.NONE),
-        (ConnectorUnavailableError("gone"), recovery.Origin.CHILD, False, _Step.REPLACE),
-        (ConnectorUnavailableError("gone"), recovery.Origin.IN_PROCESS, False, _Step.REPLACE),
-        (ConnectionError("pipe"), recovery.Origin.LINK, False, _Step.REPLACE),
-        (ConnectionError("transport"), recovery.Origin.CHILD, False, _Step.REPLACE),
-        (ValueError("anything else"), recovery.Origin.CHILD, False, _Step.NONE),
+        (ConnectorInternalError("bug"), recovery._Origin.CHILD, False, _Step.NONE),
+        (ConnectorInternalError("bug"), recovery._Origin.LINK, False, _Step.NONE),
+        (ChannelUnreachableError("SR:X"), recovery._Origin.CHILD, False, _Step.NONE),
+        (ChannelUnreachableError("SR:X"), recovery._Origin.IN_PROCESS, False, _Step.NONE),
+        (ChannelReadFailedError(["SR:X"]), recovery._Origin.CHILD, False, _Step.NONE),
+        (ClientLibraryRefusedError(package="epics"), recovery._Origin.CHILD, False, _Step.NONE),
+        (TimeoutError("deadline"), recovery._Origin.LINK, True, _Step.REPLACE),
+        (TimeoutError("deadline"), recovery._Origin.LINK, False, _Step.PROBE),
+        (TimeoutError("control system"), recovery._Origin.CHILD, False, _Step.NONE),
+        (TimeoutError("control system"), recovery._Origin.IN_PROCESS, False, _Step.NONE),
+        (ConnectorUnavailableError("gone"), recovery._Origin.CHILD, False, _Step.REPLACE),
+        (ConnectorUnavailableError("gone"), recovery._Origin.IN_PROCESS, False, _Step.REPLACE),
+        (ConnectionError("pipe"), recovery._Origin.LINK, False, _Step.REPLACE),
+        (ConnectionError("transport"), recovery._Origin.CHILD, False, _Step.REPLACE),
+        (ValueError("anything else"), recovery._Origin.CHILD, False, _Step.NONE),
     ],
 )
 def test_every_failure_class_has_one_step(exc, origin, write_timeout, step):
@@ -132,7 +132,7 @@ def test_a_lost_connector_that_is_also_a_timeout_is_decided_by_its_root():
 
     for write_timeout in (False, True):
         step = recovery._step_of(
-            Unanswered("gone"), recovery.Origin.LINK, write_timeout=write_timeout
+            Unanswered("gone"), recovery._Origin.LINK, write_timeout=write_timeout
         )
         assert step is _Step.REPLACE
 
@@ -141,9 +141,9 @@ def test_the_policy_derives_the_origin_from_the_error_and_the_target():
     in_child = _Target()
     in_process = _Target(in_child=False)
 
-    assert recovery._origin(ConnectionError("pipe"), in_child) is recovery.Origin.LINK
-    assert recovery._origin(_from_child(ConnectionError("x")), in_child) is recovery.Origin.CHILD
-    assert recovery._origin(ConnectionError("x"), in_process) is recovery.Origin.IN_PROCESS
+    assert recovery._origin(ConnectionError("pipe"), in_child) is recovery._Origin.LINK
+    assert recovery._origin(_from_child(ConnectionError("x")), in_child) is recovery._Origin.CHILD
+    assert recovery._origin(ConnectionError("x"), in_process) is recovery._Origin.IN_PROCESS
 
 
 # -- what recovery does --------------------------------------------------------

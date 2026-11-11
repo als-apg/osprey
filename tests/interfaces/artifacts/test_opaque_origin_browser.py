@@ -43,6 +43,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces._serving import run_app_server
 from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context
@@ -332,7 +333,7 @@ def hub_with_gallery(
     root = tmp_path / "agent_data"
     (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
     config = _write_config(tmp_path / "config.yml")
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     reset_process_memos()

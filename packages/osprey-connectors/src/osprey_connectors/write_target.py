@@ -35,7 +35,6 @@ from osprey_connectors.types import (
 )
 
 __all__ = [
-    "FALLBACK_WRITE_TOOLS",
     "KIND_BANNERS",
     "UNRESOLVED",
     "Unresolved",
@@ -53,10 +52,10 @@ KIND_BANNERS: dict[str, str] = {
 }
 
 #: The write list a deployment with no rendered ``write_tools`` falls back to.
-#: Restated from the hooks' ``FALLBACK_WRITE_TOOLS`` (``osprey_hook_log.py``):
+#: Restated from the hooks' ``_FALLBACK_WRITE_TOOLS`` (``osprey_hook_log.py``):
 #: this package cannot import the framework, and the hooks cannot import this
 #: package. The parity test pins the two.
-FALLBACK_WRITE_TOOLS: tuple[str, ...] = (
+_FALLBACK_WRITE_TOOLS: tuple[str, ...] = (
     "mcp__bluesky__queue_add",
     "mcp__bluesky__queue_start",
     "mcp__controls__channel_write",
@@ -284,7 +283,7 @@ def write_target_for_tool(
     """
     try:
         hooks: Mapping[str, Any] = hook_config if isinstance(hook_config, Mapping) else {}
-        write_tools = hooks.get("write_tools", FALLBACK_WRITE_TOOLS)
+        write_tools = hooks.get("write_tools", _FALLBACK_WRITE_TOOLS)
         if not _is_write_tool(tool_name, write_tools):
             return None
         if short_name is None:

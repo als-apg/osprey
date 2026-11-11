@@ -132,7 +132,7 @@ async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_ro
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation, stored.switch) == (BASELINE, 0, {})
-    assert stored.posture == control_context.posture_mirror({})
+    assert stored.posture == control_context._posture_mirror({})
     assert stored.owner == terminal_identity()
     assert app.state.control_context_owner is task.owner
     assert app.state.control_context_follows is None
@@ -247,7 +247,7 @@ async def test_a_terminal_claims_a_record_whose_owner_pid_is_another_users_proce
     """
     liveness.add(OTHER_TERMINAL_PID)
     monkeypatch.setattr(
-        control_context, "is_foreign_process", lambda pid: pid == OTHER_TERMINAL_PID
+        control_context, "_is_foreign_process", lambda pid: pid == OTHER_TERMINAL_PID
     )
     write_control_context(
         control_context_root,

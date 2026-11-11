@@ -86,10 +86,10 @@ def test_top_level_fields_drive_run_when_environment_config_is_empty(
     # The objective came from the top-level field.
     assert "charge_ltb" in result.data.columns
     # The resolved config still carries exactly the selected subset.
-    assert set(result.metadata.config.variables or []) == set(selected)
+    assert set(result.config.variables or []) == set(selected)
     # The run completed against the top-level objective and produced a best point.
-    assert result.metadata.config.objective_name == "charge_ltb"
-    assert result.metadata.config is config
+    assert result.config.objective_name == "charge_ltb"
+    assert result.config is config
     # 1 initial sample (RANDOM default) + the 5 configured iterations.
     assert result.data.height == 6
     assert isinstance(result.best_point, dict)

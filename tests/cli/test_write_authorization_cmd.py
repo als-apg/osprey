@@ -373,7 +373,6 @@ class TestDeployment:
         control_context.set_switch(["va"], "off", path=tree / "alice" / "control_context.json")
         monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
         monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
-        posture_store.invalidate_cache()
         control_context.invalidate_cache()
         status, grant = wa._find_grant("alice", request.id)
         assert status == "ok" and grant is not None and grant.revoked is not None

@@ -30,7 +30,6 @@ from typing import Any
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError
 
 __all__ = [
-    "POLL_INTERVAL_S",
     "Landing",
     "SettleReadError",
     "SettleTimeoutError",
@@ -40,7 +39,7 @@ __all__ = [
 ]
 
 #: Seconds between two reads of a readback that is not yet within its bound.
-POLL_INTERVAL_S = 0.05
+_POLL_INTERVAL_S = 0.05
 
 
 def declared_tolerance(record: Mapping[str, Any] | None, demand: float) -> float | None:
@@ -191,7 +190,7 @@ async def settle(
             landing, last = unsettled[0]
             raise SettleTimeoutError(landing, last, timeout_s)
         pending = [landing for landing, _ in unsettled]
-        await sleep(POLL_INTERVAL_S)
+        await sleep(_POLL_INTERVAL_S)
 
 
 def _within(value: Any, landing: Landing) -> bool:

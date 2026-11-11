@@ -124,6 +124,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
@@ -137,7 +138,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     evaluate_eligibility,
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
@@ -522,7 +523,7 @@ def module_environment(tmp_path_factory):
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-        patch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+        patch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
         control_context.invalidate_cache()
         write_control_context(
             root, target=TARGET_VA, generation=0, owned_by=None, switch={TARGET_STANDIN: "asked"}
@@ -544,7 +545,7 @@ def stamped_root(module_environment, monkeypatch):
     — has to read the record this module wrote, not whatever the resolver
     falls back to.
     """
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(module_environment))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(module_environment))
     control_context.invalidate_cache()
     yield
     control_context.invalidate_cache()

@@ -14,8 +14,8 @@ from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.scenarios import _value_errors
-from osprey_connectors.simulation import STILL_SCENARIO
 from osprey_connectors.simulation.envelope import active_envelopes
+from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.view import SimulatorView
 from tests.facility._synthetic_trees import plain_tree, write_tree
 

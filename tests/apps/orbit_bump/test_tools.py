@@ -129,7 +129,7 @@ def stamps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     _deploy(tmp_path, monkeypatch, writes="asked")
     write_control_context(
-        posture_store.agent_data_root(), "va", 1, switch={"va": "asked", "live": "asked"}
+        posture_store.stamped_agent_data_root(), "va", 1, switch={"va": "asked", "live": "asked"}
     )
     control_context.invalidate_cache()
     yield use_stamp_dir(monkeypatch, tmp_path / "stamps")
@@ -272,7 +272,7 @@ async def test_a_target_switched_since_the_approval_never_reaches_the_door(
     stamps: ApprovalStamps, door: Door
 ) -> None:
     write_control_context(
-        posture_store.agent_data_root(), "standin", 2, switch={"standin": "asked"}
+        posture_store.stamped_agent_data_root(), "standin", 2, switch={"standin": "asked"}
     )
     control_context.invalidate_cache()
     with _approved(stamps), pytest.raises(ApprovalRefused):

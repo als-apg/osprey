@@ -91,7 +91,7 @@ answer by :func:`~osprey_connectors.posture_store.write_verdict`. The
 connector child takes that same verdict on every write and on its own gateway
 selection, so a parent that derived from config alone would derive
 ``write_access`` for a target the child has just connected to on ``read_only``
-— and :func:`~osprey_connectors.ipc.verify_child_report`, doing its job, would
+— and :func:`~osprey_connectors.ipc.verify_host_report`, doing its job, would
 abort the switch on a disagreement that is nobody's misconfiguration.
 
 :func:`target_write_verdict` is therefore what every caller in this stack

@@ -278,7 +278,7 @@ def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
     — is cleared, so each case states the one it means. Both caches are
     dropped on the way in and out.
     """
-    from osprey_connectors import control_context, posture_store
+    from osprey_connectors import control_context
     from osprey_connectors_tests._harness import VERDICT_ENV_VARS, state_dir_under
 
     root = tmp_path / "agent_data"
@@ -286,10 +286,8 @@ def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
     for name in VERDICT_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
     control_context.invalidate_cache()
 
 

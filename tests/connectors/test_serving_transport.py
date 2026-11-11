@@ -26,9 +26,7 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_VA,
     TRANSPORT_CA,
-    TRANSPORT_DOOCS,
     TRANSPORT_IN_PROCESS,
-    TRANSPORT_TANGO,
     VIRTUAL_ACCELERATOR,
     baseline_target,
     connector_transport,
@@ -67,8 +65,8 @@ ROWS = [
     pytest.param(_va(SERVED), SERVED, TRANSPORT_CA, True, True, id="va-served"),
     pytest.param({"type": EPICS}, SERVED, TRANSPORT_CA, True, True, id="epics"),
     pytest.param({"type": LIVE_STANDIN}, SERVED, TRANSPORT_CA, True, True, id="live-standin"),
-    pytest.param({"type": DOOCS}, SERVED, TRANSPORT_DOOCS, False, True, id="doocs"),
-    pytest.param({"type": TANGO}, SERVED, TRANSPORT_TANGO, False, True, id="tango"),
+    pytest.param({"type": DOOCS}, SERVED, "doocs", False, True, id="doocs"),
+    pytest.param({"type": TANGO}, SERVED, "tango", False, True, id="tango"),
     pytest.param({"type": DOTTED}, SERVED, None, False, True, id="dotted"),
 ]
 

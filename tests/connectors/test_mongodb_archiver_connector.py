@@ -1534,13 +1534,13 @@ WAVEFORM_EXPIRES = datetime(2030, 1, 1, tzinfo=UTC)
 def _sek_documents(count: int, spacing: timedelta = timedelta(milliseconds=100)):
     """``count`` archived SEK traces, built the way every writer builds them."""
     from osprey_connectors.simulation.archive import waveform_document
-    from osprey_connectors.simulation.pulse import TRACE_POINTS, trace
+    from osprey_connectors.simulation.pulse import trace
 
     documents = []
     for i in range(count):
         date = WAVEFORM_T0 + i * spacing
         values = trace(WAVEFORM_CHANNEL, date.timestamp(), driver=2.5, enable=True)
-        assert values.shape == (TRACE_POINTS,)
+        assert values.shape == (500,)
         documents.append(
             waveform_document(WAVEFORM_CHANNEL, date, values, expire_at=WAVEFORM_EXPIRES)
         )

@@ -90,6 +90,9 @@ def archive(tmp_path_factory):
     return build(view, [], anchor_s=T0.timestamp())
 
 
+#: Samples per pulse trace, as the trace function gives them.
+TRACE_POINTS = len(pulse.trace("TRACE:LENGTH", 0.0, 1.0, True))
+
 # A pulsed supply: its trace, its setpoint (the driver) and its on-state (the enable).
 WAVE = "SR:SEK:WAVEFORM"
 DRIVER = "SR:SEK:CURRENT:SP"
@@ -132,7 +135,7 @@ def write_pulse_view(render, *, pulse_seed=True, scenarios=None, driver=DRIVER):
     variables = json.loads((view / VARIABLES_FILE).read_text())
     for record in variables["channels"]:
         if record["address"] == WAVE:
-            record["shape"] = [pulse.TRACE_POINTS]
+            record["shape"] = [TRACE_POINTS]
     (view / VARIABLES_FILE).write_text(json.dumps(variables))
     if pulse_seed:
         seeds = json.loads((view / SEEDS_FILE).read_text())
@@ -836,7 +839,7 @@ class TestWaveformChannels:
 
         (trace,) = stepped_pulse_archive.traces(WAVE, [after])
 
-        assert trace.shape == (pulse.TRACE_POINTS,)
+        assert trace.shape == (TRACE_POINTS,)
         assert not trace.any()
 
     def test_a_waveform_series_is_its_traces_as_plain_floats(self, pulse_archive):
@@ -892,8 +895,7 @@ class TestSeedBaseWaveforms:
         stored = sorted(document[DATE_FIELD] for document in waveforms.documents)
         assert stored == [datetime.fromtimestamp(float(t), UTC) for t in instants]
         assert all(
-            len(document[field_name(WAVE)]) == pulse.TRACE_POINTS
-            for document in waveforms.documents
+            len(document[field_name(WAVE)]) == TRACE_POINTS for document in waveforms.documents
         )
 
     def test_every_waveform_document_is_the_helper_s(self, pulse_archive):

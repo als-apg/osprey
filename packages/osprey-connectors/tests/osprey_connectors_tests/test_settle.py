@@ -23,7 +23,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.ipc import ConnectorHostUnresponsiveError
 from osprey_connectors.settle import (
-    POLL_INTERVAL_S,
+    _POLL_INTERVAL_S,
     Landing,
     SettleReadError,
     SettleTimeoutError,
@@ -125,7 +125,7 @@ async def test_a_lagging_readback_settles_after_its_lag(clock: _Clock) -> None:
     )
 
     assert connector.reads == ["Q1:RB"] * 4
-    assert clock.pauses == [POLL_INTERVAL_S] * 3
+    assert clock.pauses == [_POLL_INTERVAL_S] * 3
 
 
 async def test_a_batch_settles_each_landing_on_its_own(clock: _Clock) -> None:

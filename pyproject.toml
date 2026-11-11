@@ -965,8 +965,6 @@ ignore_imports = [
     # backend routes
     # Strings, not imports: `web_terminal/agent_content_routes.py` `SCANNED_PACKAGES`
     # names `osprey.interfaces.okf_panel`.
-    # removable now: the frontmatter reader belongs to the facility layer
-    "osprey.facility.knowledge_links -> osprey.services.facility_knowledge.okf.document",
 ]
 
 [[tool.importlinter.contracts]]

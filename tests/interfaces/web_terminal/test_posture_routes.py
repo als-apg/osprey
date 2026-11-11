@@ -39,6 +39,7 @@ import pytest
 import yaml
 
 from osprey.audit import posture as audit_posture
+from osprey.deployment.web_terminals.login_tiers import LOGIN_TIERS_KEY
 from osprey.interfaces.web_terminal import config_view, control_context_owner
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
@@ -806,7 +807,7 @@ class TestTheLoginsOwnTierLock:
 
     @pytest.mark.usefixtures("agent_data_root")
     def test_the_terminal_render_carries_no_map_and_binds_no_tree(self):
-        assert posture_store.LOGIN_TIERS_KEY.rsplit(".", 1)[-1] not in ALLOWED
+        assert LOGIN_TIERS_KEY not in ALLOWED
         assert "OSPREY_CONTROL_CONTEXT_TREE" not in os.environ
         assert posture_store.owner_tier_term(ALLOWED, acting_identity()) == "skip"
 
@@ -1313,10 +1314,10 @@ class TestRunsAndTheSwitch:
     @staticmethod
     def _launch(monkeypatch, target):
         monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         stamp = host_executor._launch_posture(target)
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         return stamp
 
     @staticmethod
