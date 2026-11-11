@@ -135,9 +135,7 @@ async def _probe(target: _Target, knock: Knock) -> CheckResult:
     name = f"{CATEGORY}.{target.contract.service}" + (f"-{endpoint}" if endpoint else "")
     who = " / ".join(consumer.name for consumer in target.consumers)
     switches = ", ".join(consumer.switch_key for consumer in target.consumers)
-    keys = ", ".join(projected.key for projected in target.contract.projected) or (
-        f"services.{target.contract.service}"
-    )
+    keys = ", ".join(target.contract.dial_keys()) or (f"services.{target.contract.service}")
 
     if target.dial is None:
         degrades = all(not consumer.refuse for consumer in target.consumers)

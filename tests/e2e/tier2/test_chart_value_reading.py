@@ -5,7 +5,7 @@ loss that only a logbook plot records.
 
 Tier 2 tests measure what a model can do in OSPREY rather than gate a change:
 the task is fair, but a capable model may still miss it. They run on demand
-(the ``tier2-model-benchmark`` CI job) and in the model matrix, never on a pull
+(the ``benchmarks`` CI job) and in the model matrix, never on a pull
 request. No rerun marker: a benchmark scores every attempt.
 
 The lower tiers already prove the road: find a channel, read the archive,

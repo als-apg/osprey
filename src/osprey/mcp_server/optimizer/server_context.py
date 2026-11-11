@@ -8,13 +8,8 @@ import httpx
 
 from osprey.mcp_server.control_system.target_banner import resolve_target_situation
 from osprey.mcp_server.errors import make_error
-from osprey.optimizer_connection import OPTIMIZER_URL_ENV_VAR, optimizer_url
+from osprey.optimizer_connection import OPTIMIZER_TIMEOUT_S, OPTIMIZER_URL_ENV_VAR, optimizer_url
 from osprey_connectors.workspace import load_osprey_config
-
-#: Seconds to wait for an answer. Longer than the service's own deadlines on a
-#: machine read (the connector pool's 60 s, the environment's 75 s backstop), so
-#: the service's typed error arrives before this client gives up.
-TIMEOUT_S = 80.0
 
 _UNREACHABLE_HINTS = [
     "Confirm the optimizer service is running (`osprey status`).",
@@ -79,7 +74,7 @@ async def request(
     """
     url = f"{optimizer_url(load_osprey_config())}{path}"
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
+        async with httpx.AsyncClient(timeout=OPTIMIZER_TIMEOUT_S) as client:
             resp = await client.request(method, url, params=params, json=json_body)
     except httpx.TimeoutException as exc:
         if isinstance(exc, httpx.ConnectTimeout):
@@ -91,14 +86,14 @@ async def request(
         make_error(
             "optimizer_unreachable",
             f"The optimizer at {url} took the request but gave no answer within "
-            f"{TIMEOUT_S:.0f} s. It may still be working on it (a machine read that "
+            f"{OPTIMIZER_TIMEOUT_S:.0f} s. It may still be working on it (a machine read that "
             "hangs is cut off by the service itself).",
             [
                 "Retry once; a machine read that keeps timing out points at the machine, "
                 "not the optimizer.",
                 "Check the target's channels with the control-system tools.",
             ],
-            details={"timeout_s": TIMEOUT_S},
+            details={"timeout_s": OPTIMIZER_TIMEOUT_S},
         )
     except httpx.HTTPError as exc:
         make_error(

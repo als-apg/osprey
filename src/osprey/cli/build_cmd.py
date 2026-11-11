@@ -89,6 +89,7 @@ from .build_injectors import (
     _inject_limits_database,
     _inject_nextcloud_bridge,
     _inject_optimizer,
+    _inject_optimizer_web,
     _inject_profile_services,
     _inject_slack_bridge,
     _inject_teams_bridge,
@@ -160,6 +161,7 @@ __all__ = [
     "_inject_limits_database",
     "_inject_nextcloud_bridge",
     "_inject_optimizer",
+    "_inject_optimizer_web",
     "_inject_profile_services",
     "_inject_slack_bridge",
     "_inject_teams_bridge",
@@ -5004,6 +5006,9 @@ def _inject_services(
     if build_profile.optimizer is not None:
         _inject_optimizer(build_profile.optimizer, project_path)
         injected.append("optimizer")
+    if build_profile.optimizer_web is not None:
+        _inject_optimizer_web(build_profile.optimizer_web, project_path)
+        injected.append("optimizer web")
     if build_profile.virtual_accelerator is not None:
         _inject_va(build_profile.virtual_accelerator, project_path)
         injected.append("virtual accelerator")

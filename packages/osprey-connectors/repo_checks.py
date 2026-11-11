@@ -82,6 +82,18 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "transitional: its framework users land with the connectors floor bump to "
         ">=2026.11.8 (#2571)"
     ),
+    "osprey_connectors.simulation.DEFAULT_FAST_TICK_S": (
+        "transitional: its framework users land with the connectors floor bump to "
+        ">=2026.11.9 (#2634)"
+    ),
+    "osprey_connectors.simulation.FAST_TICK_KEY": (
+        "transitional: its framework users land with the connectors floor bump to "
+        ">=2026.11.9 (#2634)"
+    ),
+    "osprey_connectors.simulation.resolve_fast_tick_s": (
+        "transitional: its framework users land with the connectors floor bump to "
+        ">=2026.11.9 (#2634)"
+    ),
     "osprey_connectors.simulation.archive.FingerprintComparison": (
         "a fingerprint comparison answers in this type"
     ),

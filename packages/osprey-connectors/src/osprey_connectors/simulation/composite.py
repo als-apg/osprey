@@ -67,6 +67,20 @@ any active scenario's ``still`` list names, ``nominal`` included, are stilled.
 A set whose scenarios touch one target twice is served without its
 scenarios.
 
+**Evolution.** A composite built with ``evolve=True`` drives the children
+whose engine states the time contract (``advance``, ``next_deadline``,
+``emitted``, ``client_write``), each looked up on the engine the way
+``readout`` is: it calls ``advance(model, t)`` at its clock's reading right
+after it builds or rebuilds a child, right after :meth:`Composite.reset`, and
+before every read and write; :meth:`Composite.next_deadline` is the earliest
+of the children's deadlines and :meth:`Composite.emitted` the union of what
+they emitted, drained. Only a write through :meth:`Composite.set` that reaches
+a child's model is a client write, handed to ``client_write(model, values,
+t)``; :meth:`Composite.restore`, the start state and the scenario writes are
+not, and neither is a write a ``stuck`` or ``disconnected`` setpoint holds. A
+rebuild discards what a child had pending. Built without it, the default, the
+composite calls none of the four names.
+
 **The model log.** Each physics child appends JSON lines ``{instance, pid,
 ...}`` to ``var/simulator/<model>.log`` under the repo root of the loaded
 config, one ``os.write`` per record of under :data:`_LOG_RECORD_MAX_BYTES`
@@ -251,6 +265,8 @@ class Composite(LUMEModel):
             only, for a composite no instance serves.
         log_dir: The directory the model logs are appended in; ``None`` takes
             :func:`log_dir` when ``model_log`` is set.
+        evolve: Drive the children's time contract with ``clock``; ``False``
+            never calls it, so every channel holds its start state until written.
 
     Raises:
         ValueError: ``instance`` is not one of :data:`_INSTANCES`.
@@ -267,6 +283,7 @@ class Composite(LUMEModel):
         clock: Callable[[], float] = time.time,
         model_log: bool = True,
         log_dir: Path | str | None = None,
+        evolve: bool = False,
     ) -> None:
         if instance not in _INSTANCES:
             raise ValueError(f"instance is {instance!r}; use one of {list(_INSTANCES)}")
@@ -274,6 +291,7 @@ class Composite(LUMEModel):
             view = SimulatorView.open(view)
         self._instance = instance
         self._clock = clock
+        self._evolve = evolve
         self._state_path = (
             None if state_dir is None else Path(state_dir) / ACTIVE_SCENARIOS_FILENAME
         )
@@ -419,6 +437,7 @@ class Composite(LUMEModel):
             return
         child.status = STATUS_OK
         self._log(child.name, {"event": "built", "status": STATUS_OK})
+        self._advance_child(child, float(self._clock()))
 
     def _fail(self, child: _Child, exc: BaseException) -> None:
         """Mark a child failed with the text its engine gives for ``exc``.
@@ -436,6 +455,81 @@ class Composite(LUMEModel):
         child.model = None
         child.status = _cap_status(text)
         self._log(child.name, {"event": "failed", "error": text})
+
+    # -- the time contract ---------------------------------------------------
+
+    def _time_function(self, child: _Child, name: str) -> Callable[..., Any] | None:
+        """A built child's time-contract function ``name``; ``None`` unless evolving."""
+        if not self._evolve or child.model is None:
+            return None
+        function = getattr(child.engine, name, None)
+        return function if callable(function) else None
+
+    def _call_time(self, child: _Child, name: str, *args: Any) -> Any:
+        """Call ``child``'s time-contract function ``name`` on its model with ``args``.
+
+        Returns what it returns, or ``None`` when the child states no such
+        function or is not evolving; a raise fails the child and returns ``None``.
+        """
+        function = self._time_function(child, name)
+        if function is None:
+            return None
+        try:
+            return function(child.model, *args)
+        except Exception as exc:
+            self._fail(child, exc)
+            return None
+
+    def _advance_child(self, child: _Child, t_s: float) -> None:
+        """Apply every step of ``child`` due by ``t_s``; a raise fails the child."""
+        self._call_time(child, "advance", t_s)
+
+    def _advance(self, t_s: float) -> None:
+        for child in self._children.values():
+            self._advance_child(child, t_s)
+
+    def advance(self) -> None:
+        """Advance every time-driven child to the clock; nothing unless built to evolve."""
+        self._refresh()
+        self._advance(float(self._clock()))
+
+    def next_deadline(self) -> float | None:
+        """The earliest epoch second a time-driven child has a step due, else ``None``.
+
+        ``None`` too when the composite does not evolve; a child whose engine
+        raises is failed and has no deadline.
+        """
+        self._refresh()
+        deadlines: list[float] = []
+        for child in self._children.values():
+            deadline = self._call_time(child, "next_deadline")
+            if deadline is not None:
+                deadlines.append(float(deadline))
+        return min(deadlines) if deadlines else None
+
+    def emitted(self) -> frozenset[str]:
+        """The addresses the time-driven children emitted since the last call, drained.
+
+        Empty when the composite does not evolve; a child whose engine raises
+        is failed and emits nothing.
+        """
+        self._refresh()
+        fired: set[str] = set()
+        for child in self._children.values():
+            emitted = self._time_function(child, "emitted")
+            if emitted is None:
+                continue
+            try:
+                fired.update(str(address) for address in emitted(child.model))
+            except Exception as exc:
+                self._fail(child, exc)
+        return frozenset(fired)
+
+    def _client_write(self, forwarded: Mapping[str, Mapping[str, Any]], t_s: float) -> None:
+        """Hand each child the client writes that reached its model."""
+        for model, written in forwarded.items():
+            if written:
+                self._call_time(self._children[model], "client_write", dict(written), t_s)
 
     # -- the active scenarios ------------------------------------------------
 
@@ -625,6 +719,15 @@ class Composite(LUMEModel):
         self._refresh()
         return self._moving
 
+    def texture_reach(self) -> dict[str, frozenset[str]]:
+        """What a write to each settable texture channel can change, by address.
+
+        The channel, the readback it echoes into, and the texture channels
+        derived from either. No physics model reads a texture channel, so the
+        write changes nothing else.
+        """
+        return self._texture.reach()
+
     def get(self, names: list[str] | str) -> dict[str, Any] | Any:
         """Read channels, each as its variable declares it; a waveform as an array of its shape.
 
@@ -669,7 +772,9 @@ class Composite(LUMEModel):
 
     def _get(self, names: list[str]) -> dict[str, Any]:
         self._refresh()
-        outputs = self._served(names, float(self._clock()))
+        t_s = float(self._clock())
+        self._advance(t_s)
+        outputs = self._served(names, t_s)
         outputs.update(self._held_demands(names))
         for name in names:
             fault = self._faulted.get(name)
@@ -888,6 +993,7 @@ class Composite(LUMEModel):
         wanted = list(names)
         self._require(wanted)
         self._refresh()
+        self._advance(float(self._clock()))
         outputs, texture, physics = self._partition(wanted)
         outputs.update(self._texture.held(texture))
         for model, owned in physics.items():
@@ -947,6 +1053,21 @@ class Composite(LUMEModel):
                 ``address`` names the channel when one channel was refused.
             ReadOnlyError: A name is not a settable channel.
         """
+        self._write(values_by_name, client=True)
+
+    def restore(self, values_by_name: dict[str, Any]) -> None:
+        """Put channels back as :meth:`set` writes them, without a client write.
+
+        For a rollback or a replay: the children's models take the values, and
+        no engine is told a client wrote them.
+
+        Raises:
+            WriteRefusedError: As :meth:`set`.
+            ReadOnlyError: As :meth:`set`.
+        """
+        self._write(values_by_name, client=False)
+
+    def _write(self, values_by_name: Mapping[str, Any], *, client: bool) -> None:
         self._refresh()
         if not values_by_name:
             return
@@ -970,13 +1091,19 @@ class Composite(LUMEModel):
                 variable.validate_value(_for_variable(variable, coerced[name]))
             except ValueError as exc:
                 raise WriteRefusedError(str(exc), address=name) from exc
-        self._set(coerced)
+        t_s = float(self._clock())
+        self._advance(t_s)
+        forwarded = self._set(coerced)
+        if client:
+            self._client_write(forwarded, t_s)
 
-    def _set(self, values_by_name: dict[str, Any]) -> None:
+    def _set(self, values_by_name: dict[str, Any]) -> dict[str, dict[str, Any]]:  # type: ignore[override]
+        """Write the children, then the texture; returns what reached each child's model."""
         batches: dict[str, dict[str, Any]] = {}
         for name, value in values_by_name.items():
             batches.setdefault(self._owner[name], {})[name] = value
         restores: list[Callable[[], None]] = []
+        forwarded: dict[str, dict[str, Any]] = {}
         texture = batches.get(TEXTURE_OWNER) or {}
         demands = {name: value for name, value in texture.items() if name in self._held_writes}
         writing: Mapping[str, Any] = {}
@@ -984,7 +1111,8 @@ class Composite(LUMEModel):
             for model, child in self._children.items():
                 if model in batches:
                     writing = batches[model]
-                    restores.append(self._set_child(child, writing))
+                    restore, forwarded[model] = self._set_child(child, writing)
+                    restores.append(restore)
             forward = {name: value for name, value in texture.items() if name not in demands}
             if forward:
                 writing = forward
@@ -1002,9 +1130,12 @@ class Composite(LUMEModel):
             address = next(iter(writing)) if len(writing) == 1 else None
             raise WriteRefusedError(str(exc) or type(exc).__name__, address=address) from exc
         self._texture_demands.update(demands)
+        return forwarded
 
-    def _set_child(self, child: _Child, batch: Mapping[str, Any]) -> Callable[[], None]:
-        """Write one child's batch; returns what puts its previous inputs back.
+    def _set_child(
+        self, child: _Child, batch: Mapping[str, Any]
+    ) -> tuple[Callable[[], None], dict[str, Any]]:
+        """Write one child's batch; returns its undo and the values that reached the model.
 
         Every name of the batch lands in the child's inputs; only the names the
         active scenarios do not hold reach the model.
@@ -1012,6 +1143,7 @@ class Composite(LUMEModel):
         forward = {name: value for name, value in batch.items() if name not in self._held_writes}
         previous = {name: child.inputs[name] for name in batch if name in child.inputs}
         model = child.model
+        reached = dict(forward) if model is not None else {}
         if model is not None and forward:
             model.set(
                 {
@@ -1035,7 +1167,7 @@ class Composite(LUMEModel):
                 except Exception as exc:
                     self._fail(child, exc)
 
-        return restore
+        return restore, reached
 
     def reset(self) -> None:
         """Return every child to its start state; a failed child is rebuilt.
@@ -1043,7 +1175,8 @@ class Composite(LUMEModel):
         Setpoints return to their active writes or defaults, the texture to its
         nominals and active writes; session writes are dropped, the ones a
         channel fault holds among them. A faulted reading keeps the value it
-        served when its fault became active.
+        served when its fault became active. An evolving composite advances
+        each child to the clock right after, which anchors its time anew.
         """
         self._refresh()
         for child in self._children.values():
@@ -1056,6 +1189,7 @@ class Composite(LUMEModel):
                 self._fail(child, exc)
                 continue
             child.inputs = self._start_inputs(child)
+            self._advance_child(child, float(self._clock()))
         self._texture.reset()
         self._texture_demands = {}
 

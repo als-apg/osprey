@@ -126,6 +126,15 @@ def _build_bluesky_web(_tmp_path: Path) -> FastAPI:
     return app
 
 
+def _build_optimizer_web(_tmp_path: Path) -> FastAPI:
+    # Assembled at module scope like bluesky_web, so seed the operator secret
+    # before the import runs configure_interface_app.
+    os.environ.setdefault("OSPREY_TERMINAL_SECRET", "test-bluesky-web-secret")
+    from osprey.interfaces.optimizer_web.app import app
+
+    return app
+
+
 def _build_history(_tmp_path: Path) -> FastAPI:
     # The history page lives in its own package, not under osprey/interfaces/;
     # its store settings default from the environment and are not read here.
@@ -142,6 +151,7 @@ INTERFACE_BUILDERS = [
     ("health", _build_health),
     ("okf_panel", _build_okf_panel),
     ("bluesky_web", _build_bluesky_web),
+    ("optimizer_web", _build_optimizer_web),
     ("theme_lab", _build_theme_lab),
     ("history", _build_history),
 ]
@@ -150,10 +160,11 @@ INTERFACE_BUILDERS = [
 #: Interfaces that ship no own ``static`` directory, so configure_interface_app's
 #: ``.exists()``-guarded ``/static`` catch-all is (correctly) not mounted. The
 #: two shared mounts (``/static/fonts``, ``/design-system``) are still present.
-#: bluesky_web serves its panel bundle at ``/bluesky`` instead. (theme_lab is
+#: bluesky_web and optimizer_web serve their panel bundles at ``/bluesky`` and
+#: ``/optimizer`` instead. (theme_lab is
 #: not here: it passes the design-system directory as its own ``static_dir``,
 #: so it does mount ``/static``.)
-_INTERFACES_WITHOUT_OWN_STATIC = {"bluesky_web"}
+_INTERFACES_WITHOUT_OWN_STATIC = {"bluesky_web", "optimizer_web"}
 
 
 @pytest.fixture(params=INTERFACE_BUILDERS, ids=[name for name, _ in INTERFACE_BUILDERS])
