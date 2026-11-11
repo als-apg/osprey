@@ -4,6 +4,13 @@ Importable from an installed ``osprey-framework``; nothing here reaches into
 OSPREY's own test tree.
 """
 
+from osprey.apps.sdk.testing._build import invoke_build
+from osprey.apps.sdk.testing._deployment import (
+    Deployment,
+    RenderedTree,
+    ServedTree,
+    synthetic_deployment,
+)
 from osprey.apps.sdk.testing._facility import (
     BPM,
     LINE_TWISS,
@@ -37,14 +44,19 @@ __all__ = [
     "SETTING",
     "SR_GROUPS",
     "Deck",
+    "Deployment",
+    "RenderedTree",
+    "ServedTree",
     "calibrated_setting",
     "deck_tree",
+    "invoke_build",
     "line_deck",
     "measured_sr_deck",
     "measured_tree",
     "model",
     "plain_tree",
     "sr_deck",
+    "synthetic_deployment",
     "with_correctors",
     "with_rf",
     "write_tree",
