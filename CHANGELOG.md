@@ -20,7 +20,7 @@ the `[Unreleased]` section below when a release is cut.
 TODO(release-notes PR, remove before the tag): the version and date above are
 placeholders the owner fills at tag time.
 
-Final fold on main 55ee62fac1 (2026-11-10): every fragment on main is folded
+Final fold on main 365de5a0a8 (2026-11-10): every fragment on main is folded
 into the sections below and changelog.d/ is empty. Still open before the tag:
 - The condensation pass (release skill, Step 4) has not run: the sections
   below the migration guide are the raw fold of every fragment since
