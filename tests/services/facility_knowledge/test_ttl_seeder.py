@@ -7,7 +7,9 @@ dependency, so that means a broken environment.
 
 from __future__ import annotations
 
+import os
 import textwrap
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -19,11 +21,34 @@ from osprey.facility.validate import FACILITY_HEADER
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Canonical als-ontology TTL path relative to the repository root.
-_ALS_GTB_TTL = (
-    Path(__file__).parent.parent.parent.parent  # repo root
-    / "../../../../als-ontology/data/rdf/als_gtb.ttl"
-).resolve()
+#: Names an als-ontology checkout; without it the checkout is looked for beside the repository.
+ALS_ONTOLOGY_ENV = "OSPREY_ALS_ONTOLOGY_ROOT"
+
+_GTB_TTL_IN_CHECKOUT = Path("data/rdf/als_gtb.ttl")
+
+
+def _als_gtb_ttl(repo_root: Path, environ: Mapping[str, str]) -> Path | None:
+    """The real ``als_gtb.ttl``, or ``None`` when no als-ontology checkout is found.
+
+    The variable wins when set, and nothing else is tried. Otherwise the checkout
+    is an ``als-ontology`` directory beside the repository; every ancestor is
+    tried, nearest first, so a git worktree nested inside the main checkout finds
+    the same sibling the main checkout does.
+    """
+    named = environ.get(ALS_ONTOLOGY_ENV)
+    roots = (
+        [Path(named).expanduser()]
+        if named
+        else [ancestor / "als-ontology" for ancestor in repo_root.parents]
+    )
+    for root in roots:
+        ttl = root / _GTB_TTL_IN_CHECKOUT
+        if ttl.is_file():
+            return ttl
+    return None
+
+
+_ALS_GTB_TTL = _als_gtb_ttl(Path(__file__).resolve().parents[3], os.environ)
 
 _QF1 = "https://narad.example.org/device/tst_device_SEC_x2F_QF1"
 _QD1 = "https://narad.example.org/device/tst_device_SEC_x2F_QD1"
@@ -336,9 +361,52 @@ class TestSeedFromGraphView:
 # ---------------------------------------------------------------------------
 
 
+class TestALSOntologyLookup:
+    """Where the optional integration tests look for the als-ontology checkout."""
+
+    @staticmethod
+    def _checkout(parent: Path) -> Path:
+        ttl = parent / "als-ontology" / _GTB_TTL_IN_CHECKOUT
+        ttl.parent.mkdir(parents=True)
+        ttl.write_text("")
+        return ttl
+
+    def test_finds_a_checkout_beside_the_repository(self, tmp_path):
+        ttl = self._checkout(tmp_path / "code")
+        repo = tmp_path / "code" / "osprey"
+        repo.mkdir()
+        assert _als_gtb_ttl(repo, {}) == ttl
+
+    def test_finds_the_main_checkouts_sibling_from_a_worktree(self, tmp_path):
+        ttl = self._checkout(tmp_path / "code")
+        worktree = tmp_path / "code" / "osprey" / "worktrees" / "topic"
+        worktree.mkdir(parents=True)
+        assert _als_gtb_ttl(worktree, {}) == ttl
+
+    def test_the_variable_names_the_checkout(self, tmp_path):
+        ttl = self._checkout(tmp_path / "elsewhere")
+        repo = tmp_path / "code" / "osprey"
+        repo.mkdir(parents=True)
+        assert _als_gtb_ttl(repo, {ALS_ONTOLOGY_ENV: str(ttl.parents[2])}) == ttl
+
+    def test_the_variable_wins_over_a_sibling(self, tmp_path):
+        self._checkout(tmp_path / "code")
+        repo = tmp_path / "code" / "osprey"
+        repo.mkdir()
+        assert _als_gtb_ttl(repo, {ALS_ONTOLOGY_ENV: str(tmp_path / "missing")}) is None
+
+    def test_absent_checkout_is_none(self, tmp_path):
+        repo = tmp_path / "code" / "osprey"
+        repo.mkdir(parents=True)
+        assert _als_gtb_ttl(repo, {}) is None
+
+
 @pytest.mark.skipif(
-    not _ALS_GTB_TTL.exists(),
-    reason="als-ontology repo not present alongside osprey",
+    _ALS_GTB_TTL is None,
+    reason=(
+        f"no als-ontology checkout: clone it beside this repository or set {ALS_ONTOLOGY_ENV} "
+        "to its root"
+    ),
 )
 class TestSeedFromALSGTB:
     """Integration tests against the real als_gtb.ttl (skipped when absent)."""
