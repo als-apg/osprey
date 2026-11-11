@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 import pytest
 from docs.screenshots.contact_sheet import SEEDED_SESSIONS, hermetic_hub
 
-from tests.interfaces._browser import rail_entry
+from tests.interfaces._browser import rail_entry, wait_for_hub_ready, wait_for_window_ready
 from tests.interfaces.web_terminal._chat_server import live_chat_server
 from tests.interfaces.web_terminal._surface import open_terminal
 from tests.interfaces.web_terminal.test_artifact_sessions_browser import (
@@ -182,6 +182,7 @@ def _send(box: Locator, prompt: str) -> None:
 
 def _boot_hermetic(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_hub_ready(page)
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(f"{_AGENT_TILE} .tile-tab-more")).to_be_visible(timeout=_TIMEOUT_MS)
 
@@ -190,6 +191,7 @@ def _detach_agent(page: Page) -> Page:
     with page.expect_popup() as info:
         page.locator(f"{_AGENT_TILE} .tile-tab-window").click()
     popup = info.value
+    wait_for_window_ready(popup)
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
 

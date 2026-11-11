@@ -630,7 +630,12 @@ def test_a_real_handoff_and_the_chat_view_leave_the_deployment_where_it_is(
                     else None
                 ),
             )
-            back_to_chat(page)
+            # The chip is already painted from the terminal, so the reads below
+            # can pass before the chat has sent its hand-off: wait for the request.
+            with page.expect_request(
+                lambda request: request.method == "POST" and "/handoff" in request.url
+            ):
+                back_to_chat(page)
             page.wait_for_function(
                 "() => document.querySelector('#control-target-chip') !== null",
                 timeout=TIMEOUT,
