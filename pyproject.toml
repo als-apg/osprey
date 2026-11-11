@@ -54,7 +54,7 @@ dependencies = [
     # Jupyter notebook support
     "nbformat>=5.0.0",
     "nbclient",
-    "nbconvert>=7.0.0",
+    "nbconvert>=7.17.2",
     # JupyterLab and the server it runs on, launched by the notebook sidecar via
     # ServerApp traits and a ContentsManager subclass. Capped below the next major
     # so adopting it is a reviewed change, not a lock-refresh surprise.
