@@ -9,9 +9,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey_optimizer.api.job_tracker import JobTracker, create_job_state
+from osprey_optimizer.api.job_tracker import JobTracker
 from osprey_optimizer.api.runner import run_optimization_process
-from osprey_optimizer.models.enums import JobStatus, JobType
+from osprey_optimizer.models.enums import JobStatus
+from osprey_optimizer.optimization.state import get_optimization_writer
 from osprey_optimizer.utils.job_keys import state_prefix
 from osprey_optimizer.utils.redis_client import get_redis_client
 from osprey_optimizer.utils.serialization import deserialize_obj
@@ -113,8 +114,8 @@ class TestRunOptimizationProcessCrashState:
         """Verify that a crash in the runner correctly updates Redis state via JobLifecycle."""
         job_id = str(uuid.uuid4())
         # As the launcher does before spawning: claim the slot, set RUNNING.
-        assert JobTracker().claim_active_job(job_id, 0, job_type=JobType.OPTIMIZATION)
-        create_job_state(JobType.OPTIMIZATION, job_id).set_status(JobStatus.RUNNING)
+        assert JobTracker().claim_active_job(job_id, 0)
+        get_optimization_writer(job_id).set_status(JobStatus.RUNNING)
         # Malformed config to ensure we trigger the lifecycle's error handling
         bad_config = {"invalid": "data"}
 

@@ -31,6 +31,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal.chat_session_pool import (
     ChatCapacityError,
     ChatSessionTerminatedError,
@@ -50,7 +51,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
     get_state,
 )
 from osprey.interfaces.web_terminal.turn_state import BUSY, IDLE
-from osprey_connectors import posture_store
+from osprey_connectors import control_context
 from tests._live import wait_until
 from tests.interfaces.web_terminal._fakes import FakeChatPool, FakeChatSession, FakeClock
 from tests.interfaces.web_terminal._handoff_harness import (
@@ -76,10 +77,10 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
+    control_context.invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------

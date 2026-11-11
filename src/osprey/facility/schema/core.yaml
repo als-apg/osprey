@@ -58,6 +58,10 @@ enums:
         description: With each write's solve.
       periodic:
         description: With the periodic solve alone.
+      fast:
+        description: At the fast period, faster than the periodic solve.
+      event:
+        description: With each event the engine raises, such as a shot.
 
   wiring_mark_enum:
     description: A mark a model's engine sets on a wiring record.

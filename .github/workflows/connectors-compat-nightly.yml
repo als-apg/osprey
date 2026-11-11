@@ -26,7 +26,7 @@ name: Connectors compatibility (nightly)
 # The supported releases are [tool.osprey-connectors.compat] frameworks in
 # packages/osprey-connectors/pyproject.toml, read by
 # scripts/ci/connectors_compat_matrix.py. While that list is empty (until the
-# cut-over release; see ci.yml) a scheduled run's one cell says so and
+# cut-over release, FIRST_INDEPENDENT_CONNECTORS there) a scheduled run's one cell says so and
 # succeeds.
 
 on:

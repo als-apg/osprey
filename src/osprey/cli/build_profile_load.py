@@ -84,6 +84,7 @@ from .build_profile_schema import (
     McpServerDef,
     NextcloudBridgeProfileConfig,
     OptimizerConfig,
+    OptimizerWebConfig,
     ProfileProvenance,
     ServiceDef,
     SlackBridgeProfileConfig,
@@ -277,6 +278,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "virtual_accelerator",
         "bluesky_web",
         "optimizer",
+        "optimizer_web",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -335,6 +337,7 @@ LOGIN_DEPLOYMENT_FACTS = frozenset(
         "bluesky",
         "bluesky_web",
         "optimizer",
+        "optimizer_web",
         "virtual_accelerator",
         "nextcloud_bridge",
         "gchat_bridge",
@@ -592,6 +595,7 @@ _KNOWN_BLUESKY_KEYS = frozenset(f.name for f in fields(BlueskyConfig))
 # for the same reason the bluesky set is: a misspelled `target:` would leave the
 # deployment on its default target with no word said.
 _KNOWN_OPTIMIZER_KEYS = frozenset(f.name for f in fields(OptimizerConfig))
+_KNOWN_OPTIMIZER_WEB_KEYS = frozenset(f.name for f in fields(OptimizerWebConfig))
 
 # Keys recognized inside the ``bluesky.external:`` block, derived from its
 # dataclass exactly as the parent block's are, and for the same reason.
@@ -2091,6 +2095,16 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
 
     optimizer = _parse_optimizer(raw.get("optimizer"), port_base)
 
+    optimizer_web_raw = raw.get("optimizer_web")
+    optimizer_web = None
+    if optimizer_web_raw is not None:
+        if not isinstance(optimizer_web_raw, dict):
+            raise BuildProfileError("Profile 'optimizer_web' must be a mapping")
+        _reject_unknown_block_keys(optimizer_web_raw, _KNOWN_OPTIMIZER_WEB_KEYS, "optimizer_web")
+        optimizer_web = OptimizerWebConfig(
+            port=optimizer_web_raw.get("port", default_port("optimizer_web", base=port_base)),
+        )
+
     nextcloud_bridge_raw = raw.get("nextcloud_bridge")
     nextcloud_bridge = None
     if nextcloud_bridge_raw is not None:
@@ -2229,6 +2243,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         virtual_accelerator=virtual_accelerator,
         bluesky_web=bluesky_web,
         optimizer=optimizer,
+        optimizer_web=optimizer_web,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,

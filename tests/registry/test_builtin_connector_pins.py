@@ -14,8 +14,7 @@ because a different consumer reads it:
   from the provider is a connector no sandbox can build — the factory answers
   ``Unknown control system type`` with a list that simply lacks it.
 * :mod:`osprey_connectors.types` carries the choice lists
-  (``SET_CONTROL_SYSTEM_TYPES``, ``CLI_CONTROL_SYSTEM_TYPES``,
-  ``CLI_ARCHIVER_TYPES``) — a copy, because ``types`` is imported by the
+  (``SET_CONTROL_SYSTEM_TYPES``, ``CLI_CONTROL_SYSTEM_TYPES``) — a copy, because ``types`` is imported by the
   factory and cannot import it back. The ``connector:`` shorthand validates
   against them, ``osprey init --help`` prints them, and
   ``tests/profiles/test_preset_connector_prose.py`` holds the preset comments
@@ -143,9 +142,6 @@ class TestChoiceListsMatchTheFactoryBuiltins:
         assert set(_BUILTIN_CONTROL_SYSTEMS) - set(types.CLI_CONTROL_SYSTEM_TYPES) == {
             types.LIVE_STANDIN
         }
-
-    def test_archiver_choices_are_the_factory_builtins(self) -> None:
-        assert sorted(types.CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
 
 
 class TestRegistryInitializationRegistersTheStandIn:

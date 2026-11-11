@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 import polars as pl
+from redis.commands.core import Script
 
-from osprey_optimizer.core.state import JobStateBase, wire_state
+from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.protocols import JobStateReader, JobStateWriter
 from osprey_optimizer.models.types import DIRECTIONS, Direction
+from osprey_optimizer.utils import redis_client
+from osprey_optimizer.utils.job_keys import state_prefix
 from osprey_optimizer.utils.redis_client import BytesRedis
-from osprey_optimizer.utils.redis_state_store import _truncate_repr
+from osprey_optimizer.utils.redis_state_store import (
+    RUNNING_STATE_TTL_SECONDS,
+    RedisStateStore,
+    _truncate_repr,
+)
 from osprey_optimizer.utils.serialization import (
     deserialize_obj,
     serialize_obj,
@@ -23,14 +31,87 @@ __all__ = [
     "get_optimization_writer",
 ]
 
+logger = logging.getLogger(__name__)
 
-class _OptimizationState(JobStateBase):
+# Byte-compare-and-swap on the pickled status key. KEYS[1]=full status key,
+# ARGV[1]=expected pickle bytes, ARGV[2]=new pickle bytes, ARGV[3]=ttl. Pickle of
+# a given enum member is byte-stable, so byte equality is a valid CAS. Only swaps
+# when the stored bytes equal ARGV[1]; returns 1 on swap, 0 otherwise.
+_STATUS_CAS_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+    return 1
+end
+return 0
+"""
+
+
+class _OptimizationState(RedisStateStore):
     """Concrete state class for optimization runs.
+
+    The job-lifecycle surface (status, logs, error message) plus the
+    optimization fields, on top of the raw Redis keyed-namespace store.
 
     Private: all construction must go through ``get_optimization_writer`` /
     ``get_optimization_reader``. Consumers type against the Reader/Writer
     protocols instead of this class.
     """
+
+    def get_status(self) -> JobStatus:
+        """Get current job status."""
+        return self._expect_type(self._load_from_redis("status"), JobStatus, "status")
+
+    def get_logs(self) -> str:
+        """Get captured logs.
+
+        Returns ``""`` when the key is absent — a legitimate early-lifecycle
+        state before the running process has flushed its first log batch.
+        A non-str non-None value indicates genuine corruption and still raises.
+        """
+        logs = self._load_from_redis("logs")
+        if logs is None:
+            return ""
+        return self._expect_type(logs, str, "logs")
+
+    def get_error_message(self) -> str | None:
+        """Get error message if job failed."""
+        return self._load_typed("error_message", str)
+
+    def set_status(self, status: JobStatus) -> None:
+        """Set job status."""
+        self._save_to_redis("status", status)
+        logger.debug("State updated to %s", status)
+
+    def set_status_cas(self, expected: JobStatus, new: JobStatus) -> bool:
+        """Compare-and-swap the status: set ``new`` only if the stored value still equals ``expected``.
+
+        Status is a dual-writer field (worker + API). A plain read-check-write
+        can clobber a terminal status the worker set in the gap, resurrecting a
+        finished job. This runs a single Lua script that byte-compares the stored
+        pickle against ``serialize_obj(expected)`` and swaps only on a match —
+        the swap and the comparison are one atomic Redis operation.
+
+        Returns True if the swap happened, False if the stored value differed
+        (the caller should re-read to report the real current status).
+        """
+        client = self._require_redis_client()
+        key = f"{self._redis_key_prefix}:status"
+        script: Script = client.register_script(_STATUS_CAS_LUA)
+        result = script(
+            keys=[key],
+            args=[serialize_obj(expected), serialize_obj(new), RUNNING_STATE_TTL_SECONDS],
+        )
+        matched = bool(result == 1)
+        logger.debug("CAS status %s -> %s: matched=%s", expected, new, matched)
+        return matched
+
+    def set_error_message(self, message: str | None) -> None:
+        """Set error message."""
+        self._save_to_redis("error_message", message)
+
+    def save_logs(self, logs: str) -> None:
+        """Save log text directly to Redis."""
+        self._save_to_redis("logs", logs)
 
     def _increment_data_version(self) -> None:
         """Increment data version counter atomically via Redis INCR."""
@@ -302,7 +383,9 @@ class OptimizationStateWriter(OptimizationStateReader, JobStateWriter, Protocol)
 
 def get_optimization_writer(job_id: str) -> OptimizationStateWriter:
     """Return a writable handle to the optimization state for ``job_id``."""
-    return wire_state(_OptimizationState, job_id)
+    state = _OptimizationState()
+    state.set_redis_client(redis_client.get_redis_client(binary=True), state_prefix(job_id))
+    return state
 
 
 def get_optimization_reader(job_id: str) -> OptimizationStateReader:

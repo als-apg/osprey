@@ -1391,6 +1391,10 @@ default. One row per image:
      - ``OSPREY_OPTIMIZER_REDIS_IMAGE``
      - ``services.optimizer.redis_image``
      - upstream pin
+   * - optimizer_web
+     - ``OSPREY_OPTIMIZER_WEB_IMAGE``
+     - ``services.optimizer_web.image``
+     - ``<project>-optimizer-web``
    * - virtual_accelerator
      - ``OSPREY_VA_IMAGE``
      - ``services.virtual_accelerator.image``

@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
+from osprey_connectors import control_context
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     agent_data_dir,
@@ -125,9 +126,9 @@ def _lay_down_session_1(repo: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     )
     with monkeypatch.context() as m:
         m.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(seed.parent))
-        posture_store.invalidate_cache()
+        control_context.invalidate_cache()
         report = lay_down_scenario_sessions(app)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     assert key in report.laid and not report.incomplete, report
     return key
 

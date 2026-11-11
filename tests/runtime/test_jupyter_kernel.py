@@ -35,6 +35,7 @@ import pytest
 from osprey import jupyter_kernel, runtime
 from osprey.audit import posture
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError, raw_put_block
@@ -66,7 +67,7 @@ def kernel_env():
     after the test; the posture cache read from the stamped one is dropped here.
     """
     yield os.environ
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 #: The account and host this process writes as — what a kernel record names.
@@ -149,7 +150,7 @@ class TestPreparingTheProcess:
         ],
     )
     def test_the_server_token_is_removed(self, tmp_path, kernel_env, monkeypatch, token):
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
         monkeypatch.setenv(jupyter_kernel.JUPYTER_TOKEN_ENV_VAR, token)
 
         jupyter_kernel._prepare_environment()
@@ -162,7 +163,7 @@ class TestPreparingTheProcess:
         Jupyter writes ``kernel-<kernel_id>.json`` per kernel, and that id is
         the only handle the process has on which kernel it is.
         """
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
 
         stamps = jupyter_kernel._prepare_environment(connection_argv(tmp_path))
 
@@ -172,7 +173,7 @@ class TestPreparingTheProcess:
     @pytest.mark.usefixtures("kernel_env")
     def test_the_joined_flag_names_the_session_stamp_too(self, tmp_path, monkeypatch):
         """``-f=<path>`` is the other spelling ``traitlets`` accepts."""
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
         path = tmp_path / f"kernel-{KERNEL_ID}.json"
 
         stamps = jupyter_kernel._prepare_environment([f"-f={path}"])
@@ -186,7 +187,7 @@ class TestPreparingTheProcess:
         A kernel that cannot say which one it is is worse than one whose id
         spells something unexpected.
         """
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
 
         stamps = jupyter_kernel._prepare_environment(connection_argv(tmp_path, "handmade.json"))
 
@@ -198,7 +199,7 @@ class TestPreparingTheProcess:
         Whatever started the sidecar may carry a session of its own, and
         wearing it would file this kernel's records under another process.
         """
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
         monkeypatch.setenv(posture.POSTURE_SESSION_ENV_VAR, "someone-elses-session")
 
         stamps = jupyter_kernel._prepare_environment([])
@@ -215,7 +216,7 @@ class TestPreparingTheProcess:
         because passing one through would route cells at a target nobody
         selected here.
         """
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
         for name in executor._STAMP_ENV_NAMES:
             monkeypatch.setenv(name, "inherited")
 
@@ -233,7 +234,7 @@ class TestPreparingTheProcess:
         The kernel's working directory is the notebooks folder, so without the
         second name every runtime call in a cell resolves the defaults.
         """
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
         monkeypatch.setenv(jupyter_kernel.OSPREY_CONFIG_ENV_VAR, str(tmp_path / "config.yml"))
         monkeypatch.delenv(jupyter_kernel.CONFIG_FILE_ENV_VAR, raising=False)
 
@@ -243,7 +244,7 @@ class TestPreparingTheProcess:
 
     def test_an_existing_config_file_is_not_overridden(self, tmp_path, kernel_env, monkeypatch):
         """Whoever set ``CONFIG_FILE`` chose it; the sidecar's name only fills a gap."""
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
         monkeypatch.setenv(jupyter_kernel.OSPREY_CONFIG_ENV_VAR, str(tmp_path / "config.yml"))
         monkeypatch.setenv(jupyter_kernel.CONFIG_FILE_ENV_VAR, str(tmp_path / "chosen.yml"))
 
@@ -261,7 +262,7 @@ class TestPreparingTheProcess:
         all. Keeping it would leave every runtime call in a cell on the
         defaults, which is the case the publication exists to prevent.
         """
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
         monkeypatch.setenv(jupyter_kernel.OSPREY_CONFIG_ENV_VAR, str(tmp_path / "config.yml"))
         monkeypatch.setenv(jupyter_kernel.CONFIG_FILE_ENV_VAR, "")
 
@@ -271,7 +272,7 @@ class TestPreparingTheProcess:
 
     def test_no_config_path_publishes_nothing(self, tmp_path, kernel_env, monkeypatch):
         """Neither name set: the launcher invents no path, empty or otherwise."""
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
         monkeypatch.delenv(jupyter_kernel.OSPREY_CONFIG_ENV_VAR, raising=False)
         monkeypatch.delenv(jupyter_kernel.CONFIG_FILE_ENV_VAR, raising=False)
 

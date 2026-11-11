@@ -77,14 +77,9 @@ class TestTypeConstants:
     def test_constant_value(self, row):
         assert row.type_name == row.value
 
-    @pytest.mark.parametrize("row", _ROWS, ids=_ids(_ROWS))
+    @pytest.mark.parametrize("row", _CONTROL_SYSTEM_ROWS, ids=_ids(_CONTROL_SYSTEM_ROWS))
     def test_constant_appears_in_cli_choice_list(self, row):
-        cli_list = (
-            types.CLI_CONTROL_SYSTEM_TYPES
-            if row.kind == "control_system"
-            else types.CLI_ARCHIVER_TYPES
-        )
-        assert row.type_name in cli_list
+        assert row.type_name in types.CLI_CONTROL_SYSTEM_TYPES
 
     @pytest.mark.parametrize("row", _CONTROL_SYSTEM_ROWS, ids=_ids(_CONTROL_SYSTEM_ROWS))
     def test_type_is_live_capable(self, row):
@@ -133,7 +128,7 @@ class TestDirectoryBuiltins:
 
         assert not names & set(types.SET_CONTROL_SYSTEM_TYPES)
         assert not names & set(types.CLI_CONTROL_SYSTEM_TYPES)
-        assert not names & set(types.CLI_ARCHIVER_TYPES)
+        assert not names & {connector.name for connector in factory.BUILTIN_CONNECTORS}
 
 
 class TestFrameworkRegistryEntries:

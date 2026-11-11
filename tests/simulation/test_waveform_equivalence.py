@@ -50,6 +50,9 @@ if TYPE_CHECKING:
 # container instead of starting one of their own.
 pytestmark = pytest.mark.xdist_group("docker")
 
+#: Samples per pulse trace, as the trace function gives them.
+TRACE_POINTS = len(pulse.trace("TRACE:LENGTH", 0.0, 1.0, True))
+
 #: The injection septum's trace, and the two channels it is a function of.
 SEK = "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"
 DRIVER = "SR:MAG:SEPTUM:01:CURRENT:SP"
@@ -117,7 +120,7 @@ def test_the_built_facility_serves_sek_as_a_pulse_of_its_setpoint_and_on_state(d
 
     assert seeds[SEK]["pulse"] == {"driver": DRIVER, "enable": ENABLE}
     assert channel["value_type"] == "waveform"
-    assert channel["shape"] == [pulse.TRACE_POINTS]
+    assert channel["shape"] == [TRACE_POINTS]
 
 
 def test_live_at_t_equals_seeded_at_t(demo_view, seeded):
@@ -127,7 +130,7 @@ def test_live_at_t_equals_seeded_at_t(demo_view, seeded):
     live = live_trace(texture)
     (archived,) = seeded.traces(SEK, [T.timestamp()])
 
-    assert live.shape == (pulse.TRACE_POINTS,)
+    assert live.shape == (TRACE_POINTS,)
     assert np.array_equal(live, archived)
     assert np.array_equal(live, pulse.trace(SEK, T.timestamp(), NOMINAL_DRIVE, True))
     assert live.any()

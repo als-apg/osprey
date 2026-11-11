@@ -26,7 +26,7 @@ simulation; it holds the real machine's past, and that past is the one a
 stand-in session is shown, because what the stand-in rehearses is the
 procedure against the real machine's history. It needs an address to count: a
 block that cannot be dialled is not a deployment saying it has an archive. The
-address is read per type (:data:`ADDRESS_SETTINGS`): the appliance's ``url``;
+address is read per type (:data:`_ADDRESS_SETTINGS`): the appliance's ``url``;
 MYA and DOOCS find their server without a setting (the client library's
 configured ``myquery_server``, the facility's name service), so their block
 always names one.
@@ -74,42 +74,36 @@ from osprey_connectors.types import (
 )
 
 #: The top-level config section selecting and configuring the archiver.
-ARCHIVER_SECTION_KEY = "archiver"
+_ARCHIVER_SECTION_KEY = "archiver"
 
 #: The archiver types that are the deployment's own store. Every other type
 #: except the mock is the facility's archive.
-STORE_ARCHIVERS: frozenset[str] = frozenset({MONGODB_ARCHIVER})
+_STORE_ARCHIVERS: frozenset[str] = frozenset({MONGODB_ARCHIVER})
 
 #: The setting under which a facility archive names where it is, per type.
 #: ``None``: the connector finds its server without one (MYA through the client
 #: library's configured ``myquery_server``, DOOCS through the facility's name
 #: service), so its block always names an address. A type not listed names it
-#: under :data:`DEFAULT_ADDRESS_SETTING`.
-ADDRESS_SETTINGS: Mapping[str, str | None] = MappingProxyType(
+#: under :data:`_DEFAULT_ADDRESS_SETTING`.
+_ADDRESS_SETTINGS: Mapping[str, str | None] = MappingProxyType(
     {EPICS_ARCHIVER: "url", MYA_ARCHIVER: None, DOOCS_ARCHIVER: None}
 )
 
-#: The address setting of a facility archive :data:`ADDRESS_SETTINGS` does not list.
-DEFAULT_ADDRESS_SETTING = "url"
+#: The address setting of a facility archive :data:`_ADDRESS_SETTINGS` does not list.
+_DEFAULT_ADDRESS_SETTING = "url"
 
 #: The targets the facility's archive serves: the real machine and the
 #: stand-in that rehearses it.
 APPLIANCE_TARGETS: frozenset[str] = frozenset({TARGET_LIVE, TARGET_STANDIN})
 
 #: The targets the deployment's own store serves: the virtual accelerator.
-STORE_TARGETS: frozenset[str] = frozenset({TARGET_VA})
+_STORE_TARGETS: frozenset[str] = frozenset({TARGET_VA})
 
 #: No archive for any target.
-NO_TARGETS: frozenset[str] = frozenset()
+_NO_TARGETS: frozenset[str] = frozenset()
 
 __all__ = [
-    "ADDRESS_SETTINGS",
     "APPLIANCE_TARGETS",
-    "ARCHIVER_SECTION_KEY",
-    "DEFAULT_ADDRESS_SETTING",
-    "NO_TARGETS",
-    "STORE_ARCHIVERS",
-    "STORE_TARGETS",
     "archive_targets",
     "archive_withheld",
 ]
@@ -126,25 +120,25 @@ def archive_targets(config: Mapping[str, Any]) -> frozenset[str]:
 
     Returns:
         The targets per the module table — :data:`APPLIANCE_TARGETS`,
-        :data:`STORE_TARGETS` or :data:`NO_TARGETS`. A target absent from the
+        :data:`_STORE_TARGETS` or :data:`_NO_TARGETS`. A target absent from the
         set has no archive: a caller holding it has nothing to offer, never a
         default to fall back on.
     """
-    section = config.get(ARCHIVER_SECTION_KEY) if isinstance(config, Mapping) else None
+    section = config.get(_ARCHIVER_SECTION_KEY) if isinstance(config, Mapping) else None
     archiver_type = resolve_archiver_type(section)
     if archiver_type == MOCK_ARCHIVER:
-        return NO_TARGETS
+        return _NO_TARGETS
 
     try:
         settings = resolve_archiver_settings(section)
     except ValueError:
         # The factory refuses this block with the same error, so no connector
         # is ever built from it and there is no store to attribute.
-        return NO_TARGETS
+        return _NO_TARGETS
 
-    if archiver_type in STORE_ARCHIVERS:
-        return STORE_TARGETS if virtual_accelerator_port(config) is not None else NO_TARGETS
-    return APPLIANCE_TARGETS if _names_an_address(archiver_type, settings) else NO_TARGETS
+    if archiver_type in _STORE_ARCHIVERS:
+        return _STORE_TARGETS if virtual_accelerator_port(config) is not None else _NO_TARGETS
+    return APPLIANCE_TARGETS if _names_an_address(archiver_type, settings) else _NO_TARGETS
 
 
 def archive_withheld(config: Mapping[str, Any], target: str) -> bool:
@@ -163,7 +157,7 @@ def archive_withheld(config: Mapping[str, Any], target: str) -> bool:
     Returns:
         ``True`` when the block is not the mock and does not serve *target*.
     """
-    section = config.get(ARCHIVER_SECTION_KEY) if isinstance(config, Mapping) else None
+    section = config.get(_ARCHIVER_SECTION_KEY) if isinstance(config, Mapping) else None
     if resolve_archiver_type(section) == MOCK_ARCHIVER:
         return False
     return target not in archive_targets(config)
@@ -172,12 +166,12 @@ def archive_withheld(config: Mapping[str, Any], target: str) -> bool:
 def _names_an_address(archiver_type: str, settings: Mapping[str, Any]) -> bool:
     """Whether a facility archive's *settings* state where it is.
 
-    A non-blank string under the type's :data:`ADDRESS_SETTINGS` entry, or
+    A non-blank string under the type's :data:`_ADDRESS_SETTINGS` entry, or
     always for a type whose connector finds its server without one. The
     connector's own reader decides whether the address is well formed; this
     only establishes that the deployment said one.
     """
-    key = ADDRESS_SETTINGS.get(archiver_type, DEFAULT_ADDRESS_SETTING)
+    key = _ADDRESS_SETTINGS.get(archiver_type, _DEFAULT_ADDRESS_SETTING)
     if key is None:
         return True
     address = settings.get(key)

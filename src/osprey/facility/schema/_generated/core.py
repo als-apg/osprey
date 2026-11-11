@@ -711,6 +711,14 @@ class RefreshEnum(str, Enum):
     """
     With the periodic solve alone.
     """
+    fast = "fast"
+    """
+    At the fast period, faster than the periodic solve.
+    """
+    event = "event"
+    """
+    With each event the engine raises, such as a shot.
+    """
 
 
 class WiringMarkEnum(str, Enum):

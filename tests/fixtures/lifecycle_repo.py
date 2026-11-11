@@ -1527,6 +1527,15 @@ panel_presets: {}
 #   targets: [va]
 #   environments_dir: optimizer/environments
 
+# --- Optimizer web panel -----------------------------------------------------
+# The OPTIMIZER tab for the web terminal (requires the optimizer block): where
+# a person reviews and starts the run an agent drafted. The sidecar takes the
+# optimizer_web slot of this deployment's port block; the override below pins
+# it outside that block.
+#
+# optimizer_web:
+#   port: <host port>
+
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
 # match one declared in the dispatch triggers file.
@@ -2291,8 +2300,8 @@ OSPREY_AUTH_PW_CAROL=carol
 # BLUESKY_VA_LAUNCH_TOKEN=  # bluesky_va — arms the plan-launch endpoint of the second Bluesky lane, the one serving the virtual accelerator (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_STANDIN_LAUNCH_TOKEN=  # bluesky_standin — arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft IOC (only on a deployment with `bluesky.second_lane`)
-# OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
-# OPTIMIZER_LAUNCH_TOKEN=  # optimizer — arms the optimizer API's routes that start runs, write to the machine or load a model
+# OSPREY_TERMINAL_SECRET=  # bluesky_web, optimizer_web — the operator login secret for the bluesky-web and optimizer-web panels' web gates
+# OPTIMIZER_LAUNCH_TOKEN=  # optimizer, optimizer_web — arms the optimizer API's routes that start runs, write to the machine or load a model
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # ARIEL_DB_READONLY_PASSWORD=  # postgresql — password of the SELECT-only Postgres role the agent's SQL tool queries through
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)

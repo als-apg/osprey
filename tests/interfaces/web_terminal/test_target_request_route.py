@@ -39,7 +39,7 @@ from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal import jupyter_sidecar as jupyter_sidecar_module
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
-from osprey_connectors import control_context
+from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import (
     owner,
     state_dir_under,
@@ -149,7 +149,7 @@ def client(agent_data_root, workspace_dir, config_path):
 
 
 def state_dir() -> Path:
-    return control_context.state_dir()
+    return posture_store.state_dir()
 
 
 def write_inflight_marker(

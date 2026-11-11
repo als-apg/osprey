@@ -83,17 +83,15 @@ jobs:
         TAG_SHA: ${{ github.sha }}
         TAG_NAME: ${{ github.ref_name }}
         # The model-spending lanes, one per line: <ci.yml job id>=<rendered
-        # job-name prefix>. A prefix, because `agentic-per-preset` is a matrix
-        # that renders a job for every preset. tests/deployment/
+        # job-name prefix>. A prefix, because a matrix job (`agentic-per-preset`,
+        # `dispatch-stack-e2e`) renders one job per cell, and every cell must pass. tests/deployment/
         # test_ci_workflow_wiring.py pins this list against ci.yml, so a renamed
         # lane fails a unit test, not a release.
         REQUIRED_LANES: |
           agentic-per-preset=Tier 3 — Agentic flow
           e2e-tests=E2E Tests
-          dispatch-deploy-e2e=Dispatch Deploy E2E
-          single-user-narrowing-e2e=Single-User Narrowing E2E
+          dispatch-stack-e2e=Dispatch Stack E2E
           host-record-e2e=Host Record E2E
-          dispatch-overlay-e2e=Dispatch Overlay E2E
           scan-agentic-e2e=Scan Stack Agentic E2E
           nextcloud-talk-bridge-e2e=Nextcloud Talk Bridge E2E
           gchat-bridge-e2e=Google Chat Bridge E2E

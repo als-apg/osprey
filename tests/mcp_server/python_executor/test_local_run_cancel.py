@@ -31,6 +31,7 @@ from typing import Any
 import anyio
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import INFLIGHT_FILE_PREFIX, INFLIGHT_FILE_SUFFIX
@@ -185,7 +186,7 @@ class _Run:
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the marker directory into *tmp_path*."""
     root = tmp_path / "var" / "agent_data"
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)

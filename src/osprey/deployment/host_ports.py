@@ -123,6 +123,7 @@ _SERVICE_REMEDY_KEYS = {
     "tiled": "services.bluesky.tiled_port",
     "bluesky-web": "services.bluesky_web.port",
     "optimizer": "services.optimizer.port",
+    "optimizer-web": "services.optimizer_web.port",
     # The Channel Access port's key. The pvAccess binding is told apart by its
     # configured port and resolved before this table (see `_is_va_pva_binding`).
     "virtual-accelerator": "services.virtual_accelerator.port",
@@ -182,6 +183,7 @@ _SERVICE_LAYOUT_SLOTS = {
     "tiled": ("tiled",),
     "bluesky-web": ("bluesky_web",),
     "optimizer": ("optimizer",),
+    "optimizer-web": ("optimizer_web",),
     "live-standin": ("va_standin",),
     "qmd": ("qmd",),
     GRAPHDB_SERVICE_NAME: ("graphdb_bolt", "graphdb_http"),
