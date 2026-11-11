@@ -16,25 +16,12 @@ from typing import Any
 from osprey.apps.sdk.testing import (
     LINE_GROUPS,
     SR_GROUPS,
-    calibrated_setting,
-    measured_sr_deck,
     measured_tree,
-    model,
     with_correctors,
     with_rf,
     write_tree,
 )
 from osprey.facility.records import FacilityRecords
-
-#: The names this module's importers spell the SDK's deck and wiring row by.
-_sr_deck = measured_sr_deck
-_setting = calibrated_setting
-
-
-def _sr(tree: dict[str, Any]) -> dict[str, Any]:
-    """The tree's SR model record, for the caller to edit."""
-    return model(tree, "SR")
-
 
 __all__ = [
     "LINE_GROUPS",
