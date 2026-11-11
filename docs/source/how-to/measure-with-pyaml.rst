@@ -30,7 +30,8 @@ A render with at least one such view registers three things: both tools, the
 no view registers none of the three.
 
 The measurement file decides which kinds a model takes. OSPREY ships these,
-and a deployment registers its own (:doc:`/reference/contracts/facility-kinds`):
+and a deployment registers its own (:doc:`/how-to/register-a-measurement-kind`,
+:doc:`/reference/contracts/facility-kinds`):
 
 .. list-table::
    :header-rows: 1

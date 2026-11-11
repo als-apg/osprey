@@ -11,7 +11,8 @@ declares, what the build judges, what it writes for the runtime, and the
 facility words a kind leans on: signal roles, engine record words and
 scenario stops. Writing the measurement file itself is in
 :doc:`/how-to/describe-your-facility`; running a measurement is in
-:doc:`/how-to/measure-with-pyaml`.
+:doc:`/how-to/measure-with-pyaml`; registering a kind step by step is in
+:doc:`/how-to/register-a-measurement-kind`.
 
 The worked example throughout is the deployment package under
 ``tests/facility/fixtures/fixture_kind/``: the kind ``fixture_kind`` and the
