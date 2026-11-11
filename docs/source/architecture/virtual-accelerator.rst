@@ -306,7 +306,7 @@ element under ``error_elements``:
 A declared element carries ``dx``, ``dy`` and ``roll``, and with ``multipoles:
 true`` also ``dB<n>`` and ``dA<n>``, with the bounds and the seeding of a bound
 element. ``multipoles`` is false when left out, and may be true only on an
-element that has ``PolynomB`` or ``PolynomA``. Declaring an element the wiring
+element that has both ``PolynomB`` and ``PolynomA``. Declaring an element the wiring
 already binds is allowed and can only add slots: it carries the union of the
 two. The build stops, naming the element, when a declared element is not in
 the deck or is in it more than once, and when the list names an element twice.

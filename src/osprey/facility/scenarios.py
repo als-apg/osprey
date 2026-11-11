@@ -912,7 +912,8 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
     the model, channel-keyed ones included, and each refusal it returns is an
     ``engine-invalid`` stop carrying the plug-in's remedy. A model whose
     engine refuses to declare its faults at all is one ``engine-invalid`` stop
-    on the model, and none of its scenario faults is judged.
+    on the model, whether or not a scenario names it, and none of its
+    scenario faults is judged.
 
     Args:
         document: The combined document, its wiring slots filled.
@@ -922,8 +923,12 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
     """
     channels = {str(c["id"]): c for c in document.get("channels") or [] if isinstance(c, dict)}
     models = {str(m["name"]): m for m in document.get("models") or [] if isinstance(m, dict)}
-    rosters: dict[str, FaultRoster | None] = {}
-    errors: list[FacilityBuildError] = []
+    rosters = {name: fault_roster(model, channels) for name, model in models.items()}
+    errors = [
+        _roster_refused(models[name], roster)
+        for name, roster in rosters.items()
+        if roster is not None and roster.refusal is not None
+    ]
     for scenario in document.get("scenarios") or []:
         if not isinstance(scenario, dict) or not isinstance(scenario.get("faults"), dict):
             continue
@@ -933,11 +938,6 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
             model = models.get(str(model_name))
             if model is None or not isinstance(targets, dict):
                 continue
-            if str(model_name) not in rosters:
-                rosters[str(model_name)] = fault_roster(model, channels)
-                refused = rosters[str(model_name)]
-                if refused is not None and refused.refusal is not None:
-                    errors.append(_roster_refused(model, refused))
             roster = rosters[str(model_name)]
             if roster is not None and roster.refusal is not None:
                 continue

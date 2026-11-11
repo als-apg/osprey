@@ -354,6 +354,32 @@ def test_the_scenario_check_refuses_a_declaration_as_the_build_does(
     assert "Q1/dx" not in str(stopped.value)
 
 
+@pytest.mark.parametrize("element", ["BPM1", "Q1:SP"], ids=["monitor", "address"])
+@pytest.mark.parametrize("named", [False, True], ids=["no-scenario", "scenario-names-it"])
+def test_a_refused_declaration_stops_the_build_once_with_or_without_a_scenario(
+    tmp_path: Path, element: str, named: bool
+) -> None:
+    from osprey.facility.build import LATER_STAGES
+    from osprey.facility.validate import run_stages
+
+    settings = _declaring({"element": element})
+    tree = _tree({"Q1/dx": 1.0e-4}, settings)
+    if not named:
+        del tree["scenarios/seeded.yaml"]
+    with pytest.raises(ErrorElementsError) as built:
+        fault_variables(tree["models.yaml"][0]["wiring"], settings)
+
+    report = run_stages(
+        write_tree(tmp_path / "facility", tree), project_name="demo", later=LATER_STAGES
+    )
+    errors = report.errors
+
+    assert [(e.kind, e.record_id, e.detail) for e in errors] == [
+        ("engine-invalid", "optics", str(built.value))
+    ]
+    assert errors[0].record_kind == "model"
+
+
 def test_an_error_on_an_unbound_element_stops_a_model_that_does_not_declare_it(
     tmp_path: Path,
 ) -> None:
