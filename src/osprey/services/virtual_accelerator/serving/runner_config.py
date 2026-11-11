@@ -21,6 +21,10 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 ``periodic`` and the IOC health addresses that move with time alone, which a
 write pass leaves for the next periodic pass.
 
+:func:`ioc_health_addresses` names every IOC health address of the view, so
+the runner can serve a text one on Channel Access as the string record it
+stands in for.
+
 :func:`setting_records` and :func:`pass_readback` name what a write pass of
 physics settings reads back. A physics setting reaches its own model alone, and
 there moves itself, its readback and what the model computes from its settings.
@@ -51,6 +55,7 @@ __all__ = [
     "HEALTH_KEYS",
     "SAFETY_KEYS",
     "apply_safety",
+    "ioc_health_addresses",
     "pass_readback",
     "periodic_addresses",
     "setting_records",
@@ -128,17 +133,29 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
         The addresses bound to refresh ``periodic``, and the ``HEARTBEAT`` and
         ``UPTIME`` IOC health addresses.
     """
-    ioc_health = getattr(view, "ioc_health_by_model", None)
     return frozenset(
         binding.address
         for binding in view.bindings(served_only=False)
         if binding.refresh == PERIODIC
     ) | {
-        address
-        for addresses in (ioc_health() if ioc_health is not None else {}).values()
-        for address in addresses
-        if address.endswith(_PERIODIC_IOC_HEALTH)
+        address for address in ioc_health_addresses(view) if address.endswith(_PERIODIC_IOC_HEALTH)
     }
+
+
+def ioc_health_addresses(view: SimulatorView) -> frozenset[str]:
+    """Every IOC health address of the view, across every model.
+
+    Args:
+        view: The simulator view; one from before ``ioc_health_by_model`` names
+            no IOC health address.
+
+    Returns:
+        The ``ioc_health`` addresses the view lists.
+    """
+    ioc_health = getattr(view, "ioc_health_by_model", None)
+    if ioc_health is None:
+        return frozenset()
+    return frozenset(address for addresses in ioc_health().values() for address in addresses)
 
 
 def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:

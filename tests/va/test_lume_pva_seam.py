@@ -45,6 +45,8 @@ import math
 import multiprocessing
 import os
 import shutil
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Coroutine, Iterator, Mapping
@@ -204,6 +206,8 @@ BPM_X = "SR:DIAG:BPM:03:POSITION:X"
 TUNES = ("SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y")
 CHROMATICITY = ("SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y")
 SR_STATUS = "ca:SIM:SR:STATUS"
+SR_ENGINEER = "ca:SIM:SR:ENGINEER"
+DEMO_ENGINEER = "demo engineer"
 
 #: BPM03's horizontal offset fault, as the model RPC names it.
 BPM_OFFSET = f"SR/{BPM_X}/offset"
@@ -825,11 +829,12 @@ def _ca(address: str) -> dict[str, Any]:
 
 
 def _ca_text(address: str) -> str:
-    """A string channel's text, read once over CA.
+    """A char-array text channel's text, read once over CA.
 
-    The server serves a string variable as a char array, so its text is the
-    array read as a NUL-terminated string (``DBR_CHAR_STR``); a ``DBR_STRING``
-    read of it answers one number per character.
+    The server serves a string variable other than an IOC health address as a
+    char array, so its text is the array read as a NUL-terminated string
+    (``DBR_CHAR_STR``); a ``DBR_STRING`` read of it answers one number per
+    character.
     """
     import aioca
 
@@ -849,6 +854,62 @@ def _ca_precision(address: str) -> int:
     )
     assert control.ok, f"{address} returned nothing over CA"
     return int(control.precision)
+
+
+def _ca_datatype(address: str) -> int:
+    """The native CA type ``address`` is served as."""
+    import aioca
+
+    info = _on_ca_loop(aioca.cainfo(address, timeout=CA_TIMEOUT_S, throw=False))
+    assert info.ok, f"{address} never connected over CA"
+    return int(info.datatype)
+
+
+#: Run in a process of its own: a process has one CA context, and connecting a
+#: connector to a target repoints it under the pytest process's own client.
+_CONNECTOR_READ = """
+import asyncio, json, os, sys
+from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+
+async def read(payload):
+    register_builtin_connectors()
+    connector = await ConnectorFactory.create_control_system_connector(
+        payload["section"], control_target="va"
+    )
+    try:
+        value = (await connector.read_channel(payload["address"])).value
+    finally:
+        await connector.disconnect()
+    return value.tolist() if hasattr(value, "tolist") else value
+
+value = asyncio.run(read(json.load(sys.stdin)))
+sys.stdout.write("\\nOSPREY_READ " + json.dumps(value) + "\\n")
+sys.stdout.flush()
+os._exit(0)
+"""
+
+
+def _connector_read(server: str, address: str) -> Any:
+    """``address``'s value as the ``virtual_accelerator`` connector reads it from ``server``."""
+    gateway = {"address": "127.0.0.1", "port": int(CA_PORTS[server]), "use_name_server": False}
+    section = {
+        "type": "virtual_accelerator",
+        "connector": {
+            "virtual_accelerator": {"gateways": {"read_only": gateway, "write_access": gateway}}
+        },
+    }
+    done = subprocess.run(
+        [sys.executable, "-P", "-c", _CONNECTOR_READ],
+        input=json.dumps({"section": section, "address": address}),
+        capture_output=True,
+        text=True,
+        timeout=CA_TIMEOUT_S * 2,
+        check=False,
+    )
+    for line in reversed(done.stdout.splitlines()):
+        if line.startswith("OSPREY_READ "):
+            return json.loads(line.removeprefix("OSPREY_READ "))
+    raise AssertionError(f"the connector read failed: {(done.stdout + done.stderr)[-500:]}")
 
 
 def _ca_is_long(address: str) -> bool:
@@ -1289,6 +1350,27 @@ class TestDemoComposite:
 
         assert after["passes"] > before["passes"]
         assert after["solves"] == before["solves"]
+
+    def test_the_engineer_channel_reads_as_its_text_on_both_wires(
+        self, demo_server: _Server
+    ) -> None:
+        import aioca
+
+        assert _ca(SR_ENGINEER)["value"] == DEMO_ENGINEER
+        assert _ca_datatype(SR_ENGINEER) == aioca.DBR_STRING
+        assert demo_server.pva_get(SR_ENGINEER)["value"] == DEMO_ENGINEER
+
+    def test_an_engineer_read_through_the_real_connector_is_its_text(
+        self,
+        demo_server: _Server,  # noqa: ARG002 - the fixture is the server being read
+    ) -> None:
+        assert _connector_read("demo", SR_ENGINEER) == DEMO_ENGINEER
+
+    def test_the_status_channel_stays_a_char_array(self, demo_server: _Server) -> None:  # noqa: ARG002
+        import aioca
+
+        assert _ca_text(SR_STATUS) == "ok"
+        assert _ca_datatype(SR_STATUS) == aioca.DBR_CHAR
 
 
 # =============================================================================

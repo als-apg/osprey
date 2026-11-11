@@ -21,6 +21,7 @@ from osprey.services.virtual_accelerator.serving.model_surface import (
 )
 from osprey.services.virtual_accelerator.serving.runner_config import (
     apply_safety,
+    ioc_health_addresses,
     periodic_addresses,
     setting_records,
 )
@@ -123,6 +124,29 @@ def test_a_view_without_the_accessor_names_no_periodic_health_address(tmp_path: 
 
 def test_a_view_without_the_field_names_no_periodic_health_address(tmp_path: Path) -> None:
     assert periodic_addresses(_view(tmp_path, health=False)) == frozenset()
+
+
+def test_ioc_health_addresses_are_every_health_address_of_the_view(tmp_path: Path) -> None:
+    assert ioc_health_addresses(_view(tmp_path)) == {HEARTBEAT, UPTIME, ENGINEER}
+
+
+def test_a_view_without_the_accessor_names_no_ioc_health_address(tmp_path: Path) -> None:
+    assert ioc_health_addresses(_OlderView(_view(tmp_path))) == frozenset()
+
+
+def test_a_view_without_the_field_names_no_ioc_health_address(tmp_path: Path) -> None:
+    assert ioc_health_addresses(_view(tmp_path, health=False)) == frozenset()
+
+
+def test_the_engineer_variable_is_text_and_the_counters_are_not(tmp_path: Path) -> None:
+    from lume.variables import StrVariable
+
+    view = _view(tmp_path)
+    variables = _composite(tmp_path, view, _Clock()).supported_variables
+
+    assert isinstance(variables[ENGINEER], StrVariable)
+    assert not isinstance(variables[HEARTBEAT], StrVariable)
+    assert not isinstance(variables[UPTIME], StrVariable)
 
 
 def test_no_setting_reads_back_a_health_address(tmp_path: Path) -> None:
@@ -238,3 +262,40 @@ def test_two_periodic_passes_publish_an_advanced_heartbeat(
     assert second[UPTIME] > first[UPTIME]
     assert HEARTBEAT not in written
     assert UPTIME not in written
+
+
+def test_a_text_health_address_is_a_ca_string_and_the_rest_keep_their_spec(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip(
+        "lume_pva_apg", reason="the served VA runs on lume-pva-apg, which ships for Linux only"
+    )
+    from lume_pva_apg.runner import Runner
+    from lume_pva_apg.variables import find_variable_handler
+
+    from osprey.services.virtual_accelerator.serving.runner import ModelRunner
+
+    view = _view(tmp_path)
+    variables = _composite(tmp_path, view, _Clock()).supported_variables
+
+    def runner(cls: type) -> Any:
+        made = object.__new__(cls)
+        made.pvdb = {}
+        made.ca_pvs = {}
+        made.supports_ca = True
+        made.supports_pva = False
+        made._pv_meta = {}
+        made.pv_handlers = {}
+        made._ioc_health = frozenset({ENGINEER, HEARTBEAT})
+        return made
+
+    served, plain = runner(ModelRunner), runner(Runner)
+    for address in (ENGINEER, HEARTBEAT, STATUS):
+        var = variables[address]
+        handler = find_variable_handler(type(var))
+        ModelRunner._add_pv(served, address, var, True, "", handler)
+        Runner._add_pv(plain, address, var, True, "", handler)
+
+    assert served.pvdb[ENGINEER] == {"type": "string", "asyn": True}
+    assert served.pvdb[HEARTBEAT] == plain.pvdb[HEARTBEAT]
+    assert served.pvdb[STATUS]["type"] == "char"
