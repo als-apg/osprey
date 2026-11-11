@@ -81,16 +81,15 @@ def test_a_drag_released_over_the_colorbar_still_reads_as_rotation(tmp_path):
 _PANE = """
 <div class="sidebar-kids osprey-tree" id="sidebar-session-tree" data-session-tree role="tree">
   <div class="osprey-tree-box" role="group" data-session-box="s1">
-    <button class="osprey-list-row osprey-tree-d2" role="treeitem" data-id="abc123">
+    <button class="osprey-list-row osprey-tree-d2" role="treeitem" data-id="abc123"
+            aria-selected="{selected}">
       <span class="osprey-list-title">Channels</span>
     </button>
   </div>
 </div>
 <div id="browse-preview-pane">
-  <div id="preview-empty">Select an artifact to preview</div>
+  <div id="preview-empty">No artifact selected</div>
   <div id="preview-content" class="{hidden}">
-    <p class="preview-desc">Channel list</p>
-    <span class="preview-path-text">var/agent_data/artifacts/{shown}_channels.md</span>
     <div class="preview-viewport">{viewport}</div>
   </div>
 </div>
@@ -112,57 +111,65 @@ _DRAWN = (
 
 
 @pytest.mark.parametrize(
-    ("hidden", "shown", "viewport", "expected"),
+    ("hidden", "viewport", "expected"),
     [
-        ("hidden", "abc123", '<div class="md-preview-container"><p>x</p></div>', False),
-        ("", "other9", '<div class="md-preview-container"><p>x</p></div>', False),
-        ("", "abc123", '<div class="md-preview-container"></div>', False),
-        ("", "abc123", '<div class="md-preview-container"><p>SR BPM 1</p></div>', True),
-        ("", "abc123", '<div class="json-viewer">{"a": 1}</div>', True),
-        ("", "abc123", '<img src="data:," alt="broken">', False),
-        ("", "abc123", '<iframe srcdoc="<div>plot</div>"></iframe>', True),
-        ("", "abc123", '<iframe srcdoc=""></iframe>', False),
-        ("", "abc123", _TS.format(chart=""), False),
-        ("", "abc123", _TS_LOADING, False),
-        ("", "abc123", _TS.format(chart=_DRAWN), True),
+        ("hidden", '<div class="md-preview-container"><p>x</p></div>', False),
+        ("", '<div class="md-preview-container"></div>', False),
+        ("", '<div class="md-preview-container"><p>SR BPM 1</p></div>', True),
+        ("", '<div class="json-viewer">{"a": 1}</div>', True),
+        ("", '<img src="data:," alt="broken">', False),
+        ("", '<iframe srcdoc="<div>plot</div>"></iframe>', True),
+        ("", '<iframe srcdoc=""></iframe>', False),
+        ("", '<iframe sandbox="allow-scripts" srcdoc="<div>plot</div>"></iframe>', True),
+        ("", '<iframe src="/files/other9/plot.html" srcdoc="<div>plot</div>"></iframe>', False),
+        ("", '<iframe src="/files/abc123/plot.html" srcdoc="<div>plot</div>"></iframe>', True),
+        ("", _TS.format(chart=""), False),
+        ("", _TS_LOADING, False),
+        ("", _TS.format(chart=_DRAWN), True),
     ],
     ids=[
         "pane-hidden",
-        "other-artifact",
         "empty-markdown",
         "markdown",
         "json",
         "broken-image",
         "loaded-iframe",
         "empty-iframe",
+        "sandboxed-iframe",
+        "other-artifact-file",
+        "own-file",
         "timeseries-controls-only",
         "timeseries-loading",
         "timeseries-drawn",
     ],
 )
-def test_the_preview_probe_waits_for_the_clicked_artifact_to_render(
-    hidden, shown, viewport, expected
-):
+def test_the_preview_probe_waits_for_the_clicked_artifact_to_render(hidden, viewport, expected):
     if not chromium_available():
         pytest.skip("Playwright Chromium is not installed")
     from playwright.sync_api import sync_playwright
 
-    html = _PANE.format(hidden=hidden, shown=shown, viewport=viewport)
+    html = _PANE.format(hidden=hidden, selected="true", viewport=viewport)
     with sync_playwright() as p:
         browser = p.chromium.launch()
         try:
             page = browser.new_page()
             page.set_content(html)
-            page.wait_for_function(
-                f"(id) => ({video_probes._PREVIEW_SHOWS_JS})(id) === {str(expected).lower()}",
-                arg="abc123",
-                timeout=_DEADLINE_MS,
-            )
             frame = page.main_frame
+            waited = 0
+            while video_probes.preview_rendered(frame, "abc123") is not expected:
+                assert waited < _DEADLINE_MS
+                page.wait_for_timeout(video_probes.POLL_MS)
+                waited += video_probes.POLL_MS
+            page.wait_for_timeout(video_probes.POLL_MS)
+            assert video_probes.preview_rendered(frame, "abc123") is expected
             assert frame.evaluate(video_probes._CARD_SHOWN_JS, "abc123") is True
             assert frame.evaluate(video_probes._CARD_SHOWN_JS, "zzz") is False
-            assert frame.evaluate(video_probes._PREVIEW_SHOWS_JS, "abc123") is expected
             assert frame.evaluate(video_probes._PREVIEW_STATE_JS).startswith("preview: ")
+            assert frame.evaluate(video_probes._ROW_SELECTED_JS, "abc123") is True
+            page.locator('[data-id="abc123"]').evaluate(
+                "(row) => row.setAttribute('aria-selected', 'false')"
+            )
+            assert frame.evaluate(video_probes._ROW_SELECTED_JS, "abc123") is False
         finally:
             browser.close()
 
