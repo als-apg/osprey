@@ -223,19 +223,46 @@ def test_a_listed_position_places_a_device_declared_nowhere_else(tmp_path: Path)
     assert "s" not in provenance["defaults"]
 
 
-def test_import_list_refuses_beside_a_hand_written_device_list(tmp_path: Path) -> None:
-    from osprey.cli.main import cli
+def _repo_with_hand_written_devices(tmp_path: Path, *ids: str) -> Path:
     from tests._builds import init_project
     from tests.facility._synthetic_trees import write_tree
 
-    pytest.importorskip("at")
     repo = init_project(tmp_path, "hello-world", "demo")
     facility = repo / "data" / "facility"
     shutil.rmtree(facility)
-    write_tree(
-        facility,
-        {**_line_with_a_span(), "records/devices.yaml": [{"id": "LINE/Q1", "class": "Quadrupole"}]},
-    )
+    devices = [{"id": device_id, "class": "Quadrupole"} for device_id in ids]
+    write_tree(facility, {**_line_with_a_span(), "records/devices.yaml": devices})
+    return repo
+
+
+def test_import_list_runs_beside_a_hand_written_device_list_it_does_not_write(
+    tmp_path: Path,
+) -> None:
+    from osprey.cli.main import cli
+
+    pytest.importorskip("at")
+    repo = _repo_with_hand_written_devices(tmp_path, "LINE/Q1")
+    facility = repo / "data" / "facility"
+    before = {path: path.read_bytes() for path in facility.rglob("*") if path.is_file()}
+    listing = tmp_path / "two.csv"
+    listing.write_text(_SPAN_LIST, encoding="utf-8")
+    command = ["facility", "import", "list", str(listing), "--repo", str(repo)]
+
+    first = CliRunner().invoke(cli, command)
+    again = CliRunner().invoke(cli, command)
+
+    assert first.exit_code == 0, first.output
+    assert again.exit_code == 0, again.output
+    assert {path: path.read_bytes() for path in before} == before
+    assert (facility / "imported" / "list" / "devices.yaml").is_file()
+
+
+def test_import_list_refuses_a_hand_written_device_it_writes(tmp_path: Path) -> None:
+    from osprey.cli.main import cli
+
+    pytest.importorskip("at")
+    repo = _repo_with_hand_written_devices(tmp_path, "LINE/Q1", "L/G1")
+    facility = repo / "data" / "facility"
     before = {path: path.read_bytes() for path in facility.rglob("*") if path.is_file()}
     listing = tmp_path / "two.csv"
     listing.write_text(_SPAN_LIST, encoding="utf-8")
@@ -249,7 +276,7 @@ def test_import_list_refuses_beside_a_hand_written_device_list(tmp_path: Path) -
     assert lines[0] == (
         "import list: data/facility/ holds hand-written device records, which this import writes:"
     )
-    assert lines[1] == "data/facility/records/devices.yaml"
+    assert lines[1] == "data/facility/records/devices.yaml: L/G1"
     assert {path: path.read_bytes() for path in facility.rglob("*") if path.is_file()} == before
 
 

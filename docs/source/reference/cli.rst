@@ -1266,15 +1266,23 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``models.<system>: <system> is no exported system``. A mapping with the
    wrong structure, or a profile that does not resolve, prints a one-line
    failure with its cause and exits 1. Before it reads an export, the import runs one step that every format runs.
-   Hand-written records of a kind the format writes print
+   A hand-written record the import writes prints
    ``import mml: data/facility/ holds hand-written <kinds> records, which this
-   import writes:``, each file, and a remedy, then exit 1 with nothing changed.
+   import writes:``, each file as ``<file>: <id>, <id>`` (five ids, then
+   ``and <n> more``), and a remedy, then exits 1 with nothing changed. A
+   channel, device or group record is one the import writes when it has the
+   same ``id``; a model in ``models.yaml``, a deck ``decks/<MODEL>.*`` and
+   ``measurement/<MODEL>.yaml`` are when the export states that model, and the
+   deck and measurement files are named by path alone. A hand-written
+   ``seeds.yaml``, ``limits.yaml`` or ``identity.yaml`` is refused as a file.
    Otherwise bundled files are replaced, printing
    ``import mml: replaced the bundled <name> facility (<n> files)``, everything
-   else stays, the knowledge indexes are regenerated, and a blank
-   ``knowledge/index.md`` is left when no page remains. The mml format
-   writes channel, device, group, model, deck, seed, limit, identity and
-   measurement records.
+   else stays, hand-written records on other ids among it, the knowledge
+   indexes are regenerated, and a blank ``knowledge/index.md`` is left when no
+   page remains. To compare ids the import derives its records before it
+   replaces anything, which it does only when the tree holds hand-written
+   files of those record kinds; a stop such as a mapping draft then comes
+   before the replacement, and after it otherwise.
 
 ``osprey facility import mml --print-exporter``
    Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
@@ -1284,8 +1292,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    Write a CSV channel list as the list layer's sources,
    ``data/facility/imported/list/channels.yaml``, one channel record per row.
    It runs the same step as the mml import under the prefix ``import list:``,
-   refuses only hand-written channel and device records, and seeds the knowledge
-   stub. ``FILE`` is UTF-8 CSV whose header row names
+   refuses only a hand-written channel or device record with an ``id`` the list
+   writes, and seeds the knowledge stub. ``FILE`` is UTF-8 CSV whose header row names
    ``address``, required, and any of the optional columns ``role`` (empty
    means readback), ``pair``, ``device``, ``place``, ``unit``,
    ``description``, ``tags`` (``;``-separated), ``s`` (metres, a number) and

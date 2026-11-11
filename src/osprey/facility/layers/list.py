@@ -34,6 +34,10 @@ that is not a finite number, and two rows stating different ``s`` or ``model``
 for one device are ``source-invalid``, every one reported, and nothing is
 written. A ``model`` for a device no row states ``s`` for is ignored, with one
 warning line on stderr per device each time the file is read.
+
+:func:`plan_list` reads the file and returns the import with the ids it writes
+(:attr:`Planned.writes`) and nothing written; :meth:`Planned.write` writes it,
+and :func:`import_list` is the two in one call.
 """
 
 from __future__ import annotations
@@ -52,7 +56,7 @@ from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.layers import LayerSourceInvalid
 from osprey_connectors import yaml_loader
 
-__all__ = ["COLUMNS", "LAYER_DIR", "import_list"]
+__all__ = ["COLUMNS", "LAYER_DIR", "Planned", "import_list", "plan_list"]
 
 #: The layer's directory, relative to ``data/facility/``.
 LAYER_DIR = "imported/list"
@@ -101,6 +105,62 @@ class _Reading:
         )
 
 
+@dataclass(frozen=True)
+class Planned:
+    """One import, its file read and nothing written.
+
+    Attributes:
+        writes: The ids the import writes, per record kind: every ``channel``
+            address, and each ``device`` a row states ``s`` for.
+    """
+
+    writes: dict[str, frozenset[str]]
+    _reading: _Reading = field(repr=False)
+
+    def write(self, facility_dir: Path) -> list[Path]:
+        """Write the layer's sources.
+
+        Args:
+            facility_dir: The ``data/facility`` directory.
+
+        Returns:
+            Every file written.
+        """
+        reading = self._reading
+        layer = facility_dir / LAYER_DIR
+        layer.mkdir(parents=True, exist_ok=True)
+        written = [
+            _dump(layer / "channels.yaml", [reading.channels[a] for a in sorted(reading.channels)])
+        ]
+        devices = layer / "devices.yaml"
+        if reading.positions:
+            written.append(_dump(devices, _devices(reading.positions)))
+        elif devices.exists():
+            devices.unlink()
+        return written
+
+
+def plan_list(path: Path) -> Planned:
+    """Read a channel list as the import that writes it.
+
+    Args:
+        path: The CSV file.
+
+    Returns:
+        The import, to be written by :meth:`Planned.write`.
+
+    Raises:
+        LayerSourceInvalid: The file has rows the layer refuses.
+    """
+    reading = _read(path)
+    for warning in reading.warnings:
+        click.echo(warning, err=True)
+    if reading.errors:
+        raise LayerSourceInvalid(reading.errors)
+    writes = {"channel": frozenset(reading.channels), "device": frozenset(reading.positions)}
+    return Planned(writes, reading)
+
+
 def import_list(path: Path, facility_dir: Path) -> list[Path]:
     """Write a channel list as the list layer's sources.
 
@@ -115,22 +175,7 @@ def import_list(path: Path, facility_dir: Path) -> list[Path]:
         LayerSourceInvalid: The file has rows the layer refuses; nothing is
             written.
     """
-    reading = _read(path)
-    for warning in reading.warnings:
-        click.echo(warning, err=True)
-    if reading.errors:
-        raise LayerSourceInvalid(reading.errors)
-    layer = facility_dir / LAYER_DIR
-    layer.mkdir(parents=True, exist_ok=True)
-    written = [
-        _dump(layer / "channels.yaml", [reading.channels[a] for a in sorted(reading.channels)])
-    ]
-    devices = layer / "devices.yaml"
-    if reading.positions:
-        written.append(_dump(devices, _devices(reading.positions)))
-    elif devices.exists():
-        devices.unlink()
-    return written
+    return plan_list(path).write(facility_dir)
 
 
 def _devices(positions: dict[str, dict[str, tuple[Any, int]]]) -> list[dict[str, Any]]:

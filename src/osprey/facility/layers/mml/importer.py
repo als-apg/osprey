@@ -69,7 +69,10 @@ latest import carried: a response export or a deck of a model this import
 does not carry is removed.
 
 Nothing is written until every record and every model's wiring is derived, so
-a stop leaves the layer directory as it was.
+a stop leaves the layer directory as it was. :func:`plan_mml` is that
+derivation alone: it returns the import with the ids it writes
+(:attr:`Planned.writes`) and nothing written but a mapping draft, and
+:meth:`Planned.write` writes it. :func:`import_mml` is the two in one call.
 
 The wiring pass's lines are printed once the records are written
 (:mod:`~osprey.facility.layers.mml.wiring` lists them). After the records,
@@ -129,8 +132,10 @@ __all__ = [
     "TRANSPORT",
     "Exports",
     "MappingProblems",
+    "Planned",
     "check_decks",
     "import_mml",
+    "plan_mml",
     "read_exports",
     "write_records",
 ]
@@ -386,16 +391,68 @@ class MappingProblems(click.ClickException):
             click.echo(self.format_message(), file=file, color=self.show_color)
 
 
-def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
-    """Import MML exports as the mml layer's record sources and seed the authored files.
+@dataclass(frozen=True)
+class _Records:
+    """The layer's records as one derivation left them, ready to write."""
+
+    places: list[dict[str, Any]]
+    devices: dict[str, dict[str, Any]]
+    channels: dict[str, dict[str, Any]]
+    groups: dict[str, dict[str, Any]]
+    models: list[dict[str, Any]]
+    export_rows: list[dict[str, Any]]
+    served: list[tuple[str, Any]]
+    lines: list[str]
+    untoleranced: int
+
+
+@dataclass(frozen=True)
+class Planned:
+    """One import, every record derived and none written.
+
+    Attributes:
+        writes: The ids the import writes, per record kind: ``channel``,
+            ``device`` and ``group`` ids, and under ``model`` the name of
+            each model, which its deck and its measurement file carry too.
+    """
+
+    writes: dict[str, frozenset[str]]
+    _exports: Exports = field(repr=False)
+    _mapping: Mapping = field(repr=False)
+    _facility_dir: Path = field(repr=False)
+    _views: list[FamilyView] = field(repr=False)
+    _records: _Records = field(repr=False)
+
+    def write(self) -> list[Path]:
+        """Write the layer's records and seed the authored files.
+
+        Returns:
+            Every file written, in write order: the layer's records, then each
+            authored file seeded because it did not exist.
+        """
+        from osprey.facility.layers.mml.seed import seed_once
+
+        written = _write_records(self._exports, self._mapping, self._facility_dir, self._records)
+        if self._records.untoleranced:
+            click.echo(
+                f"{self._records.untoleranced} setpoint devices export no usable "
+                "`Setpoint.Tolerance`"
+            )
+        seeded = seed_once(self._exports, self._mapping, self._facility_dir, self._views)
+        for line in seeded.lines:
+            click.echo(line)
+        return [*written, *seeded.written]
+
+
+def plan_mml(paths: Sequence[Path], facility_dir: Path) -> Planned:
+    """Derive an import of MML exports without writing a record.
 
     Args:
         paths: The exports' AO files.
         facility_dir: The ``data/facility`` directory.
 
     Returns:
-        Every file written, in write order: the layer's records, then each
-        authored file seeded because it did not exist.
+        The import, to be written by :meth:`Planned.write`.
 
     Raises:
         ImportStop: ``export-invalid`` for a deck that is another lattice than
@@ -408,8 +465,6 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
         MappingProblems: The mapping fails its check; nothing is written.
         MappingError: The mapping has the wrong structure.
     """
-    from osprey.facility.layers.mml.seed import seed_once
-
     exports = read_exports(paths)
     for line in check_decks(exports):
         click.echo(line)
@@ -418,13 +473,33 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
     if problems:
         raise MappingProblems(facility_dir / MAPPING_FILE, problems)
     judged, views = _carried(exports, mapping)
-    written, untoleranced = _write_records(exports, mapping, facility_dir, judged, views)
-    if untoleranced:
-        click.echo(f"{untoleranced} setpoint devices export no usable `Setpoint.Tolerance`")
-    seeded = seed_once(exports, mapping, facility_dir, views)
-    for line in seeded.lines:
-        click.echo(line)
-    return [*written, *seeded.written]
+    records = _derive_records(exports, mapping, facility_dir, judged, views)
+    writes = {
+        "channel": frozenset(records.channels),
+        "device": frozenset(records.devices),
+        "group": frozenset(records.groups),
+        "model": frozenset(str(model["name"]) for model in records.models),
+    }
+    return Planned(writes, exports, mapping, facility_dir, views, records)
+
+
+def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
+    """Import MML exports as the mml layer's record sources and seed the authored files.
+
+    Args:
+        paths: The exports' AO files.
+        facility_dir: The ``data/facility`` directory.
+
+    Returns:
+        Every file written, in write order: the layer's records, then each
+        authored file seeded because it did not exist.
+
+    Raises:
+        ImportStop: As :func:`plan_mml` raises it.
+        MappingProblems: The mapping fails its check; nothing is written.
+        MappingError: The mapping has the wrong structure.
+    """
+    return plan_mml(paths, facility_dir).write()
 
 
 # -- records ------------------------------------------------------------------
@@ -458,7 +533,8 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
     if unnamed:
         raise MappingProblems(facility_dir / MAPPING_FILE, unnamed)
     judged, views = _carried(exports, mapping)
-    return _write_records(exports, mapping, facility_dir, judged, views)[0]
+    records = _derive_records(exports, mapping, facility_dir, judged, views)
+    return _write_records(exports, mapping, facility_dir, records)
 
 
 def _unnamed(exports: Exports, mapping: Mapping) -> list[Problem]:
@@ -482,18 +558,17 @@ def _unnamed(exports: Exports, mapping: Mapping) -> list[Problem]:
     return problems
 
 
-def _write_records(
+def _derive_records(
     exports: Exports,
     mapping: Mapping,
     facility_dir: Path,
     judged: dict[str, dict[str, FamilyView]],
     views: list[FamilyView],
-) -> tuple[list[Path], int]:
-    """Write the layer's files from the families as :func:`_carried` judged them.
+) -> _Records:
+    """Derive the layer's records from the families as :func:`_carried` judged them.
 
-    Returns:
-        Every file written, and how many setpoints carry no ``tolerance``
-        because their export states no usable ``Tolerance``.
+    Writes nothing. The count the result carries is how many setpoints hold no
+    ``tolerance`` because their export states no usable ``Tolerance``.
     """
     roles = field_roles(mapping)
     systems = {system: _model_name(mapping, system) for system in exports.systems}
@@ -546,31 +621,51 @@ def _write_records(
     split = split_identities(views, ids, wired)
     if split:
         raise ImportStop("mapping-invalid", split)
+    untoleranced -= {address for address, channel in channels.items() if "tolerance" in channel}
+    return _Records(
+        places.places,
+        devices,
+        channels,
+        groups,
+        models,
+        export_rows,
+        served,
+        lines,
+        len(untoleranced),
+    )
 
+
+def _write_records(
+    exports: Exports, mapping: Mapping, facility_dir: Path, records: _Records
+) -> list[Path]:
+    """Write the layer's files as :func:`_derive_records` left them, and print the wiring lines.
+
+    Returns:
+        Every file written, in write order.
+    """
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
     written = []
-    if places.places:
-        written.append(_dump(layer / "places.yaml", places.places))
+    if records.places:
+        written.append(_dump(layer / "places.yaml", records.places))
     else:
         (layer / "places.yaml").unlink(missing_ok=True)
     written += [
-        _dump(layer / "devices.yaml", _sorted(devices.values(), "id")),
-        _dump(layer / "channels.yaml", _sorted(channels.values(), "id")),
-        _dump(layer / "groups.yaml", _sorted(groups.values(), "id")),
-        _dump(layer / "models.yaml", _sorted(models, "name")),
-        write_rows(layer, export_rows),
+        _dump(layer / "devices.yaml", _sorted(records.devices.values(), "id")),
+        _dump(layer / "channels.yaml", _sorted(records.channels.values(), "id")),
+        _dump(layer / "groups.yaml", _sorted(records.groups.values(), "id")),
+        _dump(layer / "models.yaml", _sorted(records.models, "name")),
+        write_rows(layer, records.export_rows),
     ]
-    decks = [write_deck(deck, facility_dir, name) for name, deck in served]
+    decks = [write_deck(deck, facility_dir, name) for name, deck in records.served]
     written.extend(decks)
     for stale in sorted((facility_dir / DECKS_DIR).glob("*.json")):
         if stale not in decks:
             stale.unlink()
     written.extend(_copy_responses(exports, mapping, layer))
-    for line in lines:
+    for line in records.lines:
         click.echo(line)
-    untoleranced -= {address for address, channel in channels.items() if "tolerance" in channel}
-    return written, len(untoleranced)
+    return written
 
 
 def _place(

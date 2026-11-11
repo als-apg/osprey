@@ -47,8 +47,9 @@ The sources can start as a copy of a preset. A facility ``osprey init`` copies
 from a preset is *bundled*: every copied text file opens with the
 bundled-origin line. The exception is the knowledge indexes, which
 ``osprey knowledge regen-index`` writes. Delete the line to make a file yours.
-The import, in every format, replaces the bundled files and refuses only
-hand-written records of the kinds that format writes. A bundled facility
+The import, in every format, replaces the bundled files and refuses only a
+hand-written record it writes itself, one with the same id or for the same
+model; every other hand-written record stays beside the layer. A bundled facility
 carries data only: records, decks, models, limits, seeds, scenarios, knowledge
 pages, benchmark query sources and the ARIEL vocabulary, and never a skill,
 agent or rule.

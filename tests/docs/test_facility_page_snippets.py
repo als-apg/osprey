@@ -243,15 +243,18 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
     import click
 
     from osprey.cli.facility_cmd import _replace_or_refuse
-    from osprey.facility.layers.list import import_list
+    from osprey.facility.layers.list import plan_list
     from osprey.facility.roots import FacilityRoots
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
+    plan = plan_list(HOW_TO / CHANNEL_LIST)
     with click.Context(click.Command("list")) as ctx:
-        _replace_or_refuse(ctx, "list", FacilityRoots.single(facility), tmp_path)
+        _replace_or_refuse(
+            ctx, "list", FacilityRoots.single(facility), tmp_path, lambda: plan.writes
+        )
 
-    import_list(HOW_TO / CHANNEL_LIST, facility)
+    plan.write(facility)
     _dump(facility / "fixes.yaml", _block(FACILITY_PAGE, FIXES).data)
 
     assert _validates(facility) == ""

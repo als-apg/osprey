@@ -42,11 +42,22 @@ deployment's content directories; each file is removed under its own root):
 ==========================================  ==========================================
 what the tree holds                         what the step does
 ==========================================  ==========================================
-hand-written records of a kind the format   refuses, naming them; nothing changes
-writes
+a hand-written record the import writes     refuses, naming it; nothing changes
+a hand-written file of a kind the format    refuses, naming it; nothing changes
+seeds once
 bundled files                               replaces them and says so in one line
 anything else of the deployment's own       keeps it
 ==========================================  ==========================================
+
+A hand-written record is one the import writes when it carries the same id: a
+channel, a device or a group by its ``id``, and a model, a deck
+(``decks/<MODEL>.*``) and a measurement file (``measurement/<MODEL>.yaml``) by
+the model's name. Every other hand-written record stays, so a machine written by
+hand sits beside an import layer and the layer can be imported again. To compare
+ids the step has the format derive its records first, which it does only when
+the tree holds hand-written records of those kinds; a stop of the format then
+comes before the bundled files are replaced. The seed-once kinds (seed, limit,
+identity) are refused by file.
 
 The knowledge indexes are then settled, and a blank index is left when no page
 remains.
@@ -70,6 +81,7 @@ command body, so ``osprey --help`` does not load them.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -563,6 +575,44 @@ def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
     }
 
 
+#: The kinds an import seeds once as whole files, refused by file; every other
+#: kind is refused by record.
+_SEED_ONCE = frozenset({"seed", "limit", "identity"})
+
+#: The kinds whose file is one record, named for its model.
+_MODEL_FILES = frozenset({"deck", "measurement"})
+
+#: How many colliding ids a refusal names per file.
+_IDS_NAMED = 5
+
+
+def _stated(path: Path, kind: str) -> set[str]:
+    """What a hand-written file states of a kind: its records' ids, or its model's name.
+
+    A file that does not parse states nothing here; the build stops on it.
+    """
+    import yaml
+
+    from osprey.facility.sources import read_yaml
+
+    if kind in _MODEL_FILES:
+        return {path.name.split(".", 1)[0]}
+    try:
+        rows = read_yaml(path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, UnicodeDecodeError):
+        return set()
+    key = "name" if kind == "model" else "id"
+    if not isinstance(rows, list):
+        return set()
+    return {row[key] for row in rows if isinstance(row, dict) and isinstance(row.get(key), str)}
+
+
+def _named_ids(ids: list[str]) -> str:
+    if len(ids) <= _IDS_NAMED:
+        return ", ".join(ids)
+    return ", ".join(ids[:_IDS_NAMED]) + f" and {len(ids) - _IDS_NAMED} more"
+
+
 def _named_together(names: list[str]) -> str:
     if len(names) == 1:
         return names[0]
@@ -646,13 +696,21 @@ def _prune_empty(facility_dir: Path) -> None:
 
 
 def _replace_or_refuse(
-    ctx: click.Context, verb: str, roots: FacilityRoots, repo_root: Path
+    ctx: click.Context,
+    verb: str,
+    roots: FacilityRoots,
+    repo_root: Path,
+    planned: Callable[[], dict[str, frozenset[str]]],
 ) -> None:
     """Make the facility tree ready for a format; every format under the group calls it first.
 
-    Refuses only on overlap: hand-written records of the kinds this verb writes
-    exit 1 with nothing changed, and files seeded under the former header are
-    named apart with the line that fixes them. Otherwise bundled files are replaced, and the
+    Refuses only on overlap: a hand-written record this import writes, or a
+    hand-written file of a kind it seeds once, exits 1 with nothing changed, and
+    files seeded under the former header are named apart with the line that
+    fixes them. A record overlaps by its id, and a deck and a measurement file by
+    the model they are named for; *planned* returns the ids the import writes per
+    kind and is called only when the tree holds hand-written records of those
+    kinds, before anything is replaced. Otherwise bundled files are replaced, and the
     line that says so prints at once, so a later stop of the format never hides
     the deletion. Everything else stays; the knowledge indexes are settled, and a
     blank index is left when no page remains.
@@ -670,24 +728,33 @@ def _replace_or_refuse(
     facility_dir = roots.machine
     writes = _writes()[verb]
     kinds = _classify(roots, Path(TemplateManager().template_root))
-    overlap = [
-        (path, kind)
-        for path in kinds.authored
-        for entry, kind in writes
-        if path == entry or path.startswith(f"{entry}/")
-    ]
+    overlap: list[tuple[str, str, str]] = []
+    for path in kinds.authored:
+        for entry, kind in writes:
+            if path != entry and not path.startswith(f"{entry}/"):
+                continue
+            if kind in _SEED_ONCE:
+                overlap.append((path, kind, ""))
+                continue
+            written_ids = planned()["model" if kind in _MODEL_FILES else kind]
+            ids = sorted(_stated(facility_dir / path, kind) & written_ids)
+            if ids:
+                overlap.append((path, kind, "" if kind in _MODEL_FILES else _named_ids(ids)))
     if overlap:
-        former = [path for path, _kind in overlap if under_former_header(facility_dir / path)]
-        written = [(path, kind) for path, kind in overlap if path not in former]
+        former = [path for path, _kind, _ids in overlap if under_former_header(facility_dir / path)]
+        written = [(path, kind, ids) for path, kind, ids in overlap if path not in former]
         lines = []
         if written:
-            found = {kind for _path, kind in written}
+            found = {kind for _path, kind, _ids in written}
             named = _named_together([kind for _entry, kind in writes if kind in found])
             lines += [
                 f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
                 "records, which this import writes:",
-                *(_shown(facility_dir / path, repo_root) for path, _kind in written),
-                "move corrections into fixes.yaml and remove the record sources, "
+                *(
+                    _shown(facility_dir / path, repo_root) + (f": {ids}" if ids else "")
+                    for path, _kind, ids in written
+                ),
+                "move corrections into fixes.yaml and remove these records, "
                 "or start a new repo: osprey init <name> --preset demo",
             ]
         if former:
@@ -753,7 +820,8 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
 
     EXPORT is an export's <stem>.ao.json file; its sibling files are read from
     beside it. First replaces a bundled facility, saying so in one line, and
-    refuses hand-written records of the kinds this import writes. Exits 1 and
+    refuses a hand-written record this import writes; every other hand-written
+    record stays. Exits 1 and
     writes no record while the mapping is a draft, has an undecided slot, has
     the wrong structure or fails its check, or while the profile does not
     resolve.
@@ -794,8 +862,9 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
       - The sub-machine's simulator model loaded, so THERING holds its
         lattice; the export refuses without it.
     """
-    from osprey.facility.layers.mml.importer import MappingProblems
-    from osprey.facility.layers.mml.importer import import_mml as run_import
+    from functools import cache
+
+    from osprey.facility.layers.mml.importer import MappingProblems, plan_mml
     from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
     from osprey_connectors.errors import BuildProfileError
 
@@ -806,11 +875,12 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
 
-    _replace_or_refuse(ctx, "mml", roots, repo_root)
     facility_dir = roots.machine
+    plan = cache(lambda: plan_mml(list(exports), facility_dir))
 
     try:
-        for path in run_import(list(exports), facility_dir):
+        _replace_or_refuse(ctx, "mml", roots, repo_root, lambda: plan().writes)
+        for path in plan().write():
             report(f"wrote {_shown(path, repo_root)}")
     except MappingProblems as stop:
         raise MappingProblems(Path(_shown(stop.path, repo_root)), stop.problems) from None
@@ -850,14 +920,17 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
 
     Each device a row states s for is written with its s and model to
     devices.yaml beside the channels. First replaces a bundled facility, saying
-    so in one line, refuses hand-written channel and device records, and seeds
+    so in one line, refuses a hand-written channel or device record this
+    import writes, and seeds
     the knowledge stub. Exits 1 and writes no layer file when a row names both a device and a place, states an
     unknown role, has no address or repeats one, states s or model with no
     device or an s that is not a number, when two rows state different
     positions for one device, when the header names an unknown column, or
     while the profile does not resolve.
     """
-    from osprey.facility.layers.list import import_list as run_import
+    from functools import cache
+
+    from osprey.facility.layers.list import plan_list
     from osprey_connectors.errors import BuildProfileError
 
     repo_root = find_repo_root(repo)
@@ -867,7 +940,8 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
 
-    _replace_or_refuse(ctx, "list", roots, repo_root)
+    plan = cache(lambda: plan_list(listing))
+    _replace_or_refuse(ctx, "list", roots, repo_root, lambda: plan().writes)
 
-    for path in run_import(listing, roots.machine):
+    for path in plan().write(roots.machine):
         report(f"wrote {_shown(path, repo_root)}")

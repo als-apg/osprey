@@ -33,7 +33,7 @@ EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_e
 TEMPLATE_ROOT = REPO_ROOT / "src" / "osprey" / "templates"
 INDEX = "knowledge/index.md"
 REMEDY = (
-    "move corrections into fixes.yaml and remove the record sources, "
+    "move corrections into fixes.yaml and remove these records, "
     "or start a new repo: osprey init <name> --preset demo"
 )
 
@@ -166,32 +166,131 @@ def test_a_wholly_bundled_facility_is_replaced_and_builds(repo: Path) -> None:
     invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
 
-def test_a_hand_written_record_of_a_kind_the_import_writes_refuses(repo: Path) -> None:
-    _drop_header(_facility(repo) / "records" / "devices.yaml")
+#: Hand-written records the export's import writes too, and one of each kind it does not.
+COLLIDING = {
+    "records/devices.yaml": "- id: LINAC/GUN\n  class: Gun\n- id: SR/qk_bdm_1\n  class: Bend\n",
+    "records/channels.yaml": "- id: QK:BDM:1:CUR:SP\n- id: LN:GUN:V\n",
+    "records/groups.yaml": "- id: BEND\n- id: Guns\n",
+    "models.yaml": "- name: SR\n  engine: pyat\n",
+    "decks/SR.json": "{}\n",
+    "measurement/SR.yaml": "model: SR\n",
+}
+
+#: Hand-written records of every kind the import writes, none of which it writes.
+APART = {
+    "records/devices.yaml": "- id: LINAC/GUN\n  class: Gun\n",
+    "records/channels.yaml": "- id: LN:GUN:V\n",
+    "records/groups.yaml": "- id: Guns\n",
+    "models.yaml": "- name: LINAC\n  engine: pyat\n",
+    "decks/LINAC.json": "{}\n",
+    "measurement/LINAC.yaml": "model: LINAC\n",
+}
+
+
+def _write(facility: Path, files: dict[str, str]) -> None:
+    for name, text in files.items():
+        (facility / name).parent.mkdir(parents=True, exist_ok=True)
+        (facility / name).write_text(text, encoding="utf-8")
+
+
+def test_a_hand_written_record_the_import_writes_refuses(cleared: Path) -> None:
+    pytest.importorskip("at")
+    _write(_facility(cleared), {name: COLLIDING[name] for name in ("records/devices.yaml",)})
+    before = _snapshot(cleared)
+
+    result = _import(cleared)
+
+    assert result.exit_code == 1
+    assert result.stderr.splitlines() == _refusal(
+        "data/facility/records/devices.yaml: SR/qk_bdm_1", kinds="device"
+    )
+    assert result.stdout == ""
+    assert _snapshot(cleared) == before
+
+
+def test_every_kind_of_record_the_import_writes_refuses_by_its_id(cleared: Path) -> None:
+    pytest.importorskip("at")
+    _write(_facility(cleared), COLLIDING)
+    before = _snapshot(cleared)
+
+    result = _import(cleared)
+
+    assert result.exit_code == 1
+    assert result.stderr.splitlines() == _refusal(
+        "data/facility/decks/SR.json",
+        "data/facility/measurement/SR.yaml",
+        "data/facility/models.yaml: SR",
+        "data/facility/records/channels.yaml: QK:BDM:1:CUR:SP",
+        "data/facility/records/devices.yaml: SR/qk_bdm_1",
+        "data/facility/records/groups.yaml: BEND",
+        kinds="channel, device, group, model, deck and measurement",
+    )
+    assert _snapshot(cleared) == before
+
+
+def test_a_refusal_names_five_ids_of_a_file_and_counts_the_rest(cleared: Path) -> None:
+    pytest.importorskip("at")
+    facility = _facility(cleared)
+    assert _import(cleared).exit_code == 0
+    layer = (facility / LAYER_DIR / "devices.yaml").read_text(encoding="utf-8")
+    ids = [line[6:] for line in layer.splitlines() if line.startswith("- id: ")]
+    assert len(ids) > 5
+    _write(facility, {"records/devices.yaml": "".join(f"- id: {name}\n" for name in ids)})
+    before = _snapshot(cleared)
+
+    result = _import(cleared)
+
+    assert result.exit_code == 1
+    assert result.stderr.splitlines()[1] == (
+        f"data/facility/records/devices.yaml: {', '.join(sorted(ids)[:5])} and {len(ids) - 5} more"
+    )
+    assert _snapshot(cleared) == before
+
+
+def test_hand_written_records_the_import_does_not_write_stay(cleared: Path) -> None:
+    pytest.importorskip("at")
+    facility = _facility(cleared)
+    _write(facility, APART)
+
+    first = _import(cleared)
+    again = _import(cleared)
+
+    assert first.exit_code == 0, first.output
+    assert again.exit_code == 0, again.output
+    assert "hand-written" not in first.output + again.output
+    assert {name: (facility / name).read_text(encoding="utf-8") for name in APART} == APART
+    assert (facility / LAYER_DIR / "decks" / "SR.json").is_file()
+    assert (facility / "measurement" / "SR.yaml").is_file()
+
+
+def test_hand_written_records_without_a_mapping_stop_at_the_draft_with_nothing_replaced(
+    repo: Path,
+) -> None:
+    facility = _facility(repo)
+    _drop_header(facility / "records" / "devices.yaml")
     before = _snapshot(repo)
 
     result = _import(repo)
 
     assert result.exit_code == 1
-    assert result.stderr.splitlines() == _refusal(
-        "data/facility/records/devices.yaml", kinds="device"
-    )
-    assert result.stdout == ""
-    assert _snapshot(repo) == before
+    assert "replaced the bundled" not in result.output
+    after = _snapshot(repo)
+    assert set(after) - set(before) == {f"data/facility/{MAPPING_FILE}"}
+    assert {name: after[name] for name in before} == before
 
 
-def test_each_kind_it_writes_is_named_in_the_order_of_the_table(repo: Path) -> None:
-    facility = _facility(repo)
+def test_each_kind_it_writes_is_named_in_the_order_of_the_table(cleared: Path) -> None:
+    pytest.importorskip("at")
+    facility = _facility(cleared)
     _drop_header(facility / "limits.yaml")
-    _drop_header(facility / "records" / "devices.yaml")
-    _drop_header(facility / "records" / "channels.yaml")
+    _write(facility, {name: COLLIDING[name] for name in COLLIDING if name.startswith("records/")})
 
-    result = _import(repo)
+    result = _import(cleared)
 
     assert result.exit_code == 1
     assert result.stderr.splitlines()[0] == (
-        "import mml: data/facility/ holds hand-written channel, device and limit records, "
-        "which this import writes:"
+        "import mml: data/facility/ holds hand-written channel, device, group and limit "
+        "records, which this import writes:"
     )
 
 
@@ -338,21 +437,22 @@ def test_a_former_header_set_to_the_current_one_imports_and_keeps_the_edits(
 
 
 def test_hand_written_and_former_header_files_are_named_in_their_own_groups(
-    repo: Path,
+    cleared: Path,
 ) -> None:
-    facility = _facility(repo)
-    _drop_header(facility / "records" / "devices.yaml")
+    pytest.importorskip("at")
+    facility = _facility(cleared)
+    _write(facility, {"records/devices.yaml": COLLIDING["records/devices.yaml"]})
     (facility / "limits.yaml").write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
-    before = _snapshot(repo)
+    before = _snapshot(cleared)
 
-    result = _import(repo)
+    result = _import(cleared)
 
     assert result.exit_code == 1
     assert result.stderr.splitlines() == [
-        *_refusal("data/facility/records/devices.yaml", kinds="device"),
+        *_refusal("data/facility/records/devices.yaml: SR/qk_bdm_1", kinds="device"),
         *_former("data/facility/limits.yaml"),
     ]
-    assert _snapshot(repo) == before
+    assert _snapshot(cleared) == before
 
 
 def test_a_mapping_that_fails_its_check_stops_before_any_record(cleared: Path) -> None:

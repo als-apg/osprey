@@ -264,8 +264,12 @@ absent. The import also creates ``limits.yaml``, ``seeds.yaml``,
 when they do not exist, and never rewrites them afterwards. It creates
 ``classes.yaml`` when absent; when the file exists, the import appends only
 the classes it lacks and leaves its rows as written. It replaces a bundled
-facility, saying so in one line, and refuses only hand-written records of the
-kinds it writes, naming each file.
+facility, saying so in one line, and refuses only a hand-written record it
+writes itself: a channel, device or group with the same ``id``, or a model,
+deck or measurement file for a model the export states. It names each file
+and the ids. Hand-written records on other ids stay, so a machine you
+describe by hand sits beside the imported one. A hand-written ``seeds.yaml``,
+``limits.yaml`` or ``identity.yaml`` is refused as a whole file.
 
 A channel list
 --------------
@@ -288,8 +292,9 @@ into ``fixes.yaml``. Each device a row gives an ``s`` is written to
 ``devices.yaml``, and a device the list then names needs a record of its own,
 such as an ``add`` fix, or the build stops with ``reference-missing``. The
 list import runs the same step as every format: it replaces a bundled facility
-and refuses only hand-written channel and device lists, so it still positions
-a list against your own deck, models and places.
+and refuses only a hand-written channel or device record with an ``id`` the
+list writes, so it still positions a list against your own deck, models and
+places, and your own channels and devices on other ids stay.
 
 Fixes
 =====

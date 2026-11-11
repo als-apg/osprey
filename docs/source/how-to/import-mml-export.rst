@@ -300,17 +300,28 @@ import.
 
 Before it reads an export, the import looks at ``data/facility/``:
 
-* Hand-written records of a kind this format writes refuse the import, which
-  names each file, changes nothing and exits 1. The mml format writes channel,
-  device, group, model, deck, seed, limit, identity and measurement records; the
-  list format writes channel and device records. A file is hand-written once its
-  bundled-origin line is gone. Corrections belong in ``fixes.yaml``.
+* A hand-written record the import writes refuses the import, which names each
+  file and the ids in it, changes nothing and exits 1. A channel, a device and a
+  group are the same record when they carry the same ``id``; a model in
+  ``models.yaml``, a deck ``decks/<MODEL>.*`` and a measurement file
+  ``measurement/<MODEL>.yaml`` are when they name a model the export states.
+  The list format writes channel records, and a device record for each device
+  a row gives an ``s``. A file is hand-written once its bundled-origin line is
+  gone. Corrections to an imported record belong in ``fixes.yaml``.
+* A hand-written ``seeds.yaml``, ``limits.yaml`` or ``identity.yaml`` refuses
+  the mml import as a whole file, because the import seeds these files once and
+  only when they are absent.
 * Bundled files are replaced, and one line says so:
   ``import mml: replaced the bundled example facility (<n> files)``. The line
   prints before the export is read, so a stop that follows it, such as a mapping
-  draft, comes after the replacement.
-* Everything else of your own stays, such as ``fixes.yaml``, your knowledge pages
-  and hand-written records of other kinds.
+  draft, comes after the replacement. The exception is a tree that holds
+  hand-written channel, device, group, model, deck or measurement files: the
+  import then derives its records first to compare ids, so a stop such as a
+  mapping draft comes before anything is replaced.
+* Everything else of your own stays: ``fixes.yaml``, your knowledge pages, and
+  every hand-written record the import does not write. A machine described by
+  hand, such as a transfer line, sits beside the imported one and stays through
+  every re-import.
 
 The import regenerates the knowledge indexes, so your kept pages are listed, and
 leaves a blank ``knowledge/index.md`` when no page remains.
