@@ -317,14 +317,35 @@ def normalise(relative: str, content: bytes) -> bytes:
     return _mask_versions(text).encode("utf-8")
 
 
-def _without_rows(manifest: bytes, directory: PurePosixPath, unseen: frozenset[str]) -> bytes:
-    """A normalised manifest without the checksum rows of files compared another way."""
+#: The manifest's per-key digests of the source zone: of the profile, and of the
+#: material beside it, which a comparison of the tree sees file by file.
+SOURCE_ZONE_DIGESTS = "profile_key_digests"
+
+
+def manifest_view(
+    manifest: str | bytes,
+    directory: PurePosixPath,
+    unseen_rows: Collection[str],
+    *,
+    source_zone: bool,
+) -> str:
+    """A normalised manifest without the checksum rows of files compared another way.
+
+    Args:
+        manifest: The manifest after :func:`normalise`.
+        directory: The manifest's repo-relative directory, which its row keys are under.
+        unseen_rows: Repo-relative paths whose checksum rows are dropped.
+        source_zone: Whether the source zone is compared; without it the manifest also
+            loses :data:`SOURCE_ZONE_DIGESTS`.
+    """
     document = json.loads(manifest)
     rows: Mapping[str, str] = document.get("file_checksums", {})
     document["file_checksums"] = {
-        key: row for key, row in rows.items() if (directory / key).as_posix() not in unseen
+        key: row for key, row in rows.items() if (directory / key).as_posix() not in unseen_rows
     }
-    return json.dumps(document, sort_keys=True, indent=1).encode("utf-8")
+    if not source_zone:
+        document.get("creation", {}).pop(SOURCE_ZONE_DIGESTS, None)
+    return json.dumps(document, sort_keys=True, indent=1)
 
 
 def snapshot(repo: Path, *, unseen_rows: Collection[str] = ()) -> dict[str, str]:
@@ -362,8 +383,8 @@ def snapshot(repo: Path, *, unseen_rows: Collection[str] = ()) -> dict[str, str]
                     unseen.add(relative)
                 digests[relative] = f"{mode} {hashlib.sha256(normalised).hexdigest()}"
     for relative, (mode, manifest) in manifests.items():
-        rows = _without_rows(manifest, PurePosixPath(relative).parent, frozenset(unseen))
-        digests[relative] = f"{mode} {hashlib.sha256(rows).hexdigest()}"
+        view = manifest_view(manifest, PurePosixPath(relative).parent, unseen, source_zone=True)
+        digests[relative] = f"{mode} {hashlib.sha256(view.encode()).hexdigest()}"
     return digests
 
 
