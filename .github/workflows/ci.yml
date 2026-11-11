@@ -710,6 +710,8 @@ jobs:
     timeout-minutes: 30
     env:
       OSPREY_OFFLINE: "1"
+    outputs:
+      rendered: ${{ steps.rendered.outputs.rendered }}
 
     steps:
     - *checkout-full-history
@@ -752,15 +754,40 @@ jobs:
     - name: Run visual regression suite
       run: uv run pytest tests/interfaces/design_system/test_visual.py -v --tb=short
 
+    - name: Stage the baselines the suite wrote
+      # Only the PNGs the suite added or changed: the checkout is the merge commit, so the rest of
+      # the tree is main's and would overwrite the PR branch's. Staged at their repo-relative paths.
+      id: rendered
+      env:
+        STAGE: ${{ runner.temp }}/rendered-baselines
+      run: |
+        mkdir -p "$STAGE"
+        git ls-files --others --modified --exclude-standard -- 'tests/interfaces/design_system/baselines/*.png' |
+          while IFS= read -r png; do
+            if [ -f "$png" ]; then
+              mkdir -p "$STAGE/$(dirname "$png")"
+              cp -- "$png" "$STAGE/$png"
+              echo "::notice::rendered $png"
+            fi
+          done
+        if [ -n "$(find "$STAGE" -type f -name '*.png' -print -quit)" ]; then
+          echo "rendered=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "rendered=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Upload Linux-rendered baselines artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: visual-baselines-linux
-        path: tests/interfaces/design_system/baselines/*.png
+        path: ${{ runner.temp }}/rendered-baselines/
+        # Nothing rendered, nothing uploaded, and visual-baselines-push skips.
+        if-no-files-found: ignore
         retention-days: 14
 
   # The one job holding a write token, split from the suites above so no code under test runs beside it:
-  # it checks out the PR branch, lays the rendered baselines over it and pushes.
+  # it checks out the PR branch, lays the baselines the suite added or changed over it and pushes.
+  # Dependabot's token cannot push, and a run that rendered nothing has nothing to push.
   visual-baselines-push:
     name: Push Linux-rendered visual baselines to the PR branch
     needs: visual-theming-agent
@@ -768,7 +795,9 @@ jobs:
     timeout-minutes: 10
     if: >-
       github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      needs.visual-theming-agent.outputs.rendered == 'true'
     permissions:
       contents: write
 
@@ -799,7 +828,8 @@ jobs:
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
         name: visual-baselines-linux
-        path: tests/interfaces/design_system/baselines
+        # The artifact holds repo-relative paths, so the root lays each PNG where it was rendered.
+        path: .
 
     - name: Commit new/updated Linux baselines back to the PR branch
       if: steps.head.outputs.current == 'true'
@@ -2470,7 +2500,7 @@ jobs:
   all-checks-passed:
     name: All CI Checks Passed
     # qmd-cache-warmup stays out: it runs on main pushes only, whose own run it already turns red.
-    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, host-record-e2e, stack-e2e, orm-roundtrip-e2e, scan-agentic-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
+    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, visual-baselines-push, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, host-record-e2e, stack-e2e, orm-roundtrip-e2e, scan-agentic-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Not on cancel: a superseded run must not leave a red gate on the same sha.
@@ -2508,8 +2538,11 @@ jobs:
           printf '\n%s\n' "$hint" >> "$summary"
         fi
 
-        bad=$(jq -nr --argjson needs "$NEEDS" --argjson ok "$passing" \
-          '$needs | to_entries[] | select(.value.result | IN($ok[]) | not) | "❌ \(.key): \(.value.result)"')
+        # The baseline push runs only when a same-repo PR rendered a baseline, never on a dispatch,
+        # so its skip always passes; its failure fails like any other.
+        bad=$(jq -nr --argjson needs "$NEEDS" --argjson ok "$passing" --arg push visual-baselines-push \
+          '$needs | to_entries[] | select(.value.result | IN($ok[]) | not)
+            | select(.key != $push or .value.result != "skipped") | "❌ \(.key): \(.value.result)"')
         if [[ -n "$bad" ]]; then
           echo "$bad"
           exit 1

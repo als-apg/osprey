@@ -1,8 +1,10 @@
 CI workflows follow GitHub Actions hardening practice. `ci.yml` grants a read-only token at the
 workflow level, and every checkout but the one in the baseline-pushing job leaves no token in the
 git config. That job, `visual-baselines-push`, is now separate from the Playwright suites: it holds
-the only `contents: write` token, runs no repository code, and commits the baselines the suites
-uploaded as an artifact back to a same-repo pull request's branch. Every external action in
+the only `contents: write` token, runs no repository code, and commits back to a same-repo pull
+request's branch only the baselines the visual suite added or changed in that run, staged at their
+repository paths; a run that wrote none, and a Dependabot pull request, skip it. The merge gate now
+waits for it: a failed or cancelled push fails `all-checks-passed`, and its skip passes. Every external action in
 `.github/workflows/` and `.github/actions/` is pinned by commit SHA with a `# vX.Y.Z` comment, and
 Dependabot now updates the composite actions too. No `run:` script pastes in a `${{ }}` expression
 any more: the values arrive through `env:`, and the wiring tests hold both rules for every workflow

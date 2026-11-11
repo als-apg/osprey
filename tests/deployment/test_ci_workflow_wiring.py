@@ -3368,6 +3368,64 @@ def test_the_gate_rule__mutation_names_only_the_first_bad_lane() -> None:
         test_the_gate_rule(mutated)
 
 
+def test_the_gate_holds_the_baseline_push(workflow: dict[str, Any] | None = None) -> None:
+    """A failed or cancelled baseline push fails the gate: a PR whose new baseline never
+    reached its branch is not green. Its skip passes on every event, a revalidation
+    included, because it runs only when a same-repo PR rendered a baseline; that
+    exemption is the push job's alone (``test_the_gate_rule`` holds every other lane)."""
+    wf = workflow if workflow is not None else _load_workflow()
+    assert BASELINE_PUSH_JOB in _jobs(wf)[GATE_JOB]["needs"], "the gate does not wait for the push"
+    reval = {"EVENT_NAME": "workflow_dispatch", "REVALIDATE": "true"}
+    for env in ({}, reval):
+        for result in ("failure", "cancelled"):
+            code, out, _ = _gate_exit(wf, {BASELINE_PUSH_JOB: result}, **env)
+            assert code != 0 and f"{BASELINE_PUSH_JOB}: {result}" in out, (
+                f"a '{result}' baseline push passes the gate"
+            )
+    for env in ({}, {"EVENT_NAME": "push"}, reval, {"PR_AUTHOR": "dependabot[bot]"}):
+        code, out, _ = _gate_exit(wf, {BASELINE_PUSH_JOB: "skipped"}, **env)
+        assert code == 0, f"a skipped baseline push fails the gate under {env}: {out}"
+
+
+def test_the_gate_holds_the_baseline_push__mutation_drops_it_from_needs() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(BASELINE_PUSH_JOB)
+    with pytest.raises(AssertionError, match="does not wait for the push"):
+        test_the_gate_holds_the_baseline_push(mutated)
+
+
+def test_the_gate_holds_the_baseline_push__mutation_fails_its_skip() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = original.replace('| select(.key != $push or .value.result != "skipped") ', "")
+    assert step["run"] != original, "no push exemption in the gate — mutation is stale"
+    with pytest.raises(AssertionError, match="skipped baseline push fails the gate"):
+        test_the_gate_holds_the_baseline_push(mutated)
+
+
+def test_the_gate_holds_the_baseline_push__mutation_exempts_every_skip() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = original.replace(".key != $push or ", "")
+    assert step["run"] != original, "no push exemption in the gate — mutation is stale"
+    with pytest.raises(AssertionError, match="passes the gate on a revalidation run"):
+        test_the_gate_rule(mutated)
+
+
+def test_the_gate_holds_the_baseline_push__mutation_passes_its_failure() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = original.replace(
+        '.value.result != "skipped"', '(.value.result | IN("skipped", "failure") | not)'
+    )
+    assert step["run"] != original, "no push exemption in the gate — mutation is stale"
+    with pytest.raises(AssertionError, match="'failure' baseline push passes the gate"):
+        test_the_gate_holds_the_baseline_push(mutated)
+
+
 def _always_on_lanes_that_can_skip_unseen(wf: dict[str, Any]) -> list[str]:
     """Needed jobs with no `if:` whose upstream could skip them without failing the gate.
 
@@ -6871,10 +6929,7 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 #: and ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), ``qmd-cache-warmup``
 #: runs on main pushes only, whose own run its failure already turns red (needed,
 #: it failed every revalidation as a skipped lane), ``stop-on-failed-cheap-lane`` only cancels
-#: the run (pinned by ``test_cheap_lanes_cancel_a_failed_pull_request_run``), ``visual-baselines-push``
-#: checks nothing and runs on same-repo PRs only, so a revalidation would read it as a skipped
-#: lane (its failure is a red check of its own; pinned by
-#: ``test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code``), and the gate
+#: the run (pinned by ``test_cheap_lanes_cancel_a_failed_pull_request_run``), and the gate
 #: cannot depend on itself. Anything else that is not in
 #: ``needs`` can go red forever inside a green check — the 17 privilege-split
 #: Docker tests did exactly that for a phase.
@@ -6885,7 +6940,6 @@ JOBS_OUTSIDE_THE_GATE = frozenset(
         QMD_WARMUP_JOB,
         GATE_JOB,
         "stop-on-failed-cheap-lane",
-        "visual-baselines-push",
     }
 )
 
@@ -9719,11 +9773,22 @@ def test_only_the_baseline_push_job_can_write__mutation_push_job_runs_repo_code(
         test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
 
 
+#: The test job's step that stages the PNGs the suite added or changed, and its id.
+BASELINE_STAGE_STEP = "Stage the baselines the suite wrote"
+BASELINE_STAGE_DIR = "${{ runner.temp }}/rendered-baselines"
+#: Beyond same-repo PRs: Dependabot's token cannot push, and a run that rendered nothing skips.
+_PUSH_ONLY_WHAT_RENDERED_CLAUSES = (
+    "github.event.pull_request.user.login != 'dependabot[bot]'",
+    f"needs.{BROWSER_AGENT_JOB}.outputs.rendered == 'true'",
+)
+
+
 def test_the_baseline_push_commits_what_the_test_job_rendered(
     workflow: dict[str, Any] | None = None,
 ) -> None:
-    """Same-repo PRs only, after the suites passed, the artifact laid where it
-    was rendered, and the commit the in-job step made before the split."""
+    """Same-repo PRs only, after the suites passed and only when they wrote a
+    baseline, the staged PNGs laid at the paths they were rendered at, and the
+    commit the in-job step made before the split."""
     wf = workflow if workflow is not None else _load_workflow()
     test_job, push = _jobs(wf)[BROWSER_AGENT_JOB], _jobs(wf)[BASELINE_PUSH_JOB]
     assert push["needs"] in (BROWSER_AGENT_JOB, [BROWSER_AGENT_JOB])
@@ -9731,11 +9796,20 @@ def test_the_baseline_push_commits_what_the_test_job_rendered(
     assert all(c in condition for c in _SAME_REPO_PR_CLAUSES) and "||" not in condition, (
         f"the push is not gated to same-repo PRs only: {condition}"
     )
+    missing = [c for c in _PUSH_ONLY_WHAT_RENDERED_CLAUSES if c not in condition]
+    assert missing == [], f"the push runs without {missing}: {condition}"
+    stage = _find_named_step(wf, BROWSER_AGENT_JOB, BASELINE_STAGE_STEP)
+    assert test_job["outputs"] == {"rendered": f"${{{{ steps.{stage['id']}.outputs.rendered }}}}"}
+    assert stage["env"] == {"STAGE": BASELINE_STAGE_DIR}
     assert "git-auto-commit-action" not in json.dumps(test_job), "the test job still pushes"
     upload = _step_using(test_job, "actions/upload-artifact@")["with"]
     download = _step_using(push, "actions/download-artifact@")["with"]
     assert upload["name"] == download["name"] == BASELINE_ARTIFACT
-    assert (upload["path"], download["path"]) == (f"{BASELINE_DIR}/*.png", BASELINE_DIR)
+    # The upload's root is the staging dir, so the artifact holds repo-relative paths and the
+    # checkout root lays each one where it was rendered.
+    assert (upload["path"].rstrip("/"), download["path"]) == (BASELINE_STAGE_DIR, "."), (
+        "the artifact is not the staged PNGs laid at their rendered paths"
+    )
     checkout = _step_using(push, "actions/checkout@")["with"]
     assert checkout["ref"] == "${{ github.head_ref }}", "the push job checks out another ref"
     commit = _step_using(push, "stefanzweifel/git-auto-commit-action@")
@@ -9788,10 +9862,89 @@ def test_the_baseline_push__mutation_guard_reads_head_from_repo_code() -> None:
 def test_the_baseline_push__mutation_downloads_elsewhere() -> None:
     mutated = _load_workflow()
     _step_using(_jobs(mutated)[BASELINE_PUSH_JOB], "actions/download-artifact@")["with"]["path"] = (
-        "."
+        BASELINE_DIR
     )
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="rendered paths"):
         test_the_baseline_push_commits_what_the_test_job_rendered(mutated)
+
+
+def test_the_baseline_push__mutation_uploads_the_whole_tree() -> None:
+    mutated = _load_workflow()
+    upload = _step_using(_jobs(mutated)[BROWSER_AGENT_JOB], "actions/upload-artifact@")
+    upload["with"]["path"] = f"{BASELINE_DIR}/*.png"
+    with pytest.raises(AssertionError, match="rendered paths"):
+        test_the_baseline_push_commits_what_the_test_job_rendered(mutated)
+
+
+def test_the_baseline_push__mutation_runs_when_nothing_rendered() -> None:
+    mutated = _load_workflow()
+    job = _jobs(mutated)[BASELINE_PUSH_JOB]
+    clause = _PUSH_ONLY_WHAT_RENDERED_CLAUSES[1]
+    job["if"] = str(job["if"]).replace(f" &&\n{clause}", "").replace(f" && {clause}", "")
+    assert clause not in job["if"], "no rendered clause in the push condition — mutation is stale"
+    with pytest.raises(AssertionError, match="runs without"):
+        test_the_baseline_push_commits_what_the_test_job_rendered(mutated)
+
+
+def _stage_rendered_baselines(
+    wf: dict[str, Any], change: Callable[[Path], None]
+) -> tuple[set[str], str]:
+    """Run the stage step in a scratch repo holding two committed baselines, after
+    *change* edits its tree; return the staged paths and the step's outputs."""
+    run = _find_named_step(wf, BROWSER_AGENT_JOB, BASELINE_STAGE_STEP)["run"]
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, stage, out = Path(tmp) / "repo", Path(tmp) / "stage", Path(tmp) / "out"
+        baselines = repo / BASELINE_DIR
+        baselines.mkdir(parents=True)
+        for name in ("kept.png", "changed.png"):
+            (baselines / name).write_bytes(b"main")
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(repo)]
+        subprocess.run([*git[:-2], "init", "-q", str(repo)], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "base"], check=True)
+        change(repo)
+        subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", run],
+            cwd=repo,
+            env={**os.environ, "STAGE": str(stage), "GITHUB_OUTPUT": str(out)},
+            check=True,
+            capture_output=True,
+        )
+        staged = {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()}
+        return staged, out.read_text()
+
+
+def _render_one_new_and_one_changed(repo: Path) -> None:
+    (repo / BASELINE_DIR / "changed.png").write_bytes(b"rendered")
+    (repo / BASELINE_DIR / "new.png").write_bytes(b"rendered")
+    (repo / "elsewhere.png").write_bytes(b"not a baseline")
+
+
+def test_the_baseline_stage_holds_only_what_the_suite_wrote(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """The checkout is the merge commit, so its unchanged baselines are main's: staging
+    them would lay main's PNGs over the PR branch. Only a PNG the suite added or
+    changed is staged, at its repo-relative path, and a run that wrote none says so."""
+    wf = workflow if workflow is not None else _load_workflow()
+    staged, outputs = _stage_rendered_baselines(wf, _render_one_new_and_one_changed)
+    assert staged == {f"{BASELINE_DIR}/changed.png", f"{BASELINE_DIR}/new.png"}, (
+        f"staged beyond what the suite wrote: {sorted(staged)}"
+    )
+    assert outputs.splitlines() == ["rendered=true"]
+    staged, outputs = _stage_rendered_baselines(wf, lambda repo: None)
+    assert staged == set(), f"staged beyond what the suite wrote: {sorted(staged)}"
+    assert outputs.splitlines() == ["rendered=false"]
+
+
+def test_the_baseline_stage__mutation_stages_every_baseline() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, BROWSER_AGENT_JOB, BASELINE_STAGE_STEP)
+    original = step["run"]
+    step["run"] = original.replace(" --others --modified --exclude-standard", " --cached --others")
+    assert step["run"] != original, "no ls-files filter in the stage step — mutation is stale"
+    with pytest.raises(AssertionError, match="staged beyond"):
+        test_the_baseline_stage_holds_only_what_the_suite_wrote(mutated)
 
 
 def test_workflow_fires_when_the_full_ci_label_is_applied(workflow: dict[str, Any]) -> None:
@@ -14869,11 +15022,17 @@ def test_a_new_caller_step_is_a_gate_call_without_a_table_row() -> None:
     assert "List what git ignores, again" in {row.step for row in _gate_calls(mutated)}
 
 
+#: Required jobs that are neither a caller nor a lane, each with why. The baseline push
+#: checks nothing, so no range should be told to run it and no test is hosted by it; the
+#: gate needs it only so a failed push is not green.
+GATED_NON_LANES = {BASELINE_PUSH_JOB: "commits what visual-theming-agent rendered; checks nothing"}
+
+
 def _unknown_required_jobs(wf: dict[str, Any]) -> list[str]:
     """What is wrong with the roll-up gate's needs as the declaration reads them."""
     jobs = _jobs(wf)
     needs = jobs[GATE_JOB]["needs"]
-    lanes = {lane.job for lane in check_set.LANES}
+    lanes = {lane.job for lane in check_set.LANES} | set(GATED_NON_LANES)
     callers = set(check_set.CALLER_JOBS)
     problems = [
         f"{job}: required, and neither a caller job nor a lane {CHECK_SCRIPT} names"

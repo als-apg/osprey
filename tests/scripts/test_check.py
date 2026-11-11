@@ -819,13 +819,20 @@ def workflow() -> dict[str, Any]:
     return yaml.safe_load(CI_YML.read_text(encoding="utf-8"))
 
 
+#: Required jobs that are neither a caller nor a lane. The baseline push checks nothing, so
+#: no range should be told to run it; the gate needs it only so a failed push is not green.
+GATED_NON_LANES = ("visual-baselines-push",)
+
+
 def test_every_required_ci_job_is_a_caller_or_a_lane() -> None:
     jobs = workflow()["jobs"]
     lanes = [lane.job for lane in check.LANES]
     assert len(lanes) == len(set(lanes))
-    assert [job for job in (*lanes, *check.CALLER_JOBS) if job not in jobs] == []
+    assert [job for job in (*lanes, *check.CALLER_JOBS, *GATED_NON_LANES) if job not in jobs] == []
+    assert not set(GATED_NON_LANES) & set(lanes)
     required = jobs["all-checks-passed"]["needs"]
-    assert sorted(set(required) - set(lanes) - set(check.CALLER_JOBS)) == []
+    exempt = set(check.CALLER_JOBS) | set(GATED_NON_LANES)
+    assert sorted(set(required) - set(lanes) - exempt) == []
     # The warm-up runs on main pushes only, so a revalidation dispatch would read it as a skipped lane.
     assert set(lanes) - set(required) == {"benchmarks", "qmd-cache-warmup"}
 
