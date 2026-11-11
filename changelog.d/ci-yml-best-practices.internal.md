@@ -26,4 +26,6 @@ the merged-topology parse (`parse-check`). `proxied_build.sh` runs `dockerfile-e
 build in five subcommands (`start`, `probe`, `build`, `assert`, `stop`), and `fetch_n10s_jar.sh`
 fetches the neosemantics jar for both graph lanes. The workflow keeps each step's name, timeout
 and a comment on what it proves; `canopy-contract` stays inline so its credential boundary reads in
-one place.
+one place. `visual-baselines-push` now skips its commit, with a notice, when the branch has moved
+past the commit that rendered the baselines; the check is pure git and reads that sha through
+`env:`.

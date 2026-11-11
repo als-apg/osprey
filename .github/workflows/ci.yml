@@ -788,13 +788,30 @@ jobs:
       with:
         ref: ${{ github.head_ref }}
 
+    - name: Skip the commit if the branch moved past the rendered commit
+      # Pure git, no repo code: the branch head can be newer than the sha that rendered the
+      # baselines, and committing them there would overwrite a newer push with stale renders.
+      id: head
+      env:
+        RENDERED_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        head="$(git rev-parse HEAD)"
+        if [ "$head" = "$RENDERED_SHA" ]; then
+          echo "current=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::the branch is at $head, not the rendered $RENDERED_SHA; its own run pushes the baselines"
+          echo "current=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Download Linux-rendered baselines artifact
+      if: steps.head.outputs.current == 'true'
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
         name: visual-baselines-linux
         path: tests/interfaces/design_system/baselines
 
     - name: Commit new/updated Linux baselines back to the PR branch
+      if: steps.head.outputs.current == 'true'
       uses: stefanzweifel/git-auto-commit-action@d0b01107b5db882071f96de5dd4b54961ea93f4c  # v7.2.1
       with:
         commit_message: "chore(visual): update Linux-rendered theming baseline(s) [skip ci]"

@@ -10048,6 +10048,8 @@ def test_the_dockerfile_agent_turn__mutation_runs_both_modules_in_the_model_free
 
 BASELINE_ARTIFACT = "visual-baselines-linux"
 BASELINE_DIR = "tests/interfaces/design_system/baselines"
+#: The push job's one step of its own: pure git, it skips the push when the branch moved.
+BASELINE_HEAD_GUARD = "Skip the commit if the branch moved past the rendered commit"
 _PUSH_JOB_ACTIONS = (
     "actions/checkout@",
     "actions/download-artifact@",
@@ -10092,13 +10094,24 @@ def test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(
     ]
     assert persisting == [], f"checkouts that keep the token in the git config: {persisting}"
     push = _jobs(wf)[BASELINE_PUSH_JOB]
-    own = [
-        s.get("name")
-        for s in push["steps"]
-        if not str(s.get("uses", "")).startswith(_PUSH_JOB_ACTIONS)
-    ]
-    assert own == [], f"the push job runs steps of its own: {own}"
-    assert [str(s["uses"]).split("@")[0] + "@" for s in push["steps"]] == list(_PUSH_JOB_ACTIONS)
+    own = [s for s in push["steps"] if "uses" not in s]
+    assert [s.get("name") for s in own] == [BASELINE_HEAD_GUARD], (
+        f"the push job runs steps of its own: {[s.get('name') for s in own]}"
+    )
+    assert [str(s["uses"]).split("@")[0] + "@" for s in push["steps"] if "uses" in s] == list(
+        _PUSH_JOB_ACTIONS
+    )
+    # The one step of its own is git and shell builtins: nothing the PR could have changed runs
+    # under the write token.
+    commands = {
+        line.split()[0]
+        for line in own[0]["run"].splitlines()
+        if line.strip() and not line.lstrip().startswith(("if ", "else", "fi", "head="))
+    }
+    assert commands <= {"echo"}, f"the guard runs {commands}"
+    head_lines = [s.strip() for s in own[0]["run"].splitlines() if s.lstrip().startswith("head=")]
+    assert head_lines == ['head="$(git rev-parse HEAD)"'], f"the guard runs {head_lines}"
+    assert "${{" not in own[0]["run"], "the guard reads its sha through env:"
 
 
 def test_only_the_baseline_push_job_can_write__mutation_test_job_writes() -> None:
@@ -10145,7 +10158,12 @@ def test_the_baseline_push_commits_what_the_test_job_rendered(
     checkout = _step_using(push, "actions/checkout@")["with"]
     assert checkout["ref"] == "${{ github.head_ref }}", "the push job checks out another ref"
     commit = _step_using(push, "stefanzweifel/git-auto-commit-action@")
-    assert "if" not in commit, "the commit step carries a gate of its own"
+    guard = _find_named_step(wf, BASELINE_PUSH_JOB, BASELINE_HEAD_GUARD)
+    assert guard["env"] == {"RENDERED_SHA": "${{ github.event.pull_request.head.sha }}"}
+    # Only the head guard gates the download and the commit: the baselines land on the
+    # commit that rendered them, or not at all.
+    for step in (_step_using(push, "actions/download-artifact@"), commit):
+        assert step.get("if") == f"steps.{guard['id']}.outputs.current == 'true'", step.get("name")
     assert commit["with"]["file_pattern"] == f"{BASELINE_DIR}/*.png"
     assert commit["with"]["commit_message"].endswith("[skip ci]")
     assert "branch" not in commit["with"], "the action's default branch is the PR head"
@@ -10157,6 +10175,33 @@ def test_the_baseline_push__mutation_runs_on_a_dispatch() -> None:
     job["if"] = f"({job['if']}) || github.event_name == 'workflow_dispatch'"
     with pytest.raises(AssertionError, match="same-repo PRs only"):
         test_the_baseline_push_commits_what_the_test_job_rendered(mutated)
+
+
+def test_the_baseline_push__mutation_commits_past_a_moved_branch() -> None:
+    mutated = _load_workflow()
+    del _step_using(_jobs(mutated)[BASELINE_PUSH_JOB], "stefanzweifel/git-auto-commit-action@")[
+        "if"
+    ]
+    with pytest.raises(AssertionError, match="Commit"):
+        test_the_baseline_push_commits_what_the_test_job_rendered(mutated)
+
+
+def test_the_baseline_push__mutation_guard_runs_repo_code() -> None:
+    mutated = _load_workflow()
+    guard = _find_named_step(mutated, BASELINE_PUSH_JOB, BASELINE_HEAD_GUARD)
+    guard["run"] = "python3 scripts/ci/check_head.py\n" + guard["run"]
+    with pytest.raises(AssertionError, match="the guard runs"):
+        test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
+
+
+def test_the_baseline_push__mutation_guard_reads_head_from_repo_code() -> None:
+    mutated = _load_workflow()
+    guard = _find_named_step(mutated, BASELINE_PUSH_JOB, BASELINE_HEAD_GUARD)
+    guard["run"] = guard["run"].replace(
+        'head="$(git rev-parse HEAD)"', 'head="$(python3 scripts/ci/check_head.py)"'
+    )
+    with pytest.raises(AssertionError, match="the guard runs"):
+        test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
 
 
 def test_the_baseline_push__mutation_downloads_elsewhere() -> None:
