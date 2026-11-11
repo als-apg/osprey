@@ -331,7 +331,7 @@ standing in for, or of who may alter it, rather than of OSPREY:
        for a demo that should look live; raise it on a very large namespace.
    * - ``VA_FAST_INTERVAL_S``
      - The fast period: seconds between publications of the readings a model
-       serves faster than the passes above, such as an injection chain's
+       serves faster than its passes, such as an injection chain's
        fast current (:ref:`va-injection-chain`). Set by
        ``simulation.fast_tick_s`` (default ``0.1``) in the same way. A
        facility with no such reading publishes nothing at this period.
