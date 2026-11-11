@@ -95,7 +95,7 @@ export function demoRows() {
       'claude_cli_version',
       'CLI version',
       'ok',
-      '2.1.300',
+      '2.1.322',
       'exec claude --version'
     ),
     /* 6 */ row(
