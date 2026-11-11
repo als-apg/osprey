@@ -62,7 +62,8 @@ _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
 _FEED_LOADING = "alarm feed still loading"
 _LIVE_CONFIGURATION = "live configuration"
 _LOGGED_CONFIGURATION = "last logged configuration"
-#: The panel that shows directory results; its deep-link routes are ``#/pv/`` and ``#/ioc/``.
+#: The panel that shows directory results; its deep-link routes are ``#/pv/`` and ``#/ioc/``,
+#: the name one segment encoded as ``encodeURIComponent`` encodes it.
 _PANEL = "/panel/channel-finder/"
 
 #: Each section after the directory, and the context key that configures it.
@@ -76,7 +77,8 @@ _SECTIONS = (
 
 def panel_link(kind: str, name: str) -> dict[str, str]:
     """``{"panel": url}`` opening *name* on the panel's ``pv`` or ``ioc`` page."""
-    return {"panel": f"{_PANEL}#/{kind}/{quote(name, safe='')}"}
+    segment = quote(name, safe="!*'()")
+    return {"panel": f"{_PANEL}#/{kind}/{segment}"}
 
 
 class _NoSource:
