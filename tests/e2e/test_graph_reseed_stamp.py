@@ -52,7 +52,7 @@ from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, graphdb_store_publis
 pytestmark = [
     pytest.mark.slow,
     # dockerbuild: a real Neo4j store under testcontainers -- runs in the
-    # dedicated graph-reseed-e2e CI job, never the shared e2e-tests lane (the
+    # graph-reseed-e2e cell of the stack-e2e CI job, never the shared e2e-tests lane (the
     # marker->--ignore pairing is enforced by
     # tests/deployment/test_ci_workflow_wiring.py).
     pytest.mark.dockerbuild,
