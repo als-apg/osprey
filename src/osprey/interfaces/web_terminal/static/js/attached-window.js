@@ -324,6 +324,9 @@ function dressWindow(entry) {
   };
   entry.ready = true;
   runHook(() => spec.onDress?.(mount));
+  // The window's declared ready mark: the node is in and the caller has dressed
+  // it, so whatever acts on the window acts on the finished page.
+  mount.dataset.windowReady = 'true';
 }
 
 /**
