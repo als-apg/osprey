@@ -100,7 +100,7 @@ dependencies = [
     "MarkupSafe>=3.0.2",
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
     # MCP server development (for building MCP servers)
-    "fastmcp>=3.4.4",
+    "fastmcp>=3.4.10",
     # Scientific computing stack - for Python execution capability
     "scipy>=1.17.1",
     "seaborn",
