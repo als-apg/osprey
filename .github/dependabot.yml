@@ -65,20 +65,26 @@ updates:
       default-days: 7
       include:
         - "*"
-    # marked and dompurify are the builds src/osprey/interfaces/vendor_manifest.json
-    # pins, and the JS suite proves node_modules holds exactly those builds, so a
-    # bump here alone goes red. Both move by hand, manifest first.
+    # marked, dompurify and dockview-core are the builds
+    # src/osprey/interfaces/vendor_manifest.json pins, and the JS suite proves
+    # node_modules holds exactly those builds, so a bump here alone goes red.
+    # All three move by hand, manifest first.
     ignore:
       - dependency-name: "marked"
       - dependency-name: "dompurify"
+      - dependency-name: "dockview-core"
     groups:
       js-toolchain:
         patterns:
           - "*"
 
-  # GitHub Actions
+  # GitHub Actions. Every `uses:` is pinned by commit SHA with a `# vX.Y.Z`
+  # comment, which Dependabot rewrites together. "/" covers .github/workflows
+  # only; the composite actions under .github/actions/ are listed explicitly.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
       day: "monday"

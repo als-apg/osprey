@@ -101,9 +101,12 @@ VERSIONS_STEP = "Write version switcher index"
 DEPLOY_STEP = "Deploy to GitHub Pages"
 
 #: The only spelling of the helper an *invocation* may use: the path the
-#: resolve step chose. A literal in its place would pin one of the two
-#: checkouts and break the builds the other one exists to serve.
-HELPER_REF = "${{ steps.helper.outputs.path }}"
+#: resolve step chose, read from the step's ``env:`` (never ``${{ }}`` in
+#: ``run:``). A literal in its place would pin one of the two checkouts and
+#: break the builds the other one exists to serve.
+HELPER_ENV = "HELPER"
+HELPER_EXPR = "${{ steps.helper.outputs.path }}"
+HELPER_REF = '"$HELPER"'
 #: The resolve step's two candidates, in the order it must try them.
 HELPER_PATH = ".docs-ci/scripts/ci/docs_publish.py"
 HELPER_IN_TREE_PATH = "scripts/ci/docs_publish.py"
@@ -149,7 +152,11 @@ STAGING_TOKENS = ("deployment", "gh-pages-existing")
 CONCURRENCY_GROUP = "docs-${{ github.event_name == 'pull_request' && github.run_id || 'deploy' }}"
 
 ALLOW_EMPTY_FLAG = "--allow-empty-site"
-ALLOW_EMPTY_EXPR = "${{ steps.pages.outputs.first_deploy == 'true' && '--allow-empty-site' || '' }}"
+#: The fetch step's probe result reaches the stage step through ``env:``; the
+#: flag is added only on the branch that reads it as a first deploy.
+FIRST_DEPLOY_ENV = "FIRST_DEPLOY"
+FIRST_DEPLOY_EXPR = "${{ steps.pages.outputs.first_deploy }}"
+ALLOW_EMPTY_GUARD = 'if [ "$FIRST_DEPLOY" = "true" ]; then allow_empty=(--allow-empty-site); fi'
 
 #: Job-level env → the shell spelling each helper flag must use.
 HELPER_INPUT_FLAGS = {
@@ -223,8 +230,13 @@ def _run_texts(wf: dict[str, Any]) -> list[str]:
 
 def _helper_invocation_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
     """The steps that *run* the helper — located by the resolved path they
-    spell, since after resolution no invocation names the file itself."""
-    return [step for step in _steps(wf) if HELPER_REF in str(step.get("run", ""))]
+    read from ``env:``, since after resolution no invocation names the file itself."""
+    return [
+        step
+        for step in _steps(wf)
+        if (step.get("env") or {}).get(HELPER_ENV) == HELPER_EXPR
+        and HELPER_REF in str(step.get("run", ""))
+    ]
 
 
 def _resolve_step(wf: dict[str, Any]) -> dict[str, Any]:
@@ -383,7 +395,7 @@ def test_helper_invocation_count_matches_the_three_subcommands(workflow: dict[st
 def test_helper_invocation_count_matches_the_three_subcommands__mutation_adds_call() -> None:
     mutated = copy.deepcopy(_load_workflow())
     mutated["jobs"][BUILD_JOB]["steps"].append(
-        {"name": "extra", "run": f'python3 "{HELPER_REF}" plan'}
+        {"name": "extra", "env": {HELPER_ENV: HELPER_EXPR}, "run": f"python3 {HELPER_REF} plan"}
     )
     with pytest.raises(AssertionError):
         assert len(_helper_invocation_runs(mutated)) == 3
@@ -577,9 +589,13 @@ def test_deploy_step_publishes_the_staged_tree__mutation_publishes_build_dir() -
 def _assert_allow_empty_is_conditional(wf: dict[str, Any]) -> None:
     joined = "\n".join(_run_texts(wf))
     flag_uses = joined.count(ALLOW_EMPTY_FLAG)
-    guarded_uses = joined.count(ALLOW_EMPTY_EXPR)
+    guarded_uses = joined.count(ALLOW_EMPTY_GUARD)
     assert guarded_uses == 1, f"expected exactly one guarded use, found {guarded_uses}"
-    # The expression itself contains the flag once, so the counts must agree.
+    guarded = next(s for s in _steps(wf) if ALLOW_EMPTY_GUARD in str(s.get("run", "")))
+    assert (guarded.get("env") or {}).get(FIRST_DEPLOY_ENV) == FIRST_DEPLOY_EXPR, (
+        f"the guard must read {FIRST_DEPLOY_ENV} from {FIRST_DEPLOY_EXPR}"
+    )
+    # The guard itself contains the flag once, so the counts must agree.
     assert flag_uses == guarded_uses, (
         f"{ALLOW_EMPTY_FLAG} appears {flag_uses} times but only {guarded_uses} are guarded"
     )
@@ -1016,3 +1032,52 @@ def test_workflow_only_reads_plan_outputs_the_helper_writes__mutation_reads_unkn
     _find_named_step(mutated, DEPLOY_STEP)["if"] = "steps.plan.outputs.should_deploy == 'true'"
     with pytest.raises(AssertionError):
         _assert_referenced_outputs_exist(mutated, _plan_output_keys())
+
+
+# ---------------------------------------------------------------------------
+# Least privilege: only the job that publishes to gh-pages can write
+# ---------------------------------------------------------------------------
+
+
+def _write_scopes(wf: dict[str, Any]) -> dict[str, set[str]]:
+    """``{job: write scopes}`` for each job of *wf* that holds any."""
+    return {
+        name: scopes
+        for name, job in wf["jobs"].items()
+        if (scopes := {s for s, v in (job.get("permissions") or {}).items() if v == "write"})
+    }
+
+
+def _publishing_jobs(wf: dict[str, Any]) -> set[str]:
+    return {
+        name
+        for name, job in wf["jobs"].items()
+        if any(str(step.get("uses", "")).startswith(DEPLOY_ACTION) for step in job["steps"])
+    }
+
+
+def test_only_the_publishing_job_can_write(workflow: dict[str, Any]) -> None:
+    """The workflow token is read-only; the job that pushes the site to gh-pages
+    holds ``contents: write`` and nothing more, and no other job writes."""
+    assert workflow.get("permissions") == {"contents": "read"}, (
+        f"docs.yml grants {workflow.get('permissions')} at workflow level"
+    )
+    publishing = _publishing_jobs(workflow)
+    assert publishing, "no job runs the gh-pages deploy action; this check is stale"
+    assert _write_scopes(workflow) == dict.fromkeys(publishing, {"contents"}), (
+        f"write scopes: {_write_scopes(workflow)}"
+    )
+
+
+def test_only_the_publishing_job_can_write__mutation_workflow_level_write() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["permissions"] = {"contents": "write"}
+    with pytest.raises(AssertionError, match="at workflow level"):
+        test_only_the_publishing_job_can_write(mutated)
+
+
+def test_only_the_publishing_job_can_write__mutation_a_second_job_writes() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"]["lint"] = {"permissions": {"contents": "write"}, "steps": []}
+    with pytest.raises(AssertionError, match="write scopes"):
+        test_only_the_publishing_job_can_write(mutated)
