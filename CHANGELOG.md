@@ -20,7 +20,7 @@ the `[Unreleased]` section below when a release is cut.
 TODO(release-notes PR, remove before the tag): the version and date above are
 placeholders the owner fills at tag time.
 
-Final fold on main d0ea04503d (2026-11-10): every fragment on main is folded
+Final fold on main 55ee62fac1 (2026-11-10): every fragment on main is folded
 into the sections below and changelog.d/ is empty. Still open before the tag:
 - The condensation pass (release skill, Step 4) has not run: the sections
   below the migration guide are the raw fold of every fragment since
@@ -358,6 +358,16 @@ Logbook (ARIEL):
 
 ### Added
 
+- pyat engine: a model declares element errors on elements no wiring record binds.
+  `settings.pyat.error_elements` lists `{element: <name>, multipoles: true|false}`;
+  each declared element carries `<element>/dx`, `/dy` and `/roll`, and with
+  `multipoles: true` also `/dB<n>` and `/dA<n>`, with the bounds and seeding of a
+  wired element, so a magnet wired only to a deck property (a bend on `energy`)
+  can be given a scenario error. A declared element that is not in the deck, or is
+  in it more than once, fails the build by name. A model with no list is unchanged.
+  An engine plug-in's optional `fault_variables` is now called as
+  `fault_variables(wiring, settings)`; a `ValueError` it raises stops the build
+  `engine-invalid` on the model. (#2621)
 - Optimizer service (engine): the Xopt-driven tuning engine ships as its own
   distribution, `osprey-optimizer` (import `osprey_optimizer`), released with the
   framework and carrying the same version. Its base install is the models and
