@@ -1067,23 +1067,12 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
-        # Named by path, not marker: a vanished path reds (exit 4), a marker matching nothing greens.
-        # The wiring test holds this list equal to the model_free tests.
-        uv run pytest \
-          tests/e2e/test_scripted_model.py \
-          tests/e2e/claude_code/test_safety_gates_scripted.py \
-          tests/e2e/test_dispatch_deploy_render.py \
-          tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
-          tests/e2e/web_terminals/test_skills_overlay_discovery.py \
-          tests/e2e/web_terminals/test_loopback_chokepoint.py \
-          tests/e2e/web_terminals/test_session_restart_e2e.py \
-          tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-          tests/e2e/web_terminals/test_render_permissions_scripted.py \
-          tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
-          tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
-          tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
-          tests/e2e/test_watchdog_agent_scripted.py \
-          tests/e2e/test_watchdog_hold_scripted.py \
+        # By path, not marker: a vanished path reds (exit 4). The list is e2e-no-model's
+        # modules in the LANES table of scripts/repo_checks.py.
+        python3 scripts/ci/e2e_shared_lane.py modules e2e-no-model > "$RUNNER_TEMP/e2e-modules"
+        mapfile -t modules < "$RUNNER_TEMP/e2e-modules"
+        [ "${#modules[@]}" -gt 0 ] || { echo "::error::derived no model-free modules"; exit 1; }
+        uv run pytest "${modules[@]}" \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           -p no_skips --no-skips-message "✅ every model-free E2E test ran; none skipped"
 

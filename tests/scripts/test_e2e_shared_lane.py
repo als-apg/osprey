@@ -1,5 +1,6 @@
 """Tests for ``scripts/ci/e2e_shared_lane.py``: the shared e2e lane's ``--ignore``
-arguments and the compose projects its cleanup step removes.
+arguments, the compose projects its cleanup step removes, and the module list a
+dedicated lane's run step takes from its ``Lane``.
 
 Which module runs where is held by the exactly-one-place invariant in
 ``tests/scripts/test_check.py``; this file holds the script's own output.
@@ -39,6 +40,51 @@ def test_ignores_prints_the_arguments_and_names_each_host(
     assert out.splitlines() == lane.ignores(FILES)
     assert f"e2e-tests leaves {len(out.splitlines())} modules to their hosts:" in err
     assert "  tests/e2e/test_two_shape_boot.py  (two-shape-boot-e2e)" in err.splitlines()
+
+
+def test_modules_are_the_lanes_own_paths_in_declaration_order() -> None:
+    (no_model,) = [entry for entry in check.LANES if entry.id == "e2e-no-model"]
+    assert no_model.modules
+    assert lane.modules("e2e-no-model") == list(no_model.modules)
+
+
+def test_modules_keeps_a_path_that_is_gone() -> None:
+    """Resolved against the tree, a vanished module would drop out of the run;
+    handed to pytest as declared, it exits pytest 4."""
+    gone = "tests/e2e/test_no_such_module.py"
+    lanes = (check.Lane("x-e2e", "containers", ("tests/e2e/**",), modules=(gone,)),)
+    assert lane.modules("x-e2e", lanes) == [gone]
+
+
+GLOBBED = check.Lane("glob-e2e", "containers", ("tests/e2e/**",), modules=("tests/e2e/x_*.py",))
+
+
+@pytest.mark.parametrize(
+    ("lane_id", "refusal"),
+    [
+        ("no-such-lane", "0 lanes have the id"),
+        ("e2e-tests", "names no module list"),
+        ("glob-e2e", "names no module list"),
+    ],
+    ids=["unknown", "no-modules", "globs"],
+)
+def test_modules_refuses_a_lane_with_no_list_of_plain_paths(lane_id: str, refusal: str) -> None:
+    with pytest.raises(ValueError, match=refusal):
+        lane.modules(lane_id, (*check.LANES, GLOBBED))
+
+
+def test_modules_prints_one_path_per_line(capsys: pytest.CaptureFixture[str]) -> None:
+    assert lane.main(["modules", "e2e-no-model"]) == 0
+    assert capsys.readouterr().out.splitlines() == lane.modules("e2e-no-model")
+
+
+@pytest.mark.parametrize(
+    "argv", [["modules"], ["ignores", "e2e-no-model"], ["modules", "e2e-tests"]]
+)
+def test_modules_takes_exactly_one_lane_with_a_list(argv: list[str]) -> None:
+    with pytest.raises(SystemExit) as exited:
+        lane.main(argv)
+    assert exited.value.code == 2
 
 
 @pytest.mark.parametrize(
