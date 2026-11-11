@@ -50,7 +50,6 @@ from tests.facility._fixture_kind import (
     fake_wheel,
     fixture_tree,
     install,
-    read_entry_points_afresh,
 )
 from tests.facility._pyaml_trees import built_document, measured_tree
 
@@ -58,6 +57,8 @@ if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
 pytest.importorskip("pyaml")
+
+pytestmark = pytest.mark.usefixtures("entry_points_read_afresh")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -72,18 +73,6 @@ PATCHED = {ENGINE: {"turns": 12 + 64}}
 
 
 # --- the package on the path -----------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _entry_points_read_afresh() -> Iterator[None]:
-    """Each test reads the entry points of its own path, and leaves none read behind.
-
-    Torn down after the test's ``sys.path`` is restored, so a reading made
-    while a fixture package was installed does not outlive the test.
-    """
-    read_entry_points_afresh()
-    yield
-    read_entry_points_afresh()
 
 
 @pytest.fixture

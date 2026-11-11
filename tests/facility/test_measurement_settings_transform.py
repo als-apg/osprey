@@ -34,6 +34,8 @@ from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
 pytest.importorskip("pyaml")
 
+pytestmark = pytest.mark.usefixtures("entry_points_read_afresh")
+
 #: What the fixture kind patches for a trigger sample of 12: the sample plus its window.
 _PATCHED = {"pyat": {"rest_mass_gev": 12.0 + 64}}
 

@@ -9,13 +9,12 @@ does not offer. :func:`install` puts one on the path for one test.
 
 from __future__ import annotations
 
-import functools
 import importlib
 import sys
-from importlib import metadata
 from pathlib import Path
 
 import pytest
+from tests.facility._fixture_kind import read_entry_points_afresh
 
 #: The kind the ``kind`` package registers.
 REGISTRY_KIND = "registry_kind"
@@ -33,9 +32,10 @@ _PACKAGES = {
 def install(monkeypatch: pytest.MonkeyPatch, site: str = "kind") -> Path:
     """Put the ``site`` package and its dist-info on ``sys.path`` for the test's duration.
 
-    The suite reads the entry points once per session; a test that installs a
-    distribution hands the code a registry read after the install, cached for
-    that test alone.
+    The suite reads the entry points once per session; the install drops that
+    reading, so the code reads a registry that holds the package. A module that
+    calls this requests the ``entry_points_read_afresh`` fixture
+    (``tests/facility/conftest.py``), which drops it again once the test is over.
 
     Args:
         monkeypatch: The test's monkeypatch, which takes the path entry back off.
@@ -48,6 +48,5 @@ def install(monkeypatch: pytest.MonkeyPatch, site: str = "kind") -> Path:
     monkeypatch.syspath_prepend(str(directory))
     monkeypatch.delitem(sys.modules, _PACKAGES[site], raising=False)
     importlib.invalidate_caches()
-    read = getattr(metadata.entry_points, "__wrapped__", metadata.entry_points)
-    monkeypatch.setattr(metadata, "entry_points", functools.cache(read))
+    read_entry_points_afresh()
     return directory

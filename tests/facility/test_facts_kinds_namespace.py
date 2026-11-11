@@ -23,6 +23,8 @@ from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
 pytest.importorskip("pyaml")
 
+pytestmark = pytest.mark.usefixtures("entry_points_read_afresh")
+
 BLOCK = {
     "trigger_sample": 12,
     "settings": [
