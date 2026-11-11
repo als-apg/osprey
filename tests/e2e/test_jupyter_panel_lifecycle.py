@@ -68,8 +68,8 @@ sweep, or a wildcard removal. Set ``E2E_REUSE_IMAGES`` to keep the built images
 between runs.
 
 CI: the ``dockerbuild`` marker keeps this module out of the shared ``e2e-tests``
-lane, which ``--ignore``s every marked file. It runs in its own job,
-``jupyter-panel-e2e``, whose result the merge gate reads. It is excluded from
+lane, which ``--ignore``s every marked file. It runs in its own cell,
+``jupyter-panel-e2e`` of ``stack-e2e``, whose result the merge gate reads. It is excluded from
 the model matrix: nothing here contacts a model.
 """
 
