@@ -2087,6 +2087,8 @@ _STACK_E2E_MODULES = tuple(
         "test_deploy_writeback_e2e.py",
         "test_jupyter_panel_lifecycle.py",
         "test_graph_reseed_stamp.py",
+        "web_terminals/test_auth_perimeter.py",
+        "web_terminals/test_terminal_auth_multiuser_e2e.py",
     )
 )
 
@@ -2268,8 +2270,6 @@ LANES: tuple[Lane, ...] = (
         prefix="Tier 3 — Agentic flow",
     ),
     _e2e("multi-user-deploy-lifecycle-e2e", "test_deploy_lifecycle.py"),
-    _e2e("auth-perimeter-e2e", "web_terminals/test_auth_perimeter.py"),
-    _e2e("terminal-auth-multiuser-e2e", "web_terminals/test_terminal_auth_multiuser_e2e.py"),
     _e2e("full-chain-auth-e2e", "test_full_chain_auth.py"),
     _e2e("two-shape-boot-e2e", "test_two_shape_boot.py"),
     Lane(

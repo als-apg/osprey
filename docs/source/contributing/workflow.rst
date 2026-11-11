@@ -233,7 +233,7 @@ Measured CI Figures
    "``test`` unit shards", "rest-a / rest-b / rest-c share of non-cli test time", "32–35 / 33–37 / 31–32 %", "GHA per-test event logs", "2026-11-06"
    "``test`` unit shards", "cli-a share of tests/cli test time", "51 %", "GHA per-test event logs", "2026-11-06"
    "``scan-agentic-e2e``", "whole cycle, cold / warm", "~33 min / ~7.5 min", "Apple Silicon host", "2026-08-11"
-   "``terminal-auth-multiuser-e2e``", "whole module, warm layer cache", "6 min 55 s", "developer host", "2026-08-27"
+   "``stack-e2e`` (terminal-auth-multiuser-e2e)", "whole module, warm layer cache", "6 min 55 s", "developer host", "2026-08-27"
    "single-build auth lanes", "one cold image build", "7–11 min", "runner", "2026-08-26"
    "``full-chain-auth-e2e``", "whole module: project image built / warm / warm with history cases", "~5 min / ~1 min / 114 s", "developer host", "2026-10-11"
    "``va-live-e2e`` (target-switch)", "VA image cold / bench IOC image / three modules (54 tests) / total", "226 s / 1 s / 214 s / 7.4 min", "Apple Silicon host, amd64 emulated", "2026-08-27"

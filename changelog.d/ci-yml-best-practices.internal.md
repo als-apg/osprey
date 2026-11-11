@@ -62,3 +62,13 @@ alone. It replaces the per-lane "the shared lane ignores this file" wiring tests
 removes the compose project (`PROJECT_NAME`) of each module the run selected (`stacks`), so a
 dispatch whose `e2e_filter` names another lane's module cleans up that module's stack; the old
 18-name list named only stacks of modules the default run never collects.
+
+`auth-perimeter-e2e` and `terminal-auth-multiuser-e2e` are now `stack-e2e` cells (`Stack E2E — Auth
+Perimeter`, `Stack E2E — Terminal Auth Multi-User`), keeping their 35- and 70-minute caps; like
+every stack cell they hold no secret and fail on a skipped test. Their modules moved into
+`stack-e2e`'s entry in `LANES`, and `all-checks-passed` no longer lists them. The PR-gate anchor
+`main-or-epic-pr-or-secret-revalidation` is gone: the `pull_request` trigger admits only `main` and
+`epic/**`, so it matched exactly what `same-repo-pr-or-secret-revalidation` matches, and
+`full-chain-auth-e2e` and `two-shape-boot-e2e` now use the latter. A wiring test pins the trigger's
+branch list, so adding a base reds until someone decides whether the same-repo lanes belong on it.
+`e2e-no-model` and `agent-record-e2e` share one `any-pr-or-secret-revalidation` anchor.

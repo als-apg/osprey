@@ -1357,7 +1357,9 @@ jobs:
     name: Stack E2E — ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
-    # Same-repo only even without secrets: house policy for every image build-and-deploy job.
+    # Same-repo only even without secrets: house policy for every image build-and-deploy job. No base
+    # clause: the trigger admits only main and epic/** (test_same_repo_gate_matches_the_trigger_bases),
+    # so a safety lane also runs on epic phase PRs, not first after the epic merged.
     if: &same-repo-pr-or-secret-revalidation >-
       (github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository)
@@ -1447,6 +1449,23 @@ jobs:
           n10s: true
           timeout: 30
           step_timeout: 25
+        - lane: auth-perimeter-e2e
+          name: Auth Perimeter
+          module: tests/e2e/web_terminals/test_auth_perimeter.py
+          cleanup: >-
+            --image osprey-e2e-auth-perimeter-auth:local --image osprey-e2e-auth-perimeter-readonly:local
+            osprey-e2e-auth-perimeter
+          timeout: 35
+          step_timeout: 30
+        # Must stay under full-chain-auth-e2e's caps (test_full_chain_auth_lane_outbudgets_the_single_build_lanes).
+        - lane: terminal-auth-multiuser-e2e
+          name: Terminal Auth Multi-User
+          module: tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py
+          cleanup: >-
+            --image osprey-e2e-token-multiuser-readonly:local --image osprey-e2e-open-multiuser-readonly:local
+            osprey-e2e-token-multiuser osprey-e2e-open-multiuser
+          timeout: 70
+          step_timeout: 65
 
     steps:
     - *checkout-full-history
@@ -1894,78 +1913,13 @@ jobs:
       run: |
         ENGINE="$RUNTIME" scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
-  auth-perimeter-e2e:
-    name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    # PRs into main and epic/*: a safety lane run only after the epic merged could go red behind a green gate.
-    if: &main-or-epic-pr-or-secret-revalidation >-
-      (github.event_name == 'pull_request'
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && (github.event.pull_request.base.ref == 'main'
-        || startsWith(github.event.pull_request.base.ref, 'epic/')))
-      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Run auth perimeter E2E
-      timeout-minutes: 30
-      run: |
-        uv run pytest tests/e2e/web_terminals/test_auth_perimeter.py -v --tb=short
-
-    - *capture-diagnostics
-
-    - name: Clean up any stranded auth-perimeter resources
-      if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh \
-          --image osprey-e2e-auth-perimeter-auth:local \
-          --image osprey-e2e-auth-perimeter-readonly:local \
-          osprey-e2e-auth-perimeter
-
-  terminal-auth-multiuser-e2e:
-    name: Terminal Auth Multi-User E2E (auth.method token + none, real render image)
-    runs-on: ubuntu-latest
-    # Must stay under full-chain-auth-e2e's caps
-    # (test_full_chain_auth_lane_outbudgets_the_single_build_lanes).
-    timeout-minutes: 70
-    if: *main-or-epic-pr-or-secret-revalidation
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Run terminal auth multi-user E2E
-      timeout-minutes: 65
-      run: |
-        uv run pytest tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py -v --tb=short
-
-    - *capture-diagnostics
-
-    - name: Clean up any stranded terminal-auth-multiuser resources
-      if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh \
-          --image osprey-e2e-token-multiuser-readonly:local \
-          --image osprey-e2e-open-multiuser-readonly:local \
-          osprey-e2e-token-multiuser \
-          osprey-e2e-open-multiuser
-
   full-chain-auth-e2e:
     name: Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)
     runs-on: ubuntu-latest
     # Above the single-build auth lanes: test_full_chain_auth_lane_outbudgets_the_single_build_lanes
     # pins the relation and test_full_chain_auth_lane_caps_are_the_measured_ones the numbers.
     timeout-minutes: 85
-    if: *main-or-epic-pr-or-secret-revalidation
+    if: *same-repo-pr-or-secret-revalidation
 
     steps:
     - *checkout-full-history
@@ -2006,7 +1960,7 @@ jobs:
     name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    if: *main-or-epic-pr-or-secret-revalidation
+    if: *same-repo-pr-or-secret-revalidation
 
     steps:
     # Out of disk, podman-compose 1.0.6 answers `up -d` with 0 and creates no container; the capture logs `df -h /`.
@@ -2436,7 +2390,7 @@ jobs:
   all-checks-passed:
     name: All CI Checks Passed
     # qmd-cache-warmup stays out: it runs on main pushes only, whose own run it already turns red.
-    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, visual-baselines-push, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, host-record-e2e, stack-e2e, orm-roundtrip-e2e, scan-agentic-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
+    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, visual-baselines-push, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, host-record-e2e, stack-e2e, orm-roundtrip-e2e, scan-agentic-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Not on cancel: a superseded run must not leave a red gate on the same sha.

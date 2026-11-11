@@ -6232,9 +6232,55 @@ def test_podman_compose_jobs__mutation_installs_inline() -> None:
         test_podman_compose_jobs_pin_then_probe_through_the_script(mutated)
 
 
+#: The bases the workflow's ``pull_request`` trigger admits. The same-repo gate carries no base
+#: clause on the strength of this list: "a same-repo PR" means "a same-repo PR into main or epic/**".
+TRIGGER_PR_BASES = ["main", "epic/**"]
+
+
 def _accepts_an_epic_base(job_if: str) -> bool:
-    """Whether a job's ``if:`` admits a PR whose base is an ``epic/*`` branch."""
-    return "epic/" in job_if
+    """Whether a job's ``if:`` admits a PR whose base is an ``epic/*`` branch: it names no
+    base at all (every base the trigger admits), or names ``epic/``."""
+    return "base.ref" not in job_if or "epic/" in job_if
+
+
+def test_same_repo_gate_matches_the_trigger_bases(workflow: dict[str, Any] | None = None) -> None:
+    """The same-repo gate admits a PR into any base the trigger fires on, which is "PRs into
+    main or epic/**" only while the trigger lists exactly those. A branch added to
+    ``on.pull_request.branches`` would start every same-repo lane (image builds, the auth
+    safety lanes) on PRs into it: decide whether they belong there, give the gate a base
+    clause if not, then update TRIGGER_PR_BASES."""
+    wf = workflow if workflow is not None else _load_workflow()
+    triggers = wf[True]["pull_request"]["branches"]
+    # A set: the gate's meaning depends on which bases, not on their order.
+    assert set(triggers) == set(TRIGGER_PR_BASES), (
+        f"the pull_request trigger admits {triggers}, not {TRIGGER_PR_BASES}: the same-repo "
+        "gate's assumption changed (it has no base clause)"
+    )
+    gate = " ".join(str(_jobs(wf)[STACK_JOB]["if"]).split())
+    assert "base.ref" not in gate, f"the same-repo gate grew a base clause: {gate}"
+
+
+def test_same_repo_gate_matches_the_trigger_bases__mutation_adds_a_base() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated[True]["pull_request"]["branches"].append("release/**")
+    with pytest.raises(AssertionError, match="assumption changed"):
+        test_same_repo_gate_matches_the_trigger_bases(mutated)
+
+
+def test_same_repo_gate_matches_the_trigger_bases__reordered_bases_still_pass() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated[True]["pull_request"]["branches"].reverse()
+    test_same_repo_gate_matches_the_trigger_bases(mutated)
+
+
+def test_same_repo_gate_matches_the_trigger_bases__mutation_adds_a_base_clause() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[STACK_JOB]
+    job["if"] = job["if"].replace(
+        SAME_REPO_CLAUSE, f"{SAME_REPO_CLAUSE} && github.event.pull_request.base.ref == 'main'"
+    )
+    with pytest.raises(AssertionError, match="grew a base clause"):
+        test_same_repo_gate_matches_the_trigger_bases(mutated)
 
 
 def test_two_shape_lane_triggers_on_epic_base_prs(workflow: dict[str, Any]) -> None:
@@ -6261,12 +6307,12 @@ def test_two_shape_lane_triggers_on_epic_base_prs__mutation_drops_the_job_clause
     skipped on exactly the PRs it exists for."""
     mutated = copy.deepcopy(_load_workflow())
     job_if = _jobs(mutated)[TWO_SHAPE_JOB]["if"]
-    # Surgical: only the epic disjunct goes, leaving a well-formed condition
-    # that still admits same-repo PRs into main. A mutation that emptied the
-    # whole `if:` would fail the assertion for the wrong reason.
-    narrowed = job_if.replace(" || startsWith(github.event.pull_request.base.ref, 'epic/')", "")
-    assert narrowed != job_if, "no epic clause in the job's if: — mutation is stale"
-    assert "base.ref == 'main'" in narrowed, "the main clause must survive the narrowing"
+    narrowed = job_if.replace(
+        "github.event.pull_request.head.repo.full_name == github.repository",
+        "github.event.pull_request.head.repo.full_name == github.repository"
+        " && github.event.pull_request.base.ref == 'main'",
+    )
+    assert narrowed != job_if, "no same-repo clause in the job's if: — mutation is stale"
     _jobs(mutated)[TWO_SHAPE_JOB]["if"] = narrowed
     assert "epic/**" in mutated[True]["pull_request"]["branches"]  # workflow trigger survives
     with pytest.raises(AssertionError, match="must admit PRs based on"):
@@ -8815,10 +8861,10 @@ def test_documented_gate_steps_are_the_ci_line__mutation_drops_a_flag(
 FULL_CHAIN_JOB = "full-chain-auth-e2e"
 FULL_CHAIN_TEST_FILE = "tests/e2e/test_full_chain_auth.py"
 FULL_CHAIN_RUN_STEP = "Run full-chain auth E2E"
-#: The two lanes full-chain-auth strictly subsumes: each builds ONE real image
-#: (the deployed sidecar Dockerfile / the production project image), this one
-#: builds both in a single job. Its budget must therefore exceed both of theirs,
-#: which is the property pinned below — not the particular minute counts.
+#: The two lanes full-chain-auth strictly subsumes, both ``stack-e2e`` cells: each
+#: builds ONE real image (the deployed sidecar Dockerfile / the production project
+#: image), this one builds both in a single job. Its budget must therefore exceed
+#: both of theirs, which is the property pinned below — not the particular minute counts.
 SINGLE_BUILD_AUTH_JOBS = ("auth-perimeter-e2e", "terminal-auth-multiuser-e2e")
 PRIVSPLIT_JOB = "privilege-split-e2e"
 PRIVSPLIT_TEST_FILE = "tests/e2e/test_privilege_split.py"
@@ -9107,8 +9153,9 @@ def test_full_chain_auth_lane_outbudgets_the_single_build_lanes(workflow: dict[s
     job_cap = jobs[FULL_CHAIN_JOB]["timeout-minutes"]
     step_cap = _sole_heavy_step(jobs[FULL_CHAIN_JOB])["timeout-minutes"]
     for sibling in SINGLE_BUILD_AUTH_JOBS:
-        sibling_job_cap = jobs[sibling]["timeout-minutes"]
-        sibling_step_cap = _sole_heavy_step(jobs[sibling])["timeout-minutes"]
+        sibling_job = _lane_job(workflow, sibling)
+        sibling_job_cap = sibling_job["timeout-minutes"]
+        sibling_step_cap = _sole_heavy_step(sibling_job)["timeout-minutes"]
         assert job_cap > sibling_job_cap, (
             f"'{FULL_CHAIN_JOB}' builds two images where '{sibling}' builds one, but "
             f"carries the same or less job budget ({job_cap} vs {sibling_job_cap} minutes)"
@@ -9124,7 +9171,7 @@ def test_full_chain_auth_lane_outbudgets_the_single_build_lanes__mutation_back_t
 ):
     """The shipped-before state: two builds held to a one-build lane's ceiling."""
     mutated = copy.deepcopy(_load_workflow())
-    sibling = _jobs(mutated)[SINGLE_BUILD_AUTH_JOBS[0]]
+    sibling = _lane_job(mutated, SINGLE_BUILD_AUTH_JOBS[0])
     job = _jobs(mutated)[FULL_CHAIN_JOB]
     job["timeout-minutes"] = sibling["timeout-minutes"]
     _sole_heavy_step(job)["timeout-minutes"] = _sole_heavy_step(sibling)["timeout-minutes"]
@@ -11438,25 +11485,22 @@ WEB_TERMINAL_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
         "Clean up any stranded shared-bundle e2e resources",
     ): ("osprey-e2e-mus-p3",),
     (
-        "auth-perimeter-e2e",
-        "Clean up any stranded auth-perimeter resources",
-    ): ("osprey-e2e-auth-perimeter",),
-    (
-        "terminal-auth-multiuser-e2e",
-        "Clean up any stranded terminal-auth-multiuser resources",
-    ): ("osprey-e2e-token-multiuser", "osprey-e2e-open-multiuser"),
-    (
         "full-chain-auth-e2e",
         "Clean up any stranded full-chain-auth resources",
     ): ("osprey-e2e-full-chain-auth",),
-    # A stack-e2e cell: the stack lanes' shared cleanup step.
+    # stack-e2e cells: the stack lanes' shared cleanup step.
+    ("auth-perimeter-e2e", "Clean up any stranded stack resources"): ("osprey-e2e-auth-perimeter",),
+    ("terminal-auth-multiuser-e2e", "Clean up any stranded stack resources"): (
+        "osprey-e2e-token-multiuser",
+        "osprey-e2e-open-multiuser",
+    ),
     ("jupyter-panel-e2e", "Clean up any stranded stack resources"): ("osprey-e2e-jnb",),
 }
 
 #: The lanes whose deploy builds the auth sidecar, which is ``<project>-auth``
 #: running ``<project>-auth:local``.
 AUTH_SIDECAR_CLEANUP_STEPS = (
-    ("auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"),
+    ("auth-perimeter-e2e", "Clean up any stranded stack resources"),
     ("full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"),
 )
 
@@ -11562,12 +11606,10 @@ def test_auth_sidecar_cleanup_removes_project_named_sidecar(workflow: dict[str, 
 
 def test_web_terminal_cleanup_removes_project_named_containers__mutation_prefix_spelling() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(
-        mutated, "auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"
-    )
-    original = step["run"]
-    step["run"] = re.sub(r"(?m)^(\s*)osprey-e2e-auth-perimeter$", r"\1authe2e", original)
-    assert step["run"] != original, "no project in the cleanup call — mutation is stale"
+    cell = _cell_entry(mutated, "auth-perimeter-e2e")
+    original = cell["cleanup"]
+    cell["cleanup"] = re.sub(r"(?<!\S)osprey-e2e-auth-perimeter$", "authe2e", original)
+    assert cell["cleanup"] != original, "no project in the cell's cleanup — mutation is stale"
     with pytest.raises(AssertionError):
         test_web_terminal_cleanup_removes_project_named_containers(mutated)
 
@@ -12034,7 +12076,7 @@ def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_removal(
         ("bluesky-queue-e2e", STACK_CLEANUP_STEP, "queue-e2e", "queue-e2e-agent-record"),
         (
             "auth-perimeter-e2e",
-            "Clean up any stranded auth-perimeter resources",
+            STACK_CLEANUP_STEP,
             "osprey-e2e-auth-perimeter",
             "osprey-e2e-auth-perimeter-agent-record",
         ),
@@ -14952,6 +14994,9 @@ _SECRET_FREE_LANES = [
     # `osprey up` only needs a non-empty provider key; the lane calls no model,
     # so it boots on a placeholder.
     DEPLOY_JOB,
+    # The whole stack matrix, template and every cell: the auth perimeter and
+    # terminal-auth cells, among others, build and probe images and reach no model.
+    STACK_JOB,
 ]
 
 
