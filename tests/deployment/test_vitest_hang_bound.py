@@ -492,7 +492,7 @@ def test_no_invocation_lowers_the_hang_bound_refuses_a_ci_step() -> None:
         step
         for job in workflows["ci.yml"]["jobs"].values()
         for step in job.get("steps", []) or []
-        if step.get("name") == "Run JS tests (vitest)"
+        if step.get("name") == "Run tsc, eslint, prettier, vitest and the app check over a panel"
     ]
     assert len(steps) == 1
     steps[0]["run"] += " -- --hook-timeout 5000"
