@@ -411,6 +411,12 @@ To redo one take: `uv run make -C docs doc-videos VIDEOOPTS="--video <name>
 --theme dark"`. A video skipped for a missing key prints one line; record it
 before going on, never ship it stale.
 
+**Before recording, read each video's `layout`** in
+`docs/screenshots/videos.py` and each recipe's surface. The operator chat is
+what the docs show; a take or screenshot of the Claude Code terminal is wrong
+however long its storyboard has asked for it. Fix the entry first, and agree a
+changed layout with the maintainer before recording.
+
 **Watch every take, both themes, start to finish** (`docs/demo-video/*.mp4`).
 Check that the dialogs, captions and panels shown match this release's UI,
 that nothing covers what the caption points at, and that no stray notice (a
