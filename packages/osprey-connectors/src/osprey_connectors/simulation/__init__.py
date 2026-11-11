@@ -1,10 +1,11 @@
 """The simulated machine behind OSPREY's simulator connectors.
 
 The package root holds only what every reader needs without loading a model:
-the tick period, char-waveform decoding, the gated and labelled value types
-and the model status lookups. It imports neither numpy nor lume; the
-active-scenario state, value coercion, the composite, the texture engine, the
-archive and the series primitives are imported from their own modules.
+the tick period and the fast period of timed passes, char-waveform decoding,
+the gated and labelled value types and the model status lookups. It imports
+neither numpy nor lume; the active-scenario state, value coercion, the
+composite, the texture engine, the archive and the series primitives are
+imported from their own modules.
 """
 
 from collections.abc import Mapping
@@ -14,13 +15,16 @@ from osprey_connectors.simulation.status import model_status, read_model_status
 from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES
 
 __all__ = [
+    "DEFAULT_FAST_TICK_S",
     "DEFAULT_TICK_S",
+    "FAST_TICK_KEY",
     "GATED_TYPES",
     "LABELLED_TYPES",
     "TICK_KEY",
     "decode_char_waveform",
     "model_status",
     "read_model_status",
+    "resolve_fast_tick_s",
     "resolve_tick_s",
 ]
 
@@ -45,12 +49,42 @@ def resolve_tick_s(config: Mapping[str, Any]) -> float:
         ValueError: If the value is not a number greater than zero; the
             message names the key.
     """
+    return _resolve_period(config, TICK_KEY, DEFAULT_TICK_S)
+
+
+#: The config key holding the fast period, in seconds: how often the served
+#: machine advances its timed state between ticks.
+FAST_TICK_KEY = "simulation.fast_tick_s"
+
+#: The fast period when the config does not set one, in seconds.
+DEFAULT_FAST_TICK_S = 0.1
+
+
+def resolve_fast_tick_s(config: Mapping[str, Any]) -> float:
+    """The fast period a config asks for.
+
+    Args:
+        config: The full project config.
+
+    Returns:
+        ``simulation.fast_tick_s`` in seconds, or :data:`DEFAULT_FAST_TICK_S`
+        when the ``simulation`` section or its ``fast_tick_s`` entry is absent.
+
+    Raises:
+        ValueError: If the value is not a number greater than zero; the
+            message names the key.
+    """
+    return _resolve_period(config, FAST_TICK_KEY, DEFAULT_FAST_TICK_S)
+
+
+def _resolve_period(config: Mapping[str, Any], key: str, default: float) -> float:
+    """The ``simulation.<entry>`` period ``key`` names, in seconds; ``default`` when absent."""
     section = config.get("simulation") or {}
-    raw = section.get("tick_s")
+    raw = section.get(key.removeprefix("simulation."))
     if raw is None:
-        return DEFAULT_TICK_S
+        return default
     if isinstance(raw, bool) or not isinstance(raw, int | float) or raw <= 0:
-        raise ValueError(f"{TICK_KEY} must be a number of seconds greater than 0 (got {raw!r})")
+        raise ValueError(f"{key} must be a number of seconds greater than 0 (got {raw!r})")
     return float(raw)
 
 
