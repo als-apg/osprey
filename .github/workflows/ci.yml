@@ -435,7 +435,7 @@ jobs:
         --timeout=600 --timeout-method=signal
 
   lint:
-    name: Lint and Code Quality + Tier 0 config-key guard
+    name: Lint and Code Quality
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -543,7 +543,6 @@ jobs:
         name: package
         path: dist/osprey_framework-*
         retention-days: 7
-
 
   static-checks:
     name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
@@ -879,7 +878,6 @@ jobs:
     - name: Run tsc, eslint, prettier, vitest and the app check over a panel
       run: python3 scripts/check.py run tsc eslint prettier vitest app-check-js
 
-
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)
     runs-on: ubuntu-latest
@@ -909,7 +907,6 @@ jobs:
         claude plugin details osprey@osprey | tee /tmp/details.txt
         grep -q 'Skills (11)' /tmp/details.txt
         for s in build-app contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
-
 
   stop-on-failed-cheap-lane:
     # A deterministic cheap lane failed, so the run cannot pass: cancel the rest. A job of its own, so the
@@ -1022,7 +1019,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: agentic-per-preset-${{ matrix.preset }}
-        engine: docker
 
   e2e-tests:
     name: E2E Tests
@@ -1124,7 +1120,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: e2e-tests
-        engine: docker
     # The deploy's own teardown does not run when the job is killed, and a reused runner keeps the
     # stack. Exact names, never a prune.
     - name: Clean up any stranded stack resources
@@ -1205,7 +1200,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: e2e-no-model
-        engine: docker
 
   agent-record-e2e:
     name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
@@ -1252,7 +1246,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: agent-record-e2e-${{ matrix.backend }}
-        engine: docker
     - name: Clean up any stranded stack resources
       if: always()
       run: |
@@ -1345,7 +1338,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: deploy-e2e
-        engine: docker
 
     - name: osprey down
       if: always()
@@ -1408,7 +1400,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: ${{ matrix.lane }}
-        engine: docker
     - name: Clean up any stranded stack resources
       if: always()
       run: |
@@ -1448,14 +1439,13 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: host-record-e2e
-        engine: docker
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         scripts/ci/cleanup_stacks.sh osprey-e2e-host-record
 
   stack-e2e:
-    name: ${{ matrix.name }}
+    name: Stack E2E — ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
     # Same-repo only even without secrets: house policy for every image build-and-deploy job.
@@ -1463,61 +1453,91 @@ jobs:
       (github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-    # One cell per stack module; `lane` names its diagnostics, `project` the stack its cleanup removes.
+    # One cell per stack module, none with a model secret (test_secret_free_lane_has_no_llm_secret).
+    # `lane` names its diagnostics, `cleanup` the stranded resources it removes.
     strategy:
       fail-fast: false
       matrix:
         include:
         - lane: bluesky-deploy-e2e
-          name: Bluesky Deploy E2E (bluesky bridge, full Docker stack)
+          name: Bluesky Deploy
           module: tests/e2e/test_bluesky_deploy.py
-          project: osprey-e2e-bluesky-deploy
+          cleanup: osprey-e2e-bluesky-deploy
           timeout: 60
           step_timeout: 55
         - lane: bluesky-web-deploy-e2e
-          name: Bluesky Web Deploy E2E (VA + bluesky bridge + bluesky-web sidecar, full Docker stack)
+          name: Bluesky Web Deploy
           module: tests/e2e/test_bluesky_web_deploy.py
-          project: panels-proj
+          cleanup: panels-proj
           timeout: 45
           step_timeout: 40
         - lane: va-substrate-equivalence-e2e
-          name: VA Substrate Equivalence E2E (virtual accelerator + bluesky bridge, full Docker stack)
+          name: VA Substrate Equivalence
           module: tests/e2e/test_va_substrate_equivalence.py
-          project: osprey-e2e-va-substrate
+          cleanup: osprey-e2e-va-substrate
           timeout: 45
           step_timeout: 40
         - lane: bluesky-queue-e2e
-          name: Bluesky Queue E2E (queueserver + Redis + Tiled + VA, full Docker stack)
+          name: Bluesky Queue
           module: tests/e2e/test_bluesky_queue_e2e.py
-          project: queue-e2e
+          cleanup: queue-e2e
           timeout: 75
           step_timeout: 70
-        # No secrets (test_secret_free_lane_has_no_llm_secret); -s so the measured budgets reach a green log.
+        # -s so the measured budgets reach a green log.
         - lane: archiver-world-e2e
-          name: Archiver World E2E (VA + mongodb store + recorder, full Docker stack)
+          name: Archiver World
           module: tests/e2e/test_archiver_world_e2e.py
-          project: archiver-world
+          cleanup: archiver-world
           timeout: 45
           step_timeout: 40
           pytest_args: -s
         - lane: tiled-roundtrip-e2e
-          name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
+          name: Tiled Roundtrip
           module: tests/e2e/test_tiled_roundtrip.py
-          project: osprey-e2e-tiled
+          cleanup: osprey-e2e-tiled
           timeout: 30
           step_timeout: 25
         - lane: bluesky-catalog-e2e
-          name: Bluesky Catalog E2E (layered plan catalog, full Docker stack)
+          name: Bluesky Catalog
           module: tests/e2e/test_bluesky_catalog_e2e.py
-          project: osprey-e2e-catalog
+          cleanup: osprey-e2e-catalog
           timeout: 60
           step_timeout: 55
         - lane: bluesky-sandbox-escape-e2e
-          name: Bluesky Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
+          name: Bluesky Sandbox Escape
           module: tests/e2e/test_bluesky_sandbox_escape_e2e.py
-          project: sandbox-escape
+          cleanup: sandbox-escape
           timeout: 45
           step_timeout: 40
+        - lane: optimizer-deploy-e2e
+          name: Optimizer Deploy
+          module: tests/e2e/test_optimizer_deploy.py
+          timeout: 60
+          step_timeout: 55
+        # Above the test's BUILD_TIMEOUT (1200 s), so the test kills a slow build and prints its log.
+        - lane: execution-environment-parity-e2e
+          name: Execution Environment Parity
+          module: tests/e2e/test_execution_environment_parity.py
+          timeout: 40
+          step_timeout: 35
+        - lane: deploy-writeback-e2e
+          name: Deploy Write-Back
+          module: tests/e2e/test_deploy_writeback_e2e.py
+          cleanup: osprey-e2e-wb-rebuild osprey-e2e-wb-divergent osprey-e2e-wb-render
+          timeout: 40
+          step_timeout: 35
+        - lane: jupyter-panel-e2e
+          name: Notebook Panel
+          module: tests/e2e/test_jupyter_panel_lifecycle.py
+          cleanup: --image osprey-e2e-jnb-operator:local --image osprey-e2e-jnb-va:local osprey-e2e-jnb
+          timeout: 75
+          step_timeout: 65
+        - lane: graph-reseed-e2e
+          name: Graph Reseed Stamp
+          module: tests/e2e/test_graph_reseed_stamp.py
+          n10s: true
+          timeout: 30
+          step_timeout: 25
 
     steps:
     - *checkout-full-history
@@ -1525,6 +1545,16 @@ jobs:
     - *install-uv
 
     - *sync-dev-deps
+
+    - name: Fetch the pinned neosemantics (n10s) jar
+      # As in the benchmarks job: a fixture download failure would skip.
+      if: matrix.n10s
+      run: |
+        set -euo pipefail
+        url="$(uv run python -c 'from tests._graphdb_container import N10S_JAR_URL; print(N10S_JAR_URL)')"
+        jar="${{ runner.temp }}/$(basename "$url")"
+        curl -fsSL --retry 3 --retry-all-errors --max-time 300 -o "$jar" "$url"
+        echo "OSPREY_TEST_N10S_JAR=$jar" >> "$GITHUB_ENV"
 
     - name: Run the stack E2E module
       timeout-minutes: ${{ matrix.step_timeout }}
@@ -1535,35 +1565,10 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: ${{ matrix.lane }}
-        engine: docker
     - name: Clean up any stranded stack resources
-      if: always()
+      if: always() && matrix.cleanup
       run: |
-        scripts/ci/cleanup_stacks.sh ${{ matrix.project }}
-
-  optimizer-deploy-e2e:
-    name: Optimizer Deploy E2E (optimizer + Redis job store, full Docker stack)
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    if: *same-repo-pr-or-secret-revalidation
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Run optimizer deploy E2E
-      timeout-minutes: 55
-      run: |
-        uv run pytest tests/e2e/test_optimizer_deploy.py -v --tb=short
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: optimizer-deploy-e2e
-        engine: docker
+        scripts/ci/cleanup_stacks.sh ${{ matrix.cleanup }}
 
   orm-roundtrip-e2e:
     name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
@@ -1617,7 +1622,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: orm-roundtrip-e2e
-        engine: docker
     - name: Clean up any stranded stack resources
       if: always()
       run: |
@@ -1666,44 +1670,10 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: scan-agentic-e2e
-        engine: docker
     - name: Clean up any stranded stack resources
       if: always()
       run: |
         scripts/ci/cleanup_stacks.sh plan-agentic
-
-  graph-reseed-e2e:
-    name: Graph Reseed Stamp E2E (render + real Neo4j store, no model)
-    runs-on: ubuntu-latest
-    if: *same-repo-pr-or-secret-revalidation
-    timeout-minutes: 30
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Fetch the pinned neosemantics (n10s) jar
-      # As in the benchmarks job: a fixture download failure would skip.
-      run: |
-        set -euo pipefail
-        url="$(uv run python -c 'from tests._graphdb_container import N10S_JAR_URL; print(N10S_JAR_URL)')"
-        jar="${{ runner.temp }}/$(basename "$url")"
-        curl -fsSL --retry 3 --retry-all-errors --max-time 300 -o "$jar" "$url"
-        echo "OSPREY_TEST_N10S_JAR=$jar" >> "$GITHUB_ENV"
-
-    - name: Run graph reseed stamp E2E
-      timeout-minutes: 25
-      run: |
-        uv run pytest tests/e2e/test_graph_reseed_stamp.py -v --tb=short
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: graph-reseed-e2e
-        engine: docker
 
   nextcloud-talk-bridge-e2e:
     name: Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)
@@ -1751,7 +1721,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: nextcloud-talk-bridge-e2e
-        engine: docker
 
   gchat-bridge-e2e:
     name: Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)
@@ -1804,7 +1773,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: gchat-bridge-e2e
-        engine: docker
 
   teams-slack-bridge-e2e:
     name: Microsoft Teams + Slack Bridge E2E (loopback fakes, no container)
@@ -1885,7 +1853,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: privilege-split-e2e
-        engine: docker
 
     - name: Clean up any stranded resources from either module
       if: always()
@@ -2053,7 +2020,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: dockerfile-e2e
-        engine: docker
 
     - name: Stop the forward proxy
       # Last: the capture step needs the container's logs.
@@ -2065,64 +2031,6 @@ jobs:
           tail -n 40 /tmp/osprey-proxy/access.log || true
         fi
         docker rm -f osprey-ci-proxy > /dev/null 2>&1 || true
-
-  execution-environment-parity-e2e:
-    name: Execution Environment Parity E2E (host venv vs generated image)
-    runs-on: ubuntu-latest
-    if: *same-repo-pr-or-secret-revalidation
-    # Above the test's BUILD_TIMEOUT (1200 s), so the test kills a slow build and prints its log.
-    timeout-minutes: 40
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Run execution environment parity E2E
-      timeout-minutes: 35
-      run: |
-        uv run pytest tests/e2e/test_execution_environment_parity.py -v --tb=short
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: execution-environment-parity-e2e
-        engine: docker
-
-  deploy-writeback-e2e:
-    name: Deploy Write-Back E2E (profile-owned secrets across a rebuild)
-    runs-on: ubuntu-latest
-    if: *same-repo-pr-or-secret-revalidation
-    timeout-minutes: 40
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Run deploy write-back E2E
-      timeout-minutes: 35
-      run: |
-        uv run pytest tests/e2e/test_deploy_writeback_e2e.py -v --tb=short
-
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: deploy-writeback-e2e
-        engine: docker
-
-    - name: Clean up any stranded write-back-e2e resources
-      if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh \
-          osprey-e2e-wb-rebuild \
-          osprey-e2e-wb-divergent \
-          osprey-e2e-wb-render
 
   multi-user-deploy-lifecycle-e2e:
     name: Multi-User Deploy Lifecycle E2E (${{ matrix.runtime }} runtime)
@@ -2224,7 +2132,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: auth-perimeter-e2e
-        engine: docker
 
     - name: Clean up any stranded auth-perimeter resources
       if: always()
@@ -2259,7 +2166,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: terminal-auth-multiuser-e2e
-        engine: docker
 
     - name: Clean up any stranded terminal-auth-multiuser resources
       if: always()
@@ -2309,7 +2215,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: full-chain-auth-e2e
-        engine: docker
 
     - name: Clean up any stranded full-chain-auth resources
       if: always()
@@ -2320,39 +2225,6 @@ jobs:
           --image osprey-e2e-full-chain-auth-probe:local \
           --image osprey-e2e-full-chain-auth:local \
           osprey-e2e-full-chain-auth
-
-  jupyter-panel-e2e:
-    name: Notebook Panel E2E (deployed render + a kernel that follows the terminal)
-    runs-on: ubuntu-latest
-    if: *same-repo-pr-or-secret-revalidation
-    timeout-minutes: 75
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - name: Run notebook panel E2E
-      timeout-minutes: 65
-      run: |
-        uv run pytest tests/e2e/test_jupyter_panel_lifecycle.py -v --tb=short
-
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: jupyter-panel-e2e
-        engine: docker
-
-    - name: Clean up any stranded notebook-panel resources
-      if: always()
-      run: |
-        scripts/ci/cleanup_stacks.sh \
-          --image osprey-e2e-jnb-operator:local \
-          --image osprey-e2e-jnb-va:local \
-          osprey-e2e-jnb
 
   two-shape-boot-e2e:
     name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
@@ -2504,7 +2376,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: qmd-sidecar-e2e
-        engine: docker
 
     # Before the image cleanup: a surviving container pins its image.
     - name: Clean up any stranded shared-bundle e2e resources
@@ -2533,57 +2404,6 @@ jobs:
       with:
         warm: "true"
 
-  target-switch-e2e:
-    name: Control-Target Switch E2E (virtual accelerator + bench IOC, two live CA servers)
-    runs-on: ubuntu-latest
-    if: *same-repo-pr-or-secret-revalidation
-    timeout-minutes: 30
-
-    steps:
-    - *checkout-full-history
-
-    - *install-uv
-
-    - *sync-dev-deps
-
-    - *assert-container-runtime
-
-    - &build-va-image
-      name: Build the virtual accelerator image
-      uses: ./.github/actions/build-virtual-accelerator-image
-
-    - &build-bench-ioc-image
-      name: Build the bench IOC image
-      # After the VA image: it reuses that action's Buildx builder.
-      uses: ./.github/actions/build-bench-ioc-image
-
-    - name: Run the control-target switch E2E
-      timeout-minutes: 15
-      env:
-        OSPREY_VA_E2E_ENABLE: "1"
-      run: |
-        uv run pytest tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py \
-          tests/va/e2e/test_live_standin.py tests/va/e2e/test_per_target_posture.py tests/va/e2e/test_model_status_va.py \
-          tests/va/e2e/test_ca_loop_exit.py \
-          -v --tb=short --junitxml=junit-target-switch-e2e.xml
-
-    - name: Fail the lane on any skipped test
-      run: |
-        uv run python scripts/ci/junit_no_skips.py junit-target-switch-e2e.xml \
-          --message "✅ every control-target switch test ran; none skipped"
-    - name: Capture failure diagnostics
-      if: failure()
-      uses: ./.github/actions/capture-ci-diagnostics
-      with:
-        name: target-switch-e2e
-        engine: docker
-
-    - name: Clean up the target images
-      if: always()
-      uses: ./.github/actions/remove-virtual-accelerator-images
-      with:
-        extra-tags: bench-ioc:latest
-
   target-switch-agentic-e2e:
     name: Control-Target Switch Agentic E2E (a real agent moving between the virtual accelerator and the bench IOC)
     runs-on: ubuntu-latest
@@ -2601,9 +2421,13 @@ jobs:
 
     - *assert-container-runtime
 
-    - *build-va-image
+    - &build-va-image
+      name: Build the virtual accelerator image
+      uses: ./.github/actions/build-virtual-accelerator-image
 
-    - *build-bench-ioc-image
+    - name: Build the bench IOC image
+      # After the VA image: it reuses that action's Buildx builder.
+      uses: ./.github/actions/build-bench-ioc-image
 
     - *install-pinned-cli
 
@@ -2624,7 +2448,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: target-switch-agentic-e2e
-        engine: docker
 
     - name: Clean up the target images
       if: always()
@@ -2633,7 +2456,7 @@ jobs:
         extra-tags: bench-ioc:latest
 
   va-live-e2e:
-    name: Live Virtual Accelerator E2E (${{ matrix.group }}; every suite the switch lane does not run)
+    name: Live VA E2E — ${{ matrix.group }}
     runs-on: ubuntu-latest
     if: *same-repo-pr-or-secret-revalidation
     timeout-minutes: ${{ matrix.timeout }}
@@ -2674,6 +2497,16 @@ jobs:
           timeout: 60
           step_timeout: 55
           stack: lane-e2e
+        # Two live CA servers: the virtual accelerator and the bench IOC.
+        - group: target-switch
+          suites: >-
+            tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py
+            tests/va/e2e/test_live_standin.py tests/va/e2e/test_per_target_posture.py
+            tests/va/e2e/test_model_status_va.py tests/va/e2e/test_ca_loop_exit.py
+          als_lane: false
+          bench_ioc: true
+          timeout: 30
+          step_timeout: 15
 
     steps:
     - *checkout-full-history
@@ -2685,6 +2518,11 @@ jobs:
     - *assert-container-runtime
 
     - *build-va-image
+
+    - name: Build the bench IOC image
+      # After the VA image: it reuses that action's Buildx builder.
+      if: matrix.bench_ioc
+      uses: ./.github/actions/build-bench-ioc-image
 
     - name: Run the live virtual accelerator E2E
       timeout-minutes: ${{ matrix.step_timeout }}
@@ -2717,7 +2555,6 @@ jobs:
       uses: ./.github/actions/capture-ci-diagnostics
       with:
         name: va-live-e2e-${{ matrix.group }}
-        engine: docker
     - name: Clean up any stranded stack resources
       if: always() && matrix.stack
       run: |
@@ -2726,6 +2563,9 @@ jobs:
     - name: Clean up the target images
       if: always()
       uses: ./.github/actions/remove-virtual-accelerator-images
+      with:
+        # Every cell: removing a tag the cell never built is a no-op.
+        extra-tags: bench-ioc:latest
 
   # No job-level `if:`: it decides inside, so it never ends skipped (the gate treats it as always-on).
   # The credential never shares a step with code the change controls, and nothing the job builds
@@ -2872,7 +2712,7 @@ jobs:
   all-checks-passed:
     name: All CI Checks Passed
     # qmd-cache-warmup stays out: it runs on main pushes only, whose own run it already turns red.
-    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, host-record-e2e, stack-e2e, optimizer-deploy-e2e, orm-roundtrip-e2e, scan-agentic-e2e, graph-reseed-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
+    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, host-record-e2e, stack-e2e, orm-roundtrip-e2e, scan-agentic-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Not on cancel: a superseded run must not leave a red gate on the same sha.

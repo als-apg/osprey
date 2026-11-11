@@ -38,6 +38,10 @@ except ImportError:  # pragma: no cover
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 _TOOLS_HEAD = '#panel-rail > [data-group="tools"] > .sidebar-group-head'
+#: Only panel-rail.js makes the System group (index.html serves Workspace and
+#: Tools), in the same pass that orders every group and wires the headings, so
+#: its arrival is the sign the rail has rendered.
+_SYSTEM = '#panel-rail > [data-group="system"]'
 _SESSIONS = '#panel-rail > [data-group="workspace"]'
 _MENU = ".rail-context-menu"
 _GROUPS_KEY = "osprey-sidebar-groups"
@@ -60,7 +64,7 @@ def _page(browser: Browser, workspace_dir: Path, stored: dict | None = None) -> 
             )
         try:
             page.goto(base_url, wait_until="domcontentloaded")
-            expect(page.locator(_TOOLS_HEAD)).to_be_visible(timeout=10_000)
+            expect(page.locator(_SYSTEM)).to_be_attached(timeout=10_000)
             yield page
         finally:
             ctx.close()
@@ -184,17 +188,16 @@ def test_dragging_a_heading_moves_its_whole_group_and_survives_reload(tmp_path, 
     """A real mouse drag of the System heading onto the top of Apps moves the
     whole System group, rows and all, above Apps, and a reload draws that order
     again; Sessions stays first throughout."""
-    system = '#panel-rail > [data-group="system"]'
     with _page(chromium_browser, tmp_path) as page:
         assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
             "workspace",
             "tools",
             "system",
         ]
-        system_rows = page.locator(f"{system} [data-panel-id]")
+        system_rows = page.locator(f"{_SYSTEM} [data-panel-id]")
         rows_before = system_rows.count()
 
-        page.locator(f"{system} > .sidebar-group-head").drag_to(
+        page.locator(f"{_SYSTEM} > .sidebar-group-head").drag_to(
             page.locator(_TOOLS_HEAD), target_position={"x": 20, "y": 2}
         )
 
@@ -209,7 +212,7 @@ def test_dragging_a_heading_moves_its_whole_group_and_survives_reload(tmp_path, 
         expect(page.locator("#panel-rail > .sidebar-group.dragging")).to_have_count(0)
 
         page.reload(wait_until="domcontentloaded")
-        expect(page.locator(_TOOLS_HEAD)).to_be_visible(timeout=10_000)
+        expect(page.locator(_SYSTEM)).to_be_attached(timeout=10_000)
         assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
             "workspace",
             "system",

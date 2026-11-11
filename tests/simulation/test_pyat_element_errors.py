@@ -5,7 +5,9 @@ is keyed by its served deck element name, ``<element>/<field>``, never by the
 address. The engine declares the slots (``fault_variables``), the scenario
 check holds a scenario to them, and ``build`` seeds them once: the
 misalignment as the element's transforms, the multipole as a delta that every
-later setpoint write keeps.
+later setpoint write keeps. An element no wiring record binds carries the
+same slots when the model's ``pyat`` settings declare it under
+``error_elements``.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ from osprey.simulation.engines import pyat_faults
 from osprey.simulation.engines.pyat_faults import (
     ELEMENT_SCOPE,
     MULTIPOLE_INDICES,
+    ErrorElementsError,
+    error_elements,
     fault_variables,
     multipole_field,
 )
@@ -52,8 +56,14 @@ SERIES = [
 ]
 
 
-def _element_slots(wiring: list[dict[str, Any]]) -> dict[str, Any]:
-    return {n: s for n, s in fault_variables(wiring).items() if s.scope == ELEMENT_SCOPE}
+def _element_slots(wiring: list[dict[str, Any]], settings: Any = None) -> dict[str, Any]:
+    roster = fault_variables(wiring, settings)
+    return {n: s for n, s in roster.items() if s.scope == ELEMENT_SCOPE}
+
+
+def _declaring(*items: dict[str, Any]) -> dict[str, Any]:
+    """A model's settings declaring ``items`` as its error elements."""
+    return {"pyat": {"error_elements": list(items)}}
 
 
 def test_every_magnet_on_a_series_supply_carries_its_own_slots() -> None:
@@ -105,6 +115,103 @@ def test_an_element_named_like_a_wired_address_carries_none() -> None:
     assert "Q2/dx" in slots
 
 
+# -- the roster, with elements the settings declare ---------------------------------
+
+ENERGY = {"address": "BEND:SP", "direction": "write", "engine": {"attribute": "energy"}}
+
+
+def test_a_declared_element_no_record_binds_carries_the_slots_of_a_bound_one() -> None:
+    wiring = [*SERIES, ENERGY]
+    assert not any(slot.element == "BEND_1" for slot in _element_slots(wiring).values())
+
+    slots = _element_slots(wiring, _declaring({"element": "BEND_1", "multipoles": True}))
+
+    declared = {slot.field: slot for slot in slots.values() if slot.element == "BEND_1"}
+    bound = {slot.field: slot for slot in slots.values() if slot.element == "SF_1"}
+    assert set(declared) == set(bound)
+    for field, slot in declared.items():
+        assert (slot.address, slot.scope) == ("BEND_1", ELEMENT_SCOPE)
+        assert (slot.value_range, slot.options) == (bound[field].value_range, None)
+
+
+def test_a_declared_element_without_multipoles_takes_a_misalignment_only() -> None:
+    slots = _element_slots(SERIES, _declaring({"element": "BEND_1"}))
+
+    assert {s.field for s in slots.values() if s.element == "BEND_1"} == {"dx", "dy", "roll"}
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [None, {}, {"pyat": {}}, {"pyat": {"solve": "periodic"}}, {"pyat": {"error_elements": []}}],
+    ids=["none", "empty", "empty-block", "other-keys", "empty-list"],
+)
+def test_a_model_declaring_no_error_elements_has_the_roster_of_its_wiring(settings: Any) -> None:
+    assert fault_variables(SERIES, settings) == fault_variables(SERIES)
+    assert list(fault_variables(SERIES, settings)) == list(fault_variables(SERIES))
+
+
+def test_an_element_both_bound_and_declared_carries_the_union_of_slots() -> None:
+    wired = _element_slots(SERIES)
+    restated = _declaring(
+        {"element": "SF_1", "multipoles": True},
+        {"element": "SF_2"},
+        {"element": "HCM1"},
+    )
+    assert _element_slots(SERIES, restated) == wired
+
+    widened = _element_slots(SERIES, _declaring({"element": "HCM1", "multipoles": True}))
+
+    assert set(widened) - set(wired) == {
+        f"HCM1/{prefix}{index}" for prefix in ("dB", "dA") for index in MULTIPOLE_INDICES
+    }
+    assert {name: widened[name] for name in wired} == wired
+
+
+@pytest.mark.parametrize("element", ["BPM1", "SF:SP"], ids=["monitor", "address"])
+def test_a_declared_monitor_or_an_element_named_like_an_address_is_refused(element: str) -> None:
+    settings = _declaring({"element": "SF_1"}, {"element": element, "multipoles": True})
+
+    with pytest.raises(ErrorElementsError) as refused:
+        fault_variables(SERIES, settings)
+
+    assert f"pyat.error_elements names {element}, which can carry no element error" in str(
+        refused.value
+    )
+
+
+def test_the_declared_elements_read_in_list_order_with_multipoles_off_by_default() -> None:
+    settings = _declaring({"element": "B2", "multipoles": True}, {"element": "B1"})
+
+    assert error_elements(settings) == ({"B2": True, "B1": False}, [])
+    assert error_elements(None) == ({}, [])
+
+
+@pytest.mark.parametrize(
+    ("block", "problem"),
+    [
+        ({"B1": True}, "pyat.error_elements is not a list"),
+        (["B1"], "pyat.error_elements[0] is 'B1', not a map"),
+        ([{"element": "B1", "polynomial": True}], "[0] carries unknown keys polynomial"),
+        ([{"multipoles": True}], "[0] names element None, not a name"),
+        ([{"element": "B1", "multipoles": "yes"}], "[0] has multipoles 'yes', not true or false"),
+        ([{"element": "B1"}, {"element": "B1"}], "[1] names element B1 a second time"),
+    ],
+    ids=["map", "bare-name", "unknown-key", "no-element", "multipoles-word", "twice"],
+)
+def test_a_malformed_error_elements_list_is_named_item_by_item(block: Any, problem: str) -> None:
+    _, problems = error_elements({"pyat": {"error_elements": block}})
+
+    assert len(problems) == 1
+    assert problem in problems[0]
+
+
+def test_a_malformed_error_elements_list_gives_no_roster() -> None:
+    twice = _declaring({"element": "B1"}, {"element": "B1", "multipoles": True})
+
+    with pytest.raises(ErrorElementsError, match=r"\[1\] names element B1 a second time"):
+        fault_variables([], twice)
+
+
 @pytest.mark.parametrize(
     ("field", "expected"),
     [
@@ -125,12 +232,13 @@ def test_a_multipole_field_names_its_polynomial_and_index(field: str, expected: 
 # -- the scenario check, through the build -----------------------------------------
 
 
-def _tree(faults: dict[str, Any]) -> dict[str, Any]:
+def _tree(faults: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     tree = plain_tree()
     tree["models.yaml"] = [
         {
             "name": "optics",
             "engine": "pyat",
+            **({} if settings is None else {"settings": settings}),
             "wiring": [
                 {"address": "Q1:SP", "element": "Q1", "engine": dict(SETTING)},
                 {"address": "BPM1:X", "element": "BPM1", "engine": {"axis": "x"}},
@@ -173,6 +281,115 @@ def test_a_scenario_element_error_outside_the_roster_stops(
 
     assert stopped.value.kind == kind
     assert names in str(stopped.value)
+
+
+@pytest.mark.parametrize(
+    "faults",
+    [
+        {"BEND_1/dB2": 0.5, "BEND_1/dx": 1.0e-4, "BEND_2/roll": 2.0e-4},
+        {"BEND_1": {"dB2": 0.5, "dA1": 1.0e-3}, "BEND_2": {"dy": -1.0e-4}},
+    ],
+    ids=["engine-names", "element-map"],
+)
+def test_a_scenario_seeds_errors_on_elements_the_settings_declare(
+    tmp_path: Path, faults: dict[str, Any]
+) -> None:
+    settings = _declaring({"element": "BEND_1", "multipoles": True}, {"element": "BEND_2"})
+    tree = _tree(faults, settings)
+
+    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+
+    assert [s["faults"] for s in document["scenarios"]] == [{"optics": faults}]
+
+
+@pytest.mark.parametrize(
+    ("faults", "kind", "names"),
+    [
+        ({"BEND_1/dx": 0.5}, "seed-invalid", "faults.optics.BEND_1/dx` 0.5 lies above"),
+        ({"BEND_2/dB2": 0.5}, "engine-invalid", "faults.optics.BEND_2/dB2 names no channel"),
+        ({"BEND_2": {"dB2": 0.5}}, "value-invalid", "faults.optics.BEND_2.dB2 is not a fault"),
+        ({"BEND_3/dx": 1.0e-4}, "engine-invalid", "faults.optics.BEND_3/dx names no channel"),
+    ],
+    ids=["bound", "no-multipoles", "no-multipoles-map", "undeclared"],
+)
+def test_a_declared_element_holds_a_scenario_to_the_slots_it_declares(
+    tmp_path: Path, faults: dict[str, Any], kind: str, names: str
+) -> None:
+    settings = _declaring({"element": "BEND_1", "multipoles": True}, {"element": "BEND_2"})
+
+    with pytest.raises(FacilityBuildError) as stopped:
+        build_facility(
+            write_tree(tmp_path / "facility", _tree(faults, settings)), project_name="demo"
+        )
+
+    assert stopped.value.kind == kind
+    assert names in str(stopped.value)
+
+
+@pytest.mark.parametrize(
+    ("items", "detail"),
+    [
+        ([{"element": "BPM1"}], "pyat.error_elements names BPM1, which can carry no element"),
+        ([{"element": "Q1:SP"}], "pyat.error_elements names Q1:SP, which can carry no element"),
+        ([{"element": "B"}, {"element": "B"}], "[1] names element B a second time"),
+    ],
+    ids=["monitor", "address", "twice"],
+)
+def test_the_scenario_check_refuses_a_declaration_as_the_build_does(
+    tmp_path: Path, items: list[dict[str, Any]], detail: str
+) -> None:
+    settings = _declaring(*items)
+    with pytest.raises(ErrorElementsError) as built:
+        fault_variables(_tree({})["models.yaml"][0]["wiring"], settings)
+
+    with pytest.raises(FacilityBuildError) as stopped:
+        build_facility(
+            write_tree(tmp_path / "facility", _tree({"Q1/dx": 1.0e-4}, settings)),
+            project_name="demo",
+        )
+
+    assert (stopped.value.kind, stopped.value.record_id) == ("engine-invalid", "optics")
+    assert stopped.value.detail == str(built.value)
+    assert detail in stopped.value.detail
+    assert "Q1/dx" not in str(stopped.value)
+
+
+@pytest.mark.parametrize("element", ["BPM1", "Q1:SP"], ids=["monitor", "address"])
+@pytest.mark.parametrize("named", [False, True], ids=["no-scenario", "scenario-names-it"])
+def test_a_refused_declaration_stops_the_build_once_with_or_without_a_scenario(
+    tmp_path: Path, element: str, named: bool
+) -> None:
+    from osprey.facility.build import LATER_STAGES
+    from osprey.facility.validate import run_stages
+
+    settings = _declaring({"element": element})
+    tree = _tree({"Q1/dx": 1.0e-4}, settings)
+    if not named:
+        del tree["scenarios/seeded.yaml"]
+    with pytest.raises(ErrorElementsError) as built:
+        fault_variables(tree["models.yaml"][0]["wiring"], settings)
+
+    report = run_stages(
+        write_tree(tmp_path / "facility", tree), project_name="demo", later=LATER_STAGES
+    )
+    errors = report.errors
+
+    assert [(e.kind, e.record_id, e.detail) for e in errors] == [
+        ("engine-invalid", "optics", str(built.value))
+    ]
+    assert errors[0].record_kind == "model"
+
+
+def test_an_error_on_an_unbound_element_stops_a_model_that_does_not_declare_it(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(FacilityBuildError) as stopped:
+        build_facility(
+            write_tree(tmp_path / "facility", _tree({"BEND_1/dB2": 0.5})), project_name="demo"
+        )
+
+    assert stopped.value.kind == "engine-invalid"
+    assert "faults.optics.BEND_1/dB2 names no channel" in str(stopped.value)
 
 
 # -- the engine build, over the demo deck -------------------------------------------
@@ -309,6 +526,169 @@ def test_a_seed_with_no_closed_orbit_raises_the_solve_error_naming_it(
         OrbitSolveError, match=rf"element errors seeded on 1 element\(s\) \({demo['quad']}\)"
     ):
         _build(demo, {f"{demo['quad']}/dB1": 50.0})
+
+
+# -- elements the settings declare, over the demo deck --------------------------------
+
+
+def _binds(entry: dict[str, Any], element: str) -> bool:
+    bound = [entry.get("element"), *(item.get("element") for item in entry.get("slices") or [])]
+    return element in bound
+
+
+@pytest.fixture(scope="module")
+def unbound(demo: dict[str, Any]) -> dict[str, Any]:
+    """The demo model with every record binding its first quadrupole taken out."""
+    wiring = [entry for entry in demo["wiring"] if not _binds(entry, demo["quad"])]
+    assert len(wiring) < len(demo["wiring"])
+    return {**demo, "wiring": wiring}
+
+
+def _declared(unbound: dict[str, Any], *items: dict[str, Any]) -> dict[str, Any]:
+    block = {**(unbound["settings"] or {}).get("pyat", {}), "error_elements": list(items)}
+    return {**unbound, "settings": {"pyat": block}}
+
+
+def test_an_unbound_element_takes_no_error_until_the_settings_declare_it(
+    unbound: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError, match=f"{unbound['quad']}/dB1"):
+        _build(unbound, {f"{unbound['quad']}/dB1": 0.02})
+
+
+def test_a_declared_element_no_record_binds_is_seeded_at_build(unbound: dict[str, Any]) -> None:
+    quad = unbound["quad"]
+    model = _declared(unbound, {"element": quad, "multipoles": True})
+    nominal = _build(model)
+    base = float(_element(nominal, quad).PolynomB[1])
+
+    seeded = _build(model, {f"{quad}/dB1": 0.02, f"{quad}/dA4": -1.0, f"{quad}/dx": 1.0e-4})
+
+    element = _element(seeded, quad)
+    assert element.PolynomB[1] == pytest.approx(base + 0.02)
+    assert element.PolynomA[4] == pytest.approx(-1.0)
+    assert element.T1[0] == pytest.approx(-1.0e-4)
+    orbit, reference = _orbit(seeded, unbound), _orbit(nominal, unbound)
+    assert max(abs(orbit[name] - reference[name]) for name in reference) > 1e-9
+    seeded.reset()
+    assert element.PolynomB[1] == pytest.approx(base + 0.02)
+    assert _orbit(seeded, unbound) == pytest.approx(orbit)
+
+
+def test_a_declared_element_seeds_exactly_as_a_bound_one(
+    demo: dict[str, Any], unbound: dict[str, Any]
+) -> None:
+    quad = demo["quad"]
+    errors = {f"{quad}/dB1": 0.02, f"{quad}/dy": -5.0e-5, f"{quad}/roll": 1.0e-3}
+
+    bound = _build(demo, errors)
+    declared = _build(_declared(unbound, {"element": quad, "multipoles": True}), errors)
+
+    for attribute in ("PolynomB", "PolynomA", "T1", "T2", "R1", "R2"):
+        assert np.array_equal(
+            getattr(_element(declared, quad), attribute), getattr(_element(bound, quad), attribute)
+        )
+    assert _orbit(declared, unbound) == pytest.approx(_orbit(bound, unbound), abs=1e-12)
+
+
+def test_a_declared_element_holds_an_error_to_the_bounds_of_a_bound_one(
+    unbound: dict[str, Any],
+) -> None:
+    quad = unbound["quad"]
+    model = _declared(unbound, {"element": quad})
+
+    with pytest.raises(ValueError, match=f"{quad}/dx is 0.5, outside its range"):
+        _build(model, {f"{quad}/dx": 0.5})
+    with pytest.raises(ValueError, match=f"{quad}/dB1"):
+        _build(model, {f"{quad}/dB1": 0.02})
+
+
+def test_declaring_a_bound_element_changes_nothing_of_the_build(demo: dict[str, Any]) -> None:
+    quad = demo["quad"]
+    errors = {f"{quad}/dB1": 0.02, f"{quad}/dx": 1.0e-4}
+
+    plain = _build(demo, errors)
+    restated = _build(_declared(demo, {"element": quad}), errors)
+
+    assert _element(restated, quad).PolynomB[1] == _element(plain, quad).PolynomB[1]
+    assert _orbit(restated, demo) == pytest.approx(_orbit(plain, demo), abs=1e-12)
+    assert sorted(restated.supported_variables) == sorted(plain.supported_variables)
+
+
+def test_a_declared_element_the_deck_does_not_hold_fails_the_build_by_name(
+    unbound: dict[str, Any],
+) -> None:
+    model = _declared(unbound, {"element": "NOT_IN_THE_DECK", "multipoles": True})
+
+    for refused in (
+        lambda: _build(model),
+        lambda: engine.prepare(model["deck"], model["settings"], model=MODEL),
+    ):
+        with pytest.raises(engine.ElementStop) as stopped:
+            refused()
+        assert (stopped.value.kind, stopped.value.record_id) == ("engine-invalid", MODEL)
+        assert (stopped.value.element, stopped.value.count) == ("NOT_IN_THE_DECK", 0)
+        assert stopped.value.detail == (
+            "settings key pyat.error_elements: element NOT_IN_THE_DECK is not in the deck"
+        )
+
+
+def test_a_declared_element_the_deck_repeats_fails_the_build_by_name(
+    unbound: dict[str, Any],
+) -> None:
+    names = [element.FamName for element in engine._load(unbound["deck"]).lattice]
+    repeated = next(name for name in names if names.count(name) > 1)
+
+    with pytest.raises(engine.ElementStop) as stopped:
+        _build(_declared(unbound, {"element": repeated}))
+
+    assert (stopped.value.element, stopped.value.count) == (repeated, names.count(repeated))
+    assert "settings key pyat.error_elements" in stopped.value.detail
+
+
+def test_declared_multipoles_on_an_element_with_no_polynomial_fail_the_build(
+    unbound: dict[str, Any],
+) -> None:
+    lattice = engine._load(unbound["deck"]).lattice
+    names = [element.FamName for element in lattice]
+    bare = next(
+        e.FamName for e in lattice if not hasattr(e, "PolynomB") and names.count(e.FamName) == 1
+    )
+
+    with pytest.raises(FacilityBuildError) as stopped:
+        _build(_declared(unbound, {"element": bare, "multipoles": True}))
+
+    assert stopped.value.kind == "engine-invalid"
+    assert f"states multipoles on element {bare}" in stopped.value.detail
+    _build(_declared(unbound, {"element": bare}))
+
+
+@pytest.mark.parametrize(
+    ("items", "detail"),
+    [
+        (lambda quad: [{"element": quad}, {"element": quad}], "a second time"),
+        (lambda quad: [quad], "not a map"),
+        (lambda quad: {"element": quad}, "is not a list"),
+    ],
+    ids=["twice", "bare-name", "map"],
+)
+def test_a_malformed_error_elements_list_fails_the_build(
+    unbound: dict[str, Any], items: Any, detail: str
+) -> None:
+    block = {"solve": "periodic", "error_elements": items(unbound["quad"])}
+
+    with pytest.raises(FacilityBuildError) as stopped:
+        _build({**unbound, "settings": {"pyat": block}})
+
+    assert (stopped.value.kind, stopped.value.record_id) == ("engine-invalid", MODEL)
+    assert detail in stopped.value.detail
+
+
+def test_a_declared_monitor_element_fails_the_build_by_name(demo: dict[str, Any]) -> None:
+    monitor = fault_variables(demo["wiring"])[f"{demo['monitors'][0]}/offset"].element
+
+    with pytest.raises(ErrorElementsError, match=rf"pyat\.error_elements names {monitor}, "):
+        _build(_declared(demo, {"element": monitor}))
 
 
 # -- default_scenarios, at the VA's boot ---------------------------------------------

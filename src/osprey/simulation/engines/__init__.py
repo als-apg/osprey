@@ -69,8 +69,11 @@ class EnginePlugin(Protocol):
     ``emitted(model)``                      the addresses of ``event`` channels fired     the model emits nothing
                                             since the last call, cleared as returned
     ``error_text(exc)``                     the one line a failed build reports           the exception's own text
-    ``fault_variables(wiring)``             every fault a model built from the wiring     the model declares no faults
-                                            declares, by address or by element
+    ``fault_variables(wiring, settings)``   every fault a model built from the wiring     the model declares no faults
+                                            and its settings declares, by address or by
+                                            element, without a deck load. Raising
+                                            ``ValueError`` refuses the model: the build
+                                            stops ``engine-invalid`` with its text
     ``next_deadline(model)``                the epoch second of the model's next due      the model has no deadline
                                             step, or ``None``
     ``polynomial_kicks(deck, elements)``    a deck copy carrying named kicks as dipole    the pyAML view stops ``engine-invalid``

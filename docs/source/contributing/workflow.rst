@@ -236,8 +236,8 @@ Measured CI Figures
    "``terminal-auth-multiuser-e2e``", "whole module, warm layer cache", "6 min 55 s", "developer host", "2026-08-27"
    "single-build auth lanes", "one cold image build", "7–11 min", "runner", "2026-08-26"
    "``full-chain-auth-e2e``", "whole module: project image built / warm / warm with history cases", "~5 min / ~1 min / 114 s", "developer host", "2026-10-11"
-   "``target-switch-e2e``", "VA image cold / bench IOC image / three modules (54 tests) / total", "226 s / 1 s / 214 s / 7.4 min", "Apple Silicon host, amd64 emulated", "2026-08-27"
-   "``target-switch-e2e``", "run step", "3.6 min", "Apple Silicon host, amd64 emulated", "2026-08-27"
+   "``va-live-e2e`` (target-switch)", "VA image cold / bench IOC image / three modules (54 tests) / total", "226 s / 1 s / 214 s / 7.4 min", "Apple Silicon host, amd64 emulated", "2026-08-27"
+   "``va-live-e2e`` (target-switch)", "run step", "3.6 min", "Apple Silicon host, amd64 emulated", "2026-08-27"
    "``target-switch-agentic-e2e``", "VA image cold / bench IOC image / module (10 tests) / total", "226 s / 1 s / 281 s / ~8.5 min", "Apple Silicon host, amd64 emulated", "2026-08-24"
 
 Dependency Update Pull Requests

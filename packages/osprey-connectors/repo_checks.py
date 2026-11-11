@@ -56,14 +56,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.ipc.FrameDecodeError": "a caller tells a bad frame read from the others",
     "osprey_connectors.ipc.FrameEncodeError": "a caller tells a bad frame write from the others",
-    "osprey_connectors.ipc.GATEWAYS_MISSING": (
-        "transitional: its framework user lands with the connectors floor bump to "
-        ">=2026.11.8 (#2592)"
-    ),
-    "osprey_connectors.ipc.GATEWAYS_NONE_DECLARED": (
-        "transitional: its framework user lands with the connectors floor bump to "
-        ">=2026.11.8 (#2592)"
-    ),
     "osprey_connectors.ipc.GATEWAYS_ROWS": (
         "a caller names the verdict that a target declares gateway rows"
     ),
@@ -72,16 +64,8 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "the pool hands every caller its connector in this type"
     ),
     "osprey_connectors.ipc.READONLY": "a caller asks the pool for a readonly child by this value",
-    "osprey_connectors.ipc.declared_gateways": (
-        "transitional: its framework user lands with the connectors floor bump to "
-        ">=2026.11.8 (#2592)"
-    ),
     "osprey_connectors.recovery.Recovery": "a recovery answers what it did in this type",
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
-    "osprey_connectors.safety_file.SHARED_DIR_MODE": (
-        "transitional: its framework users land with the connectors floor bump to "
-        ">=2026.11.8 (#2571)"
-    ),
     "osprey_connectors.simulation.archive.FingerprintComparison": (
         "a fingerprint comparison answers in this type"
     ),

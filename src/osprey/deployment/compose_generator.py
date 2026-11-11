@@ -89,7 +89,7 @@ from osprey_connectors.config import ConfigBuilder, load_project_config
 from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_DIR_MODE, atomic_replace
 
 logger = get_logger("deployment.compose")
 
@@ -4125,8 +4125,10 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
 #: wrote, which is what "shared corpus" has to mean for a multi-user roster.
 #: Nothing is granted to ``other``: the qmd sidecar reads as root and the web
 #: terminals come in through their group, so a world-readable corpus would widen
-#: access to a facility's knowledge for no consumer that needs it.
-SHARED_CORPUS_DIR_MODE = 0o2770
+#: access to a facility's knowledge for no consumer that needs it. It is the
+#: mode of every group-shared location (``safety_file.SHARED_DIR_MODE``), set
+#: here at deploy time on directories that already exist as well.
+SHARED_CORPUS_DIR_MODE = SHARED_DIR_MODE
 
 
 def resolve_facility_bundle_dir(

@@ -345,6 +345,8 @@ What a plug-in is given and asked for:
   module states them. ``osprey.simulation.engines.OPTIONAL_NAMES`` lists
   every optional name, and the protocol's docstring says what each gives and
   what a model whose engine lacks it gets.
+  ``fault_variables`` is called as ``fault_variables(wiring, settings)``,
+  with the model's ``settings`` second.
 - **The time contract.** A model that changes between solves, as an
   injection chain does during a shot, is *time-driven*: its engine states the
   four optional functions ``osprey.simulation.engines.TIME_CONTRACT`` names.
