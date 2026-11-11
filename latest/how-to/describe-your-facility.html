@@ -1187,6 +1187,10 @@ and a <code class="docutils literal notranslate"><span class="pre">wiring</span>
 <span class="w">      </span><span class="nt">energy_scaling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
 </pre></div>
 </div>
+<p>The <code class="docutils literal notranslate"><span class="pre">pyat</span></code> settings may also carry <code class="docutils literal notranslate"><span class="pre">error_elements</span></code>, a list of
+<code class="docutils literal notranslate"><span class="pre">{element:</span> <span class="pre">&lt;name&gt;,</span> <span class="pre">multipoles:</span> <span class="pre">true|false}</span></code> naming deck elements no wiring
+record binds that a scenario may still misalign or give a multipole error; see
+<em>Element errors</em> in <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
 <p>A wiring record’s <code class="docutils literal notranslate"><span class="pre">calibration</span></code> converts between the channel’s hardware
 value and the engine’s physics value, as a <code class="docutils literal notranslate"><span class="pre">linear</span></code> gain and offset or a
 <code class="docutils literal notranslate"><span class="pre">table</span></code>. Channels no served model wires are served by the texture model from

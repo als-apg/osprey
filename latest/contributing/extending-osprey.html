@@ -748,7 +748,8 @@ the five functions above, and <code class="docutils literal notranslate"><span c
 module states them. Its docstring lists the optional functions —
 <code class="docutils literal notranslate"><span class="pre">error_text</span></code>, <code class="docutils literal notranslate"><span class="pre">fault_variables</span></code>, <code class="docutils literal notranslate"><span class="pre">polynomial_kicks</span></code>,
 <code class="docutils literal notranslate"><span class="pre">response_matrix</span></code>, <code class="docutils literal notranslate"><span class="pre">scenario_stops</span></code> — and what a model whose engine
-lacks each gets.</p></li>
+lacks each gets. <code class="docutils literal notranslate"><span class="pre">fault_variables</span></code> is called as
+<code class="docutils literal notranslate"><span class="pre">fault_variables(wiring,</span> <span class="pre">settings)</span></code>, with the model’s <code class="docutils literal notranslate"><span class="pre">settings</span></code> second.</p></li>
 </ul>
 <p>What the container keeps the same for every engine:</p>
 <ul class="simple">

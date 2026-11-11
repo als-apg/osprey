@@ -288,6 +288,32 @@ Each takes an explicit value; ``dx`` and ``dy`` are bounded to 1 cm and
 nothing at random: a random realisation of errors is the scenario author's to
 draw and write down, so the same scenario always boots the same machine.
 
+A magnet no wiring record binds by ``element`` carries none of these on its
+own: a bend whose only channel is wired to the deck's ``energy``, say, or a
+magnet with no channel at all. The model's ``pyat`` settings declare such an
+element under ``error_elements``:
+
+.. code-block:: yaml
+
+   settings:
+     pyat:
+       solve: periodic
+       error_elements:
+       - element: BEND_1_1
+         multipoles: true
+       - element: SEPTUM
+
+A declared element carries ``dx``, ``dy`` and ``roll``, and with ``multipoles:
+true`` also ``dB<n>`` and ``dA<n>``, with the bounds and the seeding of a bound
+element. ``multipoles`` is false when left out, and may be true only on an
+element that has both ``PolynomB`` and ``PolynomA``. Declaring an element the wiring
+already binds is allowed and can only add slots: it carries the union of the
+two. The build stops, naming the element, when a declared element is not in
+the deck or is in it more than once, and when the list names an element twice.
+A monitor's element takes readout faults instead, so declaring one is refused,
+with the same words by the scenario check of ``osprey build`` and when the
+model is built.
+
 The errors are seeded once, when the model is built. A misalignment becomes
 the element's entrance and exit transforms. A multipole delta is added to its
 coefficient and held there: a setpoint write on the same coefficient moves the
