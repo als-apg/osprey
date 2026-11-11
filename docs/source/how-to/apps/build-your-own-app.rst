@@ -155,7 +155,7 @@ The first three blocks describe one part each:
    container the connection to the control system — without it the container
    cannot reach the machine. ``health`` is the route the terminal polls to
    light the sidebar row. ``state`` names a directory that survives restarts,
-   for files the app keeps (orbit bump keeps its plans there).
+   for files the app keeps (saved plans or tables, for instance).
 
 ``panel``
    The sidebar entry: its ``label``, the container that serves it, and
@@ -264,10 +264,11 @@ toggles, chips and cards use the ``osprey-*`` classes from ``primitives.css``;
 terminal's ``/panel/<id>/`` prefix.
 
 The scaffold's panel only shows; the write is the agent's tool. A panel that
-writes — orbit bump's *Apply…* — posts to a write route the same way the tool
+writes — an *Apply…* button — posts to a write route the same way the tool
 does, and the terminal refuses the request on a login that does not arm the
 app, before it reaches the backend. Show that state rather than hiding the
-control: orbit bump reads the backend's posture and says *Writes are off*.
+control: have the backend's state say whether writes are on, and the panel
+say *Writes are off*.
 
 ``tests/panel.test.js`` is a Vitest test of the page's functions in a DOM;
 ``osprey app check`` runs it. A JavaScript library the panel needs is not
@@ -298,13 +299,14 @@ tool server's ``writes:``, so every call is judged as a write, in this order:
       ``state_path`` when the card is built. The card also always carries the
       app, the tool, the machine and the switch position.
    ``state_path``
-      The backend route whose answer is ``state``. Orbit bump uses a route
-      made for the card, ``/api/approval``, which answers only while a plan is
-      ready to apply.
+      The backend route whose answer is ``state``. The scaffold uses its
+      state route. An app that prepares a write in steps is better served by a
+      route made for the card, one that answers only while there is something
+      ready to write.
    ``display_lines_key``
       A key of that state holding lines to show under the prompt — one per
-      corrector for orbit bump — so the operator sees every setpoint the write
-      will make.
+      channel for a write of several setpoints — so the operator sees every
+      setpoint the write will make.
    ``bind.state_fields``
       Values of the state copied into the call as ``approved_*`` fields: the
       readback the person saw, the plan id, a digest of the setpoints. The
@@ -333,7 +335,7 @@ bound values against its state. Three checks, one declaration.
 **Dispatch jobs.** An agent run the event dispatcher starts has nobody to show
 a card to. A write tool that binds the backend's state never runs in such a
 job, and ``deny_in_jobs: true`` under ``tools`` keeps a job from running any of
-the app's tools. Orbit bump sets it: a bump is an operator's decision.
+the app's tools. Set it where every use of the app is an operator's decision.
 
 Logins
 ======
@@ -411,11 +413,13 @@ Then:
    sentence the panel shows. The agent then answers *what does the panel
    say* and *why can't I apply* without guessing.
 2. **Every control is a tool or an argument.** Toggles and menus become
-   arguments (orbit bump's *Other BPMs* is ``plan_bump``'s ``others``);
+   arguments (a checkbox *Include neighbours* is an argument
+   ``include_neighbours``);
    buttons become tools. A gesture that only edits input — drag,
    nudge — needs no tool when the agent can pass the resulting values. A
    convenience the operator relies on is an argument, so the agent builds the
-   same input the same way (orbit bump's amplitude and shape).
+   same input the same way (an amplitude and a shape, not the setpoints
+   they produce).
 3. **Publish the operator's input.** What the operator has set but not yet
    sent is on screen too. The panel posts it to a route that writes no
    channel, and the read tool returns it, so the agent never has to ask what
@@ -434,8 +438,9 @@ Then:
    look. Say what the agent does not get (view settings such as zoom) and
    why.
 
-Orbit bump's skill is the worked example (:ref:`how-to-orbit-bump-agent`);
-:doc:`/contributing/agent-skills` gives the format.
+The scaffold's ``SKILL.md`` is the smallest case of this: one table of tool,
+panel equivalent and whether it writes, then the order of calls and what a
+refusal means. :doc:`/contributing/agent-skills` gives the format.
 
 .. _how-to-apps-subagents:
 
@@ -514,7 +519,7 @@ Dependencies
 
 ``pyproject.toml`` is the app's package. The scaffold lists no dependencies:
 FastAPI, uvicorn, httpx and the connectors are already in the image. Add what
-your app needs under ``dependencies`` — orbit bump adds ``numpy`` — and the
+your app needs under ``dependencies`` — ``numpy``, for instance — and the
 build installs it with the wheel. A package that would change a version the
 framework pins is refused by ``osprey app check``.
 
@@ -572,7 +577,7 @@ Every level refuses unknown keys. Defaults in brackets.
      - The write routes demand a token the terminal adds on an armed login.
    * - ``panel.read_timeout_s``
      - Seconds a proxied request may take; for a route that performs a long
-       action (orbit bump's apply, 90).
+       action, such as a write of many setpoints with read-back.
    * - ``panel.agent_routes``
      - ``[METHOD, /path]`` pairs the agent's tools may call; ``GET``,
        ``HEAD`` and ``OPTIONS`` read, every other method writes.

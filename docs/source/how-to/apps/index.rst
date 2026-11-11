@@ -4,8 +4,8 @@
 Build Your Own OSPREY Apps
 ==========================
 
-An **app** is your deployment's own tool for one task on the machine — solve a
-local orbit bump, show and set a channel, step a magnet through a table — used
+An **app** is your deployment's own tool for one task on the machine — trim a
+corrector, show and set a channel, step a magnet through a table — used
 by the operator from a page in the web terminal and by the agent from its
 tools. It is how a facility extends OSPREY with its own workflows without
 changing OSPREY itself: the app lives in your deployment repository, is built
@@ -42,9 +42,10 @@ what the operator sees in the panel, and what the operator sets in the panel is
 what the agent reads back.
 
 ``osprey build`` turns ``app.yml`` into the parts it lists; ``osprey up`` starts
-them with the rest of the deployment. OSPREY ships one app,
-:doc:`orbit bump <orbit-bump>`, off in the ``demo`` preset, which this section
-uses as its example; ``osprey app new`` copies a minimal scaffold for your own.
+them with the rest of the deployment. ``osprey app new`` copies a minimal
+working app — one channel, shown in a panel, read and set by two tools — as
+the starting point for your own. This section uses it as its example, under
+the name ``corrector-trim``.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -54,13 +55,11 @@ uses as its example; ``osprey app new`` copies a minimal scaffold for your own.
    - When a task is an app, and when it is a skill, a Python run or a
      Bluesky plan instead
    - Which parts an app can have, and which of them yours needs
-   - What you write — one manifest, one Python package, one page — and
-     what OSPREY supplies
+   - What you write and what OSPREY supplies
    - How an app's writes stay inside the login's tier, the write switch and
      the approval card
    - The path from ``osprey app new`` to a running app
-     (:doc:`build-your-own-app`) and a real app read end to end
-     (:doc:`orbit-bump`)
+     (:doc:`build-your-own-app`)
 
    **Prerequisites:** a deployment repository (``osprey init``) and the
    terms from :doc:`/how-to/web-terminal/multi-user/tiers`: a **login** opens
@@ -70,8 +69,8 @@ uses as its example; ``osprey app new`` copies a minimal scaffold for your own.
 What the operator sees
 ======================
 
-In the web terminal's sidebar, under **Apps**, the app is a row with its
-label — *Orbit bump* for the example. Clicking it opens the panel as a tile
+In the web terminal's sidebar, under **Apps**, the app is a row with the
+label its manifest gives it. Clicking it opens the panel as a tile
 beside the chat; the panel takes the terminal's theme, light or dark, because
 it uses the terminal's design tokens. The row dims while the backend does not
 answer its health check and lights up again when it does
@@ -82,13 +81,14 @@ login's name along, so the backend answers from the machine that login's
 session is on — the one named on the :ref:`control-target chip
 <web-terminal-session-posture>` — and shows that login's plan, not another's.
 
-A write started from the panel (orbit bump's *Apply…*) opens the panel's own
+A write started from the panel (a button such as *Apply…*) opens the panel's own
 confirmation with the exact setpoints. A write the agent starts shows in the
 chat as an **approval card** when the operator's switch for that machine is at
 *asked*: the card names the app, the tool, the machine (*Live — writes move
 hardware*, *Simulator — nothing moves*), the switch position, and then the
-text the app wrote for it, filled in from the backend's state — for orbit
-bump, the plan id and one line per corrector with its current and new value.
+text the app wrote for it, filled in from the backend's state — the channel,
+the new value and the current readback, or one line per channel for a write of
+several setpoints.
 The operator approves or refuses. At *allowed* the same write runs without a
 card; at *off* it is refused.
 
@@ -99,8 +99,9 @@ before they reach the backend.
 What the agent sees
 ===================
 
-The app's tools, named ``mcp__<app>__<tool>`` — ``mcp__orbit-bump__plan_bump``
-and ``mcp__orbit-bump__apply_bump`` for the example — beside OSPREY's own
+The app's tools, named ``mcp__<app>__<tool>`` —
+``mcp__corrector-trim__read_channel`` and
+``mcp__corrector-trim__set_channel`` for the example — beside OSPREY's own
 tools. Each tool's docstring is what the agent reads to decide when to call it,
 and the manifest says which tools only read and which write:
 
@@ -109,8 +110,8 @@ and the manifest says which tools only read and which write:
   meets the tier, the write switch and the approval before the tool runs.
 
 An app can carry a **skill**: a ``SKILL.md`` that tells the agent when to
-use the app and how to read its answers. Orbit bump's skill says, for instance,
-to compute first, show the operator the plan, and only then ask to apply it.
+use the app and how to read its answers. The example's skill says to read
+first, tell the operator the current value, and only then call the write tool.
 
 An app can carry a **subagent**: an agent of its own, with its own
 instructions and tool list, that the main agent hands a task to. The main
@@ -120,7 +121,7 @@ shape for a task that reads a lot to answer a little, such as a search.
 
 The build installs skills and subagents into every login that shows the app.
 
-The agent reaches the backend only at the routes the manifest declares, through
+Where the app has a backend, the agent's tools reach it only at the routes the manifest declares, through
 the web terminal, under the login's name — never directly, never as another
 login. When the backend does not answer or refuses a call, the agent sees the
 sentence you wrote for that case in ``app.yml`` (``errors.unreachable``,
@@ -155,12 +156,12 @@ every session**. Other shapes cover the rest:
        and tools so the agent can do it too
      - An app — this section.
 
-The orbit bump app shows the difference. A bump is not one write: it is a plan
-— a model, a set of BPMs, the correctors a rule picks, the predicted orbit, a
-limit verdict per setpoint — that the operator inspects and the agent reasons
-about before anything moves. The plan has to be the same object for both, has
-to survive a page reload, and has to be the thing the approval card binds the
-write to. That is an app.
+A task that ends in several coordinated writes shows the difference. It is not
+one write: it is a plan — the inputs, the setpoints computed from them, the
+predicted effect, a limit verdict per setpoint — that the operator inspects and
+the agent reasons about before anything moves. The plan has to be the same
+object for both, has to survive a page reload, and has to be the thing the
+approval card binds the write to. That is an app.
 
 What you write
 ==============
@@ -228,8 +229,9 @@ the panel or in a tool:
    without one.
 3. **The approval** binds the write to what was approved: the app's manifest
    says what the card shows and which values of the backend's state the call
-   is held to — orbit bump binds the plan id and a digest of its setpoints, so
-   a plan that changed after approval is refused.
+   is held to. The example binds the readback the operator saw; an app that
+   applies a computed plan binds the plan's id and a digest of its setpoints,
+   so a plan that changed after approval is refused.
 4. **The connector** judges the write once more — verdict, limits, read-back
    — and records it, as it does for every write in OSPREY
    (:doc:`/architecture/safety-chain`).
@@ -243,12 +245,9 @@ Where to go next
 - :doc:`build-your-own-app` — from ``osprey app new`` to a running panel and
   tools on your deployment: the manifest, the backend, the tool server, the
   panel, writes and approvals, logins, skills and subagents.
-- :doc:`orbit-bump` — the bundled example, read as an operator, as the agent,
-  and as its source.
 - :ref:`osprey app <cli-osprey-app>` — the command reference.
 
 .. toctree::
    :hidden:
 
    build-your-own-app
-   orbit-bump
