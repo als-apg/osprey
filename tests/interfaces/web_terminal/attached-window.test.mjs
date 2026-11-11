@@ -163,6 +163,22 @@ describe('open', () => {
     expect(onDress).toHaveBeenCalledExactlyOnceWith(root);
   });
 
+  test('the mount carries the ready mark only once onDress has run', () => {
+    let markedDuringDress = null;
+    const win = mod.openAttached({
+      key: 'k',
+      title: 't',
+      content,
+      name: 'w-k',
+      anchor: anchorEl(),
+      onDress: (/** @type {HTMLElement} */ mount) => {
+        markedDuringDress = mount.hasAttribute('data-window-ready');
+      },
+    });
+    expect(markedDuringDress).toBe(false);
+    expect(win.document.querySelector('.attached-window-root[data-window-ready]')).not.toBeNull();
+  });
+
   test('the node moves only once the shell has loaded', () => {
     vi.useFakeTimers();
     open.mockImplementation(() => {
