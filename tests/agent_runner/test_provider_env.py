@@ -1037,3 +1037,76 @@ class TestBaseUrlV1Normalization:
     def test_url_without_v1_is_left_alone(self):
         spec = self._resolve("https://api.example.com", native=True)
         assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.example.com"
+
+
+# ---------------------------------------------------------------------------
+# Tool search stays off behind a gateway
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayToolSearch:
+    """A launch behind a custom base URL carries ``ENABLE_TOOL_SEARCH=false``;
+    a first-party launch is never given it.
+
+    Claude Code 2.1.304 withholds tools behind ``ToolSearch`` by default when
+    ``ANTHROPIC_BASE_URL`` is set, which the dispatch tool policy and the
+    translation proxy do not handle.
+    """
+
+    @pytest.mark.parametrize(
+        ("provider", "api_providers"),
+        [
+            ("cborg", None),
+            ("als-apg", {"als-apg": {"base_url": "https://gateway.example.org/v1"}}),
+            ("my-lab", {"my-lab": {"base_url": "http://127.0.0.1:4000", "default_model": "m"}}),
+        ],
+    )
+    def test_gateway_launch_env_turns_tool_search_off(self, provider, api_providers):
+        spec = ClaudeCodeModelResolver.resolve({"provider": provider}, api_providers)
+
+        assert "ANTHROPIC_BASE_URL" in spec.env_block
+        assert spec.env_block["ENABLE_TOOL_SEARCH"] == "false"
+
+    def test_first_party_launch_env_does_not_gain_it(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+
+        assert "ANTHROPIC_BASE_URL" not in spec.env_block
+        assert "ENABLE_TOOL_SEARCH" not in spec.env_block
+
+    def test_anthropic_named_by_its_own_host_is_first_party(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "anthropic"},
+            {"anthropic": {"base_url": "https://api.anthropic.com/v1"}},
+        )
+
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
+        assert "ENABLE_TOOL_SEARCH" not in spec.env_block
+
+    def test_gateway_value_wins_over_the_operators_own(self):
+        """Same rule as every key in the block: the launch value replaces the shell's."""
+        environ = {"ENABLE_TOOL_SEARCH": "true", "CBORG_API_KEY": "k"}
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+
+        inject_provider_env(environ, spec)
+
+        assert environ["ENABLE_TOOL_SEARCH"] == "false"
+
+    def test_first_party_launch_leaves_the_operators_own_alone(self):
+        environ = {"ENABLE_TOOL_SEARCH": "auto", "ANTHROPIC_API_KEY": "k"}
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+
+        inject_provider_env(environ, spec)
+
+        assert environ["ENABLE_TOOL_SEARCH"] == "auto"
+
+    def test_e2e_proxy_override_carries_it_too(self, monkeypatch):
+        from osprey.agent_runner.primitives import _apply_e2e_overrides
+
+        monkeypatch.delenv("OSPREY_E2E_FORCE_MODEL", raising=False)
+        monkeypatch.setenv("OSPREY_E2E_PROXY_BASE_URL", "http://127.0.0.1:9911")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+
+        forced = _apply_e2e_overrides(spec)
+
+        assert forced.env_block["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9911"
+        assert forced.env_block["ENABLE_TOOL_SEARCH"] == "false"

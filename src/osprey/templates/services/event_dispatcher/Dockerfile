@@ -227,7 +227,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     # _DEFAULT_CLAUDE_CLI_VERSION in src/osprey/cli/templates/scaffolding.py,
     # which tests/deployment/test_service_dockerfiles.py enforces; how the
     # value is chosen is written beside that constant.
-    && npm install -g @anthropic-ai/claude-code@2.1.300
+    && npm install -g @anthropic-ai/claude-code@2.1.322
 # The pin is the point, so the CLI's background self-updater is off: a
 # successful update would silently replace the pinned version. Same rationale
 # as the project image (Dockerfile.j2); bump the pin and rebuild instead.

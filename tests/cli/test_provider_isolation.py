@@ -15,6 +15,7 @@ import pytest
 
 import osprey.models.provider_registry
 from osprey.agent_runner.provider_env import (
+    GATEWAY_TOOL_SEARCH_ENV,
     MANAGED_ENV_VARS,
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
@@ -573,11 +574,13 @@ class TestManagedListsAgree:
     @pytest.mark.parametrize("provider", ["anthropic", "cborg", "als-apg"])
     def test_lists_agree_resolve_env_block_subset_of_managed(self, provider):
         # The provider and model keys; the OTLP block's keys are deliberately
-        # unmanaged (tests/cli/test_telemetry_env.py pins that).
+        # unmanaged (tests/cli/test_telemetry_env.py pins that), and so is the
+        # tool-search switch a gateway launch carries: scrubbing it would take
+        # an operator's own value away from a first-party launch.
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": provider}, _ALS_APG, include_telemetry=False
         )
-        leaked = set(spec.env_block) - MANAGED_ENV_VARS
+        leaked = set(spec.env_block) - MANAGED_ENV_VARS - set(GATEWAY_TOOL_SEARCH_ENV)
         assert not leaked, (
             f"{provider} env_block escapes MANAGED_ENV_VARS (would survive a "
             f"stale shell export uncleared): {sorted(leaked)}"
@@ -662,6 +665,7 @@ class TestResolveEnvBlockRegression:
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"}, include_telemetry=False)
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": "https://api.cborg.lbl.gov",
+            "ENABLE_TOOL_SEARCH": "false",
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
             "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
             "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
@@ -679,6 +683,7 @@ class TestResolveEnvBlockRegression:
         )
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": GATEWAY_ORIGIN,
+            "ENABLE_TOOL_SEARCH": "false",
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-5-5",
             "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
             "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5",
@@ -701,6 +706,7 @@ class TestResolveEnvBlockRegression:
         )
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": "https://proxy.example.com",
+            "ENABLE_TOOL_SEARCH": "false",
             # No Claude model is served, so every alias runs the main model.
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "lab-opus",
             "ANTHROPIC_DEFAULT_SONNET_MODEL": "lab-opus",
