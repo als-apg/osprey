@@ -716,7 +716,15 @@ the port layout’s <code class="docutils literal notranslate"><span class="pre"
 <td><p>Deploys the optimizer service and its Redis job store
 (see <a class="reference internal" href="#profile-optimizer"><span class="std std-ref">optimizer</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">nextcloud_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">gchat_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">teams_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">slack_bridge</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">optimizer_web</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p>absent</p></td>
+<td><p>Deploys the <code class="docutils literal notranslate"><span class="pre">optimizer-web</span></code> sidecar that serves the <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>
+panel and relays its writes to the optimizer service; needs an
+<code class="docutils literal notranslate"><span class="pre">optimizer:</span></code> block. Its one key, <code class="docutils literal notranslate"><span class="pre">port</span></code>, defaults to the port
+layout’s <code class="docutils literal notranslate"><span class="pre">optimizer_web</span></code> slot (see <a class="reference internal" href="../ports.html#reference-ports"><span class="std std-ref">Ports</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">nextcloud_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">gchat_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">teams_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">slack_bridge</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Deploys one chat bridge, which hands messages to the event dispatcher,
@@ -726,47 +734,47 @@ so it needs a <code class="docutils literal notranslate"><span class="pre">dispa
 <code class="docutils literal notranslate"><span class="pre">mentions</span></code> (default <code class="docutils literal notranslate"><span class="pre">true</span></code>). Credentials are runtime variables,
 never profile keys (see <a class="reference internal" href="../../how-to/agent-interfaces/chat-bridges/index.html#how-to-chat-bridges"><span class="std std-ref">Chat Bridges</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">artifact_server</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">artifact_server</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Overrides merged into the rendered <code class="docutils literal notranslate"><span class="pre">artifact_server</span></code> block of
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: <code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code>, <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> and <code class="docutils literal notranslate"><span class="pre">extension_types</span></code>
 (see <a class="reference internal" href="config.html#config-artifact-server"><span class="std std-ref">artifact_server: — the workspace gallery’s extension types</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">agent_record</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agent_record</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>embedded backend</p></td>
 <td><p>Where the deployment’s agent record is kept, how long, and who reads it.
 Written into the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">agent_record</span></code> (see
 <a class="reference internal" href="../../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">watchdogs</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">watchdogs</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>The deployment’s watchdogs, by name; each one’s files live in
 <code class="docutils literal notranslate"><span class="pre">watchdogs/&lt;name&gt;/</span></code> beside the profile
 (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-watchdogs-block"><span class="std std-ref">The watchdogs: block</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">apps</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">apps</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>The applications the deployment runs, by name; each one’s files live in
 <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> beside the profile (see <a class="reference internal" href="../../how-to/apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>). In
 a login file, which of them the login’s card shows.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lists</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lists</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">add</span></code></p></td>
 <td><p>Login files only: <code class="docutils literal notranslate"><span class="pre">add</span></code> lays the login’s lists over the deployment’s,
 <code class="docutils literal notranslate"><span class="pre">own</span></code> takes them from the file alone (see <a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Commands to run at build phases (<code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>,
 <code class="docutils literal notranslate"><span class="pre">validate</span></code>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>,
@@ -775,34 +783,34 @@ host may not override; a deploy refuses rather than start on a
 contradicting value (see <a class="reference internal" href="../../how-to/deploy-project/env-chain.html#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>). Same name pattern
 as <code class="docutils literal notranslate"><span class="pre">required</span></code>, and a machine-minted name cannot be pinned.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Python packages to install into the project venv.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Base interpreter the project environment is built from
 (see <a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>PEP 440 specifier (e.g. <code class="docutils literal notranslate"><span class="pre">&gt;=2026.5.0</span></code>). The build aborts if unsatisfied.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
 <td><p>How to install OSPREY in the project venv: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">pip</span></code>, or a
 PEP 508 spec.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
 <td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, or an absolute path.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><em>written</em></p></td>
 <td><p>Which preset this profile was materialized from, that preset’s hash, and
