@@ -119,29 +119,31 @@ def _tile(page: Page, panel_id: str):
     return page.locator(f'.tile-tab[data-panel-id="iframe:{panel_id}"]')
 
 
-#: Where a frame is while it is between documents: no path, so a poll reads on.
-_MID_NAVIGATION = {"path": None, "hash": None, "query": ""}
+#: What a read in a frame raises when the frame navigates under it.
+_NAVIGATED = "Execution context was destroyed"
 
 
 def _frame_location(page: Page, panel_id: str) -> dict:
-    """Where the panel's frame is, once it has loaded a document of this panel.
+    """Where the panel's frame is, read from a settled document.
 
-    The session's apply can move the frame to its page while it is read; a read
-    that lands mid-navigation answers :data:`_MID_NAVIGATION` rather than raising.
+    The frame may still be leaving one page for another (the stored page for the
+    visited one); a read that lands in that navigation is not an answer, so it
+    is taken again once the frame has a document to read.
     """
     frame = page.locator(f'iframe.panel-iframe[data-panel-id="{panel_id}"]')
     expect(frame).to_be_attached(timeout=_TIMEOUT_MS)
-    try:
+    for _ in range(100):
         content = frame.element_handle().content_frame()
-        if content is None:
-            return _MID_NAVIGATION
-        return content.evaluate(
-            "() => ({path: location.pathname, hash: location.hash, query: location.search})"
-        )
-    except PlaywrightError as error:
-        if "Execution context was destroyed" not in error.message:
-            raise
-        return _MID_NAVIGATION
+        if content is not None:
+            try:
+                return content.evaluate(
+                    "() => ({path: location.pathname, hash: location.hash, query: location.search})"
+                )
+            except PlaywrightError as exc:
+                if _NAVIGATED not in str(exc):
+                    raise
+        page.wait_for_timeout(100)
+    raise AssertionError(f"the {panel_id} frame never settled on a document")
 
 
 def _expect_on_screen_at(page: Page, panel_id: str, path: str, hash_: str) -> None:

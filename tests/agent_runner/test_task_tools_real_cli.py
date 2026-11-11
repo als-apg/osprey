@@ -213,6 +213,7 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
         ClaudeSDKClient,
         ResultMessage,
         SystemMessage,
+        TextBlock,
         ToolResultBlock,
         ToolUseBlock,
         UserMessage,
@@ -243,6 +244,8 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
     version: list[str] = []
     calls: dict[str, str] = {}
     results: dict[str, tuple[bool, str]] = {}
+    #: Assistant messages that carried an error: (error, their text).
+    refused: list[tuple[str, str]] = []
 
     async def run() -> None:
         async with ClaudeSDKClient(options=options) as client:
@@ -253,6 +256,9 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
                     version.append(str(message.data.get("claude_code_version")))
                 elif isinstance(message, AssistantMessage | UserMessage):
                     blocks = message.content if isinstance(message.content, list) else []
+                    if isinstance(message, AssistantMessage) and message.error:
+                        text = " ".join(b.text for b in blocks if isinstance(b, TextBlock))
+                        refused.append((str(message.error), text))
                     for block in blocks:
                         if isinstance(block, ToolUseBlock):
                             calls[block.id] = block.name
@@ -271,7 +277,10 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
     assert all({"TaskCreate", "TaskList"} <= offered for offered in _ScriptedMessagesApi.offered), (
         "the tools were offered to the model on every turn"
     )
-    assert set(results) == {"TaskCreate", "TaskList"}, f"tool results seen: {results}"
+    assert set(results) == {"TaskCreate", "TaskList"}, (
+        f"tool results seen: {results}; the run resolved {options.cli_path}; "
+        f"assistant messages with an error: {refused or 'none'}"
+    )
     created_failed, created = results["TaskCreate"]
     assert not created_failed, f"TaskCreate failed: {created}"
     listing_failed, listing = results["TaskList"]

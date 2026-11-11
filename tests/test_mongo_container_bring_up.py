@@ -1,7 +1,8 @@
 """The throwaway-MongoDB recipe's bring-up and server flags, against scripted fakes.
 
-A container that exits before it answers is rebuilt fresh, a bounded number of
-times; one that stays up and will not answer fails at once. The flags the
+A container that exits before it answers, or whose published port another
+process answers, is rebuilt fresh, a bounded number of times; one that stays up
+and will not answer fails at once. The flags the
 recipe passes start mongod's TTL sweeper off. No container engine is needed.
 """
 
@@ -9,6 +10,10 @@ from __future__ import annotations
 
 import sys
 import types
+from collections.abc import Iterator
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 
 import pytest
 
@@ -16,6 +21,7 @@ from tests import _mongo_container
 from tests._container_support import (
     CONTAINER_START_ATTEMPTS,
     ContainerExitedError,
+    ForeignListenerError,
 )
 
 # ---------------------------------------------------------------------------
@@ -87,6 +93,32 @@ def test_a_store_that_exits_during_its_boot_is_rebuilt_fresh(monkeypatch) -> Non
     )
 
 
+def test_a_store_whose_port_a_foreign_listener_answers_is_rebuilt_fresh(monkeypatch) -> None:
+    """A host process that holds the published port shadows this store; a fresh one gets
+    another port."""
+    scripted = _BringUp(monkeypatch, [ForeignListenerError("an HTTP reply"), None])
+
+    host, port = _bring_up()
+
+    assert (host, port) == ("127.0.0.1", 40002), "the address must be the SECOND container's"
+    assert [c.number for c in scripted.stopped] == [1, 2]
+
+
+def test_every_fresh_start_shadowed_fails_naming_every_attempt(monkeypatch) -> None:
+    endings: list[BaseException | None] = [
+        ForeignListenerError(f"shadowed on start {n}")
+        for n in range(1, CONTAINER_START_ATTEMPTS + 1)
+    ]
+    _BringUp(monkeypatch, endings)
+
+    with pytest.raises(AssertionError) as caught:
+        _bring_up()
+
+    assert not isinstance(caught.value, ForeignListenerError)
+    for n in range(1, CONTAINER_START_ATTEMPTS + 1):
+        assert f"attempt {n}: shadowed on start {n}" in str(caught.value)
+
+
 def test_a_live_store_that_never_answers_is_not_rebuilt(monkeypatch) -> None:
     """Credentials or flags: the same container on a second look, so fail at once."""
     scripted = _BringUp(monkeypatch, [AssertionError("answered but would not serve the probe")])
@@ -116,6 +148,49 @@ def test_a_store_that_exits_on_every_fresh_start_fails_naming_every_attempt(monk
     assert len(scripted.stopped) == CONTAINER_START_ATTEMPTS
     for n in range(1, CONTAINER_START_ATTEMPTS + 1):
         assert f"attempt {n}: exit on start {n}" in message
+
+
+# ---------------------------------------------------------------------------
+# The probe: a reply that is not the wire protocol is a foreign listener
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _http_listener() -> Iterator[int]:
+    """An HTTP server on a loopback port, as another fixture of a parallel run holds one."""
+
+    class _Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+    thread.start()
+    try:
+        yield server.server_port
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_a_probe_answered_over_http_names_a_foreign_listener() -> None:
+    pytest.importorskip("pymongo")
+    with _http_listener() as port, pytest.raises(ForeignListenerError) as caught:
+        _mongo_container._ping("127.0.0.1", port, "u", "p")
+
+    assert f"127.0.0.1:{port}" in str(caught.value)
+
+
+def test_a_probe_with_nothing_listening_is_not_a_foreign_listener() -> None:
+    pymongo_errors = pytest.importorskip("pymongo.errors")
+    with _http_listener() as port:
+        pass  # the port is free again
+
+    with pytest.raises(pymongo_errors.ServerSelectionTimeoutError) as caught:
+        _mongo_container._ping("127.0.0.1", port, "u", "p")
+
+    assert not isinstance(caught.value, ForeignListenerError)
 
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,7 @@ from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
 )
 from tests import _litellm_callbacks
 from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests._session_database import dev_server_url, own_database
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 if TYPE_CHECKING:
@@ -273,40 +274,6 @@ def _reset_ariel_service_singleton():
         capability.reset_ariel_service()
 
 
-# Dev database URLs - try port 5432 (ariel-postgres), then 5433 (ariel-dev-db)
-DEV_DATABASE_URL_5432 = "postgresql://ariel:ariel@localhost:5432/ariel_test"
-DEV_DATABASE_URL_5433 = "postgresql://ariel:ariel@localhost:5433/ariel_test"
-
-
-def is_dev_database_available() -> tuple[bool, str]:
-    """Check if a dev database is running (tries 5432 then 5433).
-
-    Returns:
-        Tuple of (available, url).
-    """
-    try:
-        import psycopg
-    except ImportError:
-        logger.debug("psycopg not available (libpq missing?), skipping dev database check")
-        return False, ""
-
-    for dev_url in [DEV_DATABASE_URL_5432, DEV_DATABASE_URL_5433]:
-        try:
-            base_url = dev_url.replace("/ariel_test", "/ariel")
-            with psycopg.connect(base_url, autocommit=True) as conn:
-                conn.execute("SELECT 1")
-                try:
-                    conn.execute("CREATE DATABASE ariel_test")
-                    logger.info("Created ariel_test database")
-                except psycopg.errors.DuplicateDatabase:
-                    pass  # Already exists
-            return True, dev_url
-        except Exception as e:
-            logger.debug(f"Dev database at {dev_url} not available: {e}")
-            continue
-    return False, ""
-
-
 # ============================================================================
 # Integration test fixtures (require Docker)
 # ============================================================================
@@ -333,16 +300,20 @@ def database_url(request: pytest.FixtureRequest) -> str:
     """Get database connection URL for tests.
 
     Tries in order:
-    1. ARIEL_TEST_DATABASE_URL environment variable
-    2. Existing docker-compose dev database (ariel-dev-db on port 5433)
+    1. The server ARIEL_TEST_DATABASE_URL names
+    2. A running docker-compose dev database server (port 5432, then 5433)
     3. Testcontainers (spins up fresh container)
 
-    Deliberately a plain (non-generator) fixture: only the third exit owns a
-    container, while the first two return a URL to a database this fixture did
-    not create. A ``yield`` would make *all three* paths generator paths, so the
-    two resource-free exits would raise "did not yield a value". Container
-    teardown is registered with ``request.addfinalizer`` instead, which runs at
-    session teardown exactly as a ``finally`` would.
+    The session owns the database it writes to. The first two exits reach a
+    server the session did not start, so the session works in a database of its
+    own on that server (``own_database``), created here and dropped at session
+    end; the third owns the whole container. Under xdist each worker is a
+    session of its own, with its own database, as it has its own container.
+
+    Deliberately a plain (non-generator) fixture: teardown -- the own database's
+    drop, or the container's stop -- is registered with ``request.addfinalizer``,
+    which runs at session teardown exactly as a ``finally`` would, and skips
+    raised before any resource exists need no generator path.
 
     Args:
         request: Fixture request, used to register container teardown.
@@ -357,14 +328,13 @@ def database_url(request: pytest.FixtureRequest) -> str:
     # 1. Check for explicit env var
     env_url = os.environ.get("ARIEL_TEST_DATABASE_URL")
     if env_url:
-        logger.info(f"Using database from ARIEL_TEST_DATABASE_URL: {env_url.split('@')[-1]}")
-        return env_url
+        logger.info(f"Using the server ARIEL_TEST_DATABASE_URL names: {env_url.split('@')[-1]}")
+        return own_database(request, env_url, "ariel_test")
 
-    # 2. Try existing docker-compose dev database (fastest)
-    available, dev_url = is_dev_database_available()
-    if available:
-        logger.info(f"Using existing dev database: {dev_url.split('@')[-1]}")
-        return dev_url
+    # 2. Try an existing docker-compose dev database server (fastest)
+    server_url = dev_server_url()
+    if server_url is not None:
+        return own_database(request, server_url, "ariel_test")
 
     # 3. Fall back to testcontainers
     if not is_docker_available():
@@ -441,9 +411,9 @@ def integration_ariel_config(database_url: str) -> ARIELConfig:
 
 # Track if migrations have been applied in this session.
 # Intentionally session-scoped with no reset seam: migrations are idempotent and
-# every test in the docker group shares the one `ariel_test` database, so a
-# per-test reset would buy nothing and re-run the full migration set once per
-# test on the docker worker.
+# every test of the session shares the session's one database, so a per-test
+# reset would buy nothing and re-run the full migration set once per test on the
+# docker worker.
 _migrations_applied: bool = False
 
 

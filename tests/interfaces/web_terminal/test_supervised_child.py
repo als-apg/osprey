@@ -92,8 +92,13 @@ CHILD = textwrap.dedent(
 )
 
 
-def _ask(port: int, timeout: float = 10.0) -> tuple[int, str]:
-    """Connect to *port*, send one request, return the answering (pid, generation)."""
+def _ask(port: int, timeout: float | None = None) -> tuple[int, str]:
+    """Connect to *port*, send one request, return the answering (pid, generation).
+
+    No budget by default: the answer comes from a child the supervisor starts by
+    itself, however slowly a loaded host starts it; the per-test timeout is the
+    hang breaker.
+    """
     with socket.create_connection(("127.0.0.1", port), timeout=timeout) as conn:
         conn.sendall(b"hello\n")
         conn.settimeout(timeout)
@@ -145,7 +150,6 @@ class Harness:
         self.held = held
         self.give_ups = 0
         self.spawn_times: list[float] = []
-        self.clock_times: list[float] = []
         self.generation = 0
         self._children: list[SupervisedChild] = []
 
@@ -178,29 +182,39 @@ class Harness:
         self._children.append(child)
         return child
 
-    def recording(self, clock: Callable[[], float]) -> Callable[[], float]:
-        """*clock*, noting the real instant of every call the supervisor makes."""
-
-        def read() -> float:
-            self.clock_times.append(time.monotonic())
-            return clock()
-
-        return read
-
-    def respawn_waits(self) -> list[float]:
-        """Each respawn's distance from the supervisor's last clock read before it.
-
-        The supervisor reads its clock once the child has exited and before it
-        waits, so this is the wait alone: the child's own start-up, which on a
-        loaded runner takes seconds, is not in it.
-        """
-        return [
-            spawn - max(t for t in self.clock_times if t <= spawn) for spawn in self.spawn_times[1:]
-        ]
-
     def stop_all(self) -> None:
         for child in self._children:
             child.stop()
+
+
+class Backoffs:
+    """The supervisor's backoff waits, in place of the real clock's.
+
+    Each call notes the seconds asked and how many children had been started by
+    then, then ends at once (``hold=False``) or only when the stop event it was
+    handed is set or the test lets it go (:meth:`release`). No assertion reads
+    wall time: the children are still real processes that really exit.
+    """
+
+    def __init__(self, harness: Harness, *, hold: bool = False) -> None:
+        self._harness = harness
+        self._released = threading.Event()
+        if not hold:
+            self._released.set()
+        #: (seconds asked, children started before the wait) per backoff.
+        self.asked: list[tuple[float, int]] = []
+        #: The stop event each wait was handed.
+        self.stops: list[threading.Event] = []
+
+    def __call__(self, stop: threading.Event, seconds: float) -> bool:
+        self.stops.append(stop)
+        self.asked.append((seconds, len(self._harness.spawn_times)))
+        while not (stop.is_set() or self._released.is_set()):
+            stop.wait(0.01)
+        return stop.is_set()
+
+    def release(self) -> None:
+        self._released.set()
 
 
 @pytest.fixture
@@ -276,7 +290,7 @@ class TestRespawn:
         assert len(set(pids)) == 21, "every request was answered by a new child"
         # The environment is rendered again for every start.
         assert [generation for _, generation in seen] == [str(n) for n in range(1, 22)]
-        wait_until(lambda: child.starts == 22)
+        wait_until(lambda: child.starts == 22, timeout=None)
         assert harness.give_ups == 0
         assert child.running
 
@@ -286,9 +300,9 @@ class TestRespawn:
         child.start()
         for _ in range(5):
             _ask(harness.held.port)
-        wait_until(lambda: child.starts == 6 and child.pid is not None)
+        wait_until(lambda: child.starts == 6 and child.pid is not None, timeout=None)
         # Five incarnations are gone and so are their threads.
-        wait_until(lambda: len(_watcher_threads()) == before + 1)
+        wait_until(lambda: len(_watcher_threads()) == before + 1, timeout=None)
 
     def test_a_request_queued_while_no_child_lives_is_answered_by_the_next(
         self, harness: Harness
@@ -297,7 +311,7 @@ class TestRespawn:
         child = harness.supervise("answer", 3, backoff_s=(1.0,))
         child.start()
         first, _ = _ask(port)
-        wait_until(lambda: not pid_alive(first) and child.pid is None)
+        wait_until(lambda: not pid_alive(first) and child.pid is None, timeout=None)
         assert child.starts == 1, "the crash is waiting out its backoff"
 
         # No child is alive: the connection is completed by the parent's
@@ -309,20 +323,31 @@ class TestRespawn:
         assert child.exit_status == 3
 
     def test_a_crash_is_respawned_after_the_backoff(self, harness: Harness) -> None:
-        child = harness.supervise("exit", 1, backoff_s=(0.3,), give_up_after=3)
+        backoffs = Backoffs(harness)
+        child = harness.supervise("exit", 1, backoff_s=(0.3,), give_up_after=3, wait=backoffs)
         child.start()
-        wait_until(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
         assert child.starts == 3
-        gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
-        assert all(gap >= 0.3 for gap in gaps)
+        # Each respawn came after a backoff of the configured length, asked once
+        # the child before it had been started and had crashed.
+        assert backoffs.asked == [(0.3, 1), (0.3, 2)]
 
     def test_crashes_outside_the_window_are_forgotten(self, harness: Harness) -> None:
+        # Every clock read is a second after the one before, so consecutive
+        # crashes are always further apart than the 0.1 s window.
+        ticks = itertools.count()
         child = harness.supervise(
-            "exit", 1, backoff_s=(0.2,), give_up_after=2, give_up_window_s=0.1
+            "exit",
+            1,
+            backoff_s=(0.2,),
+            give_up_after=2,
+            give_up_window_s=0.1,
+            clock=lambda: float(next(ticks)),
+            wait=Backoffs(harness),
         )
         child.start()
         # Each crash is alone in its window, so the count never reaches two.
-        wait_until(lambda: child.starts >= 5)
+        wait_until(lambda: child.starts >= 5 or harness.give_ups, timeout=None)
         assert harness.give_ups == 0
 
     def test_a_child_that_cannot_be_started_counts_as_a_crash(
@@ -349,7 +374,7 @@ class TestRespawn:
         )
         child.start()
         try:
-            wait_until(lambda: child.failure == FAILURE_GAVE_UP)
+            wait_until(lambda: child.failure == FAILURE_GAVE_UP, timeout=None)
             assert child.starts == 1
             assert calls == 4
         finally:
@@ -382,32 +407,34 @@ class TestContractSchedule:
         """Untuned supervisor, child that exits 75 at once.
 
         A 75 from a child younger than a second waits the backoff, so the
-        loop is bounded: waits of 0.5, 1, 2 and 4 s, then the fifth exit ends
-        it, and the port is still bound. The supervisor's clock is frozen, so
-        every lifetime is zero and every exit falls in the window whatever the
-        host's speed.
+        loop is bounded: the default waits, one before each respawn, then the
+        fifth exit ends it, and the port is still bound. The supervisor's clock
+        is frozen, so every lifetime is zero and every exit falls in the window
+        whatever the host's speed; the backoff is the test's wait, which notes
+        the seconds asked and ends at once.
         """
         port = harness.held.port
-        child = harness.supervise("exit", BINDING_MOVED, clock=harness.recording(lambda: 0.0))
+        backoffs = Backoffs(harness)
+        child = harness.supervise("exit", BINDING_MOVED, clock=lambda: 0.0, wait=backoffs)
         child.start()
 
-        wait_until(lambda: harness.give_ups == 1, timeout=40)
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
+        watchers = _watcher_threads()
 
-        assert child.starts == 5
+        assert child.starts == supervised_child.GIVE_UP_AFTER
         assert child.failure == FAILURE_GAVE_UP
         assert child.exit_status == BINDING_MOVED
         assert not child.running
         assert child.pid is None
-        gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
-        assert len(gaps) == 4
-        waited = harness.respawn_waits()
-        for gap, measured, wait in zip(gaps, waited, (0.5, 1.0, 2.0, 4.0), strict=True):
-            assert gap >= wait
-            assert wait <= measured < wait + 2.0
+        # Each respawn came after the default backoff for its count, asked once
+        # the child before it had been started and had exited.
+        assert backoffs.asked == [
+            (seconds, starts) for starts, seconds in enumerate(supervised_child.BACKOFF_S, start=1)
+        ]
 
-        time.sleep(0.3)
+        wait_until(lambda: not any(thread.is_alive() for thread in watchers), timeout=None)
         assert harness.give_ups == 1, "called once"
-        assert child.starts == 5, "nothing is started after giving up"
+        assert child.starts == supervised_child.GIVE_UP_AFTER, "nothing is started after giving up"
         assert _bind_errno(port) == errno.EADDRINUSE
         harness.held.close()
         assert _bind_errno(port) is None
@@ -418,24 +445,24 @@ class TestContractSchedule:
         """Untuned window and count, child that exits 75 past the quick bound.
 
         The step clock makes every lifetime 1.5 s and keeps five exits inside
-        60 s: each 75 skips the 30 s backoff, and the fifth still ends it.
+        the default window: each 75 skips the 30 s backoff, and the fifth still
+        ends it.
         """
         ticks = itertools.count()
+        backoffs = Backoffs(harness)
         child = harness.supervise(
             "exit",
             BINDING_MOVED,
             backoff_s=(30.0,),
-            clock=harness.recording(lambda: next(ticks) * 1.5),
+            clock=lambda: next(ticks) * 1.5,
+            wait=backoffs,
         )
         child.start()
 
-        # Five starts inside 20 s: no 30 s backoff was taken.
-        wait_until(lambda: harness.give_ups == 1, timeout=20)
-        assert child.starts == 5
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
+        assert child.starts == supervised_child.GIVE_UP_AFTER
         assert child.failure == FAILURE_GAVE_UP
-        gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
-        assert len(gaps) == 4
-        assert max(harness.respawn_waits()) < 5.0, "no backoff was waited"
+        assert backoffs.asked == [], "no backoff was waited"
 
 
 class TestStartRefused:
@@ -444,8 +471,9 @@ class TestStartRefused:
         child = harness.supervise("exit", START_REFUSED, backoff_s=(0.05,))
         child.start()
 
-        wait_until(lambda: harness.give_ups == 1)
-        time.sleep(0.5)
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
+        watchers = _watcher_threads()
+        wait_until(lambda: not any(thread.is_alive() for thread in watchers), timeout=None)
 
         assert harness.give_ups == 1
         assert child.starts == 1
@@ -473,7 +501,7 @@ class TestStartRefused:
         )
         child.start()
         try:
-            assert gave_up.wait(10)
+            wait_until(gave_up.is_set, timeout=None)
             assert "refusing: no context dir" in child.stderr_tail
         finally:
             child.stop()
@@ -489,15 +517,15 @@ class TestStartRefused:
         child = harness.supervise("exit", START_REFUSED, on_give_up=on_give_up)
         holder.append(child)
         child.start()
-        assert done.wait(10)
+        wait_until(done.is_set, timeout=None)
         assert child.failure == FAILURE_REFUSED
 
     def test_start_again_after_a_refusal(self, harness: Harness) -> None:
         child = harness.supervise("exit", START_REFUSED)
         child.start()
-        wait_until(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
         child.start()
-        wait_until(lambda: harness.give_ups == 2)
+        wait_until(lambda: harness.give_ups == 2, timeout=None)
         assert child.starts == 1
 
 
@@ -533,17 +561,19 @@ class TestStop:
         time.sleep(0.3)
         assert child.starts == 1
 
-    @pytest.mark.wallclock
     def test_stop_during_a_backoff_cancels_the_respawn(self, harness: Harness) -> None:
-        child = harness.supervise("exit", 1, backoff_s=(1.0,))
+        backoffs = Backoffs(harness, hold=True)
+        child = harness.supervise("exit", 1, backoff_s=(1.0,), wait=backoffs)
         child.start()
-        wait_until(lambda: child.exit_status == 1 and child.pid is None)
+        wait_until(lambda: backoffs.asked, timeout=None)
+        watchers = _watcher_threads()
 
-        began = time.monotonic()
         child.stop()
-        assert time.monotonic() - began < 0.9, "stop does not wait the backoff out"
+        # The backoff waits on the event stop() sets, so a stop ends it.
+        assert backoffs.stops[0].is_set(), "stop does not wait the backoff out"
 
-        time.sleep(1.5)
+        backoffs.release()
+        wait_until(lambda: not any(thread.is_alive() for thread in watchers), timeout=None)
         assert child.starts == 1
         assert harness.give_ups == 0
         assert not child.running
@@ -603,7 +633,7 @@ class TestExitedChild:
         monkeypatch.setattr(subprocess_capture, "stop_child", spy)
         child = harness.supervise("exit", START_REFUSED)
         child.start()
-        wait_until(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
         assert child.exit_status == START_REFUSED
         assert child.failure == FAILURE_REFUSED
         assert on_entry == [True], "the watcher reaped the child before its stop"
@@ -630,7 +660,7 @@ class TestExitedChild:
         try:
             with caplog.at_level(logging.WARNING, logger=supervised_child.__name__):
                 child.start()
-                wait_until(lambda: harness.give_ups == 1)
+                wait_until(lambda: harness.give_ups == 1, timeout=None)
             member = int(member_file.read_text())
             assert child.exit_status == START_REFUSED
             warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
@@ -649,6 +679,8 @@ class TestRenderCallbacks:
 
     @staticmethod
     def _finishes(action: Callable[[], None], timeout: float = 10.0) -> bool:
+        # A budget is what these cases prove: a deadlocked start never finishes,
+        # and only a bound tells it from a slow one.
         worker = threading.Thread(target=action, daemon=True)
         worker.start()
         worker.join(timeout)
@@ -678,7 +710,7 @@ class TestRenderCallbacks:
         # hang too; no child exists at that point, so there is nothing to stop.
         assert self._finishes(child.start), "start() deadlocked on its own render"
         try:
-            wait_until(lambda: child.starts >= 2)
+            wait_until(lambda: child.starts >= 2, timeout=None)
         finally:
             child.stop()
         assert seen[0] == (None, None, True, 0)
@@ -720,7 +752,10 @@ def test_the_held_socket_outlives_a_killed_child(harness: Harness) -> None:
     # A child blocked in accept() can take the next connection in the kernel
     # and die holding it, which resets the client; ask only once the
     # supervisor has reaped it and the next child is up.
-    wait_until(lambda: child.exit_status == -signal.SIGKILL and child.pid not in (None, first))
+    wait_until(
+        lambda: child.exit_status == -signal.SIGKILL and child.pid not in (None, first),
+        timeout=None,
+    )
 
     second, _ = _ask(port)
     assert second != first
@@ -742,6 +777,7 @@ class TestPreviousExit:
         # still see none, because _spawn pops what env_for supplied.
         monkeypatch.setenv(PREVIOUS_EXIT_ENV, "75")
         out = tmp_path / "seen.txt"
+        backoffs = Backoffs(harness)
         child = harness.supervise(
             "record",
             TRANSPORT_STALE,
@@ -751,13 +787,15 @@ class TestPreviousExit:
             quick_exit_s=0.1,
             backoff_s=(30.0,),
             give_up_after=10,
+            wait=backoffs,
         )
         child.start()
-        wait_until(lambda: len(self._seen(out)) >= 3, timeout=20)
+        wait_until(lambda: len(self._seen(out)) >= 3, timeout=None)
         seen = self._seen(out)
         assert seen[0] == "-"
         assert set(seen[1:]) == {"76"}
         # 76 takes 75's path: respawned at once.
+        assert backoffs.asked == [], "no backoff was waited"
         assert harness.give_ups == 0
         assert child.failure is None
 
@@ -765,19 +803,23 @@ class TestPreviousExit:
         self, harness: Harness, tmp_path: Path
     ) -> None:
         out = tmp_path / "seen.txt"
-        child = harness.supervise("record", 1, str(out), "0", backoff_s=(0.05,), give_up_after=3)
+        child = harness.supervise(
+            "record", 1, str(out), "0", backoff_s=(0.05,), give_up_after=3, wait=Backoffs(harness)
+        )
         child.start()
-        wait_until(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
         assert self._seen(out) == ["-", "1", "1"]
 
     def test_a_new_start_forgets_the_previous_run(self, harness: Harness, tmp_path: Path) -> None:
         out = tmp_path / "seen.txt"
-        child = harness.supervise("record", 1, str(out), "0", backoff_s=(0.05,), give_up_after=2)
+        child = harness.supervise(
+            "record", 1, str(out), "0", backoff_s=(0.05,), give_up_after=2, wait=Backoffs(harness)
+        )
         child.start()
-        wait_until(lambda: harness.give_ups == 1)
+        wait_until(lambda: harness.give_ups == 1, timeout=None)
         assert child.exit_status == 1
         assert self._seen(out) == ["-", "1"]
 
         child.start()
-        wait_until(lambda: len(self._seen(out)) >= 3)
+        wait_until(lambda: len(self._seen(out)) >= 3, timeout=None)
         assert self._seen(out)[2] == "-", "start() begins a run with no predecessor"

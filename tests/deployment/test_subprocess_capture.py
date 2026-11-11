@@ -984,11 +984,14 @@ class TestProcessGroupStop:
         def end_the_group_on_the_first_poll(seconds: float) -> None:
             if not polls:
                 group.stdin.close()
-                group.wait(timeout=30)
+                group.wait()
             polls.append(seconds)
 
+        # The deadline is kept on a clock only the polls move, so it is the
+        # number of polls that decides, not how long a loaded host takes to read
+        # the process table or to end the group.
         waiting = types.SimpleNamespace(
-            monotonic=time.monotonic, sleep=end_the_group_on_the_first_poll
+            monotonic=lambda: sum(polls), sleep=end_the_group_on_the_first_poll
         )
         monkeypatch.setattr(subprocess_capture, "time", waiting)
         try:

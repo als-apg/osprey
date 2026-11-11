@@ -15,10 +15,9 @@ from tests.services.ariel_search.integration._support import is_ollama_available
 
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
-# reaper starts race the Docker daemon's port mapper. It also serializes the shared
-# database: the session ``database_url`` fixture prefers a running dev Postgres with
-# ONE shared ``ariel_test`` database over a per-worker container, so parallel workers
-# would otherwise collide on migrations/seed/truncate.
+# reaper starts race the Docker daemon's port mapper. Each test session (each xdist
+# worker) writes to a database it created itself (``database_url`` /
+# ``own_database``), on a server it found or in a container it started.
 pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 

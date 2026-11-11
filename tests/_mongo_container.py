@@ -27,6 +27,15 @@ times. A container that stays up and will not answer is not retried: it is the
 same container on a second look, and its failure — credentials, flags — belongs
 in front of the reader at once.
 
+**Why a foreign listener is retried too.** Where the runtime publishes a port it
+picked inside its VM (Colima, Docker Desktop), a process on the host can already
+hold that port on the loopback address — another fixture's server in a parallel
+run — and the host routes the probe to it instead of the forwarder. The store is
+up and unreachable on that port for as long as the other process keeps it, so
+the probe names a reply that is not the wire protocol as a foreign listener and
+the container is discarded like an exited one: a fresh one is published on
+another port.
+
 The leading underscore keeps the module out of pytest collection: ``python_files``
 matches ``test_*.py``/``*_test.py`` only, and a helper module that got collected
 would report its imports as test failures.
@@ -42,6 +51,7 @@ import pytest
 from tests._container_support import (
     CONTAINER_START_ATTEMPTS,
     ContainerExitedError,
+    ForeignListenerError,
     start_or_skip,
     stop_quietly,
     wait_until_ready,
@@ -111,7 +121,7 @@ def started_mongo(
                 label,
                 container=container,
             )
-        except ContainerExitedError as exc:
+        except (ContainerExitedError, ForeignListenerError) as exc:
             stop_quietly(container)
             exits.append(f"attempt {attempt}: {exc}")
             continue
@@ -121,9 +131,9 @@ def started_mongo(
         break
     else:
         raise AssertionError(
-            f"{label}: the container exited before answering on every one of "
-            f"{CONTAINER_START_ATTEMPTS} fresh starts, so this is the image, its flags or the "
-            "host, not a lost boot race.\n" + "\n\n".join(exits)
+            f"{label}: every one of {CONTAINER_START_ATTEMPTS} fresh starts exited or was "
+            "shadowed by a foreign listener before answering, so this is the image, its "
+            "flags or the host, not a lost boot race or one port collision.\n" + "\n\n".join(exits)
         )
 
     try:
@@ -153,8 +163,13 @@ def _ping(host: str, port: int, username: str, password: str) -> None:
     The one-second selection window is what makes this a poll rather than one
     long wait: a client left on its own default would spend the whole retry
     budget inside a single attempt.
+
+    Raises:
+        ForeignListenerError: The port's reply is not the wire protocol (pymongo
+            reads it as a ``ProtocolError``): another process holds the port.
     """
     from pymongo import MongoClient
+    from pymongo.errors import ProtocolError, ServerSelectionTimeoutError
 
     client = MongoClient(
         host,
@@ -166,5 +181,12 @@ def _ping(host: str, port: int, username: str, password: str) -> None:
     )
     try:
         client.admin.command("ping")
+    except ServerSelectionTimeoutError as exc:
+        servers = client.topology_description.server_descriptions().values()
+        if any(isinstance(server.error, ProtocolError) for server in servers):
+            raise ForeignListenerError(
+                f"{host}:{port} answered, not in the wire protocol: {exc}"
+            ) from exc
+        raise
     finally:
         client.close()

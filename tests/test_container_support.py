@@ -18,6 +18,7 @@ from tests import _container_support
 from tests._container_support import (
     CONTAINER_STATE_TIMEOUT,
     ContainerExitedError,
+    ForeignListenerError,
     RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
@@ -576,6 +577,22 @@ def test_a_wrapped_refusal_is_still_read_as_a_port_that_never_opened():
         wait_until_ready(probe, "mongodb", timeout=0.05, interval=0.0)
 
     assert "nothing ever listened on the port" in str(caught.value)
+
+
+def test_a_foreign_listener_on_the_port_ends_the_wait_at_once_as_its_own_type(started_daemon):
+    """Another process answers on the published port: no wait reaches the subject."""
+    probe = CountingProbe(failures=None, error=ForeignListenerError("an HTTP reply"))
+    container = started_daemon(FakeStartedContainer([f"line {n}".encode() for n in range(20)]))
+
+    with pytest.raises(ForeignListenerError) as caught:
+        wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=container)
+
+    message = str(caught.value)
+    assert "a foreign listener answered on the published port" in message
+    assert "an HTTP reply" in message
+    assert "would not serve the probe" not in message
+    assert probe.calls == 1
+    assert not isinstance(caught.value, ContainerExitedError)
 
 
 def test_an_unreadable_container_leaves_the_wait_on_the_probe_alone():
