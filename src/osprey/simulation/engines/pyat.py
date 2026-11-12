@@ -195,24 +195,41 @@ class ResponseMatrix:
     """The response of a model's wired monitors to its stepped correctors.
 
     The closed-orbit (or single-pass) response for the ``orbit`` kind, the
-    first-turn trajectory response for the ``trajectory`` kind; rows, columns
-    and units are the same for both.
+    first-turn trajectory response for the ``trajectory`` kind. The two kinds
+    differ in their rows and in where positions are counted from.
+
+    A position is a lattice element index. For the ``orbit`` kind it is
+    counted from the deck's first element, as :func:`element_index` counts.
+    For the ``trajectory`` kind it is counted from the injection element,
+    ``(index - injection index) mod elements``: the order the bunch meets the
+    elements on its first turn, the injection element itself at 0.
 
     Attributes:
-        rows: The wired monitor readback addresses, ordered by (element
-            lattice index, ``x`` before ``y``).
+        rows: One address per row, ordered by (position, ``x`` before ``y``).
+            For the ``orbit`` kind the wired monitor readbacks, in their
+            hardware unit. For the ``trajectory`` kind the monitors' turn-buffer
+            records, the wiring signals ``turn_x`` and ``turn_y``, in metres as
+            the arrays are.
         columns: The correctors whose two arms solved, in the order asked.
         matrix: One row per address of ``rows`` and one column per corrector
             of ``columns``.
         unsolved: Each corrector whose step has no solve, in the order asked,
             mapped to :func:`error_text` of the failure followed by
             ``(while stepping <address>)``.
+        row_positions: The position of each row's monitor element, aligned
+            with ``rows``; never falling, and strictly rising within a plane
+            that has one record per monitor.
+        column_positions: The position of each column's corrector element,
+            aligned with ``columns``; a corrector on slices is placed at the
+            first of them. In the order asked, so not sorted.
     """
 
     rows: list[str]
     columns: list[str]
     matrix: np.ndarray
     unsolved: dict[str, str]
+    row_positions: list[int] | None = None
+    column_positions: list[int] | None = None
 
 
 @dataclass(frozen=True)
@@ -1559,7 +1576,11 @@ def response_matrix(
     The ``trajectory`` kind answers on a turn-by-turn ring only. Each arm
     tracks one particle, without jitter, from the declared launch offsets for
     one turn from the injection element, through the declared apertures; a
-    monitor upstream of the injection reads the end of that turn. A corrector
+    monitor upstream of the injection reads the end of that turn. Its rows
+    are the monitors' turn-buffer records, the wiring signals ``turn_x`` and
+    ``turn_y``, in the order the bunch meets them and in the arrays' metres;
+    a monitor wiring neither has no row, and one wiring one of them has that
+    row alone. A ring wiring no such record at all is refused. A corrector
     whose kicked particle is lost before a monitor is named in ``unsolved``
     with where it was lost. When the particle is lost with no corrector
     stepped, every corrector is named in ``unsolved`` with that loss and the
@@ -1575,17 +1596,19 @@ def response_matrix(
         kind: ``orbit`` (the default) or ``trajectory``.
 
     Returns:
-        The :class:`ResponseMatrix`: a monitor no record wires has no row, a
-        corrector whose step has no solve has no column and is named in
-        ``unsolved``.
+        The :class:`ResponseMatrix`, every row and column with its position:
+        a monitor no record wires has no row, a corrector whose step has no
+        solve has no column and is named in ``unsolved``.
 
     Raises:
         FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
-            refuses, or a monitor element the deck does not hold exactly once.
+            refuses, or a monitor or corrector element the deck does not hold
+            exactly once.
         RequestRefused: a corrector is not a wired setpoint naming an
             element, is named twice, or has no finite non-zero step; the kind
             is not one of :data:`RESPONSE_KINDS`; or the kind is
-            ``trajectory`` and the ring is not a turn-by-turn ring.
+            ``trajectory`` and the ring is not a turn-by-turn ring or wires
+            no ``turn_x`` or ``turn_y`` record.
         ValueError: a monitor record cannot be built as a reading, a defect
             of the wiring rather than of the request.
     """
@@ -1618,17 +1641,44 @@ def response_matrix(
     deck_energy_gev = float(lattice.energy) / EV_PER_GEV
     records = list(wiring)
 
-    readings: list[tuple[tuple[int, str], MonitorVariable]] = []
-    for record in records:
-        if not _is_monitor_reading(record):
-            continue
-        reading = MonitorVariable.from_wiring(record)
-        record_id = str(field(record, "id") or reading.name)
-        index = _element_index(loaded, deck, reading.element_name, record_id, "wiring")
-        readings.append(((index, reading.axis), reading))
-    readings.sort(key=lambda item: item[0])
-    monitors = [reading for _, reading in readings]
-    monitor_places = [place for (place, _), _ in readings]
+    origin = turns.injection_index if trajectory and turns is not None else 0
+
+    def position(index: int) -> int:
+        """A lattice index counted from the kind's origin, in the order the beam meets it."""
+        return (index - origin) % len(lattice)
+
+    monitors: list[MonitorVariable] = []
+    turn_rows: list[tuple[int, str, str]] = []
+    if trajectory:
+        for record in records:
+            axis = _TURN_BUFFER_AXES.get(turn_settings.signal_of(record) or "")
+            if axis is None:
+                continue
+            address = str(field(record, "address"))
+            record_id = str(field(record, "id") or address)
+            index = _element_index(loaded, deck, str(field(record, "element")), record_id, "wiring")
+            turn_rows.append((position(index), axis, address))
+        if not turn_rows:
+            raise RequestRefused(
+                "the trajectory response's rows are the monitors' turn-buffer records, and "
+                "this model wires none: wire each monitor's turn_x and turn_y signals"
+            )
+        turn_rows.sort()
+        rows = [address for _, _, address in turn_rows]
+        row_positions = [place for place, _, _ in turn_rows]
+    else:
+        readings: list[tuple[tuple[int, str], MonitorVariable]] = []
+        for record in records:
+            if not _is_monitor_reading(record):
+                continue
+            reading = MonitorVariable.from_wiring(record)
+            record_id = str(field(record, "id") or reading.name)
+            index = _element_index(loaded, deck, reading.element_name, record_id, "wiring")
+            readings.append(((index, reading.axis), reading))
+        readings.sort(key=lambda item: item[0])
+        monitors = [reading for _, reading in readings]
+        rows = [reading.name for reading in monitors]
+        row_positions = [place for (place, _), _ in readings]
 
     setpoints = {
         str(field(record, "address")): record
@@ -1653,6 +1703,13 @@ def response_matrix(
                 f"corrector {address} has step {width!r}; give a finite non-zero step"
             )
         columns.append((variable, float(width)))
+    places = [
+        min(
+            position(_element_index(loaded, deck, binding.element_name, variable.name, "wiring"))
+            for binding in variable.bindings
+        )
+        for variable, _ in columns
+    ]
 
     if trajectory and turns is not None:
         if turns.aperture is not None:
@@ -1660,23 +1717,27 @@ def response_matrix(
 
             write_apertures(lattice, **turns.aperture.keywords)
         simulator = PyATSimulator(lattice)
+        turn_places = [(place + origin) % len(lattice) for place, _, _ in turn_rows]
+        turn_axes = [axis for _, axis, _ in turn_rows]
 
         def measure() -> np.ndarray:
-            return _first_turn(lattice, turns, monitors, monitor_places)
+            return _first_turn(lattice, turns, turn_places, turn_axes)
 
         try:
             measure()
         except SOLVE_ERRORS as exc:
             text = error_text(exc)
             return ResponseMatrix(
-                rows=[reading.name for reading in monitors],
+                rows=rows,
                 columns=[],
-                matrix=np.empty((len(monitors), 0), dtype=np.float64),
+                matrix=np.empty((len(rows), 0), dtype=np.float64),
                 unsolved={
                     variable.name: f"{text} (with no corrector stepped, before stepping "
                     f"{variable.name})"
                     for variable, _ in columns
                 },
+                row_positions=row_positions,
+                column_positions=[],
             )
     else:
         simulator = (
@@ -1689,7 +1750,7 @@ def response_matrix(
             simulator.solve()
             return np.array([reading._get(simulator) for reading in monitors])
 
-    matrix = np.empty((len(monitors), len(columns)), dtype=np.float64)
+    matrix = np.empty((len(rows), len(columns)), dtype=np.float64)
     solved: list[int] = []
     unsolved: dict[str, str] = {}
     for column, (variable, width) in enumerate(columns):
@@ -1715,20 +1776,26 @@ def response_matrix(
         matrix[:, column] = (arms[0] - arms[1]) / width
         solved.append(column)
     return ResponseMatrix(
-        rows=[reading.name for reading in monitors],
+        rows=rows,
         columns=[columns[column][0].name for column in solved],
         matrix=matrix[:, solved],
         unsolved=unsolved,
+        row_positions=row_positions,
+        column_positions=[places[column] for column in solved],
     )
+
+
+#: The turn-buffer signals the trajectory response's rows are, and the plane each reads.
+_TURN_BUFFER_AXES = {"turn_x": "x", "turn_y": "y"}
 
 
 def _first_turn(
     lattice: Any,
     turns: turn_settings.TurnSettings,
-    monitors: list[Any],
     places: list[int],
+    axes: list[str],
 ) -> np.ndarray:
-    """Each monitor's first-turn reading of one particle, in its hardware unit.
+    """One particle's first-turn position at each lattice index and plane, in metres.
 
     Raises:
         OrbitSolveError: the particle is lost before a monitor; its text says
@@ -1752,12 +1819,8 @@ def _first_turn(
         raise OrbitSolveError(_loss_text(lattice, turns, elements, alive))
     return np.array(
         [
-            to_hardware(
-                monitor.calibration,
-                monitor.inverse,
-                float((reading.x if monitor.axis == "x" else reading.y)[row[place], 0]),
-            )
-            for monitor, place in zip(monitors, places, strict=True)
+            float((reading.x if axis == "x" else reading.y)[row[place], 0])
+            for place, axis in zip(places, axes, strict=True)
         ]
     )
 

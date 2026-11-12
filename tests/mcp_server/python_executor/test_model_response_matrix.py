@@ -282,8 +282,104 @@ class TestSolve:
         assert [column["address"] for column in result["columns"]] == [CORRECTOR_X, CORRECTOR_Y]
         assert [column["device"] for column in result["columns"]] == ["SR/HCM01", "SR/VCM01"]
         first = result["rows"][0]
-        assert first == {"address": "SR:DIAG:BPM:01:POSITION:X", "device": "SR/BPM01"}
+        deck = sr_render / "data" / "simulator" / "decks" / "SR.json"
+        assert first == {
+            "address": "SR:DIAG:BPM:01:POSITION:X",
+            "device": "SR/BPM01",
+            "position": engine.element_index(deck, "BPM01"),
+        }
         assert all(row["device"] for row in result["rows"])
+
+    def test_every_row_and_column_carries_the_plug_ins_position(self, sandbox, sr_render):
+        sandbox["render"] = sr_render
+
+        result = _call(model="SR", correctors=[CORRECTOR_Y, CORRECTOR_X])
+
+        facility = json.loads((sr_render / "facility.json").read_text(encoding="utf-8"))
+        (record,) = [model for model in facility["models"] if model["name"] == "SR"]
+        expected = engine.response_matrix(
+            sr_render / "data" / "simulator" / "decks" / "SR.json",
+            simulator_wiring(FacilityRecords(facility), "SR"),
+            record.get("settings"),
+            [CORRECTOR_Y, CORRECTOR_X],
+            {column["address"]: column["step"] for column in result["columns"]},
+        )
+        rows = [row["position"] for row in result["rows"]]
+        columns = [column["position"] for column in result["columns"]]
+        assert rows == expected.row_positions
+        assert columns == expected.column_positions
+        assert all(type(position) is int for position in rows + columns)
+        assert rows == sorted(rows)
+        assert len(set(columns)) == 2
+
+    @pytest.mark.parametrize(
+        "positions",
+        [
+            {},
+            {"row_positions": None, "column_positions": None},
+            {"row_positions": [3], "column_positions": [7, 8]},
+            {"row_positions": [3.5, 4], "column_positions": ["7"]},
+        ],
+        ids=["absent", "null", "not-lined-up", "not-whole-numbers"],
+    )
+    def test_a_line_that_states_no_positions_answers_null_positions(
+        self, sr_render, monkeypatch, positions
+    ):
+        line = {
+            "rows": ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"],
+            "columns": [CORRECTOR_X],
+            "matrix": [[1.0], [2.0]],
+            MISSING_KEY: {},
+            **positions,
+        }
+
+        async def solved(**_: Any) -> executor.ExecutionResult:
+            return executor.ExecutionResult(
+                success=True, stdout=f"{RESULT_TAG} {json.dumps(line)}\n", stderr=""
+            )
+
+        monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: sr_render)
+        monkeypatch.setattr(executor, "execute_code", solved)
+
+        result = _call(model="SR", correctors=[CORRECTOR_X])
+
+        assert [row["position"] for row in result["rows"]] == [None, None]
+        assert [column["position"] for column in result["columns"]] == [None]
+        assert result["matrix"] == [[1.0], [2.0]]
+
+    def test_a_line_with_positions_places_each_row_and_column(self, sr_render, monkeypatch):
+        line = {
+            "rows": ["SR:DIAG:BPM:01:TBT:X", "SR:DIAG:BPM:02:TBT:X"],
+            "columns": [CORRECTOR_X],
+            "matrix": [[0.0], [2.0]],
+            MISSING_KEY: {},
+            "row_positions": [2, 9],
+            "column_positions": [5],
+        }
+
+        async def solved(**_: Any) -> executor.ExecutionResult:
+            return executor.ExecutionResult(
+                success=True, stdout=f"{RESULT_TAG} {json.dumps(line)}\n", stderr=""
+            )
+
+        monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: sr_render)
+        monkeypatch.setattr(executor, "execute_code", solved)
+
+        result = _call(model="SR", correctors=[CORRECTOR_X], kind="trajectory")
+
+        assert [(row["address"], row["position"]) for row in result["rows"]] == [
+            ("SR:DIAG:BPM:01:TBT:X", 2),
+            ("SR:DIAG:BPM:02:TBT:X", 9),
+        ]
+        assert set(result["rows"][0]) == {"address", "device", "position"}
+        assert result["columns"] == [
+            {
+                "address": CORRECTOR_X,
+                "device": "SR/HCM01",
+                "step": result["columns"][0]["step"],
+                "position": 5,
+            }
+        ]
 
     def test_each_step_spans_corrector_delta_in_physics(self, sandbox, sr_render):
         from osprey.simulation.engines.calibration import curve_from_record, to_physics
@@ -596,6 +692,9 @@ class TestSolveErrors:
         assert [column["address"] for column in result["columns"]] == [CORRECTOR_X]
         assert result["matrix"] == [[2.5]]
         assert result["missing"] == {CORRECTOR_Y: f"lost (while stepping {CORRECTOR_Y})"}
+        # The plug-in states no positions, and none are made up for it.
+        assert [row["position"] for row in result["rows"]] == [None] * len(result["rows"])
+        assert [column["position"] for column in result["columns"]] == [None]
 
     def test_an_orbit_solver_that_raises_names_the_corrector(self, sr_render, monkeypatch):
         _refuse_solves(monkeypatch, {3})
@@ -617,7 +716,25 @@ class TestSolveErrors:
             "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
         )
 
-        assert set(_child_line(request)) == {"rows", "columns", "matrix", MISSING_KEY}
+        assert set(_child_line(request)) == {
+            "rows",
+            "columns",
+            "matrix",
+            MISSING_KEY,
+            "row_positions",
+            "column_positions",
+        }
+
+    def test_the_childs_positions_line_up_with_what_solved(self, sr_render, monkeypatch):
+        _refuse_solves(monkeypatch, {3})
+        request = tool.resolve_model_request(
+            "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
+        )
+
+        line = _child_line(request)
+
+        assert len(line["row_positions"]) == len(line["rows"])
+        assert len(line["column_positions"]) == len(line["columns"]) == 1
 
     def test_no_solved_column_is_a_refusal_naming_every_corrector(self, sr_render, monkeypatch):
         _refuse_solves(monkeypatch, {1, 3})

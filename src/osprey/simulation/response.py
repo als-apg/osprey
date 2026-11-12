@@ -13,7 +13,15 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-__all__ = ["CAUSES", "DEFAULT_KIND", "RESPONSE_KINDS", "RESULT_TAG", "solve_and_print"]
+__all__ = [
+    "CAUSES",
+    "COLUMN_POSITIONS_KEY",
+    "DEFAULT_KIND",
+    "RESPONSE_KINDS",
+    "RESULT_TAG",
+    "ROW_POSITIONS_KEY",
+    "solve_and_print",
+]
 
 #: The tag of the child's one result line.
 RESULT_TAG = "OSPREY_MODEL_RESPONSE_MATRIX"
@@ -23,8 +31,13 @@ RESULT_TAG = "OSPREY_MODEL_RESPONSE_MATRIX"
 CAUSES: tuple[str, ...] = ("request", "facility", "solve")
 
 #: The responses a request may ask for: the orbit readbacks' response, or the
-#: first-turn response of the turn-by-turn readings.
+#: first-turn response of the monitors' turn-buffer records.
 RESPONSE_KINDS: tuple[str, ...] = ("orbit", "trajectory")
+
+#: The result line's keys, and the engine answer's attributes, holding each
+#: row's and each column's position along the lattice.
+ROW_POSITIONS_KEY = "row_positions"
+COLUMN_POSITIONS_KEY = "column_positions"
 
 #: The kind asked for when none is named; an engine whose ``response_matrix``
 #: takes no ``kind`` answers this one only.
@@ -72,6 +85,24 @@ def _takes_kind(function: Any) -> bool:
     )
 
 
+def _positions(result: Any, name: str, count: int, engine_module: str) -> list[int] | None:
+    """The engine's *name* positions as whole numbers, ``None`` when it states none.
+
+    Raises:
+        ValueError: The engine states positions that do not line up with its
+            rows or columns.
+    """
+    stated = getattr(result, name, None)
+    if stated is None:
+        return None
+    positions = [int(position) for position in stated]
+    if len(positions) != count:
+        raise ValueError(
+            f"the engine plug-in {engine_module} states {len(positions)} {name} for {count} of them"
+        )
+    return positions
+
+
 def solve_and_print(payload: Mapping[str, Any]) -> None:
     """Solve one request and print its :data:`RESULT_TAG` line.
 
@@ -79,12 +110,15 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
     engine answers no matrix: ``cause`` is ``request`` for one of the
     engine's ``REFUSAL_ERRORS``, ``facility`` for a ``FacilityBuildError``,
     ``solve`` for one of its ``SOLVE_ERRORS``. Otherwise prints ``{"rows",
-    "columns", "matrix", "missing"}``: ``columns`` the solved correctors,
-    possibly none, ``matrix`` one column each, ``missing`` each corrector
-    whose step has no solve mapped to the engine's text; a line with no
-    column carries the map of every corrector asked, and the tool answers it
-    as ``nothing_answered``. Any other exception raises, and no result line
-    is printed.
+    "columns", "matrix", "missing", "row_positions", "column_positions"}``:
+    ``columns`` the solved correctors, possibly none, ``matrix`` one column
+    each, ``missing`` each corrector whose step has no solve mapped to the
+    engine's text; a line with no column carries the map of every corrector
+    asked, and the tool answers it as ``nothing_answered``. The two position
+    lists are the engine's, one whole number per row and per column, each
+    ``null`` when the engine's answer states none. Any other exception
+    raises, and no result line is printed; an engine whose positions do not
+    line up with its rows or columns raises so.
 
     The engine's ``response_matrix`` is called with ``kind`` when it takes
     one. One that takes none is called as it always was for the
@@ -132,10 +166,15 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
             raise
         print(RESULT_TAG, json.dumps({"refused": str(exc), "cause": cause}), flush=True)  # noqa: T201 -- stdout carries the result line the parent reads
         return
+    rows = [str(row) for row in result.rows]
+    columns = [str(column) for column in result.columns]
+    module = str(payload["engine_module"])
     line = {
-        "rows": [str(row) for row in result.rows],
-        "columns": [str(column) for column in result.columns],
+        "rows": rows,
+        "columns": columns,
         "matrix": [[float(value) for value in row] for row in result.matrix],
         "missing": {str(address): str(text) for address, text in result.unsolved.items()},
+        ROW_POSITIONS_KEY: _positions(result, ROW_POSITIONS_KEY, len(rows), module),
+        COLUMN_POSITIONS_KEY: _positions(result, COLUMN_POSITIONS_KEY, len(columns), module),
     }
     print(RESULT_TAG, json.dumps(line), flush=True)  # noqa: T201 -- stdout carries the result line the parent reads
