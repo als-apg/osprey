@@ -10,7 +10,33 @@
   overflow: auto;
 }
 
+.cf-ioc-crumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+
+.cf-ioc-crumb a {
+  color: var(--text-accent);
+}
+
+.cf-ioc-crumb-leaf {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* Header: name and alive chip, the actions at the end, the host line under it. */
 .cf-ioc-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+}
+
+.cf-ioc-title {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -26,8 +52,89 @@
   font-size: var(--text-lg);
 }
 
-.cf-ioc-head .osprey-btn {
-  margin-left: auto;
+.cf-ioc-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.cf-ioc-sub {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.cf-ioc-engineer {
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.cf-ioc-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.cf-ioc-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+}
+
+.cf-ioc-tile-label {
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+
+.cf-ioc-tile-value {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.cf-ioc-tile.is-hot .cf-ioc-tile-value {
+  color: var(--color-error);
+}
+
+.cf-ioc-tile-sub {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.cf-ioc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .cf-ioc-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.cf-ioc-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.cf-ioc-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+.cf-ioc-card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
 }
 
 .cf-ioc-facts {
@@ -46,19 +153,24 @@
   font-family: var(--font-mono);
 }
 
-.cf-ioc-section {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.cf-ioc-health-table {
+.cf-ioc-health-table,
+.cf-ioc-alarms {
   border-collapse: collapse;
 }
 
-.cf-ioc-health-table td {
+.cf-ioc-health-table td,
+.cf-ioc-alarms td {
   padding: var(--space-1) var(--space-4) var(--space-1) 0;
   font-family: var(--font-mono);
+}
+
+.cf-ioc-pv a {
+  color: var(--text-accent);
+}
+
+.cf-ioc-since {
+  color: var(--text-secondary);
+  text-align: right;
 }
 
 .cf-ioc-reason {
