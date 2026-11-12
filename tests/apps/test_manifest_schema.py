@@ -240,7 +240,12 @@ TOOLS_ONLY: dict[str, Any] = {"name": "dial", "tools": {"module": "dial.tools", 
 def test_an_empty_application_is_refused(data: dict[str, Any]) -> None:
     err = _refusal(data)
     assert err.rule == "app_has_part"
-    assert "containers, panel, tools or skills" in err.message
+    assert "containers, panel, tools, skills or agents" in err.message
+
+
+def test_an_application_of_one_subagent_is_accepted() -> None:
+    m = parse_manifest({"name": "guide", "agents": ["guide"]}, app="guide")
+    assert m.agents == ["guide"]
 
 
 @pytest.mark.parametrize(
