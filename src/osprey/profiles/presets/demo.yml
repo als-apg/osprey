@@ -995,8 +995,9 @@ config:
   # memory (256 MB).
   web.panels.canopy.vole_bytes_max: 268435456
   # A colour theme for CANOPY, as a path relative to the project root
-  # (absolute accepted). Unset keeps CANOPY's own theme.
-  # web.panels.canopy.theme_file: data/canopy/theme/colors.json
+  # (absolute accepted). Unset keeps CANOPY's own theme. This one gives the
+  # screens OSPREY's light and dark colours.
+  web.panels.canopy.theme_file: data/canopy/theme/osprey.json
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
