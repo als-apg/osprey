@@ -68,7 +68,7 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
+from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -2033,8 +2033,10 @@ def _copy_app_skills(
     Returns:
         The skill names copied.
     """
+    from osprey.apps.origin import origin_of
     from osprey.apps.projection import login_skills
 
+    directories = {m.name: origin_of(m, repo_root).directory for m in manifests}
     copied: list[str] = []
     for app, skill in login_skills(manifests, selection):
         destination = render_dir / ".claude" / "skills" / skill
@@ -2043,7 +2045,7 @@ def _copy_app_skills(
                 f"Application {app!r} carries a skill named {skill!r}, and this render "
                 f"already has one by that name; rename the application's skill."
             )
-        shutil.copytree(repo_root / APPS_DIRNAME / app / "skills" / skill, destination)
+        shutil.copytree(directories[app] / "skills" / skill, destination)
         copied.append(skill)
     return copied
 
@@ -3462,7 +3464,8 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     taken over that one profile (:func:`_relocate_container_manifest`), so one
     set serves the deployment's image and every tier's and app's. Every input
     lies under the repository root; the profile loader refuses one that does
-    not.
+    not. An installed application is no repository content: the image
+    installs its distribution.
     """
     from .build_profile_document import _read_profile_document
     from .build_profile_merge import profile_inputs, resolve_profile_document
@@ -3471,7 +3474,7 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     document = resolve_profile_document(
         _read_profile_document(profile_path), profile_path, warn=False
     )
-    paths = [entry.path for entry in profile_inputs(document)]
+    paths = [entry.path for entry in profile_inputs(document) if entry.in_repository]
 
     root = repo_root.resolve()
     return [path.resolve().relative_to(root) for path in paths]
