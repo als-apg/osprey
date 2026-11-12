@@ -12,9 +12,6 @@ from typing import Any, Literal
 
 from osprey_connectors.service_answers import Unavailable, _Backend
 
-#: Seconds after which a Kafka alarm feed that has been silent reads as stale.
-ALARM_STALE_WINDOW_S: float = 60.0
-
 
 @dataclass(frozen=True, kw_only=True)
 class AlarmStateRecord:

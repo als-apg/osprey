@@ -22,16 +22,12 @@ from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, LOGBOOK_SER
 try:
     from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
     from osprey_connectors.alarm_state import (
-        ALARM_STALE_WINDOW_S,
         AlarmConfigRecord,
         AlarmState,
         AlarmStateRecord,
     )
     from osprey_connectors.archive_targets import APPLIANCE_TARGETS
     from osprey_connectors.directory import (
-        DEFAULT_DESCRIPTION_PROPERTY,
-        ROW_FIELD_PROPERTIES,
-        SERVED_SIGNAL_PROPERTY,
         ChannelDirectory,
         DirectoryPage,
         DirectoryQuery,
@@ -47,7 +43,11 @@ try:
         Unavailable,
     )
     from osprey_connectors.service_targets import service_targets
-    from osprey_connectors.simulation.view import ENGINEER, IOC_HEALTH_SIGNALS
+    from osprey_connectors.simulation.view import (
+        ENGINEER,
+        IOC_HEALTH_SIGNALS,
+        SERVED_SIGNAL_PROPERTY,
+    )
     from osprey_connectors.simulator import has_simulator
 
     DIRECTORY_CONNECTORS_AVAILABLE = True
@@ -55,10 +55,7 @@ except ImportError:
     from osprey_connectors.types import CONTROL_TARGETS as _FLOOR_STAND_IN  # noqa: F401
 
     DIRECTORY_CONNECTORS_AVAILABLE = False
-    ALARM_STALE_WINDOW_S = None  # type: ignore[assignment]
     APPLIANCE_TARGETS = None  # type: ignore[assignment]
-    DEFAULT_DESCRIPTION_PROPERTY = None  # type: ignore[assignment]
-    ROW_FIELD_PROPERTIES = None  # type: ignore[assignment]
     AlarmConfigRecord = None  # type: ignore[assignment,misc]
     AlarmHistoryRow = None  # type: ignore[assignment,misc]
     AlarmLog = None  # type: ignore[assignment,misc]
@@ -83,15 +80,12 @@ except ImportError:
     service_targets = None  # type: ignore[assignment]
 
 __all__ = [
-    "ALARM_STALE_WINDOW_S",
     "APPLIANCE_TARGETS",
-    "DEFAULT_DESCRIPTION_PROPERTY",
     "DIRECTORY_CONNECTORS_AVAILABLE",
     "ENGINEER",
     "FLOOR_REASON",
     "IOC_HEALTH_SIGNALS",
     "NO_SOURCE_REASON",
-    "ROW_FIELD_PROPERTIES",
     "SERVED_SIGNAL_PROPERTY",
     "AlarmConfigRecord",
     "AlarmHistoryRow",

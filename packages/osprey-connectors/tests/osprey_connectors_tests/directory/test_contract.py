@@ -7,8 +7,6 @@ import dataclasses
 import pytest
 
 from osprey_connectors.directory import (
-    DEFAULT_DESCRIPTION_PROPERTY,
-    ROW_FIELD_PROPERTIES,
     DirectoryPage,
     DirectoryQuery,
     DirectoryRecord,
@@ -75,24 +73,11 @@ def test_neither_a_row_nor_a_query_carries_an_origin():
     assert "origin" not in {field.name for field in dataclasses.fields(DirectoryQuery)}
 
 
-def test_row_field_properties_name_the_recsync_property_of_each_row_field():
-    assert dict(ROW_FIELD_PROPERTIES) == {
-        "status": "pvStatus",
-        "record_type": "recordType",
-        "ioc": "iocName",
-        "host": "hostName",
-        "last_announced": "time",
-    }
-    fields = [field.name for field in dataclasses.fields(DirectoryRow)]
-    assert list(ROW_FIELD_PROPERTIES) == [name for name in fields if name in ROW_FIELD_PROPERTIES]
-    assert "description" not in ROW_FIELD_PROPERTIES
-    assert "name" not in ROW_FIELD_PROPERTIES
-    with pytest.raises(TypeError):
-        ROW_FIELD_PROPERTIES["status"] = "STATUS"  # type: ignore[index]
+def test_the_directory_names_no_backends_property_map():
+    import osprey_connectors.directory as directory
 
-
-def test_the_default_description_property_is_record_desc():
-    assert DEFAULT_DESCRIPTION_PROPERTY == "recordDesc"
+    assert not {"ROW_FIELD_PROPERTIES", "DEFAULT_DESCRIPTION_PROPERTY"} & set(dir(directory))
+    assert "SERVED_SIGNAL_PROPERTY" not in dir(directory)
 
 
 def test_a_page_of_any_other_outcome_needs_no_reason():

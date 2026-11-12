@@ -48,6 +48,7 @@ __all__ = [
     "SCENARIOS_DIR",
     "SCENARIOS_FILE",
     "SCENARIOS_SCHEMA",
+    "SERVED_SIGNAL_PROPERTY",
     "SCHEMAS",
     "SEEDS_FILE",
     "SEEDS_SCHEMA",
@@ -130,6 +131,9 @@ ENGINEER = "ENGINEER"
 IOC_HEALTH_SIGNALS = (HEARTBEAT, UPTIME, ENGINEER)
 #: The IOC health signals each periodic pass publishes.
 PERIODIC_IOC_HEALTH = (HEARTBEAT, UPTIME)
+#: The directory property the simulator sets on each status and IOC health row,
+#: valued with that row's signal; channel rows carry none.
+SERVED_SIGNAL_PROPERTY = "signal"
 
 #: The text a missing view reports.
 _NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"

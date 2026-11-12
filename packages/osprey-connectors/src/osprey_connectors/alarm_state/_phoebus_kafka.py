@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 from osprey_connectors.alarm_state._contract import (
-    ALARM_STALE_WINDOW_S,
     AlarmConfigRecord,
     AlarmState,
     AlarmStateRecord,
@@ -40,12 +39,14 @@ KAFKA_CLIENT_MISSING = (
 )
 SETTINGS_MISSING = "alarm_state.settings needs bootstrap_servers and topic"
 
+#: Seconds after which a feed that has been silent reads as stale.
+_STALE_WINDOW_S = 60.0
 _POLL_TIMEOUT_MS = 1000
-_OFFSET_CHECK_S = ALARM_STALE_WINDOW_S / 4
+_OFFSET_CHECK_S = _STALE_WINDOW_S / 4
 _RETRY_S = 5.0
 #: How long a load may go without a message before the broker counts as lost. aiokafka
 #: retries a lost connection inside ``getmany`` and ``position``, so neither raises.
-_LOAD_DEADLINE_S = ALARM_STALE_WINDOW_S
+_LOAD_DEADLINE_S = _STALE_WINDOW_S
 _now = time.monotonic
 
 
@@ -149,7 +150,7 @@ class PhoebusAlarmState(AlarmState):
         return self._cannot_start
 
     def _stale(self) -> bool:
-        return _now() - self._last_contact > ALARM_STALE_WINDOW_S
+        return _now() - self._last_contact > _STALE_WINDOW_S
 
     async def _run(self) -> None:
         while True:

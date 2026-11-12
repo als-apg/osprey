@@ -70,6 +70,19 @@ class FakeBackend:
             rehearsal=self.spec.rehearsal,
         )
 
+    @property
+    def field_properties(self) -> Any:
+        """The property map a ChannelFinder directory answers, built with the spec's settings."""
+        description = self.spec.settings.get("description_property") or "recordDesc"
+        return {
+            "status": "pvStatus",
+            "record_type": "recordType",
+            "ioc": "iocName",
+            "host": "hostName",
+            "last_announced": "time",
+            "description": description,
+        }
+
     async def probe(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
         return f"{self.spec.type} answered"
 

@@ -26,7 +26,6 @@ from osprey.mcp_server.pv_directory.tools import ioc_record, pv_record
 from osprey.services.pv_directory import _connectors
 from osprey_connectors import control_context
 from osprey_connectors.directory import (
-    SERVED_SIGNAL_PROPERTY,
     DirectoryPage,
     DirectoryRecord,
     DirectoryRow,
@@ -38,7 +37,12 @@ from osprey_connectors.service_answers import (
     Source,
     Unavailable,
 )
-from osprey_connectors.simulation.view import ENGINEER, HEARTBEAT, UPTIME
+from osprey_connectors.simulation.view import (
+    ENGINEER,
+    HEARTBEAT,
+    SERVED_SIGNAL_PROPERTY,
+    UPTIME,
+)
 from tests.mcp_server.conftest import assert_raises_error
 
 VA_BUILD = {"type": "virtual_accelerator"}

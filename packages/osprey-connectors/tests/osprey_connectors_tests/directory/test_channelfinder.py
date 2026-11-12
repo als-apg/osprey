@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors._service_http import ReadOnlyTransport
-from osprey_connectors.directory import ROW_FIELD_PROPERTIES, DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
 from osprey_connectors.directory._channelfinder import ChannelFinderDirectory
 from osprey_connectors.service_answers import BackendSpec, Outcome, Source, Unavailable
 
@@ -503,10 +503,26 @@ class TestDescribe:
         record = await directory.describe(fixture["name"], DEADLINE)
 
         assert isinstance(record, DirectoryRecord)
-        for field, prop in ROW_FIELD_PROPERTIES.items():
+        for field, prop in directory.field_properties.items():
             assert getattr(record.row, field) == values[prop]
             assert prop not in record.properties
         assert record.row.description == values["recordDesc"]
+
+    def test_field_properties_are_the_recsync_map_and_the_description_property(self):
+        default, _ = backend(always())
+        configured, _ = backend(always(), description_property="Comment")
+
+        assert dict(default.field_properties) == {
+            "status": "pvStatus",
+            "record_type": "recordType",
+            "ioc": "iocName",
+            "host": "hostName",
+            "last_announced": "time",
+            "description": "recordDesc",
+        }
+        assert configured.field_properties["description"] == "Comment"
+        with pytest.raises(TypeError):
+            default.field_properties["status"] = "STATUS"  # type: ignore[index]
 
     async def test_a_record_carries_its_tag_names(self):
         directory, _ = backend(always())

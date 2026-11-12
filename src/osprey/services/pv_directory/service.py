@@ -31,11 +31,9 @@ from pathlib import Path
 from typing import Any
 
 from osprey.services.pv_directory._connectors import (
-    DEFAULT_DESCRIPTION_PROPERTY,
     DIRECTORY_CONNECTORS_AVAILABLE,
     FLOOR_REASON,
     NO_SOURCE_REASON,
-    ROW_FIELD_PROPERTIES,
     DirectoryPage,
     DirectoryQuery,
     Outcome,
@@ -468,16 +466,10 @@ class DirectoryService:
         return frozenset(name for name in names if isinstance(name, str))
 
     def _hide_row(self, backend: Any, row: Any, hidden: frozenset[str]) -> Any:
-        """*row* with the fields filled from a hidden property cleared.
-
-        The description's property is the one *backend* was built with.
-        """
+        """*row* with the fields *backend* fills from a hidden property cleared."""
         if not hidden:
             return row
-        description = (
-            backend.spec.settings.get("description_property") or DEFAULT_DESCRIPTION_PROPERTY
-        )
-        by_property = {**ROW_FIELD_PROPERTIES, "description": description}
+        by_property = backend.field_properties
         cleared = {field: None for field, name in by_property.items() if name in hidden}
         return dataclasses.replace(row, **cleared) if cleared else row
 
