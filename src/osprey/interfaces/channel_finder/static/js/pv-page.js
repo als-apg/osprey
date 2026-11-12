@@ -33,7 +33,7 @@ import {
   plotUrl,
   readValues,
 } from './directory-api.js';
-import { sinceText } from './alarms-render.js';
+import { sinceText } from './duration.js';
 import { formatRoute } from './route.js';
 import { state } from './state.js';
 import { messageOf } from './utils.js';

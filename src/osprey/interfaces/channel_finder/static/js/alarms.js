@@ -41,10 +41,10 @@ import {
   filterRows,
   inspectorHtml,
   listHtml,
-  sinceText,
   skeletonHtml,
   treeHtml,
 } from './alarms-render.js';
+import { sinceText } from './duration.js';
 import {
   createPlotCheck,
   fetchActiveAlarms,

@@ -17,7 +17,6 @@ import {
   filterRows,
   listHtml,
   sinceHtml,
-  sinceText,
   tileCounts,
   treeHtml,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/alarms-render.js';
@@ -115,20 +114,6 @@ describe('buildTree', () => {
 });
 
 describe('times and the feed', () => {
-  const now = Date.parse('2026-11-06T12:40:00.000Z');
-
-  test.each([
-    ['2026-11-06T12:39:55.000Z', '5 s'],
-    ['2026-11-06T12:02:00.000Z', '38 min'],
-    ['2026-11-06T10:40:00.000Z', '2 h'],
-    ['2026-11-06T10:35:00.000Z', '2 h 5 min'],
-    ['2026-11-04T09:40:00.000Z', '2 d 3 h'],
-    [null, ''],
-    ['not a time', ''],
-  ])('%s is %s ago', (time, text) => {
-    expect(sinceText(time, now)).toBe(text);
-  });
-
   test('a time becomes a placeholder the view ticks, never a clock reading', () => {
     expect(sinceHtml('2026-11-06T12:39:56.000Z')).toBe(
       '<span data-since="2026-11-06T12:39:56.000Z"></span>'
