@@ -67,15 +67,50 @@ body {
   display: flex;
 }
 
+/* The panel shows one view at a time (js/views.js), and one view's toggle
+   and context in the toolbar. These carry a display of their own, which
+   would otherwise outrank the hidden attribute. */
+.okf-body[hidden],
+.okf-toolbar .osprey-icon-btn[hidden],
+.okf-toolbar .osprey-crumb[hidden],
+.okf-toolbar .osprey-panel-toolbar__text[hidden],
+.okf-graph-section[hidden] {
+  display: none;
+}
+
 /* -- Toolbar: panel-local rules ------------------------------------------- */
 /* The toolbar is the shared .osprey-panel-toolbar (primitives.css, "Panel
-   chrome"). Local to this panel: the breadcrumb is context, not a control,
-   so where the toolbar is short of room the breadcrumb truncates (its last
-   crumb first) and the bundle chip and the search field keep their room.
-   The shared rule keeps `__start` at its size for a view switcher, which
-   this toolbar does not have. */
+   chrome"). Local to this panel: the breadcrumb (in the Graph view, the line
+   naming what is drawn) is context, not a control, so where the toolbar is
+   short of room it truncates (its last crumb first) and the view switcher,
+   the chip and the search field keep their room. */
 .okf-toolbar > .osprey-panel-toolbar__start {
   flex: 0 1 auto;
+  min-width: 0;
+}
+
+.okf-toolbar .osprey-seg,
+.okf-toolbar .osprey-icon-btn {
+  flex: none;
+}
+
+/* With two views, a hairline sets the sidebar toggle apart from the switch. */
+.okf-toolbar-rule {
+  display: none;
+  flex: none;
+  align-self: stretch;
+  border-left: 1px solid var(--border-default);
+}
+
+#app[data-graph="true"] .okf-toolbar-rule {
+  display: block;
+}
+
+.okf-toolbar .osprey-panel-toolbar__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .okf-toolbar > .osprey-panel-toolbar__end {
@@ -343,6 +378,7 @@ body {
 /* A facility link names a channel or device record; it shows the record on
    hover and does not navigate. */
 .osprey-md-rendered a.okf-facility-link { font-family: var(--font-mono); cursor: help; border-bottom-style: dotted; }
+.osprey-md-rendered a.okf-facility-link--graph { cursor: pointer; }
 .osprey-md-rendered a.okf-facility-link--dangling { font-family: var(--font-mono); cursor: help; color: var(--text-muted); border-bottom: 1px dashed var(--text-muted); }
 
 .osprey-md-rendered code {
@@ -394,13 +430,352 @@ body {
 .osprey-md-rendered em { color: var(--text-secondary); font-style: italic; }
 .osprey-md-rendered img { max-width: 100%; border-radius: var(--radius-md); margin: 0.5em 0; }
 
+/* ================================================================
+   Graph view (js/graph-view.js)
+   ================================================================ */
+
+/* One colour per node kind and one line per relation, set here once and read
+   by the drawing, its arrowheads and the legend's swatches alike. */
+#graph-view [data-kind='place'] { --okf-kind: var(--chart-series-5); }
+#graph-view [data-kind='device'] { --okf-kind: var(--chart-series-1); }
+#graph-view [data-kind='channel'] { --okf-kind: var(--chart-series-2); }
+#graph-view [data-kind='signal'] { --okf-kind: var(--chart-series-3); }
+#graph-view [data-kind='class'] { --okf-kind: var(--chart-series-4); }
+
+#graph-view [data-relation] { --okf-relation: var(--text-muted); }
+#graph-view [data-relation='readsSignal'] { --okf-relation: var(--chart-series-3); }
+#graph-view [data-relation='writesSignal'] { --okf-relation: var(--color-warning); }
+#graph-view [data-relation='type'],
+#graph-view [data-relation='subClassOf'] { --okf-relation: var(--chart-series-4); }
+#graph-view [data-relation='inPlace'] { --okf-relation: var(--chart-series-5); }
+
+/* -- Sidebar: the drawing, the depth and the legend ----------------------- */
+
+.okf-graph-controls {
+  flex: none;
+  padding: var(--space-2);
+}
+
+.okf-graph-controls .osprey-seg {
+  display: flex;
+}
+
+.okf-graph-controls .osprey-seg > button {
+  flex: 1 1 0;
+}
+
+.okf-graph-section {
+  flex: none;
+  padding-bottom: var(--space-2);
+}
+
+.okf-graph-section > .osprey-section-label,
+.okf-graph-list > .osprey-section-label {
+  margin: 0;
+}
+
+.okf-graph-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+label.okf-graph-legend-row {
+  cursor: pointer;
+}
+
+label.okf-graph-legend-row:hover {
+  background: var(--surface-hover);
+}
+
+.okf-graph-legend-row input {
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.okf-graph-legend-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.okf-graph-legend-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.okf-graph-tag {
+  padding: 0 var(--space-1);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: help;
+}
+
+.okf-graph-swatch {
+  flex: none;
+  width: 22px;
+  height: 12px;
+  overflow: visible;
+}
+
+.okf-graph-more {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* -- Stage ---------------------------------------------------------------- */
+
+.okf-graph-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.okf-graph-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.okf-graph-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.okf-graph-svg:active {
+  cursor: grabbing;
+}
+
+.okf-graph-edge {
+  fill: none;
+  stroke: var(--okf-relation);
+  stroke-width: var(--okf-edge-width, 1.2);
+  opacity: 0.75;
+}
+
+.okf-graph-edge[data-relation='type'] { stroke-dasharray: 4 3; }
+.okf-graph-edge[data-relation='inPlace'] { stroke-dasharray: 1 3; stroke-linecap: round; }
+
+.okf-graph-arrow {
+  fill: var(--okf-relation);
+}
+
+.okf-graph-edge-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  fill: var(--text-muted);
+  paint-order: stroke;
+  stroke: var(--bg-primary);
+  stroke-width: 3;
+  pointer-events: none;
+}
+
+.okf-graph-node {
+  cursor: pointer;
+}
+
+.okf-graph-shape {
+  fill: var(--okf-kind);
+  stroke: var(--bg-primary);
+  stroke-width: 1.5;
+}
+
+/* A class is a ring: the type of things, not a thing. */
+.okf-graph-node[data-kind='class'] .okf-graph-shape,
+.okf-graph-swatch[data-kind='class'] .okf-graph-shape {
+  fill: var(--bg-primary);
+  stroke: var(--okf-kind);
+  stroke-width: 2;
+}
+
+.okf-graph-node[data-selected] .okf-graph-shape {
+  stroke: var(--text-primary);
+  stroke-width: 2;
+}
+
+.okf-graph-focus {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+}
+
+.okf-graph-label,
+.okf-graph-badge {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  fill: var(--text-secondary);
+  paint-order: stroke;
+  stroke: var(--bg-primary);
+  stroke-width: 3;
+  pointer-events: none;
+}
+
+.okf-graph-node[data-selected] .okf-graph-label {
+  fill: var(--text-primary);
+}
+
+.okf-graph-badge {
+  fill: var(--text-muted);
+}
+
+.okf-graph-node[data-dim],
+.okf-graph-edge[data-dim],
+.okf-graph-edge-label[data-dim] {
+  opacity: 0.15;
+}
+
+/* One line under the drawing says what it holds; the hint sits opposite. */
+.okf-graph-status,
+.okf-graph-hint {
+  position: absolute;
+  bottom: var(--space-2);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.okf-graph-status {
+  left: var(--space-3);
+  font-family: var(--font-mono);
+}
+
+.okf-graph-hint {
+  right: var(--space-3);
+  max-width: 38%;
+}
+
+/* -- Inspector ------------------------------------------------------------ */
+
+.okf-graph-inspector {
+  flex: none;
+  width: 320px;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--surface-hairline);
+}
+
+.okf-graph-inspector[hidden] {
+  display: none;
+}
+
+.okf-graph-head {
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+
+.okf-graph-title {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.okf-graph-description {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.okf-graph-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.okf-graph-actions:empty {
+  display: none;
+}
+
+.okf-graph-props {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--surface-hairline);
+  font-size: var(--text-sm);
+}
+
+.okf-graph-props dt {
+  color: var(--text-muted);
+}
+
+.okf-graph-props dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.okf-graph-list {
+  padding-bottom: var(--space-2);
+  border-top: 1px solid var(--surface-hairline);
+}
+
+.okf-graph-row-name {
+  font-family: var(--font-mono);
+}
+
+.okf-graph-row-kind {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
 /* -- Narrow tile ---------------------------------------------------------- */
 /* The panel root (#app) is the size container `panel`: in a tile 720 px wide
-   or less the reader takes less padding. The contents list opens over the
-   reader there (panel-sidebar.js). */
+   or less the reader takes less padding, and the graph's inspector goes under
+   the drawing. A sidebar opens over its view there (panel-sidebar.js). */
 
 @container panel (max-width: 720px) {
   #reader-content {
     padding: var(--space-4) var(--space-4) var(--space-6);
+  }
+
+  .okf-graph-main {
+    flex-direction: column;
+  }
+
+  .okf-graph-inspector {
+    width: auto;
+    max-height: 40%;
+    border-left: none;
+    border-top: 1px solid var(--surface-hairline);
+  }
+
+  .okf-graph-hint {
+    display: none;
+  }
+
+  .okf-graph-status {
+    max-width: calc(100% - 2 * var(--space-3));
   }
 }

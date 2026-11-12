@@ -43,6 +43,8 @@ no error, one line in the log saying the panel is unavailable.
    * - ``okf``
      - ``facility_knowledge:``
      - ``bundle_path``, the compiled knowledge bundle the KNOWLEDGE tab serves.
+       With a ``services.graphdb`` corpus the tab also draws the facility
+       graph (:ref:`graph-view`).
 
 The shipped ``demo`` preset ships the sections for KNOWLEDGE and
 CHANNELS, which is why both work out of the box.

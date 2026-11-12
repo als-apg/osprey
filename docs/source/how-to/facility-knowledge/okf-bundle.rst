@@ -64,7 +64,9 @@ destination in angle brackets when the address holds a space:
    Check [the gauge](<facility:SECTOR 1 GAUGE>) first.
 
 ``osprey build`` warns ``link-dangling`` for each link the facility file does not
-hold. The KNOWLEDGE panel shows the linked record when you hover over the link.
+hold. The KNOWLEDGE panel shows the linked record when you hover over the link;
+a click opens it in the panel's Graph view when the deployment has a graph
+(:ref:`graph-view`).
 
 **4. Validation levels.** OKF distinguishes two strictness levels, so
 half-finished stubs and finished documents can coexist. *Consuming* validation

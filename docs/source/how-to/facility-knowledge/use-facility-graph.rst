@@ -273,6 +273,34 @@ that instead.
    view from that.
 
 
+.. _graph-view:
+
+Browsing the Graph
+==================
+
+The KNOWLEDGE panel draws the graph view. When ``services.graphdb.ttl_path``
+names a file, the panel reads it at startup and shows a second view, **Graph**,
+beside **Knowledge**. It reads the file, not the store, so it works while the
+store is down and shows nothing of a store the facility runs. A deployment
+without a graph has no Graph view.
+
+* **Overview** draws one mark per device type, with the places, channels and
+  signals each as one group. Click a group to list its members.
+* **Neighbourhood** draws what lies within one to three hops of a node, at most
+  120 nodes. A node with more than 12 relations is drawn but not walked
+  through; its badge counts what is left out. Double-click a node to move the
+  focus to it.
+* The search field finds nodes by name, id or type.
+* The relation checkboxes take a relation out of the drawing and out of the
+  walk.
+
+``inPlace`` is marked *derived*: the graph view holds each device's place as a
+property, and the panel draws it as a relation.
+
+Clicking a ``facility:`` link on a knowledge page opens the linked record in
+the Graph view, and a node lists the pages that name it.
+
+
 .. _graph-external-store:
 
 Pointing at a Store the Facility Runs
