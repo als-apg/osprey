@@ -3,8 +3,8 @@
 :class:`Facts` answers two questions over a :class:`DirectoryService`:
 
 * :meth:`Facts.pv_facts` gives one section per configured service: the
-  directory record, the alarm state, the alarm configuration, the alarm history
-  and the put history. Each runs under its own deadline, and a section that has
+  directory record, the archive's facts, the alarm state, the alarm
+  configuration, the alarm history and the put history. Each runs under its own deadline, and a section that has
   no answer says why (``unavailable`` with its reason); a section the
   deployment did not configure is absent, never empty. Every section carries
   the ``caveats`` the deployment wrote on its configured source. The answer's
@@ -12,6 +12,9 @@
   :meth:`Facts.alarm_config` and :meth:`Facts.history` answer one of those
   sections alone, as the PV page shows it, and :meth:`Facts.active_alarms`
   every channel the alarm feed holds in alarm now.
+* :meth:`Facts.archive_summary` says what the current target's archive holds:
+  how many of the directory's PVs it records, per IOC, its newest and oldest
+  sample, and its configuration as rendered.
 * :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer, its
   IOC health PVs (each a name and its role: heartbeat, uptime or engineer) and,
   with an alarm feed configured, its PVs in alarm now.
@@ -27,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -42,9 +45,16 @@ from osprey.services.pv_directory._connectors import (
     severity_rank,
     unavailable_payload,
 )
+from osprey.services.pv_directory.archive import (
+    deployed_configuration,
+    freshness_bound_s,
+    own_store,
+    served_targets,
+)
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
 from osprey.services.pv_directory.vocabulary import CONFIG_LABELS
+from osprey_connectors.archive_targets import archive_targets
 
 __all__ = ["ACTIVE_ALARMS_MAX_ROWS", "Facts", "panel_link"]
 
@@ -132,12 +142,14 @@ class Facts:
         deadline = self._timeout()
         readers: dict[str, Callable[[str, float], Awaitable[Any]]] = {
             "directory": self._directory,
+            "archive": self._archive,
             "alarm_state": self._alarm_state,
             "alarm_config": self._alarm_config,
             "alarm_history": lambda pv, within: self._history("alarm_log", pv, within),
             "put_history": lambda pv, within: self._history("put_log", pv, within),
         }
-        keys = ("directory", *configured)
+        archive = ["archive"] if archive_targets(self._config) else []
+        keys = ("directory", *archive, *configured)
         answers = await asyncio.gather(*(_guarded(readers[key](name, deadline)) for key in keys))
         target = _target_of(answers[0]) or await self._target()
         sections = [
@@ -204,6 +216,66 @@ class Facts:
             **described,
             "caveats": _caveats(backend),
             "detail_properties": self._detail_properties(record),
+        }
+
+    async def _archive(self, name: str, deadline: float) -> Any:
+        """What the target's archive says of the PV; ``archived`` is ``None`` when it cannot say."""
+        connector, source, reason = await self._service.archive()
+        if connector is None:
+            return _NoSource(reason or NO_SOURCE_REASON, record=None)
+        served = {"source": as_payload(source), "caveats": []}
+        answer = await _ask(_archive_metadata(connector, name), deadline)
+        if _is_unavailable(answer):
+            return {**served, "outcome": "unavailable", "record": None, "reason": answer.reason}
+        record = {
+            "archived": answer.is_archived,
+            "first_sample": _iso(answer.archival_start),
+            "last_sample": _iso(answer.archival_end),
+            "sampling_period_s": answer.sampling_period,
+            "description": answer.description,
+        }
+        return {**served, "outcome": "found", "record": record}
+
+    # -- the Archive view --------------------------------------------------
+
+    async def archive_summary(self) -> dict[str, Any]:
+        """What the current target's archive holds, as the ``ArchiveSummary`` payload.
+
+        ``archived`` counts the directory's PVs the store records now (``of`` is
+        the directory's size) and ``by_ioc`` the same per IOC, both through the
+        directory service's archive filter, so within ``display.filter_cap``;
+        each says why when it cannot be counted. The newest and oldest samples
+        are the store's; ``configuration`` is the archive's as rendered and
+        ``targets`` names, per configured control target, whether it has one.
+        """
+        target = await self._target()
+        fixed = {
+            "configuration": deployed_configuration(self._config, target),
+            "targets": served_targets(self._config),
+        }
+        connector, source, reason = await self._service.archive(fresh=True)
+        if connector is None:
+            payload = unavailable_payload(reason or NO_SOURCE_REASON, target=target)
+            return {**payload, **fixed}
+        extent = await self._service.archive_extent(fresh=True)
+        whole, stored = await asyncio.gather(
+            self._service.search(page_size=1),
+            self._service.search(archived=["yes"], page_size=1)
+            if extent is not None and extent.channels is not None
+            else _absent(),
+        )
+        unknown = (extent.reason if extent is not None else None) or NO_SOURCE_REASON
+        counts = _archive_counts(whole, stored, unknown)
+        return {
+            "outcome": "found",
+            "source": as_payload(source),
+            **counts,
+            "newest_sample": _iso(extent.newest if extent is not None else None),
+            "oldest_sample": _iso(extent.oldest if extent is not None else None),
+            "freshness_bound_s": (
+                freshness_bound_s(self._config) if own_store(self._config, target) else None
+            ),
+            **fixed,
         }
 
     async def _alarm_state(self, name: str, deadline: float) -> Any:
@@ -552,6 +624,19 @@ async def _ask(call: Awaitable[Any], deadline: float) -> Any:
         return _Reason(f"the service failed: {failure}")
 
 
+async def _archive_metadata(connector: Any, name: str) -> Any:
+    """The archive's metadata for *name*; a raised read answers its class, never its text.
+
+    An archiver's exception can carry its URL, a login included, so only the
+    class name is served; the whole exception goes to the log.
+    """
+    try:
+        return await connector.get_metadata(name)
+    except Exception as failure:
+        logger.warning("the archive's metadata could not be read", exc_info=True)
+        return _Reason(f"the archive failed: {type(failure).__name__}")
+
+
 async def _absent() -> None:
     """The answer of a read the deployment did not configure."""
 
@@ -596,12 +681,61 @@ def _page_outcome(sections: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     if outcome in ("found", "inactive"):
         return {"outcome": "found"}
     if outcome == "not_listed":
-        found = any(
-            section["outcome"] == "found" and (section.get("record") or section.get("rows"))
-            for section in others
-        )
+        found = any(_knows_the_pv(section) for section in others)
         return {"outcome": "not_listed" if found else "unknown"}
     return _unavailable(directory.get("reason") or NO_SOURCE_REASON)
+
+
+def _knows_the_pv(section: Mapping[str, Any]) -> bool:
+    """Whether *section* found the PV: a record or rows; the archive only when it records it."""
+    if section["outcome"] != "found":
+        return False
+    record = section.get("record")
+    if section.get("section") == "archive":
+        return isinstance(record, Mapping) and record.get("archived") is True
+    return bool(record or section.get("rows"))
+
+
+def _archive_counts(whole: Mapping[str, Any], stored: Any, unknown: str) -> dict[str, Any]:
+    """``archived`` and ``by_ioc`` from the directory's facets, unfiltered and archived only.
+
+    *stored* is ``None`` when the archive does not say what it holds (*unknown* says why).
+    """
+    of = whole.get("total") if whole.get("outcome") != "unavailable" else None
+    facets = whole.get("facets")
+    if not isinstance(facets, Mapping):
+        why = whole.get("facets_reason") or whole.get("reason") or "no answer"
+        return {
+            "archived": {"count": None, "of": of, "reason": why},
+            "by_ioc": [],
+            "by_ioc_reason": why,
+        }
+    marks = {entry["value"]: entry["count"] for entry in facets.get("archived") or ()}
+    if stored is None or "unknown" in marks:
+        why = whole.get("archived_reason") or unknown
+        return {
+            "archived": {"count": None, "of": of, "reason": why},
+            "by_ioc": [],
+            "by_ioc_reason": why,
+        }
+    counted = {"archived": {"count": marks.get("yes", 0), "of": of}}
+    stored_facets = stored.get("facets")
+    if not isinstance(stored_facets, Mapping):
+        why = stored.get("facets_reason") or stored.get("reason") or "no answer"
+        return {**counted, "by_ioc": [], "by_ioc_reason": why}
+    in_store = {entry["value"]: entry["count"] for entry in stored_facets.get("ioc") or ()}
+    by_ioc = [
+        {"ioc": entry["value"], "pvs": entry["count"], "archived": in_store.get(entry["value"], 0)}
+        for entry in facets.get("ioc") or ()
+    ]
+    return {**counted, "by_ioc": by_ioc}
+
+
+def _iso(moment: datetime | None) -> str | None:
+    """*moment* as ISO 8601 in UTC; a naive time is UTC, as the archive store keeps it."""
+    if moment is None:
+        return None
+    return (moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment).isoformat()
 
 
 def _unavailable(reason: str) -> dict[str, Any]:

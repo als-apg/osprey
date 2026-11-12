@@ -13,6 +13,7 @@ import fnmatch
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -30,6 +31,7 @@ from osprey_connectors.directory import (
     DirectoryRecord,
     DirectoryRow,
 )
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import (
     HistoryPage,
     Outcome,
@@ -177,6 +179,7 @@ def _install(
     section: dict[str, Any] | None,
     *curated: str,
     roster: bool = True,
+    archiver: dict[str, Any] | None = None,
 ) -> None:
     if roster:
         channels = [{"id": address, "role": "none"} for address in curated]
@@ -187,6 +190,8 @@ def _install(
         config["services"] = {"virtual_accelerator": {"port": 5064}}
     if section is not None:
         config["pv_directory"] = section
+    if archiver is not None:
+        config["archiver"] = archiver
     server.set_tool_context(server.build_tool_context(config, project_dir=tmp_path))
 
 
@@ -223,6 +228,38 @@ async def test_a_found_channel_carries_its_origin_and_panel_link(tmp_path: Path)
     assert _directory(channel)["origin"] == "curated"
     assert channel["links"] == {"panel": f"{PANEL}pv/SR%3ABPM1"}
     assert result["missing"] == {}
+
+
+async def test_a_channel_carries_the_archive_section_when_the_deployment_has_an_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Appliance:
+        async def get_metadata(self, channel: str) -> Any:
+            return SimpleNamespace(
+                is_archived=None,
+                archival_start=None,
+                archival_end=None,
+                sampling_period=None,
+                description=f"cannot say for {channel}",
+            )
+
+        async def disconnect(self) -> None:
+            pass
+
+    async def create(config: Any) -> Appliance:  # noqa: ARG001 - the factory's signature
+        return Appliance()
+
+    monkeypatch.setattr(ConnectorFactory, "create_archiver_connector", create)
+    FakeDirectory.records = _records(_record("SR:BPM1"))
+    appliance = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
+    _install(tmp_path, LIVE_BUILD, FACILITY, "SR:BPM1", archiver=appliance)
+
+    result = json.loads(await pv_record.pv_record(["SR:BPM1"]))
+
+    sections = {s["section"]: s for s in _by_name(result)["SR:BPM1"]["sections"]}
+    assert sections["archive"]["outcome"] == "found"
+    assert sections["archive"]["record"]["archived"] is None
+    assert sections["archive"]["record"]["description"] == "cannot say for SR:BPM1"
 
 
 async def test_an_inactive_channel_is_answered(tmp_path: Path) -> None:

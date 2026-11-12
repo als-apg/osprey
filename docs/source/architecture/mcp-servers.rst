@@ -180,9 +180,11 @@ The ``channel-finder`` shared login carries the server; the ``logbook`` and
 - ``directory_properties`` -- List the values one directory property holds, such as
   each IOC or host, spelled as the directory spells them.
 - ``pv_record`` -- Look up channel addresses: the directory record and, where
-  configured, alarm state, alarm configuration, alarm history and put history.
-- ``ioc_record`` -- Look up one IOC: its host, ports, channel counts, engineer and
-  the addresses of its health channels.
+  configured, alarm state, alarm configuration, alarm history, put history and
+  archive facts.
+- ``ioc_record`` -- Look up one IOC: its host, ports, channel counts, engineer, the
+  addresses of its health channels and, with an alarm feed configured, its channels
+  in alarm.
 - ``active_alarms`` -- List every channel in alarm now, with the counts per severity,
   from the alarm feed.
 - ``alarm_state`` -- Read the current alarm of each channel address from the alarm
