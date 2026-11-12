@@ -26,9 +26,9 @@
     {
       "name": "DOMPurify",
       "filename": "purify.min.js",
-      "version": "3.4.16",
-      "url": "https://cdn.jsdelivr.net/npm/dompurify@3.4.16/dist/purify.min.js",
-      "sha256": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2",
+      "version": "3.4.17",
+      "url": "https://cdn.jsdelivr.net/npm/dompurify@3.4.17/dist/purify.min.js",
+      "sha256": "cd37898f9782adf54820c413191b5691803f0f137c799d6edcfd38523b4c2c31",
       "targets": [
         "artifacts/static/js/vendor/",
         "web_terminal/static/vendor/",
@@ -86,9 +86,9 @@
     {
       "name": "KaTeX JS",
       "filename": "katex.min.js",
-      "version": "0.16.11",
-      "url": "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js",
-      "sha256": "e6bfe5deebd4c7ccd272055bab63bd3ab2c73b907b6e6a22d352740a81381fd4",
+      "version": "0.19.1",
+      "url": "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js",
+      "sha256": "fa140498b8cfc8302cbe5e7cb1bdbc1f952bc38b3fa258ede09e73edbf9a74bc",
       "targets": [
         "artifacts/static/js/vendor/",
         "web_terminal/static/vendor/"
@@ -97,9 +97,9 @@
     {
       "name": "KaTeX CSS",
       "filename": "katex.min.css",
-      "version": "0.16.11",
-      "url": "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css",
-      "sha256": "717bc9ae7853b61f0f76455dddf0ecd4f527a783f42de2ac24684899c1c46258",
+      "version": "0.19.1",
+      "url": "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.css",
+      "sha256": "00e0b094171b07f58422075f469b4feac2b2f7bce1aeec943c08da4d697f4dcf",
       "targets": [
         "artifacts/static/css/vendor/",
         "web_terminal/static/vendor/"
@@ -194,8 +194,8 @@
   "font_bundles": [
     {
       "name": "KaTeX fonts",
-      "version": "0.16.11",
-      "base_url": "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/fonts/",
+      "version": "0.19.1",
+      "base_url": "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/fonts/",
       "target": "artifacts/static/css/vendor/fonts/",
       "files": {
         "KaTeX_AMS-Regular.ttf": "68534840bcfdd2bffb6f0e8deb48684dd01e7f04ea2813267577afb906de1d13",

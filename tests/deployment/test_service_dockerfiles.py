@@ -533,9 +533,14 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
 # ── Node provenance (event_dispatcher) ───────────────────────────────────────
 #
 # Only the dispatch image ships Node — the worker shells out to the Claude Code
-# CLI, which is a Node package. It comes from the base image's own Debian
-# release rather than a third-party apt repo, so the image has one package
-# provenance and needs no network beyond the Debian mirror to build.
+# CLI, which is a Node package. The CLI declares node >= 22 and the base
+# image's Debian release ships Node 20, so Node is copied out of the official
+# Node 22 image, pulled through the base registry like the Python base — no
+# third-party apt repo, and no registry beyond the one a site mirror stands in
+# for.
+
+#: The image the Node-carrying recipes take Node from, as each spells it.
+NODE_IMAGE = "${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim"
 
 
 def _run_instruction_source(text: str, needle: str) -> str:
@@ -555,37 +560,57 @@ def _run_instruction_source(text: str, needle: str) -> str:
     return matches[0]
 
 
-def test_event_dispatcher_node_comes_from_the_base_image_distro():
-    node = _run_instruction_source(_dockerfile("event_dispatcher"), "nodejs")
-    assert "apt-get install -y --no-install-recommends ca-certificates nodejs npm" in node, node
-    # The pinned CLI install and the apt cleanup both follow an inline comment
-    # inside the continuation, so they are only reachable in the comment-
-    # stripped body above — a naive join would leave them commented out.
+def test_event_dispatcher_node_comes_from_the_official_node_22_image():
+    text = _dockerfile("event_dispatcher")
+    assert f"\nFROM {NODE_IMAGE} AS node\n" in text
+    assert "\nCOPY --from=node /usr/local/bin/node /usr/local/bin/node\n" in text
+    assert (
+        "\nCOPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm\n"
+        in text
+    )
+    assert "nodejs" not in text, "Node is installed from the Debian release again"
+    node = _run_instruction_source(text, "npm-cli.js")
+    assert "ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm" in node
+    # The pinned CLI install follows an inline comment inside the continuation,
+    # so it is only reachable in the comment-stripped body above — a naive join
+    # would leave it commented out.
     assert "npm install -g @anthropic-ai/claude-code@" in node
+    assert "The CLI declares node >= 22" in text
+
+
+def test_every_node_carrying_recipe_names_one_node_image():
+    """The project image, the dispatch image and the qmd sidecar take Node from
+    one image reference, so a site mirror carries a single Node image."""
+    recipes = {
+        "project": (TEMPLATES_DIR / "project" / "Dockerfile.j2").read_text(encoding="utf-8"),
+        "event_dispatcher": _dockerfile("event_dispatcher"),
+        "qmd": _dockerfile("qmd"),
+    }
+    for label, text in recipes.items():
+        named = set(re.findall(r"\$\{OSPREY_BASE_REGISTRY\}/library/node:[\w.-]*\w", text))
+        assert named == {NODE_IMAGE}, f"{label}: {sorted(named)}"
 
 
 def test_event_dispatcher_has_no_third_party_node_apt_repo():
     """Asserted as an absence over the whole file: any of these tokens coming
     back means the vendor setup-script pipeline came back with them."""
     text = _dockerfile("event_dispatcher")
-    for token in ("nodesource", "gnupg", "setup_20.x", "apt-key"):
+    for token in ("nodesource", "gnupg", "setup_20.x", "setup_22.x", "apt-key"):
         assert token not in text, f"{token} is back in the Dockerfile — third-party Node repo"
-    node = _run_instruction_source(text, "nodejs")
+    node = _run_instruction_source(text, "npm-cli.js")
     assert "| bash" not in node and "| sh" not in node, (
         "the node layer pipes a downloaded script into a shell"
     )
 
 
 def test_event_dispatcher_keeps_npm_in_the_final_image():
-    """nodejs and npm stay in the final image, beside the Claude Code CLI npm
-    installs there and a headless run executes directly. The deps layer's own
-    toolchain purge is asserted elsewhere; what must not appear is a purge in
-    *this* layer."""
+    """node and npm stay in the final image, beside the Claude Code CLI npm
+    installs there and a headless run executes directly. What must not appear
+    is a removal of either in the layer that installs with them."""
     text = _dockerfile("event_dispatcher")
-    node = _run_instruction_source(text, "nodejs")
-    assert "apt-get purge" not in node, "the node layer purges packages"
-    assert "autoremove" not in node, "the node layer autoremoves packages"
-    assert "nodejs and npm stay in the final image" in text
+    node = _run_instruction_source(text, "npm-cli.js")
+    assert "rm " not in node, "the node layer removes files"
+    assert "node and npm stay in the final image" in text
 
 
 def _va_extra_body() -> str:
@@ -979,6 +1004,10 @@ def test_every_shipped_recipe_carries_the_site_ca_layer(dockerfile):
     label = str(dockerfile.parent.relative_to(TEMPLATES_DIR))
     recipe = SITE_BUILD_SHAPE[label]
     for i, tree in enumerate(_stage_trees(dockerfile.read_text())):
+        if not run_instructions(tree):
+            # A stage that runs nothing fetches nothing: it only lends its
+            # files to a later stage's COPY.
+            continue
         assert_site_ca_idiom(
             tree,
             f"{label} (stage tree {i + 1})",

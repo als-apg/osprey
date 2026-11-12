@@ -1,0 +1,1 @@
+The vendored DOMPurify sanitizer moves from 3.4.16 to 3.4.17 (GHSA-c6gr-qvv4-5v3f, GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr) and KaTeX from 0.16.11 to 0.19.1 (GHSA-cg87-wmx4-v546, GHSA-238p-pmpm-9mq7). Run `osprey vendor fetch` to refresh an existing checkout.

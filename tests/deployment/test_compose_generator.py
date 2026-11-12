@@ -8362,8 +8362,8 @@ class TestHubImage:
 
     def test_a_docker_io_reference_is_rebased(self) -> None:
         assert (
-            self._hub_image("docker.io/library/alpine:3.20", self.MIRROR)
-            == f"{self.MIRROR}/library/alpine:3.20"
+            self._hub_image("docker.io/library/alpine:3.23", self.MIRROR)
+            == f"{self.MIRROR}/library/alpine:3.23"
         )
         assert (
             self._hub_image("docker.io/clickhouse/clickhouse-server:26.8", self.MIRROR)
@@ -8384,7 +8384,7 @@ class TestHubImage:
 
     @pytest.mark.parametrize(
         "reference",
-        ["redis:7.4-alpine", "pgvector/pgvector:pg16", "docker.io/library/alpine:3.20"],
+        ["redis:7.4-alpine", "pgvector/pgvector:pg16", "docker.io/library/alpine:3.23"],
     )
     def test_no_base_registry_leaves_every_reference_unchanged(self, reference: str) -> None:
         assert self._hub_image(reference, "") == reference
