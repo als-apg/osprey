@@ -8,10 +8,14 @@ from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
     AlarmState,
     AlarmStateRecord,
+    AlarmStateRow,
+    AlarmStates,
 )
 
 __all__ = [
     "AlarmConfigRecord",
     "AlarmState",
     "AlarmStateRecord",
+    "AlarmStateRow",
+    "AlarmStates",
 ]

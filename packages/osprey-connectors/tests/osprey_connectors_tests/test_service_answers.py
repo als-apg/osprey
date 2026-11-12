@@ -17,6 +17,8 @@ from osprey_connectors.alarm_state import (
     AlarmConfigRecord,
     AlarmState,
     AlarmStateRecord,
+    AlarmStateRow,
+    AlarmStates,
 )
 from osprey_connectors.directory import (
     ChannelDirectory,
@@ -55,6 +57,8 @@ RECORDS = (
     PutRow,
     HistoryPage,
     AlarmStateRecord,
+    AlarmStateRow,
+    AlarmStates,
     AlarmConfigRecord,
 )
 
@@ -127,6 +131,8 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
             AlarmStateRecord,
             ["severity", "status", "latched", "acknowledged", "message", "time", "stale"],
         ),
+        (AlarmStateRow, ["channel", "path", "state"]),
+        (AlarmStates, ["rows", "stale", "last_contact", "counts"]),
         (
             AlarmConfigRecord,
             ["in_tree", "path", "guidance", "displays", "enabled", "latching"],
@@ -146,6 +152,26 @@ def test_unavailable_takes_its_reason_positionally_and_requires_it():
     assert Unavailable("alarm feed still loading").reason == "alarm feed still loading"
     with pytest.raises(TypeError):
         Unavailable()  # type: ignore[call-arg]
+
+
+def _row(channel: str, severity: str | None) -> AlarmStateRow:
+    return AlarmStateRow(channel=channel, path=None, state=AlarmStateRecord(severity=severity))
+
+
+def test_the_counts_are_derived_from_the_rows_and_cannot_be_passed():
+    rows = (_row("A", "MAJOR"), _row("B", "OK"), _row("C", "MAJOR"), _row("D", None))
+    states = AlarmStates(rows=rows, stale=False, last_contact=None)
+
+    assert dict(states.counts) == {"MAJOR": 2, "OK": 1}
+    assert dict(AlarmStates(rows=(), stale=True, last_contact=None).counts) == {}
+    with pytest.raises(TypeError):
+        AlarmStates(rows=rows, stale=False, last_contact=None, counts={"OK": 9})  # type: ignore[call-arg]
+
+
+def test_the_list_converts_to_the_json_shape_with_its_counts():
+    states = AlarmStates(rows=(_row("A", "MINOR"),), stale=False, last_contact="t")
+
+    assert dataclasses.asdict(states)["counts"] == {"MINOR": 1}
 
 
 @pytest.mark.parametrize(
