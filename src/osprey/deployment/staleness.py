@@ -359,8 +359,8 @@ def _material_input_digests(inputs: Iterable[ProfileInput]) -> dict[str, str]:
     Splitting the fold per input lets the message name ``tiers/readonly.yml``
     — the file that actually changed.
 
-    Each input is folded with the same label and the same
-    :func:`~osprey.cli.build_profile_merge._fold_source_tree` call the build's
+    Each input is folded by the same
+    :meth:`~osprey.cli.build_profile_merge.ProfileInput.fold` the build's
     material fold uses, into its own hash rather than a shared one, so the value
     here answers "did *this* input move" independently. Diagnostic only:
     nothing decides drift by reading these keys.
@@ -378,20 +378,12 @@ def _material_input_digests(inputs: Iterable[ProfileInput]) -> dict[str, str]:
     """
     import hashlib
 
-    from osprey.cli.build_profile_merge import _fold_source_tree
-
     digests: dict[str, str] = {}
     for entry in inputs:
         if entry.label is None:
             continue
         digest = hashlib.sha256()
-        _fold_source_tree(
-            digest,
-            entry.label,
-            entry.path,
-            skip_runtime_output=entry.skips_runtime_output,
-            skip=entry.build_output,
-        )
+        entry.fold(digest)
         digests[f"{MATERIAL_PREFIX}{entry.key}"] = digest.hexdigest()
     return digests
 

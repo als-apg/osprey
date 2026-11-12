@@ -2207,15 +2207,7 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
         inputs: The profile's inputs, as :func:`profile_inputs` lists them.
     """
     for entry in inputs:
-        if entry.label is None:
-            continue
-        _fold_source_tree(
-            digest,
-            entry.label,
-            entry.path,
-            skip_runtime_output=entry.skips_runtime_output,
-            skip=entry.build_output,
-        )
+        entry.fold(digest)
 
 
 class ProfileInputRole(StrEnum):
@@ -2229,6 +2221,10 @@ class ProfileInputRole(StrEnum):
     MATERIAL = "material"
     #: Each ``apps/<name>/`` directory, minus the vendor files the build fetches into it.
     APPLICATION = "application"
+    #: Each listed application an installed distribution ships: its
+    #: ``<distribution>==<version>``, never its files, which are no repository content
+    #: and reach an image only with the distribution.
+    INSTALLED = "installed"
     #: Each local-path ``dependencies`` package outside ``apps/``, which the build
     #: turns into a wheel.
     PACKAGE = "package"
@@ -2247,16 +2243,21 @@ class ProfileInput:
             covers as resolved JSON rather than as bytes.
         path: Where the input lives.
         role: What part it plays.
+        pin: ``<distribution>==<version>`` for an
+            :attr:`~ProfileInputRole.INSTALLED` input, folded instead of its
+            files; ``None`` for every other role.
 
     Raises:
-        ValueError: On an empty key, or a label that is ``None`` for anything
-            but a document or set for a document.
+        ValueError: On an empty key, a label that is ``None`` for anything
+            but a document or set for a document, or a pin on any role but
+            :attr:`~ProfileInputRole.INSTALLED` or missing on it.
     """
 
     key: str
     label: str | None
     path: Path
     role: ProfileInputRole
+    pin: str | None = None
 
     def __post_init__(self) -> None:
         if not self.key:
@@ -2267,6 +2268,38 @@ class ProfileInput:
                 f"{ProfileInputRole.DOCUMENT.value}, not for role {self.role.value} "
                 f"with label {self.label!r}"
             )
+        if (self.pin is None) == (self.role is ProfileInputRole.INSTALLED):
+            raise ValueError(
+                f"profile input {self.key!r}: a pin is set exactly when the role is "
+                f"{ProfileInputRole.INSTALLED.value}"
+            )
+
+    @property
+    def in_repository(self) -> bool:
+        """Whether the input is repository content: everything but an installed application."""
+        return self.role is not ProfileInputRole.INSTALLED
+
+    def fold(self, digest: Any) -> None:
+        """Fold this input into *digest*, in place; a document folds nothing.
+
+        A file input folds through :func:`_fold_source_tree`; an installed
+        application folds its label and its :attr:`pin`.
+        """
+        if self.label is None:
+            return
+        if self.pin is not None:
+            digest.update(self.label.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(self.pin.encode("utf-8"))
+            digest.update(b"\0")
+            return
+        _fold_source_tree(
+            digest,
+            self.label,
+            self.path,
+            skip_runtime_output=self.skips_runtime_output,
+            skip=self.build_output,
+        )
 
     @property
     def skips_runtime_output(self) -> bool:
@@ -2285,6 +2318,27 @@ class ProfileInput:
         from .application_material import app_build_output
 
         return app_build_output(self.path)
+
+
+def _installed_application_inputs(apps: Any) -> list[ProfileInput]:
+    """The inputs of the listed applications installed distributions ship, sorted by name.
+
+    *apps* is the profile's ``apps:`` block as written; an unlisted installed
+    application is no input.
+    """
+    from osprey.apps.origin import listed_installed
+
+    names = [str(name) for name in apps] if isinstance(apps, dict) else []
+    return [
+        ProfileInput(
+            f"apps.{name}",
+            f"app:{name}",
+            origin.directory,
+            ProfileInputRole.INSTALLED,
+            pin=f"{origin.distribution}=={origin.version}",
+        )
+        for name, origin in sorted(listed_installed(names).items())
+    ]
 
 
 def profile_inputs(
@@ -2309,7 +2363,9 @@ def profile_inputs(
        (``services.<name>.template``, sorted by name; a bundled ``osprey.<name>``
        template is package content and has none), then each enabled watchdog's
        directory (``watchdog:<name>``, sorted by name);
-    3. applications — each application directory (``app:<name>``, sorted by name);
+    3. applications — each application directory (``app:<name>``, sorted by name),
+       then each listed application an installed distribution ships
+       (``app:<name>``, sorted by name, folding ``<distribution>==<version>``);
     4. packages — each local-path ``dependencies`` package outside ``apps/``
        (``package:<path>``, in ``dependencies`` order);
     5. the overlay ``.env.variant`` in ``document.root_dir`` selects (``variant``).
@@ -2437,6 +2493,7 @@ def profile_inputs(
         )
         for app_dir in application_dirs(root)
     )
+    entries.extend(_installed_application_inputs(document.raw.get("apps")))
     for package in dependency_package_dirs(document.raw.get("dependencies"), root):
         key = _document_key(package, root)
         entries.append(ProfileInput(f"{key}/", f"package:{key}", package, ProfileInputRole.PACKAGE))
@@ -2578,6 +2635,8 @@ def inputs_outside_repository(document: ResolvedProfileDocument) -> tuple[Outsid
     root = document.root_dir.resolve()
     outside: list[OutsideInput] = []
     for entry in profile_inputs(document):
+        if not entry.in_repository:
+            continue
         if not entry.path.resolve().is_relative_to(root):
             outside.append(OutsideInput(entry))
             continue
