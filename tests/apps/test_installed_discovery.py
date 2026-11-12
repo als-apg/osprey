@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import sys
+from importlib import metadata
 from pathlib import Path
 
 import pytest
@@ -169,3 +171,10 @@ def test_an_installed_origin_names_its_distribution_and_package() -> None:
     """An installed origin without a package would be reported under a deployment path."""
     with pytest.raises(ValueError, match="installed"):
         AppOrigin(kind="installed", directory=DIRECTORY, distribution=DIST, version=VERSION)
+
+
+def test_osprey_declares_no_application_of_its_own() -> None:
+    """OSPREY's built-in features are framework code; its distribution ships no application."""
+    declared = metadata.distribution("osprey-framework").entry_points
+    assert [ep.name for ep in declared if ep.group == "osprey.apps"] == []
+    assert importlib.util.find_spec("osprey.apps.first_party") is None
