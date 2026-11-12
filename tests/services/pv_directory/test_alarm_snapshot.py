@@ -110,7 +110,6 @@ async def test_the_first_read_answers_the_snapshot():
     assert state.latched is True
     assert state.stale is False
     assert config.in_tree == "yes"
-    assert config.label == "live configuration"
     assert snapshot.target == "va"
 
 

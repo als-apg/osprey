@@ -130,9 +130,9 @@ def _logbook(target: str, ariel_configured: bool) -> Source | None:
     if not ariel_configured or target not in APPLIANCE_TARGETS:
         return None
     return Source(
+        kind="logbook",
         target=target,  # type: ignore[arg-type]
         service=_ARIEL,
-        label=_ARIEL,
         rehearsal=target == TARGET_STANDIN,
     )
 

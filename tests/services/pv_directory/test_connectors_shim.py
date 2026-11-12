@@ -123,7 +123,7 @@ def test_with_the_modules_every_name_is_bound() -> None:
 def test_as_payload_of_a_contract_record() -> None:
     pytest.importorskip("osprey_connectors.service_answers")
     source = _connectors.Source(
-        target="live", service="channelfinder", label="All PVs", rehearsal=False
+        kind="directory", target="live", service="channelfinder", rehearsal=False
     )
     page = _connectors.HistoryPage(
         outcome=_connectors.Outcome.UNAVAILABLE, source=source, reason="login page"
@@ -142,6 +142,22 @@ def test_as_payload_of_a_contract_record() -> None:
         "retention_known": False,
         "reason": "login page",
     }
+
+
+def test_a_source_is_served_with_the_label_the_framework_names() -> None:
+    pytest.importorskip("osprey_connectors.service_answers")
+    directory = _connectors.Source(
+        kind="directory", target="standin", service="channelfinder", rehearsal=True
+    )
+    put_log = _connectors.Source(kind="put_log", target="live", service="caputlog", rehearsal=False)
+
+    assert _connectors.as_payload(directory) == {
+        "target": "standin",
+        "service": "channelfinder",
+        "label": "All PVs",
+        "rehearsal": True,
+    }
+    assert _connectors.as_payload(put_log)["label"] == "caputlog"
 
 
 def test_floor_binds_every_contract_name_to_none(floor: ModuleType) -> None:

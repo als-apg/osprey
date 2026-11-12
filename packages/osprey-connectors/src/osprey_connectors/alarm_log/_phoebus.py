@@ -35,9 +35,6 @@ from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
 from osprey_connectors.alarm_state import AlarmConfigRecord
 from osprey_connectors.service_answers import BackendSpec, HistoryPage, Outcome, Unavailable
 
-#: The label of every configuration this backend answers.
-LAST_LOGGED_CONFIGURATION = "last logged configuration"
-
 _SEARCH_PATH = "/search/alarm"
 _CONFIG_PATH = "/search/alarm/config"
 _SETTINGS_KEY = "pv_directory.alarm_log.settings"
@@ -97,7 +94,7 @@ class PhoebusAlarmLogger(AlarmLog):
         if newest is not None:
             return _config_record(newest)
         if not rows:
-            return AlarmConfigRecord(in_tree="no", label=LAST_LOGGED_CONFIGURATION)
+            return AlarmConfigRecord(in_tree="no")
         # State rows prove a path but not the tree's entry, so nothing below answers "no".
         path = _tree_path(rows[0])
         if path is not None:
@@ -109,7 +106,7 @@ class PhoebusAlarmLogger(AlarmLog):
                 newest = _newest_config_row(_rows_of(fallback, pv))
                 if newest is not None:
                     return _config_record(newest)
-        return AlarmConfigRecord(in_tree="unknown", path=path, label=LAST_LOGGED_CONFIGURATION)
+        return AlarmConfigRecord(in_tree="unknown", path=path)
 
     async def probe(self, deadline: float) -> str | Unavailable:
         answer = await self._transport.request("GET", "/", deadline=deadline)
@@ -170,9 +167,9 @@ def _config_record(row: Mapping[str, Any]) -> AlarmConfigRecord:
     path = _tree_path(row)
     body = _config_body(row)
     if body is None:
-        return AlarmConfigRecord(in_tree="unknown", path=path, label=LAST_LOGGED_CONFIGURATION)
+        return AlarmConfigRecord(in_tree="unknown", path=path)
     if "delete" in body:
-        return AlarmConfigRecord(in_tree="no", path=path, label=LAST_LOGGED_CONFIGURATION)
+        return AlarmConfigRecord(in_tree="no", path=path)
     return AlarmConfigRecord(
         in_tree="yes",
         path=path,
@@ -180,7 +177,6 @@ def _config_record(row: Mapping[str, Any]) -> AlarmConfigRecord:
         displays=body.get("displays"),
         enabled=body.get("enabled"),
         latching=body.get("latching"),
-        label=LAST_LOGGED_CONFIGURATION,
     )
 
 

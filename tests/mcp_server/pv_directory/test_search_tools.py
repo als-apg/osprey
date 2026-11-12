@@ -57,7 +57,6 @@ FACILITY = {"type": "channelfinder", "settings": {"url": "http://cf.example", "t
 class FakeDirectory:
     """A directory over fixed rows; ``words`` is a substring of the name."""
 
-    label = "All PVs"
     rows: list[Any] = []
     values: dict[str, list[str]] = {}
     count_delay = 0.0
@@ -70,9 +69,9 @@ class FakeDirectory:
     @property
     def source(self) -> Any:
         return Source(
+            kind=self.spec.kind,
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label,
             rehearsal=self.spec.rehearsal,
         )
 

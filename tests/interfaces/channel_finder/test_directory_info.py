@@ -55,9 +55,7 @@ LABELLED = {"type": "labelled", "settings": {"url": "http://directory.example"}}
 
 
 class LabelledDirectory(ChannelDirectory):
-    """A facility directory whose backend names itself."""
-
-    label = "Facility PVs"
+    """A facility directory of an out-of-tree type."""
 
     async def search(self, query: Any, deadline: float) -> Any:
         raise NotImplementedError
@@ -215,15 +213,15 @@ def test_the_descriptor_is_present_when_configured(start) -> None:
     assert info["pipeline_type"] == "in_context"
 
 
-def test_the_label_follows_a_target_move(start, record: _Record) -> None:
+def test_the_label_is_all_pvs_on_every_target_whatever_answers(start, record: _Record) -> None:
     config = _config(LIVE_BUILD, LABELLED)
     config["services"] = {"virtual_accelerator": {"port": 5064}}
     with start(config) as (_app, client):
-        assert client.get("/api/info").json()["directory"]["label"] == "Facility PVs"
+        assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
         record.move("va", 1)
         assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
         record.move("live", 2)
-        assert client.get("/api/info").json()["directory"]["label"] == "Facility PVs"
+        assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
 
 
 def test_a_va_only_section_at_live_is_labelled_all_pvs(start, record: _Record) -> None:
@@ -326,7 +324,14 @@ def test_the_fixture_names_every_json_panel_route() -> None:
 def test_the_fixture_search_is_a_directory_page() -> None:
     page = _routes()["search"]
     rows = [DirectoryRow(**{k: v for k, v in row.items() if k != "origin"}) for row in page["rows"]]
-    rebuilt = DirectoryPage(**{**page, "source": Source(**page["source"]), "rows": rows})
+    served = page["source"]
+    source = Source(
+        kind="directory",
+        target=served["target"],
+        service=served["service"],
+        rehearsal=served["rehearsal"],
+    )
+    rebuilt = DirectoryPage(**{**page, "source": source, "rows": rows})
     payload = _connectors.as_payload(rebuilt)
     payload["rows"] = [
         service._served_row(row, served["origin"])

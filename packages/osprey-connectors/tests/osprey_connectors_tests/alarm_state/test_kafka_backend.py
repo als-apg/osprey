@@ -141,7 +141,6 @@ async def test_reads_answer_from_the_fold_after_catch_up():
     assert state.stale is False
     config = await backend.config_for(PV, deadline=1.0)
     assert config.in_tree == "yes"
-    assert config.label == "live configuration"
     assert await _answer(backend, "OTHER:PV") is None
     assert (await backend.config_for("OTHER:PV", deadline=1.0)).in_tree == "no"
     assert "2 messages" in await backend.probe(deadline=1.0)

@@ -31,11 +31,7 @@ class AlarmStateRecord:
 
 @dataclass(frozen=True, kw_only=True)
 class AlarmConfigRecord:
-    """One PV's place in the alarm tree.
-
-    ``label`` is ``"live configuration"`` from the alarm-state feed and ``"last
-    logged configuration"`` from the alarm logger.
-    """
+    """One PV's place in the alarm tree."""
 
     in_tree: Literal["yes", "no", "unknown"]
     path: str | None = None
@@ -43,7 +39,6 @@ class AlarmConfigRecord:
     displays: Any = None
     enabled: bool | None = None
     latching: bool | None = None
-    label: str
 
 
 class AlarmState(_Backend, ABC):

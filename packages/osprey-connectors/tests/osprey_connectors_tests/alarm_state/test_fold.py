@@ -155,14 +155,12 @@ def test_config_is_the_live_configuration_without_the_actions():
     assert record.displays == CONFIG["displays"]
     assert record.enabled is True
     assert record.latching is True
-    assert record.label == "live configuration"
     assert "mailto" not in repr(record)
 
 
 def test_a_pv_no_message_names_is_not_in_the_tree():
     record = config_record(_folded((CONFIG_KEY, json.dumps(CONFIG).encode())), "OTHER:PV")
     assert record.in_tree == "no"
-    assert record.label == "live configuration"
 
 
 def test_a_state_without_config_is_unknown_with_its_path():

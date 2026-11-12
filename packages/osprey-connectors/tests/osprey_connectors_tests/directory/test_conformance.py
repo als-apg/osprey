@@ -75,8 +75,6 @@ _MEMORY_RECORD = DirectoryRecord(
 class MemoryDirectory(ChannelDirectory):
     """An out-of-tree directory, selected by its dotted path, holding one PV in memory."""
 
-    label = "Memory directory"
-
     def _hits(self, query: DirectoryQuery) -> list[DirectoryRecord]:
         row = _MEMORY_RECORD.row
         text = f"{row.name} {row.description}".casefold()
@@ -524,7 +522,9 @@ async def test_every_method_answers_its_declared_type_and_never_raises(
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("case", CASES, ids=_ids(CASES))
-async def test_the_source_names_the_specs_target_and_rehearsal(case, target, tmp_path, monkeypatch):
+async def test_the_source_names_the_specs_kind_target_and_rehearsal(
+    case, target, tmp_path, monkeypatch
+):
     built = await _build(case, case.modes[0], tmp_path, monkeypatch, target=target)
 
     source = built.backend.source
@@ -533,16 +533,16 @@ async def test_the_source_names_the_specs_target_and_rehearsal(case, target, tmp
     assert source.target == target
     assert source.rehearsal is (target == "standin")
     assert source.service == case.type
-    expected_label = type(built.backend).label if case.kind == "directory" else case.type
-    assert source.label == expected_label
+    assert source.kind == case.kind
     assert all(page.source == source for page in _pages(answers))
 
 
-async def test_an_out_of_tree_label_reaches_the_source(tmp_path, monkeypatch):
+async def test_an_out_of_tree_directory_names_its_source_as_any_directory(tmp_path, monkeypatch):
     built = await _build(CASES[2], "memory", tmp_path, monkeypatch)
 
     assert isinstance(built.backend, MemoryDirectory)
-    assert built.backend.source.label == "Memory directory"
+    assert built.backend.source.kind == "directory"
+    assert not hasattr(built.backend.source, "label")
 
 
 @pytest.mark.parametrize("case", DIRECTORY_CASES, ids=_ids(DIRECTORY_CASES))

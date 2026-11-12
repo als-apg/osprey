@@ -482,7 +482,7 @@ async def test_the_source_is_the_specs(directory: SimulatorDirectory) -> None:
     page = await directory.search(DirectoryQuery(), DEADLINE)
 
     assert page.source == Source(
-        target="va", service="simulator_view", label="All PVs", rehearsal=False
+        kind="directory", target="va", service="simulator_view", rehearsal=False
     )
 
 

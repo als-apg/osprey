@@ -148,7 +148,6 @@ async def test_reads_answer_the_folded_record():
     config = await backend.config_for(PV, 1.0)
     assert isinstance(config, AlarmConfigRecord)
     assert config.in_tree == "yes"
-    assert config.label == "live configuration"
     assert await backend.state_for("DEMO:NOT:IN:THE:TREE", 1.0) is None
     assert (await backend.config_for("DEMO:NOT:IN:THE:TREE", 1.0)).in_tree == "no"
 

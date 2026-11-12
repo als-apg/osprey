@@ -57,8 +57,6 @@ _ROUTES = Path(__file__).parents[2] / "interfaces/channel_finder/fixtures/direct
 class FakeBackend:
     """The construction and source every fake shares, as the contract's base has them."""
 
-    label = "All PVs"
-
     def __init__(self, spec: Any, *, project_dir: Path | None = None, **seams: Any) -> None:
         self.spec = spec
         self.project_dir = project_dir
@@ -66,9 +64,9 @@ class FakeBackend:
     @property
     def source(self) -> Any:
         return Source(
+            kind=self.spec.kind,
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 

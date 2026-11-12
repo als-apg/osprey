@@ -77,7 +77,7 @@ class _Fake:
     def source(self) -> Any:
         contract = importlib.import_module("osprey_connectors.service_answers")
         return contract.Source(
-            target=self.spec.target, service=self.spec.type, label="All PVs", rehearsal=False
+            kind=self.spec.kind, target=self.spec.target, service=self.spec.type, rehearsal=False
         )
 
     async def probe(self, deadline: float) -> Any:  # noqa: ARG002 - a fake

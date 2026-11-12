@@ -59,9 +59,9 @@ class FakeBackend:
     @property
     def source(self) -> Any:
         return Source(
+            kind=self.spec.kind,
             target=self.spec.target,
             service=self.spec.type,
-            label="All PVs" if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
