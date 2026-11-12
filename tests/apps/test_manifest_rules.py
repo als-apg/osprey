@@ -677,6 +677,36 @@ def test_an_audit_identity_a_roster_user_holds_is_refused() -> None:
     assert "roster" in str(err)
 
 
+# --- an application with no container ------------------------------------------------
+
+
+def test_a_panel_with_no_container_to_serve_it_is_refused() -> None:
+    err = _refused([_manifest(containers=_DROP, tools=_DROP)])
+    assert _rules(err) == ["panel_container"]
+    assert "it declares no container" in err.message
+
+
+def test_state_path_needs_a_panel_with_no_container_too() -> None:
+    m = _manifest(containers=_DROP, panel=_DROP, tools__shown_when="always")
+    assert _rules(_refused([m])) == ["state_path_panel"]
+
+
+def test_an_application_with_no_container_is_not_checked_for_its_audit_identity() -> None:
+    reserved = Reserved(
+        frozenset(), frozenset(), frozenset(), frozenset(), roster_users=frozenset({"guide"})
+    )
+    guide = _manifest({"name": "guide", "skills": ["guide"]})
+    validate([guide], logins={}, reserved=reserved)
+
+
+def test_an_audit_identity_spelled_with_no_container_is_refused() -> None:
+    guide = _manifest({"name": "guide", "skills": ["guide"], "audit_identity": "guide-audit"})
+    err = _refused([guide])
+    assert _rules(err) == ["audit_identity_container"]
+    assert err.field == "audit_identity"
+    assert "has none" in err.message
+
+
 def test_an_environment_package_an_unlisted_directory_declares_is_refused(
     tmp_path: Path,
 ) -> None:

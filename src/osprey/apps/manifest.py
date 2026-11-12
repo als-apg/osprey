@@ -17,6 +17,7 @@ from pydantic import (
     ConfigDict,
     Discriminator,
     Field,
+    PrivateAttr,
     StrictBool,
     StrictInt,
     StringConstraints,
@@ -296,13 +297,24 @@ class AppManifest(_Strict):
 
     name: Slug
     summary: NonEmpty | None = None
-    containers: dict[NonEmpty, Container] = Field(min_length=1)
+    #: The application's containers, by compose service name; none for an application
+    #: of a tool server, skills or both. A backend-less application keeps no state and
+    #: opens no deployment data store: its tool server runs beside the agent, and
+    #: keeping to that is the tool server author's duty, since no check can see it.
+    containers: dict[NonEmpty, Container] = Field(default_factory=dict)
     panel: Panel | None = None
     tools: Tools | None = None
-    audit_identity: NonEmpty
+    #: Names the containers' spool and state directories; defaults to ``name``.
+    audit_identity: NonEmpty = ""
     vendor: list[VendorEntry] = Field(default_factory=list)
     #: The agent skills the application carries, each ``skills/<name>/SKILL.md`` in its directory.
     skills: list[Slug] = Field(default_factory=list)
+    _audit_identity_spelled: bool = PrivateAttr(default=False)
+
+    @property
+    def audit_identity_spelled(self) -> bool:
+        """Whether ``app.yml`` spells ``audit_identity`` rather than taking the default."""
+        return self._audit_identity_spelled
 
     @model_validator(mode="before")
     @classmethod
@@ -311,11 +323,23 @@ class AppManifest(_Strict):
             return data
         name = data["name"]
         data = dict(data)
-        data.setdefault("audit_identity", name)
         panel = data.get("panel")
         if isinstance(panel, dict) and "id" not in panel:
             data["panel"] = {"id": name, **panel}
         return data
+
+    @model_validator(mode="after")
+    def _has_a_part(self) -> AppManifest:
+        if not (self.containers or self.panel or self.tools or self.skills):
+            raise PydanticCustomError(
+                "app_has_part",
+                "an application declares at least one of containers, panel, tools or skills",
+                {"at": ""},
+            )
+        self._audit_identity_spelled = "audit_identity" in self.model_fields_set
+        if not self._audit_identity_spelled:
+            self.audit_identity = self.name
+        return self
 
     @field_validator("containers", mode="before")
     @classmethod
