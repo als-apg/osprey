@@ -163,3 +163,9 @@ def test_a_refusal_in_an_installed_manifest_names_the_installed_file(
 
     where = info.value.violations[0].where
     assert where.startswith(f"broken_installed_app/app.yml (installed by {DIST} {VERSION})")
+
+
+def test_an_installed_origin_names_its_distribution_and_package() -> None:
+    """An installed origin without a package would be reported under a deployment path."""
+    with pytest.raises(ValueError, match="installed"):
+        AppOrigin(kind="installed", directory=DIRECTORY, distribution=DIST, version=VERSION)

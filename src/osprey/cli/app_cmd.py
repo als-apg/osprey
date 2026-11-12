@@ -3,8 +3,9 @@
 ``osprey app new`` copies the shipped example under a new name and lists it in the profile.
 ``osprey app check`` reports what ``osprey build`` reports of them, through the same
 :func:`osprey.apps.loader.check_deployment`, then what only the application's own source
-can tell: the import boundary over each of its Python packages, the design-system styling of
-``panel/``, ESLint over ``panel/`` when it holds JS, and Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. A
+can tell (:func:`app_violations`), for an application under ``apps/`` and one an installed
+package ships alike: the import boundary over each of its Python packages, the design-system
+styling and page-ready mark of ``panel/``, ESLint over ``panel/`` when it holds JS, and Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. A
 deployment repository has no JS toolchain, so the command installs the one pinned in
 ``osprey/apps/js_check/`` into the user's cache once and runs it from there; an application
 with no JS needs no Node.
@@ -30,7 +31,8 @@ from ruamel.yaml import YAML, YAMLError
 
 from osprey.apps.boundary import check_package
 from osprey.apps.errors import AppManifestError, Violation
-from osprey.apps.manifest import APP_NAME_PATTERN
+from osprey.apps.manifest import APP_NAME_PATTERN, AppManifest
+from osprey.apps.origin import AppOrigin, origin_of
 from osprey.apps.rules import shadows_installed, taken_package
 from osprey.utils.config_writer import load_config_document
 from osprey.utils.workspace import APPS_DIRNAME
@@ -63,6 +65,44 @@ _NOT_AUTHORED_DIRS = frozenset({"vendor", "node_modules"})
 
 class _ToolchainUnavailable(Exception):
     """The pinned JS toolchain is neither cached nor fetchable."""
+
+
+@dataclasses.dataclass(frozen=True)
+class CheckedApp:
+    """One application the per-application checks judge.
+
+    Attributes:
+        name: The application's name, which its violations carry.
+        origin: Where its directory is; a report names a file through
+            :meth:`~osprey.apps.origin.AppOrigin.display`.
+    """
+
+    name: str
+    origin: AppOrigin
+
+    @property
+    def directory(self) -> Path:
+        """The application's directory."""
+        return self.origin.directory
+
+
+def checked_apps(manifests: Iterable[AppManifest], root: Path) -> list[CheckedApp]:
+    """Each of *manifests* with the directory it was read from, under deployment *root*."""
+    return [CheckedApp(manifest.name, origin_of(manifest, root)) for manifest in manifests]
+
+
+def app_violations(apps: Sequence[CheckedApp]) -> list[Violation]:
+    """What only an application's own source can tell, for each of *apps*.
+
+    The import boundary, the panel's design-system styling and page-ready mark, and the
+    application's JS checks: what ``osprey app check`` adds to the build's checks.
+    """
+    return [
+        *_boundary_violations(apps),
+        *_style_violations(apps),
+        *_ready_violations(apps),
+        *_js_violations(apps),
+    ]
 
 
 @click.group()
@@ -177,6 +217,9 @@ def _ignore_vendor_files(gitignore: Path) -> None:
 def check(ctx: click.Context, repo: Path | None) -> None:
     """Check the applications the profile's apps: block names, as `osprey build` would.
 
+    An application an installed package ships is checked from that package's directory,
+    and its violations name the distribution.
+
     Reports every violation with its application, field and rule, and adds the import
     boundary, each panel's design-system styling and each application's own JS checks. The JS checks execute the
     application's JS tests, with no secret of this shell's environment. Exits 1 on any
@@ -204,16 +247,13 @@ def check(ctx: click.Context, repo: Path | None) -> None:
             report(f"Nothing to check: no application under {APPS_DIRNAME}/.")
         return
 
-    app_dirs = [root / APPS_DIRNAME / manifest.name for manifest in deployment.manifests]
-    violations = [
-        *_boundary_violations(app_dirs),
-        *_style_violations(app_dirs),
-        *_ready_violations(app_dirs),
-        *_js_violations(app_dirs),
-    ]
+    apps = checked_apps(deployment.manifests, root)
+    violations = app_violations(apps)
     if violations:
         _refuse(ctx, violations)
-    report(f"✓ {len(app_dirs)} application(s) pass.")
+    installed = sum(1 for checked in apps if checked.origin.installed)
+    counts = f" ({len(apps) - installed} in {APPS_DIRNAME}/, {installed} installed)"
+    report(f"✓ {len(apps)} application(s) pass{counts if installed else ''}.")
 
 
 def _refuse(ctx: click.Context, violations: Sequence[Violation]) -> NoReturn:
@@ -224,23 +264,41 @@ def _refuse(ctx: click.Context, violations: Sequence[Violation]) -> NoReturn:
     ctx.exit(1)
 
 
-def _boundary_violations(app_dirs: Iterable[Path]) -> list[Violation]:
-    """The import boundary over each importable package of each application."""
+def _boundary_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
+    """The import boundary over each importable package of each application.
+
+    A deployment application's packages are its top-level directories holding an
+    ``__init__.py``; an installed application's directory is itself its package, and
+    its imports under its own module are its own.
+    """
     found: list[Violation] = []
-    for app_dir in app_dirs:
-        packages = _packages(app_dir)
+    for checked in apps:
+        origin = checked.origin
+        if origin.installed:
+            found += [
+                dataclasses.replace(
+                    violation,
+                    source=origin.display(_below(violation.source, checked.directory.name)),
+                )
+                for violation in check_package(
+                    checked.directory, app=checked.name, own=origin.module
+                )
+            ]
+            continue
+        packages = _packages(checked.directory)
         if not packages:
-            report(
-                f"{APPS_DIRNAME}/{app_dir.name}/: no Python package, no import boundary to check"
-            )
+            report(f"{origin.display()}/: no Python package, no import boundary to check")
         found += [
-            dataclasses.replace(
-                violation, source=f"{APPS_DIRNAME}/{app_dir.name}/{violation.source}"
-            )
+            dataclasses.replace(violation, source=origin.display(violation.source or ""))
             for package in packages
-            for violation in check_package(package, app=app_dir.name)
+            for violation in check_package(package, app=checked.name)
         ]
     return found
+
+
+def _below(source: str | None, top: str) -> str:
+    """*source*, a path under the directory *top*, relative to that directory."""
+    return (source or "").removeprefix(f"{top}/")
 
 
 def _packages(app_dir: Path) -> list[Path]:
@@ -274,21 +332,22 @@ _JS_CLASS = (
 _CLASS_NAME = re.compile(r"^-?[A-Za-z_][\w-]*$")
 
 
-def _style_violations(app_dirs: Iterable[Path]) -> list[Violation]:
+def _style_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
     """Each panel loads the design-system sheets, and every class it sets has a CSS rule."""
     found: list[Violation] = []
-    for app_dir in app_dirs:
+    for checked in apps:
+        app_dir = checked.directory
         index = app_dir / "panel" / "index.html"
         if not index.is_file():
             continue
         links = _stylesheet_links(index.read_text(encoding="utf-8"))
         found += [
             Violation(
-                app_dir.name,
+                checked.name,
                 "",
                 "design_system_css",
                 f"does not load {sheet}; a panel links {', '.join(PANEL_STYLESHEETS)}",
-                source=f"{APPS_DIRNAME}/{app_dir.name}/panel/index.html",
+                source=checked.origin.display("panel/index.html"),
             )
             for sheet in PANEL_STYLESHEETS
             if sheet not in links
@@ -298,12 +357,12 @@ def _style_violations(app_dirs: Iterable[Path]) -> list[Violation]:
             if undefined := sorted(used - defined):
                 found.append(
                     Violation(
-                        app_dir.name,
+                        checked.name,
                         "",
                         "undefined_class",
                         "no rule in the panel's or the linked design-system stylesheets for "
                         f"class {', '.join(undefined)}",
-                        source=f"{APPS_DIRNAME}/{app_dir.name}/{rel}",
+                        source=checked.origin.display(rel),
                     )
                 )
     return found
@@ -362,14 +421,15 @@ _READY_IMPORT = re.compile(
 _READY_IN_MARKUP = re.compile(r"""<html\b[^>]*\bdata-page-ready\s*=\s*["']?true\b""", re.IGNORECASE)
 
 
-def _ready_violations(app_dirs: Iterable[Path]) -> list[Violation]:
+def _ready_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
     """Each panel sets the page-ready mark, or whatever waits to drive it hangs.
 
     A script of the panel imports the writer, or a panel with no script carries the mark
     in its markup.
     """
     found: list[Violation] = []
-    for app_dir in app_dirs:
+    for checked in apps:
+        app_dir = checked.directory
         index = app_dir / "panel" / "index.html"
         if not index.is_file():
             continue
@@ -384,33 +444,35 @@ def _ready_violations(app_dirs: Iterable[Path]) -> list[Violation]:
             continue
         found.append(
             Violation(
-                app_dir.name,
+                checked.name,
                 "",
                 "page_ready",
                 "never sets the page-ready mark; the panel's script adds "
                 f"`{READY_IMPORT}` and calls markPageReady() once its first state is drawn",
-                source=f"{APPS_DIRNAME}/{app_dir.name}/panel/index.html",
+                source=checked.origin.display("panel/index.html"),
             )
         )
     return found
 
 
-def _js_violations(app_dirs: Iterable[Path]) -> list[Violation]:
+def _js_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
     """ESLint and Vitest over each application that has something for them to read."""
-    work = [(app_dir, _panel_js(app_dir), _js_tests(app_dir)) for app_dir in app_dirs]
+    work = [
+        (checked, _panel_js(checked.directory), _js_tests(checked.directory)) for checked in apps
+    ]
     work = [item for item in work if item[1] or item[2]]
     if not work:
         return []
     if shutil.which("node") is None:
         return [
             Violation(
-                app_dir.name,
+                checked.name,
                 "",
                 "node_required",
                 "Node required: this application has panel JS or a JS test; install Node",
-                source=f"{APPS_DIRNAME}/{app_dir.name}",
+                source=checked.origin.display(),
             )
-            for app_dir, _panel, _tests in work
+            for checked, _panel, _tests in work
         ]
     try:
         toolchain = _toolchain()
@@ -427,12 +489,12 @@ def _js_violations(app_dirs: Iterable[Path]) -> list[Violation]:
         if "proxy" not in name.lower() and not name.startswith(("UV_", "PIP_"))
     }
     found: list[Violation] = []
-    for app_dir, panel, tests in work:
+    for checked, panel, tests in work:
         if panel:
-            found += _tool_violation(app_dir, "eslint", _eslint_command(toolchain, panel), env)
+            found += _tool_violation(checked, "eslint", _eslint_command(toolchain, panel), env)
         if tests:
             found += _tool_violation(
-                app_dir,
+                checked,
                 "vitest",
                 _vitest_command(toolchain),
                 {**env, "OSPREY_DESIGN_SYSTEM_JS": str(_DESIGN_SYSTEM_JS)},
@@ -489,19 +551,19 @@ def _bin(toolchain: Path, tool: str) -> str:
 
 
 def _tool_violation(
-    app_dir: Path, rule: str, argv: Sequence[str], env: Mapping[str, str]
+    checked: CheckedApp, rule: str, argv: Sequence[str], env: Mapping[str, str]
 ) -> list[Violation]:
     """One JS tool over one application: nothing when it passes, its output when not."""
-    done = _run(argv, app_dir, env)
+    done = _run(argv, checked.directory, env)
     if done.returncode == 0:
         return []
     return [
         Violation(
-            app_dir.name,
+            checked.name,
             "",
             rule,
             f"{rule} exited {done.returncode}:\n{done.stdout}{done.stderr}".rstrip(),
-            source=f"{APPS_DIRNAME}/{app_dir.name}",
+            source=checked.origin.display(),
         )
     ]
 
