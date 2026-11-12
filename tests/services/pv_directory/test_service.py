@@ -28,8 +28,8 @@ from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
-from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from tests._service_factory import patch_create_service
 
 _NEW_MODULES = (
     "osprey_connectors.service_answers",
@@ -177,7 +177,8 @@ def built(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         return create_connector
 
     for kind in _FAKES:
-        monkeypatch.setattr(ConnectorFactory, f"create_{kind}_connector", create(kind))
+        spec_kind = "directory" if kind == "pv_directory" else kind
+        patch_create_service(monkeypatch, spec_kind, create(kind))
     monkeypatch.setattr(FakeDirectory, "rows", [])
     monkeypatch.setattr(FakeDirectory, "records", {})
     monkeypatch.setattr(FakeDirectory, "count_delay", 0.0)
@@ -421,7 +422,7 @@ async def test_a_snapshot_built_across_aclose_is_not_installed(
         await asyncio.sleep(0.2)
         return FakeAlarmState(spec, project_dir=project_dir, **seams)
 
-    monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", slow_create)
+    patch_create_service(monkeypatch, "alarm_state", slow_create)
     section = {
         **FACILITY,
         "alarm_state": {
@@ -567,7 +568,7 @@ async def test_backend_carries_the_build_failure_reason(
     async def broken(*_: Any, **__: Any) -> Any:
         raise RuntimeError("no route to host")
 
-    monkeypatch.setattr(ConnectorFactory, "create_alarm_log_connector", broken)
+    patch_create_service(monkeypatch, "alarm_log", broken)
     section = {
         **FACILITY,
         "alarm_log": {"type": "phoebus_alarm_logger", "settings": {"url": "http://al"}},
@@ -840,7 +841,7 @@ async def test_an_alarm_feed_that_cannot_be_built_carries_its_reason(
     async def refuse(*_: Any, **__: Any) -> Any:
         raise RuntimeError("no broker setting")
 
-    monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", refuse)
+    patch_create_service(monkeypatch, "alarm_state", refuse)
     directory = _service(
         _config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": _KAFKA}), tmp_path
     )

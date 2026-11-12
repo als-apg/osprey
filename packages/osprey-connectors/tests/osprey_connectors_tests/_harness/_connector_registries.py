@@ -11,16 +11,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+_REGISTRIES = ("_control_system_connectors", "_archiver_connectors")
 #: Read through ``getattr``: this harness also runs at the connectors floor, whose
-#: factory has only the first two.
-_REGISTRIES = (
-    "_control_system_connectors",
-    "_archiver_connectors",
-    "_pv_directory_connectors",
-    "_alarm_log_connectors",
-    "_alarm_state_connectors",
-    "_put_log_connectors",
-)
+#: factory has no service kinds. Each kind's own dict is one registry.
+_SERVICE_REGISTRIES = "_service_backends"
 
 
 @contextmanager
@@ -49,11 +43,8 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[None]:
     # factory brings the control-system contract with it.
     from osprey_connectors.factory import ConnectorFactory
 
-    registries = [
-        registry
-        for registry in (getattr(ConnectorFactory, name, None) for name in _REGISTRIES)
-        if registry is not None
-    ]
+    registries = [getattr(ConnectorFactory, name) for name in _REGISTRIES]
+    registries += list(getattr(ConnectorFactory, _SERVICE_REGISTRIES, {}).values())
     saved = [dict(registry) for registry in registries]
     if clear:
         for registry in registries:

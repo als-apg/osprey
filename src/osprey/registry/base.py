@@ -93,7 +93,8 @@ class ConnectorRegistration:
     :type name: str
     :param connector_type: Type of connector: 'control_system', 'archiver', or, for an
         explicit out-of-tree backend, 'directory', 'alarm_log', 'alarm_state' or 'put_log'
-        (those four need an installed ``osprey-connectors`` that has the kind)
+        (those four need an installed ``osprey-connectors`` whose factory has
+        ``register_service``)
     :type connector_type: str
     :param module_path: Python module path for lazy import
     :type module_path: str

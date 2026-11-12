@@ -231,11 +231,11 @@ class TestProviderSeesOnlyTheTwoConnectorKinds:
         assert kinds == {"control_system", "archiver"}
 
     @pytest.mark.skipif(
-        not hasattr(factory, "_DIRECTORY_BUILTINS"),
-        reason="connectors floor has no directory kinds",
+        not hasattr(factory, "_SERVICE_BUILTINS"),
+        reason="connectors floor has no service kinds",
     )
     def test_no_provider_row_names_a_directory_builtin(self) -> None:
-        directory_names = {row.name for row in factory._DIRECTORY_BUILTINS}
+        directory_names = {row.name for row in factory._SERVICE_BUILTINS}
 
         assert directory_names
         assert not directory_names & (

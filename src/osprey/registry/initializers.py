@@ -141,10 +141,8 @@ def initialize_providers(
     )
 
 
-#: The ``connector_type`` values a ``ConnectorFactory.register_<kind>`` serves.
+#: The ``connector_type`` values ``ConnectorFactory.register_service`` serves.
 _DIRECTORY_CONNECTOR_KINDS = ("directory", "alarm_log", "alarm_state", "put_log")
-#: The factory method stem of a kind whose ``register_`` method keeps another name.
-_REGISTER_STEM = {"directory": "pv_directory"}
 
 
 def initialize_connectors(
@@ -189,14 +187,13 @@ def initialize_connectors(
             elif registration.connector_type == "archiver":
                 ConnectorFactory.register_archiver(registration.name, connector_class)
             elif registration.connector_type in _DIRECTORY_CONNECTOR_KINDS:
-                stem = _REGISTER_STEM.get(registration.connector_type, registration.connector_type)
-                register = getattr(ConnectorFactory, f"register_{stem}", None)
+                register = getattr(ConnectorFactory, "register_service", None)
                 if register is None:
                     raise RegistryError(
                         f"installed osprey-connectors has no {registration.connector_type} "
                         "support (upgrade it)"
                     )
-                register(registration.name, connector_class)
+                register(registration.connector_type, registration.name, connector_class)
             else:
                 raise RegistryError(
                     f"Unknown connector type: {registration.connector_type}. "

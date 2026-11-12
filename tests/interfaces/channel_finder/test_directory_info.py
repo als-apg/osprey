@@ -95,7 +95,9 @@ def record(monkeypatch: pytest.MonkeyPatch) -> _Record:
 
 @pytest.fixture(autouse=True)
 def labelled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(ConnectorFactory._pv_directory_connectors, "labelled", LabelledDirectory)
+    monkeypatch.setitem(
+        ConnectorFactory._service_backends["directory"], "labelled", LabelledDirectory
+    )
 
 
 @pytest.fixture(autouse=True)

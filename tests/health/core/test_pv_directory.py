@@ -19,6 +19,7 @@ import pytest
 
 from osprey.health.core.pv_directory import pv_directory, pv_directory_alarm_feed
 from osprey.health.models import Status
+from tests._service_factory import patch_create_service
 
 LIVE_BUILD = {"type": "epics"}
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -88,7 +89,6 @@ class _Fake:
 def fakes(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     """Fakes behind the directory, alarm logger and put log create calls."""
     pytest.importorskip("osprey_connectors.service_answers")
-    from osprey_connectors.factory import ConnectorFactory
 
     made: list[Any] = []
 
@@ -96,8 +96,8 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         made.append(_Fake(spec, project_dir=project_dir))
         return made[-1]
 
-    for kind in ("pv_directory", "alarm_log", "put_log"):
-        monkeypatch.setattr(ConnectorFactory, f"create_{kind}_connector", create)
+    for kind in ("directory", "alarm_log", "put_log"):
+        patch_create_service(monkeypatch, kind, create)
     monkeypatch.setattr(_Fake, "answers", {})
     return made
 
@@ -137,13 +137,12 @@ class _Consumer:
 def _kafka(monkeypatch: pytest.MonkeyPatch, consumer: Any | None) -> None:
     """The alarm-state create call builds the Kafka backend over *consumer*."""
     kafka = pytest.importorskip("osprey_connectors.alarm_state._phoebus_kafka")
-    from osprey_connectors.factory import ConnectorFactory
 
     async def create(spec: Any, *, project_dir: Path | None = None, **_: Any) -> Any:
         factory = None if consumer is None else (lambda _settings: consumer)
         return kafka.PhoebusAlarmState(spec, project_dir=project_dir, consumer_factory=factory)
 
-    monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", create)
+    patch_create_service(monkeypatch, "alarm_state", create)
 
 
 def _alarm_tasks() -> list[asyncio.Task[Any]]:

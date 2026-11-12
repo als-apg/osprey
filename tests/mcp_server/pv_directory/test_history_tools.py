@@ -44,10 +44,11 @@ from osprey_connectors.service_answers import (
     Source,
     Unavailable,
 )
+from tests._service_factory import patch_create_service
 from tests._vocabulary import PROTOCOL_WORDS
 from tests.mcp_server.conftest import assert_raises_error
 
-_REAL_ALARM_STATE = ConnectorFactory.create_alarm_state_connector
+_REAL_CREATE = ConnectorFactory.create_service
 
 VA_BUILD = {"type": "virtual_accelerator"}
 LIVE_BUILD = {"type": "epics"}
@@ -161,7 +162,8 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> None:
         return create_connector
 
     for kind in _FAKES:
-        monkeypatch.setattr(ConnectorFactory, f"create_{kind}_connector", create(kind))
+        spec_kind = "directory" if kind == "pv_directory" else kind
+        patch_create_service(monkeypatch, spec_kind, create(kind))
     monkeypatch.setattr(FakeAlarmState, "states", {})
     monkeypatch.setattr(FakeAlarmState, "config", None)
     monkeypatch.setattr(FakeAlarmLog, "rows", [])
@@ -340,7 +342,7 @@ async def test_a_missing_kafka_client_is_reported(
 ) -> None:
     kafka = pytest.importorskip("osprey_connectors.alarm_state._phoebus_kafka")
     monkeypatch.setitem(sys.modules, "aiokafka", None)
-    monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", _REAL_ALARM_STATE)
+    patch_create_service(monkeypatch, "alarm_state", _REAL_CREATE)
     context = _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
     try:
@@ -356,7 +358,7 @@ async def test_alarm_state_on_va_is_answered_from_the_replay(
     tmp_path: Path, record: _Record, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip("osprey_connectors.alarm_state._replay")
-    monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", _REAL_ALARM_STATE)
+    patch_create_service(monkeypatch, "alarm_state", _REAL_CREATE)
     record.move("va", 1)
     context = _install(tmp_path, VA_BUILD, {"alarm_state": {"replay_file": "demo:example-alarms"}})
     name = "SR:RF:CAVITY:01:TEMPERATURE:RB"

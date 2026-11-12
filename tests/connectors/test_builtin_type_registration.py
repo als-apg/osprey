@@ -110,7 +110,7 @@ class TestBuiltinRegistration:
 
 
 @pytest.mark.skipif(
-    not hasattr(factory, "_DIRECTORY_BUILTINS"), reason="connectors floor has no directory kinds"
+    not hasattr(factory, "_SERVICE_BUILTINS"), reason="connectors floor has no service kinds"
 )
 class TestDirectoryBuiltins:
     """The directory kinds register beside the connectors, and name nothing here."""
@@ -119,13 +119,12 @@ class TestDirectoryBuiltins:
         with isolated_connector_registries(clear=True):
             register_builtin_connectors()
 
-            for row in factory._DIRECTORY_BUILTINS:
-                stem = "pv_directory" if row.kind == "directory" else row.kind
-                registry = getattr(ConnectorFactory, f"_{stem}_connectors")
+            for row in factory._SERVICE_BUILTINS:
+                registry = ConnectorFactory._service_backends[row.kind]
                 assert registry[row.name].__name__ == row.class_name
 
     def test_none_is_selectable_as_a_connector(self):
-        names = {row.name for row in factory._DIRECTORY_BUILTINS}
+        names = {row.name for row in factory._SERVICE_BUILTINS}
 
         assert not names & set(types.SET_CONTROL_SYSTEM_TYPES)
         assert not names & set(types.CLI_CONTROL_SYSTEM_TYPES)

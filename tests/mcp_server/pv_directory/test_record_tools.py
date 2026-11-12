@@ -30,7 +30,6 @@ from osprey_connectors.directory import (
     DirectoryRecord,
     DirectoryRow,
 )
-from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import (
     HistoryPage,
     Outcome,
@@ -43,6 +42,7 @@ from osprey_connectors.simulation.view import (
     SERVED_SIGNAL_PROPERTY,
     UPTIME,
 )
+from tests._service_factory import patch_create_service
 from tests.mcp_server.conftest import assert_raises_error
 
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -133,7 +133,8 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> None:
         return create_connector
 
     for kind in _FAKES:
-        monkeypatch.setattr(ConnectorFactory, f"create_{kind}_connector", create(kind))
+        spec_kind = "directory" if kind == "pv_directory" else kind
+        patch_create_service(monkeypatch, spec_kind, create(kind))
     monkeypatch.setattr(FakeDirectory, "records", {})
     monkeypatch.setattr(FakeDirectory, "failing", set())
     monkeypatch.setattr(FakeDirectory, "fail", None)

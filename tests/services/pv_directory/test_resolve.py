@@ -261,7 +261,7 @@ class TestInternalTypesPin:
 
         kafka_rows = {
             row.name
-            for row in factory._DIRECTORY_BUILTINS
+            for row in factory._SERVICE_BUILTINS
             if row.module_path == "osprey_connectors.alarm_state._phoebus_kafka"
         }
 

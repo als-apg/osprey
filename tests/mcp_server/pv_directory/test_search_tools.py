@@ -32,8 +32,8 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.pv_directory import _connectors, facts, service
 from osprey_connectors import control_context
 from osprey_connectors.directory import DirectoryPage, DirectoryRow
-from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from tests._service_factory import patch_create_service
 from tests.mcp_server.conftest import assert_raises_error
 
 _NEW_MODULES = (
@@ -120,7 +120,7 @@ def built(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         made.append(backend)
         return backend
 
-    monkeypatch.setattr(ConnectorFactory, "create_pv_directory_connector", create)
+    patch_create_service(monkeypatch, "directory", create)
     monkeypatch.setattr(FakeDirectory, "rows", [])
     monkeypatch.setattr(FakeDirectory, "values", {})
     monkeypatch.setattr(FakeDirectory, "count_delay", 0.0)

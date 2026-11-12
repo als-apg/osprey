@@ -1,6 +1,6 @@
 """Every directory-kind backend the factory builds answers the one contract.
 
-Each case is built through ``ConnectorFactory.create_<kind>_connector`` with both
+Each case is built through ``ConnectorFactory.create_service`` with both
 seams passed, as the framework passes them to every backend of a kind: a recording
 transport for the HTTP backends, a consumer that offers only reads for the Kafka
 feed, a replay file on disk, a simulator view under the project directory, and an
@@ -357,12 +357,6 @@ CASES = (
 HTTP_CASES = tuple(case for case in CASES if case.http)
 
 
-def _create(kind: str) -> Any:
-    """The factory's create method for *kind*; the directory kind's keeps its old stem."""
-    stem = "pv_directory" if kind == "directory" else kind
-    return getattr(ConnectorFactory, f"create_{stem}_connector")
-
-
 DIRECTORY_CASES = tuple(case for case in CASES if case.kind == "directory")
 HISTORY_CASES = tuple(case for case in CASES if case.kind in ("alarm_log", "put_log"))
 ALARM_STATE_CASES = tuple(case for case in CASES if case.kind == "alarm_state")
@@ -436,7 +430,7 @@ async def _build(
         settings=settings,
         rehearsal=target == "standin",
     )
-    create = _create(case.kind)
+    create = ConnectorFactory.create_service
     backend = await create(
         spec, project_dir=project_dir, transport=transport, consumer_factory=consumer_factory
     )
@@ -691,7 +685,7 @@ async def test_the_kafka_feed_reads_through_a_consumer_and_never_produces(monkey
         settings={"bootstrap_servers": "broker.demo.lab:9092", "topic": "Demo"},
         rehearsal=False,
     )
-    backend = await ConnectorFactory.create_alarm_state_connector(spec)
+    backend = await ConnectorFactory.create_service(spec)
 
     await backend.start()
     try:
@@ -770,7 +764,7 @@ async def test_a_login_page_reads_as_the_access_proxy_on_every_method(case, redi
         settings={"url": login_proxy.url},
         rehearsal=False,
     )
-    create = _create(case.kind)
+    create = ConnectorFactory.create_service
     backend = await create(spec)
 
     answers = await _exercise(backend, case)
@@ -800,7 +794,7 @@ async def test_the_configured_description_property_reaches_the_channelfinder_req
     spec = service_targets(config)["directory"]["live"]
     transport = RecordingTransport(_HTTP_ANSWERS["channelfinder"]["recorded"])
 
-    backend = await ConnectorFactory.create_pv_directory_connector(spec, transport=transport)
+    backend = await ConnectorFactory.create_service(spec, transport=transport)
     page = await backend.search(DirectoryQuery(words="cooling water"), DEADLINE)
 
     first = transport.sent[0]
