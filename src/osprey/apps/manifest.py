@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Annotated, Any, Literal
+from urllib.parse import unquote
 
 from pydantic import (
     AfterValidator,
@@ -91,7 +92,7 @@ def help_page_refusal(value: str) -> str | None:
     A help page is either a path relative to the deployment's docs root, as the
     built-in panels' pages are spelled (``how-to/apps/build-your-own-app.html``),
     or an absolute ``https://`` URL. A relative path may not leave the docs root
-    (a ``..`` segment), start at the host root (``/``) or carry a scheme.
+    (a ``..`` segment, percent-encoded or not), start at the host root (``/``) or carry a scheme.
     """
     if value.startswith("https://") and len(value) > len("https://"):
         return None
@@ -101,7 +102,7 @@ def help_page_refusal(value: str) -> str | None:
         return f"{value!r} is a URL; a help page URL must be https://"
     if value.startswith("/") or "\\" in value:
         return f"{value!r} must be a path relative to the docs root, or an https:// URL"
-    if ".." in value.split("#", 1)[0].split("/"):
+    if ".." in unquote(value.split("#", 1)[0]).split("/"):
         return f"{value!r} leaves the docs root; a help page may not contain '..'"
     return None
 
