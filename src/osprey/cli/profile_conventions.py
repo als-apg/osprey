@@ -52,6 +52,7 @@ from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.utils.workspace import (
     APPS_DIRNAME,
     LAYER_DIRNAMES,
+    PRESET_TRACKING_DIRNAME,
     RUNTIME_WRITE_PATH_KEYS,
     STATE_DIR_NAME,
 )
@@ -320,6 +321,12 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         _SYSTEMD_UNIT_ENTRY,
         # The deployment's own list of repo files kept out of its image.
         REPO_DOCKERIGNORE_FILENAME,
+        # The saved copy of what the presets produced (`.osprey/preset-base/`).
+        # Dot-prefixed, so the unknown-entry warning never saw it; listed
+        # because this table is also what executed code may not write, and
+        # `osprey init --revalidate` reads the saved copy to decide which
+        # source files it may rewrite.
+        PRESET_TRACKING_DIRNAME,
     }
 )
 

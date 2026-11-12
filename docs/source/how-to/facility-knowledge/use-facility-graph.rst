@@ -324,24 +324,15 @@ To point the deployment at the facility's store:
    an edit replaces it whole — write out the services you *do* want rather
    than the one you are taking away.
 
-#. Mark both edits with a ``# DEVIATION: <why>`` comment. Both are structural
-   differences from the preset the profile was materialized from, so
-   ``osprey validate`` refuses them until a comment claims each one. A dropped
-   list member needs its own marker: one comment does not cover the key beside
-   it. The block then reads:
+   The block then reads:
 
    .. code-block:: yaml
 
       config:
-        # DEVIATION: the graph store is the facility's, not this deployment's
         services.graphdb.uri: bolt://graph.facility.example:7687
         services.graphdb.username: osprey
         # ... the rest of your services keys, unchanged
-        # DEVIATION: graphdb is the facility's store, so deployed_services drops it
         deployed_services: [postgresql, qmd]   # no graphdb
-
-   Which differences are refused and which are only reported is set out under
-   :ref:`Preset drift <profile-preset-drift>` in the profile reference.
 
 #. If the corpus lives in a database other than ``neo4j`` on that store, name
    it with ``services.graphdb.database``. The store this deployment runs is a
