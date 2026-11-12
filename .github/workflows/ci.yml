@@ -2050,8 +2050,9 @@ jobs:
     runs-on: ubuntu-latest
     # Main pushes only: every PR lane reads what this writes, so only reviewed code may write it.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # A cold build of every demo image, the qmd models among them, then one stack start.
-    timeout-minutes: 75
+    # A cold build of every demo image, the qmd models among them, one stack start, then a cold
+    # build of the two target images.
+    timeout-minutes: 85
     permissions:
       contents: read
       packages: write
@@ -2074,16 +2075,20 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
+    - name: Write this job's image layers to the cache
+      # The sink of every build below, one registry tag per recipe beside the source the step
+      # above names. mode=max keeps every layer, not only the final image's, which is what a lane
+      # with a different tail reuses. With nothing changed, every layer is a hit and the export
+      # uploads nothing new.
+      run: echo "OSPREY_BUILD_CACHE_TO=type=registry,ref=ghcr.io/${GITHUB_REPOSITORY,,}-build-cache:{key},mode=max" >> "$GITHUB_ENV"
+
     - name: Write the demo deployment's image layers to the cache
-      # The demo preset as shipped builds every recipe the lanes build: the project image and its
-      # web-terminal render images, the dispatcher, the VA, the bluesky bridge and web UI, and qmd.
-      # `--dev` because the lanes deploy the checkout. mode=max keeps every layer, not only the
-      # final image's, which is what a lane with a different tail reuses. With nothing changed,
-      # every layer is a hit and the export uploads nothing new.
+      # The demo preset as shipped builds every recipe the lanes build through `osprey up`: the
+      # project image and its web-terminal render images, the dispatcher, the VA, the bluesky
+      # bridge and web UI, and qmd. `--dev` because the lanes deploy the checkout.
       timeout-minutes: 60
       run: |
         set -euo pipefail
-        export OSPREY_BUILD_CACHE_TO="type=registry,ref=ghcr.io/${GITHUB_REPOSITORY,,}-build-cache:{key},mode=max"
         uv run osprey init deploy-cache-warmup --preset demo \
           --set provider=als-apg --set model="$OSPREY_E2E_FORCE_MODEL"
         cd deploy-cache-warmup
@@ -2091,6 +2096,19 @@ jobs:
         # `--dev` too: `up --dev` refuses a build/ whose service images would install the release.
         uv run osprey build --dev --skip-deps --skip-lifecycle
         uv run osprey up -d --dev
+
+    # The two images the virtual accelerator lanes build outside `osprey up`, written under their
+    # own keys (`va-full`, `bench-ioc`) by the actions those lanes call. After the demo build: the
+    # first action leaves its Buildx builder as the job's default, and the demo images are written
+    # from the builder the deploy lanes read them on.
+    - &build-va-image
+      name: Build the virtual accelerator image
+      uses: ./.github/actions/build-virtual-accelerator-image
+
+    - &build-bench-ioc-image
+      name: Build the bench IOC image
+      # After the VA image: it reuses that action's Buildx builder.
+      uses: ./.github/actions/build-bench-ioc-image
 
     - *capture-diagnostics
 
@@ -2102,6 +2120,13 @@ jobs:
     - name: Clean up any stranded warm-up resources
       if: always()
       run: scripts/ci/cleanup_stacks.sh deploy-cache-warmup
+
+    - &remove-target-images
+      name: Clean up the target images
+      if: always()
+      uses: ./.github/actions/remove-virtual-accelerator-images
+      with:
+        extra-tags: bench-ioc:latest
 
   target-switch-agentic-e2e:
     # A real agent moving between the virtual accelerator and the bench IOC.
@@ -2123,13 +2148,9 @@ jobs:
 
     - *assert-container-runtime
 
-    - &build-va-image
-      name: Build the virtual accelerator image
-      uses: ./.github/actions/build-virtual-accelerator-image
+    - *build-va-image
 
-    - name: Build the bench IOC image
-      # After the VA image: it reuses that action's Buildx builder.
-      uses: ./.github/actions/build-bench-ioc-image
+    - *build-bench-ioc-image
 
     - *install-pinned-cli
 
@@ -2144,11 +2165,7 @@ jobs:
 
     - *capture-diagnostics
 
-    - name: Clean up the target images
-      if: always()
-      uses: ./.github/actions/remove-virtual-accelerator-images
-      with:
-        extra-tags: bench-ioc:latest
+    - *remove-target-images
 
   va-live-e2e:
     name: Live VA E2E — ${{ matrix.group }}
