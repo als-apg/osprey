@@ -123,10 +123,24 @@ class TestFraming:
         assert ipc.decode_response(message) == rows
 
     def test_a_row_has_the_contract_fields_and_reason_only_when_there_is_one(self):
-        fields = {"name", "outcome", "value", "timestamp", "severity", "status"}
+        fields = {
+            "name",
+            "outcome",
+            "value",
+            "timestamp",
+            "severity",
+            "status",
+            "units",
+            "precision",
+            "enum_label",
+        }
         assert set(ValueRow("A", ipc.OUTCOME_FOUND).to_wire()) == fields
         with_reason = ValueRow("A", ipc.OUTCOME_NO_ANSWER, reason="x").to_wire()
         assert set(with_reason) == fields | {"reason"}
+
+    def test_a_row_of_the_previous_shape_reads_no_unit(self):
+        row = ValueRow.from_wire({"name": "A", "outcome": ipc.OUTCOME_FOUND, "value": 1.0})
+        assert (row.units, row.precision, row.enum_label) == (None, None, None)
 
     async def test_a_close_between_frames_is_no_message(self):
         assert await ipc.read_frame(_Reader(b"")) is None
@@ -224,6 +238,10 @@ class _ScriptedFake(FakeConnector):
         reading = super()._read_value(channel_address)
         if channel_address == "ALARMED":
             reading.metadata = ChannelMetadata(alarm_severity=2, alarm_status="HIHI")
+        if channel_address == "CURRENT":
+            reading.metadata = ChannelMetadata(units="mA", precision=3)
+        if channel_address == "MODE":
+            reading.metadata = ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
         return reading
 
     async def read_channel(self, channel_address: str, timeout: float | None = None):
@@ -326,6 +344,13 @@ class TestReads:
         assert rows[0].value == 4.5
         assert rows[0].timestamp is not None
         assert (rows[1].severity, rows[1].status) == (2, "HIHI")
+
+    async def test_a_row_carries_the_unit_precision_and_enum_label(self, served):
+        _task, client = served
+        current, mode, plain = await client.read(["CURRENT", "MODE", "A"])
+        assert (current.units, current.precision, current.enum_label) == ("mA", 3, None)
+        assert mode.enum_label == "On"
+        assert (plain.units, plain.precision) == (None, None)
 
     async def test_a_channel_that_hangs_is_no_answer_within_the_cap(self, served, monkeypatch):
         _task, client = served
