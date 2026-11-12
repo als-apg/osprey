@@ -84,6 +84,12 @@ const CONTRACT_NAMES = [
   'text-search',
   'clock',
   'triangle-alert',
+  'monitor',
+  'camera',
+  'chart-column',
+  'users',
+  'radiation',
+  'cpu',
   'pin',
 ];
 

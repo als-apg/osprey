@@ -42,6 +42,7 @@ async function freshCatalog() {
 function clearStamps() {
   document.documentElement.removeAttribute('data-panel-labels');
   document.documentElement.removeAttribute('data-sidecar-panels');
+  document.documentElement.removeAttribute('data-panel-icons');
 }
 
 /** Stamp the sidecar descriptors alone, leaving the labels as they are. @param {unknown} value */
@@ -310,4 +311,60 @@ describe('how the sidebar names and draws a panel', () => {
       expect(titleCase(label)).toBe(label);
     }
   );
+});
+
+describe('a deployment picks a panel’s glyph', () => {
+  /** @param {unknown} value */
+  function stampIcons(value) {
+    document.documentElement.setAttribute(
+      'data-panel-icons',
+      typeof value === 'string' ? value : JSON.stringify(value)
+    );
+  }
+
+  test('with no stamp every panel keeps its own glyph, silently', async () => {
+    stampPanelLabels(document);
+    const { panelIconName, PANEL_ICONS, FALLBACK_PANEL_ICON } = await freshCatalog();
+
+    expect(panelIconName('ariel')).toBe(PANEL_ICONS.ariel);
+    expect(panelIconName('jupyter')).toBe('notebook');
+    expect(panelIconName('grafana')).toBe(FALLBACK_PANEL_ICON);
+    expect(warnings).toEqual([]);
+  });
+
+  test('a stamped glyph wins for a companion, a sidecar and a declared panel alike', async () => {
+    stampPanelLabels(document);
+    stampIcons({ ariel: 'file-text', jupyter: 'monitor', grafana: 'chart-column' });
+    const { panelIconName, PANEL_ICONS } = await freshCatalog();
+
+    expect(panelIconName('ariel')).toBe('file-text');
+    expect(panelIconName('jupyter')).toBe('monitor');
+    expect(panelIconName('grafana')).toBe('chart-column');
+    // A panel the stamp does not name is untouched.
+    expect(panelIconName('okf')).toBe(PANEL_ICONS.okf);
+    expect(warnings).toEqual([]);
+  });
+
+  test('a name icons.js does not draw is dropped with a warning, and the panel keeps its glyph', async () => {
+    stampPanelLabels(document);
+    stampIcons({ ariel: 'no-such-glyph', okf: 7, grafana: 'cpu' });
+    const { panelIconName, PANEL_ICONS } = await freshCatalog();
+
+    expect(panelIconName('ariel')).toBe(PANEL_ICONS.ariel);
+    expect(panelIconName('okf')).toBe(PANEL_ICONS.okf);
+    expect(panelIconName('grafana')).toBe('cpu');
+    expect(ICON_NAMES).not.toContain('no-such-glyph');
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('web.panels.ariel.icon');
+  });
+
+  test('an unreadable stamp is treated as an absent one', async () => {
+    stampPanelLabels(document);
+    stampIcons('{not json');
+    const { panelIconName, PANEL_ICONS } = await freshCatalog();
+
+    expect(panelIconName('ariel')).toBe(PANEL_ICONS.ariel);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('data-panel-icons');
+  });
 });

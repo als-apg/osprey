@@ -32,7 +32,9 @@ fails immediately.
 import json
 import re
 from pathlib import Path
+from unittest.mock import patch
 
+from osprey.interfaces.design_system.icons import icon_names
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     SIDECAR_PANELS,
@@ -174,3 +176,59 @@ def test_the_vitest_sidecar_fixture_matches_the_registry() -> None:
         for block in re.findall(r"Object\.freeze\(\{(.*?)\}\)", literal, flags=re.DOTALL)
     ]
     assert entries == sidecar_panel_descriptors()
+
+
+def test_the_python_icon_reader_agrees_with_the_shipped_table() -> None:
+    """The build judges ``web.panels.<id>.icon`` against the names the browser draws."""
+    assert icon_names() == _icon_names()
+
+
+def _html_stamp(body: str, attribute: str) -> object:
+    start = body.index("<html ")
+    html_tag = body[start : body.index(">", start)]
+    match = re.search(rf"{attribute}='([^']*)'", html_tag)
+    assert match, f"{attribute} is not stamped on <html>"
+    return json.loads(match.group(1))
+
+
+def test_an_unconfigured_page_stamps_no_panel_icon(isolated_app) -> None:
+    with isolated_app() as client:
+        body = client.get("/").text
+    assert _html_stamp(body, "data-panel-icons") == {}
+
+
+def test_the_page_stamps_the_deployments_own_labels_and_icons(isolated_app) -> None:
+    """``web.panels.<id>.label`` and ``.icon`` reach the page before any script runs."""
+    from osprey.interfaces.web_terminal import app as web_terminal_app
+
+    sidecar_id = next(iter(SIDECAR_PANELS))
+    panels_config = {
+        "ariel": {"label": "Logbook", "icon": "book-open"},
+        sidecar_id: {"label": "Notes", "icon": "monitor"},
+        "grafana": {"label": "GRAFANA", "url": "http://x:3000", "icon": "chart-column"},
+    }
+    runtime = web_terminal_app._PanelRuntimeConfig(
+        allow_runtime_panels=False,
+        runtime_panel_allowlist=None,
+        visible_panels=["artifacts"],
+        panels_config=panels_config,
+    )
+    with (
+        patch.object(web_terminal_app, "_load_panel_runtime_config", return_value=runtime),
+        isolated_app() as client,
+    ):
+        body = client.get("/").text
+        api_labels = client.get("/api/panels").json()["labels"]
+
+    assert _html_stamp(body, "data-panel-labels") == {
+        **BUILTIN_PANEL_LABELS,
+        "ariel": "Logbook",
+        sidecar_id: "Notes",
+    }
+    assert _html_stamp(body, "data-panel-icons") == {
+        "ariel": "book-open",
+        sidecar_id: "monitor",
+        "grafana": "chart-column",
+    }
+    assert _html_stamp(body, "data-sidecar-panels") == sidecar_panel_descriptors(panels_config)
+    assert api_labels == {"artifacts": BUILTIN_PANEL_LABELS["artifacts"]}

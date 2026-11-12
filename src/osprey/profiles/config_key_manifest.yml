@@ -1090,6 +1090,7 @@ keys:
   web.panels.<app-panel>.app: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.enabled: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.health_endpoint: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.icon: {rendered: false, covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.label: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.launch_token_env: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.path: {covered-by: web.panels.<app-panel>, default: n/a}
@@ -3462,6 +3463,25 @@ keys:
       panel" menu and the command palette open it) but is not a sidebar member
       until someone adds it. The same per-panel key works for every panel.
     default: false
+  web.panels.system-health.label:
+    rendered: false
+    evidence: '_authored_text\(panels_config, panel_id, "label"\)'
+    note: >-
+      Renames a built-in panel for this deployment: the sidebar row, the tile,
+      the "+ Add panel" menu, the health row and the profile card all show it
+      in place of the framework's wording. The same per-panel key works for
+      every built-in panel; a panel declared here has always been named by it.
+    default: Health
+  web.panels.system-health.icon:
+    rendered: false
+    evidence: '_authored_text\(panels_config, panel_id, "icon"\)'
+    note: >-
+      The design-system icon (a name interfaces/design_system/static/js/icons.js
+      draws) of the panel's sidebar row. The same per-panel key works for every
+      panel, built-in or declared here; the build refuses a name that is not
+      drawn. An application's panel sets it as panel.icon in its app.yml.
+    default: derived
+    default_note: the panel's own glyph; a panel declared in config wears the generic one
   web.panels.my-grafana.rewrite_prefixes:
     rendered: false
     evidence: 'spec\.get\("rewrite_prefixes"\)'

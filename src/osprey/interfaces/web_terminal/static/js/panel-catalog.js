@@ -21,8 +21,13 @@
  * and this module builds one descriptor per entry.
  *
  * The sidebar shows each label in title case ({@link titleCase}) and each
- * panel with an icons.js glyph ({@link panelIconName}).
+ * panel with an icons.js glyph ({@link panelIconName}). A deployment names a
+ * built-in panel its own way, and picks any panel's glyph, in `web.panels.<id>`
+ * (`label`, `icon`); the labels arrive already resolved in the roster stamp,
+ * the glyphs in a stamp of their own.
  */
+
+import { ICON_NAMES } from '/design-system/js/icons.js';
 
 /**
  * @typedef {object} Panel
@@ -113,7 +118,8 @@ function sidecarPanels() {
 /**
  * The icons.js glyph of each known companion panel's sidebar row. A sidecar
  * panel's glyph is its registry entry's; a panel named in neither place (a
- * custom or runtime-registered one) wears {@link FALLBACK_PANEL_ICON}.
+ * custom or runtime-registered one) wears {@link FALLBACK_PANEL_ICON} unless
+ * its config block names one.
  * @type {Readonly<Record<string, string>>}
  */
 export const PANEL_ICONS = Object.freeze({
@@ -131,12 +137,47 @@ export const PANEL_ICONS = Object.freeze({
 /** The glyph of a panel {@link PANEL_ICONS} does not name. */
 export const FALLBACK_PANEL_ICON = 'workspace';
 
+/** Attribute carrying the glyph each `web.panels.<id>.icon` names, JSON. */
+const PANEL_ICONS_ATTR = 'data-panel-icons';
+
 /**
- * The icons.js name for a panel's sidebar row.
+ * The glyphs this deployment's config gives its panels, by panel id. A name
+ * icons.js does not draw is dropped (the build refuses one, so this is a
+ * hand-edited config) and the panel keeps the glyph it would have had. An
+ * absent stamp is a deployment that set none.
+ * @returns {Record<string, string>}
+ */
+function configuredIcons() {
+  const raw =
+    typeof document === 'undefined'
+      ? null
+      : document.documentElement?.getAttribute(PANEL_ICONS_ATTR);
+  /** @type {Record<string, string>} */
+  const icons = {};
+  if (!raw) return icons;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return icons;
+    for (const [id, name] of Object.entries(parsed)) {
+      if (typeof name === 'string' && ICON_NAMES.includes(name)) icons[id] = name;
+      else console.warn(`[panel-catalog] web.panels.${id}.icon names no icon: ${String(name)}`);
+    }
+  } catch {
+    console.warn(`[panel-catalog] unreadable ${PANEL_ICONS_ATTR} on this page`);
+  }
+  return icons;
+}
+
+const CONFIGURED_ICONS = configuredIcons();
+
+/**
+ * The icons.js name for a panel's sidebar row: the deployment's own choice
+ * (`web.panels.<id>.icon`) for any panel, else the panel's own glyph.
  * @param {string} id
  * @returns {string}
  */
 export function panelIconName(id) {
+  if (Object.hasOwn(CONFIGURED_ICONS, id)) return CONFIGURED_ICONS[id];
   const sidecar = SIDECAR_PANELS.find((p) => p.id === id);
   if (sidecar) return sidecar.icon ?? FALLBACK_PANEL_ICON;
   return Object.hasOwn(PANEL_ICONS, id) ? PANEL_ICONS[id] : FALLBACK_PANEL_ICON;

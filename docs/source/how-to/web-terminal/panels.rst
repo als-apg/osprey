@@ -78,6 +78,51 @@ A panel can be open without a sidebar row (``web.panels.<id>.hidden: true``):
 open it from **+ Add panel** or the command palette, and right-click its tile
 to pin it to the sidebar.
 
+Naming a panel and choosing its icon
+------------------------------------
+
+Every panel takes two optional keys in its ``web.panels.<id>`` block that say
+how it presents itself. ``label`` is its name: the sidebar row, the tile, the
+**+ Add panel** menu, its ``osprey health`` row and the profile card all show
+it. For a panel you declare, it is the name you give it; for a built-in panel
+it replaces OSPREY's own wording (``LOGBOOK``, ``CHANNELS``, ``KNOWLEDGE``,
+``CANOPY``, ``JUPYTER``, ``Health``), so a facility that calls its logbook
+something else says so once:
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       ariel:
+         label: eLog            # a built-in panel, renamed
+       canopy:
+         label: Screens
+         icon: monitor
+       grafana:
+         label: Trends          # a URL-backed panel
+         url: http://127.0.0.1:3000
+         icon: chart-column
+
+In a build profile these are ``config:`` lines
+(``web.panels.ariel.label: eLog``). A label in capitals is shown in title
+case; one with a lower-case letter is shown as written.
+
+``icon`` is the glyph of the panel's sidebar row. It names one of the icons
+the terminal draws:
+
+``activity``, ``agent``, ``bash``, ``bluesky``, ``book-open``, ``camera``,
+``chart-column``, ``chart-line``, ``chart-scatter``, ``cpu``, ``file-text``,
+``hexagon``, ``layers``, ``library``, ``monitor``, ``notebook``, ``radiation``,
+``radio``, ``settings``, ``sliders``, ``stethoscope``, ``terminal``,
+``users``, ``workspace``, and the rest of the set in
+``interfaces/design_system/static/js/icons.js``.
+
+A panel that names none keeps its own: each built-in has one, and a panel you
+declare wears the generic ``workspace`` glyph. ``osprey build`` refuses a name
+the terminal does not draw and lists the ones it does. An application's panel
+takes the same two facts from its ``app.yml`` (``panel.label``,
+``panel.icon``).
+
 When a panel stops answering
 ----------------------------
 
