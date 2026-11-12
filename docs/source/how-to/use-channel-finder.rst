@@ -267,8 +267,8 @@ channels that match all of them. Each word is matched against the address, the
 description, the device or signal name, and the name or synonyms of the
 device's class or any class above it. The view switch is at the toolbar's
 left: Explore and Feedback, or Curated, All PVs and Feedback when ``config.yml``
-has a ``pv_directory`` section. The result count and the search box are at its
-right.
+has a ``pv_directory`` section, with Alarms when it has ``alarm_state``. The
+result count and the search box are at its right.
 
 The sidebar narrows further:
 

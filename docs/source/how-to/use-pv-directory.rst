@@ -45,7 +45,7 @@ Search All PVs
 
 1. Open **Channels** from the **Apps** section of the sidebar.
 2. Click **All PVs** in the view switch at the toolbar's left. The switch reads
-   **Curated**, **All PVs** and **Feedback**.
+   **Curated**, **All PVs**, **Alarms** and **Feedback**.
 3. Type words into the toolbar's search box and press Enter.
 
 In the ``demo`` preset, search ``cavity temperature``. The rows are the
@@ -89,6 +89,18 @@ and a visit to a PV or IOC page.
   shown only when CANOPY is enabled and serves its trace view.
 - **Send to assistant** puts the names into the prompt. It is offered only
   inside the web terminal.
+
+
+Alarms
+======
+
+**Alarms** lists what is in alarm now on the control target, worst first. Its
+tiles count each severity and the unacknowledged and latched alarms; a tile
+filters the list. When the alarm feed gives tree paths, the sidebar holds the
+alarm tree and a node filters to its branch. The inspector beside the list
+shows the selected PV's guidance, facts and, with an alarm log, transitions,
+from the PV page's sections. The tab exists only with an ``alarm_state``
+sub-block. Nothing here writes: acknowledge in the alarm server's own client.
 
 
 PV and IOC pages
