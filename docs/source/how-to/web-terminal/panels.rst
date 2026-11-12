@@ -104,8 +104,10 @@ something else says so once:
          icon: chart-column
 
 In a build profile these are ``config:`` lines
-(``web.panels.ariel.label: eLog``). A label in capitals is shown in title
-case; one with a lower-case letter is shown as written.
+(``web.panels.ariel.label: eLog``). The label you write is shown as written,
+so an acronym keeps its capitals (``label: LLRF``). Title case is how the
+sidebar reads the names the framework supplies: a built-in panel's own label
+(``LOGBOOK`` reads *Logbook*) and the id of a panel that has no label.
 
 ``icon`` is the glyph of the panel's sidebar row. It names one of the icons
 the terminal draws:
@@ -158,7 +160,7 @@ the entries for you):
    web:
      panels:
        events:
-         label: EVENTS
+         label: Events
          url: http://127.0.0.1:10010   # the backing service
          path: /dashboard              # optional: page the tab opens (default /)
          health_endpoint: /healthz     # optional: lets the hub report status

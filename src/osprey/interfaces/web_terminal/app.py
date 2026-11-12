@@ -89,6 +89,7 @@ from osprey.profiles.web_panels import (
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
     PanelRegistry,
+    authored_panel_labels,
     in_catalog_order,
     panel_icons,
     panel_id_refusal,
@@ -832,6 +833,18 @@ def _state_panel_labels(request: Request) -> dict[str, str]:
     """
     labels = getattr(request.app.state, "panel_labels", None)
     return labels if labels is not None else panel_labels()
+
+
+def _state_authored_labels(request: Request) -> list[str]:
+    """The panel labels this deployment wrote, which the sidebar shows as written.
+
+    The config's ``web.panels.<id>.label`` lines the lifespan read, and the
+    label each discovered panel's manifest states.
+    """
+    labels = set(getattr(request.app.state, "authored_panel_labels", []) or [])
+    discovered = getattr(request.app.state, "discovered_panel_dirs", {}) or {}
+    labels.update(panel.label for panel in discovered.values() if panel.label)
+    return sorted(labels)
 
 
 def _state_sidecar_descriptors(request: Request) -> list[dict[str, Any]]:
@@ -1897,6 +1910,7 @@ def _create_lifespan(
         # once: the page stamps both, and /api/panels answers from the same.
         app.state.panel_labels = panel_labels(panel_runtime.panels_config)
         app.state.panel_icons = panel_icons(panel_runtime.panels_config)
+        app.state.authored_panel_labels = authored_panel_labels(panel_runtime.panels_config)
         app.state.sidecar_panel_descriptors = sidecar_panel_descriptors(panel_runtime.panels_config)
 
         # Config-defined panel presets ("Layouts"): named sets of panel ids a
@@ -2240,6 +2254,8 @@ def create_app(
                 "builtin_panel_labels": _state_panel_labels(request),
                 # The glyph each web.panels.<id>.icon names, for the same reason.
                 "panel_icons": getattr(request.app.state, "panel_icons", {}),
+                # The labels the deployment wrote, shown as written (no title case).
+                "authored_panel_labels": _state_authored_labels(request),
                 # The sidecar panels' descriptors, from the same registry: the
                 # catalog builds one row and tab per entry, so it lists none itself.
                 "sidecar_panels": _state_sidecar_descriptors(request),
@@ -2279,6 +2295,8 @@ def create_app(
                 # same roster stamp the index does.
                 "builtin_panel_labels": _state_panel_labels(request),
                 "panel_icons": getattr(request.app.state, "panel_icons", {}),
+                # The labels the deployment wrote, shown as written (no title case).
+                "authored_panel_labels": _state_authored_labels(request),
                 "sidecar_panels": _state_sidecar_descriptors(request),
             },
         )

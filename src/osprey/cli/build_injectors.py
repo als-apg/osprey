@@ -961,13 +961,13 @@ def _inject_dispatch(
                 {
                     "url": events_url,
                     "path": "/dashboard",
-                    "label": "EVENTS",
+                    "label": "Events",
                     "health_endpoint": "/health",
                 },
             )
         else:
             _fill_panel_defaults(
-                events_panel, events_url, "/dashboard", "EVENTS", health_endpoint="/health"
+                events_panel, events_url, "/dashboard", "Events", health_endpoint="/health"
             )
 
     save_config_document(config_path, config)
@@ -1891,7 +1891,7 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
     # double-prefix sub-routes. `setdefault` on `path`/`label` honors a
     # facility override.
     default_url = f"${{BLUESKY_WEB_URL:-http://localhost:{bluesky_web.port}}}"
-    panel_specs = (("bluesky", "/bluesky/", "BLUESKY"),)
+    panel_specs = (("bluesky", "/bluesky/", "Bluesky"),)
     panels = config.setdefault("web", {}).setdefault("panels", {})
     for panel_id, panel_path, label in panel_specs:
         panel_cfg = panels.get(panel_id)
@@ -1984,12 +1984,12 @@ def _inject_optimizer_web(optimizer_web: OptimizerWebConfig, project_path: Path)
             {
                 "url": default_url,
                 "path": "/optimizer/",
-                "label": "OPTIMIZER",
+                "label": "Optimizer",
                 "read_timeout_s": OPTIMIZER_PANEL_READ_TIMEOUT_S,
             },
         )
     else:
-        _fill_panel_defaults(panel_cfg, default_url, "/optimizer/", "OPTIMIZER")
+        _fill_panel_defaults(panel_cfg, default_url, "/optimizer/", "Optimizer")
         # ``null`` is an explicit choice (unbounded), so only an absent key is filled.
         if "read_timeout_s" not in panel_cfg:
             anchored_put(panel_cfg, "read_timeout_s", OPTIMIZER_PANEL_READ_TIMEOUT_S)

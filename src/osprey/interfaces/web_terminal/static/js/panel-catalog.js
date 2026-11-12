@@ -213,17 +213,44 @@ export function describePanel(id) {
   return Object.hasOwn(PANEL_DESCRIPTIONS, id) ? PANEL_DESCRIPTIONS[id] : null;
 }
 
+/** Attribute carrying the labels the deployment wrote, a JSON list. */
+const AUTHORED_LABELS_ATTR = 'data-panel-authored-labels';
+
 /**
- * A panel label as the sidebar shows it. An all-capitals label (`ARIEL`,
- * `CHANNELS`, a custom panel named after its id) reads in title case:
- * every word, split at spaces and hyphens, keeps only its first letter
- * capital. A label with any lower-case letter is the deployment's own spelling
- * (`EPICS Archiver`, `pyAT`) and is left as it is.
+ * The panel labels the deployment wrote itself. An absent or unreadable stamp
+ * is an empty set: every all-capitals label then reads in title case.
+ * @returns {Set<string>}
+ */
+function authoredLabels() {
+  const raw =
+    typeof document === 'undefined'
+      ? null
+      : document.documentElement?.getAttribute(AUTHORED_LABELS_ATTR);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return new Set(parsed.filter((l) => typeof l === 'string'));
+    } catch {
+      // An unreadable stamp names no label.
+    }
+  }
+  return new Set();
+}
+
+const AUTHORED_LABELS = authoredLabels();
+
+/**
+ * A panel label as the sidebar shows it. An all-capitals label the framework
+ * derived (`ARIEL`, `CHANNELS`, a custom panel named after its id) reads in
+ * title case: every word, split at spaces and hyphens, keeps only its first
+ * letter capital. A label the deployment wrote is its own spelling and is left
+ * as it is: one the page stamps as authored (`ASCC`), and any label with a
+ * lower-case letter (`EPICS Archiver`, `pyAT`).
  * @param {string} label
  * @returns {string}
  */
 export function titleCase(label) {
-  if (label !== label.toUpperCase()) return label;
+  if (AUTHORED_LABELS.has(label) || label !== label.toUpperCase()) return label;
   return label.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase());
 }
 

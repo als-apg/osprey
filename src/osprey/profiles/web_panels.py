@@ -134,6 +134,28 @@ def panel_labels(panels_config: object = None) -> dict[str, str]:
     }
 
 
+def authored_panel_labels(panels_config: object) -> list[str]:
+    """Every label this deployment wrote on a ``web.panels`` block.
+
+    The sidebar reads an all-capitals label in title case, which is the right
+    reading of a name the framework derives (a built-in's canonical label, an
+    id standing in for a missing one) and the wrong one for a name the
+    deployment wrote: an acronym has no lower-case letter to mark it as the
+    deployment's own spelling. The page stamps these so the sidebar shows each
+    as written.
+
+    Args:
+        panels_config: The config's ``web.panels`` mapping, or ``None``.
+
+    Returns:
+        The distinct labels, sorted; empty when the deployment writes none.
+    """
+    if not isinstance(panels_config, Mapping):
+        return []
+    labels = {_authored_text(panels_config, panel_id, "label") for panel_id in panels_config}
+    return sorted(label for label in labels if label)
+
+
 def panel_label(panel_id: str, panels_config: object = None) -> str:
     """The display label of one panel, built-in or config-declared.
 

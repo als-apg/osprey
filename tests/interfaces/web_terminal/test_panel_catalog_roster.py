@@ -195,6 +195,7 @@ def test_an_unconfigured_page_stamps_no_panel_icon(isolated_app) -> None:
     with isolated_app() as client:
         body = client.get("/").text
     assert _html_stamp(body, "data-panel-icons") == {}
+    assert _html_stamp(body, "data-panel-authored-labels") == []
 
 
 def test_the_page_stamps_the_deployments_own_labels_and_icons(isolated_app) -> None:
@@ -225,6 +226,9 @@ def test_the_page_stamps_the_deployments_own_labels_and_icons(isolated_app) -> N
         "ariel": "Logbook",
         sidecar_id: "Notes",
     }
+    # Every label the deployment wrote is stamped, so the sidebar shows an
+    # all-capitals one (GRAFANA) as written instead of in title case.
+    assert _html_stamp(body, "data-panel-authored-labels") == ["GRAFANA", "Logbook", "Notes"]
     assert _html_stamp(body, "data-panel-icons") == {
         "ariel": "book-open",
         sidecar_id: "monitor",

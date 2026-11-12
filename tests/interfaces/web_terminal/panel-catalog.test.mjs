@@ -43,6 +43,7 @@ function clearStamps() {
   document.documentElement.removeAttribute('data-panel-labels');
   document.documentElement.removeAttribute('data-sidecar-panels');
   document.documentElement.removeAttribute('data-panel-icons');
+  document.documentElement.removeAttribute('data-panel-authored-labels');
 }
 
 /** Stamp the sidecar descriptors alone, leaving the labels as they are. @param {unknown} value */
@@ -301,6 +302,26 @@ describe('how the sidebar names and draws a panel', () => {
     const { titleCase } = await freshCatalog();
 
     expect(titleCase(label)).toBe(shown);
+  });
+
+  test('titleCase leaves an all-capitals label the deployment wrote as written', async () => {
+    document.documentElement.setAttribute(
+      'data-panel-authored-labels',
+      JSON.stringify(['ASCC', 'LLRF', 7])
+    );
+    const { titleCase } = await freshCatalog();
+
+    expect(titleCase('ASCC')).toBe('ASCC');
+    expect(titleCase('LLRF')).toBe('LLRF');
+    // A derived label beside them still reads in title case.
+    expect(titleCase('CHANNELS')).toBe('Channels');
+  });
+
+  test('an unreadable authored-labels stamp names no label', async () => {
+    document.documentElement.setAttribute('data-panel-authored-labels', '{not json');
+    const { titleCase } = await freshCatalog();
+
+    expect(titleCase('ASCC')).toBe('Ascc');
   });
 
   test.each(['EPICS Archiver', 'pyAT', 'Artifacts', 'Agent'])(

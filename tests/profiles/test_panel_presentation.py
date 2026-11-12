@@ -12,6 +12,7 @@ from osprey.interfaces.design_system.icons import icon_names
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     SIDECAR_PANELS,
+    authored_panel_labels,
     panel_icons,
     panel_label,
     panel_labels,
@@ -77,3 +78,20 @@ def test_the_python_reader_names_the_glyphs_the_design_system_draws() -> None:
 
     assert {"workspace", "monitor", "camera", "chart-column", "users", "radiation", "cpu"} <= names
     assert all(name == name.strip() and name for name in names)
+
+
+def test_the_labels_a_deployment_wrote_are_listed_once_each() -> None:
+    panels = {
+        "ascc": {"label": "ASCC", "url": "http://x"},
+        "ariel": {"label": "Logbook"},
+        "twin": {"label": "ASCC", "url": "http://y"},
+        "bare": {"url": "http://z"},
+        "blank": {"label": "  "},
+        "on": True,
+    }
+    assert authored_panel_labels(panels) == ["ASCC", "Logbook"]
+
+
+@pytest.mark.parametrize("panels", [None, {}, "nope"])
+def test_a_deployment_that_writes_no_label_lists_none(panels) -> None:
+    assert authored_panel_labels(panels) == []
