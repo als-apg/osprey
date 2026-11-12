@@ -1109,7 +1109,8 @@ each labelled with the tier it resolves to:</p>
 <figcaption>
 <p><span class="caption-text">The grouped landing page: alice resolves to the readwrite tier, bob to
 readonly, carol to admin, and the shared cards open the logbook, knowledge
-and channel-finder logins. Click a card to open that session.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+and channel-finder logins. Click a card to open that session. Captured with
+OSPREY v2026.9.0b3.post6981+gce771a4c5.d20261111.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
 <figure class="only-dark align-default" id="id2">
@@ -1118,7 +1119,8 @@ and channel-finder logins. Click a card to open that session.</span><a class="he
 <figcaption>
 <p><span class="caption-text">The grouped landing page: alice resolves to the readwrite tier, bob to
 readonly, carol to admin, and the shared cards open the logbook, knowledge
-and channel-finder logins. Click a card to open that session.</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
+and channel-finder logins. Click a card to open that session. Captured with
+OSPREY v2026.9.0b3.post6981+gce771a4c5.d20261111.</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
 <p>Each operator card names its tier explicitly — alice the readwrite tier,
@@ -1212,6 +1214,26 @@ page’s origin</strong>, the web tier’s second server on its own port
 agent wrote on the terminals’ origin cannot read it. A visit without a valid
 sign-in goes to the terminals’ sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.</p>
+<figure class="only-light align-default" id="id3">
+<a class="only-light reference internal image-reference" href="../../../_images/agent_record_light.png"><img alt="The history page showing one session — the prompt, a channel read marked allowed, a subagent call, a channel write marked denied and the answer" class="only-light" src="../../../_images/agent_record_light.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">One session on the history page, as its owner sees it: the prompt, each
+tool call with its decision and result, and the answer. A row unfolds to
+the call’s input and full result.
+Captured with OSPREY v2026.9.0b3.post6981+gce771a4c5.d20261111.</span><a class="headerlink" href="#id3" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<figure class="only-dark align-default" id="id4">
+<a class="only-dark reference internal image-reference" href="../../../_images/agent_record_dark.png"><img alt="The history page showing one session — the prompt, a channel read marked allowed, a subagent call, a channel write marked denied and the answer" class="only-dark" src="../../../_images/agent_record_dark.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">One session on the history page, as its owner sees it: the prompt, each
+tool call with its decision and result, and the answer. A row unfolds to
+the call’s input and full result.
+Captured with OSPREY v2026.9.0b3.post6981+gce771a4c5.d20261111.</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
 <p>Who sees what is decided per person, from the roster, every time a page loads.
 In <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, the roster goes under <code class="docutils literal notranslate"><span class="pre">config:</span></code> and <code class="docutils literal notranslate"><span class="pre">agent_record:</span></code> is a
 top-level key. Merge these keys into the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code> and
