@@ -157,7 +157,7 @@ RETIRED_ROSTER_WORD = r"(?<![A-Za-z])[Pp]ersonas?(?![a-z])|(?<=[a-z0-9])Personas
 RETIRED_TWO_KIND_PHRASE = Phrase(
     r"(?i)\btiers?,?\s+(?:or|and|/)\s+(?:an?\s+)?apps?\b"
     r"|\btiers?/apps?\b"
-    r"|\btiers?,\s+(?:an?\s+)?apps?\s+and\b"
+    r"|(?<!,\s)\btiers?,\s+(?:an?\s+)?apps?\s+and\b"
 )
 
 #: The example deployment name that named a site; examples use ``my-assistant``.
