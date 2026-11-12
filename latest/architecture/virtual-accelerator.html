@@ -578,9 +578,10 @@ other channel reads every served channel.</p></li>
 <li><p><strong>What a write’s pass posts.</strong> Of what it reads, it posts the written
 channels and those whose value or undefined condition changed. An unchanged
 channel keeps the timestamp of its last post.</p></li>
-<li><p><strong>What the periodic pass does.</strong> The start-up pass and every periodic pass
-post every channel but the <code class="docutils literal notranslate"><span class="pre">fast</span></code> and <code class="docutils literal notranslate"><span class="pre">event</span></code> ones, which they post
-only when changed.</p></li>
+<li><p><strong>What the periodic pass does.</strong> The start-up pass posts every channel. A
+periodic pass reads every channel and posts those whose value or undefined
+condition changed since their last post, and the channels of a write
+refused since, which clears the alarm that write raised.</p></li>
 <li><p><strong>What a timed pass does.</strong> A timed pass runs at the earlier of the next
 fast period and the composite’s next deadline, such as a shot’s next step.
 It advances the composite and posts the <code class="docutils literal notranslate"><span class="pre">event</span></code> channels that fired and,
