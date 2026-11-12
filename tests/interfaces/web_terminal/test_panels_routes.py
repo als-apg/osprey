@@ -485,3 +485,54 @@ def test_rail_order_refuses_a_move_it_cannot_place(body):
     assert resp.status_code == 422
     assert app.state.visible_panels == ["ariel", "lattice"]
     app.state.broadcaster.broadcast.assert_not_called()
+
+
+#: The presentation facts an application panel's block carries for its sidebar row.
+PRESENTATION = {
+    "icon": "sliders",
+    "description": "Turn the demo dial and watch it settle",
+    "help": "how-to/apps/build-your-own-app.html",
+}
+
+
+def _loaded_panel(block: dict) -> dict:
+    """The custom panel ``_load_panel_config`` derives from one ``dial`` block."""
+    from osprey.interfaces.web_terminal.app import _load_panel_config
+
+    spec = {"label": "DIAL", "url": "http://127.0.0.1:9300", "app": "dial", **block}
+    with patch(
+        "osprey_connectors.workspace.load_osprey_config",
+        return_value={"web": {"panels": {"dial": spec}}},
+    ):
+        _enabled, custom, _default = _load_panel_config()
+    (panel,) = custom
+    return panel
+
+
+def test_the_config_load_carries_an_application_panels_presentation():
+    panel = _loaded_panel(PRESENTATION)
+    assert {key: panel[key] for key in PRESENTATION} == PRESENTATION
+
+
+def test_the_config_load_leaves_an_undeclared_presentation_key_absent():
+    assert not set(PRESENTATION) & set(_loaded_panel({}))
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("icon", 3), ("description", ["a"]), ("help", "../outside.html"), ("help", "http://x/")],
+)
+def test_the_config_load_refuses_a_presentation_value_it_cannot_serve(key, value):
+    with pytest.raises(ValueError, match=rf"web\.panels\.dial\.{key}"):
+        _loaded_panel({key: value})
+
+
+def test_api_panels_carries_an_application_panels_presentation(tmp_path):
+    app = _make_app(tmp_path)
+    app.state.custom_panels = [
+        {"id": "dial", "label": "DIAL", "url": "http://x:9300", "app": "dial", **PRESENTATION}
+    ]
+
+    (row,) = _panels(app)["custom"]
+
+    assert {key: row[key] for key in PRESENTATION} == PRESENTATION

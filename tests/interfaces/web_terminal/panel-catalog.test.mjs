@@ -311,3 +311,77 @@ describe('how the sidebar names and draws a panel', () => {
     }
   );
 });
+
+describe('an application panel names its own row', () => {
+  /** A custom panel def as /api/panels answers it for an application panel. */
+  const DIAL = {
+    id: 'dial',
+    label: 'DIAL',
+    url: '/panel/dial',
+    healthEndpoint: '/health',
+    path: '/ui/',
+    app: 'dial',
+    icon: 'sliders',
+    description: 'Turn the demo dial and watch it settle',
+    help: 'how-to/apps/build-your-own-app.html',
+  };
+
+  test('the catalog entry built from the def carries its icon, description and help', async () => {
+    const { customPanelEntry } = await freshCatalog();
+
+    expect(customPanelEntry(DIAL)).toEqual({
+      id: 'dial',
+      label: 'Dial',
+      configEndpoint: null,
+      healthEndpoint: '/health',
+      path: '/ui/',
+      icon: 'sliders',
+      description: 'Turn the demo dial and watch it settle',
+      help: 'how-to/apps/build-your-own-app.html',
+    });
+  });
+
+  test('a def that declares none of them builds the entry it always did', async () => {
+    const { customPanelEntry } = await freshCatalog();
+
+    expect(customPanelEntry({ id: 'grafana', label: 'GRAFANA', healthEndpoint: null })).toEqual({
+      id: 'grafana',
+      label: 'Grafana',
+      configEndpoint: null,
+      healthEndpoint: null,
+      path: '/',
+    });
+    const blank = customPanelEntry({ ...DIAL, icon: '', description: 7, help: null });
+    expect(blank).not.toHaveProperty('icon');
+    expect(blank).not.toHaveProperty('description');
+    expect(blank).not.toHaveProperty('help');
+  });
+
+  test('the row wears the declared glyph and tooltip; one it does not declare falls back', async () => {
+    const { PANELS, customPanelEntry, panelIconName, describePanel, FALLBACK_PANEL_ICON } =
+      await freshCatalog();
+
+    PANELS.push(customPanelEntry(DIAL), customPanelEntry({ id: 'plain', label: 'PLAIN' }));
+
+    expect(ICON_NAMES).toContain(DIAL.icon);
+    expect(panelIconName('dial')).toBe('sliders');
+    expect(describePanel('dial')).toBe(DIAL.description);
+    expect(panelIconName('plain')).toBe(FALLBACK_PANEL_ICON);
+    expect(describePanel('plain')).toBeNull();
+  });
+
+  test('built-in and sidecar rows are unchanged by a declared application panel', async () => {
+    stampPanelLabels(document);
+    const { PANELS, PANEL_ICONS, customPanelEntry, panelIconName, describePanel } =
+      await freshCatalog();
+    const ids = PANELS.map((p) => p.id);
+    /** @param {string} id */
+    const row = (id) => [id, panelIconName(id), describePanel(id)];
+    const before = ids.map(row);
+
+    PANELS.push(customPanelEntry(DIAL));
+
+    expect(ids.map(row)).toEqual(before);
+    expect(panelIconName('terminal')).toBe(PANEL_ICONS.terminal);
+  });
+});
