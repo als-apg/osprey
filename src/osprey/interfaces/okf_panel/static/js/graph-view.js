@@ -14,14 +14,18 @@
  *   inspector   the picked node (graph-inspector.js)
  *
  * A click picks a node, a double-click (or "Focus here") draws its
- * neighbourhood. This module holds the state the three parts share and is
+ * neighbourhood, a right-click opens the menu of what it landed on
+ * (graph-menus.js). This module holds the state the three parts share and is
  * the only one that changes it.
  */
 
+import { copyText } from '/design-system/js/clipboard.js';
+import { openContextMenu } from '/design-system/js/context-menu.js';
 import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
 import { renderState } from '/design-system/js/panel-state.js';
 import { el } from './helpers.js';
 import { nodeRow, renderInspector } from './graph-inspector.js';
+import { edgeMenu, nodeMenu, stageMenu } from './graph-menus.js';
 import {
   count,
   indexGraph,
@@ -67,6 +71,9 @@ import { createGraphStage, shape, svg } from './graph-stage.js';
 const STORAGE_KEY = 'osprey-okf-graph-sidebar';
 const SPACING = { overview: 120, hood: 70 };
 const GRAVITY = { overview: 0.25, hood: 0.04 };
+const DEFAULT_HOPS = 2;
+/** How long the status line says what was copied, in ms. */
+const COPIED_FOR = 2000;
 const DERIVED_NOTE = "Not stored as an edge: read from each device's placePath";
 
 /**
@@ -133,6 +140,7 @@ export function createGraphView({ onPage, onLocation }) {
       if (typeof key === 'number') focusOn(key);
     },
     onRelayout: () => redraw({ fresh: true }),
+    onMenu: openMenu,
   });
 
   /** @type {GraphIndex | null} */
@@ -144,7 +152,7 @@ export function createGraphView({ onPage, onLocation }) {
   let mode = 'overview';
   /** @type {number | null} */
   let focus = null;
-  let hops = 2;
+  let hops = DEFAULT_HOPS;
   /** @type {Set<string>} */
   let relations = new Set();
   /** @type {Set<number>} */
@@ -155,6 +163,10 @@ export function createGraphView({ onPage, onLocation }) {
   const positions = { overview: new Map(), hood: new Map() };
   /** @type {DrawnGraph} */
   let drawn = { nodes: [], edges: [], hidden: 0 };
+  /** The legend's checkbox of each relation. @type {Map<string, HTMLInputElement>} */
+  const relationBoxes = new Map();
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let copiedTimer = null;
 
   // -- loading ---------------------------------------------------------------
 
@@ -310,6 +322,91 @@ export function createGraphView({ onPage, onLocation }) {
     return device < 0 ? 0 : device;
   }
 
+  /**
+   * Draw these relations only; the legend's checkboxes follow.
+   * @param {Set<string>} next
+   */
+  function setRelations(next) {
+    relations = new Set(next);
+    for (const [relation, box] of relationBoxes) box.checked = relations.has(relation);
+    redraw();
+  }
+
+  /** @param {number} next */
+  function setHops(next) {
+    hops = next;
+    pressSeg(hopsEl, 'data-hops', String(hops));
+  }
+
+  /** Every relation, the default depth, labels on, nothing picked, laid out afresh. */
+  function reset() {
+    if (!graph) return;
+    relations = new Set(graph.relationCounts.keys());
+    for (const box of relationBoxes.values()) box.checked = true;
+    setHops(DEFAULT_HOPS);
+    expanded.clear();
+    selected = null;
+    stage.setLabels(true);
+    redraw({ fresh: true });
+  }
+
+  /**
+   * Copy text and say so in the status line for a moment.
+   * @param {string} text
+   * @param {string} what
+   */
+  async function copy(text, what) {
+    const ok = await copyText(text);
+    stage.setStatus(ok ? `Copied ${what}` : 'Copy failed');
+    if (copiedTimer !== null) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedTimer = null;
+      if (graph) showChrome(graph);
+    }, COPIED_FOR);
+  }
+
+  // -- the right-click menus -------------------------------------------------
+
+  /**
+   * @param {import('./graph-stage.js').MenuTarget} target
+   * @param {Point} at
+   */
+  function openMenu(target, at) {
+    if (!graph) return;
+    const view = {
+      graph,
+      drawn,
+      grouped: mode === 'overview',
+      focus,
+      relations,
+      labels: stage.labels(),
+    };
+    const actions = {
+      select,
+      focus: focusOn,
+      expand(/** @type {number} */ i) {
+        expanded.add(i);
+        redraw({ refit: true });
+      },
+      page: onPage,
+      copy: (/** @type {string} */ text, /** @type {string} */ what) => void copy(text, what),
+      setRelations,
+      fit: () => stage.fit(),
+      relayout: () => redraw({ fresh: true }),
+      setLabels: (/** @type {boolean} */ on) => stage.setLabels(on),
+      reset,
+    };
+    /** @type {[string, import('/design-system/js/context-menu.js').MenuItem[]]} */
+    const [ariaLabel, items] =
+      target.kind === 'node'
+        ? ['Node', nodeMenu(view, target.key, actions)]
+        : target.kind === 'edge'
+          ? ['Relation', edgeMenu(view, target.edge, actions)]
+          : ['Graph', stageMenu(view, actions)];
+    if (!items.length) return;
+    openContextMenu({ x: at.x, y: at.y, anchorEl: stageEl, ariaLabel, items });
+  }
+
   modesEl.addEventListener('click', (ev) => {
     const button = ev.target instanceof Element ? ev.target.closest('button') : null;
     const next = button?.getAttribute('data-mode');
@@ -322,8 +419,7 @@ export function createGraphView({ onPage, onLocation }) {
     const button = ev.target instanceof Element ? ev.target.closest('button') : null;
     const next = Number(button?.getAttribute('data-hops'));
     if (!next || next === hops) return;
-    hops = next;
-    pressSeg(hopsEl, 'data-hops', String(hops));
+    setHops(next);
     redraw({ refit: true });
   });
 
@@ -335,6 +431,7 @@ export function createGraphView({ onPage, onLocation }) {
       ...[...index.relationCounts].map(([relation, n]) => {
         const box = /** @type {HTMLInputElement} */ (el('input', { type: 'checkbox' }));
         box.checked = true;
+        relationBoxes.set(relation, box);
         box.addEventListener('change', () => {
           if (box.checked) relations.add(relation);
           else relations.delete(relation);

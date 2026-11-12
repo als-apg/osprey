@@ -293,6 +293,8 @@ facility runs holds. With no ``ttl_path`` there is no **Graph** view.
 * The search field finds nodes by name or id.
 * The relation checkboxes take a relation out of the drawing and out of the
   walk.
+* Right-click a node, a relation or the empty drawing for its menu: copy a
+  name, hide a relation or show it alone, reset the view.
 
 ``inPlace`` is marked *derived*: the graph view holds each device's place as a
 property, and the panel draws it as a relation.

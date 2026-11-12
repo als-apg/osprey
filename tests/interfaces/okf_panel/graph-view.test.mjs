@@ -304,6 +304,137 @@ describe('a neighbourhood', () => {
   });
 });
 
+describe('the right-click menus', () => {
+  /** @type {GraphViewApi} */
+  let view;
+  beforeEach(async () => {
+    view = await load();
+    await view.show('d:M/BPM1');
+  });
+
+  /** @param {Element} target */
+  const rightClick = (target) =>
+    target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  const svg = () => /** @type {Element} */ ($('graph-stage').querySelector('svg.okf-graph-svg'));
+  const heading = () => document.querySelector('.osprey-context-heading')?.textContent;
+  /** @param {string} text */
+  function pick(text) {
+    const found = [...document.querySelectorAll('.osprey-context-item')].find((item) =>
+      (item.querySelector('.osprey-context-label')?.textContent || '').startsWith(text)
+    );
+    if (!found) throw new Error('no menu row ' + text);
+    /** @type {HTMLElement} */ (found).click();
+  }
+  const boxes = () =>
+    /** @type {HTMLInputElement[]} */ ([
+      ...$('graph-relations').querySelectorAll('.okf-graph-legend-row input'),
+    ]);
+  const edges = () => $('graph-stage').querySelectorAll('path.okf-graph-edge[data-a]').length;
+
+  test('a node’s menu names it, and Focus here moves the focus', () => {
+    rightClick(nodeEl('4'));
+    expect(heading()).toBe('M:BPM1:X');
+    pick('Focus here');
+    expect(document.querySelector('.osprey-context-menu')).toBeNull();
+    expect(view.location()).toBe('c:M:BPM1:X');
+  });
+
+  test('a node’s page opens from its menu', () => {
+    rightClick(nodeEl('2'));
+    pick('Open knowledge page');
+    expect(onPage).toHaveBeenCalledWith('devices/bpm');
+  });
+
+  test('a copied name is said in the status line, which then comes back', async () => {
+    vi.useFakeTimers();
+    try {
+      const writeText = vi.fn(async () => {});
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      const status = () => $('graph-stage').querySelector('.okf-graph-status')?.textContent;
+      const before = status();
+      rightClick(nodeEl('4'));
+      pick('Copy name');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(writeText).toHaveBeenCalledWith('M:BPM1:X');
+      expect(status()).toBe('Copied M:BPM1:X');
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(status()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a relation is hidden from its menu, and the legend follows', () => {
+    const hit = /** @type {Element} */ ($('graph-stage').querySelector('.okf-graph-edge-hit'));
+    const before = edges();
+    rightClick(hit);
+    const relation = heading();
+    pick('Hide');
+    expect(edges()).toBeLessThan(before);
+    const off = boxes().filter((box) => !box.checked);
+    expect(off).toHaveLength(1);
+    expect(off[0].closest('.okf-graph-legend-row')?.textContent).toContain(relation);
+  });
+
+  test('a relation is shown alone, and the stage’s menu shows all again', () => {
+    rightClick(/** @type {Element} */ ($('graph-stage').querySelector('.okf-graph-edge-hit')));
+    pick('Show only');
+    expect(boxes().filter((box) => box.checked)).toHaveLength(1);
+    rightClick(svg());
+    pick('Show all relations');
+    expect(boxes().every((box) => box.checked)).toBe(true);
+  });
+
+  test('an end of a relation is picked from its menu', () => {
+    rightClick(/** @type {Element} */ ($('graph-stage').querySelector('.okf-graph-edge-hit')));
+    pick('Select target');
+    expect($('graph-inspector').hidden).toBe(false);
+    expect($('graph-stage').querySelector('.okf-graph-node[data-selected]')).not.toBeNull();
+  });
+
+  test('Relation labels is the strip’s toggle', () => {
+    const toggle = () => $('graph-stage').querySelector('[aria-pressed]');
+    rightClick(svg());
+    pick('Relation labels');
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('false');
+    rightClick(svg());
+    const row = [...document.querySelectorAll('.osprey-context-item')].find((item) =>
+      item.textContent?.includes('Relation labels')
+    );
+    expect(row?.getAttribute('aria-checked')).toBe('false');
+  });
+
+  test('Reset view brings back every relation, the depth and the labels', () => {
+    boxes()[0].checked = false;
+    boxes()[0].dispatchEvent(new Event('change', { bubbles: true }));
+    button($('graph-hops'), '1 hop').click();
+    fire(nodeEl('2'), 'click');
+    rightClick(svg());
+    pick('Relation labels');
+
+    rightClick(svg());
+    pick('Reset view');
+    expect(boxes().every((box) => box.checked)).toBe(true);
+    expect($('graph-hops').querySelector('[aria-pressed="true"]')?.textContent).toBe('2 hops');
+    expect($('graph-stage').querySelector('[aria-pressed]')?.getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+    expect($('graph-inspector').hidden).toBe(true);
+    expect(view.location()).toBe('d:M/BPM1');
+    expect($('graph-stage').querySelector('.okf-graph-status')?.textContent).toBe(
+      '6 nodes · 6 relations around M/BPM1 (2 hops)'
+    );
+  });
+
+  test('a group of the overview lists its members from its menu', async () => {
+    await view.show(null);
+    rightClick(nodeEl('g:channel'));
+    expect(heading()).toBe('Channels · 2');
+    pick('List members');
+    expect($('graph-inspector').hidden).toBe(false);
+  });
+});
+
 describe('search and records', () => {
   test('search lists the nodes a query names, and a hit focuses its node', async () => {
     const view = await load();

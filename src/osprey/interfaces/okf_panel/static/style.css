@@ -574,6 +574,14 @@ label.okf-graph-legend-row:hover {
   opacity: 0.75;
 }
 
+/* The line itself is too thin to right-click; this one is wide and unpainted. */
+.okf-graph-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+}
+
 .okf-graph-edge[data-relation='type'] { stroke-dasharray: 4 3; }
 .okf-graph-edge[data-relation='inPlace'] { stroke-dasharray: 1 3; stroke-linecap: round; }
 

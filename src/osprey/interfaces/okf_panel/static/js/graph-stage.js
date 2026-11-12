@@ -7,14 +7,16 @@
  * edges, and where each node is) and owns everything about looking at it:
  * the view transform (pan, wheel zoom, fit), dragging a node, dimming what
  * is not joined to the node pointed at, and the content strip (relation
- * labels, zoom, fit, re-layout). What a click or a double-click means is the
- * caller's: the stage only reports them.
+ * labels, zoom, fit, re-layout). What a click, a double-click or a right-click
+ * means is the caller's: the stage only reports them, a right-click with what
+ * it landed on (a node, a relation, or the empty stage).
  *
  * Every colour and line style is the stylesheet's, keyed by `data-kind` and
  * `data-relation`; nothing here sets a style.
  */
 
 import { createContentStrip } from '/design-system/js/content-strip.js';
+import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { el } from './helpers.js';
 import { count, fitTransform, relationStyle, zoomAt } from './graph-model.js';
 
@@ -41,6 +43,12 @@ import { count, fitTransform, relationStyle, zoomAt } from './graph-model.js';
  *   the background (null)
  * @property {(key: NodeKey) => void} onFocus a node was double-clicked
  * @property {() => void} onRelayout "Lay out again" was pressed
+ * @property {(target: MenuTarget, at: Point) => void} [onMenu] a right-click,
+ *   with what it landed on and where in the viewport
+ */
+
+/**
+ * @typedef {{kind: 'node', key: NodeKey} | {kind: 'edge', edge: DrawnEdge} | {kind: 'stage'}} MenuTarget
  */
 
 /**
@@ -51,6 +59,9 @@ import { count, fitTransform, relationStyle, zoomAt } from './graph-model.js';
  * @property {(scene: Scene, opts?: {refit?: boolean}) => void} render Draw a
  *   scene; `refit` fits it to the stage.
  * @property {(text: string) => void} setStatus
+ * @property {() => void} fit Fit the drawing to the stage.
+ * @property {() => boolean} labels whether relation labels are drawn
+ * @property {(on: boolean) => void} setLabels
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -60,7 +71,7 @@ const CHANNEL_LABEL_LIMIT = 70;
 const EDGE_LABEL_LIMIT = 90;
 /** A revealed node keeps this far from the stage's edge. */
 const REVEAL_MARGIN = 80;
-const HINT = 'Click: details · Double-click: focus · Drag: move · Wheel: zoom';
+const HINT = 'Click: details · Double-click: focus · Right-click: menu · Drag: move · Wheel: zoom';
 
 /**
  * @param {string} tag
@@ -130,7 +141,7 @@ function keyAt(target) {
  * @param {StageHandles} handles
  * @returns {GraphStage}
  */
-export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
+export function createGraphStage(host, { onSelect, onFocus, onRelayout, onMenu }) {
   /** @type {Scene} */
   let scene = {
     drawn: { nodes: [], edges: [], hidden: 0 },
@@ -156,8 +167,13 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
   let statusEl = null;
   /** @type {Map<NodeKey, {g: SVGElement, node: DrawnNode}>} */
   const nodeEls = new Map();
-  /** @type {{path: SVGElement, label: SVGElement | null, edge: DrawnEdge, bend: number}[]} */
+  /**
+   * @type {{path: SVGElement, hit: SVGElement, label: SVGElement | null, edge: DrawnEdge,
+   *   bend: number}[]}
+   */
   let edgeEls = [];
+  /** @type {{setPressed: (id: string, pressed: boolean) => void} | null} */
+  let strip = null;
 
   /** @param {Iterable<string>} relations */
   function build(relations) {
@@ -189,7 +205,7 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
     statusEl = el('div', { class: 'okf-graph-status', role: 'status' });
     host.replaceChildren(surface, statusEl, el('div', { class: 'okf-graph-hint', text: HINT }));
 
-    const strip = createContentStrip(host, {
+    strip = createContentStrip(host, {
       label: 'Graph controls',
       groups: [
         {
@@ -208,8 +224,7 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
       ],
       onAction(id, pressed) {
         if (id === 'labels') {
-          labels = Boolean(pressed);
-          draw();
+          setLabels(Boolean(pressed));
         } else if (id === 'zoom-in' || id === 'zoom-out') {
           const factor = id === 'zoom-in' ? 1.25 : 0.8;
           setTransform(zoomAt(tf, factor, host.clientWidth / 2, host.clientHeight / 2));
@@ -228,6 +243,13 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
         else reveal();
       }).observe(host);
     }
+  }
+
+  /** @param {boolean} on */
+  function setLabels(on) {
+    labels = on;
+    strip?.setPressed('labels', on);
+    draw();
   }
 
   /** @param {{x: number, y: number, k: number}} next */
@@ -272,7 +294,7 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
     const seen = new Map();
     const withLabels = labels && (grouped || drawn.edges.length <= EDGE_LABEL_LIMIT);
 
-    edgeEls = drawn.edges.map((edge) => {
+    edgeEls = drawn.edges.map((edge, index) => {
       const pair = pairOf(edge);
       const nth = seen.get(pair) || 0;
       seen.set(pair, nth + 1);
@@ -295,9 +317,12 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
         ? svg('text', { class: 'okf-graph-edge-label', 'text-anchor': 'middle' })
         : null;
       if (label) label.textContent = edge.label;
-      return { path, label, edge, bend };
+      // A line is too thin to point at: an unpainted wide one takes the pointer.
+      const hit = svg('path', { class: 'okf-graph-edge-hit', 'data-edge': index });
+      return { path, hit, label, edge, bend };
     });
     edgeLayer.replaceChildren(
+      ...edgeEls.map((entry) => entry.hit),
       ...edgeEls.map((entry) => entry.path),
       ...edgeEls.flatMap((entry) => (entry.label ? [entry.label] : []))
     );
@@ -343,7 +368,7 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
       const p = at.get(key);
       if (p) g.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`);
     }
-    for (const { path, label, edge, bend } of edgeEls) {
+    for (const { path, hit, label, edge, bend } of edgeEls) {
       const a = at.get(edge.a);
       const b = at.get(edge.b);
       const from = nodeEls.get(edge.a);
@@ -358,11 +383,11 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
       const start = toward(a, { x: cx, y: cy }, from.node.r);
       // The arrow's tip stops at the target's edge.
       const end = toward(b, { x: cx, y: cy }, to.node.r + 2);
-      path.setAttribute(
-        'd',
+      const d =
         `M${start.x.toFixed(1)} ${start.y.toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ` +
-          `${end.x.toFixed(1)} ${end.y.toFixed(1)}`
-      );
+        `${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+      path.setAttribute('d', d);
+      hit.setAttribute('d', d);
       if (label) {
         label.setAttribute('x', (0.25 * start.x + 0.5 * cx + 0.25 * end.x).toFixed(1));
         label.setAttribute('y', (0.25 * start.y + 0.5 * cy + 0.25 * end.y - 3).toFixed(1));
@@ -442,6 +467,18 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
       },
       { passive: false }
     );
+    target.addEventListener('contextmenu', (event) => {
+      const ev = /** @type {MouseEvent} */ (event);
+      if (!onMenu || declinesToBrowser(ev)) return;
+      ev.preventDefault();
+      const at = { x: ev.clientX, y: ev.clientY };
+      const key = keyAt(ev.target);
+      const hit = ev.target instanceof Element ? ev.target.closest('.okf-graph-edge-hit') : null;
+      const entry = hit ? edgeEls[Number(hit.getAttribute('data-edge'))] : undefined;
+      if (key !== null) onMenu({ kind: 'node', key }, at);
+      else if (entry) onMenu({ kind: 'edge', edge: entry.edge }, at);
+      else onMenu({ kind: 'stage' }, at);
+    });
     // Pointing at a node dims what is not joined to it.
     target.addEventListener('mouseover', (ev) => highlight(keyAt(ev.target)));
     target.addEventListener('mouseleave', () => highlight(null));
@@ -477,5 +514,8 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout }) {
     setStatus(text) {
       if (statusEl) statusEl.textContent = text;
     },
+    fit,
+    labels: () => labels,
+    setLabels,
   };
 }

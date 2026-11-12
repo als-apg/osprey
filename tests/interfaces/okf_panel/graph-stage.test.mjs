@@ -37,6 +37,7 @@ let stage;
 const onSelect = vi.fn();
 const onFocus = vi.fn();
 const onRelayout = vi.fn();
+const onMenu = vi.fn();
 
 /**
  * Three nodes; two edges join the first pair, one in each direction.
@@ -95,7 +96,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   document.body.innerHTML = '<div id="stage"></div>';
   host = /** @type {HTMLElement} */ (document.getElementById('stage'));
-  stage = createGraphStage(host, { onSelect, onFocus, onRelayout });
+  stage = createGraphStage(host, { onSelect, onFocus, onRelayout, onMenu });
 });
 
 afterEach(() => {
@@ -319,6 +320,78 @@ describe('the pointer', () => {
   test('Lay out again is the caller’s', () => {
     /** @type {HTMLElement} */ (host.querySelector('[title="Lay out again"]')).click();
     expect(onRelayout).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a right-click', () => {
+  /** @type {Element} */
+  let surface;
+  beforeEach(() => {
+    stage.build(['hasBinding', 'readsSignal', 'calibrates']);
+    stage.render(scene());
+    surface = /** @type {Element} */ (host.querySelector('svg.okf-graph-svg'));
+  });
+
+  test('reports the node, the relation or the empty stage it landed on, and where', () => {
+    fire(node(2), 'contextmenu', { button: 2, clientX: 30, clientY: 40 });
+    expect(onMenu).toHaveBeenLastCalledWith({ kind: 'node', key: 2 }, { x: 30, y: 40 });
+    fire(node('g:signal'), 'contextmenu', { button: 2 });
+    expect(onMenu).toHaveBeenLastCalledWith({ kind: 'node', key: 'g:signal' }, { x: 0, y: 0 });
+
+    const hits = all('.okf-graph-edge-hit');
+    expect(hits).toHaveLength(3);
+    fire(hits[1], 'contextmenu', { button: 2 });
+    expect(onMenu.mock.lastCall?.[0]).toEqual({
+      kind: 'edge',
+      edge: { a: 2, b: 1, relation: 'calibrates', label: 'calibrates' },
+    });
+
+    fire(surface, 'contextmenu', { button: 2 });
+    expect(onMenu.mock.lastCall?.[0]).toEqual({ kind: 'stage' });
+  });
+
+  test('the wide line under a relation follows its path', () => {
+    const lines = all('path.okf-graph-edge[data-a]');
+    const hits = all('.okf-graph-edge-hit');
+    expect(hits.map((hit) => hit.getAttribute('d'))).toEqual(
+      lines.map((line) => line.getAttribute('d'))
+    );
+  });
+
+  test('takes the browser’s menu away, but not with Shift held', () => {
+    const plain = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+    surface.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(true);
+
+    onMenu.mockClear();
+    const shifted = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      shiftKey: true,
+    });
+    surface.dispatchEvent(shifted);
+    expect(shifted.defaultPrevented).toBe(false);
+    expect(onMenu).not.toHaveBeenCalled();
+  });
+
+  test('a right-click picks nothing', () => {
+    fire(node(2), 'pointerdown', { button: 2 });
+    fire(node(2), 'contextmenu', { button: 2 });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('relation labels', () => {
+  test('are switched from outside, and the strip’s button follows', () => {
+    stage.build(['hasBinding', 'readsSignal', 'calibrates']);
+    stage.render(scene());
+    const toggle = /** @type {HTMLElement} */ (host.querySelector('[aria-pressed]'));
+    expect(stage.labels()).toBe(true);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    stage.setLabels(false);
+    expect(stage.labels()).toBe(false);
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
   });
 });
 
