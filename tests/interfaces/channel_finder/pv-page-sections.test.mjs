@@ -4,6 +4,8 @@
  *   npx vitest run tests/interfaces/channel_finder/pv-page-sections.test.mjs
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test, expect } from 'vitest';
 import {
   SECTION_ORDER,
@@ -115,6 +117,22 @@ test('every section shows its caveats in its footer', () => {
   }
   const bare = factsSection(/** @type {any} */ ({ ...sections[1], caveats: [] }));
   expect(bare.querySelector('footer')).toBeNull();
+});
+
+test('guidance and displays render as title and details, never [object Object]', () => {
+  const fixture = JSON.parse(
+    readFileSync(join(import.meta.dirname, 'fixtures/directory_routes.json'), 'utf8')
+  );
+  const config = fixture['pv/{name}'].sections.find(
+    (/** @type {any} */ s) => s.section === 'alarm_config'
+  );
+  const frame = factsSection(config);
+  const text = frame.textContent ?? '';
+  expect(text).not.toContain('[object Object]');
+  expect(text).toContain('Response');
+  expect(text).toContain(config.record.guidance[0].details);
+  expect(text).toContain('RF cavity 1');
+  expect(text).toContain('rf/cavity_01.bob');
 });
 
 test('a history whose retention is unknown says so, with or without rows', () => {

@@ -8,6 +8,7 @@
  */
 
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
+import { configEntries } from './alarm-text.js';
 
 /** @typedef {import('./directory-api.js').PvFactsSection} PvFactsSection */
 /** @typedef {import('./directory-api.js').DirectoryRecord} DirectoryRecord */
@@ -249,15 +250,36 @@ function alarmConfigSection(section) {
     return frame;
   }
   if (!record) return frame;
-  /** @type {[string, string][]} */
+  /** @type {[string, string | Node][]} */
   const pairs = [['In alarm tree', record.in_tree]];
   if (record.path) pairs.push(['Path', record.path]);
   if (record.enabled !== null) pairs.push(['Enabled', record.enabled ? 'yes' : 'no']);
   if (record.latching !== null) pairs.push(['Latching', record.latching ? 'yes' : 'no']);
-  if (record.guidance) pairs.push(['Guidance', record.guidance]);
-  if (record.displays) pairs.push(['Displays', record.displays]);
+  const guidance = entriesNode(record.guidance);
+  if (guidance) pairs.push(['Guidance', guidance]);
+  const displays = entriesNode(record.displays);
+  if (displays) pairs.push(['Displays', displays]);
   frame.append(facts(pairs));
   return frame;
+}
+
+/**
+ * Guidance or displays as one title line and one details line per entry; null
+ * for none.
+ * @param {unknown} value
+ * @returns {HTMLElement|null}
+ */
+export function entriesNode(value) {
+  const entries = configEntries(value);
+  if (!entries.length) return null;
+  const list = node('div', 'pvp-entries');
+  for (const entry of entries) {
+    const item = node('div', 'pvp-entry');
+    if (entry.title) item.append(node('div', 'pvp-entry-title', entry.title));
+    if (entry.details) item.append(node('div', 'pvp-entry-details', entry.details));
+    list.append(item);
+  }
+  return list;
 }
 
 /**
