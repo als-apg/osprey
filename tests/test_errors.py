@@ -46,6 +46,7 @@ class TestChannelWriteBlockedError:
             "VALIDATION_ERROR",
             "CONTROL_SYSTEM_REFUSED",
             "RAW_CLIENT_WRITE",
+            "BATCH_REFUSED",
             "CHANNEL_NOT_FOUND",
         ]
 
