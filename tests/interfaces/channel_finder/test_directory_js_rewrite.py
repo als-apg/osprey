@@ -40,3 +40,10 @@ def test_the_page_names_the_search_as_a_rest_and_the_rewrite_still_works() -> No
     assert "'/u/a/panel/channel-finder/api/directory/logbook/availability'" in _rewrite_content(
         api, "channel-finder", "/u/a"
     )
+
+
+def test_the_alarm_route_is_rebased_onto_the_panel_mount() -> None:
+    api = (_JS / "directory-api.js").read_text(encoding="utf-8")
+    assert "`/u/a/panel/channel-finder/api/directory/alarms${" in _rewrite_content(
+        api, "channel-finder", "/u/a"
+    )

@@ -102,6 +102,20 @@ describe('directory-api routes', () => {
     expect(opts.body).toBeUndefined();
   });
 
+  test('the active alarms repeat each severity and take a limit', async () => {
+    const fetchMock = stubFetch({ outcome: 'found' });
+    const { fetchActiveAlarms } = await import(DIRECTORY_API_MODULE);
+    await fetchActiveAlarms();
+    expect(lastCall(fetchMock).url).toBe('/api/directory/alarms');
+    await fetchActiveAlarms({ severity: ['MAJOR', 'INVALID'], limit: 0 });
+    const { url, opts } = lastCall(fetchMock);
+    expect(url.startsWith('/api/directory/alarms?')).toBe(true);
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.getAll('severity')).toEqual(['MAJOR', 'INVALID']);
+    expect(params.get('limit')).toBe('0');
+    expect(opts.method).toBeUndefined();
+  });
+
   test('values of no names are none, without a request', async () => {
     const fetchMock = stubFetch([{ name: 'A' }]);
     const { readValues } = await import(DIRECTORY_API_MODULE);
