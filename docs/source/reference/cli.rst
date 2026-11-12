@@ -1174,7 +1174,10 @@ is :doc:`/how-to/apps/index`.
    rule, ESLint over ``panel/`` when it holds JS, and Vitest over
    ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
    with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
-   does not name is reported and not checked. The JS checks execute the
+   does not name is reported and not checked. An application an installed package
+   ships is checked from its package directory; its violations name the
+   distribution (``<dist>:<module path>/<file>``), and the closing line counts the
+   applications under ``apps/`` and the installed ones apart. The JS checks execute the
    application's JS tests, with none of the shell's secrets; they need Node and
    install a pinned toolchain into the user's cache once; an application with no
    JS needs neither.

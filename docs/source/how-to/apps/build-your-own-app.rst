@@ -88,6 +88,11 @@ violation with the app and the field it is in. The scaffold passes as copied.
 The first run installs a pinned JavaScript toolchain into your user cache,
 which needs ``npm`` and network access once.
 
+An app an installed package ships is checked the same way, from that
+package's directory, and its violations name the distribution
+(``<dist>:<module path>/<file>``). Imports under the app's own package are
+its own.
+
 4. Build and start
 ------------------
 
