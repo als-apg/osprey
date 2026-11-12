@@ -693,9 +693,9 @@ horizontal then vertical.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kind</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code>, the orbit readbacks’ response, or <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code>, the
-first-turn response of the turn-by-turn readings. Any other value is
-refused, naming the two; an engine that answers only the orbit
-response refuses <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> with its text.</p></td>
+first-turn response of the monitors’ turn-buffer records. Any other
+value is refused, naming the two; an engine that answers only the
+orbit response refuses <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> with its text.</p></td>
 </tr>
 </tbody>
 </table>
@@ -704,8 +704,19 @@ response refuses <code class="docutils literal notranslate"><span class="pre">&q
 converted to the corrector’s hardware unit through its wiring calibration; a
 model whose measurement file states none is refused. Each entry is a readback
 change in its hardware unit per setpoint change in its own. The result carries
-<code class="docutils literal notranslate"><span class="pre">rows</span></code> and <code class="docutils literal notranslate"><span class="pre">columns</span></code>, each named by address and device id, each column’s
-<code class="docutils literal notranslate"><span class="pre">step</span></code>, the <code class="docutils literal notranslate"><span class="pre">matrix</span></code> and <code class="docutils literal notranslate"><span class="pre">missing</span></code>. A corrector whose step has no solve
+<code class="docutils literal notranslate"><span class="pre">rows</span></code> and <code class="docutils literal notranslate"><span class="pre">columns</span></code>, each named by address and device id and placed by
+<code class="docutils literal notranslate"><span class="pre">position</span></code>, each column’s <code class="docutils literal notranslate"><span class="pre">step</span></code>, the <code class="docutils literal notranslate"><span class="pre">matrix</span></code> and <code class="docutils literal notranslate"><span class="pre">missing</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">position</span></code> is the lattice element index, a whole number. For <code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code> it
+counts from the deck’s first element. For <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> it counts from the
+injection element, in the order the bunch meets the elements on its first
+turn, so of two positions the lower is upstream. It is <code class="docutils literal notranslate"><span class="pre">null</span></code> when the
+model’s engine states no positions. Rows are ordered by position, <code class="docutils literal notranslate"><span class="pre">x</span></code> before
+<code class="docutils literal notranslate"><span class="pre">y</span></code>; columns are in the order asked.</p>
+<p>For <code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code> the rows are the monitor readbacks. For <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> they
+are the monitors’ <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> and <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> records, the arrays a shot is read
+from, in metres; a monitor wiring neither has no row, and a ring wiring none
+is refused.</p>
+<p>A corrector whose step has no solve
 has no column; <code class="docutils literal notranslate"><span class="pre">missing</span></code> maps it to the engine’s text. When no corrector
 solves, the call is refused as <code class="docutils literal notranslate"><span class="pre">nothing_answered</span></code> with <code class="docutils literal notranslate"><span class="pre">details.missing</span></code>
 holding the same map (see <a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>). When the engine refuses the

@@ -787,7 +787,11 @@ a turn-by-turn ring (<a class="reference internal" href="../how-to/control-syste
 keyword <code class="docutils literal notranslate"><span class="pre">kind</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code>, and names each corrector
 without a column in <code class="docutils literal notranslate"><span class="pre">unsolved</span></code> with its text. One whose signature takes
 no <code class="docutils literal notranslate"><span class="pre">kind</span></code> is called without it for <code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code>; any other kind is refused
-as a request, naming the engine, without calling it.</p></li>
+as a request, naming the engine, without calling it. Its answer may state
+<code class="docutils literal notranslate"><span class="pre">row_positions</span></code> and <code class="docutils literal notranslate"><span class="pre">column_positions</span></code>, one lattice element index per
+row and per column, counted for <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> from the injection
+element. An answer without them is served with every <code class="docutils literal notranslate"><span class="pre">position</span></code> <code class="docutils literal notranslate"><span class="pre">null</span></code>;
+positions that do not line up with the rows or columns fail the solve.</p></li>
 </ul>
 <p>What the container keeps the same for every engine:</p>
 <ul class="simple">

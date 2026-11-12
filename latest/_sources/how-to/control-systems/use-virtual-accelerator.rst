@@ -687,9 +687,13 @@ naming the channel and both sizes.
 Python executor tool (:doc:`/reference/contracts/python-executor`) and in
 ``osprey.apps.sdk``: ``orbit`` (the default) or ``trajectory``. The
 trajectory response is the first-turn response of one particle, without
-jitter, from ``launch`` through the declared apertures, in the orbit's rows
-and units; it is computed from the deck and settings, not from served state,
-and only a ring with the block answers it. A corrector whose kicked particle
+jitter, from ``launch`` through the declared apertures. Its rows are the
+monitors' ``turn_x`` and ``turn_y`` records, in the arrays' metres and in the
+order the bunch meets them; every row and column carries its position, the
+lattice element index counted from ``injection_element``. A monitor wiring
+neither record has no row. It is computed from the deck and settings, not
+from served state, and only a ring with the block that wires such a record
+answers it. A corrector whose kicked particle
 is lost before a monitor has no column; the tool's ``missing`` and the SDK's
 ``unsolved`` name it with where the particle was lost. When the particle is
 lost with no corrector stepped, every corrector is named and the matrix has

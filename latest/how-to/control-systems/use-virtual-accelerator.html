@@ -1268,9 +1268,13 @@ naming the channel and both sizes.</p>
 Python executor tool (<a class="reference internal" href="../../reference/contracts/python-executor.html"><span class="doc">Python Executor Contract</span></a>) and in
 <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk</span></code>: <code class="docutils literal notranslate"><span class="pre">orbit</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">trajectory</span></code>. The
 trajectory response is the first-turn response of one particle, without
-jitter, from <code class="docutils literal notranslate"><span class="pre">launch</span></code> through the declared apertures, in the orbit’s rows
-and units; it is computed from the deck and settings, not from served state,
-and only a ring with the block answers it. A corrector whose kicked particle
+jitter, from <code class="docutils literal notranslate"><span class="pre">launch</span></code> through the declared apertures. Its rows are the
+monitors’ <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> and <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> records, in the arrays’ metres and in the
+order the bunch meets them; every row and column carries its position, the
+lattice element index counted from <code class="docutils literal notranslate"><span class="pre">injection_element</span></code>. A monitor wiring
+neither record has no row. It is computed from the deck and settings, not
+from served state, and only a ring with the block that wires such a record
+answers it. A corrector whose kicked particle
 is lost before a monitor has no column; the tool’s <code class="docutils literal notranslate"><span class="pre">missing</span></code> and the SDK’s
 <code class="docutils literal notranslate"><span class="pre">unsolved</span></code> name it with where the particle was lost. When the particle is
 lost with no corrector stepped, every corrector is named and the matrix has
