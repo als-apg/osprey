@@ -22,11 +22,13 @@ from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import unquote, urlparse
 
+from osprey.apps.origin import listed_installed
 from osprey.deployment.wheel_build import (
     DEPLOYMENT_PACKAGES_DIRNAME,
     FRAMEWORK_DISTRIBUTION,
     DeploymentPackage,
     refuse_named_twice,
+    refuse_unshipped_apps,
     refuse_unshipped_kinds,
 )
 from osprey_connectors.errors import BuildProfileError
@@ -1002,6 +1004,7 @@ def _plan_project_venv(
         else None
     )
     refuse_unshipped_kinds(extra_deps)
+    refuse_unshipped_apps(extra_deps, listed_installed(profile.apps or {}))
 
     # --- Choose the installer ---
     # The pip path names the workspace members beside the framework; a spec

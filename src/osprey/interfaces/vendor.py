@@ -418,7 +418,9 @@ def fetch_app_vendor(
     fetched from the source it names (its ``url``, or a package file through
     the one CDN template). Every destination is checked before anything is
     downloaded; one outside the application's directory, or whose file name
-    does not carry the version it fetches, is refused.
+    does not carry the version it fetches, is refused. An installed
+    application's files are verified where its package holds them and never
+    fetched: the build does not write into an installed package.
 
     A file already present with the entry's hash is used as it is, with no
     request. Otherwise an offline deployment, a failed download or a hash
@@ -449,18 +451,26 @@ def fetch_app_vendor(
     if insecure is None:
         insecure = bool(os.environ.get("OSPREY_VENDOR_INSECURE"))
 
+    from osprey.apps.origin import origin_of
+
     plan = []
     for manifest in manifests:
+        origin = origin_of(manifest, deployment_root)
         for entry in manifest.vendor:
-            app_dir = deployment_root / "apps" / manifest.name
-            dest = _app_vendor_dest(app_dir, manifest.name, entry)
+            dest = _app_vendor_dest(origin.directory, manifest.name, entry)
             _check_versioned_name(manifest.name, entry)
-            plan.append((manifest.name, entry, dest))
+            plan.append((manifest.name, entry, dest, origin))
     downloaded: list[str] = []
-    for app, entry, dest in plan:
+    for app, entry, dest, origin in plan:
         if dest.is_file() and _sha256(dest) == entry.sha256:
             continue
         source = _entry_source(entry)
+        if origin.installed:
+            raise AppVendorError(
+                app,
+                source,
+                f"{entry.into} is not shipped by {origin.installer}; reinstall it",
+            )
         if offline:
             raise AppVendorError(
                 app,

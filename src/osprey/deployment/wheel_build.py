@@ -28,11 +28,11 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.errors import DevModeUnavailableError
@@ -46,6 +46,9 @@ from osprey.deployment.lock_constraints import (
 )
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey_connectors.logger import get_logger
+
+if TYPE_CHECKING:
+    from osprey.apps.origin import AppOrigin
 
 logger = get_logger("deployment.compose")
 
@@ -1116,6 +1119,55 @@ def refuse_named_twice(packages: Sequence[DeploymentPackage], requirements: Iter
         )
 
 
+def refuse_unshipped_apps(
+    requirements: Iterable[str], installed: "Mapping[str, AppOrigin]"
+) -> None:
+    """Refuse a listed installed application the project image would not install.
+
+    The application's code reaches the image only with its distribution: the
+    framework itself, or a distribution *requirements* names.
+
+    Args:
+        requirements: The dependency list the image installs, beside the framework.
+        installed: The installed applications the profile's ``apps:`` block lists,
+            by name (:func:`~osprey.apps.origin.listed_installed`).
+
+    Raises:
+        BuildProfileError: Naming each application and its distribution.
+    """
+    from packaging.utils import canonicalize_name
+
+    from osprey_connectors.errors import BuildProfileError
+
+    shipped = _shipped_distributions(requirements)
+    refused = [
+        f"{name!r} (package {origin.distribution})"
+        for name, origin in sorted(installed.items())
+        if canonicalize_name(origin.distribution or "") not in shipped
+    ]
+    if refused:
+        raise BuildProfileError(
+            f"application {', '.join(refused)}: the application's package is not among the "
+            "packages the project image installs.\n"
+            "        Add the package to the profile's dependencies, as an index requirement "
+            "or a local path."
+        )
+
+
+def _shipped_distributions(requirements: Iterable[str]) -> set[str]:
+    """The canonical names of the distributions the project image installs."""
+    from packaging.requirements import InvalidRequirement, Requirement
+    from packaging.utils import canonicalize_name
+
+    shipped: set[str] = {canonicalize_name(FRAMEWORK_DISTRIBUTION)}
+    for raw in requirements:
+        try:
+            shipped.add(canonicalize_name(Requirement(raw).name))
+        except InvalidRequirement:
+            continue
+    return shipped
+
+
 def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:
     """Refuse a registered measurement kind the project image would not install.
 
@@ -1130,17 +1182,11 @@ def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:
     Raises:
         BuildProfileError: Naming each kind whose package is not installed.
     """
-    from packaging.requirements import InvalidRequirement, Requirement
     from packaging.utils import canonicalize_name
 
     from osprey_connectors.errors import BuildProfileError
 
-    shipped = {canonicalize_name(FRAMEWORK_DISTRIBUTION)}
-    for raw in requirements:
-        try:
-            shipped.add(canonicalize_name(Requirement(raw).name))
-        except InvalidRequirement:
-            continue
+    shipped = _shipped_distributions(requirements)
     refused = []
     for kind in entry_points(group=FACILITY_KINDS_GROUP):
         dist = getattr(kind, "dist", None)
