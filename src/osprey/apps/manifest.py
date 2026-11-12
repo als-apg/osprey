@@ -9,7 +9,7 @@ instead: the application's compose fragment, or for ``network`` the profile's
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -30,6 +30,9 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from osprey.apps.errors import AppManifestError, Violation
+
+if TYPE_CHECKING:
+    from osprey.apps.origin import AppOrigin
 
 APP_NAME_PATTERN = r"^[a-z0-9-]+$"
 
@@ -316,6 +319,19 @@ class AppManifest(_Strict):
         """Whether ``app.yml`` spells ``audit_identity`` rather than taking the default."""
         return self._audit_identity_spelled
 
+    #: Where the loader found the manifest: a fact of discovery, never a key of ``app.yml``.
+    _origin: AppOrigin | None = PrivateAttr(default=None)
+
+    @property
+    def origin(self) -> AppOrigin | None:
+        """Where the application's directory is; ``None`` for a manifest no loader read."""
+        return self._origin
+
+    def bind_origin(self, origin: AppOrigin) -> AppManifest:
+        """Record where the loader found this manifest, and return it."""
+        self._origin = origin
+        return self
+
     @model_validator(mode="before")
     @classmethod
     def _defaults_from_name(cls, data: Any) -> Any:
@@ -392,18 +408,23 @@ class AppManifest(_Strict):
         return value
 
 
-def parse_manifest(data: Any, *, app: str) -> AppManifest:
+def parse_manifest(data: Any, *, app: str, source: str | None = None) -> AppManifest:
     """Validate the parsed contents of one ``app.yml``.
 
     Args:
         data: The YAML document as loaded.
-        app: The application's directory name, used in the refusal.
+        app: The application's name, used in the refusal.
+        source: The file a refusal names when it is not ``apps/<app>/app.yml``:
+            an installed application's manifest
+            (:attr:`~osprey.apps.origin.AppOrigin.manifest_source`).
 
     Raises:
         AppManifestError: The manifest is refused; it carries every violation.
     """
     if not isinstance(data, dict):
-        raise AppManifestError(app, "", "mapping", "app.yml must be a mapping of keys")
+        raise AppManifestError.from_violations(
+            [Violation(app, "", "mapping", "app.yml must be a mapping of keys", source=source)]
+        )
     try:
         return AppManifest.model_validate(data)
     except ValidationError as exc:
@@ -411,5 +432,5 @@ def parse_manifest(data: Any, *, app: str) -> AppManifest:
         for error in exc.errors(include_url=False):
             ctx = error.get("ctx") or {}
             field = ctx.get("at") or ".".join(str(part) for part in error["loc"])
-            violations.append(Violation(app, field, error["type"], error["msg"]))
+            violations.append(Violation(app, field, error["type"], error["msg"], source=source))
         raise AppManifestError.from_violations(violations) from None

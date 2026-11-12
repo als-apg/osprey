@@ -11,6 +11,13 @@ import yaml
 
 from osprey.apps.errors import AppManifestError, Violation
 from osprey.apps.manifest import AppManifest, parse_manifest
+from osprey.apps.origin import (
+    MANIFEST_FILE,
+    AppOrigin,
+    deployment_origin,
+    installed_apps,
+    origin_of,
+)
 from osprey.apps.rules import (
     AppSelection,
     LoginSelection,
@@ -20,6 +27,7 @@ from osprey.apps.rules import (
     fixed_names,
     framework_pins,
     refuse_shadowed_packages,
+    shadows_installed,
     validate,
 )
 from osprey.utils.workspace import APPS_DIRNAME, PROFILE_FILENAME
@@ -28,7 +36,6 @@ if TYPE_CHECKING:
     from osprey.cli.build_profile_model import BuildProfile
 
 APPS_DIR = "apps"
-MANIFEST_FILE = "app.yml"
 
 #: The key the root render's selection goes by among the logins: the root file's
 #: name, which no login file's stem can spell.
@@ -52,30 +59,49 @@ class DeploymentApps:
     unnamed: tuple[str, ...] = ()
 
 
-def load(deployment_root: Path, names: Collection[str] | None = None) -> list[AppManifest]:
-    """Load the ``apps/<name>/app.yml`` files under ``deployment_root``, sorted by name.
+def load(
+    deployment_root: Path,
+    names: Collection[str] | None = None,
+    *,
+    installed: Mapping[str, AppOrigin] | None = None,
+) -> list[AppManifest]:
+    """Load the applications of a deployment, from both sources, sorted by name.
 
-    Only ``app.yml`` is read; other files in an application directory (its
-    ``.provenance`` sidecar, fragments, code) are left alone. Hidden entries and
-    ``__pycache__`` in ``apps/`` are skipped.
+    An application is ``apps/<name>/app.yml`` under ``deployment_root``, or the
+    ``app.yml`` of a package an installed distribution declares
+    (:mod:`osprey.apps.origin`). Each manifest carries its
+    :attr:`~osprey.apps.manifest.AppManifest.origin`. Only ``app.yml`` is read;
+    other files in an application directory (its ``.provenance`` sidecar,
+    fragments, code) are left alone. Hidden entries and ``__pycache__`` in
+    ``apps/`` are skipped. An installed application is read only when named.
 
     Args:
         deployment_root: The deployment root.
-        names: The applications to read, every other directory left unread;
-            ``None`` reads them all.
+        names: The applications to read, every other one left unread; ``None``
+            reads every ``apps/`` directory and no installed application.
+        installed: The installed applications, from
+            :func:`~osprey.apps.origin.installed_apps`; ``None`` reads the
+            environment's.
 
     Raises:
         AppManifestError: A manifest is refused, its ``name`` differs from its
-            directory, a directory holds no ``app.yml``, or ``apps/`` holds a
-            plain ``<name>.yml`` login file.
+            directory or entry point, a directory holds no ``app.yml``, an
+            ``apps/<name>/`` directory has an installed application's name, or
+            ``apps/`` holds a plain ``<name>.yml`` login file.
     """
+    if installed is None:
+        installed = installed_apps()
     apps_dir = deployment_root / APPS_DIR
-    if not apps_dir.is_dir():
-        return []
+    entries = (
+        [e for e in sorted(apps_dir.iterdir(), key=lambda p: p.name) if not _skipped(e)]
+        if apps_dir.is_dir()
+        else []
+    )
+    shadowing = shadows_installed([e.name for e in entries if e.is_dir()], installed)
+    if shadowing:
+        raise AppManifestError.from_violations(shadowing)
     manifests: list[AppManifest] = []
-    for entry in sorted(apps_dir.iterdir(), key=lambda p: p.name):
-        if entry.name.startswith(".") or entry.name == "__pycache__":
-            continue
+    for entry in entries:
         if entry.is_file():
             if entry.suffix in (".yml", ".yaml"):
                 raise AppManifestError(
@@ -96,11 +122,7 @@ def load(deployment_root: Path, names: Collection[str] | None = None) -> list[Ap
                 "missing_manifest",
                 f"{APPS_DIR}/{entry.name}/ has no {MANIFEST_FILE}",
             )
-        try:
-            data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            raise AppManifestError(entry.name, "", "yaml", f"not valid YAML: {exc}") from None
-        manifest = parse_manifest(data, app=entry.name)
+        manifest = _read_manifest(manifest_path, entry.name, None)
         if manifest.name != entry.name:
             raise AppManifestError(
                 entry.name,
@@ -108,8 +130,41 @@ def load(deployment_root: Path, names: Collection[str] | None = None) -> list[Ap
                 "name_matches_directory",
                 f"name {manifest.name!r} must equal the directory name {entry.name!r}",
             )
-        manifests.append(manifest)
+        manifests.append(manifest.bind_origin(deployment_origin(deployment_root, entry.name)))
+    for name in sorted(set(names or ()) & set(installed)):
+        origin = installed[name]
+        manifest = _read_manifest(origin.directory / MANIFEST_FILE, name, origin)
+        if manifest.name != name:
+            raise AppManifestError.from_violations(
+                [
+                    Violation(
+                        name,
+                        "name",
+                        "name_matches_entry_point",
+                        f"name {manifest.name!r} must equal the entry-point name {name!r}",
+                        source=origin.manifest_source,
+                    )
+                ]
+            )
+        manifests.append(manifest.bind_origin(origin))
     return sorted(manifests, key=lambda m: m.name)
+
+
+def _skipped(entry: Path) -> bool:
+    """Whether an entry of ``apps/`` is no application: hidden, or ``__pycache__``."""
+    return entry.name.startswith(".") or entry.name == "__pycache__"
+
+
+def _read_manifest(path: Path, name: str, origin: AppOrigin | None) -> AppManifest:
+    """Parse one ``app.yml``; a refusal names *origin*'s file when it is installed."""
+    source = origin.manifest_source if origin is not None else None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise AppManifestError.from_violations(
+            [Violation(name, "", "yaml", f"not valid YAML: {exc}", source=source)]
+        ) from None
+    return parse_manifest(data, app=name, source=source)
 
 
 def check_deployment(root: Path) -> DeploymentApps:
@@ -141,7 +196,8 @@ def check_deployment(root: Path) -> DeploymentApps:
     variant = resolve_variant_selection(root)
     overlays = (variant.path,) if variant.path is not None else ()
     host = resolve_build_document(root / PROFILE_FILENAME, None, overlays).profile
-    manifests = tuple(load(root, host.apps))
+    installed = installed_apps()
+    manifests = tuple(load(root, host.apps, installed=installed))
     profiles: dict[str, BuildProfile] = {ROOT_LOGIN: host}
     for _kind, layer in layer_files(root):
         profiles[layer.stem] = resolve_build_document(layer, None, overlays).profile
@@ -155,7 +211,7 @@ def check_deployment(root: Path) -> DeploymentApps:
             )
             for login, profile in profiles.items()
         }
-        validate(manifests, logins=logins, reserved=_reserved(host, profiles.values()))
+        validate(manifests, logins=logins, reserved=_reserved(host, profiles.values(), installed))
     _refuse_projected_keys(manifests, profiles)
     if manifests:
         _refuse_unbuildable_services(root, manifests, host)
@@ -310,8 +366,13 @@ def _shared_cards(host: BuildProfile) -> dict[str, list[str]]:
     return cards
 
 
-def _reserved(host: BuildProfile, profiles: Iterable[BuildProfile]) -> Reserved:
-    """The names applications may not take, over the root and every login."""
+def _reserved(
+    host: BuildProfile, profiles: Iterable[BuildProfile], installed: Mapping[str, AppOrigin]
+) -> Reserved:
+    """The names applications may not take, over the root and every login.
+
+    The installed applications' names come from discovery, so none is hand-kept.
+    """
     from osprey.cli.build_profile_emit import effective_web_terminals
     from osprey.cli.build_profile_panels import _spelled_panel_ids
     from osprey.deployment.web_terminals.roster import roster_user_names
@@ -325,6 +386,7 @@ def _reserved(host: BuildProfile, profiles: Iterable[BuildProfile]) -> Reserved:
         servers=frozenset(name for profile in profiles for name in profile.mcp_servers or {}),
         names=fixed_names(),
         roster_users=frozenset(roster_user_names(effective_web_terminals(host.config))),
+        installed=dict(installed),
     )
 
 
@@ -404,19 +466,29 @@ def _refuse_unbuildable_services(
 
 
 def _refuse_missing_skills(root: Path, manifests: tuple[AppManifest, ...]) -> None:
-    """Refuse a listed skill with no ``SKILL.md``, or a name two applications both list."""
+    """Refuse a listed skill with no ``SKILL.md``, or a name two applications both list.
+
+    The file is looked for in the directory the manifest came from.
+    """
     found: list[Violation] = []
     owners: dict[str, str] = {}
     for manifest in manifests:
+        origin = origin_of(manifest, root)
         for skill in manifest.skills:
-            relative = f"{APPS_DIRNAME}/{manifest.name}/skills/{skill}/SKILL.md"
-            if not (root / relative).is_file():
+            relative = f"skills/{skill}/SKILL.md"
+            if not (origin.directory / relative).is_file():
+                where = (
+                    f"{origin.directory}/{relative} (installed by {origin.installer})"
+                    if origin.installed
+                    else f"{APPS_DIRNAME}/{manifest.name}/{relative}"
+                )
                 found.append(
                     Violation(
                         manifest.name,
                         f"skills.{skill}",
                         "skill_missing",
-                        f"{relative} does not exist",
+                        f"{where} does not exist",
+                        source=origin.manifest_source,
                     )
                 )
             if skill in owners:
@@ -426,6 +498,7 @@ def _refuse_missing_skills(root: Path, manifests: tuple[AppManifest, ...]) -> No
                         f"skills.{skill}",
                         "skill_collision",
                         f"{owners[skill]} already carries a skill named {skill!r}",
+                        source=origin.manifest_source,
                     )
                 )
             owners.setdefault(skill, manifest.name)

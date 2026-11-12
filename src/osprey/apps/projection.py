@@ -92,7 +92,8 @@ def project_deployment(
                 "",
                 "missing_manifest",
                 f"the profile's apps: block names {name!r} but no "
-                f"{_APPS_DIR}/{name}/app.yml exists",
+                f"{_APPS_DIR}/{name}/app.yml exists and no installed package declares an "
+                "application of that name",
             )
         selected.append((manifest, profile_app or {}))
 
