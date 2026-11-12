@@ -99,7 +99,7 @@ async function mount(facts, answers) {
   await vi.advanceTimersByTimeAsync(0);
 }
 
-/** @returns {Record<string, string>} the facts list, label to value. */
+/** @returns {Record<string, string>} the Network card, label to value. */
 function factList() {
   const out = /** @type {Record<string, string>} */ ({});
   for (const dt of container.querySelectorAll('.cf-ioc-facts dt')) {
@@ -107,6 +107,22 @@ function factList() {
   }
   return out;
 }
+
+/** @returns {Record<string, [string, string]>} the tiles, role to [value, line under it]. */
+function tiles() {
+  const out = /** @type {Record<string, [string, string]>} */ ({});
+  for (const box of container.querySelectorAll('[data-tile]')) {
+    const role = /** @type {HTMLElement} */ (box).dataset.tile ?? '';
+    out[role] = [
+      box.querySelector('.cf-ioc-tile-value')?.textContent ?? '',
+      box.querySelector('.cf-ioc-tile-sub')?.textContent ?? '',
+    ];
+  }
+  return out;
+}
+
+/** @returns {string} the engineer in the header line. */
+const engineer = () => container.querySelector('.cf-ioc-engineer')?.textContent ?? '';
 
 /** @returns {Record<string, string>} the health PV table, name to value. */
 function healthTable() {
@@ -128,24 +144,31 @@ test('the view exports what the router mounts and unmounts', async () => {
   expect(page.unmountIocPage).toBeTypeOf('function');
 });
 
-test('the fixture payload renders its facts, its health PV as no answer, and the IOC link', async () => {
+test('the fixture payload renders its header, tiles, cards and the IOC link', async () => {
   await mount(LIVE, [VALUES]);
 
   expect(fetchIocFacts).toHaveBeenCalledWith('demo-ioc-bpm');
   expect(readValues).toHaveBeenCalledWith(['DEMO:BPM01:HEARTBEAT']);
+  expect(container.querySelector('.cf-ioc-crumb')?.textContent).toBe('All PVs/demo-ioc-bpm');
   expect(container.querySelector('.cf-ioc-name')?.textContent).toBe('demo-ioc-bpm');
-  expect(factList()).toEqual({
-    Host: 'ioc-host-01',
-    Ports: '5064, 5075',
-    PVs: '2',
-    Inactive: '1',
-    Curated: '1 curated, 1 uncurated',
-    Engineer: 'operator',
-  });
-  expect(healthTable()).toEqual({ 'DEMO:BPM01:HEARTBEAT': 'no answer' });
-  expect(container.querySelector('a.cf-ioc-link')?.getAttribute('href')).toBe(
-    '#/allpvs?ioc=demo-ioc-bpm'
+  expect(container.querySelector('.cf-ioc-sub')?.textContent).toBe(
+    'Host ioc-host-01 · engineer operator'
   );
+  expect(tiles()).toEqual({
+    pvs: ['2', '1 inactive'],
+    curated: ['1', '1 control system only'],
+    alarm: ['1', '1 major'],
+    heartbeat: ['unknown', 'DEMO:BPM01:HEARTBEAT: second read pending'],
+  });
+  expect(factList()).toEqual({ Host: 'ioc-host-01', Ports: '5064, 5075' });
+  expect(healthTable()).toEqual({ 'DEMO:BPM01:HEARTBEAT': 'no answer' });
+  const alarms = /** @type {HTMLElement} */ (container.querySelector('[data-card="alarms"]'));
+  const cells = [...alarms.querySelectorAll('td')].map((td) => td.textContent);
+  expect(cells.slice(0, 3)).toEqual(['MAJOR', 'DEMO:BPM01:X', 'HIGH_ALARM']);
+  expect(alarms.querySelector('a')?.getAttribute('href')).toBe('#/pv/DEMO%3ABPM01%3AX');
+  const link = container.querySelector('a.cf-ioc-link');
+  expect(link?.getAttribute('href')).toBe('#/allpvs?ioc=demo-ioc-bpm');
+  expect(link?.classList).toContain('primary');
 });
 
 test('missing ports, an engineer not recorded and an uncountable curated count say so', async () => {
@@ -160,10 +183,62 @@ test('missing ports, an engineer not recorded and an uncountable curated count s
     },
     [VALUES]
   );
-  expect(factList()).toMatchObject({
-    Ports: 'not recorded',
-    Engineer: 'not recorded',
-    Curated: 'no curated roster for this target',
+  expect(factList()).toMatchObject({ Ports: 'not recorded' });
+  expect(engineer()).toBe('not recorded');
+  expect(tiles().curated).toEqual(['—', 'no curated roster for this target']);
+});
+
+describe('alarms', () => {
+  test('without an alarm feed there is no In alarm tile and no alarms card', async () => {
+    const facts = { ...LIVE };
+    delete facts.alarms;
+    await mount(facts, [VALUES]);
+    expect(tiles().alarm).toBeUndefined();
+    expect(container.querySelector('[data-card="alarms"]')).toBeNull();
+  });
+
+  test('a feed that did not answer shows its reason, never zero', async () => {
+    const reason = 'cannot filter by alarm: alarm feed still loading';
+    await mount({ ...LIVE, alarms: { outcome: 'unavailable', reason } }, [VALUES]);
+    expect(tiles().alarm).toEqual(['—', reason]);
+    expect(container.querySelector('[data-card="alarms"]')?.textContent).toContain(reason);
+  });
+
+  test('an IOC with nothing in alarm says so', async () => {
+    await mount({ ...LIVE, alarms: { outcome: 'no_match', total: 0, rows: [] } }, [VALUES]);
+    expect(tiles().alarm).toEqual(['0', 'none']);
+    expect(container.querySelector('[data-card="alarms"]')?.textContent).toContain(
+      'No active alarms.'
+    );
+  });
+});
+
+describe('uptime', () => {
+  test('a number of seconds reads as a duration, with the value under it', async () => {
+    await mount(VA, [
+      [
+        found('ca:SIM:SR:ENGINEER', 'x'),
+        found('ca:SIM:SR:HEARTBEAT', 41),
+        { ...found('ca:SIM:SR:UPTIME', 6377.2), units: 's' },
+      ],
+    ]);
+    expect(tiles().uptime).toEqual(['1 h 46 min', '6377.2 s']);
+  });
+
+  test('a formatted string reads as read', async () => {
+    await mount(VA, [
+      [
+        found('ca:SIM:SR:ENGINEER', 'x'),
+        found('ca:SIM:SR:HEARTBEAT', 41),
+        found('ca:SIM:SR:UPTIME', '3 days, 04:12:09'),
+      ],
+    ]);
+    expect(tiles().uptime[0]).toBe('3 days, 04:12:09');
+  });
+
+  test('no Uptime tile without an UPTIME health PV', async () => {
+    await mount(LIVE, [VALUES]);
+    expect(tiles().uptime).toBeUndefined();
   });
 });
 
@@ -177,7 +252,8 @@ test('on the VA the engineer line shows the ENGINEER PV value from the one value
 
   expect(readValues).toHaveBeenCalledTimes(1);
   expect(readValues).toHaveBeenCalledWith(VA.health_pvs);
-  expect(factList()).toMatchObject({ Ports: 'not recorded', Engineer: 'operator on shift' });
+  expect(factList()).toMatchObject({ Ports: 'not recorded' });
+  expect(engineer()).toBe('operator on shift');
   expect(healthTable()).toEqual({
     'ca:SIM:SR:ENGINEER': 'operator on shift',
     'ca:SIM:SR:HEARTBEAT': '41',
@@ -189,7 +265,29 @@ test('a silent ENGINEER PV reads no answer, never the PV name', async () => {
   await mount(VA, [
     [silent('ca:SIM:SR:ENGINEER'), found('ca:SIM:SR:HEARTBEAT', 1), found('ca:SIM:SR:UPTIME', 1)],
   ]);
-  expect(factList().Engineer).toBe('no answer');
+  expect(engineer()).toBe('no answer');
+});
+
+test('the Heartbeat tile follows aliveness, with the two reads under it', async () => {
+  await mount(VA, [
+    [
+      found('ca:SIM:SR:ENGINEER', 'x'),
+      found('ca:SIM:SR:HEARTBEAT', 41),
+      found('ca:SIM:SR:UPTIME', 1),
+    ],
+    [found('ca:SIM:SR:HEARTBEAT', 43)],
+  ]);
+  expect(tiles().heartbeat[0]).toBe('unknown');
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(tiles().heartbeat).toEqual(['advancing', '41 → 43 in 2 s']);
+  expect(chip().dataset.alive).toBe('yes');
+
+  readValues
+    .mockResolvedValueOnce([found('ca:SIM:SR:HEARTBEAT', 43)])
+    .mockResolvedValueOnce([found('ca:SIM:SR:HEARTBEAT', 43)]);
+  /** @type {HTMLButtonElement} */ (container.querySelector('button.cf-ioc-refresh')).click();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(tiles().heartbeat).toEqual(['not advancing', '43 → 43 in 2 s']);
 });
 
 describe('alive', () => {
