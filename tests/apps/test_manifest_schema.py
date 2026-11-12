@@ -224,10 +224,42 @@ def test_name_must_be_a_slug(bad: str) -> None:
     assert err.field == "name"
 
 
-def test_name_and_containers_are_required() -> None:
+def test_name_is_required() -> None:
     assert _refusal(_without("name")).field == "name"
-    assert _refusal(_without("containers")).field == "containers"
-    assert _refusal(_with("containers", {})).field == "containers"
+
+
+# --- the parts of an application -----------------------------------------------
+
+TOOLS_ONLY: dict[str, Any] = {"name": "dial", "tools": {"module": "dial.tools", "read": ["read"]}}
+
+
+@pytest.mark.parametrize(
+    "data",
+    [{"name": "empty"}, {"name": "empty", "summary": "Nothing.", "vendor": FULL["vendor"]}],
+)
+def test_an_empty_application_is_refused(data: dict[str, Any]) -> None:
+    err = _refusal(data)
+    assert err.rule == "app_has_part"
+    assert "containers, panel, tools or skills" in err.message
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        TOOLS_ONLY,
+        {"name": "guide", "skills": ["guide"]},
+        {"name": "knob-demo", "panel": FULL["panel"], "tools": FULL["tools"]},
+    ],
+    ids=["tools-only", "skills-only", "panel-and-tools"],
+)
+def test_containers_may_be_absent(data: dict[str, Any]) -> None:
+    m = parse_manifest(copy.deepcopy(data), app=data["name"])
+    assert m.containers == {}
+
+
+def test_containers_may_be_an_empty_mapping() -> None:
+    m = parse_manifest({**TOOLS_ONLY, "containers": {}}, app="dial")
+    assert m.containers == {}
 
 
 # --- unknown keys are refused at every level ------------------------------------

@@ -179,6 +179,26 @@ def test_read_timeout_is_projected_only_when_the_manifest_sets_it() -> None:
     assert "read_timeout_s" in unbounded and unbounded["read_timeout_s"] is None
 
 
+TOOLS_ONLY: dict[str, Any] = {
+    "name": "dial-tools",
+    "tools": {"module": "dial_tools.tools", "read": ["read_dial"]},
+}
+
+
+def test_an_application_with_no_container_still_projects_its_tool_server() -> None:
+    manifest = parse_manifest(copy.deepcopy(TOOLS_ONLY), app="dial-tools")
+    result = project_login([manifest], {}, _login(app="dial-tools"))
+    assert result["mcp_servers"]["dial-tools"]["args"] == ["-m", "dial_tools.tools"]
+    assert result["apps"]["dial-tools"]["tools"]["read"] == ["read_dial"]
+    assert result["web"]["panels"] == {}
+
+
+def test_an_application_with_no_container_hidden_by_the_login_projects_nothing() -> None:
+    manifest = parse_manifest(copy.deepcopy(TOOLS_ONLY), app="dial-tools")
+    result = project_login([manifest], {}, _login(app="dial-tools", shown=False))
+    assert result == NOTHING
+
+
 def test_the_projection_is_pure() -> None:
     config = copy.deepcopy(CONFIG)
     project_login([_manifest()], config, _login())

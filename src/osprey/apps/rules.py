@@ -189,7 +189,8 @@ def validate(
     identity_owner: dict[str, str] = {}
     for manifest in manifests:
         found.extend(_check_app(manifest, reserved, container_owner, panel_owner, seen_names))
-        found.extend(_check_audit_identity(manifest, reserved, identity_owner))
+        if manifest.containers:
+            found.extend(_check_audit_identity(manifest, reserved, identity_owner))
     found.extend(_check_arming(manifests, logins))
     if found:
         raise AppManifestError.from_violations(found)
@@ -236,10 +237,11 @@ def _check_arming(
 def _check_audit_identity(
     m: AppManifest, reserved: Reserved, identity_owner: dict[str, str]
 ) -> list[Violation]:
-    """An application's audit identity names its own spool and state directories.
+    """An application's audit identity names its containers' spool and state directories.
 
     So it may not be a service's own identity, another application's, or a
-    roster user's: each of those already writes there.
+    roster user's: each of those already writes there. An application with no
+    container writes under no identity and is not checked.
     """
     from osprey.deployment.web_terminals.render import _RESERVED_AUDIT_IDENTITY_RE
 
@@ -276,6 +278,12 @@ def _check_app(
     if m.name in reserved.names:
         refuse("name", "reserved_name", f"{m.name!r} is a name OSPREY keeps for itself")
 
+    if not m.containers and m.audit_identity_spelled:
+        refuse(
+            "audit_identity",
+            "audit_identity_container",
+            "audit_identity names a container's spool; this application has none",
+        )
     for key, container in m.containers.items():
         at = f"containers.{key}"
         if container.drives_target and container.runtime != "osprey":
@@ -304,11 +312,12 @@ def _check_app(
     panel = m.panel
     if panel is not None:
         if panel.container not in m.containers:
+            declared = ", ".join(m.containers) or "it declares no container"
             refuse(
                 "panel.container",
                 "panel_container",
                 f"the panel is served by {panel.container!r}, which is not a container "
-                f"of this application ({', '.join(m.containers)})",
+                f"of this application ({declared})",
             )
         if panel.id in reserved.panels:
             refuse("panel.id", "panel_id_unique", f"{panel.id!r} is already a web panel")
