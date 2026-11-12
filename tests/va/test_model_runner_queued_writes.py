@@ -340,6 +340,31 @@ def test_a_put_whose_completion_raises_does_not_keep_the_others_waiting(
     assert len(posts) == 1
 
 
+def test_a_merged_pass_whose_outcome_cannot_be_recorded_keeps_the_loop_running(
+    posts: list[Any],
+) -> None:
+    # A host without a writable health directory: recording a pass raises. A
+    # single write's cycle logs that and goes on, and so must a merged one,
+    # or the run loop ends and every later put waits for nothing.
+    _, module = _serving()
+    model = _Model()
+    runner = _runner(module, model)
+
+    def unwritable(_error: str | None) -> dict[str, Any]:
+        raise PermissionError(13, "Permission denied", "/run/osprey-va")
+
+    runner._surface.record_pass = unwritable
+    alone = _put(runner, {THIRD: 3.0})
+    _serve_queue(runner)
+    merged = [_put(runner, {FIRST: 1.0}), _put(runner, {SECOND: 2.0})]
+    _serve_queue(runner)
+
+    assert alone == [None]
+    assert merged == [[None], [None]]
+    assert model.calls("set") == [{THIRD: 3.0}, {FIRST: 1.0, SECOND: 2.0}]
+    assert len(posts) == 2
+
+
 def test_a_tick_posts_a_refused_channel_again_and_nothing_else_unchanged(posts: list[Any]) -> None:
     # A refused put leaves its channel alarmed, and holding the request when
     # unconfirmed writes are echoed; the next tick's post is what restates it.

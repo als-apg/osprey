@@ -281,13 +281,13 @@ class ModelRunner(Runner):
                 for write in writes:
                     self._serve(write)
                 continue
-            for write in writes:
-                for done in write["done"]:
-                    try:
-                        done(None)
-                    except Exception as exc:
-                        LOG.error("Error signalling put-completion: %s", exc)
-            self._record_pass(None)
+            # The outcome is recorded as a single write's cycle records it:
+            # after the puts, and a record that cannot be written is logged.
+            for done in (*(done for write in writes for done in write["done"]), self._record_pass):
+                try:
+                    done(None)
+                except Exception as exc:
+                    LOG.error("Error signalling put-completion: %s", exc)
 
     def _queued_writes(
         self, item: dict[str, Any]
