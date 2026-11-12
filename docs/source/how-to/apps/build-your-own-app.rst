@@ -662,6 +662,14 @@ app's root and a ``.claude/`` directory anywhere in it, each with rule
      - A fixed port; otherwise the build assigns one.
    * - ``panel.label``
      - The sidebar row's text.
+   * - ``panel.icon``
+     - The sidebar row's glyph, a name from the design system's icon set;
+       otherwise a generic one.
+   * - ``panel.description``
+     - The sentence the sidebar row's tooltip shows under its text.
+   * - ``panel.help``
+     - The panel's Help page: a path under the deployment's docs root
+       (no ``..``), or an ``https://`` URL.
    * - ``panel.container``
      - The container that serves the panel.
    * - ``panel.entry`` [``/``]
