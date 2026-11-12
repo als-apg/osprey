@@ -85,6 +85,13 @@ const CONTRACT_NAMES = [
   'clock',
   'triangle-alert',
   'pin',
+  // The Activity page: decisions, the operator, tool calls and deep links.
+  'shield-check',
+  'user',
+  'wrench',
+  'circle-x',
+  'link',
+  'corner-down-right',
 ];
 
 describe('icons.js', () => {
