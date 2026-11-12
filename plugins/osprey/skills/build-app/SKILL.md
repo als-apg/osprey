@@ -6,7 +6,7 @@ description: >
   declared in one app.yml. Use whenever someone wants to create, scaffold,
   extend or fix an OSPREY app or application, runs or asks about `osprey app
   new` / `osprey app check`, edits an app.yml, adds a tool, a route, a write
-  with an approval card, or a skill to an app, or wants an operator screen
+  with an approval card, or a skill or subagent to an app, or wants an operator screen
   that the agent can also read and drive, even when they only say "panel
   with a backend" or "give the agent a tool for X". Works in a facility
   deployment repo with OSPREY installed and in an OSPREY checkout. Starts by
@@ -16,9 +16,9 @@ description: >
 
 # Build an OSPREY app
 
-An app is any of four parts, at least one: a **backend** container (FastAPI)
+An app is any of five parts, at least one: a **backend** container (FastAPI)
 that holds the state and talks to the machine, a **panel** the operator sees, a
-**tool server** the agent calls, and **skills**. A panel needs the backend, and
+**tool server** the agent calls, **skills** and **subagents**. A panel needs the backend, and
 so does a write tool on a login that writes; without one the tool server only
 reads or computes, keeps nothing between calls and opens no data store of the
 deployment. `app.yml` declares every part (an empty one is refused); `osprey
@@ -81,7 +81,14 @@ today and what is left to you.
    `skills/<name>/SKILL.md` is missing, and a skill name two apps share. The
    scaffold ships one; keep it when tool docstrings alone do not tell the
    agent the order of work or what a refusal means, drop it (directory and
-   `skills:` entry together) when they do.
+   `skills:` entry together) when they do. A **subagent** is optional too:
+   `agents:` lists each `agents/<name>.md`, installed where the app is shown.
+   The check refuses a listed agent with no file, a name two apps share, a
+   name of one of OSPREY's own agents, a `model`, `hooks`, `permissionMode` or
+   `mcpServers` key in its frontmatter, an `mcp__<app>__<tool>` the app does
+   not declare, a `delegates` tool the agent does not hold, `delegates`
+   without `{delegated_tools}` in its `delegation` note, and the placeholder
+   with no `delegates`.
 4. **Panels use the design system.** `index.html` links the terminal's
    `tokens.css`, `base.css` and `primitives.css`, and uses `osprey-*` classes
    for buttons, chips, cards, toggles. `osprey app check` refuses a panel
@@ -99,7 +106,7 @@ today and what is left to you.
    the obvious ones.
 6. **No hook code.** `osprey app check` refuses a `hooks` key in `app.yml`,
    a `hooks/` directory at the app root, a `.claude/` directory anywhere under
-   the app, and `hooks` in a listed skill's frontmatter, each with rule
+   the app, and `hooks` in a listed skill's or agent's frontmatter, each with rule
    `no_hooks`. Approval is declared, and OSPREY's own hook reads the rendered
    declaration; it never runs app code.
 
@@ -109,8 +116,8 @@ today and what is left to you.
 
 - **Is it an app?** State that the operator and the agent both act on, or a
   write that needs its own approval card: an app. A page that only displays:
-  the panel skill. Tools or skills with no screen and no state: an app with
-  no `containers:`.
+  the panel skill. Tools, skills or subagents with no screen and no state: an
+  app with no `containers:`.
 - **Write the parity table.** One row per panel element: what it shows or
   does, the backend route, the tool or argument, and whether it writes a
   channel. A route that writes no channel (compute a plan, clear it) backs a
@@ -217,6 +224,13 @@ tool's panel equivalent, the order (read, tell the operator, then write), what
 each refusal means, and that `approved_*` arguments are left unset. Update the
 table whenever a tool or panel element changes.
 
+A subagent instead, when the task reads a lot to answer a little: one file
+`agents/<name>.md` with `name`, `description`, `tools` (explicit, no
+wildcard), `delegation` (the brief's note) and optionally `delegates` (the
+app's tools the main agent is told to leave to it, named where
+`{delegated_tools}` stands). The body is copied as written; the build adds the
+`model:` line.
+
 ### 8. Verify
 
 ```bash
@@ -315,11 +329,12 @@ tools:
       require: {all_of: [approved_target, approved_readback]}
   errors: {unreachable: <sentence>, refused: <sentence>}
 skills: [<name>]              # optional
+agents: [<name>]              # optional, each agents/<name>.md
 ```
 
 Files of an app: `app.yml`, `pyproject.toml`, `<package>/{__init__,server,tools}.py`,
 `panel/{index.html,panel.js,panel.css}`, `tests/panel.test.js`,
-`skills/<name>/SKILL.md`. Application code imports `osprey.apps.sdk`,
+`skills/<name>/SKILL.md`, `agents/<name>.md`. Application code imports `osprey.apps.sdk`,
 `osprey.facility.kinds` and `osprey_connectors`, nothing else of OSPREY.
 
 The narrative version of all this, with the worked example, is the
