@@ -109,38 +109,41 @@ PV and IOC pages
 ================
 
 Click a name to open its PV page. Its header shows the origin mark, the
-Active or Inactive chip, and a link to the IOC. Each section below appears only
-when its service is configured:
+Active or Inactive chip, Copy name, Send to assistant and Plot. While the alarm
+server reports the PV not OK, a banner gives the alarm, how long it has held
+and the first guidance entry. Each card is one answer; a card whose service is
+not configured shows as one dashed line:
 
 .. list-table::
    :header-rows: 1
    :widths: 22 78
 
-   * - Section
+   * - Card
      - What it shows, and where it comes from
-   * - Directory
-     - The PV's properties as the directory records them.
-   * - Alarm state
-     - The current alarm, latched or acknowledged, from the alarm server's feed.
-       A feed that stopped updating marks the page ``alarm feed stale``.
-   * - Alarm history
-     - Up to 20 alarm events, from the alarm logger.
-   * - Alarm configuration
-     - Whether the PV is in the alarm tree, with its path, guidance and
-       displays.
+   * - Value
+     - The value with its unit, the read time and the record's own alarm, read
+       from the control target.
+   * - Alarm
+     - The current alarm, latched or acknowledged, from the alarm server's feed;
+       the tree path, displays and guidance of the alarm configuration; with an
+       alarm logger, up to 20 alarm events. A feed that stopped updating marks
+       the page ``alarm feed stale``.
    * - Put history
      - Up to 20 recorded writes, from the put log.
+   * - Directory
+     - The PV's IOC, host, record type and properties as the directory records
+       them.
    * - Logbook
      - Logbook entries that mention the PV, from ARIEL.
-   * - Current value
-     - The value, time and alarm, read from the control target.
 
 A PV the directory does not list reads ``<name> is not listed in All PVs``,
 with a button that searches for it.
 
-Click an IOC to open its IOC page: host, ports, PV counts, engineer and
-health PVs with their values. The **Alive** chip reads the ``HEARTBEAT`` PV
-twice, 2 s apart; a value that advanced means alive.
+Click an IOC to open its IOC page. Its tiles count the PVs, the curated PVs
+and, with an alarm feed, the PVs in alarm; Uptime and Heartbeat come from the
+IOC health PVs. The cards list the alarms on the IOC, the health PVs with
+their values, and the host and ports. The **Alive** chip reads the
+``HEARTBEAT`` PV twice, 2 s apart; a value that advanced means alive.
 
 
 The control target decides the source

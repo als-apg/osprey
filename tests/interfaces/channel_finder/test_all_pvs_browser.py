@@ -17,10 +17,11 @@ Coverage, each in Chromium:
       IOC health PVs among the ◇ ones, with current values read.
   (c) a filter narrows the rows, and the result count follows it; the address
       bar carries it, so Back from a PV page restores it.
-  (d) a PV page shows its sections in order, the live alarm state (severity,
-      latched, acknowledged) and the current value; no alarm or put history,
-      since the section configures neither; the logbook is not available on
-      this target.
+  (d) a PV page shows its cards in order, the live alarm state (severity,
+      latched, acknowledged) and the current value; no alarm history, and put
+      history is one dashed line, since the section configures neither; the
+      logbook is not available on this target. The latched channel carries the
+      MAJOR banner with its guidance and its displays as text.
   (e) ``#/pv/<name>`` and ``#/ioc/<name>`` open their pages; the IOC page says
       alive once its heartbeat advances, and links to the IOC's PVs.
   (f) without the section the switch is Explore · Feedback and ``#/pv/<name>``
@@ -245,16 +246,13 @@ def _values_read(host: PanelHost) -> None:
 
 
 def _sections(host: PanelHost) -> list[str]:
-    return host.eval_on_selector_all(
-        ".pv-page .pvp-section", "els => els.map(e => e.dataset.section)"
-    )
+    return host.eval_on_selector_all(".pv-page .pvp-card", "els => els.map(e => e.dataset.section)")
 
 
 def _facts(host: PanelHost, section: str) -> dict[str, str]:
-    return host.eval_on_selector(
-        f'.pvp-section[data-section="{section}"] .pvp-facts',
-        """list => Object.fromEntries([...list.querySelectorAll('dt')].map(
-            dt => [dt.textContent, dt.nextElementSibling.textContent]))""",
+    return host.eval_on_selector_all(
+        f'.pvp-card[data-section="{section}"] .pvp-facts > dt',
+        "dts => Object.fromEntries(dts.map(dt => [dt.textContent, dt.nextElementSibling.innerText]))",
     )
 
 
@@ -344,38 +342,45 @@ def test_back_from_a_pv_page_restores_the_filter(chromium_browser: Browser, pane
     )
 
 
-def test_a_pv_page_shows_its_sections_alarm_state_and_value(
-    chromium_browser: Browser, panel_url: str
-):
+def test_a_pv_page_shows_its_cards_alarm_state_and_value(chromium_browser: Browser, panel_url: str):
     host = _open(chromium_browser, panel_url, f"#/pv/{quote(LATCHED_PV, safe='')}")
     host.wait_for_selector(".pv-page .pvp-name")
     assert host.locator(".pvp-name").inner_text() == LATCHED_PV
     assert host.locator(".pvp-mark").inner_text() == "◆"
     assert _pressed(host) == "allpvs"
 
-    sections = _sections(host)
-    assert sections == ["directory", "alarm_state", "alarm_config", "logbook", "value"]
-    assert "alarm_history" not in sections and "put_history" not in sections
+    assert _sections(host) == ["value", "alarm", "directory", "logbook"]
+    assert host.locator('.pvp-card[data-section="alarm"] [data-part="history"]').count() == 0
 
-    alarm = _facts(host, "alarm_state")
+    alarm = _facts(host, "alarm")
     assert alarm["Alarm server"].startswith("MAJOR"), alarm
     assert alarm["Latched"] == "yes", alarm
     assert alarm["Acknowledged"] == "no", alarm
 
-    host.wait_for_function(
-        """() => document.querySelector('.pvp-section[data-section="value"] dt')
-                  ?.textContent === 'Value'"""
-    )
-    value = _facts(host, "value")
-    assert value["Value"] != "", value
-    float(value["Value"])
+    host.wait_for_selector('.pvp-card[data-section="value"] .pvp-bigval')
+    float(host.locator(".pvp-bigval").evaluate("el => el.firstChild.textContent"))
 
-    logbook = host.locator('.pvp-section[data-section="logbook"] [data-slot="logbook"]')
+    logbook = host.locator('.pvp-card[data-section="logbook"] [data-slot="logbook"]')
     host.wait_for_function(
-        """() => document.querySelector('.pvp-section[data-section="logbook"] [data-slot="logbook"]')
+        """() => document.querySelector('.pvp-card[data-section="logbook"] [data-slot="logbook"]')
                   ?.textContent !== 'Reading…'"""
     )
     assert logbook.inner_text().lower() == "not available for this target"
+
+
+def test_the_latched_pv_shows_its_banner_displays_and_unconfigured_put_history(
+    chromium_browser: Browser, panel_url: str
+):
+    host = _open(chromium_browser, panel_url, f"#/pv/{quote(LATCHED_PV, safe='')}")
+    host.wait_for_selector(".pv-page .pvp-banner")
+    banner = host.locator(".pvp-banner")
+    assert "pvp-banner--major" in (banner.get_attribute("class") or "")
+    assert banner.locator(".pvp-banner-alarm").inner_text().startswith("MAJOR")
+    assert banner.locator(".pvp-banner-guidance strong").inner_text().strip() == "Response."
+    displays = _facts(host, "alarm")["Displays"]
+    assert " ".join(displays.split()) == "RF cavity 1 rf/cavity_01.bob"
+    assert "[object Object]" not in host.locator(".pv-page").inner_text()
+    assert host.locator(".pvp-off").all_inner_texts() == ["Put history · not configured"]
 
 
 def test_deep_links_open_the_pv_and_ioc_pages(chromium_browser: Browser, panel_url: str):
@@ -383,7 +388,7 @@ def test_deep_links_open_the_pv_and_ioc_pages(chromium_browser: Browser, panel_u
     host.wait_for_selector(".cf-ioc-page .cf-ioc-name")
     assert host.locator(".cf-ioc-name").inner_text() == IOC
     pvs = host.eval_on_selector_all(
-        ".cf-ioc-health .cf-ioc-pv", "els => els.map(e => e.textContent)"
+        '[data-card="health"] .cf-ioc-pv', "els => els.map(e => e.textContent)"
     )
     assert set(HEALTH_PVS) <= set(pvs), pvs
     alive = host.locator('.cf-ioc-head .osprey-chip[data-role="alive"]')
