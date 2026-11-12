@@ -776,6 +776,11 @@ def _check_execution_window(entry: tuple[str, int] | None) -> None:
         )
 
 
+#: The reason of a write that passed its own checks and was not sent because
+#: another write of its batch was refused.
+_HELD_BACK = "BATCH_REFUSED"
+
+
 def _all_refused_headline(results: list[dict]) -> str:
     """Return the headline of a batch whose every write was refused.
 
@@ -1106,13 +1111,17 @@ async def channel_write(
                 # The envelope's reason and channel come from the first row
                 # that names a refuser: an address that is not a channel must
                 # not stand in for a limits or policy refusal on another row.
+                # A row its batch only held back never speaks for the batch.
+                causes = [
+                    entry for entry in results if entry["refusal_reason"] != _HELD_BACK
+                ] or results
                 first = next(
                     (
                         entry
-                        for entry in results
+                        for entry in causes
                         if ChannelWriteBlockedError.refuser(entry["refusal_reason"])
                     ),
-                    results[0],
+                    causes[0],
                 )
                 # The per-result `error` is the only place the refusal says
                 # WHICH posture refused and where to lift it — the session's
