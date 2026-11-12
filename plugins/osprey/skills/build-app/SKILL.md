@@ -97,8 +97,10 @@ today and what is left to you.
    the write verdict and the audit record. Any other route to hardware (a raw
    EPICS client, a subprocess) bypasses all of that; the import rule refuses
    the obvious ones.
-6. **No hook code.** `app.yml` has no key for a hook and refuses unknown
-   keys. Approval is declared, and OSPREY's own hook reads the rendered
+6. **No hook code.** `osprey app check` refuses a `hooks` key in `app.yml`,
+   a `hooks/` directory at the app root, a `.claude/` directory anywhere under
+   the app, and `hooks` in a listed skill's frontmatter, each with rule
+   `no_hooks`. Approval is declared, and OSPREY's own hook reads the rendered
    declaration; it never runs app code.
 
 ## Workflow
