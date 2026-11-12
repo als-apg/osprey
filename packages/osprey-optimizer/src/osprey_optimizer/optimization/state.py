@@ -157,6 +157,13 @@ class _OptimizationState(RedisStateStore):
         """Get the run's write authorization state, or None before it asks for one."""
         return self._load_typed("write_authorization", dict)
 
+    def get_start_notice(self) -> str | None:
+        """Get the draft's warning that the run may not move from its start, if any.
+
+        Written with the draft's config by ``api.job_control.store_created_config``.
+        """
+        return self._load_typed("start_notice", str)
+
     def set_objective_name(self, name: str | None) -> None:
         """Set objective name.
 
@@ -361,6 +368,7 @@ class OptimizationStateReader(JobStateReader, Protocol):
     def get_metadata(self) -> dict[str, Any] | None: ...
     def get_available_snapshots(self) -> dict[str, dict[str, float]]: ...
     def get_write_authorization(self) -> dict[str, Any] | None: ...
+    def get_start_notice(self) -> str | None: ...
 
 
 @runtime_checkable

@@ -41,13 +41,17 @@ def read_current_setpoints(env: EnvironmentProtocol, names: list[str]) -> dict[s
     return cast("dict[str, float]", coerced)
 
 
-def resolve_draft_config(config: OptimizationConfig, env: EnvironmentProtocol) -> None:
+def resolve_draft_config(config: OptimizationConfig, env: EnvironmentProtocol) -> dict[str, float]:
     """Resolve *config* in place against *env*'s current setpoints.
 
     Caller owns the environment context (pass an entered env). On return,
     ``config.variables`` is the explicit active list and
     ``config.variable_overrides`` carries materialized min/max/step for each —
     ``config.require_resolved()`` holds.
+
+    Returns the setpoints the draft was resolved against, the run's start if
+    it starts now, so a caller can judge the draft from there without reading
+    the machine again.
 
     Raises:
         ValueError: Unknown variable names, an override ``resolve_bounds``
@@ -101,3 +105,4 @@ def resolve_draft_config(config: OptimizationConfig, env: EnvironmentProtocol) -
 
     config.variables = active_names
     config.variable_overrides = resolved
+    return current_values
