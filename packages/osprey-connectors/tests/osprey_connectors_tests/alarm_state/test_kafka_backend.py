@@ -10,7 +10,7 @@ from collections import namedtuple
 
 import pytest
 
-from osprey_connectors.alarm_state import ALARM_STALE_WINDOW_S, AlarmStateRecord, _phoebus_kafka
+from osprey_connectors.alarm_state import AlarmStateRecord, _phoebus_kafka
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
@@ -361,7 +361,7 @@ async def test_a_feed_silent_after_catch_up_turns_stale(clock):
     assert (await _answer(backend)).stale is False
 
     consumer.end_offset_error = ConnectionError("gone")
-    clock.now += ALARM_STALE_WINDOW_S + 1
+    clock.now += _phoebus_kafka._STALE_WINDOW_S + 1
     polls = consumer.polls
     await _until(lambda: consumer.polls > polls + 3)
 
@@ -378,7 +378,7 @@ async def test_a_successful_end_offset_check_keeps_a_quiet_feed_fresh(clock):
     await _caught_up(backend)
 
     calls = consumer.end_offset_calls
-    clock.now += ALARM_STALE_WINDOW_S + 1
+    clock.now += _phoebus_kafka._STALE_WINDOW_S + 1
     await _until(lambda: consumer.end_offset_calls > calls)
     await _until(lambda: backend._last_contact == clock.now)
     assert (await _answer(backend)).stale is False
@@ -393,7 +393,7 @@ async def test_a_message_after_catch_up_keeps_the_feed_fresh_and_updates(clock):
     await _caught_up(backend)
 
     consumer.end_offset_error = ConnectionError("gone")
-    clock.now += ALARM_STALE_WINDOW_S + 1
+    clock.now += _phoebus_kafka._STALE_WINDOW_S + 1
     consumer.records.append(Record(STATE_KEY, b'{"severity": "OK", "current_severity": "OK"}'))
     await _until(lambda: backend._last_contact == clock.now)
 
@@ -534,3 +534,7 @@ def test_the_constructor_does_no_io_and_takes_seams_it_ignores():
     assert backend.source.target == "live"
     assert backend.source.service == "phoebus_alarm_server"
     assert backend.source.rehearsal is False
+
+
+def test_the_stale_window_is_a_minute():
+    assert _phoebus_kafka._STALE_WINDOW_S == 60

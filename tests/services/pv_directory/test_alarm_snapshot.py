@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("osprey_connectors.service_answers")
 
-from osprey_connectors.alarm_state import ALARM_STALE_WINDOW_S, AlarmStateRecord
+from osprey_connectors.alarm_state import AlarmStateRecord
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 _replay = pytest.importorskip("osprey_connectors.alarm_state._replay")
@@ -130,7 +130,7 @@ async def test_a_replay_is_not_stale_after_the_window_passes(monkeypatch):
     snapshot = AlarmSnapshot(_replay_backend(OLD_FEED), "va")
     try:
         assert (await snapshot.state_for(PV, 2.0)).stale is False
-        moment[0] = LOAD_MOMENT + timedelta(seconds=ALARM_STALE_WINDOW_S + 1)
+        moment[0] = LOAD_MOMENT + timedelta(hours=1)
         assert (await snapshot.state_for(PV, 2.0)).stale is False
     finally:
         await snapshot.aclose()

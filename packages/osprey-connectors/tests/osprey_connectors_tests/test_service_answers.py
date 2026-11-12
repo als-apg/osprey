@@ -14,7 +14,6 @@ import osprey_connectors
 from osprey_connectors import service_answers
 from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
 from osprey_connectors.alarm_state import (
-    ALARM_STALE_WINDOW_S,
     AlarmConfigRecord,
     AlarmState,
     AlarmStateRecord,
@@ -149,10 +148,6 @@ def test_unavailable_takes_its_reason_positionally_and_requires_it():
         Unavailable()  # type: ignore[call-arg]
 
 
-def test_the_stale_window_is_a_minute():
-    assert ALARM_STALE_WINDOW_S == 60
-
-
 @pytest.mark.parametrize(
     "build",
     [
@@ -223,6 +218,14 @@ def test_a_source_names_the_kind_of_its_backend():
     source = _Log(_spec(kind="put_log", type="caputlog", target="live", rehearsal=False)).source
 
     assert source == Source(kind="put_log", target="live", service="caputlog", rehearsal=False)
+
+
+def test_a_directory_answers_no_field_properties_unless_it_has_them():
+    properties = _Directory(_spec()).field_properties
+
+    assert dict(properties) == {}
+    with pytest.raises(TypeError):
+        properties["server"] = "iocName"  # type: ignore[index]
 
 
 @pytest.mark.parametrize("record", [Source, AlarmConfigRecord, DirectoryRow])

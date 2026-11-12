@@ -32,12 +32,9 @@ _NEW_MODULES = (
 )
 
 _CONTRACT_NAMES = (
-    "ALARM_STALE_WINDOW_S",
     "APPLIANCE_TARGETS",
-    "DEFAULT_DESCRIPTION_PROPERTY",
     "ENGINEER",
     "IOC_HEALTH_SIGNALS",
-    "ROW_FIELD_PROPERTIES",
     "SERVED_SIGNAL_PROPERTY",
     "AlarmConfigRecord",
     "AlarmHistoryRow",
@@ -112,11 +109,12 @@ def test_as_payload_converts_nested_dataclasses_and_enums() -> None:
 
 def test_with_the_modules_every_name_is_bound() -> None:
     pytest.importorskip("osprey_connectors.service_answers")
-    from osprey_connectors import directory, service_answers, simulator
+    from osprey_connectors import service_answers, simulator
+    from osprey_connectors.simulation import view
 
     assert _connectors.DIRECTORY_CONNECTORS_AVAILABLE is True
     assert _connectors.Source is service_answers.Source
-    assert _connectors.ROW_FIELD_PROPERTIES is directory.ROW_FIELD_PROPERTIES
+    assert _connectors.SERVED_SIGNAL_PROPERTY is view.SERVED_SIGNAL_PROPERTY
     assert _connectors.has_simulator is simulator.has_simulator
     assert all(getattr(_connectors, name) is not None for name in _CONTRACT_NAMES)
 

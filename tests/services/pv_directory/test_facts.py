@@ -28,7 +28,6 @@ from osprey_connectors import control_context
 from osprey_connectors.alarm_log import AlarmHistoryRow
 from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord
 from osprey_connectors.directory import (
-    SERVED_SIGNAL_PROPERTY,
     DirectoryPage,
     DirectoryRecord,
     DirectoryRow,
@@ -44,6 +43,7 @@ from osprey_connectors.service_answers import (
 from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
+    SERVED_SIGNAL_PROPERTY,
     STATUS_SIGNAL,
     UPTIME,
 )
@@ -108,6 +108,15 @@ class FakeDirectory(FakeBackend):
 
     records: dict[str, Any] = {}
     fail: str | None = None
+    #: The property map a ChannelFinder directory answers with its default description.
+    field_properties = {
+        "status": "pvStatus",
+        "record_type": "recordType",
+        "ioc": "iocName",
+        "host": "hostName",
+        "last_announced": "time",
+        "description": "recordDesc",
+    }
 
     def _hits(self, query: Any) -> list[Any]:
         return [

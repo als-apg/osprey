@@ -29,12 +29,11 @@ import asyncio
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal
 
 from osprey_connectors._service_http import ReadOnlyTransport
 from osprey_connectors.directory._contract import (
-    DEFAULT_DESCRIPTION_PROPERTY,
-    ROW_FIELD_PROPERTIES,
     ChannelDirectory,
     DirectoryPage,
     DirectoryQuery,
@@ -49,8 +48,23 @@ _PROPERTIES = "/resources/properties"
 
 _MALFORMED = Unavailable("malformed response")
 
+#: The RecSync property that fills each ``DirectoryRow`` field, by field, in field order.
+#: ``description`` is not here: its property is the section's ``description_property``.
+_ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
+    {
+        "status": "pvStatus",
+        "record_type": "recordType",
+        "ioc": "iocName",
+        "host": "hostName",
+        "last_announced": "time",
+    }
+)
+
+#: The description property RecSync records, for a section that names none.
+_DEFAULT_DESCRIPTION_PROPERTY = "recordDesc"
+
 #: The properties with a known set of values, for a deployment whose section names none.
-_DEFAULT_EXACT_PROPERTIES = (ROW_FIELD_PROPERTIES["status"], ROW_FIELD_PROPERTIES["record_type"])
+_DEFAULT_EXACT_PROPERTIES = (_ROW_FIELD_PROPERTIES["status"], _ROW_FIELD_PROPERTIES["record_type"])
 
 #: Rows asked for when only an exact name is wanted: a term with a wildcard in it
 #: can match more than the one name it is checked against.
@@ -179,13 +193,20 @@ class ChannelFinderDirectory(ChannelDirectory):
         self._description_property = (
             description
             if isinstance(description, str) and description.strip()
-            else DEFAULT_DESCRIPTION_PROPERTY
+            else _DEFAULT_DESCRIPTION_PROPERTY
         )
         exact = spec.settings.get("exact_properties")
         self._exact_properties = frozenset(
             (key for key in exact if isinstance(key, str))
             if isinstance(exact, list)
             else _DEFAULT_EXACT_PROPERTIES
+        )
+
+    @property
+    def field_properties(self) -> Mapping[str, str]:
+        """RecSync's property of each row field, and the description property built with."""
+        return MappingProxyType(
+            {**_ROW_FIELD_PROPERTIES, "description": self._description_property}
         )
 
     def _filters(self, query: DirectoryQuery) -> _Params:
@@ -198,11 +219,11 @@ class ChannelFinderDirectory(ChannelDirectory):
                 else (key, _pattern(text))
             )
         if query.status:
-            params.append((ROW_FIELD_PROPERTIES["status"], _one_value(query.status)))
+            params.append((_ROW_FIELD_PROPERTIES["status"], _one_value(query.status)))
         if query.ioc:
-            params.append((ROW_FIELD_PROPERTIES["ioc"], _any_of(query.ioc)))
+            params.append((_ROW_FIELD_PROPERTIES["ioc"], _any_of(query.ioc)))
         if query.record_type:
-            params.append((ROW_FIELD_PROPERTIES["record_type"], _any_of(query.record_type)))
+            params.append((_ROW_FIELD_PROPERTIES["record_type"], _any_of(query.record_type)))
         return params
 
     def _searches(self, query: DirectoryQuery) -> list[_Params]:
@@ -221,16 +242,16 @@ class ChannelFinderDirectory(ChannelDirectory):
 
     def _record(self, channel: Mapping[str, Any]) -> DirectoryRecord:
         properties = _properties_of(channel)
-        status = properties.pop(ROW_FIELD_PROPERTIES["status"], None)
+        status = properties.pop(_ROW_FIELD_PROPERTIES["status"], None)
         return DirectoryRecord(
             row=DirectoryRow(
                 name=channel["name"],
                 status=status if status in ("Active", "Inactive") else None,  # type: ignore[arg-type]
                 description=properties.pop(self._description_property, None),
-                record_type=properties.pop(ROW_FIELD_PROPERTIES["record_type"], None),
-                ioc=properties.pop(ROW_FIELD_PROPERTIES["ioc"], None),
-                host=properties.pop(ROW_FIELD_PROPERTIES["host"], None),
-                last_announced=properties.pop(ROW_FIELD_PROPERTIES["last_announced"], None),
+                record_type=properties.pop(_ROW_FIELD_PROPERTIES["record_type"], None),
+                ioc=properties.pop(_ROW_FIELD_PROPERTIES["ioc"], None),
+                host=properties.pop(_ROW_FIELD_PROPERTIES["host"], None),
+                last_announced=properties.pop(_ROW_FIELD_PROPERTIES["last_announced"], None),
             ),
             properties=properties,
             tags=_names_of(channel.get("tags")),
@@ -343,7 +364,7 @@ class ChannelFinderDirectory(ChannelDirectory):
         if isinstance(channels, Unavailable):
             return f"{answered}; no PVs read: {channels.reason}"
         times = [
-            _properties_of(channel).get(ROW_FIELD_PROPERTIES["last_announced"])
+            _properties_of(channel).get(_ROW_FIELD_PROPERTIES["last_announced"])
             for channel in channels
         ]
         newest = max((stamp for stamp in times if stamp), default=None)

@@ -5,9 +5,6 @@ factory reaches from their type names.
 """
 
 from osprey_connectors.directory._contract import (
-    DEFAULT_DESCRIPTION_PROPERTY,
-    ROW_FIELD_PROPERTIES,
-    SERVED_SIGNAL_PROPERTY,
     ChannelDirectory,
     DirectoryPage,
     DirectoryQuery,
@@ -16,9 +13,6 @@ from osprey_connectors.directory._contract import (
 )
 
 __all__ = [
-    "DEFAULT_DESCRIPTION_PROPERTY",
-    "ROW_FIELD_PROPERTIES",
-    "SERVED_SIGNAL_PROPERTY",
     "ChannelDirectory",
     "DirectoryPage",
     "DirectoryQuery",

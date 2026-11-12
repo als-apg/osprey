@@ -20,7 +20,6 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Literal
 
 from osprey_connectors.directory._contract import (
-    SERVED_SIGNAL_PROPERTY,
     ChannelDirectory,
     DirectoryPage,
     DirectoryQuery,
@@ -31,6 +30,7 @@ from osprey_connectors.service_answers import Outcome, Unavailable
 from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
+    SERVED_SIGNAL_PROPERTY,
     SETPOINT,
     STATUS_SIGNAL,
     UPTIME,

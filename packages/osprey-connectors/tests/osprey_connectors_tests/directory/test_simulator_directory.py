@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.directory import SERVED_SIGNAL_PROPERTY, DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
 from osprey_connectors.directory._simulator import SimulatorDirectory
 from osprey_connectors.service_answers import BackendSpec, Outcome, Source, Unavailable
 from osprey_connectors.simulation.view import (
@@ -20,6 +20,7 @@ from osprey_connectors.simulation.view import (
     IOC_HEALTH_SIGNALS,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
+    SERVED_SIGNAL_PROPERTY,
     STATUS_SIGNAL,
     UPTIME,
     VARIABLES_FILE,

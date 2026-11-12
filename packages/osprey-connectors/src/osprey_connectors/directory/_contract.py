@@ -20,25 +20,6 @@ from osprey_connectors.service_answers import (
     _require_reason,
 )
 
-#: The RecSync property that fills each ``DirectoryRow`` field, by field, in field order.
-#: ``description`` is not here: its property is the section's ``description_property``.
-ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
-    {
-        "status": "pvStatus",
-        "record_type": "recordType",
-        "ioc": "iocName",
-        "host": "hostName",
-        "last_announced": "time",
-    }
-)
-
-#: The description property RecSync records, for a section that names none.
-DEFAULT_DESCRIPTION_PROPERTY: str = "recordDesc"
-
-#: The property the simulator directory sets on each status and IOC health row,
-#: valued with that row's signal from ``simulation.view``; channel rows carry none.
-SERVED_SIGNAL_PROPERTY: str = "signal"
-
 
 @dataclass(frozen=True, kw_only=True)
 class DirectoryRow:
@@ -118,6 +99,14 @@ class DirectoryPage:
 
 class ChannelDirectory(_Backend, ABC):
     """Search the control system's own directory of PVs."""
+
+    @property
+    def field_properties(self) -> Mapping[str, str]:
+        """The directory property that fills each row field.
+
+        A field not listed comes from no single property.
+        """
+        return MappingProxyType({})
 
     @abstractmethod
     async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:

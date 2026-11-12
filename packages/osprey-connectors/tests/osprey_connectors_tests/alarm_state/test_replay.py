@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors.alarm_state import (
-    ALARM_STALE_WINDOW_S,
     AlarmConfigRecord,
     AlarmStateRecord,
     _replay,
@@ -276,7 +275,7 @@ async def test_a_replay_of_old_timestamps_is_not_stale_when_fresh_nor_a_minute_l
     await backend.start()
 
     assert (await backend.state_for(PV, 1.0)).stale is False
-    load_moment[0] = LOAD_MOMENT + timedelta(seconds=ALARM_STALE_WINDOW_S + 1)
+    load_moment[0] = LOAD_MOMENT + timedelta(minutes=1, seconds=1)
     assert (await backend.state_for(PV, 1.0)).stale is False
     assert (await backend.state_for(PV, 1.0)).time == "2026-11-06T11:59:30.000Z"
 
