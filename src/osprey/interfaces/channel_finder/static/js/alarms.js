@@ -32,6 +32,7 @@ import { showToast } from '/design-system/js/toast.js';
 import { writeTitle } from '/design-system/js/tooltip.js';
 import {
   NO_TREE,
+  activeSummary,
   bandHtml,
   bannerHtml,
   buildTree,
@@ -418,7 +419,14 @@ function renderList() {
   inspector.hidden = false;
   writePart(
     list,
-    listHtml(rows, { selected: view.selected, values: view.values, stale: Boolean(answer.stale) })
+    listHtml(rows, {
+      selected: view.selected,
+      values: view.values,
+      stale: Boolean(answer.stale),
+      cut: answer.truncated
+        ? { served: (answer.rows ?? []).length, active: activeSummary(answer).active }
+        : null,
+    })
   );
   tick(list);
 }

@@ -158,7 +158,7 @@ describe('listHtml', () => {
       { ...MAJOR_ROW, pv: '<b>A</b>', severity: 'MINOR' },
     ];
     const host = document.createElement('div');
-    host.innerHTML = listHtml(rows, { selected: 'B', values: null, stale: false });
+    host.innerHTML = listHtml(rows, { selected: 'B', values: null, stale: false, cut: null });
     const shown = [...host.querySelectorAll('tbody tr')].map(
       (tr) => /** @type {HTMLElement} */ (tr).dataset.name
     );
@@ -167,13 +167,24 @@ describe('listHtml', () => {
     expect(host.querySelector('tr[aria-selected="true"]')?.getAttribute('data-name')).toBe('B');
   });
 
+  test('a cut answer says how many of the active alarms it shows', () => {
+    const model = { selected: null, values: null, stale: false };
+    const host = document.createElement('div');
+    host.innerHTML = listHtml([MAJOR_ROW], { ...model, cut: { served: 1, active: 1200 } });
+    expect(host.querySelector('.alarms-cut')?.textContent).toBe(
+      'Worst 1 of 1,200 active alarms shown'
+    );
+    host.innerHTML = listHtml([MAJOR_ROW], { ...model, cut: null });
+    expect(host.querySelector('.alarms-cut')).toBeNull();
+  });
+
   test('the For cell holds the start time to tick, or a dash without one', () => {
     const rows = [
       { ...MAJOR_ROW, pv: 'A' },
       { ...MAJOR_ROW, pv: 'B', time: null },
     ];
     const host = document.createElement('div');
-    host.innerHTML = listHtml(rows, { selected: null, values: null, stale: false });
+    host.innerHTML = listHtml(rows, { selected: null, values: null, stale: false, cut: null });
     const [a, b] = [...host.querySelectorAll('.alarms-for')];
     expect(a.querySelector('[data-since]')?.getAttribute('data-since')).toBe(MAJOR_ROW.time);
     expect(b.textContent).toBe('—');
