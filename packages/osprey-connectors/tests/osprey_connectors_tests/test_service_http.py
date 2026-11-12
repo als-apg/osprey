@@ -12,9 +12,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from osprey_connectors.pv_directory import _transport as transport_module
-from osprey_connectors.pv_directory._transport import LOGIN_PAGE_REASON, ReadOnlyTransport
-from osprey_connectors.pv_directory.contract import Unavailable
+from osprey_connectors import _service_http as transport_module
+from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
+from osprey_connectors.service_answers import Unavailable
 
 CHANNELFINDER = (
     ("GET", "/resources/channels"),

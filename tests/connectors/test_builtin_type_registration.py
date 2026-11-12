@@ -120,7 +120,8 @@ class TestDirectoryBuiltins:
             register_builtin_connectors()
 
             for row in factory._DIRECTORY_BUILTINS:
-                registry = getattr(ConnectorFactory, f"_{row.kind}_connectors")
+                stem = "pv_directory" if row.kind == "directory" else row.kind
+                registry = getattr(ConnectorFactory, f"_{stem}_connectors")
                 assert registry[row.name].__name__ == row.class_name
 
     def test_none_is_selectable_as_a_connector(self):

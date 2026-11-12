@@ -10,14 +10,9 @@ from collections import namedtuple
 
 import pytest
 
-from osprey_connectors.alarm_state import _phoebus_kafka
+from osprey_connectors.alarm_state import ALARM_STALE_WINDOW_S, AlarmStateRecord, _phoebus_kafka
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
-from osprey_connectors.pv_directory.contract import (
-    ALARM_STALE_WINDOW_S,
-    AlarmStateRecord,
-    BackendSpec,
-    Unavailable,
-)
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 PV = "DEMO:RF1:CAV:Temp-I"
 STATE_KEY = f"state:/Demo/RF/{PV}".encode()

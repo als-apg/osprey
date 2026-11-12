@@ -29,25 +29,21 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from osprey_connectors.alarm_state import _phoebus_kafka
-from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.pv_directory._transport import LOGIN_PAGE_REASON, ReadOnlyTransport
-from osprey_connectors.pv_directory.contract import (
-    AlarmConfigRecord,
-    AlarmStateRecord,
+from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
+from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord, _phoebus_kafka
+from osprey_connectors.directory import (
+    ChannelDirectory,
     DirectoryPage,
+    DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
-    HistoryPage,
-    Outcome,
-    PVDirectory,
-    SearchQuery,
-    Unavailable,
 )
-from osprey_connectors.pv_directory.contract import BackendSpec as Spec
-from osprey_connectors.pv_directory.targets import pv_directory_targets
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_answers import BackendSpec as Spec
+from osprey_connectors.service_answers import HistoryPage, Outcome, Unavailable
+from osprey_connectors.service_targets import service_targets
 from osprey_connectors_tests._harness import isolated_connector_registries
-from osprey_connectors_tests.pv_directory.test_simulator_directory import _write_view
+from osprey_connectors_tests.directory.test_simulator_directory import _write_view
 
 DEADLINE = 6.0
 PV = "DEMO:RF1:CAV:Temp-I"
@@ -76,12 +72,12 @@ _MEMORY_RECORD = DirectoryRecord(
 )
 
 
-class MemoryDirectory(PVDirectory):
+class MemoryDirectory(ChannelDirectory):
     """An out-of-tree directory, selected by its dotted path, holding one PV in memory."""
 
     label = "Memory directory"
 
-    def _hits(self, query: SearchQuery) -> list[DirectoryRecord]:
+    def _hits(self, query: DirectoryQuery) -> list[DirectoryRecord]:
         row = _MEMORY_RECORD.row
         text = f"{row.name} {row.description}".casefold()
         matches = all(word.casefold() in text for word in query.words.split()) and (
@@ -89,7 +85,7 @@ class MemoryDirectory(PVDirectory):
         )
         return [_MEMORY_RECORD] if matches else []
 
-    async def search(self, query: SearchQuery, deadline: float) -> DirectoryPage:  # noqa: ARG002
+    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:  # noqa: ARG002
         hits = self._hits(query)
         return DirectoryPage(
             outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
@@ -100,7 +96,7 @@ class MemoryDirectory(PVDirectory):
             rows=[hit.row for hit in hits],
         )
 
-    async def count(self, query: SearchQuery, deadline: float) -> int:  # noqa: ARG002
+    async def count(self, query: DirectoryQuery, deadline: float) -> int:  # noqa: ARG002
         return len(self._hits(query))
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002
@@ -332,15 +328,15 @@ class Built:
 _HTTP_MODES = tuple(_HTTP_ANSWERS["channelfinder"])
 
 CASES = (
-    Case("channelfinder", "pv_directory", "channelfinder", PV, _HTTP_MODES),
+    Case("channelfinder", "directory", "channelfinder", PV, _HTTP_MODES),
     Case(
         "simulator_view",
-        "pv_directory",
+        "directory",
         "simulator_view",
         SIMULATED_PV,
         ("view", "no-view", "no-project"),
     ),
-    Case("dotted", "pv_directory", f"{__name__}.MemoryDirectory", PV, ("memory",)),
+    Case("dotted", "directory", f"{__name__}.MemoryDirectory", PV, ("memory",)),
     Case("phoebus_alarm_logger", "alarm_log", "phoebus_alarm_logger", PV, _HTTP_MODES),
     Case(
         "phoebus_alarm_server",
@@ -359,7 +355,15 @@ CASES = (
     Case("caputlog", "put_log", "caputlog", PV, _HTTP_MODES),
 )
 HTTP_CASES = tuple(case for case in CASES if case.http)
-DIRECTORY_CASES = tuple(case for case in CASES if case.kind == "pv_directory")
+
+
+def _create(kind: str) -> Any:
+    """The factory's create method for *kind*; the directory kind's keeps its old stem."""
+    stem = "pv_directory" if kind == "directory" else kind
+    return getattr(ConnectorFactory, f"create_{stem}_connector")
+
+
+DIRECTORY_CASES = tuple(case for case in CASES if case.kind == "directory")
 HISTORY_CASES = tuple(case for case in CASES if case.kind in ("alarm_log", "put_log"))
 ALARM_STATE_CASES = tuple(case for case in CASES if case.kind == "alarm_state")
 EVERY_MODE = [
@@ -432,7 +436,7 @@ async def _build(
         settings=settings,
         rehearsal=target == "standin",
     )
-    create = getattr(ConnectorFactory, f"create_{case.kind}_connector")
+    create = _create(case.kind)
     backend = await create(
         spec, project_dir=project_dir, transport=transport, consumer_factory=consumer_factory
     )
@@ -443,11 +447,14 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
     """Every method of the case's kind, once each, with ordinary arguments."""
     pv = case.pv
     since = datetime.now(UTC) - timedelta(days=30)
-    if case.kind == "pv_directory":
+    if case.kind == "directory":
         return [
-            ("search", await backend.search(SearchQuery(words="cooling"), deadline)),
-            ("search", await backend.search(SearchQuery(name=pv, page=1, page_size=5), deadline)),
-            ("count", await backend.count(SearchQuery(words="cooling"), deadline)),
+            ("search", await backend.search(DirectoryQuery(words="cooling"), deadline)),
+            (
+                "search",
+                await backend.search(DirectoryQuery(name=pv, page=1, page_size=5), deadline),
+            ),
+            ("count", await backend.count(DirectoryQuery(words="cooling"), deadline)),
             ("describe", await backend.describe(pv, deadline)),
             ("property_names", await backend.property_names(deadline)),
             ("property_values", await backend.property_values("iocName", "rf", deadline)),
@@ -526,7 +533,7 @@ async def test_the_source_names_the_specs_target_and_rehearsal(case, target, tmp
     assert source.target == target
     assert source.rehearsal is (target == "standin")
     assert source.service == case.type
-    expected_label = type(built.backend).label if case.kind == "pv_directory" else case.type
+    expected_label = type(built.backend).label if case.kind == "directory" else case.type
     assert source.label == expected_label
     assert all(page.source == source for page in _pages(answers))
 
@@ -546,8 +553,8 @@ async def test_an_exact_name_not_held_is_not_listed_and_a_search_without_rows_is
     built = await _build(case, mode, tmp_path, monkeypatch)
 
     described = await built.backend.describe(ABSENT_PV, DEADLINE)
-    page = await built.backend.search(SearchQuery(words="nosuchword"), DEADLINE)
-    by_name = await built.backend.search(SearchQuery(name=f"={ABSENT_PV}"), DEADLINE)
+    page = await built.backend.search(DirectoryQuery(words="nosuchword"), DEADLINE)
+    by_name = await built.backend.search(DirectoryQuery(name=f"={ABSENT_PV}"), DEADLINE)
 
     assert described is Outcome.NOT_LISTED
     assert (page.outcome, page.rows) == (Outcome.NO_MATCH, [])
@@ -564,7 +571,7 @@ async def test_a_history_without_rows_is_no_match_never_not_listed(case, tmp_pat
 
 
 @pytest.mark.parametrize(
-    "case", [c for c in HTTP_CASES if c.kind == "pv_directory"], ids=lambda c: c.id
+    "case", [c for c in HTTP_CASES if c.kind == "directory"], ids=lambda c: c.id
 )
 async def test_a_page_that_arrives_while_the_count_times_out_is_a_partial_page(
     case, tmp_path, monkeypatch
@@ -575,7 +582,7 @@ async def test_a_page_that_arrives_while_the_count_times_out_is_a_partial_page(
         {CF_CHANNELS: channels, CF_COUNT: Unavailable(NO_ANSWER)}, []
     )
 
-    page = await built.backend.search(SearchQuery(words="cooling"), DEADLINE)
+    page = await built.backend.search(DirectoryQuery(words="cooling"), DEADLINE)
 
     assert page.outcome is Outcome.FOUND
     assert [row.name for row in page.rows] == [channel["name"] for channel in channels]
@@ -761,7 +768,7 @@ async def test_a_login_page_reads_as_the_access_proxy_on_every_method(case, redi
         settings={"url": login_proxy.url},
         rehearsal=False,
     )
-    create = getattr(ConnectorFactory, f"create_{case.kind}_connector")
+    create = _create(case.kind)
     backend = await create(spec)
 
     answers = await _exercise(backend, case)
@@ -788,11 +795,11 @@ async def test_the_configured_description_property_reaches_the_channelfinder_req
             "description_property": "pvDescription",
         }
     }
-    spec = pv_directory_targets(config, ariel_configured=False)["pv_directory"]["live"]
+    spec = service_targets(config, ariel_configured=False)["directory"]["live"]
     transport = RecordingTransport(_HTTP_ANSWERS["channelfinder"]["recorded"])
 
     backend = await ConnectorFactory.create_pv_directory_connector(spec, transport=transport)
-    page = await backend.search(SearchQuery(words="cooling water"), DEADLINE)
+    page = await backend.search(DirectoryQuery(words="cooling water"), DEADLINE)
 
     first = transport.sent[0]
     assert (first.method, first.path) == ("GET", CF_CHANNELS)

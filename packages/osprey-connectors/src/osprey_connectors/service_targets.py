@@ -2,15 +2,15 @@
 
 A deployment carries **one** ``pv_directory:`` block and a session can be pointed
 at up to three machines. A section answers only from the machine the session is
-on, so :func:`pv_directory_targets` says which source that is per target, and a
+on, so :func:`service_targets` says which source that is per target, and a
 reader holding ``None`` says "not available for this target": never another
 machine's data under the selected machine's name.
 
 ================ ================================ ==========================
 row              ``va``                           ``live`` and ``standin``
 ================ ================================ ==========================
-``pv_directory`` ``simulator_view`` when          the section's ``type``
-                 :func:`has_simulator`
+``directory``    ``simulator_view`` when          the section's ``type``
+                 ``simulator.has_simulator``
 ``alarm_state``  ``alarm_replay`` when            the sub-block's ``type``
                  ``replay_file`` is set
 ``alarm_log``    ``None``                         the sub-block's ``type``
@@ -37,46 +37,22 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from osprey_connectors.archive_targets import APPLIANCE_TARGETS
-from osprey_connectors.pv_directory.contract import BackendSpec, Source
-from osprey_connectors.simulator import virtual_accelerator_port
-from osprey_connectors.types import (
-    CONTROL_TARGETS,
-    TARGET_STANDIN,
-    TARGET_VA,
-    configured_targets,
-)
+from osprey_connectors.service_answers import BackendSpec, Source
+from osprey_connectors.simulator import has_simulator
+from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, TARGET_VA
 
-__all__ = ["has_simulator", "pv_directory_targets"]
+__all__ = ["service_targets"]
 
 _SECTION_KEY = "pv_directory"
 _SIMULATOR_VIEW = "simulator_view"
 _ALARM_REPLAY = "alarm_replay"
 _ARIEL = "ariel"
 
-_Kind = Literal["pv_directory", "alarm_log", "alarm_state", "put_log"]
-_KINDS: tuple[_Kind, ...] = ("pv_directory", "alarm_log", "alarm_state", "put_log")
+_Kind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
+_KINDS: tuple[_Kind, ...] = ("directory", "alarm_log", "alarm_state", "put_log")
 
 
-def has_simulator(config: Mapping[str, Any]) -> bool:
-    """Whether the build has a simulator.
-
-    The port alone answers no for an in-process virtual accelerator; the
-    connector type alone answers no for a facility baseline that keeps its
-    simulator. The simulator view cannot decide, because every build writes it.
-
-    Args:
-        config: The full config mapping, as loaded from ``config.yml``. The build
-            validator, which sees an overlay, passes the overlay with
-            ``services.virtual_accelerator.port`` filled in from the profile.
-    """
-    if not isinstance(config, Mapping):
-        return False
-    return virtual_accelerator_port(config) is not None or TARGET_VA in configured_targets(
-        config.get("control_system")
-    )
-
-
-def pv_directory_targets(
+def service_targets(
     config: Mapping[str, Any], *, ariel_configured: bool
 ) -> dict[str, dict[str, BackendSpec | Source | None]]:
     """The source of every section on every target, per the module table.
@@ -106,15 +82,15 @@ def pv_directory_targets(
     replay_file = _text(alarm_state.get("replay_file"))
 
     table: dict[str, dict[str, BackendSpec | Source | None]] = {
-        "pv_directory": _facility_row("pv_directory", section, directory_fold),
+        "directory": _facility_row("directory", section, directory_fold),
         "alarm_log": _facility_row("alarm_log", _mapping(section.get("alarm_log"))),
         "alarm_state": _facility_row("alarm_state", alarm_state),
         "put_log": _facility_row("put_log", _mapping(section.get("put_log"))),
         "logbook": {target: _logbook(target, ariel_configured) for target in CONTROL_TARGETS},
     }
     if has_simulator(config):
-        table["pv_directory"][TARGET_VA] = _spec(
-            "pv_directory", _SIMULATOR_VIEW, TARGET_VA, directory_fold
+        table["directory"][TARGET_VA] = _spec(
+            "directory", _SIMULATOR_VIEW, TARGET_VA, directory_fold
         )
     if replay_file:
         table["alarm_state"][TARGET_VA] = _spec(

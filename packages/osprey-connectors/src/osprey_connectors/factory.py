@@ -20,16 +20,15 @@ from osprey_connectors.logger import get_logger
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from osprey_connectors.alarm_log import AlarmLog
+    from osprey_connectors.alarm_state import AlarmState
+
     # Import only for annotations: pulling in the archiver base eagerly would
     # make pandas a hard dependency of the lean control-system import chain.
     from osprey_connectors.archiver._base import ArchiverConnector
-    from osprey_connectors.pv_directory.contract import (
-        AlarmLog,
-        AlarmState,
-        BackendSpec,
-        PutLog,
-        PVDirectory,
-    )
+    from osprey_connectors.directory import ChannelDirectory
+    from osprey_connectors.put_log import PutLog
+    from osprey_connectors.service_answers import BackendSpec
 
 __all__ = [
     "BUILTIN_CONNECTORS",
@@ -41,10 +40,12 @@ __all__ = [
 logger = get_logger("connector_factory")
 
 #: One directory kind's backend base; a create call returns the kind it builds.
-_DirectoryBackend = TypeVar("_DirectoryBackend", "PVDirectory", "AlarmLog", "AlarmState", "PutLog")
+_DirectoryBackend = TypeVar(
+    "_DirectoryBackend", "ChannelDirectory", "AlarmLog", "AlarmState", "PutLog"
+)
 
 #: A directory kind's name, as ``BackendSpec.kind`` spells it.
-_DirectoryKind = Literal["pv_directory", "alarm_log", "alarm_state", "put_log"]
+_DirectoryKind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
 
 
 def _dotted_class(connector_type: str) -> Any:
@@ -82,7 +83,7 @@ class ConnectorFactory:
 
     _control_system_connectors: dict[str, type[ControlSystemConnector]] = {}
     _archiver_connectors: dict[str, type[ArchiverConnector]] = {}
-    _pv_directory_connectors: dict[str, type[PVDirectory]] = {}
+    _pv_directory_connectors: dict[str, type[ChannelDirectory]] = {}
     _alarm_log_connectors: dict[str, type[AlarmLog]] = {}
     _alarm_state_connectors: dict[str, type[AlarmState]] = {}
     _put_log_connectors: dict[str, type[PutLog]] = {}
@@ -114,7 +115,7 @@ class ConnectorFactory:
         logger.debug(f"Registered archiver connector: {name}")
 
     @classmethod
-    def register_pv_directory(cls, name: str, connector_class: type[PVDirectory]) -> None:
+    def register_pv_directory(cls, name: str, connector_class: type[ChannelDirectory]) -> None:
         """Register a PV directory backend under the type name a config selects it by."""
         cls._pv_directory_connectors[name] = connector_class
         logger.debug(f"Registered PV directory connector: {name}")
@@ -408,11 +409,11 @@ class ConnectorFactory:
     @classmethod
     async def create_pv_directory_connector(
         cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any
-    ) -> PVDirectory:
+    ) -> ChannelDirectory:
         """Build a PV directory backend. Backends connect nothing here: no I/O happens.
 
         Args:
-            spec: The backend to build, from ``pv_directory_targets``.
+            spec: The backend to build, from ``service_targets``.
             project_dir: The rendered config's directory.
             **seams: Test seams, passed on only when not ``None``.
 
@@ -583,20 +584,20 @@ class _DirectoryBuiltin:
 
 
 #: Every built-in directory-kind backend, in registration order. ``simulator_view``
-#: and ``alarm_replay`` are internal: ``pv_directory_targets`` selects them, and the
+#: and ``alarm_replay`` are internal: ``service_targets`` selects them, and the
 #: framework's section resolver refuses them as a configured ``type``.
 _DIRECTORY_BUILTINS: tuple[_DirectoryBuiltin, ...] = (
     _DirectoryBuiltin(
         "channelfinder",
-        "pv_directory",
-        "osprey_connectors.pv_directory._channelfinder",
+        "directory",
+        "osprey_connectors.directory._channelfinder",
         "ChannelFinderDirectory",
         "ChannelFinder directory service",
     ),
     _DirectoryBuiltin(
         "simulator_view",
-        "pv_directory",
-        "osprey_connectors.pv_directory._simulator",
+        "directory",
+        "osprey_connectors.directory._simulator",
         "SimulatorDirectory",
         "Every PV the virtual accelerator serves, from the build's simulator view",
     ),
@@ -630,7 +631,7 @@ _DIRECTORY_BUILTINS: tuple[_DirectoryBuiltin, ...] = (
     ),
 )
 
-_BUILTIN_PV_DIRECTORIES = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "pv_directory")
+_BUILTIN_PV_DIRECTORIES = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "directory")
 _BUILTIN_ALARM_LOGS = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "alarm_log")
 _BUILTIN_ALARM_STATES = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "alarm_state")
 _BUILTIN_PUT_LOGS = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "put_log")
@@ -639,13 +640,13 @@ _BUILTIN_PUT_LOGS = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "put_
 def _directory_registry(
     kind: _DirectoryKind,
 ) -> (
-    dict[str, type[PVDirectory]]
+    dict[str, type[ChannelDirectory]]
     | dict[str, type[AlarmLog]]
     | dict[str, type[AlarmState]]
     | dict[str, type[PutLog]]
 ):
     """The factory's registry for one directory kind."""
-    if kind == "pv_directory":
+    if kind == "directory":
         return ConnectorFactory._pv_directory_connectors
     if kind == "alarm_log":
         return ConnectorFactory._alarm_log_connectors

@@ -30,16 +30,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors.pv_directory._transport import ReadOnlyTransport
-from osprey_connectors.pv_directory.contract import (
-    AlarmConfigRecord,
-    AlarmHistoryRow,
-    AlarmLog,
-    BackendSpec,
-    HistoryPage,
-    Outcome,
-    Unavailable,
-)
+from osprey_connectors._service_http import ReadOnlyTransport
+from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
+from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.service_answers import BackendSpec, HistoryPage, Outcome, Unavailable
 
 #: The label of every configuration this backend answers.
 LAST_LOGGED_CONFIGURATION = "last logged configuration"

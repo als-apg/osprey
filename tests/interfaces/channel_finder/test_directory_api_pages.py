@@ -21,23 +21,35 @@ from urllib.parse import quote
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-import osprey.channel_roster as channel_roster  # noqa: E402
-from osprey.interfaces.channel_finder import directory_pages_api  # noqa: E402
-from osprey.services.pv_directory import _connectors, service  # noqa: E402
-from osprey_connectors import control_context  # noqa: E402
-from osprey_connectors.factory import ConnectorFactory  # noqa: E402
+import osprey.channel_roster as channel_roster
+from osprey.interfaces.channel_finder import directory_pages_api
+from osprey.services.pv_directory import _connectors, service
+from osprey_connectors import control_context
+from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.put_log import PutRow
+from osprey_connectors.service_answers import HistoryPage, Outcome, Source
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
 _NEW_MODULES = (
-    "osprey_connectors.pv_directory",
-    "osprey_connectors.pv_directory.contract",
-    "osprey_connectors.pv_directory.targets",
+    "osprey_connectors.service_answers",
+    "osprey_connectors.service_targets",
+    "osprey_connectors._service_http",
+    "osprey_connectors.directory",
+    "osprey_connectors.directory._contract",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_state._contract",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.alarm_log._contract",
+    "osprey_connectors.put_log",
+    "osprey_connectors.put_log._contract",
 )
 _NO_SOURCE = "not available for this target"
 
@@ -60,10 +72,10 @@ class FakeBackend:
 
     @property
     def source(self) -> Any:
-        return contract.Source(
+        return Source(
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label if self.spec.kind == "pv_directory" else self.spec.type,
+            label=self.label if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
@@ -90,8 +102,8 @@ class FakeDirectory(FakeBackend):
         hits = self._hits(query)
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
-        return contract.DirectoryPage(
-            outcome=contract.Outcome.FOUND if hits else contract.Outcome.NO_MATCH,
+        return DirectoryPage(
+            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
             searched="",
             request="GET /fake",
             source=self.source,
@@ -104,21 +116,19 @@ class FakeDirectory(FakeBackend):
         return len(self._hits(query))
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return self.records.get(name, contract.Outcome.NOT_LISTED)
+        return self.records.get(name, Outcome.NOT_LISTED)
 
 
 class FakeHistory(FakeBackend):
     async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
-        return contract.HistoryPage(
-            outcome=contract.Outcome.FOUND,
+        return HistoryPage(
+            outcome=Outcome.FOUND,
             source=self.source,
-            rows=[contract.PutRow(at="t", pv=pv, old="1", new="2")],
+            rows=[PutRow(at="t", pv=pv, old="1", new="2")],
         )
 
     async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return contract.AlarmConfigRecord(
-            in_tree="yes", path=f"/SR/{pv}", label="last logged configuration"
-        )
+        return AlarmConfigRecord(in_tree="yes", path=f"/SR/{pv}", label="last logged configuration")
 
 
 _FAKES = {"pv_directory": FakeDirectory, "alarm_log": FakeHistory, "put_log": FakeHistory}
@@ -210,8 +220,8 @@ def start(mock_registry, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
 
 
 def _record_of(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
-    row = contract.DirectoryRow(name=name, ioc=ioc, host="host-a", status="Active")
-    return contract.DirectoryRecord(row=row, properties=properties)
+    row = DirectoryRow(name=name, ioc=ioc, host="host-a", status="Active")
+    return DirectoryRecord(row=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:

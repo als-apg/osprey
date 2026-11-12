@@ -11,17 +11,10 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.pv_directory._channelfinder import ChannelFinderDirectory
-from osprey_connectors.pv_directory._transport import ReadOnlyTransport
-from osprey_connectors.pv_directory.contract import (
-    ROW_FIELD_PROPERTIES,
-    BackendSpec,
-    DirectoryRecord,
-    Outcome,
-    SearchQuery,
-    Source,
-    Unavailable,
-)
+from osprey_connectors._service_http import ReadOnlyTransport
+from osprey_connectors.directory import ROW_FIELD_PROPERTIES, DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory._channelfinder import ChannelFinderDirectory
+from osprey_connectors.service_answers import BackendSpec, Outcome, Source, Unavailable
 
 DEADLINE = 6.0
 FIXTURES = Path(__file__).parent / "fixtures" / "channelfinder"
@@ -56,7 +49,7 @@ class Replay:
 def backend(answer, **settings) -> tuple[ChannelFinderDirectory, Replay]:
     replay = Replay(answer)
     spec = BackendSpec(
-        kind="pv_directory",
+        kind="directory",
         type="channelfinder",
         target=settings.pop("target", "live"),
         settings={"url": "https://cf.demo.lab/ChannelFinder", **settings},
@@ -85,7 +78,7 @@ class TestWordSearch:
     async def test_words_search_the_description_first_and_stop_there_on_a_hit(self):
         directory, replay = backend(hits_on("recordDesc"), description_property="recordDesc")
 
-        page = await directory.search(SearchQuery(words="cooling water"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="cooling water"), DEADLINE)
 
         assert page.outcome is Outcome.FOUND
         assert replay.params_to(CHANNELS) == [
@@ -101,7 +94,7 @@ class TestWordSearch:
     async def test_words_fall_to_names_when_no_description_matches(self):
         directory, replay = backend(hits_on("~name"), description_property="recordDesc")
 
-        page = await directory.search(SearchQuery(words="temp cav"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="temp cav"), DEADLINE)
 
         assert page.outcome is Outcome.FOUND
         assert replay.params_to(CHANNELS) == [
@@ -116,7 +109,7 @@ class TestWordSearch:
     async def test_the_configured_description_property_is_the_one_searched(self):
         directory, replay = backend(hits_on("Comment"), description_property="Comment")
 
-        page = await directory.search(SearchQuery(words="flow"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="flow"), DEADLINE)
 
         assert replay.params_to(CHANNELS)[0][0] == ("Comment", "*flow*")
         assert "Comment=*flow*" in page.request
@@ -124,7 +117,7 @@ class TestWordSearch:
     async def test_recsyncs_own_description_property_is_the_default(self):
         directory, replay = backend(hits_on("recordDesc"))
 
-        page = await directory.search(SearchQuery(words="flow"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="flow"), DEADLINE)
 
         assert replay.params_to(CHANNELS)[0][0] == ("recordDesc", "*flow*")
         assert page.rows[0].description == "Cavity 1 cooling water temperature"
@@ -139,14 +132,14 @@ class TestWordSearch:
 
         directory, replay = backend(slow)
 
-        await directory.search(SearchQuery(words="temp"), DEADLINE)
+        await directory.search(DirectoryQuery(words="temp"), DEADLINE)
 
         assert replay.deadlines[-1] <= DEADLINE - spent
 
     async def test_a_miss_on_both_searches_is_no_match(self):
         directory, _ = backend(always(rows=[], total=0))
 
-        page = await directory.search(SearchQuery(words="cooling"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="cooling"), DEADLINE)
 
         assert page.outcome is Outcome.NO_MATCH
         assert page.total == 0
@@ -169,7 +162,7 @@ class TestNameTerms:
     async def test_name_terms_are_globs_wrapped_unless_anchored(self, name, sent):
         directory, replay = backend(always())
 
-        await directory.search(SearchQuery(name=name), DEADLINE)
+        await directory.search(DirectoryQuery(name=name), DEADLINE)
 
         terms = [value for key, value in replay.params_to(CHANNELS)[0] if key == "~name"]
         assert terms == sent
@@ -177,7 +170,7 @@ class TestNameTerms:
     async def test_a_word_with_a_glob_is_a_name_term_on_both_searches(self):
         directory, replay = backend(hits_on("nothing"))
 
-        await directory.search(SearchQuery(words="cooling DEMO:RF*"), DEADLINE)
+        await directory.search(DirectoryQuery(words="cooling DEMO:RF*"), DEADLINE)
 
         description, names = replay.params_to(CHANNELS)
         assert ("recordDesc", "*cooling*") in description
@@ -188,7 +181,7 @@ class TestNameTerms:
     async def test_a_query_of_only_name_terms_sends_one_search(self):
         directory, replay = backend(hits_on("nothing"))
 
-        await directory.search(SearchQuery(words="=DEMO:RF1"), DEADLINE)
+        await directory.search(DirectoryQuery(words="=DEMO:RF1"), DEADLINE)
 
         assert len(replay.params_to(CHANNELS)) == 1
 
@@ -196,21 +189,21 @@ class TestNameTerms:
     async def test_a_separator_in_a_term_cannot_split_it_into_an_or(self, separator):
         directory, replay = backend(always())
 
-        await directory.search(SearchQuery(name=f"=DEMO{separator}A"), DEADLINE)
+        await directory.search(DirectoryQuery(name=f"=DEMO{separator}A"), DEADLINE)
 
         assert ("~name", "DEMO?A") in replay.params_to(CHANNELS)[0]
 
     async def test_a_glob_miss_is_no_match(self):
         directory, _ = backend(always(rows=[], total=0))
 
-        page = await directory.search(SearchQuery(name="DEMO:NOPE*"), DEADLINE)
+        page = await directory.search(DirectoryQuery(name="DEMO:NOPE*"), DEADLINE)
 
         assert page.outcome is Outcome.NO_MATCH
 
     async def test_an_empty_query_asks_for_every_name(self):
         directory, replay = backend(always())
 
-        page = await directory.search(SearchQuery(), DEADLINE)
+        page = await directory.search(DirectoryQuery(), DEADLINE)
 
         assert replay.params_to(CHANNELS)[0][0] == ("~name", "*")
         assert replay.params_to(COUNT)[0] == [("~name", "*")]
@@ -222,7 +215,7 @@ class TestFilters:
         directory, replay = backend(always())
 
         await directory.search(
-            SearchQuery(
+            DirectoryQuery(
                 name="DEMO:*",
                 status="Inactive",
                 ioc=("rf1-cav", "rf2-cav"),
@@ -244,7 +237,7 @@ class TestFilters:
     async def test_an_or_comes_only_from_a_typed_list(self):
         directory, replay = backend(always())
 
-        await directory.search(SearchQuery(ioc=("a,b", "c")), DEADLINE)
+        await directory.search(DirectoryQuery(ioc=("a,b", "c")), DEADLINE)
 
         assert dict(replay.params_to(CHANNELS)[0])["iocName"] == "a?b|c"
 
@@ -252,7 +245,7 @@ class TestFilters:
         directory, replay = backend(always(), exact_properties=["recordType", "iocName"])
 
         await directory.search(
-            SearchQuery(properties={"iocName": "rf1-cav", "Engineer": "rf"}), DEADLINE
+            DirectoryQuery(properties={"iocName": "rf1-cav", "Engineer": "rf"}), DEADLINE
         )
 
         sent = dict(replay.params_to(CHANNELS)[0])
@@ -262,7 +255,7 @@ class TestFilters:
     async def test_a_malformed_exact_list_names_no_property(self):
         directory, replay = backend(always(), exact_properties=[{"not": "a name"}])
 
-        await directory.search(SearchQuery(properties={"Engineer": "rf"}), DEADLINE)
+        await directory.search(DirectoryQuery(properties={"Engineer": "rf"}), DEADLINE)
 
         assert dict(replay.params_to(CHANNELS)[0])["Engineer"] == "*rf*"
 
@@ -270,7 +263,7 @@ class TestFilters:
         directory, replay = backend(always())
 
         await directory.search(
-            SearchQuery(properties={"pvStatus": "Active", "recordType": "ai"}), DEADLINE
+            DirectoryQuery(properties={"pvStatus": "Active", "recordType": "ai"}), DEADLINE
         )
 
         sent = dict(replay.params_to(CHANNELS)[0])
@@ -283,7 +276,7 @@ class TestFilters:
     async def test_a_property_value_reads_like_a_name_term(self, value, sent):
         directory, replay = backend(always())
 
-        await directory.search(SearchQuery(properties={"Engineer": value}), DEADLINE)
+        await directory.search(DirectoryQuery(properties={"Engineer": value}), DEADLINE)
 
         assert dict(replay.params_to(CHANNELS)[0])["Engineer"] == sent
 
@@ -291,7 +284,7 @@ class TestFilters:
         directory, _ = backend(always())
 
         page = await directory.search(
-            SearchQuery(words="flow", status="Active", ioc=("a", "b"), record_type="ai"),
+            DirectoryQuery(words="flow", status="Active", ioc=("a", "b"), record_type="ai"),
             DEADLINE,
         )
 
@@ -304,7 +297,7 @@ class TestPaging:
     async def test_a_page_is_an_offset_in_rows(self):
         directory, replay = backend(always())
 
-        await directory.search(SearchQuery(name="DEMO*", page=2, page_size=25), DEADLINE)
+        await directory.search(DirectoryQuery(name="DEMO*", page=2, page_size=25), DEADLINE)
 
         sent = replay.params_to(CHANNELS)[0]
         assert ("~size", 25) in sent
@@ -313,14 +306,14 @@ class TestPaging:
     async def test_the_last_page_is_not_truncated(self):
         directory, _ = backend(always(total=2))
 
-        page = await directory.search(SearchQuery(name="DEMO*"), DEADLINE)
+        page = await directory.search(DirectoryQuery(name="DEMO*"), DEADLINE)
 
         assert page.truncated is False
 
     async def test_past_the_end_of_a_description_search_stays_on_it(self):
         directory, replay = backend(always(rows=[], total=3))
 
-        page = await directory.search(SearchQuery(words="flow", page=1), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="flow", page=1), DEADLINE)
 
         assert len(replay.params_to(CHANNELS)) == 1
         assert page.outcome is Outcome.FOUND
@@ -330,7 +323,7 @@ class TestPaging:
     async def test_a_later_page_of_a_name_search_reaches_the_name_search(self):
         directory, replay = backend(hits_on("~name"))
 
-        page = await directory.search(SearchQuery(words="temp", page=1), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="temp", page=1), DEADLINE)
 
         assert len(replay.params_to(CHANNELS)) == 2
         assert page.rows
@@ -343,7 +336,7 @@ class TestPartial:
 
         directory, _ = backend(answer)
 
-        page = await directory.search(SearchQuery(words="cooling"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="cooling"), DEADLINE)
 
         assert page.outcome is Outcome.FOUND
         assert page.total is None
@@ -357,7 +350,7 @@ class TestPartial:
 
         directory, _ = backend(answer)
 
-        page = await directory.search(SearchQuery(name="DEMO*", page_size=2), DEADLINE)
+        page = await directory.search(DirectoryQuery(name="DEMO*", page_size=2), DEADLINE)
 
         assert page.truncated is True
 
@@ -367,7 +360,7 @@ class TestPartial:
 
         directory, replay = backend(answer)
 
-        page = await directory.search(SearchQuery(words="cooling"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="cooling"), DEADLINE)
 
         assert page.outcome is Outcome.UNAVAILABLE
         assert page.reason == DOWN.reason
@@ -383,7 +376,7 @@ class TestPartial:
 
         directory, _ = backend(answer)
 
-        page = await directory.search(SearchQuery(words="temp"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="temp"), DEADLINE)
 
         assert page.outcome is Outcome.FOUND
         assert page.partial == [{"part": "count", "reason": DOWN.reason}]
@@ -394,7 +387,7 @@ class TestPartial:
 
         directory, replay = backend(answer)
 
-        page = await directory.search(SearchQuery(words="temp", page=1), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="temp", page=1), DEADLINE)
 
         assert page.outcome is Outcome.UNAVAILABLE
         assert DOWN.reason in page.reason
@@ -406,7 +399,7 @@ class TestPartial:
 
         directory, _ = backend(answer)
 
-        page = await directory.search(SearchQuery(name="DEMO:NOPE*"), DEADLINE)
+        page = await directory.search(DirectoryQuery(name="DEMO:NOPE*"), DEADLINE)
 
         assert page.outcome is Outcome.NO_MATCH
         assert page.total is None
@@ -417,7 +410,7 @@ class TestRows:
     async def test_the_listed_fields_become_the_row(self):
         directory, _ = backend(always())
 
-        page = await directory.search(SearchQuery(name="DEMO*"), DEADLINE)
+        page = await directory.search(DirectoryQuery(name="DEMO*"), DEADLINE)
 
         row = page.rows[0]
         assert row.origin == "unknown"
@@ -431,7 +424,7 @@ class TestRows:
     async def test_an_inactive_channel_reads_inactive(self):
         directory, _ = backend(always())
 
-        page = await directory.search(SearchQuery(status="Inactive"), DEADLINE)
+        page = await directory.search(DirectoryQuery(status="Inactive"), DEADLINE)
 
         assert page.rows[1].status == "Inactive"
         assert page.outcome is Outcome.FOUND
@@ -439,7 +432,7 @@ class TestRows:
     async def test_every_property_is_optional(self):
         directory, _ = backend(always(rows=[{"name": "DEMO:BARE"}], total=1))
 
-        page = await directory.search(SearchQuery(name="DEMO*"), DEADLINE)
+        page = await directory.search(DirectoryQuery(name="DEMO*"), DEADLINE)
 
         row = page.rows[0]
         assert (row.name, row.status, row.ioc, row.description) == ("DEMO:BARE", None, None, None)
@@ -451,7 +444,7 @@ class TestRows:
     async def test_a_body_that_is_not_channels_is_malformed(self, body):
         directory, _ = backend(lambda path, _pairs: 1 if path == COUNT else body)
 
-        page = await directory.search(SearchQuery(name="DEMO*"), DEADLINE)
+        page = await directory.search(DirectoryQuery(name="DEMO*"), DEADLINE)
 
         assert page.outcome is Outcome.UNAVAILABLE
         assert page.reason == "malformed response"
@@ -461,31 +454,31 @@ class TestCount:
     async def test_the_bare_integer_is_the_count(self):
         directory, replay = backend(always(total=recorded("count")))
 
-        assert await directory.count(SearchQuery(words="cooling"), DEADLINE) == 412
+        assert await directory.count(DirectoryQuery(words="cooling"), DEADLINE) == 412
         assert replay.params_to(COUNT) == [[("recordDesc", "*cooling*")]]
         assert replay.params_to(CHANNELS) == []
 
     async def test_it_counts_the_names_when_no_description_matches(self):
         directory, replay = backend(hits_on("~name", total=9))
 
-        assert await directory.count(SearchQuery(words="temp"), DEADLINE) == 9
+        assert await directory.count(DirectoryQuery(words="temp"), DEADLINE) == 9
         assert len(replay.params_to(COUNT)) == 2
 
     async def test_no_search_matching_counts_zero(self):
         directory, _ = backend(always(total=0))
 
-        assert await directory.count(SearchQuery(words="temp"), DEADLINE) == 0
+        assert await directory.count(DirectoryQuery(words="temp"), DEADLINE) == 0
 
     async def test_a_failure_is_the_reason(self):
         directory, _ = backend(always(total=DOWN))
 
-        assert await directory.count(SearchQuery(words="temp"), DEADLINE) == DOWN
+        assert await directory.count(DirectoryQuery(words="temp"), DEADLINE) == DOWN
 
     @pytest.mark.parametrize("body", ["412", 4.5, True, -1, None, [412]])
     async def test_anything_but_a_count_is_malformed(self, body):
         directory, _ = backend(always(total=body))
 
-        assert await directory.count(SearchQuery(name="DEMO*"), DEADLINE) == Unavailable(
+        assert await directory.count(DirectoryQuery(name="DEMO*"), DEADLINE) == Unavailable(
             "malformed response"
         )
 
@@ -617,7 +610,7 @@ class TestProbe:
 class TestConstruction:
     def test_it_takes_the_contracts_seams_and_does_no_io(self):
         spec = BackendSpec(
-            kind="pv_directory",
+            kind="directory",
             type="channelfinder",
             target="standin",
             settings={},
@@ -644,21 +637,21 @@ class TestConstruction:
         )
         directory, _ = backend(lambda _path, _pairs: login)
 
-        page = await directory.search(SearchQuery(name="DEMO*"), DEADLINE)
+        page = await directory.search(DirectoryQuery(name="DEMO*"), DEADLINE)
 
         assert page.outcome is Outcome.UNAVAILABLE
         assert page.reason == login.reason
 
     async def test_a_block_with_no_url_answers_a_reason(self):
         spec = BackendSpec(
-            kind="pv_directory",
+            kind="directory",
             type="channelfinder",
             target="live",
             settings={"timeout_s": "soon"},
             rehearsal=False,
         )
 
-        page = await ChannelFinderDirectory(spec).search(SearchQuery(), DEADLINE)
+        page = await ChannelFinderDirectory(spec).search(DirectoryQuery(), DEADLINE)
 
         assert page.outcome is Outcome.UNAVAILABLE
         assert page.reason
@@ -675,7 +668,7 @@ class TestConstruction:
 
         monkeypatch.setattr(ReadOnlyTransport, "_exchange", exchange)
         spec = BackendSpec(
-            kind="pv_directory",
+            kind="directory",
             type="channelfinder",
             target="live",
             settings={
@@ -688,7 +681,7 @@ class TestConstruction:
         )
         directory = ChannelFinderDirectory(spec)
 
-        page = await directory.search(SearchQuery(words="cooling"), DEADLINE)
+        page = await directory.search(DirectoryQuery(words="cooling"), DEADLINE)
         record = await directory.describe("DEMO:RF1:CAV:Temp-I", DEADLINE)
         evidence = await directory.probe(DEADLINE)
 

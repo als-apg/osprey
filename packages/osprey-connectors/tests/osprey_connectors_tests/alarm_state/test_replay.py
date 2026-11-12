@@ -12,17 +12,16 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.alarm_state import _replay
-from osprey_connectors.alarm_state._fold import FeedSnapshot, fold_message
-from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
-from osprey_connectors.alarm_state._replay import ReplayAlarmState
-from osprey_connectors.pv_directory.contract import (
+from osprey_connectors.alarm_state import (
     ALARM_STALE_WINDOW_S,
     AlarmConfigRecord,
     AlarmStateRecord,
-    BackendSpec,
-    Unavailable,
+    _replay,
 )
+from osprey_connectors.alarm_state._fold import FeedSnapshot, fold_message
+from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
+from osprey_connectors.alarm_state._replay import ReplayAlarmState
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 from .test_kafka_backend import FakeConsumer, Record
 

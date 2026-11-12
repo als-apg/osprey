@@ -18,9 +18,17 @@ import pytest
 from osprey.services.pv_directory import _connectors, resolve
 
 _NEW_MODULES = (
-    "osprey_connectors.pv_directory",
-    "osprey_connectors.pv_directory.contract",
-    "osprey_connectors.pv_directory.targets",
+    "osprey_connectors.service_answers",
+    "osprey_connectors.service_targets",
+    "osprey_connectors._service_http",
+    "osprey_connectors.directory",
+    "osprey_connectors.directory._contract",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_state._contract",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.alarm_log._contract",
+    "osprey_connectors.put_log",
+    "osprey_connectors.put_log._contract",
 )
 
 _CONTRACT_NAMES = (
@@ -36,19 +44,19 @@ _CONTRACT_NAMES = (
     "AlarmState",
     "AlarmStateRecord",
     "BackendSpec",
+    "ChannelDirectory",
     "DirectoryPage",
+    "DirectoryQuery",
     "DirectoryRecord",
     "DirectoryRow",
     "HistoryPage",
     "Outcome",
-    "PVDirectory",
     "PutLog",
     "PutRow",
-    "SearchQuery",
     "Source",
     "Unavailable",
     "has_simulator",
-    "pv_directory_targets",
+    "service_targets",
 )
 
 
@@ -102,18 +110,18 @@ def test_as_payload_converts_nested_dataclasses_and_enums() -> None:
 
 
 def test_with_the_modules_every_name_is_bound() -> None:
-    pytest.importorskip("osprey_connectors.pv_directory")
-    from osprey_connectors.pv_directory import contract, targets
+    pytest.importorskip("osprey_connectors.service_answers")
+    from osprey_connectors import directory, service_answers, simulator
 
     assert _connectors.DIRECTORY_CONNECTORS_AVAILABLE is True
-    assert _connectors.Source is contract.Source
-    assert _connectors.ROW_FIELD_PROPERTIES is contract.ROW_FIELD_PROPERTIES
-    assert _connectors.has_simulator is targets.has_simulator
+    assert _connectors.Source is service_answers.Source
+    assert _connectors.ROW_FIELD_PROPERTIES is directory.ROW_FIELD_PROPERTIES
+    assert _connectors.has_simulator is simulator.has_simulator
     assert all(getattr(_connectors, name) is not None for name in _CONTRACT_NAMES)
 
 
 def test_as_payload_of_a_contract_record() -> None:
-    pytest.importorskip("osprey_connectors.pv_directory")
+    pytest.importorskip("osprey_connectors.service_answers")
     source = _connectors.Source(
         target="live", service="channelfinder", label="All PVs", rehearsal=False
     )

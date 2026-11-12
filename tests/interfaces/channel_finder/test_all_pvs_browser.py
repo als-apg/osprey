@@ -38,7 +38,7 @@ from urllib.parse import quote
 
 import pytest
 
-pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
 import yaml
 from click.testing import CliRunner

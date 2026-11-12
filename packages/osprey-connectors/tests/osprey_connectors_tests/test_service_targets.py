@@ -2,7 +2,7 @@
 
 A section answers only from the machine the session is on: the simulator's data
 on ``va``, the facility's services on ``live`` and on the ``standin`` that
-rehearses it, and otherwise nothing. :func:`pv_directory_targets` is that table,
+rehearses it, and otherwise nothing. :func:`service_targets` is that table,
 and :func:`has_simulator` the one answer to whether the ``va`` half of it exists.
 """
 
@@ -13,8 +13,9 @@ import copy
 import pytest
 
 from osprey_connectors.archive_targets import APPLIANCE_TARGETS, archive_targets
-from osprey_connectors.pv_directory.contract import BackendSpec, Source
-from osprey_connectors.pv_directory.targets import has_simulator, pv_directory_targets
+from osprey_connectors.service_answers import BackendSpec, Source
+from osprey_connectors.service_targets import service_targets
+from osprey_connectors.simulator import has_simulator
 from osprey_connectors.types import (
     CONTROL_TARGETS,
     EPICS_ARCHIVER,
@@ -23,7 +24,7 @@ from osprey_connectors.types import (
     TARGET_VA,
 )
 
-KINDS = ("pv_directory", "alarm_log", "alarm_state", "put_log")
+KINDS = ("directory", "alarm_log", "alarm_state", "put_log")
 SERVED_VA = {"services": {"virtual_accelerator": {"port": 5064}}}
 IN_PROCESS_VA = {"control_system": {"type": "virtual_accelerator"}}
 FACILITY_WITH_SIMULATOR = {
@@ -64,7 +65,7 @@ def _config(section, *, base=SERVED_VA):
 
 
 def _table(section, *, base=SERVED_VA, ariel_configured=True):
-    return pv_directory_targets(_config(section, base=base), ariel_configured=ariel_configured)
+    return service_targets(_config(section, base=base), ariel_configured=ariel_configured)
 
 
 class TestHasSimulator:
@@ -106,24 +107,24 @@ class TestShape:
         ],
     )
     def test_no_section_serves_nothing(self, config):
-        table = pv_directory_targets({**SERVED_VA, **config}, ariel_configured=True)
+        table = service_targets({**SERVED_VA, **config}, ariel_configured=True)
         for row in table.values():
             assert set(row.values()) == {None}
 
     def test_the_config_is_not_touched(self):
         config = _config(FULL_SECTION)
         before = copy.deepcopy(config)
-        pv_directory_targets(config, ariel_configured=True)
+        service_targets(config, ariel_configured=True)
         assert config == before
 
 
 class TestDirectorySources:
     def test_va_only_section_with_a_simulator(self):
-        row = _table({})["pv_directory"]
+        row = _table({})["directory"]
         assert row[TARGET_LIVE] is None
         assert row[TARGET_STANDIN] is None
         assert row[TARGET_VA] == BackendSpec(
-            kind="pv_directory",
+            kind="directory",
             type="simulator_view",
             target=TARGET_VA,
             settings={},
@@ -132,20 +133,20 @@ class TestDirectorySources:
 
     def test_section_with_no_type_and_no_simulator_serves_nothing(self):
         table = _table({}, base=FACILITY_ONLY)
-        assert set(table["pv_directory"].values()) == {None}
+        assert set(table["directory"].values()) == {None}
 
     def test_facility_type_serves_live_and_standin(self):
-        row = _table(FULL_SECTION)["pv_directory"]
+        row = _table(FULL_SECTION)["directory"]
         for target, rehearsal in ((TARGET_LIVE, False), (TARGET_STANDIN, True)):
             assert row[target].type == "channelfinder"
             assert row[target].target == target
             assert row[target].rehearsal is rehearsal
 
     def test_facility_type_with_no_simulator_leaves_va_empty(self):
-        assert _table(FULL_SECTION, base=FACILITY_ONLY)["pv_directory"][TARGET_VA] is None
+        assert _table(FULL_SECTION, base=FACILITY_ONLY)["directory"][TARGET_VA] is None
 
     def test_simulator_spec_carries_no_facility_setting(self):
-        settings = _table(FULL_SECTION)["pv_directory"][TARGET_VA].settings
+        settings = _table(FULL_SECTION)["directory"][TARGET_VA].settings
         assert "url" not in settings
         assert "timeout_s" not in settings
 
@@ -254,7 +255,7 @@ class TestLogbook:
 
 class TestFold:
     def test_directory_spec_folds_description_exact_properties_and_caveats(self):
-        settings = _table(FULL_SECTION)["pv_directory"][TARGET_LIVE].settings
+        settings = _table(FULL_SECTION)["directory"][TARGET_LIVE].settings
         assert settings == {
             "url": "https://directory.example/ChannelFinder",
             "timeout_s": 4,
@@ -264,7 +265,7 @@ class TestFold:
         }
 
     def test_simulator_spec_folds_the_same_keys(self):
-        settings = _table(FULL_SECTION)["pv_directory"][TARGET_VA].settings
+        settings = _table(FULL_SECTION)["directory"][TARGET_VA].settings
         assert settings == {
             "description_property": "recordDesc",
             "exact_properties": ["iocName", "hostName"],
@@ -286,23 +287,23 @@ class TestFold:
         }
 
     def test_a_key_the_section_does_not_set_is_not_folded(self):
-        settings = _table({"type": "channelfinder"})["pv_directory"][TARGET_LIVE].settings
+        settings = _table({"type": "channelfinder"})["directory"][TARGET_LIVE].settings
         assert settings == {}
 
     @pytest.mark.parametrize("value", ["", "  ", 7])
     def test_a_blank_description_property_is_not_folded(self, value):
         table = _table({"type": "channelfinder", "description_property": value})
-        assert "description_property" not in table["pv_directory"][TARGET_LIVE].settings
-        assert "description_property" not in table["pv_directory"][TARGET_VA].settings
+        assert "description_property" not in table["directory"][TARGET_LIVE].settings
+        assert "description_property" not in table["directory"][TARGET_VA].settings
 
     def test_display_not_a_mapping_folds_nothing(self):
         section = {"type": "channelfinder", "display": "wide"}
-        assert _table(section)["pv_directory"][TARGET_LIVE].settings == {}
+        assert _table(section)["directory"][TARGET_LIVE].settings == {}
 
     def test_folded_values_are_copies_of_the_config(self):
         config = _config(FULL_SECTION)
-        table = pv_directory_targets(config, ariel_configured=False)
-        table["pv_directory"][TARGET_LIVE].settings["exact_properties"].append("mutated")
+        table = service_targets(config, ariel_configured=False)
+        table["directory"][TARGET_LIVE].settings["exact_properties"].append("mutated")
         table["put_log"][TARGET_LIVE].settings["caveats"].append("mutated")
         assert config["pv_directory"]["display"]["exact_properties"] == ["iocName", "hostName"]
         assert config["pv_directory"]["put_log"]["caveats"] == ["put caveat"]
@@ -317,7 +318,7 @@ def test_facility_targets_agree_with_archive_targets():
     config["archiver"] = {"type": EPICS_ARCHIVER, "epics_archiver": {"url": "https://a.example"}}
     assert archive_targets(config) == APPLIANCE_TARGETS
 
-    table = pv_directory_targets(config, ariel_configured=True)
+    table = service_targets(config, ariel_configured=True)
     for kind in KINDS:
         facility = {
             target

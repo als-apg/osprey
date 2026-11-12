@@ -17,24 +17,36 @@ from typing import Any
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
-import osprey.channel_roster as channel_roster  # noqa: E402
-from osprey.mcp_server.errors import MAP_KEYS, MISSING_KEY  # noqa: E402
-from osprey.mcp_server.pv_directory import server  # noqa: E402
-from osprey.mcp_server.pv_directory.tools import ioc_record, pv_record  # noqa: E402
-from osprey.services.pv_directory import _connectors  # noqa: E402
-from osprey_connectors import control_context  # noqa: E402
-from osprey_connectors.factory import ConnectorFactory  # noqa: E402
-from osprey_connectors.simulation.view import ENGINEER, HEARTBEAT, UPTIME  # noqa: E402
-from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
+import osprey.channel_roster as channel_roster
+from osprey.mcp_server.errors import MAP_KEYS, MISSING_KEY
+from osprey.mcp_server.pv_directory import server
+from osprey.mcp_server.pv_directory.tools import ioc_record, pv_record
+from osprey.services.pv_directory import _connectors
+from osprey_connectors import control_context
+from osprey_connectors.directory import (
+    SERVED_SIGNAL_PROPERTY,
+    DirectoryPage,
+    DirectoryRecord,
+    DirectoryRow,
+)
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_answers import (
+    HistoryPage,
+    Outcome,
+    Source,
+    Unavailable,
+)
+from osprey_connectors.simulation.view import ENGINEER, HEARTBEAT, UPTIME
+from tests.mcp_server.conftest import assert_raises_error
 
 VA_BUILD = {"type": "virtual_accelerator"}
 LIVE_BUILD = {"type": "epics"}
 FACILITY = {"type": "channelfinder", "settings": {"url": "http://cf.example", "timeout_s": 0.5}}
 PUT_LOG = {"type": "caputlog", "settings": {"url": "http://pl.example"}}
 PANEL = "/panel/channel-finder/#/"
-SIGNAL = contract.SERVED_SIGNAL_PROPERTY
+SIGNAL = SERVED_SIGNAL_PROPERTY
 
 
 # -- fakes --------------------------------------------------------------------
@@ -46,10 +58,10 @@ class FakeBackend:
 
     @property
     def source(self) -> Any:
-        return contract.Source(
+        return Source(
             target=self.spec.target,
             service=self.spec.type,
-            label="All PVs" if self.spec.kind == "pv_directory" else self.spec.type,
+            label="All PVs" if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
@@ -75,8 +87,8 @@ class FakeDirectory(FakeBackend):
     async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
         hits = self._hits(query)
         rows = hits[query.page * query.page_size : (query.page + 1) * query.page_size]
-        return contract.DirectoryPage(
-            outcome=contract.Outcome.FOUND if hits else contract.Outcome.NO_MATCH,
+        return DirectoryPage(
+            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
             searched="",
             request="GET /fake",
             source=self.source,
@@ -87,13 +99,13 @@ class FakeDirectory(FakeBackend):
 
     async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return contract.Unavailable(self.fail)
+            return Unavailable(self.fail)
         return len(self._hits(query))
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail or name in self.failing:
-            return contract.Unavailable(self.fail or "connection refused")
-        return self.records.get(name, contract.Outcome.NOT_LISTED)
+            return Unavailable(self.fail or "connection refused")
+        return self.records.get(name, Outcome.NOT_LISTED)
 
 
 class FakePutLog(FakeBackend):
@@ -101,8 +113,8 @@ class FakePutLog(FakeBackend):
 
     async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
         if pv in self.failing:
-            return contract.Unavailable("put log did not answer")
-        return contract.HistoryPage(outcome=contract.Outcome.FOUND, source=self.source, rows=[])
+            return Unavailable("put log did not answer")
+        return HistoryPage(outcome=Outcome.FOUND, source=self.source, rows=[])
 
 
 _FAKES = {"pv_directory": FakeDirectory, "put_log": FakePutLog}
@@ -175,8 +187,8 @@ def _install(
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = contract.DirectoryRow(name=name, ioc=ioc, host="host-a", status=status)
-    return contract.DirectoryRecord(row=row, properties=properties)
+    row = DirectoryRow(name=name, ioc=ioc, host="host-a", status=status)
+    return DirectoryRecord(row=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:

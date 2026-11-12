@@ -58,7 +58,10 @@ SECTION = "pv_directory"
 LANDED = "src/osprey/services/pv_directory/resolve.py"
 #: The connectors modules newer than the connectors floor, blocked in every off render.
 NEW_CONNECTORS_MODULES = (
-    "osprey_connectors.pv_directory",
+    "osprey_connectors.service_answers",
+    "osprey_connectors.service_targets",
+    "osprey_connectors._service_http",
+    "osprey_connectors.directory",
     "osprey_connectors.alarm_state",
     "osprey_connectors.alarm_log",
     "osprey_connectors.put_log",

@@ -1,5 +1,12 @@
 """Logged alarm history and configuration, per the ``AlarmLog`` contract.
 
-The backends are underscore-private modules the factory reaches from their type
-names. This package re-exports nothing.
+The backends are the underscore-private modules beside this one, which the
+factory reaches from their type names.
 """
+
+from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
+
+__all__ = [
+    "AlarmHistoryRow",
+    "AlarmLog",
+]

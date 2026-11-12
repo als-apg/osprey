@@ -19,24 +19,34 @@ from typing import Any
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
-from fastapi import APIRouter, FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi import APIRouter, FastAPI
+from fastapi.testclient import TestClient
 
-from osprey.interfaces.channel_finder import directory_api  # noqa: E402
-from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow  # noqa: E402
-from osprey.services.pv_directory import _connectors, service  # noqa: E402
-from osprey_connectors import control_context  # noqa: E402
-from osprey_connectors.factory import ConnectorFactory  # noqa: E402
+from osprey.interfaces.channel_finder import directory_api
+from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
+from osprey.services.pv_directory import _connectors, service
+from osprey_connectors import control_context
+from osprey_connectors.directory import ChannelDirectory, DirectoryPage, DirectoryRow
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_answers import Source
 
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
 _NEW_MODULES = (
-    "osprey_connectors.pv_directory",
-    "osprey_connectors.pv_directory.contract",
-    "osprey_connectors.pv_directory.targets",
+    "osprey_connectors.service_answers",
+    "osprey_connectors.service_targets",
+    "osprey_connectors._service_http",
+    "osprey_connectors.directory",
+    "osprey_connectors.directory._contract",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_state._contract",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.alarm_log._contract",
+    "osprey_connectors.put_log",
+    "osprey_connectors.put_log._contract",
 )
 
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -44,7 +54,7 @@ LIVE_BUILD = {"type": "epics"}
 LABELLED = {"type": "labelled", "settings": {"url": "http://directory.example"}}
 
 
-class LabelledDirectory(contract.PVDirectory):
+class LabelledDirectory(ChannelDirectory):
     """A facility directory whose backend names itself."""
 
     label = "Facility PVs"
@@ -315,10 +325,8 @@ def test_the_fixture_names_every_json_panel_route() -> None:
 
 def test_the_fixture_search_is_a_directory_page() -> None:
     page = _routes()["search"]
-    rows = [contract.DirectoryRow(**row) for row in page["rows"]]
-    rebuilt = contract.DirectoryPage(
-        **{**page, "source": contract.Source(**page["source"]), "rows": rows}
-    )
+    rows = [DirectoryRow(**row) for row in page["rows"]]
+    rebuilt = DirectoryPage(**{**page, "source": Source(**page["source"]), "rows": rows})
 
     assert _connectors.as_payload(rebuilt) == page
 

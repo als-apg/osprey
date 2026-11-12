@@ -12,15 +12,11 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
+from osprey_connectors.alarm_log import AlarmHistoryRow
 from osprey_connectors.alarm_log._phoebus import PhoebusAlarmLogger
-from osprey_connectors.pv_directory._transport import LOGIN_PAGE_REASON, ReadOnlyTransport
-from osprey_connectors.pv_directory.contract import (
-    AlarmConfigRecord,
-    AlarmHistoryRow,
-    BackendSpec,
-    Outcome,
-    Unavailable,
-)
+from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
 
 DEADLINE = 6.0
 PV = "DEMO:RF1:CAV:Temp-I"

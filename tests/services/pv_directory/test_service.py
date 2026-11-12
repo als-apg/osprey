@@ -20,18 +20,29 @@ from typing import Any
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
-import osprey.channel_roster as channel_roster  # noqa: E402
-from osprey.services.pv_directory import _connectors, service  # noqa: E402
-from osprey.services.pv_directory.demo import resolve_replay_file  # noqa: E402
-from osprey_connectors import control_context  # noqa: E402
-from osprey_connectors.factory import ConnectorFactory  # noqa: E402
+import osprey.channel_roster as channel_roster
+from osprey.services.pv_directory import _connectors, service
+from osprey.services.pv_directory.demo import resolve_replay_file
+from osprey_connectors import control_context
+from osprey_connectors.alarm_state import AlarmStateRecord
+from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_answers import Outcome, Source, Unavailable
 
 _NEW_MODULES = (
-    "osprey_connectors.pv_directory",
-    "osprey_connectors.pv_directory.contract",
-    "osprey_connectors.pv_directory.targets",
+    "osprey_connectors.service_answers",
+    "osprey_connectors.service_targets",
+    "osprey_connectors._service_http",
+    "osprey_connectors.directory",
+    "osprey_connectors.directory._contract",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_state._contract",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.alarm_log._contract",
+    "osprey_connectors.put_log",
+    "osprey_connectors.put_log._contract",
 )
 
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -54,10 +65,10 @@ class FakeBackend:
 
     @property
     def source(self) -> Any:
-        return contract.Source(
+        return Source(
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label if self.spec.kind == "pv_directory" else self.spec.type,
+            label=self.label if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
@@ -66,7 +77,7 @@ class FakeBackend:
 
 
 def _row(name: str, **fields: Any) -> Any:
-    return contract.DirectoryRow(name=name, **fields)
+    return DirectoryRow(name=name, **fields)
 
 
 class FakeDirectory(FakeBackend):
@@ -95,8 +106,8 @@ class FakeDirectory(FakeBackend):
         hits = self._hits(query)
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
-        return contract.DirectoryPage(
-            outcome=contract.Outcome.FOUND if hits else contract.Outcome.NO_MATCH,
+        return DirectoryPage(
+            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
             searched="from the backend",
             request=f"GET /fake?q={query.words}&size={query.page_size}",
             source=self.source,
@@ -111,7 +122,7 @@ class FakeDirectory(FakeBackend):
         return len(self._hits(query))
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return self.records.get(name, contract.Outcome.NOT_LISTED)
+        return self.records.get(name, Outcome.NOT_LISTED)
 
 
 class FakeAlarmState(FakeBackend):
@@ -122,10 +133,10 @@ class FakeAlarmState(FakeBackend):
         pass
 
     async def state_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return contract.AlarmStateRecord(severity="MAJOR")
+        return AlarmStateRecord(severity="MAJOR")
 
     async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return contract.Unavailable("no message from the feed yet")
+        return Unavailable("no message from the feed yet")
 
 
 class FakeLog(FakeBackend):
@@ -147,7 +158,7 @@ def built(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 
     def create(kind: str):
         async def create_connector(spec: Any, *, project_dir: Path | None = None, **seams: Any):
-            assert spec.kind == kind
+            assert spec.kind == ("directory" if kind == "pv_directory" else kind)
             backend = _FAKES[kind](spec, project_dir=project_dir, **seams)
             made.append(backend)
             return backend
@@ -336,8 +347,8 @@ async def test_a_zero_count_drops_the_backend_count_partial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def search(self: Any, query: Any, deadline: float) -> Any:  # noqa: ARG001 - a fake
-        return contract.DirectoryPage(
-            outcome=contract.Outcome.NO_MATCH,
+        return DirectoryPage(
+            outcome=Outcome.NO_MATCH,
             searched="from the backend",
             request="GET /fake",
             source=self.source,
@@ -431,7 +442,7 @@ async def test_count_answers_the_whole_directory(tmp_path: Path) -> None:
 
 async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path: Path) -> None:
     FakeDirectory.records = {
-        "SR:BPM1": contract.DirectoryRecord(
+        "SR:BPM1": DirectoryRecord(
             row=_row("SR:BPM1", status="Inactive", host="h1"),
             properties={"Engineer": "A. Person", "secret": "x"},
         )
@@ -456,7 +467,7 @@ async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path:
 def _described_rows(name: str) -> None:
     FakeDirectory.rows = [_row(name, description="Cavity temperature", ioc="ioc-a")]
     FakeDirectory.records = {
-        name: contract.DirectoryRecord(row=_row(name, description="Cavity temperature"))
+        name: DirectoryRecord(row=_row(name, description="Cavity temperature"))
     }
 
 
@@ -582,7 +593,7 @@ async def test_va_never_reaches_a_facility_backend(tmp_path: Path, built: list[A
         await directory.backend(kind)
 
     assert {(b.spec.kind, b.spec.type) for b in built} == {
-        ("pv_directory", "simulator_view"),
+        ("directory", "simulator_view"),
         ("alarm_state", "alarm_replay"),
     }
     assert {b.spec.target for b in built} == {"va"}
@@ -712,7 +723,7 @@ async def test_a_search_with_no_source_on_live_is_the_shared_fixture_page(
 async def test_every_search_outcome_carries_the_page_fields(
     tmp_path: Path, record: _Record
 ) -> None:
-    page_keys = {field.name for field in dataclasses.fields(contract.DirectoryPage)}
+    page_keys = {field.name for field in dataclasses.fields(DirectoryPage)}
     FakeDirectory.rows = [_row("SR:BPM1")]
     record.move("live", 1)
     found = await _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path).search(words="SR")
@@ -897,4 +908,7 @@ def test_modules_blocked_the_framework_takes_only_listed_names(
         test_public_api._framework_imports.cache_clear()
 
     assert taken
-    assert all(not module.startswith("osprey_connectors.pv_directory") for module, _ in taken)
+    assert all(
+        not any(module == new or module.startswith(new + ".") for new in _NEW_MODULES)
+        for module, _ in taken
+    )

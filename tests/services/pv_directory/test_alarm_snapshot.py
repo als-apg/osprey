@@ -13,7 +13,11 @@ from pathlib import Path
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
+
+from osprey_connectors.alarm_state import ALARM_STALE_WINDOW_S, AlarmStateRecord
+from osprey_connectors.service_answers import BackendSpec, Unavailable
+
 _replay = pytest.importorskip("osprey_connectors.alarm_state._replay")
 
 import osprey_connectors_tests  # noqa: E402
@@ -23,12 +27,12 @@ FIXTURES = Path(osprey_connectors_tests.__file__).parent / "alarm_state" / "fixt
 OLD_FEED = FIXTURES / "old-feed.ndjson"
 STOPPED_FEED = FIXTURES / "stopped-feed.ndjson"
 PV = "DEMO:RF1:CAV:Temp-I"
-LOADING = contract.Unavailable("alarm feed still loading")
+LOADING = Unavailable("alarm feed still loading")
 LOAD_MOMENT = datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC)
 
 
 def _replay_backend(path: Path):
-    spec = contract.BackendSpec(
+    spec = BackendSpec(
         kind="alarm_state",
         type="alarm_replay",
         target="va",
@@ -101,7 +105,7 @@ async def test_the_first_read_answers_the_snapshot():
     finally:
         await snapshot.aclose()
 
-    assert isinstance(state, contract.AlarmStateRecord)
+    assert isinstance(state, AlarmStateRecord)
     assert state.severity == "MAJOR"
     assert state.latched is True
     assert state.stale is False
@@ -127,7 +131,7 @@ async def test_a_replay_is_not_stale_after_the_window_passes(monkeypatch):
     snapshot = AlarmSnapshot(_replay_backend(OLD_FEED), "va")
     try:
         assert (await snapshot.state_for(PV, 2.0)).stale is False
-        moment[0] = LOAD_MOMENT + timedelta(seconds=contract.ALARM_STALE_WINDOW_S + 1)
+        moment[0] = LOAD_MOMENT + timedelta(seconds=ALARM_STALE_WINDOW_S + 1)
         assert (await snapshot.state_for(PV, 2.0)).stale is False
     finally:
         await snapshot.aclose()
@@ -166,7 +170,7 @@ async def test_a_snapshot_read_reads_the_backend_once_with_the_deadline_left():
     ],
 )
 async def test_a_feed_that_cannot_answer_is_passed_on_never_no_alarm(reason):
-    answer = contract.Unavailable(reason)
+    answer = Unavailable(reason)
     snapshot = AlarmSnapshot(_Answering(answer), "live")
     try:
         assert await snapshot.state_for(PV, 0.5) is answer
