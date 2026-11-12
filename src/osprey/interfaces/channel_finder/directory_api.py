@@ -3,9 +3,9 @@
 ``create_app`` imports this module and includes :data:`router` at
 ``/api/directory`` only when the ``pv_directory`` section is configured, so an
 unconfigured panel has no directory route at all. The routes themselves live in
-:mod:`.directory_search_api`, :mod:`.directory_pages_api` and
-:mod:`.directory_values_api`; every one answers through the ``DirectoryService``
-the lifespan puts on ``app.state``.
+:mod:`.directory_search_api`, :mod:`.directory_pages_api`,
+:mod:`.directory_alarms_api` and :mod:`.directory_values_api`; every one answers
+through the ``DirectoryService`` the lifespan puts on ``app.state``.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from osprey.interfaces.channel_finder import (
+    directory_alarms_api,
     directory_pages_api,
     directory_search_api,
     directory_values_api,
@@ -33,6 +34,7 @@ _SERVICES = ("alarm_log", "alarm_state", "put_log")
 router = APIRouter()
 router.include_router(directory_search_api.router)
 router.include_router(directory_pages_api.router)
+router.include_router(directory_alarms_api.router)
 router.include_router(directory_values_api.router)
 
 
