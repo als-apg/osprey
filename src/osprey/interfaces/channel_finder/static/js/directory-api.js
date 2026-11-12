@@ -280,10 +280,11 @@ export function countDirectory(q) {
 
 /**
  * @param {string} name
+ * @param {AbortSignal} [signal]
  * @returns {Promise<PvFacts>}
  */
-export function fetchPvFacts(name) {
-  return fetchJSON(`/api/directory/pv/${encodeURIComponent(name)}`);
+export function fetchPvFacts(name, signal) {
+  return fetchJSON(`/api/directory/pv/${encodeURIComponent(name)}`, { signal });
 }
 
 /**
@@ -314,13 +315,14 @@ export function fetchActiveAlarms({ severity, limit } = {}, signal) {
  * Current values of at most 50 names; the route answers 422 past that. No
  * names are read as none, without a request.
  * @param {string[]} names
+ * @param {AbortSignal} [signal]
  * @returns {Promise<ValueRow[]>}
  */
-export function readValues(names) {
+export function readValues(names, signal) {
   if (names.length === 0) return Promise.resolve([]);
   const params = new URLSearchParams();
   for (const name of names) params.append('name', name);
-  return fetchJSON(`/api/directory/values?${params}`);
+  return fetchJSON(`/api/directory/values?${params}`, { signal });
 }
 
 /**

@@ -83,7 +83,9 @@ const SIDEBAR_KEY = 'cf-alarms-tree';
  *   values: Map<string, ValueRow>|null,
  *   valuesKey: string,
  *   facts: Map<string, PvFacts|string>,
+ *   factsPending: Set<string>,
  *   pollSeq: number,
+ *   reading: number,
  *   valuesSeq: number,
  *   canPlot: boolean,
  *   sidebar: PanelSidebarApi|null,
@@ -118,6 +120,9 @@ function writePart(el, html) {
     else if (node !== undefined) selector = `[data-node="${CSS.escape(node)}"]`;
     else if (action !== undefined) selector = `[data-action="${CSS.escape(action)}"]`;
     else if (href !== null) selector = `a[href="${CSS.escape(href)}"]`;
+    else if (active.matches('tr[data-name]')) {
+      selector = `tr[data-name="${CSS.escape(active.dataset.name ?? '')}"]`;
+    }
   }
   el.innerHTML = html;
   written.set(el, html);
@@ -155,7 +160,9 @@ export function mountAlarms(container) {
     values: null,
     valuesKey: '',
     facts: new Map(),
+    factsPending: new Set(),
     pollSeq: 0,
+    reading: 0,
     valuesSeq: 0,
     canPlot: false,
     sidebar: null,
@@ -164,6 +171,7 @@ export function mountAlarms(container) {
     feedPopover: null,
   };
   root.addEventListener('click', onClick, { signal });
+  root.addEventListener('keydown', onKeydown, { signal });
   document.addEventListener(
     'visibilitychange',
     () => {
@@ -183,8 +191,10 @@ export function mountAlarms(container) {
   });
 
   renderState(part('.alarms-state'), { icon: 'bell', message: 'Reading the alarm feed' });
+  // A tick waits for a list read still in flight: the route may take longer
+  // than the poll to answer, and a newer read would drop that answer.
   view.timer = window.setInterval(() => {
-    if (!document.hidden) void poll();
+    if (!document.hidden && !view?.reading) void poll();
   }, POLL_MS);
   void poll();
 }
@@ -210,6 +220,7 @@ async function poll() {
   const seq = ++current.pollSeq;
   /** @type {ActiveAlarms} */
   let answer;
+  current.reading += 1;
   try {
     answer = await fetchActiveAlarms({}, current.controller.signal);
   } catch (err) {
@@ -217,6 +228,8 @@ async function poll() {
     current.answer = null;
     showFailure(`Alarm feed did not answer: ${messageOf(err)}`, true);
     return;
+  } finally {
+    current.reading -= 1;
   }
   if (view !== current || seq !== current.pollSeq) return;
   state.emit('alarmCounts', answer);
@@ -248,7 +261,7 @@ async function readShownValues(force = false) {
   /** @type {ValueRow[]} */
   let rows;
   try {
-    rows = await readValues(names);
+    rows = await readValues(names, current.controller.signal);
   } catch {
     rows = [];
   }
@@ -261,19 +274,22 @@ async function readShownValues(force = false) {
 }
 
 /**
- * Read the facts of `name` for the inspector, once per mount unless forced.
+ * Read the facts of `name` for the inspector, once per mount: a name already
+ * read, or being read, is not read again.
  * @param {string} name
- * @param {boolean} [force]
  */
-async function readFacts(name, force = false) {
-  if (!view || (!force && view.facts.has(name))) return;
+async function readFacts(name) {
+  if (!view || view.facts.has(name) || view.factsPending.has(name)) return;
   const current = view;
+  current.factsPending.add(name);
   /** @type {PvFacts|string} */
   let facts;
   try {
-    facts = await fetchPvFacts(name);
+    facts = await fetchPvFacts(name, current.controller.signal);
   } catch (err) {
     facts = messageOf(err);
+  } finally {
+    current.factsPending.delete(name);
   }
   if (view !== current) return;
   current.facts.set(name, facts);
@@ -405,14 +421,19 @@ function renderList() {
     inspector.hidden = true;
     const filtered = view.severity !== null || view.node !== null;
     const total = typeof answer.total === 'number' ? answer.total : 0;
-    written.delete(list);
+    const message = filtered ? 'No active alarms for this filter' : 'No active alarms';
+    const detail = filtered
+      ? ''
+      : `The alarm feed holds ${total.toLocaleString('en-US')} PVs, all OK.`;
+    // Drawn again only when it says something else, so a poll keeps the focus.
+    const key = `state\n${message}\n${detail}`;
+    if (written.get(list) === key) return;
     renderState(list, {
       icon: 'check',
-      message: filtered ? 'No active alarms for this filter' : 'No active alarms',
-      ...(filtered
-        ? { action: { label: 'Clear filter', onClick: clearFilters } }
-        : { detail: `The alarm feed holds ${total.toLocaleString('en-US')} PVs, all OK.` }),
+      message,
+      ...(filtered ? { action: { label: 'Clear filter', onClick: clearFilters } } : { detail }),
     });
+    written.set(list, key);
     return;
   }
   if (!rows.some((row) => row.pv === view?.selected)) view.selected = rows[0].pv;
@@ -515,6 +536,24 @@ function onClick(event) {
     location.hash = formatRoute({ view: 'pv', params: { name } });
     return;
   }
+  select(name);
+}
+
+/**
+ * Enter or Space on a focused row selects it, as a click does.
+ * @param {KeyboardEvent} event
+ */
+function onKeydown(event) {
+  if (!view || (event.key !== 'Enter' && event.key !== ' ')) return;
+  const row = event.target instanceof HTMLElement ? event.target : null;
+  if (!row?.matches('tbody tr[data-name]')) return;
+  event.preventDefault();
+  row.click();
+}
+
+/** @param {string} name the row to show in the inspector */
+function select(name) {
+  if (!view) return;
   view.selected = name;
   renderList();
   renderInspector();

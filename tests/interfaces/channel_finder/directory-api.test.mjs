@@ -116,6 +116,16 @@ describe('directory-api routes', () => {
     expect(opts.method).toBeUndefined();
   });
 
+  test('the PV facts and the values take an abort signal', async () => {
+    const fetchMock = stubFetch([]);
+    const { fetchPvFacts, readValues } = await import(DIRECTORY_API_MODULE);
+    const { signal } = new AbortController();
+    await fetchPvFacts('A', signal);
+    expect(lastCall(fetchMock).opts.signal).toBe(signal);
+    await readValues(['A'], signal);
+    expect(lastCall(fetchMock).opts.signal).toBe(signal);
+  });
+
   test('values of no names are none, without a request', async () => {
     const fetchMock = stubFetch([{ name: 'A' }]);
     const { readValues } = await import(DIRECTORY_API_MODULE);
