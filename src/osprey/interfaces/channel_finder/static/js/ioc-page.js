@@ -26,7 +26,7 @@
 import { icon } from '/design-system/js/icons.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { renderState } from '/design-system/js/panel-state.js';
-import { sinceText } from './alarms-render.js';
+import { durationText, sinceText } from './duration.js';
 import { fetchIocFacts, readValues } from './directory-api.js';
 import { timeText } from './pv-page-sections.js';
 import { formatRoute } from './route.js';
@@ -124,15 +124,6 @@ async function readRows(names) {
   } catch {
     return null;
   }
-}
-
-/**
- * A number of seconds as a duration, in the units the Alarms view counts in.
- * @param {number} seconds
- * @returns {string}
- */
-function durationText(seconds) {
-  return sinceText(new Date(0).toISOString(), seconds * 1000);
 }
 
 /**
