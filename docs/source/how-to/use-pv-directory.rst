@@ -169,8 +169,8 @@ a read and runs without an approval prompt:
 
 - ``directory_search``, ``directory_properties``, ``pv_record`` and
   ``ioc_record`` are always present.
-- ``alarm_state``, ``alarm_config``, ``alarm_history`` and ``put_history``
-  are present only when their source is configured.
+- ``active_alarms``, ``alarm_state``, ``alarm_config``, ``alarm_history`` and
+  ``put_history`` are present only when their source is configured.
 
 Each PV or IOC answer carries a link to its page in this panel, which the agent
 can open beside the chat with ``open_panel``.

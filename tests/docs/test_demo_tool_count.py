@@ -63,7 +63,7 @@ def test_the_bullets_name_exactly_the_rendered_tools() -> None:
 def test_a_miscounted_or_unnamed_tool_is_caught() -> None:
     paragraph = _paragraph()
     rendered = _rendered_tools()
-    assert tool_counts(paragraph.replace("eleven tools", "twelve tools")) != [len(rendered)]
+    assert tool_counts(paragraph.replace("twelve tools", "thirteen tools")) != [len(rendered)]
     assert _bullet_tools(paragraph.replace("``alarm_config``", "the alarm configuration")) != (
         set(rendered)
     )

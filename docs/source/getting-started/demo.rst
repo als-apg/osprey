@@ -218,7 +218,7 @@ transformer); the second resolves to the ``SR:MAG:HCM:*:CURRENT:SP`` family.
 
 **How it works.** The preset runs the ``graph`` channel finder. It answers
 from the facility knowledge graph that ``osprey build`` writes from the
-facility file. The channel-finder agent works with eleven tools:
+facility file. The channel-finder agent works with twelve tools:
 
 - **Keyword lookup.** ``search_channels`` reads the search index that
   ``osprey build`` derives from the graph. It matches your words against each
@@ -232,8 +232,9 @@ facility file. The channel-finder agent works with eleven tools:
 - **The rules.** ``capabilities`` tells the agent how addresses are spelled and
   which tool fits which question.
 - **All PVs.** When the graph has no answer, ``directory_search``,
-  ``directory_properties``, ``pv_record``, ``ioc_record``, ``alarm_state`` and
-  ``alarm_config`` read the simulator's own directory and its replayed alarms.
+  ``directory_properties``, ``pv_record``, ``ioc_record``, ``active_alarms``,
+  ``alarm_state`` and ``alarm_config`` read the simulator's own directory and its
+  replayed alarms.
 
 The agent **never fabricates PV names**: every address it returns is one the
 graph or the directory holds. For the other search strategies, see

@@ -183,6 +183,8 @@ The ``channel-finder`` shared login carries the server; the ``logbook`` and
   configured, alarm state, alarm configuration, alarm history and put history.
 - ``ioc_record`` -- Look up one IOC: its host, ports, channel counts, engineer and
   the addresses of its health channels.
+- ``active_alarms`` -- List every channel in alarm now, with the counts per severity,
+  from the alarm feed.
 - ``alarm_state`` -- Read the current alarm of each channel address from the alarm
   feed, marking a record stale when the feed has stopped updating.
 - ``alarm_history`` -- List the alarm events the alarm logger recorded for one
