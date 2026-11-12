@@ -896,6 +896,23 @@ def test_a_malformed_entry_never_names_a_DIFFERENT_roster_variable(
     assert credentials.identify_operator("alice-value") is UNNAMED_OPERATOR
 
 
+def test_roster_owners_reads_the_mapping_it_is_given() -> None:
+    """The parse reads the environment it is handed, never the process's own.
+
+    ``os.environ`` carries no map here (the autouse fixture removes it), so a
+    parse that still read the process environment would name nobody; a
+    malformed entry in the mapping still costs every name in it.
+    """
+    assert ROSTER_OWNERS_ENV not in os.environ
+    assert web_auth.roster_owners({ROSTER_OWNERS_ENV: "ALICE_B=alice-b,BOB=bob"}) == {
+        "ALICE_B": "alice-b",
+        "BOB": "bob",
+    }
+    assert web_auth.roster_owners({ROSTER_OWNERS_ENV: "ALICE,BOB=alice,bob"}) == {}
+    assert web_auth.roster_owners({}) == {}
+    assert ROSTER_OWNERS_ENV not in os.environ
+
+
 def test_verify_operator_is_identify_operator(roster_credentials: WebCredentials) -> None:
     """One implementation behind both gate branches, so they cannot disagree."""
     for candidate in ("operator-value", "alice-value", "orphan-value", "panel-value", None, ""):

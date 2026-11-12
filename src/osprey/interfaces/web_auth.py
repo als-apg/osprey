@@ -89,6 +89,7 @@ import secrets
 import threading
 import time
 import urllib.parse
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -181,7 +182,7 @@ ROSTER_OWNERS_ENV = "OSPREY_TERMINAL_ROSTER_OWNERS"
 # What an account rendered into ROSTER_OWNERS_ENV may not contain or be. The
 # value becomes a directory component under the control-target tree and a
 # header value on its way to the queue, so it has to be one word that means the
-# same thing to both — see _roster_owners_from_env.
+# same thing to both — see roster_owners.
 _ACCOUNT_SEPARATORS: tuple[str, ...] = ("/", "\\", " ")
 _RESERVED_ACCOUNTS: tuple[str, ...] = (".", "..")
 
@@ -1111,7 +1112,12 @@ def _pop_roster_secrets() -> tuple[tuple[str, str], ...]:
 
 
 def _roster_owners_from_env() -> dict[str, str]:
-    """Parse :data:`ROSTER_OWNERS_ENV` into ``{roster variable suffix: account}``.
+    """:func:`roster_owners` of this process's own environment."""
+    return roster_owners(os.environ)
+
+
+def roster_owners(environ: Mapping[str, str]) -> dict[str, str]:
+    """Parse :data:`ROSTER_OWNERS_ENV` in *environ* into ``{roster variable suffix: account}``.
 
     Malformed input costs names, never an operator's access: the secrets a name
     is missing for are simply unnamed. The one outcome that is never acceptable
@@ -1131,7 +1137,7 @@ def _roster_owners_from_env() -> dict[str, str]:
     HTTP header value.
     """
     owners: dict[str, str] = {}
-    for entry in os.environ.get(ROSTER_OWNERS_ENV, "").split(","):
+    for entry in environ.get(ROSTER_OWNERS_ENV, "").split(","):
         if not entry.strip():
             continue
         suffix, separator, account = entry.partition("=")
@@ -1158,7 +1164,7 @@ def _usable_suffix(suffix: str) -> bool:
     Every key the map can legitimately carry was produced by
     :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`, whose
     output is ASCII letters, digits and ``_`` and nothing else. Holding keys to
-    that is how :func:`_roster_owners_from_env` recognises an entry it cannot
+    that is how :func:`roster_owners` recognises an entry it cannot
     read — a key it could never have been handed is a value that was mangled
     somewhere, and the names in it are not trustworthy.
     """
@@ -1168,7 +1174,7 @@ def _usable_suffix(suffix: str) -> bool:
 
 
 def _usable_account(account: str) -> bool:
-    """Whether *account* can serve as an owner name; see :func:`_roster_owners_from_env`."""
+    """Whether *account* can serve as an owner name; see :func:`roster_owners`."""
     if not account or account in _RESERVED_ACCOUNTS:
         return False
     if not account.isascii() or not account.isprintable():

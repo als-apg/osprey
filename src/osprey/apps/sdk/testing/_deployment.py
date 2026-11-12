@@ -252,9 +252,8 @@ class RenderedTree:
         from osprey.apps.manifest import launch_token_env
         from osprey.deployment.compose_generator import control_target_tree_dir
         from osprey.interfaces.web_auth import (
-            ROSTER_OWNERS_ENV,
             ROSTER_SECRET_ENV_PREFIX,
-            _roster_owners_from_env,
+            roster_owners,
         )
 
         config_path = self._config_path(login)
@@ -267,8 +266,7 @@ class RenderedTree:
             env[name] = str(config_path)
 
         # The terminal's own reading of the roster, on this environment's value.
-        with _environ({ROSTER_OWNERS_ENV: env.get(ROSTER_OWNERS_ENV)}):
-            owners = _roster_owners_from_env()
+        owners = roster_owners(env)
         harvested = {
             owner: env.get(ROSTER_SECRET_ENV_PREFIX + suffix, "").strip()
             for suffix, owner in owners.items()
