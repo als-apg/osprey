@@ -1,0 +1,40 @@
+{
+  "example": {
+    "addresses.json": "91d4916bfe2236f6f8f5bde1c7fb6ca5937c5637700d3ebf64b97fcc6d56b5af",
+    "decks/BTS.json": "1cee9d47df06fd8a73cf782a5d776aadbbe2972f2eb7818e7f3dd36f2724ec1f",
+    "decks/LINE.json": "0006f49dc6ed16fbc561cbb146dd04887693bced37fc18561508b081f73fe564",
+    "decks/LTB.json": "23e94ce9ae4726f5653b430669f60d91543c5eb1f7475af1a376906d8b766646",
+    "decks/SR.json": "8f48bf5673c78e2a8c00fcd53a5b2b2180d6fdb7870ae78139e4fd6e751f0288",
+    "scenarios.json": "b106ecf59f594639f9866bfc771eb4a6df3f5bc73623877e6ee9a78dfa1a4efd",
+    "scenarios/bpm-polarity/plots/corrector_bump_test.png": "754db6d9f351f306b7f5490d112164ea80dfe9c898a33976e25663b9f01f1372",
+    "scenarios/nominal/plots/orbit_rms.json": "d6c2361c2b8a786e2e2943d74a3bc38c8921d81ff649f95bb9f69e2dc8586b8f",
+    "scenarios/rf-thermal/plots/cavity_temperatures.json": "e1a5bc017add874c1513e2f5f7a4350af21af624bf121541f1c2a78df73b96c5",
+    "seeds.json": "adf279c55a063c64133757531b1b2b8f8c543893bae188ae278b4a92709d8ecf",
+    "served_models.json": "b61644b836c1fa9f3cae52739e54c0fd37c6b62336264533dfe4187f5bdb64b4",
+    "variables.json": "d06062c61a508bc23dbbfb7c836d856dc7565723cc31bb6c5ac4dd72fdd415d7"
+  },
+  "injection": {
+    "addresses.json": "27007af217bda1cfc091c8ec457915ed7edac2dffdde0d580d94933b6e765332",
+    "scenarios.json": "ae87170e9052fbbb7bcf85e523f34b6c44329eb54144cc67262147d6dca556a6",
+    "seeds.json": "178167a7ceecd359861c5400b95d0691fc648293373228eb3ef759c182eaf35f",
+    "served_models.json": "9735d50ca533fa32b43eb36cd0eebda86fe7dfacb3da62019dc12b2f0c300f6a",
+    "variables.json": "23a78b9d2ed55f231890262e51eb02de25efb998c9e8ac80fe475fdeeec25b60"
+  },
+  "mml-nsls2": {
+    "addresses.json": "f9896f6777c5fd4228d75ab6c0f2801ca4a81288fb40b74edebd4a057079e732",
+    "decks/LTB.json": "486811ce6841ad0744ced5e8118fbab2272618f462a09087cc1e3eaf5b28c8b4",
+    "decks/StorageRing.json": "b34db28a2d03cf41a8a61f9349e44ca34366f4909a834f125ca041c8cd2e8b42",
+    "scenarios.json": "4ebf48dffd33199ed9fac6086f7d94a5faf5d9b81a808f8abee0aceeb01fa85b",
+    "seeds.json": "41fd6e7b6b1ecb6045a0c5ffdf447dd7cf27d0e0de1e0dcadd3020e40fc7d34c",
+    "served_models.json": "da84e3d42cb9bce7b4ba830bc38487d5cdd0f802e7642f42a50913d610091fe6",
+    "variables.json": "23a77289825db2cb28f67a0f4d8780b28cd3b66eb3c50f0cf47806cf44dec517"
+  },
+  "mml-spear3": {
+    "addresses.json": "c2bb3cce3959a75b554f4ce8e4807ca9d5d17890d9ceac67bef1eafc6c398450",
+    "decks/StorageRing.json": "51d4fa04a1d560f962a8ed3ad3248d736b573876778e7590949ee9acdd991973",
+    "scenarios.json": "1305a85d57676baa6f89622583a8d17f1e41c3a1efa1d7b4ca589ee06c5e140c",
+    "seeds.json": "b0460fde6831c8dcba139fa3f438ec4193812d61f554b2cfca9cdbbe74c0cbe5",
+    "served_models.json": "c7ac64a6b7880c30c0fdb91c009c107df18f11f8cb462b1d0b0dc99487322f44",
+    "variables.json": "5fc022e6c62a5297a2e0c4da52b5b7b176a7a14f96167802237e40892e7a5451"
+  }
+}
