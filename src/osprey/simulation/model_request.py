@@ -24,12 +24,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
-from osprey.simulation.response import CAUSES, DEFAULT_KIND, RESPONSE_KINDS, RESULT_TAG
+from osprey.simulation.response import (
+    CAUSES,
+    COLUMN_POSITIONS_KEY,
+    DEFAULT_KIND,
+    RESPONSE_KINDS,
+    RESULT_TAG,
+    ROW_POSITIONS_KEY,
+)
 
 __all__ = [
+    "COLUMN_POSITIONS_KEY",
     "DEFAULT_KIND",
     "RESPONSE_KINDS",
     "RESULT_TAG",
+    "ROW_POSITIONS_KEY",
     "STEP_KEY",
     "UNSOLVED_KEY",
     "ModelRequest",
@@ -38,6 +47,7 @@ __all__ = [
     "child_script",
     "device_of",
     "engine_module",
+    "line_positions",
     "resolve_model_request",
     "result_line",
 ]
@@ -335,7 +345,8 @@ def result_line(stdout: str) -> dict[str, Any] | None:
     """The child's last :data:`RESULT_TAG` line, parsed; ``None`` when it printed none.
 
     A refusal line counts only with a cause of :data:`CAUSES`; a solved line
-    only with ``rows``, ``columns``, ``matrix`` and :data:`UNSOLVED_KEY`.
+    only with ``rows``, ``columns``, ``matrix`` and :data:`UNSOLVED_KEY`. The
+    positions are no condition: read them with :func:`line_positions`.
 
     Raises:
         ValueError: The last tagged line is not JSON.
@@ -352,3 +363,34 @@ def result_line(stdout: str) -> dict[str, Any] | None:
     if value.keys() >= _SOLVED_KEYS:
         return value
     return None
+
+
+def line_positions(line: Mapping[str, Any]) -> tuple[list[int] | None, list[int] | None]:
+    """A solved line's row and column positions, each ``None`` when the line states none.
+
+    A position is a lattice element index: counted from the deck's first
+    element for the ``orbit`` kind, from the injection element in the order
+    the bunch meets the elements for the ``trajectory`` kind. A line without
+    the key, with ``null``, or with a list that does not line up with its
+    rows or columns states none; nothing is filled in.
+
+    Args:
+        line: A solved line, as :func:`result_line` returns it.
+
+    Returns:
+        ``(row_positions, column_positions)``, aligned with the line's
+        ``rows`` and ``columns``.
+    """
+
+    def stated(key: str, count: int) -> list[int] | None:
+        value = line.get(key)
+        if not isinstance(value, list) or len(value) != count:
+            return None
+        if any(isinstance(item, bool) or not isinstance(item, int) for item in value):
+            return None
+        return list(value)
+
+    return (
+        stated(ROW_POSITIONS_KEY, len(line["rows"])),
+        stated(COLUMN_POSITIONS_KEY, len(line["columns"])),
+    )

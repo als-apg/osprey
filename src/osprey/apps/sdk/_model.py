@@ -106,18 +106,34 @@ class ModelMembers:
 
 @dataclass(frozen=True)
 class ResponseMatrix:
-    """A model's solved orbit response.
+    """A model's solved response, of the kind asked for.
 
     Stable: part of the application SDK's public surface.
 
+    A position is a lattice element index. For the ``orbit`` kind it is
+    counted from the deck's first element, a :class:`Member`'s ``index``. For
+    the ``trajectory`` kind it is counted from the injection element, in the
+    order the bunch meets the elements on its first turn: of two positions the
+    lower one is upstream.
+
     Attributes:
         model: The model solved.
-        rows: The monitor readback addresses, one row each.
-        columns: The solved corrector setpoint addresses, one column each.
+        rows: One address per row, ordered by (position, ``x`` before ``y``).
+            For the ``orbit`` kind the monitor readbacks. For the
+            ``trajectory`` kind the monitors' turn-buffer records (the wiring
+            signals ``turn_x`` and ``turn_y``), the arrays a shot is read
+            from; a monitor wiring neither has no row.
+        columns: The solved corrector setpoint addresses, one column each, in
+            the order asked.
         matrix: One list per row: each entry the readback change in its
-            hardware unit per setpoint change in its own.
+            hardware unit per setpoint change in its own. A turn-buffer row
+            is in metres, as the arrays are.
         unsolved: Each corrector asked whose step has no solve, mapped to the
             engine's text.
+        row_positions: Each row's position, aligned with ``rows``; ``None``
+            when the model's engine states no positions.
+        column_positions: Each column's position, aligned with ``columns``;
+            ``None`` when the model's engine states no positions.
     """
 
     model: str
@@ -125,6 +141,8 @@ class ResponseMatrix:
     columns: list[str]
     matrix: list[list[float]]
     unsolved: dict[str, str]
+    row_positions: list[int] | None = None
+    column_positions: list[int] | None = None
 
 
 def closed_orbit_models(render_root: Path | None = None) -> list[str]:
@@ -314,13 +332,15 @@ def model_response_matrix(
             render this process runs from when omitted.
         timeout_s: Seconds the solve may take.
         kind: ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``,
-            the first-turn response of the turn-by-turn readings. Any other
-            value is refused before a child starts; an engine that answers
-            only the orbit response refuses ``"trajectory"``.
+            the first-turn response of the monitors' turn-buffer records. Any
+            other value is refused before a child starts; an engine that
+            answers only the orbit response refuses ``"trajectory"``, and so
+            does a ring wiring no turn-buffer record.
 
     Returns:
-        The response. ``columns`` may be empty when no corrector solves;
-        ``unsolved`` then names every one.
+        The response, every row and column with its position along the ring.
+        ``columns`` may be empty when no corrector solves; ``unsolved`` then
+        names every one.
 
     Raises:
         ValueError: The request is refused: by the resolver (the message
@@ -333,6 +353,7 @@ def model_response_matrix(
     from osprey.simulation.model_request import (
         UNSOLVED_KEY,
         child_script,
+        line_positions,
         resolve_model_request,
         result_line,
     )
@@ -365,10 +386,13 @@ def model_response_matrix(
         raise RuntimeError(f"the response of {request.model} has no solve: {line['refused']}")
     if "refused" in line:
         raise ValueError(f"the response of {request.model} was refused: {line['refused']}")
+    row_positions, column_positions = line_positions(line)
     return ResponseMatrix(
         model=request.model,
         rows=[str(row) for row in line["rows"]],
         columns=[str(column) for column in line["columns"]],
         matrix=[[float(value) for value in row] for row in line["matrix"]],
         unsolved={str(key): str(text) for key, text in dict(line[UNSOLVED_KEY]).items()},
+        row_positions=row_positions,
+        column_positions=column_positions,
     )

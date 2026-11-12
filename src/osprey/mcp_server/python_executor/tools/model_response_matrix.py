@@ -4,7 +4,7 @@
 response of a served model's wired monitors to its corrector setpoints on the
 model's own deck, through its engine plug-in's ``response_matrix()``: the
 orbit readbacks' response, or with ``kind="trajectory"`` the first-turn
-response of the turn-by-turn readings. Nothing is written to the machine or to
+response of the monitors' turn-buffer records. Nothing is written to the machine or to
 the deck.
 
 Everything is read from the render the server runs against (the directory of
@@ -40,6 +40,7 @@ from osprey.simulation.model_request import (
     ModelRequestRefused,
     child_payload,
     child_script,
+    line_positions,
     result_line,
 )
 
@@ -102,18 +103,29 @@ def resolve_model_request(
 
 def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
     view = request.view
+    row_positions, column_positions = line_positions(line)
+    rows: list[str] = line["rows"]
+    columns: list[str] = line["columns"]
     return {
         "model": request.model,
         "corrector_delta": request.corrector_delta,
         "unit": _UNIT,
-        "rows": [{"address": row, "device": _device(view, row)} for row in line["rows"]],
+        "rows": [
+            {
+                "address": row,
+                "device": _device(view, row),
+                "position": None if row_positions is None else row_positions[place],
+            }
+            for place, row in enumerate(rows)
+        ],
         "columns": [
             {
                 "address": address,
                 "device": request.devices.get(address),
                 "step": request.steps[address],
+                "position": None if column_positions is None else column_positions[place],
             }
-            for address in line["columns"]
+            for place, address in enumerate(columns)
         ],
         "matrix": line["matrix"],
         MISSING_KEY: line[MISSING_KEY],
@@ -136,16 +148,21 @@ async def model_response_matrix(
         correctors: Corrector setpoint addresses; omit for every corrector the
             model wires, horizontal then vertical.
         kind: ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``,
-            the first-turn response of the turn-by-turn readings. Any other
-            value is refused, naming the two; an engine that answers only the
-            orbit response refuses ``"trajectory"`` with its text.
+            the first-turn response of the monitors' turn-buffer records. Any
+            other value is refused, naming the two; an engine that answers
+            only the orbit response refuses ``"trajectory"`` with its text.
 
     Returns:
         JSON: ``model``, ``corrector_delta``, ``unit``, ``rows`` (``{address,
-        device}`` per monitor readback), ``columns`` (``{address, device,
-        step}`` per solved corrector, ``step`` in its hardware unit),
-        ``matrix`` (one list per row) and ``missing`` (each corrector whose
-        step has no solve, mapped to the engine's text). When no corrector
+        device, position}`` per monitor readback; for ``"trajectory"`` per
+        monitor turn-buffer record, the ``turn_x`` and ``turn_y`` arrays, in
+        metres), ``columns`` (``{address, device, step, position}`` per
+        solved corrector, ``step`` in its hardware unit), ``matrix`` (one
+        list per row) and ``missing`` (each corrector whose step has no
+        solve, mapped to the engine's text). ``position`` is the lattice
+        element index: from the deck's first element for ``"orbit"``, from
+        the injection element in the order the bunch meets the elements for
+        ``"trajectory"``; ``null`` when the engine states none. When no corrector
         solves, the call is refused as ``nothing_answered`` with
         ``details.missing`` holding the same map (docs: Reference → Contracts →
         Partial Answers).
