@@ -278,7 +278,8 @@ async def test_search_filters_by_origin_over_the_fetched_set(
         {"value": "curated", "count": 2},
     ]
     sent = built[0].searches + built[0].counts
-    assert all(query.origin == () for query in sent)
+    assert sent
+    assert all(not hasattr(query, "origin") for query in sent)
     await directory.aclose()
 
 

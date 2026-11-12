@@ -46,7 +46,7 @@ from osprey.services.pv_directory._connectors import (
 )
 from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
 from osprey.services.pv_directory.demo import resolve_replay_file
-from osprey.services.pv_directory.origin import mark
+from osprey.services.pv_directory.origin import Origin, mark
 from osprey_connectors import control_context
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.types import baseline_target
@@ -67,7 +67,8 @@ _CACHE_SIZE = 32
 #: How far past its deadline an alarm-feed probe may run before it is cut off.
 _PROBE_GRACE_S = 1.0
 
-_FACETS = ("origin", "ioc", "record_type")
+#: The row fields the facets count, after ``origin``.
+_ROW_FACETS = ("ioc", "record_type")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -120,14 +121,13 @@ class DirectoryService:
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
             return _no_source_page(reason or NO_SOURCE_REASON, target)
-        query = DirectoryQuery(**fields)
-        server = dataclasses.replace(query, origin=())
+        origins, server = _split_origin(fields)
         deadline = self._timeout()
         started = time.monotonic()
 
         count = asyncio.create_task(self._count(at, backend, server, deadline))
         full = asyncio.create_task(self._full_set(at, backend, server, count, started, deadline))
-        page = None if query.origin else asyncio.create_task(backend.search(server, deadline))
+        page = None if origins else asyncio.create_task(backend.search(server, deadline))
         tasks = [task for task in (count, full, page) if task is not None]
         await asyncio.wait(tasks, timeout=deadline)
         late = f"no answer within {deadline:g} s"
@@ -141,25 +141,26 @@ class DirectoryService:
 
         facets: dict[str, list[Mapping[str, Any]]] | None = None
         facets_reason: str | None = None
-        marked: list[Any] | None = None
+        marked: list[tuple[Any, Origin]] | None = None
         if isinstance(fetched, _FullSet):
             marked = self._marked(backend, fetched.rows)
-            facets = _facets(marked, query.origin)
+            facets = _facets(marked, origins)
         else:
             facets_reason = fetched.reason
             if not isinstance(fetched, _TooMany):
                 partial.append({"part": "facets", "reason": fetched.reason})
 
         fields_out: dict[str, Any]
-        if query.origin:
-            fields_out = self._origin_page(query, marked, fetched)
+        if origins:
+            fields_out = self._origin_page(server, origins, marked, fetched)
         else:
             fields_out = self._server_page(backend, _result(page, late), total, partial)
             if fields_out.get("total") is None:
                 fields_out["total"] = total
+        rows = fields_out.pop("rows", [])
         payload: dict[str, Any] = as_payload(
             DirectoryPage(
-                searched=_searched(query),
+                searched=_searched(server, origins),
                 source=source,
                 partial=partial,
                 facets=facets,
@@ -167,6 +168,7 @@ class DirectoryService:
                 **fields_out,
             )
         )
+        payload["rows"] = [_served_row(row, origin) for row, origin in rows]
         return payload
 
     async def count(self, **fields: Any) -> dict[str, Any]:
@@ -176,12 +178,11 @@ class DirectoryService:
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
             return _no_source_count(reason or NO_SOURCE_REASON, target)
-        query = DirectoryQuery(**fields)
-        server = dataclasses.replace(query, origin=())
+        origins, server = _split_origin(fields)
         deadline = self._timeout()
         started = time.monotonic()
         answer: Any
-        if query.origin:
+        if origins:
             count = asyncio.create_task(self._count(at, backend, server, deadline))
             answer = await self._bounded(
                 self._full_set(at, backend, server, count, started, deadline), deadline
@@ -189,7 +190,7 @@ class DirectoryService:
             await _cancel([count])
             if isinstance(answer, _FullSet):
                 answer = sum(
-                    row.origin in query.origin for row in self._marked(backend, answer.rows)
+                    origin in origins for _row, origin in self._marked(backend, answer.rows)
                 )
         else:
             answer = await self._bounded(self._count(at, backend, server, deadline), deadline)
@@ -225,16 +226,19 @@ class DirectoryService:
         if answer == Outcome.NOT_LISTED:
             return {**payload, "outcome": "not_listed"}
         hidden = self._hidden()
-        record = dataclasses.replace(
-            answer,
-            row=self._hide_row(backend, dataclasses.replace(answer.row, origin=origin), hidden),
-            properties={k: v for k, v in answer.properties.items() if k not in hidden},
+        row = self._hide_row(backend, answer.row, hidden)
+        record = as_payload(
+            dataclasses.replace(
+                answer,
+                properties={k: v for k, v in answer.properties.items() if k not in hidden},
+            )
         )
-        inactive = record.row.status == "Inactive"
+        record["row"] = _served_row(row, origin)
+        inactive = row.status == "Inactive"
         return {
             **payload,
             "outcome": "inactive" if inactive else "found",
-            "record": as_payload(record),
+            "record": record,
         }
 
     async def backend(self, kind: str) -> tuple[Any, Any, str | None]:
@@ -406,11 +410,17 @@ class DirectoryService:
         self._store(at, key, fetched)
         return fetched
 
-    def _origin_page(self, query: Any, marked: list[Any] | None, fetched: Any) -> dict[str, Any]:
+    def _origin_page(
+        self,
+        query: Any,
+        origins: tuple[str, ...],
+        marked: list[tuple[Any, Origin]] | None,
+        fetched: Any,
+    ) -> dict[str, Any]:
         """The page of an origin-filtered search, cut from the whole fetched set."""
         if marked is None:
             return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": fetched.reason}
-        kept = [row for row in marked if row.origin in query.origin]
+        kept = [pair for pair in marked if pair[1] in origins]
         size = max(query.page_size, 0)
         start = max(query.page, 0) * size
         rows = kept[start : start + size]
@@ -444,15 +454,12 @@ class DirectoryService:
             "reason": page.reason,
         }
 
-    def _marked(self, backend: Any, rows: Iterable[Any]) -> list[Any]:
-        """*rows* with their origin marks and without hidden properties."""
+    def _marked(self, backend: Any, rows: Iterable[Any]) -> list[tuple[Any, Origin]]:
+        """*rows* without hidden properties, each paired with its origin mark."""
         rows = list(rows)
         marks = mark([row.name for row in rows], dict(self._config))
         hidden = self._hidden()
-        return [
-            self._hide_row(backend, dataclasses.replace(row, origin=marks[row.name]), hidden)
-            for row in rows
-        ]
+        return [(self._hide_row(backend, row, hidden), marks[row.name]) for row in rows]
 
     def _hidden(self) -> frozenset[str]:
         names = self._display.get("hidden_properties")
@@ -549,12 +556,14 @@ def _result(task: asyncio.Task[Any] | None, late: str) -> Any:
     return task.result()
 
 
-def _facets(marked: list[Any], origins: tuple[str, ...]) -> dict[str, list[Mapping[str, Any]]]:
+def _facets(
+    marked: list[tuple[Any, Origin]], origins: tuple[str, ...]
+) -> dict[str, list[Mapping[str, Any]]]:
     """Value counts over the fetched set; IOC and record type over the origin-filtered part."""
-    kept = [row for row in marked if not origins or row.origin in origins]
+    kept = [row for row, origin in marked if not origins or origin in origins]
     return {
-        name: _tally(getattr(row, name) for row in (marked if name == "origin" else kept))
-        for name in _FACETS
+        "origin": _tally(origin for _row, origin in marked),
+        **{name: _tally(getattr(row, name) for row in kept) for name in _ROW_FACETS},
     }
 
 
@@ -567,7 +576,24 @@ def _tally(values: Iterable[Any]) -> list[Mapping[str, Any]]:
     return [{"value": value, "count": count} for value, count in ordered]
 
 
-def _searched(query: Any) -> str:
+def _split_origin(fields: Mapping[str, Any]) -> tuple[tuple[str, ...], Any]:
+    """The origin filter of a search's keywords, and the query the server answers."""
+    rest = dict(fields)
+    origin = rest.pop("origin", None)
+    if origin is None:
+        origins: tuple[str, ...] = ()
+    else:
+        origins = (origin,) if isinstance(origin, str) else tuple(origin)
+    return origins, DirectoryQuery(**rest)
+
+
+def _served_row(row: Any, origin: Origin) -> dict[str, Any]:
+    """*row* as served: its name, its origin mark, then the rest of its fields."""
+    payload: dict[str, Any] = as_payload(row)
+    return {"name": payload.pop("name"), "origin": origin, **payload}
+
+
+def _searched(query: Any, origins: tuple[str, ...]) -> str:
     """The search in plain words."""
     parts = []
     if query.words.strip():
@@ -581,8 +607,8 @@ def _searched(query: Any) -> str:
     if query.record_type:
         parts.append(f"record type {' or '.join(query.record_type)}")
     parts.extend(f"{key} {value}" for key, value in query.properties.items())
-    if query.origin:
-        parts.append(f"origin {' or '.join(query.origin)}")
+    if origins:
+        parts.append(f"origin {' or '.join(origins)}")
     return " · ".join(parts) or "every PV"
 
 

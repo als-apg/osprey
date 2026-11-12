@@ -275,15 +275,6 @@ async def test_filters_narrow_the_result(
     assert [name for name in names if not name.startswith("T:SIM:")] == expected
 
 
-async def test_origin_is_left_to_the_service(directory: SimulatorDirectory) -> None:
-    query = DirectoryQuery(words="cooling", origin="curated")
-
-    page = await directory.search(query, DEADLINE)
-
-    assert [row.origin for row in page.rows] == ["unknown"]
-    assert await directory.count(query, DEADLINE) == 1
-
-
 async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
     directory: SimulatorDirectory,
 ) -> None:
@@ -291,7 +282,6 @@ async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
 
     assert asdict(page.rows[0]) == {
         "name": SETPOINT,
-        "origin": "unknown",
         "status": "Active",
         "description": "Quadrupole current setting.",
         "record_type": "ao",

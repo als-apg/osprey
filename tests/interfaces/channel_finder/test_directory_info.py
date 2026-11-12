@@ -325,10 +325,15 @@ def test_the_fixture_names_every_json_panel_route() -> None:
 
 def test_the_fixture_search_is_a_directory_page() -> None:
     page = _routes()["search"]
-    rows = [DirectoryRow(**row) for row in page["rows"]]
+    rows = [DirectoryRow(**{k: v for k, v in row.items() if k != "origin"}) for row in page["rows"]]
     rebuilt = DirectoryPage(**{**page, "source": Source(**page["source"]), "rows": rows})
+    payload = _connectors.as_payload(rebuilt)
+    payload["rows"] = [
+        service._served_row(row, served["origin"])
+        for row, served in zip(rows, page["rows"], strict=True)
+    ]
 
-    assert _connectors.as_payload(rebuilt) == page
+    assert payload == page
 
 
 def test_the_fixture_value_rows_carry_int_severity_and_iso_timestamps() -> None:
