@@ -334,9 +334,8 @@ class DirectoryService:
             return None, None, NO_SOURCE_REASON
         if kind == "alarm_state" and spec.settings.get("replay_file"):
             spec = self._with_replay_path(spec)
-        create = getattr(ConnectorFactory, f"create_{kind}_connector")
         try:
-            backend = await create(spec, project_dir=self._project_dir)
+            backend = await ConnectorFactory.create_service(spec, project_dir=self._project_dir)
         except Exception as failure:
             logger.warning("cannot build the %s backend %r: %s", kind, spec.type, failure)
             return None, None, f"cannot build the {kind} backend {spec.type!r}: {failure}"

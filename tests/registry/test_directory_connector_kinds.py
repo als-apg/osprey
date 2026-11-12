@@ -20,13 +20,8 @@ from osprey_connectors_tests._harness import isolated_connector_registries
 KINDS = ("directory", "alarm_log", "alarm_state", "put_log")
 
 
-def _stem(kind: str) -> str:
-    """The factory's method and registry stem for *kind*; the directory kind keeps its old one."""
-    return "pv_directory" if kind == "directory" else kind
-
-
 _has_kinds = pytest.mark.skipif(
-    not hasattr(ConnectorFactory, "register_pv_directory"),
+    not hasattr(ConnectorFactory, "register_service"),
     reason="connectors floor has no directory kinds",
 )
 
@@ -56,18 +51,15 @@ def test_a_registration_reaches_its_kinds_registry(kind: str) -> None:
     with isolated_connector_registries():
         _initialize(kind)
 
-        assert (
-            getattr(ConnectorFactory, f"_{_stem(kind)}_connectors")["out_of_tree"]
-            is OutOfTreeBackend
-        )
+        assert ConnectorFactory._service_backends[kind]["out_of_tree"] is OutOfTreeBackend
 
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_connectors_without_the_kind_refuse_it_by_name(
     kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The floor's factory, on either tree: no ``register_<kind>`` to find.
-    monkeypatch.delattr(ConnectorFactory, f"register_{_stem(kind)}", raising=False)
+    # The floor's factory, on either tree: no ``register_service`` to find.
+    monkeypatch.delattr(ConnectorFactory, "register_service", raising=False)
 
     with pytest.raises(RegistryError, match=rf"has no {kind} support"):
         _initialize(kind)

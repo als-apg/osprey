@@ -47,10 +47,11 @@ from osprey_connectors.simulation.view import (
     STATUS_SIGNAL,
     UPTIME,
 )
+from tests._service_factory import patch_create_service
 
 SIGNAL = SERVED_SIGNAL_PROPERTY
 
-_REAL_ALARM_STATE = ConnectorFactory.create_alarm_state_connector
+_REAL_CREATE = ConnectorFactory.create_service
 
 _NEW_MODULES = (
     "osprey_connectors.service_answers",
@@ -228,7 +229,8 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> None:
         return create_connector
 
     for kind in _FAKES:
-        monkeypatch.setattr(ConnectorFactory, f"create_{kind}_connector", create(kind))
+        spec_kind = "directory" if kind == "pv_directory" else kind
+        patch_create_service(monkeypatch, spec_kind, create(kind))
     monkeypatch.setattr(FakeDirectory, "records", {})
     monkeypatch.setattr(FakeDirectory, "fail", None)
     monkeypatch.setattr(FakeAlarmState, "state", None)
@@ -480,7 +482,7 @@ async def test_a_backend_that_cannot_be_built_says_why(
     async def refuse(*_: Any, **__: Any) -> Any:
         raise RuntimeError("bad url")
 
-    monkeypatch.setattr(ConnectorFactory, "create_alarm_log_connector", refuse)
+    patch_create_service(monkeypatch, "alarm_log", refuse)
     section = {**FACILITY, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -555,7 +557,7 @@ async def test_alarm_state_on_va_from_the_replay(
     tmp_path: Path, record: _Record, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip("osprey_connectors.alarm_state._replay")
-    monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", _REAL_ALARM_STATE)
+    patch_create_service(monkeypatch, "alarm_state", _REAL_CREATE)
     record.move("va", 1)
     caveats = ["replayed, not live"]
     section = {"alarm_state": {"replay_file": "demo:example-alarms", "caveats": caveats}}

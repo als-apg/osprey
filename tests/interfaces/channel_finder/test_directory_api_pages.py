@@ -32,9 +32,9 @@ from osprey.services.pv_directory import _connectors, service
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmConfigRecord
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
-from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.put_log import PutRow
 from osprey_connectors.service_answers import HistoryPage, Outcome, Source
+from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
@@ -141,7 +141,8 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> None:
         return create_connector
 
     for kind in _FAKES:
-        monkeypatch.setattr(ConnectorFactory, f"create_{kind}_connector", create(kind))
+        spec_kind = "directory" if kind == "pv_directory" else kind
+        patch_create_service(monkeypatch, spec_kind, create(kind))
     monkeypatch.setattr(FakeDirectory, "records", {})
 
 
