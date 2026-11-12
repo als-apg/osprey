@@ -171,12 +171,13 @@ import { state } from './state.js';
 
 /**
  * The IOC's PVs in alarm now, present when an alarm feed is configured:
- * `total` counts them all, `rows` the first page; `unavailable` with `reason`
- * when the feed did not answer.
+ * `total` counts them all, `rows` the first page, `counts` each severity over
+ * the whole IOC; `unavailable` with `reason` when the feed did not answer.
  * @typedef {{
  *   outcome: 'found'|'no_match'|'unavailable',
  *   total?: number|null,
  *   rows?: IocAlarmRow[],
+ *   counts?: Record<string, number>,
  *   reason?: string,
  * }} IocAlarms
  */

@@ -395,10 +395,12 @@ class Facts:
         return facts
 
     async def _ioc_alarms(self, ioc: str) -> dict[str, Any]:
-        """The IOC's PVs in alarm now: ``{outcome, total, rows}``, or ``unavailable`` with the reason.
+        """The IOC's PVs in alarm now: ``{outcome, total, rows, counts?}``, or ``unavailable``.
 
         One alarm-filtered search, so the panel and the agent read the answer the
-        All PVs alarm filter gives; ``total`` counts the whole filtered set.
+        All PVs alarm filter gives; ``total`` counts the whole filtered set and
+        ``counts`` each severity over the whole IOC, from the search's alarm
+        facet (absent when the search answered no facets).
         """
         page = await self._service.search(
             ioc=[ioc], alarm=_ACTIVE_SEVERITIES, page_size=_IOC_ALARMS_PAGE_SIZE
@@ -417,7 +419,13 @@ class Facts:
             }
             for row in page.get("rows") or ()
         ]
-        return {"outcome": page["outcome"], "total": page.get("total"), "rows": rows}
+        answer = {"outcome": page["outcome"], "total": page.get("total"), "rows": rows}
+        facet = (page.get("facets") or {}).get("alarm")
+        if facet is not None:
+            answer["counts"] = {
+                entry["value"]: entry["count"] for entry in facet if entry["value"] != "none"
+            }
+        return answer
 
     async def _curated_count(self, ioc: str) -> dict[str, Any]:
         """How many roster addresses this IOC's records carry, or why it cannot be counted."""

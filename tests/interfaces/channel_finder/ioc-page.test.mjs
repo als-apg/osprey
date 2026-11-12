@@ -208,6 +208,19 @@ describe('alarms', () => {
     expect(container.querySelector('[data-card="alarms"]')?.textContent).toContain(reason);
   });
 
+  test('the major line reads the counts of the whole IOC, not the rows shown', async () => {
+    const alarms = { ...LIVE.alarms, total: 60, counts: { MAJOR: 12, MINOR: 48 } };
+    await mount({ ...LIVE, alarms }, [VALUES]);
+    expect(tiles().alarm).toEqual(['60', '12 major']);
+  });
+
+  test('without counts there is no major line', async () => {
+    const alarms = { ...LIVE.alarms };
+    delete alarms.counts;
+    await mount({ ...LIVE, alarms }, [VALUES]);
+    expect(tiles().alarm).toEqual(['1', '']);
+  });
+
   test('an IOC with nothing in alarm says so', async () => {
     await mount({ ...LIVE, alarms: { outcome: 'no_match', total: 0, rows: [] } }, [VALUES]);
     expect(tiles().alarm).toEqual(['0', 'none']);

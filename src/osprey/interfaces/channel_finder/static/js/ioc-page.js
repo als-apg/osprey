@@ -171,7 +171,8 @@ function card(role, title) {
 }
 
 /**
- * The In alarm tile, from the IOC's alarms.
+ * The In alarm tile, from the IOC's alarms: the major line reads the counts of
+ * the whole IOC, and is absent without them.
  * @param {IocAlarms} alarms
  * @returns {HTMLElement}
  */
@@ -184,8 +185,8 @@ function inAlarmTile(alarms) {
   }
   const total = alarms.total ?? alarms.rows?.length ?? 0;
   value.textContent = String(total);
-  const major = (alarms.rows ?? []).filter((row) => severityOf(row.severity) === 'MAJOR').length;
-  sub.textContent = total ? `${major} major` : 'none';
+  const major = alarms.counts ? (alarms.counts.MAJOR ?? 0) : null;
+  sub.textContent = !total ? 'none' : major === null ? '' : `${major} major`;
   if (major) box.classList.add('is-hot');
   return box;
 }
