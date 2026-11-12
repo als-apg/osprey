@@ -52,8 +52,9 @@ class AlarmStateRow:
 class AlarmStates:
     """Every channel's alarm state now, and the counts per severity.
 
-    ``counts`` is derived from the rows' severities, ``OK`` included and a ``None``
-    severity not counted, so it cannot disagree with them. ``last_contact`` is the
+    ``counts`` is derived from the rows' severities, ``OK`` included, a ``None``
+    severity not counted and any other counted under its text, so it cannot disagree
+    with them. ``last_contact`` is the
     ISO-8601 UTC time the backend last heard from the feed (a message or an offset
     check), ``None`` when it never has; ``stale`` is the backend's flag.
     """
@@ -68,7 +69,8 @@ class AlarmStates:
         for row in self.rows:
             severity = row.state.severity
             if severity is not None:
-                counts[severity] = counts.get(severity, 0) + 1
+                name = str(severity)
+                counts[name] = counts.get(name, 0) + 1
         object.__setattr__(self, "counts", dict(sorted(counts.items())))
 
 
