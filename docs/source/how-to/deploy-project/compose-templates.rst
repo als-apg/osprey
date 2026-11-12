@@ -310,3 +310,33 @@ Together with the mirror settings above, the pull-only shape of a restricted
 deployment is: point all four image channels at the mirror, set
 ``prebuilt_images: true``, and set ``modules.web_terminals.image_source:
 registry``.
+
+.. _deployment-build-cache:
+
+Sharing a Build Cache
+=====================
+
+A host that builds the same images on a fresh builder every time, such as a CI
+runner, spends most of each build reinstalling the same Python dependencies.
+Two variables give every image build the deploy runs a BuildKit layer cache to
+read from and write to:
+
+.. code-block:: bash
+
+   # read the layers another host wrote
+   export OSPREY_BUILD_CACHE_FROM='type=registry,ref=registry.example.org/osprey-cache:{key}'
+   # and, on the host that keeps the cache current, write them too
+   export OSPREY_BUILD_CACHE_TO='type=registry,ref=registry.example.org/osprey-cache:{key},mode=max'
+
+Each value is a ``--cache-from`` / ``--cache-to`` spec as ``docker build``
+takes it, with ``{key}`` standing for the image's recipe rather than its
+deployment, so two deployments share one cache. The key is ``project`` for the
+project image and every web-terminal image (they share the project
+Dockerfile), ``auth-sidecar`` for the login sidecar, and a service's build
+directory name, such as ``bluesky`` or ``event_dispatcher``, for the rest.
+
+A cache that has never been written is a BuildKit warning, not an error. Writing
+one needs Docker's containerd image store or a ``docker-container`` builder;
+the classic overlay2 store refuses ``OSPREY_BUILD_CACHE_TO``. Under Podman
+neither variable has any effect. With neither set, deploys build as they always
+have.

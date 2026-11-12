@@ -299,9 +299,10 @@ def test_the_python_a_wheel_is_judged_against_is_the_images() -> None:
     from osprey.cli.templates.scaffolding import _default_image_facts
 
     source = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
-    from_line = next(
+    # The last stage is the image that runs; earlier stages (node) only supply files.
+    from_line = [
         line for line in source.read_text(encoding="utf-8").splitlines() if line.startswith("FROM ")
-    )
+    ][-1]
     context: dict[str, Any] = {}
     _default_image_facts(context)
     major, minor = image_facts.IMAGE_PYTHON

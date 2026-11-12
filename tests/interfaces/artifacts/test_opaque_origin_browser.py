@@ -44,6 +44,7 @@ import pytest
 import yaml
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey.interfaces import vendor
 from osprey.interfaces._serving import run_app_server
 from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context
@@ -285,6 +286,27 @@ def _write_config(path: Path) -> Path:
     return path
 
 
+def _absent_gallery_vendor_files() -> list[str]:
+    """The artifacts app's vendor files that ``osprey vendor fetch`` has not put in place."""
+    _ok, problems = vendor.verify_all()
+    prefix = "MISSING: artifacts/"
+    return [p.removeprefix("MISSING: ") for p in problems if p.startswith(prefix)]
+
+
+_ABSENT_VENDOR_FILES = _absent_gallery_vendor_files()
+
+#: For a test that waits on a vendor library the gallery serves from its own
+#: tree. The tree is not committed, so a checkout where the fetch has not run
+#: skips. Only an absent file skips; one whose checksum is wrong is left to fail.
+needs_gallery_vendor_files = pytest.mark.skipif(
+    bool(_ABSENT_VENDOR_FILES),
+    reason=(
+        f"{len(_ABSENT_VENDOR_FILES)} vendored front-end files of the artifacts app are absent "
+        f"(first: {next(iter(_ABSENT_VENDOR_FILES), None)}); run `osprey vendor fetch`"
+    ),
+)
+
+
 @contextmanager
 def hub_with_gallery(
     tmp_path: Path,
@@ -308,7 +330,8 @@ def hub_with_gallery(
     artifacts app's own ``/static/`` tree *through the proxy*, so an asset the
     C-ASSETS exemption list leaves out fails here instead of being quietly
     fetched from a CDN. That needs ``osprey vendor fetch`` to have run on the
-    host, which the gate host has.
+    host; a test that waits on one of them carries
+    :data:`needs_gallery_vendor_files`.
 
     Args:
         seed: Called with the artifacts workspace before either app starts;
@@ -671,6 +694,7 @@ def test_direct_navigation_to_artifact_route_is_opaque(hub, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
+@needs_gallery_vendor_files
 def test_markdown_script_html_runs_nothing_in_gallery(hub, chromium_browser):
     """The gallery renders markdown into its own (first-party) document, so
     the sanitizer is the only barrier: no vector may run, math must render."""
@@ -694,6 +718,7 @@ def test_markdown_script_html_runs_nothing_in_gallery(hub, chromium_browser):
     assert _switch(page, hub.base_url) == "off"
 
 
+@needs_gallery_vendor_files
 def test_markdown_math_renders_opaque_in_new_tab_and_prints(hub, chromium_browser):
     """The rendered markdown page is opaque, loads KaTeX and its fonts through
     the proxy (C-ASSETS), runs none of the artifact's script, and prints."""
@@ -770,6 +795,7 @@ def set_gallery_theme(page: PanelHost, theme: str) -> None:
     )
 
 
+@needs_gallery_vendor_files
 def test_plotly_artifact_renders_follows_theme_and_prints(hub, chromium_browser):
     page = chromium_browser.new_page()
     _stub_print(page)

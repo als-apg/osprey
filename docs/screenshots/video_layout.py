@@ -1,15 +1,18 @@
 """The screen a docs video starts on, declared per video and applied before recording.
 
 Every :class:`~docs.screenshots.videos.DocVideo` names its :class:`Layout`: the
-Agent surface (``terminal``, the Claude Code terminal; ``chat``, the operator chat), the
-left-sidebar entry that is active, and the tiles open beside the console. The
+Agent surface, the left-sidebar entry that is active (or none), and the tiles open
+beside the console. The only surface a registered video may name is ``chat``, the
+operator chat: docs media never show the Claude Code terminal. The
 layout is part of what a video is agreed to show, so the take's setup applies
 it (:func:`apply`) and fails the take when the page will not take it; no beat
 ever implies it.
 
 Sidebar entries and tiles are named by their panel id, the ``data-panel-id``
-of the rail row (``artifacts``, ``okf`` for Knowledge, ...). The console's own
-tile is implied by the surface and never listed.
+of the rail row (``okf`` for Knowledge, ``channel-finder``, ...). The Artifacts
+tile has no rail row: its artifacts are listed under the session, so a layout
+that opens only that tile has no active entry. The console's own tile is implied
+by the surface and never listed.
 """
 
 from __future__ import annotations
@@ -19,7 +22,10 @@ from typing import Any, Literal
 
 from docs.screenshots.video_probes import POLL_MS, ProbeFailed
 
-SURFACES = ("terminal", "chat")
+# The surfaces a registered video may start on. The take engine can still drive
+# the Claude Code terminal, but docs media show the operator chat only, so
+# :func:`validate` refuses a layout that names it.
+SURFACES = ("chat",)
 
 APPLY_BUDGET_MS = 30_000
 TILE_BUDGET_MS = 30_000
@@ -32,14 +38,16 @@ class Layout:
     """The surface, the active sidebar entry and the open tiles a take starts on."""
 
     surface: Literal["terminal", "chat"]
-    active: str
-    """Panel id of the sidebar entry that is active (``data-panel-id``)."""
+    active: str | None
+    """Panel id of the sidebar entry that is active (``data-panel-id``); ``None``
+    when no entry is, as with only the Artifacts tile open."""
 
     tiles: tuple[str, ...]
     """Panel ids of the tiles open beside the console, in any order."""
 
 
-# Make the layout so: activate the sidebar row unless it already is, close
+# Make the layout so: activate the sidebar row unless it already is (a layout
+# without an active entry clicks none and waits for none to be active), close
 # every panel tile not listed (through its tab's close button, so the panel
 # manager learns of it), then wait until the page shows exactly the layout.
 # Resolves to {ok, detail}.
@@ -47,7 +55,7 @@ APPLY_JS = """
 async ({ active, tiles, budgetMs }) => {
   const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
   const deadline = Date.now() + budgetMs;
-  const row = () => document.querySelector(
+  const row = () => active === null ? null : document.querySelector(
     `button.panel-rail-button[data-panel-id="${active}"]`);
   const openTiles = () => [...document.querySelectorAll('.tile-tab[data-panel-id^="iframe:"]')]
     .map((t) => t.dataset.panelId.slice('iframe:'.length));
@@ -70,8 +78,10 @@ async ({ active, tiles, budgetMs }) => {
       if (!tiles.includes(id) && close) close.click();
     }
     const now = state();
-    if (now.active.length === 1 && now.active[0] === active
-        && JSON.stringify(now.tiles) === JSON.stringify(wanted)) {
+    const activeOk = active === null
+      ? now.active.length === 0
+      : now.active.length === 1 && now.active[0] === active;
+    if (activeOk && JSON.stringify(now.tiles) === JSON.stringify(wanted)) {
       return { ok: true, detail: now };
     }
     await frame();
@@ -138,6 +148,6 @@ def validate(layout: Any) -> str | None:
         return "has no layout"
     if layout.surface not in SURFACES:
         return f"layout surface {layout.surface!r} is not one of {', '.join(SURFACES)}"
-    if not layout.active:
+    if layout.active is not None and not layout.active:
         return "layout names no active sidebar entry"
     return None

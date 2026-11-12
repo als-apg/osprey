@@ -2,7 +2,8 @@
 
 Everything generic about serving a pyAT lattice through the LUME contract --
 owning one persistent lattice, atomic multi-variable writes, one solve per
-batch, rollback on a lost closed orbit, retained inputs and cached outputs --
+batch, rollback on a lost closed orbit (unless the model is tolerant, below),
+retained inputs and cached outputs --
 belongs to :class:`~lume_pyat.model.LUMEPyATModel` and is inherited. What
 :class:`PyATLatticeModel` adds is read off the channel variables it is handed,
 each built from one wiring record by
@@ -43,6 +44,16 @@ so it sits on the first element its setpoint binds, under attributes named
 for that setpoint: a family supply and a trim on one of its magnets, or the
 two planes of one corrector, are each miscalibrated alone, and a fault on one
 never rescales what another delivers.
+
+**A tolerant model keeps a lost closed orbit as a state.** A ``periodic``
+model built with ``tolerant`` -- a turn-by-turn ring, whose particle is
+tracked from its launch whatever the lattice does -- is solved by
+:class:`~osprey.simulation.engines.pyat_tolerant.TolerantPeriodicSimulator`:
+a write that leaves the lattice without a closed orbit (the RF off, say)
+commits, every monitor reading, optics array and chromaticity reads NaN, and
+:attr:`PyATLatticeModel.no_closed_orbit` is true until a later solve finds a
+closed orbit again. Any other ``periodic`` model refuses that write and rolls
+it back; a ``single_pass`` model refuses a lost particle either way.
 
 **Optics are read-only arrays, computed on read.** ``tunes`` (the fractional
 tunes: the two transverse ones, and the synchrotron tune third on a deck with
@@ -94,6 +105,7 @@ from osprey.simulation.engines.pyat_faults import (
     supply_attribute,
 )
 from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
+from osprey.simulation.engines.pyat_tolerant import TolerantPeriodicSimulator
 from osprey.simulation.engines.pyat_variables import (
     CalibratedSetpoint,
     EnergyVariable,
@@ -141,6 +153,16 @@ PLANE_OPTICS: frozenset[str] = frozenset({TUNES, CHROMATICITY})
 
 #: The two solves: a closed orbit, and one tracked pass through a line.
 PERIODIC, SINGLE_PASS = SOLVES
+
+#: What pyAT raises computing the optics of a lattice at the edge of
+#: stability whose closed orbit was found: its own error, a fit over no
+#: points, or an index into an empty result.
+_OPTICS_UNSOLVABLE: tuple[type[BaseException], ...] = (
+    at.AtError,
+    ArithmeticError,
+    IndexError,
+    ValueError,
+)
 
 FaultVariable = PyATWritableScalarVariable | PyATWritableEnumVariable
 
@@ -420,6 +442,7 @@ class PyATLatticeModel(LUMEPyATModel):
         element_misalignments: Mapping[str, Mapping[str, float]] | None = None,
         solve: str = PERIODIC,
         twiss_in: Mapping[str, np.ndarray] | None = None,
+        tolerant: bool = False,
     ) -> None:
         """Adopt the wired variables, declare their faults, and solve once.
 
@@ -441,6 +464,10 @@ class PyATLatticeModel(LUMEPyATModel):
                 tracks one pass through a line from ``twiss_in``.
             twiss_in: pyAT's initial conditions, as ``prepare`` normalises
                 them; read by a ``single_pass`` model only.
+            tolerant: A ``periodic`` model keeps a lattice with no closed
+                orbit as a state (:attr:`no_closed_orbit`) instead of
+                refusing the write that leads to it; ignored by a
+                ``single_pass`` model.
 
         Raises:
             ValueError: a seed names a fault the model does not declare, a
@@ -453,8 +480,8 @@ class PyATLatticeModel(LUMEPyATModel):
             UnknownElementError: a variable binds an element the lattice does
                 not have.
             OrbitSolveError: the lattice as handed over, with its
-                misalignments, has no stable closed orbit, or loses the
-                single-pass particle.
+                misalignments, has no stable closed orbit and the model is
+                not tolerant, or loses the single-pass particle.
         """
         if solve not in SOLVES:
             raise ValueError(f"solve is {solve!r}; use {' or '.join(SOLVES)}")
@@ -492,15 +519,17 @@ class PyATLatticeModel(LUMEPyATModel):
             if element_misalignments is None
             else {name: dict(kwargs) for name, kwargs in element_misalignments.items()}
         )
-        simulator = (
-            PyATSimulator(lattice, element_misalignments=misalignments)
-            if solve == PERIODIC
-            else SinglePassSimulator(
+        simulator: PyATSimulator
+        if solve == SINGLE_PASS:
+            simulator = SinglePassSimulator(
                 lattice,
                 twiss_in=twiss_in,  # type: ignore[arg-type]
                 element_misalignments=misalignments,
             )
-        )
+        elif tolerant:
+            simulator = TolerantPeriodicSimulator(lattice, element_misalignments=misalignments)
+        else:
+            simulator = PyATSimulator(lattice, element_misalignments=misalignments)
         super().__init__(simulator=simulator, action_variables=variables)
 
         #: The variables this model declares that no channel addresses: the
@@ -535,6 +564,17 @@ class PyATLatticeModel(LUMEPyATModel):
         )
         self._optics_memo: _OpticsMemo | None = None
         self._chromaticity_memo: _ChromaticityMemo | None = None
+
+    @property
+    def no_closed_orbit(self) -> bool:
+        """Whether the lattice as it stands has no closed orbit.
+
+        Only a tolerant ``periodic`` model can be in that state; every other
+        model refuses the write that would lead to it. While it holds, every
+        monitor reading, the optics arrays and the chromaticity are NaN. It
+        ends with the first solve that finds a closed orbit.
+        """
+        return bool(getattr(self.simulator, "no_closed_orbit", False))
 
     def _set(self, values: dict[str, Any]) -> None:
         """Apply a batch atomically, its faults before its channel variables.
@@ -635,7 +675,10 @@ class PyATLatticeModel(LUMEPyATModel):
         to a later solve.
 
         A single-pass model's beta functions are the ones its solve
-        propagated from ``twiss_in``, and it has no tunes.
+        propagated from ``twiss_in``, and it has no tunes. A lattice with no
+        closed orbit has no optics either: every array is NaN. Nor has a
+        lattice at the edge of stability whose closed orbit the solve found
+        but whose optics pyAT cannot compute: every array but the orbit is NaN.
 
         Raises:
             OrbitSolveError: no solve has succeeded yet.
@@ -643,7 +686,18 @@ class PyATLatticeModel(LUMEPyATModel):
         solution = self.simulator.last_solution
         if self._optics_memo is not None and self._optics_memo[0] is solution:
             return self._optics_memo[1]
-        orbit = np.array([solution[element] for element in self._monitor_order], dtype=np.float64)
+        orbit = np.array(
+            [solution[element] for element in self._monitor_order], dtype=np.float64
+        ).reshape(len(self._monitor_order), 2)
+        unsolved = {
+            TUNES: np.full((self._planes,), np.nan, dtype=np.float64),
+            BETA_AT_MONITORS: np.full((len(self._monitor_order), 2), np.nan, dtype=np.float64),
+            ORBIT_AT_MONITORS: orbit,
+        }
+        if self.no_closed_orbit:
+            # pyAT raises on a lattice with no closed orbit, so it is not asked.
+            self._optics_memo = (solution, unsolved)
+            return unsolved
         if self.solve == SINGLE_PASS:
             optics = {
                 BETA_AT_MONITORS: np.array(
@@ -654,7 +708,11 @@ class PyATLatticeModel(LUMEPyATModel):
             }
             self._optics_memo = (solution, optics)
             return optics
-        _, lattice_data, element_data = at.get_optics(self.lattice, refpts=self._monitor_refpts)
+        try:
+            _, lattice_data, element_data = at.get_optics(self.lattice, refpts=self._monitor_refpts)
+        except _OPTICS_UNSOLVABLE:
+            self._optics_memo = (solution, unsolved)
+            return unsolved
         optics = {
             TUNES: np.array(lattice_data.tune[: self._planes], dtype=np.float64),
             BETA_AT_MONITORS: np.array(element_data.beta, dtype=np.float64),
@@ -668,7 +726,9 @@ class PyATLatticeModel(LUMEPyATModel):
 
         Keyed on the simulator's last solution exactly as :meth:`_optics` is,
         and kept apart from it, so a read of the linear optics never pays for
-        the chromatic solve.
+        the chromatic solve. A lattice with no closed orbit has no
+        chromaticity: every plane is NaN, as it is for a lattice at the edge
+        of stability whose chromaticity pyAT cannot compute.
 
         Raises:
             OrbitSolveError: no solve has succeeded yet.
@@ -676,7 +736,15 @@ class PyATLatticeModel(LUMEPyATModel):
         solution = self.simulator.last_solution
         if self._chromaticity_memo is not None and self._chromaticity_memo[0] is solution:
             return self._chromaticity_memo[1]
-        _, lattice_data, _ = at.get_optics(self.lattice, get_chrom=True)
+        unsolved = np.full((self._planes,), np.nan, dtype=np.float64)
+        if self.no_closed_orbit:
+            self._chromaticity_memo = (solution, unsolved)
+            return unsolved
+        try:
+            _, lattice_data, _ = at.get_optics(self.lattice, get_chrom=True)
+        except _OPTICS_UNSOLVABLE:
+            self._chromaticity_memo = (solution, unsolved)
+            return unsolved
         chromaticity = np.array(lattice_data.chromaticity[: self._planes], dtype=np.float64)
         self._chromaticity_memo = (solution, chromaticity)
         return chromaticity

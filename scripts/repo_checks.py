@@ -628,6 +628,7 @@ UNIT_SELECTION = UnitSelection(
         ("tests/va/test_lume_pva_seam.py", "live-ca"),
         ("tests/va/test_timed_passes_live.py", "live-ca"),
         ("tests/va/test_injection_live.py", "live-ca"),
+        ("tests/va/test_turn_by_turn_live.py", "live-ca"),
         ("tests/integration/test_build_boot.py", "build-boot-smoke"),
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
@@ -1292,7 +1293,7 @@ TRACKED_DOCS = ("git", "ls-files", "-z", "--", "*.md", "*.rst")
 SWEEP_LINE_EXCEPTIONS: dict[tuple[str, str], str] = {
     (
         "plugins/osprey/skills/release/SKILL.md",
-        "pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile",
+        "pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile",
     ): (
         "the e2e lane's invocation is declared only in ci.yml's e2e-tests job"
         " until that lane is a check"
@@ -1971,6 +1972,7 @@ CHECKS: tuple[Check, ...] = (
             "tests/va/test_lume_pva_seam.py",
             "tests/va/test_timed_passes_live.py",
             "tests/va/test_injection_live.py",
+            "tests/va/test_turn_by_turn_live.py",
             "scripts/va/live_ca/**",
             "src/osprey/services/virtual_accelerator/**",
         ),
@@ -2308,6 +2310,15 @@ LANES: tuple[Lane, ...] = (
         "qmd-cache-warmup",
         "main-branch cache",
         ("src/osprey/templates/services/qmd/**", ".github/actions/build-qmd-image/**"),
+    ),
+    Lane(
+        "deploy-cache-warmup",
+        "main-branch cache",
+        (
+            "src/osprey/deployment/build_cache.py",
+            "src/osprey/templates/**/Dockerfile*",
+            "uv.lock",
+        ),
     ),
     _e2e(
         "target-switch-agentic-e2e",

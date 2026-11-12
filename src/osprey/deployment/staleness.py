@@ -192,6 +192,26 @@ def staleness_reasons(project_dir: Path) -> list[str]:
     return reasons
 
 
+def _presets_changed(manifest: dict[str, Any]) -> bool:
+    """Whether the repo this project was rendered from has preset changes to take."""
+    build_args = manifest.get("build_args") or {}
+    profile = build_args.get("profile_path_abs") or build_args.get("profile_path")
+    if not profile:
+        return False
+    try:
+        from osprey.cli.build_profile_updates import PresetUpdateState, preset_update_status
+
+        # Only a changed preset, tracked or not: a repo with no saved copy whose
+        # presets are as it recorded them, or a preset this OSPREY does not
+        # bundle, also has a note to print and nothing to take.
+        return preset_update_status(Path(profile)).state in (
+            PresetUpdateState.CHANGED,
+            PresetUpdateState.UNTRACKED_CHANGED,
+        )
+    except Exception:  # advisory only; a comparison that fails says nothing
+        return False
+
+
 def warn_if_project_stale(project_dir: Path) -> None:
     """Advisory: warn (never fail) when the project's render looks stale.
 
@@ -214,8 +234,15 @@ def warn_if_project_stale(project_dir: Path) -> None:
         if remedy:
             # Printed verbatim. It is the manifest's own account of how this
             # render is reproduced, and no suffix is appended to it: a repo
-            # render is unconditional, so there is no force flag to add.
-            message += f" Re-render it with:\n    {remedy}\nthen re-run osprey up."
+            # render is unconditional, so there is no force flag to add. When
+            # the presets the repo took have changed too, taking their changes
+            # comes first, or the re-render would repeat the old preset.
+            first = (
+                " First take the presets' changes with:\n    osprey init --revalidate\nthen r"
+                if _presets_changed(manifest)
+                else " R"
+            )
+            message += f"{first}e-render it with:\n    {remedy}\nthen re-run osprey up."
         logger.warning(message)
     except Exception as exc:  # advisory must never break a deploy
         logger.debug(f"Project staleness advisory skipped: {exc}")

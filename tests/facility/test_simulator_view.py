@@ -17,6 +17,7 @@ import copy
 import hashlib
 import json
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
+from osprey.facility.views import view_bytes
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA, SimulatorView
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -300,7 +302,7 @@ def test_variables_carries_its_schema_and_key_sets(built_demo: BuiltProject) -> 
     facility = built_demo.facility
 
     assert set(variables) == {"schema", "code", "models", "channels"}
-    assert variables["schema"] == "osprey.facility.simulator/3"
+    assert variables["schema"] == "osprey.facility.simulator/4"
     assert variables["code"] == facility["identity"]["code"]
     assert [model["name"] for model in variables["models"]] == sorted(
         model["name"] for model in facility["models"]
@@ -1016,3 +1018,81 @@ def test_a_configured_recorder_serves_any_address(
     render_facility_outputs(tmp_path, facility, config, built_demo.facility_dir)
 
     assert address in _view(tmp_path, ADDRESSES)["channels"]
+
+
+def _with_inputs(built: BuiltProject, inputs: dict[str, Any]) -> dict[str, Any]:
+    """The demo facility with ``inputs`` (model name -> its ``inputs`` key) set."""
+    facility = copy.deepcopy(built.facility)
+    for model in facility["models"]:
+        if str(model["name"]) in inputs:
+            model["inputs"] = copy.deepcopy(inputs[str(model["name"])])
+    return facility
+
+
+def _wired_by(built: BuiltProject, name: str, count: int) -> list[str]:
+    (model,) = [model for model in built.facility["models"] if model["name"] == name]
+    return [str(record["address"]) for record in model["wiring"][:count]]
+
+
+def _thawed(value: Any) -> Any:
+    """A value the connectors reader froze, as plain dicts and lists again."""
+    if isinstance(value, Mapping):
+        return {key: _thawed(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thawed(item) for item in value]
+    return value
+
+
+def _render_facility(
+    tmp_path: Path, built: BuiltProject, facility: dict[str, Any], name: str = "render"
+) -> Path:
+    render_dir = tmp_path / name
+    render_dir.mkdir()
+    render_facility_outputs(render_dir, facility, {}, built.facility_dir)
+    return render_dir
+
+
+def test_a_model_declaring_inputs_carries_them_in_declared_order(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    second, first = _wired_by(built_demo, "LINE", 2)
+    declared = [
+        {"address": first, "engine": {"take": "x", "scale": [1.0, 2.0]}},
+        {"address": second},
+    ]
+    root = _render_facility(tmp_path, built_demo, _with_inputs(built_demo, {"SR": declared}))
+
+    models = {model["name"]: model for model in _view(root, VARIABLES)["models"]}
+    assert models["SR"]["inputs"] == declared
+    assert set(models["SR"]) == MODEL_KEYS | {"inputs"}
+    for name, model in models.items():
+        if name != "SR":
+            assert set(model) == MODEL_KEYS, name
+
+    view = SimulatorView.open(root / "data" / "simulator")
+    assert [_thawed(item) for item in view.model("SR").inputs] == declared
+    assert view.model("LINE").inputs == ()
+
+
+def test_inputs_are_the_only_difference_a_declaration_makes(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    (address,) = _wired_by(built_demo, "LINE", 1)
+    plain = _render_facility(tmp_path, built_demo, built_demo.facility, "plain")
+    root = _render_facility(
+        tmp_path, built_demo, _with_inputs(built_demo, {"SR": [{"address": address}]})
+    )
+
+    document = _view(root, VARIABLES)
+    for model in document["models"]:
+        model.pop("inputs", None)
+    assert view_bytes(document) == (plain / VARIABLES).read_bytes()
+
+
+def test_an_empty_inputs_list_is_written_as_no_inputs(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    plain = _render_facility(tmp_path, built_demo, built_demo.facility, "plain")
+    root = _render_facility(tmp_path, built_demo, _with_inputs(built_demo, {"SR": []}))
+
+    assert (root / VARIABLES).read_bytes() == (plain / VARIABLES).read_bytes()

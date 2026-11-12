@@ -142,24 +142,50 @@ class TestDockerfileContent:
             assert "{%" not in text, f"unrendered Jinja in {name}"
 
     @classmethod
-    def _node_run_body(cls, text: str) -> str:
-        """The single apt RUN that installs Node."""
-        bodies = [b for b in cls._run_command_bodies(text) if "nodejs" in b]
-        assert len(bodies) == 1, f"expected exactly one node-install RUN, got {len(bodies)}"
+    def _tools_run_body(cls, text: str) -> str:
+        """The single apt RUN that installs the agent's shell tools."""
+        bodies = [b for b in cls._run_command_bodies(text) if " gosu" in b]
+        assert len(bodies) == 1, f"expected exactly one tools-install RUN, got {len(bodies)}"
         return bodies[0]
 
-    def test_node_comes_from_the_base_image_distro(self, hello_project):
-        """Node and npm are Debian packages, installed in the same apt RUN as the
-        agent's shell tools — one package provenance, and no network beyond the
-        Debian mirror. The list is this image's own (curl/git/procps are runtime
-        tools the agent's shell reaches for); the dispatch image installs a
-        smaller one, so the two are deliberately not asserted as a shared list.
+    @classmethod
+    def _node_run_body(cls, text: str) -> str:
+        """The single RUN that recreates npm's launchers beside the copied Node."""
+        bodies = [b for b in cls._run_command_bodies(text) if "npm-cli.js" in b]
+        assert len(bodies) == 1, f"expected exactly one npm-launcher RUN, got {len(bodies)}"
+        return bodies[0]
+
+    def test_shell_tools_come_from_the_base_image_distro(self, hello_project):
+        """The agent's shell tools are Debian packages, in one apt RUN. The list
+        is this image's own (curl/git/procps are runtime tools the agent's shell
+        reaches for). Node is not in it: the base's Debian release ships a Node
+        below the CLI's engines floor.
         """
-        node = self._node_run_body((hello_project / "Dockerfile").read_text())
+        tools = self._tools_run_body((hello_project / "Dockerfile").read_text())
         assert (
-            "apt-get install -y --no-install-recommends "
-            "curl git procps ca-certificates gosu nodejs npm" in node
-        ), node
+            "apt-get install -y --no-install-recommends curl git procps ca-certificates gosu"
+            in tools
+        ), tools
+        assert "nodejs" not in tools and " npm" not in tools, tools
+
+    def test_node_comes_from_the_official_node_22_image(self, hello_project):
+        """Node and npm are copied out of the official Node 22 image, pulled
+        through the base registry like the Python base — the CLI declares
+        ``node >= 22``, and a site mirror of Docker Hub stays the only registry
+        the build reaches. npm's launchers are symlinks, so they are recreated
+        rather than copied.
+        """
+        text = (hello_project / "Dockerfile").read_text()
+        assert "\nFROM ${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim AS node\n" in text
+        assert "\nCOPY --from=node /usr/local/bin/node /usr/local/bin/node\n" in text
+        assert (
+            "\nCOPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm\n"
+            in text
+        )
+        node = self._node_run_body(text)
+        assert "ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm" in node
+        assert "ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx" in node
+        assert "The CLI declares node >= 22" in text
 
     def test_no_third_party_node_apt_repo(self, hello_project):
         """No third-party apt repo, and none of the machinery one needs.
@@ -172,26 +198,27 @@ class TestDockerfileContent:
         back.
         """
         text = (hello_project / "Dockerfile").read_text()
-        for token in ("nodesource", "gnupg", "setup_20.x", "apt-key"):
+        for token in ("nodesource", "gnupg", "setup_20.x", "setup_22.x", "apt-key"):
             assert token not in text, f"{token} is back in the Dockerfile — third-party Node repo"
-        node = self._node_run_body(text)
-        assert "| bash" not in node and "| sh" not in node, (
-            "the node layer pipes a downloaded script into a shell"
-        )
+        for body in (self._tools_run_body(text), self._node_run_body(text)):
+            assert "| bash" not in body and "| sh" not in body, (
+                "the node layer pipes a downloaded script into a shell"
+            )
 
     def test_npm_survives_into_the_final_image(self, hello_project):
         """npm is a runtime dependency, not a build-time convenience.
 
         The agent is launched as ``npx -y @anthropic-ai/claude-code@<version>``
-        (agent_runner/launcher.py), so an apt cleanup that treats npm as build-only
+        (agent_runner/launcher.py), so a cleanup that treats npm as build-only
         breaks the agent at run time, not at build time. The reason is pinned
-        alongside the absence of any purge in this layer, so a future edit has
-        to confront it.
+        alongside the absence of any removal of it, so a future edit has to
+        confront it.
         """
         text = (hello_project / "Dockerfile").read_text()
-        node = self._node_run_body(text)
-        assert "apt-get purge" not in node, "the node layer purges packages"
-        assert "autoremove" not in node, "the node layer autoremoves packages"
+        for body in self._run_command_bodies(text):
+            assert "node_modules/npm" not in body or "rm " not in body, (
+                f"a RUN removes npm from the image:\n{body}"
+            )
         assert "npm is a runtime dependency, not a build-time convenience" in text
 
     def test_apt_runs_deliver_the_proxy_settings(self, hello_project):
@@ -228,7 +255,7 @@ class TestDockerfileContent:
         ]
         assert len(cli_bodies) == 1, f"expected exactly one CLI-install RUN, got {len(cli_bodies)}"
         assert 'npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"' in cli_bodies[0]
-        assert "nodejs" not in cli_bodies[0], "the CLI pin shares a RUN with the apt install"
+        assert "apt-get" not in cli_bodies[0], "the CLI pin shares a RUN with the apt install"
 
     def test_cli_autoupdater_is_off(self, hello_project):
         """The pinned CLI must not self-update: a successful background update
@@ -1000,8 +1027,8 @@ class TestPrivilegeSplit:
         the file would re-run on every render change, and the entrypoint refuses
         to start without gosu rather than running the agent as root.
         """
-        node = TestDockerfileContent._node_run_body((hello_project / "Dockerfile").read_text())
-        assert " gosu " in node, node
+        tools = TestDockerfileContent._tools_run_body((hello_project / "Dockerfile").read_text())
+        assert tools.rstrip().endswith(" gosu"), tools
 
     def test_no_user_instruction(self, hello_project):
         """A ``USER`` line would make the entrypoint's root-only startup steps

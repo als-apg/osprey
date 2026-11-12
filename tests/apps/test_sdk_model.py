@@ -350,6 +350,70 @@ class TestModelResponseMatrix:
         assert result.columns == ["COR_1:X:SP"]
         assert result.matrix == [[1.5], [-2.0]]
         assert result.unsolved == {"COR_2:Y:SP": "no orbit"}
+        # A line that states no positions gives none, not made-up ones.
+        assert result.row_positions is None
+        assert result.column_positions is None
+
+    def test_the_lines_positions_place_each_row_and_column(self, ring, monkeypatch):
+        line = {
+            "rows": ["BPM_1:TBT:X", "BPM_2:TBT:X"],
+            "columns": ["COR_1:X:SP"],
+            "matrix": [[0.0], [-2.0]],
+            "missing": {},
+            "row_positions": [1, 6],
+            "column_positions": [4],
+        }
+        monkeypatch.setattr(
+            subprocess, "run", lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}")
+        )
+
+        result = sdk.model_response_matrix(RING, render_root=ring, kind="trajectory")
+
+        assert result.rows == ["BPM_1:TBT:X", "BPM_2:TBT:X"]
+        assert result.row_positions == [1, 6]
+        assert result.column_positions == [4]
+
+    @pytest.mark.parametrize(
+        "positions",
+        [
+            {"row_positions": None, "column_positions": None},
+            {"row_positions": [1], "column_positions": [4, 5]},
+            {"row_positions": [1.5, 6], "column_positions": [True]},
+        ],
+        ids=["null", "not-lined-up", "not-whole-numbers"],
+    )
+    def test_positions_a_line_does_not_state_are_none(self, ring, monkeypatch, positions):
+        line = {
+            "rows": ["BPM_1:X", "BPM_2:X"],
+            "columns": ["COR_1:X:SP"],
+            "matrix": [[1.5], [-2.0]],
+            "missing": {},
+            **positions,
+        }
+        monkeypatch.setattr(
+            subprocess, "run", lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}")
+        )
+
+        result = sdk.model_response_matrix(RING, render_root=ring)
+
+        assert result.row_positions is None
+        assert result.column_positions is None
+        assert result.matrix == [[1.5], [-2.0]]
+
+    def test_the_dataclass_is_built_without_positions_as_before(self):
+        result = sdk.ResponseMatrix(model=RING, rows=[], columns=[], matrix=[], unsolved={})
+
+        assert result.row_positions is None
+        assert result.column_positions is None
+
+    def test_the_ring_is_solved_with_positions_in_ring_order(self, ring):
+        result = sdk.model_response_matrix(RING, render_root=ring)
+        members = sdk.model_members(RING, render_root=ring)
+
+        index = {bpm.position_addr: bpm.index for bpm in members.bpms}
+        index |= {corrector.setpoint_addr: corrector.index for corrector in members.correctors}
+        assert result.row_positions == [index[row] for row in result.rows]
+        assert result.column_positions == [index[column] for column in result.columns]
 
     def test_a_timeout_raises_naming_the_model(self, ring, monkeypatch):
         def run(argv, **kwargs):

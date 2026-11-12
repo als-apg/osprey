@@ -3445,14 +3445,14 @@ keys:
       keeps the default.
     default: 268435456
   web.panels.canopy.theme_file:
-    rendered: false
     evidence: '_panel_settings\(config\)\.get\("theme_file"\)'
     note: >-
       A colour theme for the per-user CANOPY panel, passed to both of its
       processes as CANOPY_THEME_FILE. A relative path resolves against the
       project root (the directory holding the rendered build); an absolute
-      path is used as written. Unset keeps CANOPY's own theme. Commented in
-      the demo preset.
+      path is used as written. Unset keeps CANOPY's own theme. The demo
+      preset sets it to the OSPREY theme its template ships
+      (data/canopy/theme/osprey.json).
     default: null
   web.panels.system-health.hidden:
     rendered: false
@@ -4693,7 +4693,7 @@ render_contexts:
       claude_code.servers: <server>
       apps: <app>
       apps.<app>.approval: <tool>
-  expected_union_size: 434
+  expected_union_size: 435
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

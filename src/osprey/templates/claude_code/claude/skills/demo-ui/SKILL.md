@@ -111,9 +111,6 @@ entry), and any `presets` (named layouts) the
 deployment defines. This is both the precondition check and the script you are
 about to improvise against.
 
-Notice which mode the audience screen is in: Expert shows the full workspace;
-Simple may still be chat-only — that changes the Artifact drop's reveal beat.
-
 If it reports the Web Terminal is not running, say so plainly and stop — these
 demos have nothing to show without it. Do not narrate moves that aren't landing.
 
@@ -215,7 +212,7 @@ machine" is itself a good thing for an audience to hear — and skip the beat.
   the demo lands as "nothing happened."
 - **Guessed panel IDs.** Always from `list_panels`. A demo that opens with an error
   never recovers.
-- **`add_panel_to_rail` as a reveal in Expert mode.** It only adds a rail entry;
+- **`add_panel_to_rail` as a reveal.** It only adds a rail entry;
   the audience sees content when `open_panel` follows.
 - **Walking away from a rearranged workspace.** Restore before you finish.
 - **Turning it into demo-gallery.** One or two artifacts here. Four is the other
