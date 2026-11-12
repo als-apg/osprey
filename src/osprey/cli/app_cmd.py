@@ -30,7 +30,7 @@ import click
 from ruamel.yaml import YAML, YAMLError
 
 from osprey.apps.boundary import check_package
-from osprey.apps.errors import AppManifestError, Violation
+from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, refusal_lines
 from osprey.apps.manifest import APP_NAME_PATTERN, AppManifest
 from osprey.apps.origin import AppOrigin, origin_of
 from osprey.apps.rules import shadows_installed, taken_package
@@ -233,6 +233,10 @@ def check(ctx: click.Context, repo: Path | None) -> None:
         deployment = check_deployment(root)
     except AppManifestError as error:
         _refuse(ctx, error.violations)
+    except AppsRefusedError as error:
+        if error.errors:
+            fail("The profile does not resolve.", "\n".join(error.errors))
+        _refuse(ctx, error.violations)
     except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
@@ -258,9 +262,10 @@ def check(ctx: click.Context, repo: Path | None) -> None:
 
 def _refuse(ctx: click.Context, violations: Sequence[Violation]) -> NoReturn:
     """Print every violation, then stop with exit status 1."""
-    for violation in violations:
-        report(f"{violation} [{violation.rule}]")
-    fail(f"{len(violations)} violation(s).")
+    *lines, count = refusal_lines(violations)
+    for line in lines:
+        report(line)
+    fail(count)
     ctx.exit(1)
 
 

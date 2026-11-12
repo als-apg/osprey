@@ -112,6 +112,49 @@ def test_a_violation_reads_as_the_build_prints_it(
         assert text in built.output + caplog.text
 
 
+def test_a_schema_error_in_app_yml_reads_as_a_violation_the_build_prints_too(
+    runner: CliRunner, lifecycle_repo: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "app.yml", _manifest("knob") + "colour: blue\n")
+
+    result = _check(runner, lifecycle_repo)
+    built = invoke_build(lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    assert "does not resolve" not in result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("]")]
+    text, _, rule = line.rpartition(" [")
+    assert text.startswith("apps/knob/app.yml: colour: ")
+    assert rule == "extra_forbidden]"
+    assert "1 violation(s)." in result.output
+    assert built.exit_code != 0
+    assert line in built.output + caplog.text
+    assert "1 violation(s)." in built.output + caplog.text
+
+
+def test_a_schema_error_beside_a_profile_error_reports_both(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "app.yml", _manifest("knob") + "colour: blue\n")
+    profile = yaml.safe_load((lifecycle_repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["channel_finder_mode"] = "bogus"
+    (lifecycle_repo / "profile.yml").write_text(
+        yaml.safe_dump(profile, sort_keys=False), encoding="utf-8"
+    )
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    assert "The profile does not resolve." in result.output
+    assert "channel_finder_mode" in result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("]")]
+    assert line.startswith("apps/knob/app.yml: colour: ")
+    assert line.endswith(" [extra_forbidden]")
+    assert "1 violation(s)." in result.output
+
+
 def test_a_hooks_key_is_refused_saying_what_to_declare(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
