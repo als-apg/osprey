@@ -1098,8 +1098,11 @@ keys:
     default_note: absent, every user of the login sees the panel
   web.panels.<app-panel>.agent_routes: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.app: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.description: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.description; the guard's fixture application declares none"}
   web.panels.<app-panel>.enabled: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.health_endpoint: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.help: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.help; the guard's fixture application declares none"}
+  web.panels.<app-panel>.icon: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.icon; the guard's fixture application declares none"}
   web.panels.<app-panel>.label: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.launch_token_env: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.path: {covered-by: web.panels.<app-panel>, default: n/a}

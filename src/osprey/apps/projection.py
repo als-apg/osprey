@@ -41,6 +41,10 @@ APP_NAME_ENV = "OSPREY_APP_NAME"
 #: panel id: the render context key true when the render shows that panel.
 PANEL_CONDITION_PREFIX = "panel:"
 
+#: The panel keys that dress its sidebar row (glyph, tooltip, help page), the
+#: same three a sidecar panel's registry entry carries. Projected when declared.
+PANEL_PRESENTATION_KEYS = ("icon", "description", "help")
+
 #: The agent's interpreter, resolved by the registry when the server is rendered.
 _AGENT_PYTHON = "{current_python_env}"
 
@@ -283,6 +287,10 @@ def project_login(
             block["launch_token_env"] = launch_token_env(manifest.name)
         if "read_timeout_s" in panel.model_fields_set:
             block["read_timeout_s"] = panel.read_timeout_s
+        for key in PANEL_PRESENTATION_KEYS:
+            value = getattr(panel, key)
+            if value is not None:
+                block[key] = value
         if shown.access is not None:
             block["access"] = shown.access
         panels[panel.id] = block
