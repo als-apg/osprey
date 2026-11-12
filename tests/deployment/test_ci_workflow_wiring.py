@@ -9903,7 +9903,8 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 WORKFLOWS_DIR = CI_YML.parent
 
 _TRIGGER_SCOPE_PHRASE = re.compile(
-    r"PRs? into|\bon main\b|nightly|workflow_dispatch|pull[ _-]request|\bschedul",
+    r"PRs? into|\b(on|to) main\b|nightly|workflow_dispatch|pull[ _-]request|\bschedul"
+    r"|on[ -]demand|\bpush(es)? to\b",
     re.IGNORECASE,
 )
 
@@ -9942,6 +9943,40 @@ def test_no_job_display_name_states_when_it_runs__mutation_names_a_trigger() -> 
     )
     with pytest.raises(AssertionError, match="PRs into"):
         _assert_no_display_name_states_when_it_runs(_job_display_names(CI_YML, mutated))
+
+
+def _assert_matrix_names_end_in_their_cell(names: dict[tuple[str, str], str]) -> None:
+    """A matrix job is `<Class> — <cells>`: GitHub shows a skipped matrix job's name
+    template unexpanded, so the class before the one em dash must read on its own."""
+    for (file, job_id), name in sorted(names.items()):
+        if "${{" not in name:
+            continue
+        cls, dash, _cells = name.partition(" — ")
+        assert dash and "${{" not in cls and name.count("—") == 1, (
+            f"{file}: matrix job {job_id!r} is named {name!r}; name it `<Class> — <cells>`, "
+            "with no expression before the one em dash"
+        )
+
+
+def test_matrix_job_names_end_in_their_cell() -> None:
+    names: dict[tuple[str, str], str] = {}
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        names.update(_job_display_names(path, yaml.safe_load(path.read_text())))
+    _assert_matrix_names_end_in_their_cell(names)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Test Python ${{ matrix.python-version }} on ubuntu-latest — ${{ matrix.shard }}",
+        "Connectors HEAD under framework ${{ matrix.framework }}",
+        "Tier 1 — Build — ${{ matrix.preset }}",
+    ],
+)
+def test_matrix_job_names_end_in_their_cell__mutation(name: str) -> None:
+    """An expression before the dash, no dash at all, or a dash inside the class fails."""
+    with pytest.raises(AssertionError, match="<Class> — <cells>"):
+        _assert_matrix_names_end_in_their_cell({("ci.yml", "x"): name})
 
 
 # ---------------------------------------------------------------------------
