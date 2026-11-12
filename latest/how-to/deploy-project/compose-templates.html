@@ -844,6 +844,30 @@ deployment is: point all four image channels at the mirror, set
 <code class="docutils literal notranslate"><span class="pre">prebuilt_images:</span> <span class="pre">true</span></code>, and set <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_source:</span>
 <span class="pre">registry</span></code>.</p>
 </section>
+<section id="sharing-a-build-cache">
+<span id="deployment-build-cache"></span><h2>Sharing a Build Cache<a class="headerlink" href="#sharing-a-build-cache" title="Link to this heading">#</a></h2>
+<p>A host that builds the same images on a fresh builder every time, such as a CI
+runner, spends most of each build reinstalling the same Python dependencies.
+Two variables give every image build the deploy runs a BuildKit layer cache to
+read from and write to:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># read the layers another host wrote</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OSPREY_BUILD_CACHE_FROM</span><span class="o">=</span><span class="s1">&#39;type=registry,ref=registry.example.org/osprey-cache:{key}&#39;</span>
+<span class="c1"># and, on the host that keeps the cache current, write them too</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OSPREY_BUILD_CACHE_TO</span><span class="o">=</span><span class="s1">&#39;type=registry,ref=registry.example.org/osprey-cache:{key},mode=max&#39;</span>
+</pre></div>
+</div>
+<p>Each value is a <code class="docutils literal notranslate"><span class="pre">--cache-from</span></code> / <code class="docutils literal notranslate"><span class="pre">--cache-to</span></code> spec as <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code>
+takes it, with <code class="docutils literal notranslate"><span class="pre">{key}</span></code> standing for the image’s recipe rather than its
+deployment, so two deployments share one cache. The key is <code class="docutils literal notranslate"><span class="pre">project</span></code> for the
+project image and every web-terminal image (they share the project
+Dockerfile), <code class="docutils literal notranslate"><span class="pre">auth-sidecar</span></code> for the login sidecar, and a service’s build
+directory name, such as <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> or <code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code>, for the rest.</p>
+<p>A cache that has never been written is a BuildKit warning, not an error. Writing
+one needs Docker’s containerd image store or a <code class="docutils literal notranslate"><span class="pre">docker-container</span></code> builder;
+the classic overlay2 store refuses <code class="docutils literal notranslate"><span class="pre">OSPREY_BUILD_CACHE_TO</span></code>. Under Podman
+neither variable has any effect. With neither set, deploys build as they always
+have.</p>
+</section>
 </section>
 
 
@@ -902,6 +926,7 @@ deployment is: point all four image channels at the mirror, set
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deploying-prebuilt-images">Deploying Prebuilt Images</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#sharing-a-build-cache">Sharing a Build Cache</a></li>
 </ul>
   </nav></div>
 
