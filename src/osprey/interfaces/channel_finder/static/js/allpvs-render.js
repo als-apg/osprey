@@ -21,7 +21,7 @@ export const PAGE_SIZE = 50;
  * The sidebar title of each route filter.
  * @type {Record<FacetKey, string>}
  */
-const FACET_TITLES = { origin: 'Origin', ioc: 'IOC', record_type: 'Record type' };
+const FACET_TITLES = { origin: 'Origin', ioc: 'IOC', record_type: 'Record type', alarm: 'Alarm' };
 
 /** @type {Record<string, string>} */
 const MARKS = { curated: '◆', directory: '◇' };
@@ -89,7 +89,7 @@ export function facetsHtml(answer, filters) {
       : '';
   }
   return FACET_KEYS.map((key) => {
-    const counts = new Map(facets[key].map((entry) => [entry.value, entry.count]));
+    const counts = new Map((facets[key] ?? []).map((entry) => [entry.value, entry.count]));
     for (const value of filters[key]) if (!counts.has(value)) counts.set(value, 0);
     if (!counts.size) return '';
     const items = [...counts]

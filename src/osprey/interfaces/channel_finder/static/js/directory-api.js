@@ -22,9 +22,23 @@ import { state } from './state.js';
  */
 
 /**
+ * The alarm feed's state of a row's PV: `severity` OK included.
+ * @typedef {{
+ *   severity: string|null,
+ *   status: string|null,
+ *   latched: boolean,
+ *   acknowledged: boolean,
+ *   time: string|null,
+ * }} RowAlarm
+ */
+
+/**
+ * `alarm` is present when the target has an alarm feed and it answered: the
+ * feed's state, null when it holds none for the PV.
  * @typedef {{
  *   name: string,
  *   origin: 'curated'|'directory'|'unknown',
+ *   alarm?: RowAlarm|null,
  *   status: 'Active'|'Inactive'|null,
  *   description: string|null,
  *   record_type: string|null,
@@ -48,7 +62,12 @@ import { state } from './state.js';
  *   rows: DirectoryRow[],
  *   truncated: boolean,
  *   partial: { part: string, reason: string }[],
- *   facets: { origin: FacetCount[], ioc: FacetCount[], record_type: FacetCount[] }|null,
+ *   facets: {
+ *     origin: FacetCount[],
+ *     ioc: FacetCount[],
+ *     record_type: FacetCount[],
+ *     alarm?: FacetCount[],
+ *   }|null,
  *   facets_reason: string|null,
  *   reason?: string,
  * }} DirectoryPage
@@ -177,6 +196,9 @@ import { state } from './state.js';
  *   timestamp: string|null,
  *   severity: number|null,
  *   status: string|null,
+ *   units?: string|null,
+ *   precision?: number|null,
+ *   enum_label?: string|null,
  *   reason?: string,
  * }} ValueRow
  */
@@ -219,14 +241,16 @@ import { state } from './state.js';
  */
 
 /**
- * The filter parameters of the search and export routes; origin, ioc and
- * record_type repeat, and page counts from 0.
+ * The filter parameters of the search and export routes; origin, ioc,
+ * record_type and alarm repeat (alarm: a severity, or `none` for OK or no
+ * state), and page counts from 0.
  * @typedef {{
  *   q?: string,
  *   name?: string,
  *   origin?: string[],
  *   ioc?: string[],
  *   record_type?: string[],
+ *   alarm?: string[],
  *   page?: number,
  *   page_size?: number,
  * }} DirectoryFilters

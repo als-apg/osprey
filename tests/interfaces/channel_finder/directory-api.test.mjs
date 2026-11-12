@@ -41,6 +41,7 @@ describe('directory-api routes', () => {
       origin: ['curated', 'directory'],
       ioc: ['ioc a', 'ioc&b'],
       record_type: ['ai'],
+      alarm: ['MAJOR', 'none'],
       page: 0,
       page_size: 50,
     });
@@ -53,6 +54,7 @@ describe('directory-api routes', () => {
     expect(params.getAll('origin')).toEqual(['curated', 'directory']);
     expect(params.getAll('ioc')).toEqual(['ioc a', 'ioc&b']);
     expect(params.getAll('record_type')).toEqual(['ai']);
+    expect(params.getAll('alarm')).toEqual(['MAJOR', 'none']);
     expect(params.get('page')).toBe('0');
     expect(params.get('page_size')).toBe('50');
   });

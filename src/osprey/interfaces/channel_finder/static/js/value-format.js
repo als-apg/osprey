@@ -5,12 +5,14 @@
  * {@link formatValue} turns one row of the values route into the text a cell
  * shows, its unit, and the hover title: "no answer", the reason a read did
  * not happen, a number rounded to 6 significant digits (or to the record's
- * precision when the row carries one), text as is, an array or object as JSON.
+ * precision when the row carries one), an enum as its label with the index on
+ * hover, text as is, an array or object as JSON.
  */
 
 /**
- * A row of the values route; `units` and `precision` are read when present.
- * @typedef {import('./directory-api.js').ValueRow & { units?: unknown, precision?: unknown }} FormattableRow
+ * A row of the values route; `units`, `precision` and `enum_label` are read
+ * when present.
+ * @typedef {import('./directory-api.js').ValueRow} FormattableRow
  */
 
 /** @typedef {{ text: string, unit: string, title: string }} FormattedValue */
@@ -46,6 +48,9 @@ export function formatValue(row) {
     return { text: row.reason || 'no answer', unit: '', title: row.reason ?? '' };
   }
   const { value } = row;
+  if (typeof row.enum_label === 'string') {
+    return { text: row.enum_label, unit: '', title: String(value) };
+  }
   if (typeof value === 'number') {
     const text = numberText(value, row.precision);
     return { text, unit, title: text === String(value) ? '' : String(value) };

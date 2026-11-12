@@ -12,7 +12,7 @@
  */
 
 /** The repeatable All PVs filters a route carries beside `q`, in hash order. */
-export const FACET_KEYS = /** @type {const} */ (['origin', 'ioc', 'record_type']);
+export const FACET_KEYS = /** @type {const} */ (['origin', 'ioc', 'record_type', 'alarm']);
 
 /**
  * The family a view belongs to: the pv and ioc routes are pages of All PVs;
