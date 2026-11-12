@@ -105,7 +105,9 @@ def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmStateRow, .
 
 def _state_of(body: Mapping[str, Any], *, stale: bool) -> AlarmStateRecord:
     recorded = body.get("severity")
-    severity = recorded.removesuffix(_ACK_SUFFIX) if isinstance(recorded, str) else recorded
+    if recorded is not None:
+        recorded = str(recorded)
+    severity = recorded.removesuffix(_ACK_SUFFIX) if recorded is not None else None
     acknowledged = severity != recorded
     return AlarmStateRecord(
         severity=severity,
