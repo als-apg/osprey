@@ -301,12 +301,13 @@ export function fetchLogbookAvailability() {
 
 /**
  * The active alarms; `severity` repeats, and `limit: 0` answers the counts
- * alone.
+ * alone. `signal` aborts the read.
  * @param {{ severity?: string[], limit?: number }} [filters]
+ * @param {AbortSignal} [signal]
  * @returns {Promise<ActiveAlarms>}
  */
-export function fetchActiveAlarms({ severity, limit } = {}) {
-  return fetchJSON(`/api/directory/alarms${queryString({ severity, limit })}`);
+export function fetchActiveAlarms({ severity, limit } = {}, signal) {
+  return fetchJSON(`/api/directory/alarms${queryString({ severity, limit })}`, { signal });
 }
 
 /**
