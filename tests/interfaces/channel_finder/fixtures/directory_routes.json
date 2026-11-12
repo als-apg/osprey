@@ -166,6 +166,40 @@
     "available": true,
     "source": {"target": "live", "service": "ariel", "label": "ariel", "rehearsal": false}
   },
+  "alarms": {
+    "outcome": "found",
+    "source": {"target": "va", "service": "alarm_replay", "label": "alarm_replay", "rehearsal": false},
+    "caveats": [],
+    "counts": {"MAJOR": 1, "MINOR": 1, "OK": 1},
+    "total": 3,
+    "rows": [
+      {
+        "pv": "SR:RF:CAVITY:01:TEMPERATURE:RB",
+        "path": "/Demo/SR/RF/SR:RF:CAVITY:01:TEMPERATURE:RB",
+        "severity": "MAJOR",
+        "status": "NO_ALARM",
+        "latched": true,
+        "acknowledged": false,
+        "message": "HIHI_ALARM",
+        "time": "2026-11-06T11:58:40.000Z",
+        "stale": false
+      },
+      {
+        "pv": "SR:VAC:GAUGE:SR03:PRESSURE:RB",
+        "path": "/Demo/SR/Vacuum/SR:VAC:GAUGE:SR03:PRESSURE:RB",
+        "severity": "MINOR",
+        "status": "HIGH_ALARM",
+        "latched": false,
+        "acknowledged": true,
+        "message": "HIGH_ALARM",
+        "time": "2026-11-06T12:00:00.000Z",
+        "stale": false
+      }
+    ],
+    "truncated": false,
+    "stale": false,
+    "last_contact": "2026-11-06T12:00:00.000Z"
+  },
   "values": [
     {
       "name": "DEMO:BPM01:X",
