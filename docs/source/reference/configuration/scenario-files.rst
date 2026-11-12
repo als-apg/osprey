@@ -46,7 +46,8 @@ Every key is optional.
    * - ``drivers``, ``couple``
      - Slow shared signals, and the channels that follow them.
    * - ``noise``
-     - Per-channel noise while the scenario is active, replacing the seed's.
+     - Per-channel noise while the scenario is active, replacing the noise
+       the channel's record in ``seeds.yaml`` states.
        Write ``{<address>: {absolute: <sigma>}}`` for a sigma in the
        channel's unit. Write ``{<address>: {relative: <fraction>}}`` for a
        sigma that is a fraction of the reading.
