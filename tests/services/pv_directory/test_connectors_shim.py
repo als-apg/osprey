@@ -159,6 +159,31 @@ def test_a_source_is_served_with_the_label_the_framework_names() -> None:
     assert _connectors.as_payload(put_log)["label"] == "caputlog"
 
 
+def test_rows_are_served_under_the_epics_words() -> None:
+    pytest.importorskip("osprey_connectors.service_answers")
+    put = _connectors.PutRow(at="t", channel="SR:BPM1.HIHI", field=".HIHI", old="1", new="2")
+    row = _connectors.DirectoryRow(name="SR:BPM1", channel_type="ai", server="ioc-a")
+
+    assert _connectors.as_payload(put) == {
+        "at": "t",
+        "pv": "SR:BPM1.HIHI",
+        "field": ".HIHI",
+        "old": "1",
+        "new": "2",
+        "user": None,
+        "client": None,
+    }
+    assert _connectors.as_payload(row) == {
+        "name": "SR:BPM1",
+        "status": None,
+        "description": None,
+        "record_type": "ai",
+        "ioc": "ioc-a",
+        "host": None,
+        "last_announced": None,
+    }
+
+
 def test_floor_binds_every_contract_name_to_none(floor: ModuleType) -> None:
     assert floor.DIRECTORY_CONNECTORS_AVAILABLE is False
     assert {name: getattr(floor, name) for name in _CONTRACT_NAMES} == dict.fromkeys(
