@@ -45,33 +45,49 @@
   <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/primitives.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/highlight.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/fonts/fonts.css') }}">
+
+  <!-- Markdown for the agent's answers (chat-markdown.js reads these off the
+       global scope): marked parses, DOMPurify sanitizes its output before it
+       reaches the page, highlight.js colors fenced code. theme-manager.js
+       swaps #hljs-theme between the two sheets with the theme's mode. -->
+  <link id="hljs-theme" rel="stylesheet"
+        href="{{ prefixed(vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css')) }}"
+        data-href-dark="{{ prefixed(vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css')) }}"
+        data-href-light="{{ prefixed(vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css')) }}">
+  <script src="{{ prefixed(vendor_url('highlight.js', '/static/vendor/highlight.min.js')) }}"></script>
+  <script src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
+  <script src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
+
   <link rel="stylesheet" href="{{ prefixed('/static/css/session.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
 </head>
 <body>
 
-<header>
-  <h1>Activity</h1>
-  <osprey-theme-switcher></osprey-theme-switcher>
-  <div class="refresh-dot" id="refresh-dot"></div>
-</header>
-
-<nav id="nav">
-  <button class="pill active" data-view="agents">Agents</button>
-  <button class="pill" data-view="toollog">Tool Log</button>
-  <button class="pill" data-view="artifacts">Artifacts</button>
-  <button class="pill" data-view="conversation">Conversation</button>
-</nav>
-
-<main>
-  <section class="view active" id="view-agents"></section>
-  <section class="view" id="view-toollog"></section>
-  <section class="view" id="view-artifacts"></section>
-  <section class="view" id="view-conversation"></section>
-</main>
-
-<div class="toast" id="toast"></div>
+<!-- The page's shell. activity-log-page.js fills it: the view switcher, the
+     live state and the record chip in the toolbar, the session list, and the
+     session shown in #inner. -->
+<div class="act">
+  <div class="osprey-panel-toolbar">
+    <div class="osprey-panel-toolbar__start">
+      <button class="osprey-icon-btn" id="sb-toggle" type="button" aria-label="Sessions" title="Sessions"></button>
+      <span class="act-page-name">Activity</span>
+      <div class="osprey-seg" role="group" aria-label="View" id="views"></div>
+    </div>
+    <div class="osprey-panel-toolbar__end">
+      <span id="live"></span>
+      <button class="osprey-chip" id="record-chip" type="button"></button>
+      <label class="osprey-search-field"><span id="search-ic"></span><input id="q" type="search" placeholder="Search this session" aria-label="Search this session"></label>
+      <button class="osprey-icon-btn" id="refresh" type="button" aria-label="Refresh" title="Refresh"></button>
+    </div>
+  </div>
+  <div class="act-body">
+    <aside class="osprey-panel-sidebar" id="sb" data-open="true" aria-label="Sessions"></aside>
+    <main class="act-main" id="main"><div class="act-inner" id="inner"></div></main>
+  </div>
+</div>
 
 <!-- Agent activity strip (floating variant — this page has no status bar):
      hidden while empty, fixed overlay so it never shifts the layout. -->
