@@ -450,6 +450,8 @@ def test_two_kind_phrase_finds_the_phrase(text: str) -> None:
         "tiers/ and apps/ folders",
         "tiers, apps = _roster_layers(config)",
         "the tier and write switch",
+        "framework artifacts, tiers, apps and secrets",
+        "data, tiers, apps and watchdogs",
     ],
 )
 def test_two_kind_phrase_leaves_other_words(text: str) -> None:
