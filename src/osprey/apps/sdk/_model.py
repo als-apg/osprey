@@ -293,8 +293,10 @@ def model_response_matrix(
     correctors: list[str] | None = None,
     render_root: Path | None = None,
     timeout_s: float = 120,
+    *,
+    kind: str = "orbit",
 ) -> ResponseMatrix:
-    """Solve a served model's orbit response to its correctors, on the model alone.
+    """Solve a served model's response to its correctors, on the model alone.
 
     Stable: part of the application SDK's public surface.
 
@@ -311,6 +313,10 @@ def model_response_matrix(
         render_root: The directory holding the rendered ``config.yml``; the
             render this process runs from when omitted.
         timeout_s: Seconds the solve may take.
+        kind: ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``,
+            the first-turn response of the turn-by-turn readings. Any other
+            value is refused before a child starts; an engine that answers
+            only the orbit response refuses ``"trajectory"``.
 
     Returns:
         The response. ``columns`` may be empty when no corrector solves;
@@ -318,7 +324,8 @@ def model_response_matrix(
 
     Raises:
         ValueError: The request is refused: by the resolver (the message
-            names the argument, the model or the file), or by the engine.
+            names the kind, the argument, the model or the file), or by the
+            engine.
         TimeoutError: The solve did not finish within ``timeout_s``.
         RuntimeError: The request has no solve, or the child ended without a
             result.
@@ -331,7 +338,7 @@ def model_response_matrix(
     )
 
     root = _render_root() if render_root is None else Path(render_root)
-    request = resolve_model_request(model, correctors, render_root=root)
+    request = resolve_model_request(model, correctors, render_root=root, kind=kind)
     try:
         done = subprocess.run(
             [sys.executable, "-c", child_script(request)],

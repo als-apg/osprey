@@ -1,9 +1,11 @@
-"""MCP tool: model_response_matrix — a served model's orbit response, read-only.
+"""MCP tool: model_response_matrix — a served model's response, read-only.
 
-``model_response_matrix(model=None, correctors=None)`` solves the orbit
+``model_response_matrix(model=None, correctors=None, kind="orbit")`` solves the
 response of a served model's wired monitors to its corrector setpoints on the
-model's own deck, through its engine plug-in's ``response_matrix()``. Nothing
-is written to the machine or to the deck.
+model's own deck, through its engine plug-in's ``response_matrix()``: the
+orbit readbacks' response, or with ``kind="trajectory"`` the first-turn
+response of the turn-by-turn readings. Nothing is written to the machine or to
+the deck.
 
 Everything is read from the render the server runs against (the directory of
 the rendered ``config.yml``): the simulator view's ``decks/<model>.json``, the
@@ -31,6 +33,7 @@ from typing import Any, NoReturn
 from osprey.mcp_server.errors import MISSING_KEY, make_error, refuse_nothing_answered
 from osprey.simulation import model_request as _request
 from osprey.simulation.model_request import (
+    DEFAULT_KIND,
     RESULT_TAG,
     STEP_KEY,
     ModelRequest,
@@ -72,7 +75,9 @@ def _refuse(message: str, suggestion: str) -> NoReturn:
     make_error("validation_error", message, [suggestion])
 
 
-def resolve_model_request(model: object, correctors: object, *, render_root: Path) -> ModelRequest:
+def resolve_model_request(
+    model: object, correctors: object, *, render_root: Path, kind: object = DEFAULT_KIND
+) -> ModelRequest:
     """Resolve a ``model_response_matrix`` call against the render it runs in.
 
     Args:
@@ -80,16 +85,17 @@ def resolve_model_request(model: object, correctors: object, *, render_root: Pat
         correctors: Corrector setpoint addresses the model wires, or ``None`` for
             every one, horizontal then vertical, in wiring order.
         render_root: The directory holding the rendered ``config.yml``.
+        kind: The response asked for, ``orbit`` or ``trajectory``.
 
     Returns:
         The resolved request.
 
     Raises:
         fastmcp.exceptions.ToolError: A ``validation_error`` envelope naming
-            the argument, the model or the file at fault.
+            the kind, the argument, the model or the file at fault.
     """
     try:
-        return _request.resolve_model_request(model, correctors, render_root=render_root)
+        return _request.resolve_model_request(model, correctors, render_root=render_root, kind=kind)
     except ModelRequestRefused as refused:
         _refuse(refused.message, refused.suggestion)
 
@@ -115,9 +121,9 @@ def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def model_response_matrix(
-    model: str | None = None, correctors: list[str] | None = None
+    model: str | None = None, correctors: list[str] | None = None, kind: str = DEFAULT_KIND
 ) -> str:
-    """Solve a served model's orbit response to its correctors, on the model alone.
+    """Solve a served model's response to its correctors, on the model alone.
 
     Read-only: nothing is written to the machine or to the deck. Each corrector
     is stepped about the value the deck holds by the model's measurement-file
@@ -129,6 +135,10 @@ async def model_response_matrix(
             model.
         correctors: Corrector setpoint addresses; omit for every corrector the
             model wires, horizontal then vertical.
+        kind: ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``,
+            the first-turn response of the turn-by-turn readings. Any other
+            value is refused, naming the two; an engine that answers only the
+            orbit response refuses ``"trajectory"`` with its text.
 
     Returns:
         JSON: ``model``, ``corrector_delta``, ``unit``, ``rows`` (``{address,
@@ -152,7 +162,7 @@ async def model_response_matrix(
     config_dir = resolve_config_dir()
     if config_dir is None:
         _refuse("no rendered config.yml to read the model from", "Run `osprey build`.")
-    request = resolve_model_request(model, correctors, render_root=Path(config_dir))
+    request = resolve_model_request(model, correctors, render_root=Path(config_dir), kind=kind)
 
     result = await executor.execute_code(
         code=_child_script(request),
