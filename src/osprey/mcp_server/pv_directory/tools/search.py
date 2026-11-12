@@ -49,10 +49,14 @@ async def directory_search(
     channels first. Each row carries ``origin`` ("curated": the curated channel
     list declares it; "directory": only the control system lists it; "unknown":
     no curated list to compare) and ``links.panel``, the panel page showing that
-    channel. ``searched`` states the search in plain words and ``request`` the
-    literal request sent. A part that missed the deadline is listed in
-    ``partial`` with its reason. ``no_match`` is not evidence the channel does
-    not exist.
+    channel. When an alarm feed is configured, each row also carries ``alarm``:
+    the alarm server's ``severity``, ``status``, ``latched``, ``acknowledged``
+    and since when (``time``); ``null`` when the feed holds no state for it;
+    absent when the feed did not answer, with the reason in ``partial``.
+    ``facets.alarm`` counts the rows per severity (``none``: OK or no state).
+    ``searched`` states the search in plain words and ``request`` the literal
+    request sent. A part that missed the deadline is listed in ``partial`` with
+    its reason. ``no_match`` is not evidence the channel does not exist.
 
     Args:
         words: Words matched against channel names and descriptions.
