@@ -286,6 +286,11 @@ app, before it reaches the backend. Show that state rather than hiding the
 control: have the backend's state say whether writes are on, and the panel
 say *Writes are off*.
 
+The page says when it can be driven: ``index.html`` carries
+``<html data-page-ready="pending">``, and ``panel.js`` imports ``markPageReady``
+from ``/design-system/js/page-ready.js`` and calls it once the first refresh
+has drawn, error or not. ``osprey app check`` refuses a panel that never does.
+
 ``tests/panel.test.js`` is a Vitest test of the page's functions in a DOM;
 ``osprey app check`` runs it. A JavaScript library the panel needs is not
 committed: list it under ``vendor`` with its exact version and SHA-256, and the
