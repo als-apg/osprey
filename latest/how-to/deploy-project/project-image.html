@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 11, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 12, 2026"/>
   </head>
   
   
@@ -696,7 +696,8 @@ resolves from PyPI.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BASE_REGISTRY</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">docker.io</span></code></p></td>
 <td><p>Registry standing in for <code class="docutils literal notranslate"><span class="pre">docker.io</span></code>: the base image is
-<code class="docutils literal notranslate"><span class="pre">${OSPREY_BASE_REGISTRY}/library/&lt;image&gt;</span></code>. The mirror must keep Docker
+<code class="docutils literal notranslate"><span class="pre">${OSPREY_BASE_REGISTRY}/library/&lt;image&gt;</span></code>, and Node is copied out of
+<code class="docutils literal notranslate"><span class="pre">${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim</span></code>. The mirror must keep Docker
 Hub’s paths; pull-through caches such as a Harbor proxy project, an
 Artifactory remote and a Nexus docker proxy do.</p></td>
 </tr>

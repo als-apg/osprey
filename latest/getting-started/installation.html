@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 11, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 12, 2026"/>
   </head>
   
   
@@ -465,7 +465,7 @@ whole process takes about 10 minutes.</p>
 </div>
 </details><section id="step-1-install-node-js">
 <h2>Step 1: Install Node.js<a class="headerlink" href="#step-1-install-node-js" title="Link to this heading">#</a></h2>
-<p>Claude Code requires <a class="reference external" href="https://nodejs.org/">Node.js</a> 18+.</p>
+<p>Claude Code requires <a class="reference external" href="https://nodejs.org/">Node.js</a> 22+.</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
@@ -485,10 +485,10 @@ Linux</label><div class="sd-tab-content docutils">
 sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>nodejs<span class="w"> </span>npm
 </pre></div>
 </div>
-<p>Your distribution’s own packages are the simplest route and the one the
-OSPREY container images take. Check what yours ships (<code class="docutils literal notranslate"><span class="pre">node</span> <span class="pre">--version</span></code>):
-a few older releases package a Node below the 18 floor, and there the
-cleanest fix is a current Node from <a class="reference external" href="https://github.com/nvm-sh/nvm">nvm</a>.</p>
+<p>Your distribution’s own packages are the simplest route. Check what yours
+ships (<code class="docutils literal notranslate"><span class="pre">node</span> <span class="pre">--version</span></code>): many current releases package a Node below the
+22 floor, and there the cleanest fix is a current Node from
+<a class="reference external" href="https://github.com/nvm-sh/nvm">nvm</a>.</p>
 </div>
 <input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-2">
@@ -501,7 +501,7 @@ Windows (WSL2)</label><div class="sd-tab-content docutils">
 </div>
 <p>Verify:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>node<span class="w"> </span>--version
-<span class="c1"># You should see v18.x.x or higher</span>
+<span class="c1"># You should see v22.x.x or higher</span>
 </pre></div>
 </div>
 </section>
