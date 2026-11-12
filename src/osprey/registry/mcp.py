@@ -1378,6 +1378,10 @@ class AgentDefinition:
     # condition keeps the agent out even under ``enabled: true``, and the build
     # logs one line naming this need.
     condition_need: str | None = None
+    # The paragraph the operator brief renders under this agent's entry in
+    # place of ``description``: first line the summary, each further line a
+    # sentence; the template supplies the continuation indent.
+    delegation: str | None = None
 
 
 FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
@@ -2587,6 +2591,7 @@ def _agent_to_dict(adef: AgentDefinition) -> dict:
         "description": adef.description,
         "is_custom": adef.is_custom,
         "requires_ask_tools": sorted(adef.requires_ask_tools),
+        "delegation": adef.delegation,
     }
 
 
