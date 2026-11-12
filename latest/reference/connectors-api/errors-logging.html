@@ -842,7 +842,9 @@ whose answer is rendered as “not a channel”.</p>
 library’s put directly instead of going through
 <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel</span></code>; nothing was sent.
 <code class="docutils literal notranslate"><span class="pre">CONTROL_SYSTEM_REFUSED</span></code> is the one reason under which the write was
-sent: the control system was asked and denied it.</p>
+sent: the control system was asked and denied it.
+<code class="docutils literal notranslate"><span class="pre">BATCH_REFUSED</span></code> is a write of a batch that passed every check of its own
+and was not sent because another write of the batch was refused.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.refuser">
 <span class="sig-name descname"><span class="pre">refuser</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.refuser" title="Link to this definition">#</a></dt>
@@ -876,6 +878,11 @@ sent: the control system was asked and denied it.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.RAW_CLIENT_WRITE">
 <span class="sig-name descname"><span class="pre">RAW_CLIENT_WRITE</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'RAW_CLIENT_WRITE'</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.RAW_CLIENT_WRITE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.errors.RefusalReason.BATCH_REFUSED">
+<span class="sig-name descname"><span class="pre">BATCH_REFUSED</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'BATCH_REFUSED'</span></span><a class="headerlink" href="#osprey_connectors.errors.RefusalReason.BATCH_REFUSED" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -1340,6 +1347,7 @@ or list of strings for multiple loggers.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.VALIDATION_ERROR"><code class="docutils literal notranslate"><span class="pre">RefusalReason.VALIDATION_ERROR</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.CONTROL_SYSTEM_REFUSED"><code class="docutils literal notranslate"><span class="pre">RefusalReason.CONTROL_SYSTEM_REFUSED</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.RAW_CLIENT_WRITE"><code class="docutils literal notranslate"><span class="pre">RefusalReason.RAW_CLIENT_WRITE</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.BATCH_REFUSED"><code class="docutils literal notranslate"><span class="pre">RefusalReason.BATCH_REFUSED</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.errors.RefusalReason.CHANNEL_NOT_FOUND"><code class="docutils literal notranslate"><span class="pre">RefusalReason.CHANNEL_NOT_FOUND</span></code></a></li>
 </ul>
 </li>

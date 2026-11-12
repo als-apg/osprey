@@ -604,6 +604,8 @@
 <span class="sd">    ``osprey.runtime.write_channel``; nothing was sent.</span>
 <span class="sd">    ``CONTROL_SYSTEM_REFUSED`` is the one reason under which the write was</span>
 <span class="sd">    sent: the control system was asked and denied it.</span>
+<span class="sd">    ``BATCH_REFUSED`` is a write of a batch that passed every check of its own</span>
+<span class="sd">    and was not sent because another write of the batch was refused.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">refuser</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
@@ -631,6 +633,14 @@
         <span class="p">),</span>
     <span class="p">)</span>
     <span class="n">RAW_CLIENT_WRITE</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;RAW_CLIENT_WRITE&quot;</span><span class="p">,</span> <span class="n">_REFERENCE_MONITOR</span><span class="p">,</span> <span class="n">_NEVER_SENT</span><span class="p">)</span>
+    <span class="n">BATCH_REFUSED</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;BATCH_REFUSED&quot;</span><span class="p">,</span>
+        <span class="n">_REFERENCE_MONITOR</span><span class="p">,</span>
+        <span class="p">(</span>
+            <span class="s2">&quot;No write of this batch was sent: another write in it was refused.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Resolve that write&#39;s refusal and submit the batch again.&quot;</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
     <span class="n">CHANNEL_NOT_FOUND</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;CHANNEL_NOT_FOUND&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">())</span></div>
 
 

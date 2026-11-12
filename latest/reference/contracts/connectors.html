@@ -532,14 +532,14 @@ of its channels, and says so:</p>
 <li><p>A read of such an address raises <code class="docutils literal notranslate"><span class="pre">ChannelNotFoundError</span></code>, whose message is
 <code class="docutils literal notranslate"><span class="pre">&lt;address&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility</span></code>.</p></li>
 <li><p>A write to such an address is not raised: it comes back with outcome
-<code class="docutils literal notranslate"><span class="pre">refused</span></code> and <code class="docutils literal notranslate"><span class="pre">refusal_reason</span></code> <code class="docutils literal notranslate"><span class="pre">CHANNEL_NOT_FOUND</span></code>, so the outcomes of
-the other writes in the same batch are kept.</p></li>
+<code class="docutils literal notranslate"><span class="pre">refused</span></code> and <code class="docutils literal notranslate"><span class="pre">refusal_reason</span></code> <code class="docutils literal notranslate"><span class="pre">CHANNEL_NOT_FOUND</span></code>. In a batch it is
+one refused row, and no write of that batch is sent.</p></li>
 </ul>
 <p>The controls tools report both as error type <code class="docutils literal notranslate"><span class="pre">not_found</span></code>, naming the address
 under <code class="docutils literal notranslate"><span class="pre">details.channel</span></code>. A read that names several channels still succeeds
 for the ones that answered and names the unknown address under <code class="docutils literal notranslate"><span class="pre">missing</span></code>
 (see <a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>); a batch write reports the unknown address as its
-<code class="docutils literal notranslate"><span class="pre">refused</span></code> row beside the rows that were written.</p>
+<code class="docutils literal notranslate"><span class="pre">refused</span></code> row beside the rows it held back (<code class="docutils literal notranslate"><span class="pre">BATCH_REFUSED</span></code>).</p>
 <p>A Channel Access connector cannot tell an unknown name from an unreachable one
 – a search that finds nothing times out – so it reports
 <code class="docutils literal notranslate"><span class="pre">ChannelUnreachableError</span></code> for both.</p>
@@ -671,6 +671,37 @@ passing nothing means “no opinion” and leaves the choice to the configuratio
 <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> confirms each channel exactly as a single write
 would, which is why <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channels</span></code> behaves like
 <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel</span></code>.</p>
+</section>
+<section id="what-a-batch-means">
+<h3>What a batch means<a class="headerlink" href="#what-a-batch-means" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> checks every write before it sends any, on every
+connector. The promise covers refusals known before the send:</p>
+<ul class="simple">
+<li><p><strong>The checks are all-or-nothing.</strong> Every write passes what a single write
+passes before its put: the write verdict, the connector’s own refusals and
+the limits, <code class="docutils literal notranslate"><span class="pre">max_step</span></code> included (the stepped channels are read together,
+once). If one write is refused, no write of the batch is sent. Every row is
+<code class="docutils literal notranslate"><span class="pre">refused</span></code>: a refused write with its own reason, each other write with
+<code class="docutils literal notranslate"><span class="pre">BATCH_REFUSED</span></code>, whose message names a refused one.</p></li>
+<li><p><strong>Past the checks each write is sent and verified on its own.</strong> A write that
+fails, mismatches or stays unconfirmed does not recall the others, which may
+already hold their values. The batch succeeded only if every row is
+<code class="docutils literal notranslate"><span class="pre">confirmed</span></code> or <code class="docutils literal notranslate"><span class="pre">unrequested</span></code>.</p></li>
+<li><p><strong>A refusal given only at the send is a row, not a recall.</strong> A control system
+that refuses at the put (a connector with no precheck, a value the target
+coerces, a read-only channel) can do so after earlier writes of the batch
+went out. Each row says what happened to its own channel.</p></li>
+</ul>
+<p>A batch names a channel once; one that names a channel more than once is
+refused whole (<code class="docutils literal notranslate"><span class="pre">VALIDATION_ERROR</span></code> on the repeated writes). The write verdict
+is asked again right before the send: a switch turned off, a hold or a stop
+that arrived during the checks refuses every write not yet sent.</p>
+<p>A batch does not raise <code class="docutils literal notranslate"><span class="pre">ChannelLimitsViolationError</span></code>; a limits refusal is a
+<code class="docutils literal notranslate"><span class="pre">refused</span></code> row with reason <code class="docutils literal notranslate"><span class="pre">LIMITS</span></code>. The EPICS connector sends the puts of a
+batch together; the other connectors send them in the order given.</p>
+<p>A caller that must not proceed on a batch passes its results to
+<code class="docutils literal notranslate"><span class="pre">raise_for_write_results()</span></code>, which raises for a refused write before the
+writes its batch held back.</p>
 </section>
 <section id="how-values-are-compared">
 <h3>How values are compared<a class="headerlink" href="#how-values-are-compared" title="Link to this heading">#</a></h3>
@@ -1266,6 +1297,7 @@ relabeled – to your backend’s UTC wire format.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connection-failures">Connection Failures</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-confirmation">Write Confirmation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-confirmation-off">Switching confirmation off</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-batch-means">What a batch means</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-values-are-compared">How values are compared</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-may-write">Who May Write</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-program-s-write-authorization">A Program’s Write Authorization</a></li>

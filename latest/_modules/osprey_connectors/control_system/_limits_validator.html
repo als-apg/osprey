@@ -1141,6 +1141,18 @@
         <span class="k">return</span> <span class="kc">True</span></div>
 
 
+<div class="viewcode-block" id="LimitsValidator.measures_step">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.measures_step">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">measures_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Whether :meth:`validate` reads this channel&#39;s present value.</span>
+
+<span class="sd">        True for a channel with a ``max_step``. A caller that validates many</span>
+<span class="sd">        writes at once reads exactly these channels beforehand, together.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">channel_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">limits</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">channel_address</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">channel_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">channel_config</span><span class="o">.</span><span class="n">max_step</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span></div>
+
+
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_validate_channel_config</span><span class="p">(</span><span class="n">channel_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config_dict</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Validate a single channel configuration structure.</span>

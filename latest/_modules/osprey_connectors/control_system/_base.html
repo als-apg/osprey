@@ -445,7 +445,8 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">Counter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">StrEnum</span>
@@ -1188,6 +1189,108 @@
 
 
 
+<div class="viewcode-block" id="raise_for_write_results">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.raise_for_write_results">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">raise_for_write_results</span><span class="p">(</span><span class="n">results</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Enforce the denial contract on a batch&#39;s results.</span>
+
+<span class="sd">    :func:`raise_for_write_result` for each result in batch order, the writes</span>
+<span class="sd">    their batch only held back (``BATCH_REFUSED``) last: a batch stopped at its</span>
+<span class="sd">    checks raises for the write that was refused, wherever it stands.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The results unchanged, when every one may be proceeded on.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">held_back</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">refusal_reason</span> <span class="o">==</span> <span class="n">RefusalReason</span><span class="o">.</span><span class="n">BATCH_REFUSED</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">held_back</span><span class="p">),</span> <span class="o">*</span><span class="n">held_back</span><span class="p">):</span>
+        <span class="n">raise_for_write_result</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">results</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_limits_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">error</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The REFUSED result a batch answers for a write the limits refused.</span>
+
+<span class="sd">    One line per channel, the violation&#39;s type and reason, where a single</span>
+<span class="sd">    write raises the violation with its banner.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">kind</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="s2">&quot;violation_type&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">reason</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="s2">&quot;violation_reason&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">said</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">kind</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">kind</span> <span class="ow">and</span> <span class="n">reason</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;: </span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="n">ChannelWriteResult</span><span class="p">(</span>
+        <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+        <span class="n">value_written</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">outcome</span><span class="o">=</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span><span class="p">,</span>
+        <span class="n">refusal_reason</span><span class="o">=</span><span class="n">RefusalReason</span><span class="o">.</span><span class="n">LIMITS</span><span class="p">,</span>
+        <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; refused by the limits </span><span class="si">{</span><span class="n">said</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_refused_batch</span><span class="p">(</span>
+    <span class="n">named</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">refusals</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One result per write of a batch that was not sent because a write was refused.&quot;&quot;&quot;</span>
+    <span class="n">refused</span> <span class="o">=</span> <span class="p">[</span><span class="n">refusal</span> <span class="k">for</span> <span class="n">refusal</span> <span class="ow">in</span> <span class="n">refusals</span> <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">]</span>
+    <span class="n">first</span> <span class="o">=</span> <span class="n">refused</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">others</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot; and </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">refused</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2"> more&quot;</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">refused</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">why</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;the write to &#39;</span><span class="si">{</span><span class="n">first</span><span class="o">.</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; was refused &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">first</span><span class="o">.</span><span class="n">refusal_reason</span><span class="si">}</span><span class="s2">)</span><span class="si">{</span><span class="n">others</span><span class="si">}</span><span class="s2">. No write of the batch was sent.&quot;</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="n">refusal</span>
+        <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">else</span> <span class="n">ChannelWriteResult</span><span class="p">(</span>
+            <span class="n">channel_address</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
+            <span class="n">value_written</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+            <span class="n">outcome</span><span class="o">=</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span><span class="p">,</span>
+            <span class="n">refusal_reason</span><span class="o">=</span><span class="n">RefusalReason</span><span class="o">.</span><span class="n">BATCH_REFUSED</span><span class="p">,</span>
+            <span class="n">error_message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; not sent: </span><span class="si">{</span><span class="n">why</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span> <span class="n">refusal</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">named</span><span class="p">,</span> <span class="n">refusals</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_repeated_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">times</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The refusal of one write to a channel its batch names more than once.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">ChannelWriteResult</span><span class="p">(</span>
+        <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+        <span class="n">value_written</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">outcome</span><span class="o">=</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">REFUSED</span><span class="p">,</span>
+        <span class="n">refusal_reason</span><span class="o">=</span><span class="n">RefusalReason</span><span class="o">.</span><span class="n">VALIDATION_ERROR</span><span class="p">,</span>
+        <span class="n">error_message</span><span class="o">=</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; refused: the batch names this channel more than &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;once (</span><span class="si">{</span><span class="n">times</span><span class="si">}</span><span class="s2"> writes). A batch writes a channel once; send the later value &quot;</span>
+            <span class="s2">&quot;in a batch of its own.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_batch_send_verdict</span><span class="p">(</span><span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">error</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The result of one write of a batch whose send raised, or the raise itself.</span>
+
+<span class="sd">    A limits refusal at send time is a ``LIMITS`` refusal. A channel that</span>
+<span class="sd">    could not be reached or did not answer in time is ``unconfirmed``: the</span>
+<span class="sd">    others of the batch are not recalled, and what this one holds is unknown.</span>
+<span class="sd">    Any other error is the connector&#39;s own and is raised.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelLimitsViolationError</span><span class="p">,</span> <span class="n">ChannelUnreachableError</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="n">ChannelLimitsViolationError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_limits_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">error</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="n">ChannelUnreachableError</span> <span class="o">|</span> <span class="ne">TimeoutError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ChannelWriteResult</span><span class="p">(</span>
+            <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
+            <span class="n">value_written</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+            <span class="n">outcome</span><span class="o">=</span><span class="n">WriteOutcome</span><span class="o">.</span><span class="n">UNCONFIRMED</span><span class="p">,</span>
+            <span class="n">error_message</span><span class="o">=</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Write to &#39;</span><span class="si">{</span><span class="n">channel_address</span><span class="si">}</span><span class="s2">&#39; could not be confirmed, &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;its outcome is unknown: </span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+    <span class="k">raise</span> <span class="n">error</span>
+
+
 <span class="k">def</span><span class="w"> </span><span class="nf">_accepts_on_connection</span><span class="p">(</span><span class="n">subscribe</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``.&quot;&quot;&quot;</span>
     <span class="n">parameters</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">subscribe</span><span class="p">)</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
@@ -1705,15 +1808,54 @@
         <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Write multiple channels. Override for atomic/batched behavior.</span>
+<span class="sd">        Write several channels as one batch: every write checked, then every write sent.</span>
 
-<span class="sd">        Default implementation writes sequentially via write_channel().</span>
-<span class="sd">        Subclasses can override to provide transactional semantics (e.g.,</span>
-<span class="sd">        disabling lattice recalculation between writes in a simulator).</span>
+<span class="sd">        What a batch means, on every connector:</span>
+
+<span class="sd">        1. **The checks are all-or-nothing.** Every write passes every check a</span>
+<span class="sd">           single :meth:`write_channel` makes before it sends: the write</span>
+<span class="sd">           verdict, the connector&#39;s own refusals and the limits, ``max_step``</span>
+<span class="sd">           included. The channels a step</span>
+<span class="sd">           is measured on are read together, once, before anything is sent. If</span>
+<span class="sd">           one write is refused there, **no write of the batch is sent**, and every</span>
+<span class="sd">           channel gets a ``refused`` result: a refused write its own reason,</span>
+<span class="sd">           each other write ``BATCH_REFUSED`` naming a refused one.</span>
+<span class="sd">        2. **Past the checks every write is sent and verified on its own.** One</span>
+<span class="sd">           result per channel, with the outcome a single write would report. A</span>
+<span class="sd">           write that fails, mismatches or stays unconfirmed does not recall</span>
+<span class="sd">           the others, which may already hold their values. The batch has</span>
+<span class="sd">           failed unless every result may be proceeded on</span>
+<span class="sd">           (:func:`raise_for_write_result`).</span>
+
+<span class="sd">        The promise covers what is known before the send. A refusal the control</span>
+<span class="sd">        system gives only at the send (a connector with no</span>
+<span class="sd">        :meth:`_write_precheck`, a value the target coerces or a read-only</span>
+<span class="sd">        channel it rejects) can come after earlier writes of the batch went</span>
+<span class="sd">        out; each result still says what happened to its own channel.</span>
+
+<span class="sd">        A batch names a channel once. One that names a channel more than once</span>
+<span class="sd">        is refused whole: a later write to it could only be checked against an</span>
+<span class="sd">        earlier one that may never land.</span>
+
+<span class="sd">        The write verdict is asked again right before the send, so a switch</span>
+<span class="sd">        turned off, a hold or a stop that arrives while the batch is checked</span>
+<span class="sd">        refuses every write not yet sent.</span>
+
+<span class="sd">        A batch never raises ``ChannelLimitsViolationError``: a limits refusal</span>
+<span class="sd">        is a ``refused`` result with reason ``LIMITS``. A channel whose send</span>
+<span class="sd">        raised ``ChannelUnreachableError`` or timed out is ``unconfirmed``. An</span>
+<span class="sd">        error of the connector itself (``ConnectorUnavailableError``) is</span>
+<span class="sd">        raised, and the batch&#39;s outcome is then unknown.</span>
+
+<span class="sd">        This method is the batch on every connector. A connector changes how a</span>
+<span class="sd">        batch is checked or sent through :meth:`_write_precheck`,</span>
+<span class="sd">        :meth:`_current_values` and :meth:`_send_batch`, not by overriding it.</span>
+<span class="sd">        A refusal a connector makes only inside its own :meth:`write_channel`</span>
+<span class="sd">        is not known before the send: it belongs in :meth:`_write_precheck`.</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            operations: List of (channel_address, value) tuples</span>
-<span class="sd">            timeout: Optional timeout in seconds</span>
+<span class="sd">            timeout: Optional timeout in seconds, given to each write</span>
 <span class="sd">            confirm: Whether every channel in the batch is confirmed, or ``None``</span>
 <span class="sd">                to let each channel resolve its own policy</span>
 
@@ -1721,42 +1863,191 @@
 <span class="sd">            List of ChannelWriteResult in the same order as operations</span>
 
 <span class="sd">        Note:</span>
-<span class="sd">            A batch carries one ``confirm`` for every channel in it, so an omitted</span>
-<span class="sd">            ``confirm`` is *not* resolved here — the keyword is simply left off</span>
-<span class="sd">            each per-channel ``write_channel()`` call, and each channel then</span>
-<span class="sd">            resolves its own policy from the limits database as documented on</span>
-<span class="sd">            :meth:`write_channel`. That is what makes a batch write behave like a</span>
-<span class="sd">            sequence of single writes.</span>
+<span class="sd">            An omitted ``confirm`` is not resolved here: each channel resolves</span>
+<span class="sd">            its own policy from the limits database, as :meth:`write_channel`</span>
+<span class="sd">            documents. An explicit ``confirm``, ``False`` as much as ``True``,</span>
+<span class="sd">            reaches every channel unchanged.</span>
 
-<span class="sd">            An explicit ``confirm`` — ``False`` every bit as much as ``True`` — is</span>
-<span class="sd">            forwarded unchanged to every channel, which is why the guard below</span>
-<span class="sd">            tests ``is not None`` rather than the value&#39;s truth.</span>
+<span class="sd">            In a process that names a program&#39;s write authorization the whole</span>
+<span class="sd">            call is judged and its one step spent before anything is checked</span>
+<span class="sd">            or sent; a batch the limits then refuse has still spent it.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">batch</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">operations</span><span class="p">)</span>
+        <span class="n">authorization</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span>
+        <span class="n">refused</span><span class="p">:</span> <span class="n">WriteVerdict</span> <span class="o">|</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">refused</span> <span class="o">=</span> <span class="n">_authorized_refusal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">authorization</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Every write is judged, as a single write is, before any is sent.</span>
+            <span class="c1"># The first refusal answers for the batch: every result of a</span>
+            <span class="c1"># refused batch tells the same story about why.</span>
+            <span class="n">refused</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
+                    <span class="n">refused</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">refused</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">session_hold_refusal</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">refused</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">break</span>
+        <span class="k">if</span> <span class="n">refused</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">refused</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">batch</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="k">with</span> <span class="n">open_door</span><span class="p">():</span>
+            <span class="n">named</span><span class="p">,</span> <span class="n">refusals</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_check_batch</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">refusal</span> <span class="ow">in</span> <span class="n">refusals</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">_refused_batch</span><span class="p">(</span><span class="n">named</span><span class="p">,</span> <span class="n">refusals</span><span class="p">)</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send_batch</span><span class="p">(</span><span class="n">named</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">confirm</span><span class="p">)</span></div>
 
-<span class="sd">            In a process that names a program&#39;s write authorization this is</span>
-<span class="sd">            every batch, a subclass&#39;s own batch included: the whole call is</span>
-<span class="sd">            judged and its one step spent first, and each operation is then</span>
-<span class="sd">            written past the guard.</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_write_precheck</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>  <span class="c1"># noqa: ARG002 - a connector&#39;s refusal carries the value</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;One write&#39;s name, and the refusal this connector answers before the limits.</span>
+
+<span class="sd">        The checks :meth:`write_channel` makes without touching the control</span>
+<span class="sd">        system, ahead of limits validation. The name is the one the limits,</span>
+<span class="sd">        the send and the result use for the channel.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">channel_address</span><span class="p">,</span> <span class="kc">None</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_current_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_addresses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;What the named channels hold now, for a batch&#39;s ``max_step`` checks.</span>
+
+<span class="sd">        ``None`` when the connector has no reader, and the step checks then</span>
+<span class="sd">        fail closed. A channel that could not be read maps to the exception</span>
+<span class="sd">        its read raised, or to ``None``. The default reads through</span>
+<span class="sd">        :meth:`current_value_reader` in one worker thread for the whole batch.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">reader</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_value_reader</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">reader</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">read_all</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+            <span class="n">held</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">channel_addresses</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">held</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">reader</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                    <span class="n">held</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">exc</span>
+            <span class="k">return</span> <span class="n">held</span>
+
+        <span class="k">return</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">read_all</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_check_batch</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Check every write of a batch; nothing is sent.</span>
+
+<span class="sd">        Returns the writes under the names :meth:`_write_precheck` gave them,</span>
+<span class="sd">        and one entry per write: its refusal, or ``None`` when it passed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelLimitsViolationError</span>
+
+        <span class="n">named</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">refusals</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">:</span>
+            <span class="n">name</span><span class="p">,</span> <span class="n">refusal</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_precheck</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="n">named</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+            <span class="n">refusals</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">refusal</span><span class="p">)</span>
+
+        <span class="n">times</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">(</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">named</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">named</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">times</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">refusals</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">refusals</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">=</span> <span class="n">_repeated_refusal</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">times</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+
+        <span class="n">validator</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_limits_validator</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">validator</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">named</span><span class="p">,</span> <span class="n">refusals</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">measured</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">validator</span><span class="o">.</span><span class="n">measures_step</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">True</span>  <span class="c1"># cannot tell: read it</span>
+
+        <span class="n">stepped</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">name</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">refusal</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">named</span><span class="p">,</span> <span class="n">refusals</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">measured</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="p">]</span>
+        <span class="n">held</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_values</span><span class="p">(</span><span class="n">stepped</span><span class="p">)</span> <span class="k">if</span> <span class="n">stepped</span> <span class="k">else</span> <span class="p">{}</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">read_current</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+            <span class="n">current</span> <span class="o">=</span> <span class="n">held</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">current</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">current</span>
+            <span class="k">return</span> <span class="n">current</span>
+
+        <span class="n">reader</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">read_current</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">named</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">refusals</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">validator</span><span class="o">.</span><span class="n">validate</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">read_current</span><span class="o">=</span><span class="n">reader</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">ChannelLimitsViolationError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="n">refusals</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">=</span> <span class="n">_limits_refusal</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="c1"># The check could not be made, which is not permission to write.</span>
+                <span class="n">refusals</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validation_refusal</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">named</span><span class="p">,</span> <span class="n">refusals</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_send_refusal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="s2">&quot;WriteVerdict | None&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The verdict refusing what a checked batch has not sent yet, or ``None``.</span>
+
+<span class="sd">        The batch was judged before its checks, and the checks take time: a</span>
+<span class="sd">        switch turned off, a hold or a stop since then must not be outrun by</span>
+<span class="sd">        the send. This asks again what the write guard asks of a single write.</span>
+<span class="sd">        In a process that names an authorization the call is judged again</span>
+<span class="sd">        without spending; ``auth_exhausted`` alone is no refusal here, since</span>
+<span class="sd">        the step this batch spent may have been the last.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">authorization</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">session_hold_refusal</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">_overrides_writes_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writes_enabled</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_verdict</span> <span class="ow">or</span> <span class="n">_monitor_verdict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">)</span>
+        <span class="n">verdict</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">authorized_execution_verdict</span><span class="p">(</span>
+            <span class="n">_monitor_section</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_control_target</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">authorization</span><span class="o">=</span><span class="n">authorization</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">verdict</span><span class="o">.</span><span class="n">allowed</span> <span class="ow">or</span> <span class="n">verdict</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">&quot;auth_exhausted&quot;</span> <span class="k">else</span> <span class="n">verdict</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_send_batch</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">batch</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Send a batch that passed every check: one result per write, in order.</span>
+
+<span class="sd">        The default sends one write after the other through the connector&#39;s</span>
+<span class="sd">        own :meth:`write_channel`, past the guard that already judged the</span>
+<span class="sd">        batch, and asks :meth:`_send_refusal` before each: once it refuses,</span>
+<span class="sd">        every write not yet sent is refused by that verdict. A connector whose</span>
+<span class="sd">        control system takes concurrent puts sends them together, and asks</span>
+<span class="sd">        once, immediately before the puts start.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="n">timeout</span><span class="p">}</span>
         <span class="k">if</span> <span class="n">confirm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;confirm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">confirm</span>
-        <span class="n">authorization</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">return</span> <span class="p">[</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">operations</span>
-            <span class="p">]</span>
-        <span class="c1"># One write call under a program&#39;s authorization: judged whole and its</span>
-        <span class="c1"># one step spent before any put; a refusal writes nothing. Each</span>
-        <span class="c1"># operation then meets the connector&#39;s own checks, limits included,</span>
-        <span class="c1"># without being judged or spent again.</span>
-        <span class="n">batch</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">operations</span><span class="p">)</span>
-        <span class="n">refused</span> <span class="o">=</span> <span class="n">_authorized_refusal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">authorization</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">refused</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">return</span> <span class="p">[</span><span class="n">_verdict_refusal</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">refused</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">]</span>
         <span class="n">write</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">_unguarded_write_channel</span>
-        <span class="k">with</span> <span class="n">open_door</span><span class="p">():</span>
-            <span class="k">return</span> <span class="p">[</span><span class="k">await</span> <span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">]</span></div>
-
+        <span class="n">results</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">batch</span><span class="p">):</span>
+            <span class="n">refused</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send_refusal</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">refused</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">_verdict_refusal</span><span class="p">(</span><span class="o">*</span><span class="n">held</span><span class="p">,</span> <span class="n">refused</span><span class="p">)</span> <span class="k">for</span> <span class="n">held</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">[</span><span class="n">index</span><span class="p">:])</span>
+                <span class="k">break</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="k">await</span> <span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_batch_send_verdict</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">exc</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">results</span>
 
 <div class="viewcode-block" id="ControlSystemConnector.subscribe">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.subscribe">[docs]</a>

@@ -1104,15 +1104,50 @@ share.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.control_system.ControlSystemConnector.write_multiple_channels">
 <span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">write_multiple_channels</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">operations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">confirm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_system/_base.html#ControlSystemConnector.write_multiple_channels"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_system.ControlSystemConnector.write_multiple_channels" title="Link to this definition">#</a></dt>
-<dd><p>Write multiple channels. Override for atomic/batched behavior.</p>
-<p>Default implementation writes sequentially via write_channel().
-Subclasses can override to provide transactional semantics (e.g.,
-disabling lattice recalculation between writes in a simulator).</p>
+<dd><p>Write several channels as one batch: every write checked, then every write sent.</p>
+<p>What a batch means, on every connector:</p>
+<ol class="arabic simple">
+<li><p><strong>The checks are all-or-nothing.</strong> Every write passes every check a
+single <a class="reference internal" href="#osprey_connectors.control_system.ControlSystemConnector.write_channel" title="osprey_connectors.control_system.ControlSystemConnector.write_channel"><code class="xref py py-meth docutils literal notranslate"><span class="pre">write_channel()</span></code></a> makes before it sends: the write
+verdict, the connector’s own refusals and the limits, <code class="docutils literal notranslate"><span class="pre">max_step</span></code>
+included. The channels a step
+is measured on are read together, once, before anything is sent. If
+one write is refused there, <strong>no write of the batch is sent</strong>, and every
+channel gets a <code class="docutils literal notranslate"><span class="pre">refused</span></code> result: a refused write its own reason,
+each other write <code class="docutils literal notranslate"><span class="pre">BATCH_REFUSED</span></code> naming a refused one.</p></li>
+<li><p><strong>Past the checks every write is sent and verified on its own.</strong> One
+result per channel, with the outcome a single write would report. A
+write that fails, mismatches or stays unconfirmed does not recall
+the others, which may already hold their values. The batch has
+failed unless every result may be proceeded on
+(<a class="reference internal" href="#osprey_connectors.control_system.raise_for_write_result" title="osprey_connectors.control_system.raise_for_write_result"><code class="xref py py-func docutils literal notranslate"><span class="pre">raise_for_write_result()</span></code></a>).</p></li>
+</ol>
+<p>The promise covers what is known before the send. A refusal the control
+system gives only at the send (a connector with no
+<code class="xref py py-meth docutils literal notranslate"><span class="pre">_write_precheck()</span></code>, a value the target coerces or a read-only
+channel it rejects) can come after earlier writes of the batch went
+out; each result still says what happened to its own channel.</p>
+<p>A batch names a channel once. One that names a channel more than once
+is refused whole: a later write to it could only be checked against an
+earlier one that may never land.</p>
+<p>The write verdict is asked again right before the send, so a switch
+turned off, a hold or a stop that arrives while the batch is checked
+refuses every write not yet sent.</p>
+<p>A batch never raises <code class="docutils literal notranslate"><span class="pre">ChannelLimitsViolationError</span></code>: a limits refusal
+is a <code class="docutils literal notranslate"><span class="pre">refused</span></code> result with reason <code class="docutils literal notranslate"><span class="pre">LIMITS</span></code>. A channel whose send
+raised <code class="docutils literal notranslate"><span class="pre">ChannelUnreachableError</span></code> or timed out is <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>. An
+error of the connector itself (<code class="docutils literal notranslate"><span class="pre">ConnectorUnavailableError</span></code>) is
+raised, and the batch’s outcome is then unknown.</p>
+<p>This method is the batch on every connector. A connector changes how a
+batch is checked or sent through <code class="xref py py-meth docutils literal notranslate"><span class="pre">_write_precheck()</span></code>,
+<code class="xref py py-meth docutils literal notranslate"><span class="pre">_current_values()</span></code> and <code class="xref py py-meth docutils literal notranslate"><span class="pre">_send_batch()</span></code>, not by overriding it.
+A refusal a connector makes only inside its own <a class="reference internal" href="#osprey_connectors.control_system.ControlSystemConnector.write_channel" title="osprey_connectors.control_system.ControlSystemConnector.write_channel"><code class="xref py py-meth docutils literal notranslate"><span class="pre">write_channel()</span></code></a>
+is not known before the send: it belongs in <code class="xref py py-meth docutils literal notranslate"><span class="pre">_write_precheck()</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>operations</strong> (<em>list</em><em>[</em><em>tuple</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – List of (channel_address, value) tuples</p></li>
-<li><p><strong>timeout</strong> (<em>float</em><em> | </em><em>None</em>) – Optional timeout in seconds</p></li>
+<li><p><strong>timeout</strong> (<em>float</em><em> | </em><em>None</em>) – Optional timeout in seconds, given to each write</p></li>
 <li><p><strong>confirm</strong> (<em>bool</em><em> | </em><em>None</em>) – Whether every channel in the batch is confirmed, or <code class="docutils literal notranslate"><span class="pre">None</span></code>
 to let each channel resolve its own policy</p></li>
 </ul>
@@ -1126,19 +1161,13 @@ to let each channel resolve its own policy</p></li>
 </dl>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>A batch carries one <code class="docutils literal notranslate"><span class="pre">confirm</span></code> for every channel in it, so an omitted
-<code class="docutils literal notranslate"><span class="pre">confirm</span></code> is <em>not</em> resolved here — the keyword is simply left off
-each per-channel <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> call, and each channel then
-resolves its own policy from the limits database as documented on
-<a class="reference internal" href="#osprey_connectors.control_system.ControlSystemConnector.write_channel" title="osprey_connectors.control_system.ControlSystemConnector.write_channel"><code class="xref py py-meth docutils literal notranslate"><span class="pre">write_channel()</span></code></a>. That is what makes a batch write behave like a
-sequence of single writes.</p>
-<p>An explicit <code class="docutils literal notranslate"><span class="pre">confirm</span></code> — <code class="docutils literal notranslate"><span class="pre">False</span></code> every bit as much as <code class="docutils literal notranslate"><span class="pre">True</span></code> — is
-forwarded unchanged to every channel, which is why the guard below
-tests <code class="docutils literal notranslate"><span class="pre">is</span> <span class="pre">not</span> <span class="pre">None</span></code> rather than the value’s truth.</p>
-<p>In a process that names a program’s write authorization this is
-every batch, a subclass’s own batch included: the whole call is
-judged and its one step spent first, and each operation is then
-written past the guard.</p>
+<p>An omitted <code class="docutils literal notranslate"><span class="pre">confirm</span></code> is not resolved here: each channel resolves
+its own policy from the limits database, as <a class="reference internal" href="#osprey_connectors.control_system.ControlSystemConnector.write_channel" title="osprey_connectors.control_system.ControlSystemConnector.write_channel"><code class="xref py py-meth docutils literal notranslate"><span class="pre">write_channel()</span></code></a>
+documents. An explicit <code class="docutils literal notranslate"><span class="pre">confirm</span></code>, <code class="docutils literal notranslate"><span class="pre">False</span></code> as much as <code class="docutils literal notranslate"><span class="pre">True</span></code>,
+reaches every channel unchanged.</p>
+<p>In a process that names a program’s write authorization the whole
+call is judged and its one step spent before anything is checked
+or sent; a batch the limits then refuse has still spent it.</p>
 </div>
 </dd></dl>
 
@@ -1510,6 +1539,19 @@ a limit, so it never enters <a class="reference internal" href="#osprey_connecto
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.control_system.LimitsValidator.measures_step">
+<span class="sig-name descname"><span class="pre">measures_step</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_system/_limits_validator.html#LimitsValidator.measures_step"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_system.LimitsValidator.measures_step" title="Link to this definition">#</a></dt>
+<dd><p>Whether <a class="reference internal" href="#osprey_connectors.control_system.LimitsValidator.validate" title="osprey_connectors.control_system.LimitsValidator.validate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">validate()</span></code></a> reads this channel’s present value.</p>
+<p>True for a channel with a <code class="docutils literal notranslate"><span class="pre">max_step</span></code>. A caller that validates many
+writes at once reads exactly these channels beforehand, together.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.control_system.LimitsValidator.validate">
 <span class="sig-name descname"><span class="pre">validate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">read_current</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_system/_limits_validator.html#LimitsValidator.validate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_system.LimitsValidator.validate" title="Link to this definition">#</a></dt>
 <dd><p>Validate a channel write operation (synchronous, optional I/O for max_step).</p>
@@ -1686,6 +1728,23 @@ alarm severity, since alarm state is reported and never raised on — or
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p><a class="reference internal" href="#osprey_connectors.control_system.ChannelWriteResult" title="osprey_connectors.control_system._base.ChannelWriteResult"><em>ChannelWriteResult</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.control_system.raise_for_write_results">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.control_system.</span></span><span class="sig-name descname"><span class="pre">raise_for_write_results</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">results</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_system/_base.html#raise_for_write_results"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_system.raise_for_write_results" title="Link to this definition">#</a></dt>
+<dd><p>Enforce the denial contract on a batch’s results.</p>
+<p><a class="reference internal" href="#osprey_connectors.control_system.raise_for_write_result" title="osprey_connectors.control_system.raise_for_write_result"><code class="xref py py-func docutils literal notranslate"><span class="pre">raise_for_write_result()</span></code></a> for each result in batch order, the writes
+their batch only held back (<code class="docutils literal notranslate"><span class="pre">BATCH_REFUSED</span></code>) last: a batch stopped at its
+checks raises for the write that was refused, wherever it stands.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The results unchanged, when every one may be proceeded on.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>Sequence</em>[<a class="reference internal" href="#osprey_connectors.control_system.ChannelWriteResult" title="osprey_connectors.control_system._base.ChannelWriteResult"><em>ChannelWriteResult</em></a>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2220,6 +2279,7 @@ Without one, neither is passed.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.from_config"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.from_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.from_config_most_restrictive"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.from_config_most_restrictive()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.resolve_confirm"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.resolve_confirm()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.measures_step"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.measures_step()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.validate"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.validate()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.validate_without_step_check"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.validate_without_step_check()</span></code></a></li>
 </ul>
@@ -2236,6 +2296,7 @@ Without one, neither is passed.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.mapping_config_lookup"><code class="docutils literal notranslate"><span class="pre">mapping_config_lookup()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.mark_long_lived_session"><code class="docutils literal notranslate"><span class="pre">mark_long_lived_session()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.raise_for_write_result"><code class="docutils literal notranslate"><span class="pre">raise_for_write_result()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.raise_for_write_results"><code class="docutils literal notranslate"><span class="pre">raise_for_write_results()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.step_read_timeout_seconds"><code class="docutils literal notranslate"><span class="pre">step_read_timeout_seconds()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.values_match"><code class="docutils literal notranslate"><span class="pre">values_match()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.write_door.door_is_open"><code class="docutils literal notranslate"><span class="pre">door_is_open()</span></code></a></li>
