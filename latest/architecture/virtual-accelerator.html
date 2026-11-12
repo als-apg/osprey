@@ -593,9 +593,12 @@ channel runs no timed pass.</p></li>
 a periodic pass’s solve runs: the fast period and a shot’s step offsets hold
 between solves, not through one. A long post holds them back less: a pass
 posting more than 2000 channels posts them in slices and runs a due timed
-pass between two.</p>
+pass between two. The <code class="docutils literal notranslate"><span class="pre">event</span></code> channels one advance fired go together in the
+first slice, however many, so no timed pass posts a later step between two of
+them.</p>
 <p>A view an older OSPREY wrote is refused before the ready line, with a message
-asking for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+asking for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. The one exception is a view of the previous
+schema, <code class="docutils literal notranslate"><span class="pre">osprey.facility.simulator/3</span></code>, which loads with no model inputs.</p>
 </section>
 <section id="two-transports-one-write-path">
 <h2>Two transports, one write path<a class="headerlink" href="#two-transports-one-write-path" title="Link to this heading">#</a></h2>
@@ -641,12 +644,51 @@ holds start nothing. A rebuild, which a scenario change makes, discards what
 a model had pending. In process nothing advances the model: it serves its
 start values and a write starts nothing.</p>
 <p>The shipped <code class="docutils literal notranslate"><span class="pre">injection</span></code> engine (<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.injection</span></code>) is
-the one time-driven engine. A model naming it names no deck: its wiring
+time-driven. A model naming it names no deck: its wiring
 records and settings are the whole chain. A client write of its request
 starts a shot, which steps each reading at its own offset; those readings and
 the free-running cycle signal refresh <code class="docutils literal notranslate"><span class="pre">event</span></code>, the fast copy of the stored
 current refreshes <code class="docutils literal notranslate"><span class="pre">fast</span></code>, and the setpoints and the stored current refresh
-<code class="docutils literal notranslate"><span class="pre">pass</span></code>. Declaring a chain is in <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-injection-chain"><span class="std std-ref">An injection chain</span></a>.</p>
+<code class="docutils literal notranslate"><span class="pre">pass</span></code>. It is the only source of shots. Declaring a chain is in
+<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-injection-chain"><span class="std std-ref">An injection chain</span></a>.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">pyat</span></code> ring whose settings state a <code class="docutils literal notranslate"><span class="pre">turn_by_turn</span></code> block is time-driven
+too. It reads a chain’s shot counter, charge and stored current as model
+inputs; a rise of the counter outside a baseline is a shot, which the next
+advance tracks through the deck for the monitors a client write armed. The
+arrays and turns tracked are emitted in one advance and <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops in a
+later one, so a client sees the arrays before <code class="docutils literal notranslate"><span class="pre">armed</span></code> reads <code class="docutils literal notranslate"><span class="pre">0</span></code>. Its
+outputs refresh <code class="docutils literal notranslate"><span class="pre">event</span></code> and its settings <code class="docutils literal notranslate"><span class="pre">pass</span></code>. Tracking runs inside the
+advance and holds the serving loop for its length, a read answering from the
+last post meanwhile. Such a ring without a closed orbit, as with its RF
+off, keeps serving with its orbit readings NaN, where any other periodic ring
+refuses the write. Wiring a ring is in <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>.</p>
+</section>
+<section id="model-inputs">
+<h2>Model inputs<a class="headerlink" href="#model-inputs" title="Link to this heading">#</a></h2>
+<p>A model may read records another model wires: its <em>inputs</em>, declared on the
+model record (see <a class="reference internal" href="facility-file.html#architecture-simulation-models"><span class="std std-ref">Simulation models</span></a>). An input is a value
+handed over, not a shared channel: the producer serves the address, and the
+consumer’s engine receives the producer’s plain value through
+<code class="docutils literal notranslate"><span class="pre">take_inputs</span></code>.</p>
+<ul class="simple">
+<li><p><strong>Order.</strong> The composite orders its models so every producer comes before
+its consumers, the rest in name order. A facility without inputs keeps name
+order and makes no delivery.</p></li>
+<li><p><strong>Delivery.</strong> Served, a consumer gets its inputs immediately before each
+advance of it, so it sees what its producers reached on that same pass. A
+client write to a producer reaches its consumers on the next pass; there is
+no separate delivery after a write.</p></li>
+<li><p><strong>Baseline.</strong> A delivery is a <em>baseline</em> when it is the first after the
+consumer or one of its producers was built, rebuilt or reset; a scenario
+change rebuilds every model, so it is one too. A baseline says “start from
+here”: the engine compares nothing against what it held, so a step in an
+input across a rebuild triggers nothing.</p></li>
+<li><p><strong>A failed producer.</strong> Its inputs are left out of the delivery; when none
+remain, no call is made. A <code class="docutils literal notranslate"><span class="pre">take_inputs</span></code> that raises fails the consumer.</p></li>
+</ul>
+<p>Only the served Virtual Accelerator advances time. In process the composite
+does not evolve: it delivers at build, at reset and after every write, each
+delivery a baseline, so an input never starts anything there.</p>
 </section>
 <section id="the-lume-stack-and-its-pins">
 <h2>The LUME stack and its pins<a class="headerlink" href="#the-lume-stack-and-its-pins" title="Link to this heading">#</a></h2>
@@ -927,6 +969,7 @@ the composite’s own value.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-transports-one-write-path">Two transports, one write path</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#physics-is-optional">Physics is optional</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#time-driven-models">Time-driven models</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-inputs">Model inputs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-lume-stack-and-its-pins">The LUME stack and its pins</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bringing-your-own-model">Bringing your own model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#served-and-model-only-variables">Served and model-only variables</a></li>

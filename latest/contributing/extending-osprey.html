@@ -749,7 +749,7 @@ Its <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SI
 optional <code class="docutils literal notranslate"><span class="pre">error_text(exc)</span></code> gives, else the exception’s own text. The
 rest of the namespace is still served.</p></li>
 <li><p><strong>The contract in code.</strong> <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.EnginePlugin</span></code> names
-the five functions above, and <code class="docutils literal notranslate"><span class="pre">isinstance(module,</span> <span class="pre">EnginePlugin)</span></code> checks a
+those five functions, and <code class="docutils literal notranslate"><span class="pre">isinstance(module,</span> <span class="pre">EnginePlugin)</span></code> checks a
 module states them. <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.OPTIONAL_NAMES</span></code> lists
 every optional name, and the protocol’s docstring says what each gives and
 what a model whose engine lacks it gets.
@@ -769,6 +769,25 @@ writes reach it too; what a client write triggers lives behind
 <code class="docutils literal notranslate"><span class="pre">client_write</span></code> alone. <code class="docutils literal notranslate"><span class="pre">build</span></code> receives no clock, so the composite calls
 <code class="docutils literal notranslate"><span class="pre">advance</span></code> right after a build, a rebuild or a reset. Only the served
 venue drives the contract; in process the model serves its start values.</p></li>
+<li><p><strong>Model inputs.</strong> An engine whose models read other models’ records states
+two optional functions. <code class="docutils literal notranslate"><span class="pre">describe_input(input_record)</span></code> is called at
+facility build with one input’s <code class="docutils literal notranslate"><span class="pre">{address,</span> <span class="pre">engine}</span></code> record; raising
+<code class="docutils literal notranslate"><span class="pre">ValueError</span></code> refuses it, and the build stops <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code> with its
+text, naming the input. <code class="docutils literal notranslate"><span class="pre">take_inputs(model,</span> <span class="pre">inputs,</span> <span class="pre">t_s,</span> <span class="pre">*,</span> <span class="pre">baseline)</span></code>
+gets one <code class="docutils literal notranslate"><span class="pre">(input_record,</span> <span class="pre">value)</span></code> pair per declared input whose producer
+has not failed, the value the producer’s current plain value. It only
+stores, like <code class="docutils literal notranslate"><span class="pre">set</span></code>; what a new value starts happens in the <code class="docutils literal notranslate"><span class="pre">advance</span></code>
+that follows. <code class="docutils literal notranslate"><span class="pre">baseline=True</span></code> marks a starting point: compare nothing
+against what was held. The <code class="docutils literal notranslate"><span class="pre">engine</span></code> block travelling with each pair is
+how a model tells its inputs apart; <code class="docutils literal notranslate"><span class="pre">build</span></code> is unchanged. A model that
+declares inputs over an engine without <code class="docutils literal notranslate"><span class="pre">take_inputs</span></code> is refused at build.
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code> states both, and the time contract, for
+a turn-by-turn ring (<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>).</p></li>
+<li><p><strong>The response kind.</strong> An optional <code class="docutils literal notranslate"><span class="pre">response_matrix</span></code> is called with the
+keyword <code class="docutils literal notranslate"><span class="pre">kind</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code>, and names each corrector
+without a column in <code class="docutils literal notranslate"><span class="pre">unsolved</span></code> with its text. One whose signature takes
+no <code class="docutils literal notranslate"><span class="pre">kind</span></code> is called without it for <code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code>; any other kind is refused
+as a request, naming the engine, without calling it.</p></li>
 </ul>
 <p>What the container keeps the same for every engine:</p>
 <ul class="simple">

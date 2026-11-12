@@ -502,7 +502,7 @@
 <span class="n">ADDRESSES_FILE</span> <span class="o">=</span> <span class="s2">&quot;addresses.json&quot;</span>
 <span class="n">ADDRESSES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.addresses/1&quot;</span>
 <span class="n">VARIABLES_FILE</span> <span class="o">=</span> <span class="s2">&quot;variables.json&quot;</span>
-<span class="n">VARIABLES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.simulator/3&quot;</span>
+<span class="n">VARIABLES_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.simulator/4&quot;</span>
 <span class="n">SEEDS_FILE</span> <span class="o">=</span> <span class="s2">&quot;seeds.json&quot;</span>
 <span class="n">SEEDS_SCHEMA</span> <span class="o">=</span> <span class="s2">&quot;osprey.facility.seeds/2&quot;</span>
 <span class="n">SCENARIOS_FILE</span> <span class="o">=</span> <span class="s2">&quot;scenarios.json&quot;</span>
@@ -522,6 +522,12 @@
         <span class="n">SEEDS_FILE</span><span class="p">:</span> <span class="n">SEEDS_SCHEMA</span><span class="p">,</span>
         <span class="n">SCENARIOS_FILE</span><span class="p">:</span> <span class="n">SCENARIOS_SCHEMA</span><span class="p">,</span>
     <span class="p">}</span>
+<span class="p">)</span>
+
+<span class="c1">#: The schemas this OSPREY reads besides the one it writes, per file: a released</span>
+<span class="c1">#: ``/3`` facility file reads as one whose models declare no inputs.</span>
+<span class="n">_ALSO_READ</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
+    <span class="p">{</span><span class="n">VARIABLES_FILE</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;osprey.facility.simulator/3&quot;</span><span class="p">})}</span>
 <span class="p">)</span>
 
 <span class="c1">#: The engine of the model that serves every channel no physics model wires.</span>
@@ -739,6 +745,10 @@
 <span class="sd">        deck: The path of the view&#39;s copy of the model&#39;s deck, or ``None``.</span>
 <span class="sd">        bindings: The model&#39;s wiring records, in wiring order; empty for a</span>
 <span class="sd">            ``texture`` model or one without wiring.</span>
+<span class="sd">        inputs: The model&#39;s inputs, in declared order, each a read-only</span>
+<span class="sd">            ``{address, engine}`` record: the producer channel&#39;s address and</span>
+<span class="sd">            the engine block the consuming engine reads; empty when the model</span>
+<span class="sd">            declares none.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
@@ -746,7 +756,8 @@
     <span class="n">served</span><span class="p">:</span> <span class="nb">bool</span>
     <span class="n">settings</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
     <span class="n">deck</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span>
-    <span class="n">bindings</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Binding</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span></div>
+    <span class="n">bindings</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Binding</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">inputs</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span></div>
 
 
 
@@ -853,8 +864,8 @@
 <span class="sd">            name: The file&#39;s name, one of :data:`SCHEMAS`.</span>
 
 <span class="sd">        Raises:</span>
-<span class="sd">            ViewSchemaError: the file&#39;s ``schema`` is absent or not</span>
-<span class="sd">                ``SCHEMAS[name]``.</span>
+<span class="sd">            ViewSchemaError: the file&#39;s ``schema`` is absent or neither</span>
+<span class="sd">                ``SCHEMAS[name]`` nor an older one this OSPREY still reads.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_freeze</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
@@ -867,7 +878,7 @@
             <span class="n">parsed</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
             <span class="n">expected</span> <span class="o">=</span> <span class="n">SCHEMAS</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
             <span class="n">found</span> <span class="o">=</span> <span class="n">parsed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parsed</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
-            <span class="k">if</span> <span class="n">found</span> <span class="o">!=</span> <span class="n">expected</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">found</span> <span class="o">!=</span> <span class="n">expected</span> <span class="ow">and</span> <span class="n">found</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ALSO_READ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">()):</span>
                 <span class="k">raise</span> <span class="n">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">found</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">parsed</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
@@ -902,6 +913,7 @@
             <span class="n">bindings</span><span class="o">=</span><span class="p">()</span>
             <span class="k">if</span> <span class="n">engine</span> <span class="o">==</span> <span class="n">_TEXTURE</span>
             <span class="k">else</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">Binding</span><span class="o">.</span><span class="n">from_record</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">record</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">wiring</span><span class="p">),</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">_freeze</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">record</span><span class="p">))</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;inputs&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
         <span class="p">)</span>
 
 <div class="viewcode-block" id="SimulatorView.model">

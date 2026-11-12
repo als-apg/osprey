@@ -664,7 +664,7 @@ answers <code class="docutils literal notranslate"><span class="pre">execution_e
 </section>
 <section id="model-response-matrix">
 <h3><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code><a class="headerlink" href="#model-response-matrix" title="Link to this heading">#</a></h3>
-<p>Solves a served model’s orbit response on the model’s own deck, in a sandbox
+<p>Solves a served model’s response on the model’s own deck, in a sandbox
 child stopped at the executor’s timeout. It writes nothing and asks for no
 approval.</p>
 <div class="pst-scrollable-table-container"><table class="table" id="id3">
@@ -689,6 +689,13 @@ approval.</p>
 <td><p>every corrector</p></td>
 <td><p>Corrector setpoint addresses the model wires; omitted, every one,
 horizontal then vertical.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kind</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;orbit&quot;</span></code>, the orbit readbacks’ response, or <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code>, the
+first-turn response of the turn-by-turn readings. Any other value is
+refused, naming the two; an engine that answers only the orbit
+response refuses <code class="docutils literal notranslate"><span class="pre">&quot;trajectory&quot;</span></code> with its text.</p></td>
 </tr>
 </tbody>
 </table>

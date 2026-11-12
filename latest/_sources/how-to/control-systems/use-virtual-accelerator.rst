@@ -450,6 +450,259 @@ Shots run only in the container: in process the chain serves its start
 values and a request starts nothing. What scenarios and channel faults do to
 a chain is in :doc:`/how-to/run-scenarios`.
 
+.. _va-turn-by-turn:
+
+Turn-by-turn data from an injection chain
+-----------------------------------------
+
+A first-turn steering or injection-tuning tool arms a ring's monitors, waits
+for a shot, and reads each monitor's turn-by-turn arrays. A ``pyat`` ring
+serves those arrays when its settings state a ``turn_by_turn`` block and it
+reads the shot from an injection chain through model inputs. The chain stays
+the only source of shots: the ring tracks a bunch through its deck each time
+the chain's shot counter rises.
+
+.. raw:: html
+   :file: ../../_diagrams/va-turn-by-turn.html
+
+**The chain.** Wire a charge after the last stage and a shot counter that
+steps after it, so each shot's delivery carries that shot's charge. To the
+chain of :ref:`va-injection-chain`, add:
+
+.. code-block:: yaml
+
+   - address: INJ:STORE:Q
+     engine: {signal: charge, offset_s: 0.05, stage: 1}
+   - address: INJ:STORE:SHOTS
+     engine: {signal: counter, offset_s: 0.06}
+
+A counter whose ``offset_s`` is not larger than the charge's makes each shot
+carry the previous shot's charge. To fill from an empty ring, start the
+chain's ``current`` parameter at ``0`` and give its channel a limits band that
+holds ``0``.
+
+**The ring.** With invented addresses, and one monitor shown:
+
+.. code-block:: yaml
+
+   - name: RING
+     engine: pyat
+     deck: decks/RING.json
+     settings:
+       pyat:
+         solve: periodic
+         turn_by_turn:
+           injection_element: INJ_POINT
+           turns: 250
+           trigger_sample: 10
+           particles: 16
+           launch: {x: 0.001, y: -0.0005}
+           aperture: {x: 0.004, y: 0.004}
+     inputs:
+       - {address: INJ:STORE:SHOTS, engine: {signal: shot}}
+       - {address: INJ:STORE:Q, engine: {signal: charge}}
+       - {address: INJ:STORE:I, engine: {signal: stored_current}}
+     wiring:
+       - address: RING:RF:ON
+         engine: {signal: rf_switch}
+       - address: RING:TBT:PILOT
+         engine: {signal: pilot_tone}
+       - address: RING:TBT:ATTEN
+         engine: {signal: stored}
+       - address: RING:TBT:TURNS
+         engine: {signal: turns_tracked}
+       - address: RING:BPM1:ARM
+         element: BPM1
+         engine: {signal: arm}
+       - address: RING:BPM1:ARMED
+         element: BPM1
+         engine: {signal: armed}
+       - address: RING:BPM1:TBT:X
+         element: BPM1
+         engine: {signal: turn_x}
+       - address: RING:BPM1:TBT:Y
+         element: BPM1
+         engine: {signal: turn_y}
+       - address: RING:BPM1:TBT:SUM
+         element: BPM1
+         engine: {signal: turn_sum}
+
+Each input's ``signal`` says what the ring reads from the chain: ``shot``,
+the counter whose rise is a shot; ``charge``, the shot's charge; and
+``stored_current``, the current already stored. Declare all three: without
+``shot`` no shot is taken, without ``charge`` every shot carries zero charge,
+and without ``stored_current`` there is no stored beam. Each wiring record's
+``signal``:
+
+- ``arm``: a monitor's arm setting. Wire one per monitor, naming its
+  monitor ``element``.
+- ``armed``: whether that monitor waits for a shot.
+- ``turn_x``, ``turn_y``, ``turn_sum``: the monitor's arrays, positions in
+  metres and the sum signal.
+- ``turns_tracked``: the turns the last shot tracked, the ring's; it names no
+  element.
+- ``rf_switch``: ``0`` sets every cavity's voltage to zero, anything else
+  restores the deck's voltages. It starts at ``1`` and names no element.
+- ``pilot_tone``: non-zero turns the pilot tone on. It starts at ``0`` and
+  names no element.
+- ``stored``: a setting that holds what is written and drives no physics,
+  for an attenuation or a mode the software sets; it may name an element.
+
+Declare ``arm``, ``rf_switch``, ``pilot_tone`` and ``stored`` channels
+``role: setpoint``, and each array ``value_type: waveform`` with
+``shape: [<trigger_sample + turns>]``, here ``[260]``; every other record is a
+plain float.
+
+**The settings.** Only ``injection_element`` is required:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 20 55
+
+   * - Key
+     - Default
+     - What it sets
+   * - ``injection_element``
+     - required
+     - The deck element a shot starts at; the deck holds it exactly once.
+   * - ``turns``
+     - ``250``
+     - Turns tracked per shot, a whole number of at least 1.
+   * - ``trigger_sample``
+     - ``10``
+     - Samples before injected turn 1, a whole number of at least 0.
+   * - ``particles``
+     - ``16``
+     - Particles tracked per shot.
+   * - ``launch``
+     - all ``0``
+     - The bunch centroid at injection: ``x``, ``px``, ``y``, ``py``,
+       ``delta``, ``ct``, each signed.
+   * - ``emittance_x``, ``emittance_y``, ``sigma_delta``, ``sigma_z``
+     - ``0``
+     - The bunch's size, matched to the optics at injection. All zero, every
+       particle starts at ``launch``.
+   * - ``jitter``
+     - ``{x: 5.0e-5, y: 3.0e-5}``
+     - The shot-to-shot centroid jitter's sigma, metres.
+   * - ``aperture``
+     - none
+     - ``{x, y, shape}``: positive half-axes in metres, both required, and
+       ``elliptical`` (the default) or ``rectangular``; set on every element
+       with a length.
+   * - ``sum_per_charge``
+     - ``1.0``
+     - Sum per unit of the shot's charge.
+   * - ``sum_per_stored``
+     - ``1.0``
+     - Sum per unit of stored current.
+   * - ``sum_floor``
+     - ``0.0``
+     - The lowest sum a sample reads.
+   * - ``position_noise``
+     - ``1.0e-5``
+     - Position noise sigma, metres.
+   * - ``sum_noise``
+     - ``0.0``
+     - Sum noise sigma.
+   * - ``floor_noise``
+     - ``1.0e-3``
+     - Position noise sigma where the sum is at the floor, metres.
+   * - ``tone_period``
+     - ``10``
+     - Samples between pilot-tone spikes, a whole number of at least 1.
+   * - ``tone_amplitude``
+     - ``1.0``
+     - Pilot-tone spike size.
+
+Every number but ``launch`` is finite and not negative; an unknown key, also
+inside ``launch``, ``jitter`` or ``aperture``, stops the build. The apertures
+decide when an RF-off bunch is lost; they are the facility's to calibrate.
+
+**The arrays.** Each array holds ``trigger_sample + turns`` samples. The
+samples before ``trigger_sample`` see the stored beam only, and injected
+turn 1 sits at index ``trigger_sample``. The tracking starts at the injection
+element, so a monitor upstream of it reads the end of each turn. The sum is
+the shot's charge times the share of the bunch still alive times
+``sum_per_charge``, plus, with the RF on, the stored current held before the
+shot times ``sum_per_stored``, plus noise, floored at ``sum_floor``. Positions
+are the sum-weighted mix of the stored beam, at zero, and the bunch's
+centroid, plus ``position_noise``; where the sum is at the floor they are
+``floor_noise``. With the pilot tone on, every sample whose index is a
+multiple of ``tone_period`` carries a spike in all three arrays. The noise is
+keyed on the record's address, the shot and the sample, so a shot reads the
+same in every run.
+
+**Arming.**
+
+- Arming is per monitor. A client write of a non-zero ``arm`` arms it, ``0``
+  disarms it, and arming an armed monitor changes nothing. ``arm`` reads back
+  what was written; ``armed`` is the state.
+- A restore, a scenario's start state and a write a ``stuck`` or
+  ``disconnected`` fault holds never arm.
+- A shot reaches the armed monitors only. Their arrays and ``turns_tracked``
+  are posted, then their ``armed`` drops to ``0``; every other monitor keeps
+  its arrays. A shot with no monitor armed changes nothing.
+- ``armed`` at ``0`` guarantees the shot's arrays are already served, on
+  Channel Access and PVAccess both, so a client may time a shot on ``armed``
+  alone. A shot that arrives before the drop finds those monitors unarmed.
+- A reset or a scenario change returns every monitor to unarmed, every array
+  to zeros and ``turns_tracked`` to ``0``, and is not mistaken for a shot.
+
+**Shots.**
+
+- One pass sees one delivery and tracks at most once. A counter that rose by
+  more than one between two passes tracks once, with the latest charge. A
+  counter that falls is not a shot.
+- A zero-charge shot is still a shot: the arrays read the floor, the noise
+  and any stored beam, and ``armed`` drops.
+- A tracking that fails leaves the armed monitors' arrays at zeros and
+  ``turns_tracked`` at ``0``; ``armed`` still drops and the ring keeps
+  serving.
+- With the RF off the ring has no closed orbit: its orbit readings read NaN
+  and its settings stay writable. The stored beam adds nothing to the sum, so
+  the samples before the trigger read the floor, and a bunch with declared
+  apertures is lost within some hundred turns.
+
+**Cost.** Tracking runs on the serving loop, about 0.5 s for 16 particles
+over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
+0.13 ms per particle and turn, growing with the deck. During it a read
+answers at once with the last posted value; a write, a model RPC call and a
+response-matrix request wait until it ends and are then served, never
+refused. A client timeout shorter than the tracking is the client's.
+
+**Refusals.** ``osprey build`` stops the ring when the block or a record is
+malformed: a missing or repeated ``injection_element``, a value out of range,
+an unknown key, a turn record on a ring without the block, a monitor record
+without a monitor ``element``, a ring record naming one, a setting not wired
+for write, an array that is not a waveform of ``trigger_sample + turns``
+samples, any other turn record that is not a float, and an input whose
+``engine`` is not one ``{signal: ...}`` the ring reads. The model fails to
+build, with the text in its status channel, when an ``rf_switch`` is wired
+over a deck with no RF cavity. The container refuses to start when an array
+is larger than the configuration's ``max_array_bytes`` at 8 bytes a sample,
+naming the channel and both sizes.
+
+**The response matrix.** ``model_response_matrix`` takes ``kind``, in the
+Python executor tool (:doc:`/reference/contracts/python-executor`) and in
+``osprey.apps.sdk``: ``orbit`` (the default) or ``trajectory``. The
+trajectory response is the first-turn response of one particle, without
+jitter, from ``launch`` through the declared apertures, in the orbit's rows
+and units; it is computed from the deck and settings, not from served state,
+and only a ring with the block answers it. A corrector whose kicked particle
+is lost before a monitor has no column; the tool's ``missing`` and the SDK's
+``unsolved`` name it with where the particle was lost. When the particle is
+lost with no corrector stepped, every corrector is named and the matrix has
+no column. An engine whose ``response_matrix`` takes no ``kind`` answers the
+orbit response alone and refuses any other kind.
+
+**What is not modelled.** The ring's capture or loss does not feed back into
+the chain's stored current; the stored current neither decays nor
+saturates; there is one bunch, no fill pattern; no bunch cleaning, tune scan,
+beam-based alignment or RF frequency correction. Shots run only in the
+container: in process every delivery is a baseline, so no shot is taken and
+the arrays stay zeros.
+
 Another backend
 ---------------
 

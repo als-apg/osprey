@@ -956,6 +956,333 @@ or not a shot runs.</p></li>
 values and a request starts nothing. What scenarios and channel faults do to
 a chain is in <a class="reference internal" href="../run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
 </section>
+<section id="turn-by-turn-data-from-an-injection-chain">
+<span id="va-turn-by-turn"></span><h3>Turn-by-turn data from an injection chain<a class="headerlink" href="#turn-by-turn-data-from-an-injection-chain" title="Link to this heading">#</a></h3>
+<p>A first-turn steering or injection-tuning tool arms a ring’s monitors, waits
+for a shot, and reads each monitor’s turn-by-turn arrays. A <code class="docutils literal notranslate"><span class="pre">pyat</span></code> ring
+serves those arrays when its settings state a <code class="docutils literal notranslate"><span class="pre">turn_by_turn</span></code> block and it
+reads the shot from an injection chain through model inputs. The chain stays
+the only source of shots: the ring tracks a bunch through its deck each time
+the chain’s shot counter rises.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 380" role="img" aria-labelledby="va-tbt-title va-tbt-desc">
+  <title id="va-tbt-title">Turn-by-turn data from an injection chain</title>
+  <desc id="va-tbt-desc">The injection chain is the only source of shots. The ring reads three of the chain's records as model inputs: the shot counter, the shot's charge and the stored current. When the counter rises, the ring tracks one bunch through its deck for the monitors a client armed. The client arms monitors, requests a shot from the chain, waits for armed to read zero and then reads each monitor's arrays, which are served before armed drops.</desc>
+  <defs>
+    <marker id="va-tbt-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- the two models -->
+  <rect class="zone" x="20" y="24" width="330" height="186" rx="4"/>
+  <text class="te" x="36" y="44">INJECTION CHAIN · ENGINE: INJECTION</text>
+  <rect class="zone" x="610" y="24" width="330" height="186" rx="4"/>
+  <text class="te" x="626" y="44">RING · ENGINE: PYAT + TURN_BY_TURN</text>
+
+  <!-- model inputs -->
+  <line class="e" x1="330" y1="78" x2="630" y2="78" marker-end="url(#va-tbt-arr)"/>
+  <line class="e" x1="330" y1="126" x2="630" y2="126" marker-end="url(#va-tbt-arr)"/>
+  <line class="e" x1="330" y1="174" x2="630" y2="174" marker-end="url(#va-tbt-arr)"/>
+  <text class="te" x="480" y="44" text-anchor="middle">MODEL INPUTS</text>
+  <text class="ta" x="480" y="70" text-anchor="middle">signal: shot</text>
+  <text class="ta" x="480" y="118" text-anchor="middle">signal: charge</text>
+  <text class="ta" x="480" y="166" text-anchor="middle">signal: stored_current</text>
+
+  <!-- the chain's records -->
+  <rect class="nb" x="40" y="58" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="75" text-anchor="middle">shot counter</text>
+  <text class="ts" x="185" y="90" text-anchor="middle">steps after the charge, once per shot</text>
+
+  <rect class="nb" x="40" y="106" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="123" text-anchor="middle">charge</text>
+  <text class="ts" x="185" y="138" text-anchor="middle">what this shot delivers</text>
+
+  <rect class="nb" x="40" y="154" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="171" text-anchor="middle">stored current</text>
+  <text class="ts" x="185" y="186" text-anchor="middle">the beam already in the ring</text>
+
+  <!-- the ring -->
+  <rect class="nb-st" x="630" y="58" width="290" height="136" rx="6"/>
+  <text class="tn" x="775" y="100" text-anchor="middle">the counter rose: one shot</text>
+  <text class="ts" x="775" y="122" text-anchor="middle">tracks one bunch through the deck</text>
+  <text class="ts" x="775" y="138" text-anchor="middle">from the injection element,</text>
+  <text class="ts" x="775" y="154" text-anchor="middle">for the armed monitors only</text>
+
+  <!-- client edges -->
+  <line class="e" x1="185" y1="280" x2="185" y2="212" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="132" y="238" width="106" height="15"/>
+  <text class="ta" x="185" y="249" text-anchor="middle">requests a shot</text>
+
+  <line class="e" x1="700" y1="280" x2="700" y2="212" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="662" y="238" width="76" height="15"/>
+  <text class="ta" x="700" y="249" text-anchor="middle">writes arm</text>
+
+  <line class="e" x1="850" y1="210" x2="850" y2="278" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="788" y="238" width="124" height="15"/>
+  <text class="ta" x="850" y="249" text-anchor="middle">arrays, then armed 0</text>
+
+  <!-- the client -->
+  <rect class="nb-in" x="20" y="280" width="920" height="56" rx="6"/>
+  <text class="te" x="36" y="300">CLIENT</text>
+  <text class="tn" x="135" y="314" text-anchor="middle">1 · arm the monitors</text>
+  <text class="tn" x="365" y="314" text-anchor="middle">2 · request a shot</text>
+  <text class="tn" x="595" y="314" text-anchor="middle">3 · wait for armed 0</text>
+  <text class="tn" x="825" y="314" text-anchor="middle">4 · read x, y and sum</text>
+
+  <text class="ta" x="480" y="362" text-anchor="middle">the chain stays the only source of shots — armed reads 0 only after the shot's arrays are served</text>
+</svg>
+</div>
+<p><strong>The chain.</strong> Wire a charge after the last stage and a shot counter that
+steps after it, so each shot’s delivery carries that shot’s charge. To the
+chain of <a class="reference internal" href="#va-injection-chain"><span class="std std-ref">An injection chain</span></a>, add:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:Q</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">charge</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.05</span><span class="p p-Indicator">,</span><span class="nt"> stage</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">}</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ:STORE:SHOTS</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">counter</span><span class="p p-Indicator">,</span><span class="nt"> offset_s</span><span class="p">:</span><span class="w"> </span><span class="nv">0.06</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>A counter whose <code class="docutils literal notranslate"><span class="pre">offset_s</span></code> is not larger than the charge’s makes each shot
+carry the previous shot’s charge. To fill from an empty ring, start the
+chain’s <code class="docutils literal notranslate"><span class="pre">current</span></code> parameter at <code class="docutils literal notranslate"><span class="pre">0</span></code> and give its channel a limits band that
+holds <code class="docutils literal notranslate"><span class="pre">0</span></code>.</p>
+<p><strong>The ring.</strong> With invented addresses, and one monitor shown:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">solve</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">periodic</span>
+<span class="w">      </span><span class="nt">turn_by_turn</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">injection_element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ_POINT</span>
+<span class="w">        </span><span class="nt">turns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250</span>
+<span class="w">        </span><span class="nt">trigger_sample</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">        </span><span class="nt">particles</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
+<span class="w">        </span><span class="nt">launch</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="nv">0.001</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">-0.0005</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">aperture</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="nv">0.004</span><span class="p p-Indicator">,</span><span class="nt"> y</span><span class="p">:</span><span class="w"> </span><span class="nv">0.004</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="nv">INJ</span><span class="p p-Indicator">:</span><span class="nv">STORE</span><span class="p p-Indicator">:</span><span class="nv">SHOTS</span><span class="p p-Indicator">,</span><span class="nt"> engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">shot</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="nv">INJ</span><span class="p p-Indicator">:</span><span class="nv">STORE</span><span class="p p-Indicator">:</span><span class="nv">Q</span><span class="p p-Indicator">,</span><span class="nt"> engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">charge</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="nv">INJ</span><span class="p p-Indicator">:</span><span class="nv">STORE</span><span class="p p-Indicator">:</span><span class="nv">I</span><span class="p p-Indicator">,</span><span class="nt"> engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">stored_current</span><span class="p p-Indicator">}}</span>
+<span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:ON</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">rf_switch</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:PILOT</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">pilot_tone</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:ATTEN</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">stored</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:TBT:TURNS</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turns_tracked</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:ARM</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">arm</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:ARMED</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">armed</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:TBT:X</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turn_x</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:TBT:Y</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turn_y</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:BPM1:TBT:SUM</span>
+<span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM1</span>
+<span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">turn_sum</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>Each input’s <code class="docutils literal notranslate"><span class="pre">signal</span></code> says what the ring reads from the chain: <code class="docutils literal notranslate"><span class="pre">shot</span></code>,
+the counter whose rise is a shot; <code class="docutils literal notranslate"><span class="pre">charge</span></code>, the shot’s charge; and
+<code class="docutils literal notranslate"><span class="pre">stored_current</span></code>, the current already stored. Declare all three: without
+<code class="docutils literal notranslate"><span class="pre">shot</span></code> no shot is taken, without <code class="docutils literal notranslate"><span class="pre">charge</span></code> every shot carries zero charge,
+and without <code class="docutils literal notranslate"><span class="pre">stored_current</span></code> there is no stored beam. Each wiring record’s
+<code class="docutils literal notranslate"><span class="pre">signal</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">arm</span></code>: a monitor’s arm setting. Wire one per monitor, naming its
+monitor <code class="docutils literal notranslate"><span class="pre">element</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">armed</span></code>: whether that monitor waits for a shot.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">turn_x</span></code>, <code class="docutils literal notranslate"><span class="pre">turn_y</span></code>, <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code>: the monitor’s arrays, positions in
+metres and the sum signal.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>: the turns the last shot tracked, the ring’s; it names no
+element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>: <code class="docutils literal notranslate"><span class="pre">0</span></code> sets every cavity’s voltage to zero, anything else
+restores the deck’s voltages. It starts at <code class="docutils literal notranslate"><span class="pre">1</span></code> and names no element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pilot_tone</span></code>: non-zero turns the pilot tone on. It starts at <code class="docutils literal notranslate"><span class="pre">0</span></code> and
+names no element.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">stored</span></code>: a setting that holds what is written and drives no physics,
+for an attenuation or a mode the software sets; it may name an element.</p></li>
+</ul>
+<p>Declare <code class="docutils literal notranslate"><span class="pre">arm</span></code>, <code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>, <code class="docutils literal notranslate"><span class="pre">pilot_tone</span></code> and <code class="docutils literal notranslate"><span class="pre">stored</span></code> channels
+<code class="docutils literal notranslate"><span class="pre">role:</span> <span class="pre">setpoint</span></code>, and each array <code class="docutils literal notranslate"><span class="pre">value_type:</span> <span class="pre">waveform</span></code> with
+<code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">[&lt;trigger_sample</span> <span class="pre">+</span> <span class="pre">turns&gt;]</span></code>, here <code class="docutils literal notranslate"><span class="pre">[260]</span></code>; every other record is a
+plain float.</p>
+<p><strong>The settings.</strong> Only <code class="docutils literal notranslate"><span class="pre">injection_element</span></code> is required:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 20.0%" />
+<col style="width: 55.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>What it sets</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">injection_element</span></code></p></td>
+<td><p>required</p></td>
+<td><p>The deck element a shot starts at; the deck holds it exactly once.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">turns</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">250</span></code></p></td>
+<td><p>Turns tracked per shot, a whole number of at least 1.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">trigger_sample</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>Samples before injected turn 1, a whole number of at least 0.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">particles</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">16</span></code></p></td>
+<td><p>Particles tracked per shot.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">launch</span></code></p></td>
+<td><p>all <code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>The bunch centroid at injection: <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">px</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">delta</span></code>, <code class="docutils literal notranslate"><span class="pre">ct</span></code>, each signed.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">emittance_x</span></code>, <code class="docutils literal notranslate"><span class="pre">emittance_y</span></code>, <code class="docutils literal notranslate"><span class="pre">sigma_delta</span></code>, <code class="docutils literal notranslate"><span class="pre">sigma_z</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>The bunch’s size, matched to the optics at injection. All zero, every
+particle starts at <code class="docutils literal notranslate"><span class="pre">launch</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">jitter</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{x:</span> <span class="pre">5.0e-5,</span> <span class="pre">y:</span> <span class="pre">3.0e-5}</span></code></p></td>
+<td><p>The shot-to-shot centroid jitter’s sigma, metres.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">aperture</span></code></p></td>
+<td><p>none</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{x,</span> <span class="pre">y,</span> <span class="pre">shape}</span></code>: positive half-axes in metres, both required, and
+<code class="docutils literal notranslate"><span class="pre">elliptical</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">rectangular</span></code>; set on every element
+with a length.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
+<td><p>Sum per unit of the shot’s charge.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
+<td><p>Sum per unit of stored current.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_floor</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
+<td><p>The lowest sum a sample reads.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">position_noise</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0e-5</span></code></p></td>
+<td><p>Position noise sigma, metres.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sum_noise</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
+<td><p>Sum noise sigma.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">floor_noise</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0e-3</span></code></p></td>
+<td><p>Position noise sigma where the sum is at the floor, metres.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tone_period</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>Samples between pilot-tone spikes, a whole number of at least 1.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tone_amplitude</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
+<td><p>Pilot-tone spike size.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every number but <code class="docutils literal notranslate"><span class="pre">launch</span></code> is finite and not negative; an unknown key, also
+inside <code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">jitter</span></code> or <code class="docutils literal notranslate"><span class="pre">aperture</span></code>, stops the build. The apertures
+decide when an RF-off bunch is lost; they are the facility’s to calibrate.</p>
+<p><strong>The arrays.</strong> Each array holds <code class="docutils literal notranslate"><span class="pre">trigger_sample</span> <span class="pre">+</span> <span class="pre">turns</span></code> samples. The
+samples before <code class="docutils literal notranslate"><span class="pre">trigger_sample</span></code> see the stored beam only, and injected
+turn 1 sits at index <code class="docutils literal notranslate"><span class="pre">trigger_sample</span></code>. The tracking starts at the injection
+element, so a monitor upstream of it reads the end of each turn. The sum is
+the shot’s charge times the share of the bunch still alive times
+<code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code>, plus, with the RF on, the stored current held before the
+shot times <code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code>, plus noise, floored at <code class="docutils literal notranslate"><span class="pre">sum_floor</span></code>. Positions
+are the sum-weighted mix of the stored beam, at zero, and the bunch’s
+centroid, plus <code class="docutils literal notranslate"><span class="pre">position_noise</span></code>; where the sum is at the floor they are
+<code class="docutils literal notranslate"><span class="pre">floor_noise</span></code>. With the pilot tone on, every sample whose index is a
+multiple of <code class="docutils literal notranslate"><span class="pre">tone_period</span></code> carries a spike in all three arrays. The noise is
+keyed on the record’s address, the shot and the sample, so a shot reads the
+same in every run.</p>
+<p><strong>Arming.</strong></p>
+<ul class="simple">
+<li><p>Arming is per monitor. A client write of a non-zero <code class="docutils literal notranslate"><span class="pre">arm</span></code> arms it, <code class="docutils literal notranslate"><span class="pre">0</span></code>
+disarms it, and arming an armed monitor changes nothing. <code class="docutils literal notranslate"><span class="pre">arm</span></code> reads back
+what was written; <code class="docutils literal notranslate"><span class="pre">armed</span></code> is the state.</p></li>
+<li><p>A restore, a scenario’s start state and a write a <code class="docutils literal notranslate"><span class="pre">stuck</span></code> or
+<code class="docutils literal notranslate"><span class="pre">disconnected</span></code> fault holds never arm.</p></li>
+<li><p>A shot reaches the armed monitors only. Their arrays and <code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>
+are posted, then their <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops to <code class="docutils literal notranslate"><span class="pre">0</span></code>; every other monitor keeps
+its arrays. A shot with no monitor armed changes nothing.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">armed</span></code> at <code class="docutils literal notranslate"><span class="pre">0</span></code> guarantees the shot’s arrays are already served, on
+Channel Access and PVAccess both, so a client may time a shot on <code class="docutils literal notranslate"><span class="pre">armed</span></code>
+alone. A shot that arrives before the drop finds those monitors unarmed.</p></li>
+<li><p>A reset or a scenario change returns every monitor to unarmed, every array
+to zeros and <code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code> to <code class="docutils literal notranslate"><span class="pre">0</span></code>, and is not mistaken for a shot.</p></li>
+</ul>
+<p><strong>Shots.</strong></p>
+<ul class="simple">
+<li><p>One pass sees one delivery and tracks at most once. A counter that rose by
+more than one between two passes tracks once, with the latest charge. A
+counter that falls is not a shot.</p></li>
+<li><p>A zero-charge shot is still a shot: the arrays read the floor, the noise
+and any stored beam, and <code class="docutils literal notranslate"><span class="pre">armed</span></code> drops.</p></li>
+<li><p>A tracking that fails leaves the armed monitors’ arrays at zeros and
+<code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code> at <code class="docutils literal notranslate"><span class="pre">0</span></code>; <code class="docutils literal notranslate"><span class="pre">armed</span></code> still drops and the ring keeps
+serving.</p></li>
+<li><p>With the RF off the ring has no closed orbit: its orbit readings read NaN
+and its settings stay writable. The stored beam adds nothing to the sum, so
+the samples before the trigger read the floor, and a bunch with declared
+apertures is lost within some hundred turns.</p></li>
+</ul>
+<p><strong>Cost.</strong> Tracking runs on the serving loop, about 0.5 s for 16 particles
+over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
+0.13 ms per particle and turn, growing with the deck. During it a read
+answers at once with the last posted value; a write, a model RPC call and a
+response-matrix request wait until it ends and are then served, never
+refused. A client timeout shorter than the tracking is the client’s.</p>
+<p><strong>Refusals.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops the ring when the block or a record is
+malformed: a missing or repeated <code class="docutils literal notranslate"><span class="pre">injection_element</span></code>, a value out of range,
+an unknown key, a turn record on a ring without the block, a monitor record
+without a monitor <code class="docutils literal notranslate"><span class="pre">element</span></code>, a ring record naming one, a setting not wired
+for write, an array that is not a waveform of <code class="docutils literal notranslate"><span class="pre">trigger_sample</span> <span class="pre">+</span> <span class="pre">turns</span></code>
+samples, any other turn record that is not a float, and an input whose
+<code class="docutils literal notranslate"><span class="pre">engine</span></code> is not one <code class="docutils literal notranslate"><span class="pre">{signal:</span> <span class="pre">...}</span></code> the ring reads. The model fails to
+build, with the text in its status channel, when an <code class="docutils literal notranslate"><span class="pre">rf_switch</span></code> is wired
+over a deck with no RF cavity. The container refuses to start when an array
+is larger than the configuration’s <code class="docutils literal notranslate"><span class="pre">max_array_bytes</span></code> at 8 bytes a sample,
+naming the channel and both sizes.</p>
+<p><strong>The response matrix.</strong> <code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> takes <code class="docutils literal notranslate"><span class="pre">kind</span></code>, in the
+Python executor tool (<a class="reference internal" href="../../reference/contracts/python-executor.html"><span class="doc">Python Executor Contract</span></a>) and in
+<code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk</span></code>: <code class="docutils literal notranslate"><span class="pre">orbit</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">trajectory</span></code>. The
+trajectory response is the first-turn response of one particle, without
+jitter, from <code class="docutils literal notranslate"><span class="pre">launch</span></code> through the declared apertures, in the orbit’s rows
+and units; it is computed from the deck and settings, not from served state,
+and only a ring with the block answers it. A corrector whose kicked particle
+is lost before a monitor has no column; the tool’s <code class="docutils literal notranslate"><span class="pre">missing</span></code> and the SDK’s
+<code class="docutils literal notranslate"><span class="pre">unsolved</span></code> name it with where the particle was lost. When the particle is
+lost with no corrector stepped, every corrector is named and the matrix has
+no column. An engine whose <code class="docutils literal notranslate"><span class="pre">response_matrix</span></code> takes no <code class="docutils literal notranslate"><span class="pre">kind</span></code> answers the
+orbit response alone and refuses any other kind.</p>
+<p><strong>What is not modelled.</strong> The ring’s capture or loss does not feed back into
+the chain’s stored current; the stored current neither decays nor
+saturates; there is one bunch, no fill pattern; no bunch cleaning, tune scan,
+beam-based alignment or RF frequency correction. Shots run only in the
+container: in process every delivery is a baseline, so no shot is taken and
+the arrays stay zeros.</p>
+</section>
 <section id="another-backend">
 <h3>Another backend<a class="headerlink" href="#another-backend" title="Link to this heading">#</a></h3>
 <p>An engine OSPREY does not ship is an engine plug-in. The container looks up
@@ -1358,6 +1685,7 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-your-facility-s-own-model">Serving your facility’s own model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-pyat-lattice">A pyAT lattice</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#an-injection-chain">An injection chain</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-by-turn-data-from-an-injection-chain">Turn-by-turn data from an injection chain</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#another-backend">Another backend</a></li>
 </ul>
 </li>

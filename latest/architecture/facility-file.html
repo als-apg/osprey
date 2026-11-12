@@ -645,7 +645,7 @@ about what the build makes of them.</p>
 <h2>The facility file<a class="headerlink" href="#the-facility-file" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> is every record of the facility in one document,
 under a <code class="docutils literal notranslate"><span class="pre">schema</span></code> header: <code class="docutils literal notranslate"><span class="pre">identity</span></code>, <code class="docutils literal notranslate"><span class="pre">classes</span></code>, <code class="docutils literal notranslate"><span class="pre">places</span></code>, <code class="docutils literal notranslate"><span class="pre">devices</span></code>,
-<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>, <code class="docutils literal notranslate"><span class="pre">models</span></code> with their wiring, <code class="docutils literal notranslate"><span class="pre">limits</span></code> and
+<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>, <code class="docutils literal notranslate"><span class="pre">models</span></code> with their wiring and inputs, <code class="docutils literal notranslate"><span class="pre">limits</span></code> and
 <code class="docutils literal notranslate"><span class="pre">scenarios</span></code>. A model’s <em>deck</em> is the lattice file its simulation engine
 loads, and its <em>wiring</em> is the set of records that tie channel addresses to
 elements of that deck.</p>
@@ -1142,6 +1142,43 @@ category, since the container itself keeps serving and stays healthy.</p>
 <p>A model that names no deck and wires no channel is not a failure: nothing is
 built for it, its status is <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">deck</span></code>, and every channel of that machine is
 the texture’s.</p>
+<p><strong>A model may read another model’s records.</strong> A model record’s <code class="docutils literal notranslate"><span class="pre">inputs</span></code>
+lists records other models of the facility wire, each an <code class="docutils literal notranslate"><span class="pre">address</span></code> and an
+<code class="docutils literal notranslate"><span class="pre">engine</span></code> block in the consuming engine’s own words:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">down</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;an engine that takes inputs&gt;</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">UP:CHARGE</span>
+<span class="w">    </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;the consuming engine&#39;s words for this input&gt;</span>
+</pre></div>
+</div>
+<p>An input is never wiring: the producer alone wires the address, and the
+consumer reads its value. The view carries each model’s <code class="docutils literal notranslate"><span class="pre">inputs</span></code> only when
+it declares some. The build stops on the consuming model, naming the input,
+when:</p>
+<ul class="simple">
+<li><p>the address is wired by no model (<code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>);</p></li>
+<li><p>the address is one the model wires itself (<code class="docutils literal notranslate"><span class="pre">value-invalid</span></code>);</p></li>
+<li><p>the model lists the address twice (<code class="docutils literal notranslate"><span class="pre">value-invalid</span></code>);</p></li>
+<li><p>the inputs form a cycle, a model reading, through other models, a record of
+its own; the stop names every step of it (<code class="docutils literal notranslate"><span class="pre">value-invalid</span></code>);</p></li>
+<li><p>the engine has no <code class="docutils literal notranslate"><span class="pre">take_inputs</span></code> (<code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code>);</p></li>
+<li><p>the engine’s <code class="docutils literal notranslate"><span class="pre">describe_input</span></code> refuses the <code class="docutils literal notranslate"><span class="pre">engine</span></code> block
+(<code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code>, with the engine’s text).</p></li>
+</ul>
+<p>A model without <code class="docutils literal notranslate"><span class="pre">inputs</span></code> builds and serves as before.</p>
+<p><strong>A pyat ring may serve turn-by-turn data.</strong> Its <code class="docutils literal notranslate"><span class="pre">pyat</span></code> settings state a
+<code class="docutils literal notranslate"><span class="pre">turn_by_turn</span></code> block naming at least the <code class="docutils literal notranslate"><span class="pre">injection_element</span></code>; its inputs
+are an injection chain’s records with <code class="docutils literal notranslate"><span class="pre">engine:</span> <span class="pre">{signal:</span> <span class="pre">shot}</span></code>,
+<code class="docutils literal notranslate"><span class="pre">{signal:</span> <span class="pre">charge}</span></code> and <code class="docutils literal notranslate"><span class="pre">{signal:</span> <span class="pre">stored_current}</span></code>; and its wiring adds
+records with the signals <code class="docutils literal notranslate"><span class="pre">arm</span></code>, <code class="docutils literal notranslate"><span class="pre">armed</span></code>, <code class="docutils literal notranslate"><span class="pre">turn_x</span></code>, <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> and
+<code class="docutils literal notranslate"><span class="pre">turn_sum</span></code>, each naming a monitor <code class="docutils literal notranslate"><span class="pre">element</span></code>, and <code class="docutils literal notranslate"><span class="pre">turns_tracked</span></code>,
+<code class="docutils literal notranslate"><span class="pre">rf_switch</span></code>, <code class="docutils literal notranslate"><span class="pre">pilot_tone</span></code> and <code class="docutils literal notranslate"><span class="pre">stored</span></code>. Each array channel is declared
+<code class="docutils literal notranslate"><span class="pre">value_type:</span> <span class="pre">waveform</span></code> with <code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">[&lt;trigger_sample</span> <span class="pre">+</span> <span class="pre">turns&gt;]</span></code>. The build
+stops <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code> on a malformed block, a turn record on a ring
+without one, a record of the wrong value type or shape, and a monitor record
+whose element is not a monitor. The settings, their defaults and what a shot
+does are in <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>.</p>
 <p>How the composite serves the models over Channel Access and PVAccess is in
 <a class="reference internal" href="virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
 <div class="admonition seealso">
