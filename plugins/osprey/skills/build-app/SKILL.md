@@ -107,8 +107,9 @@ today and what is left to you.
 6. **No hook code.** `osprey app check` refuses a `hooks` key in `app.yml`,
    a `hooks/` directory at the app root, a `.claude/` directory anywhere under
    the app, and `hooks` in a listed skill's or agent's frontmatter, each with rule
-   `no_hooks`. Approval is declared, and OSPREY's own hook reads the rendered
-   declaration; it never runs app code.
+   `no_hooks`; a listed skill whose frontmatter does not parse as a YAML
+   mapping is refused with rule `skill_frontmatter`. Approval is declared, and
+   OSPREY's own hook reads the rendered declaration; it never runs app code.
 
 ## Workflow
 
