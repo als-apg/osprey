@@ -1,14 +1,14 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.9.0b3-7178-g75c671112d",
+  "reviewed_against": "2026.9.0b3-7182-ge52874b143",
   "files": {
     "apps/manifest.py": "f30383a21922e2ec70839a5007b98c183a78ce50f577a8411d427cbe8b28a6ec",
-    "apps/rules.py": "0865df8356419ef125c16fa6294eaeeef39987e8d0997fd34b3cc6b82bb669e1",
+    "apps/rules.py": "60e9843998b1091ef084fe9d94414e9a9c31dfaf4bbe6a669201c1346010b0ac",
     "apps/loader.py": "7c01aabe19065c2e19f745f372a4aea6c957a5c6d7b871a73377f78a742abeb0",
     "apps/agents.py": "05c9bfb9da6786598beec26c1081c4ed9f347490a2847d74c4f4b3add6c944f3",
-    "apps/boundary.py": "f20ca7212e6fbf2ae9db5b3ba8e087645bc6ad210cfbf8742abc9285bb1f2307",
+    "apps/boundary.py": "78910049c324b2762f6b8f9612df0de3f806c180318c5634decc8985e5fdb07f",
     "apps/sdk/__init__.py": "18da3e914fe4859e022ff48f42dd61ab4c9e555a92fbb837aeec6d5d983293f9",
-    "cli/app_cmd.py": "608632f705cf2a13de1f17973417139d17c696db90717a3978106db5b27e0e88",
+    "cli/app_cmd.py": "ec43a824edd02cb6814bef2de2b914af5b2cc03226d667e5996d2ce17598bf49",
     "apps/scaffold-app/app.yml": "6282af731470680bec753cccc971bf37b57f5336c7264e3b41564582b46f4765",
     "apps/scaffold-app/panel/index.html": "224d908cc43706a4af968173e92d21a6bd8e0124abf88faf4405f5da02b60e04",
     "apps/scaffold-app/panel/panel.css": "a5e3bd9dcb46a407ab706665db945172a7afbd804e4d94f658395e8fd2ab693c",
