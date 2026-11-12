@@ -65,7 +65,7 @@ destination in angle brackets when the address holds a space:
 
 ``osprey build`` warns ``link-dangling`` for each link the facility file does not
 hold. The KNOWLEDGE panel shows the linked record when you hover over the link;
-a click opens it in the panel's Graph view when the deployment has a graph
+a click opens it in the panel's **Graph** view when the deployment has one
 (:ref:`graph-view`).
 
 **4. Validation levels.** OKF distinguishes two strictness levels, so
