@@ -360,6 +360,10 @@
   margin-top: auto;
 }
 
+.alarms-cut {
+  padding: var(--space-2) var(--space-3);
+}
+
 @container panel (max-width: 720px) {
   .alarms-inspector {
     display: none;

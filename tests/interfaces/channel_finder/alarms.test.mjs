@@ -319,6 +319,23 @@ describe('the list', () => {
     expect(rows(container)[0].querySelector('.alarms-for')?.getAttribute('title')).not.toBe('');
   });
 
+  test('a cut answer names the served and the active counts', async () => {
+    const { container } = await mount({
+      alarms: { ...ALARMS, truncated: true, counts: { MAJOR: 40, MINOR: 2, OK: 3 } },
+    });
+    await loaded(container);
+    expect(container.querySelector('.alarms-cut')?.textContent).toBe(
+      'Worst 2 of 42 active alarms shown'
+    );
+    expect(document.getElementById('cf-result-count')?.textContent).toBe('2 active');
+  });
+
+  test('an answer that is not cut has no such line', async () => {
+    const { container } = await mount();
+    await loaded(container);
+    expect(container.querySelector('.alarms-cut')).toBeNull();
+  });
+
   test('a PV name is text, never markup', async () => {
     const evil = { ...MAJOR_ROW, pv: '<img src=x onerror=alert(1)>', path: null };
     const { container } = await mount({ alarms: { ...ALARMS, rows: [evil] } });

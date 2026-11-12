@@ -385,12 +385,18 @@ function flagsHtml(row) {
 }
 
 /**
- * The active rows, in the order given.
+ * The active rows, in the order given; with `cut`, a line saying the answer
+ * holds only the worst of the active alarms.
  * @param {AlarmRow[]} rows
- * @param {{ selected: string|null, values: Map<string, ValueRow>|null, stale: boolean }} model
+ * @param {{
+ *   selected: string|null,
+ *   values: Map<string, ValueRow>|null,
+ *   stale: boolean,
+ *   cut: { served: number, active: number }|null,
+ * }} model
  * @returns {string}
  */
-export function listHtml(rows, { selected, values, stale }) {
+export function listHtml(rows, { selected, values, stale, cut }) {
   const body = rows
     .map((row) => {
       const severity = severityOf(row.severity);
@@ -421,7 +427,11 @@ export function listHtml(rows, { selected, values, stale }) {
         <th>Value now</th><th>For</th><th>Flags</th>
       </tr></thead>
       <tbody>${body}</tbody>
-    </table>`;
+    </table>${
+      cut
+        ? `<p class="alarms-muted alarms-cut">Worst ${fmt(cut.served)} of ${fmt(cut.active)} active alarms shown</p>`
+        : ''
+    }`;
 }
 
 // ---- Inspector ----
