@@ -207,7 +207,10 @@
       "value": 0.125,
       "timestamp": "2026-11-05T08:12:41.250000+00:00",
       "severity": 1,
-      "status": "HIGH"
+      "status": "HIGH",
+      "units": "mm",
+      "precision": 3,
+      "enum_label": null
     },
     {
       "name": "DEMO:BPM01:HEARTBEAT",
@@ -216,6 +219,9 @@
       "timestamp": null,
       "severity": null,
       "status": null,
+      "units": null,
+      "precision": null,
+      "enum_label": null,
       "reason": "no answer within 2 s"
     }
   ]

@@ -148,6 +148,9 @@ def test_an_unavailable_supervisor_makes_every_row_unavailable_with_the_reason(
             "timestamp": None,
             "severity": None,
             "status": None,
+            "units": None,
+            "precision": None,
+            "enum_label": None,
             "reason": "the value process is not running",
         }
         for name in ("SR:A", "SR:B")

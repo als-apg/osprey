@@ -64,7 +64,11 @@ class FrameError(ValueError):
 
 @dataclass(frozen=True)
 class ValueRow:
-    """One channel's current value, or why there is none."""
+    """One channel's current value, or why there is none.
+
+    ``units``, ``precision`` and ``enum_label`` are what the control system reports
+    beside the value; ``None`` when it reports none.
+    """
 
     name: str
     outcome: str
@@ -73,6 +77,9 @@ class ValueRow:
     severity: int | None = None
     status: str | None = None
     reason: str | None = None
+    units: str | None = None
+    precision: int | None = None
+    enum_label: str | None = None
 
     def to_wire(self) -> dict[str, Any]:
         """The row as JSON fields; ``reason`` is present only when there is one."""
@@ -83,6 +90,9 @@ class ValueRow:
             "timestamp": self.timestamp,
             "severity": self.severity,
             "status": self.status,
+            "units": self.units,
+            "precision": self.precision,
+            "enum_label": self.enum_label,
         }
         if self.reason is not None:
             row["reason"] = self.reason
@@ -90,7 +100,7 @@ class ValueRow:
 
     @classmethod
     def from_wire(cls, row: Mapping[str, Any]) -> ValueRow:
-        """Read one row from its JSON fields.
+        """Read one row from its JSON fields; a field the row lacks reads ``None``.
 
         Raises:
             FrameError: The row names no channel or an unknown outcome.
@@ -106,6 +116,9 @@ class ValueRow:
             severity=row.get("severity"),
             status=row.get("status"),
             reason=row.get("reason"),
+            units=row.get("units"),
+            precision=row.get("precision"),
+            enum_label=row.get("enum_label"),
         )
 
 

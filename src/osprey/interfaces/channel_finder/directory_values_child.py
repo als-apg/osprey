@@ -182,7 +182,10 @@ def _audit_batch(session: ControlSession, count: int) -> None:
 
 
 def _found_row(name: str, reading: ChannelValue) -> ValueRow:
-    """The row of a channel that answered; a value too large to send is left out."""
+    """The row of a channel that answered; a value too large to send is left out.
+
+    The unit, precision and enum label ride beside the value; an empty unit is none.
+    """
     value = ipc.wire_value(reading.value)
     too_large = None
     size = ipc.encoded_size(value)
@@ -197,6 +200,9 @@ def _found_row(name: str, reading: ChannelValue) -> ValueRow:
         severity=ipc.wire_value(reading.metadata.alarm_severity),
         status=ipc.wire_value(reading.metadata.alarm_status),
         reason=too_large,
+        units=reading.metadata.units or None,
+        precision=reading.metadata.precision,
+        enum_label=reading.metadata.enum_label,
     )
 
 
