@@ -57,7 +57,7 @@ afterEach(() => {
  * that answers `info`, or rejects when `info` is null.
  * @param {Record<string, any> | null} info
  * @param {string} [hash]
- * @param {any} [alarms] - the answer of the alarm route
+ * @param {any} [alarms] - the answer of the alarm route, or a function giving it
  */
 async function boot(info, hash = '', alarms = {}) {
   document.body.innerHTML = `
@@ -113,7 +113,8 @@ async function boot(info, hash = '', alarms = {}) {
       }
       if (path.includes('/api/directory/alarms')) {
         alarmReads.push(path);
-        return { ok: true, json: async () => alarms };
+        const body = typeof alarms === 'function' ? await alarms() : alarms;
+        return { ok: true, json: async () => body };
       }
       return { ok: true, json: async () => (path.includes('/api/info') ? answer : {}) };
     })
@@ -486,6 +487,47 @@ describe('the Alarms tab', () => {
     document.dispatchEvent(new Event('visibilitychange'));
     await vi.waitFor(() => expect(alarmReads).toHaveLength(2));
     expect(new URLSearchParams(alarmReads[1].split('?')[1]).get('limit')).toBe('0');
+  });
+
+  /**
+   * An alarm route whose first answer waits for `release`; later ones answer at once.
+   * @param {any} later
+   */
+  function heldFirst(later) {
+    /** @type {(value: any) => void} */
+    let release = () => {};
+    const held = new Promise((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    return {
+      alarms: () => (calls++ === 0 ? held : later),
+      release: (/** @type {any} */ v) => release(v),
+    };
+  }
+
+  test('an older counts answer never overwrites a newer read', async () => {
+    const { alarms, release } = heldFirst(counted({ MINOR: 1 }));
+    const { alarmReads } = await boot(ALARM_DIRECTORY, '', alarms);
+    await vi.waitFor(() => expect(alarmReads).toHaveLength(1));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(pill()?.textContent).toBe('1'));
+    release(counted({ MAJOR: 5 }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(pill()?.textContent).toBe('1');
+    expect(pill()?.dataset.severity).toBe('minor');
+  });
+
+  test("an older counts answer never overwrites the Alarms view's poll", async () => {
+    const { alarms, release } = heldFirst(counted({ MINOR: 1 }));
+    const { state, alarmReads } = await boot(ALARM_DIRECTORY, '', alarms);
+    await vi.waitFor(() => expect(alarmReads).toHaveLength(1));
+    go('#/alarms');
+    state.emit('alarmCounts', counted({ MINOR: 1 }));
+    release(counted({ MAJOR: 5 }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(pill()?.textContent).toBe('1');
+    expect(pill()?.dataset.severity).toBe('minor');
   });
 
   test('without an alarm-state service the alarm route is not read', async () => {

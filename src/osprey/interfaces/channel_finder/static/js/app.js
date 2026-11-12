@@ -58,6 +58,9 @@ let currentView = null;
 // The last alarm counts read, by the badge poll or the Alarms view.
 /** @type {ActiveAlarms|null} */
 let alarmCounts = null;
+// Bumped by every counts read and every counts event: an answer to an older
+// read is dropped, so the latest one writes the pill.
+let alarmCountsSeq = 0;
 // The hash of the route mounted now, as formatRoute spells it; an equal route is not re-mounted.
 /** @type {string|null} */
 let currentRouteKey = null;
@@ -95,6 +98,7 @@ async function init() {
   // The Alarms tab's pill: read every 15 s and when the panel is shown, while
   // it is visible on another view; the Alarms view emits the counts itself.
   state.on('alarmCounts', (answer) => {
+    alarmCountsSeq += 1;
     alarmCounts = answer;
     renderAlarmPill();
   });
@@ -243,9 +247,11 @@ function renderViewSwitch() {
  * the Alarms view is not the one shown (it emits `alarmCounts` every 5 s).
  */
 async function readAlarmCounts() {
+  const seq = ++alarmCountsSeq;
   if (document.hidden || currentView === 'alarms' || !alarmsConfigured()) return;
   try {
-    state.emit('alarmCounts', await fetchActiveAlarms({ limit: 0 }));
+    const answer = await fetchActiveAlarms({ limit: 0 });
+    if (seq === alarmCountsSeq) state.emit('alarmCounts', answer);
   } catch {
     // The pill keeps its last count; the Alarms view says why the feed is down.
   }
