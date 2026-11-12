@@ -1083,6 +1083,7 @@ SWEEP_IGNORES = [
     "--ignore=tests/va/test_lume_pva_seam.py",
     "--ignore=tests/va/test_timed_passes_live.py",
     "--ignore=tests/va/test_injection_live.py",
+    "--ignore=tests/va/test_turn_by_turn_live.py",
     "--ignore=tests/integration/test_build_boot.py",
     "--ignore=tests/integration/test_preset_static.py",
     "--ignore=tests/integration/test_preset_build.py",
