@@ -57,6 +57,13 @@ class AppOrigin:
     version: str | None = None
     module: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.installed != (self.distribution is not None and self.module is not None):
+            raise ValueError(
+                "an installed application's origin names its distribution and package; "
+                "a deployment application's names neither"
+            )
+
     @property
     def installed(self) -> bool:
         """Whether an installed distribution ships the application."""
@@ -67,10 +74,25 @@ class AppOrigin:
         """``<distribution> <version>``: who installs the application."""
         return f"{self.distribution} {self.version}"
 
+    def display(self, rel: str = "") -> str:
+        """How a report names *rel*, a path relative to the application's directory.
+
+        ``apps/<name>/<rel>`` for a deployment application,
+        ``<distribution>:<module path>/<rel>`` for an installed one; the directory
+        itself when *rel* is empty.
+        """
+        if self.module is not None:
+            base = f"{self.distribution}:{self.module.replace('.', '/')}"
+        else:
+            from osprey.utils.workspace import APPS_DIRNAME
+
+            base = f"{APPS_DIRNAME}/{self.directory.name}"
+        return f"{base}/{rel}" if rel else base
+
     @property
     def manifest_source(self) -> str | None:
         """The file a refusal of the manifest names, ``None`` for ``apps/<name>/app.yml``."""
-        if not self.installed or self.module is None:
+        if self.module is None:
             return None
         return f"{self.module.replace('.', '/')}/{MANIFEST_FILE} (installed by {self.installer})"
 

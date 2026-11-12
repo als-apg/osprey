@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.app_cmd import app
+from tests.apps import _installed
+from tests.apps._installed import DIST, MODULE, NAME, entry_point
 from tests.cli._lifecycle_build import invoke_build
 
 FIXTURE_APP = Path(__file__).parents[1] / "apps" / "fixtures" / "js_check_app"
@@ -353,6 +356,108 @@ def test_a_panel_with_no_script_carries_the_mark_in_its_markup(
 
     assert result.exit_code == 1
     assert "[page_ready]" in result.output
+
+
+# --- an installed application, checked from its origin -------------------------
+
+
+def _installed_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> Path:
+    """The fixture application, copied to a site directory with *files* added, installed.
+
+    *files* maps a path under the package to its text.
+    """
+    site = tmp_path / "site"
+    package = site / MODULE
+    shutil.copytree(_installed.DIRECTORY, package)
+    for relative, text in files.items():
+        _write(package, relative, text)
+    _installed.install(monkeypatch, entry_point())
+    monkeypatch.syspath_prepend(str(site))
+    monkeypatch.delitem(sys.modules, MODULE, raising=False)
+    return package
+
+
+def test_a_deployment_apps_output_is_unchanged_with_nothing_installed(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _app(lifecycle_repo)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "apps/knob/: no Python package, no import boundary to check",
+        "✓ 1 application(s) pass.",
+    ]
+
+
+def test_an_installed_app_is_checked_from_its_origin(
+    runner: CliRunner, lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _app(lifecycle_repo)
+    _installed.install(monkeypatch)
+    monkeypatch.delitem(sys.modules, MODULE, raising=False)
+    _list(lifecycle_repo, "knob", NAME)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[-1] == "✓ 2 application(s) pass (1 in apps/, 1 installed)."
+
+
+def test_a_refused_import_in_an_installed_app_names_its_distribution(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _installed_copy(tmp_path, monkeypatch, {"leak.py": "\nfrom osprey.registry import mcp\n"})
+    _list(lifecycle_repo, NAME)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[import_boundary]")]
+    assert line.startswith(f"{DIST}:{MODULE}/leak.py:2: osprey.registry.mcp: ")
+
+
+def test_an_installed_apps_import_of_itself_is_its_own(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _installed_copy(tmp_path, monkeypatch, {"own.py": f"from {MODULE}.tools import read_fixture\n"})
+    _list(lifecycle_repo, NAME)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+
+
+def test_an_installed_panel_without_the_ready_mark_names_its_distribution(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _installed_copy(
+        tmp_path,
+        monkeypatch,
+        {
+            "panel/index.html": _page(
+                "tokens.css", "base.css", "primitives.css", body="<main></main>", html="<html>"
+            )
+        },
+    )
+    _list(lifecycle_repo, NAME)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("]")]
+    assert line.startswith(f"{DIST}:{MODULE}/panel/index.html: never sets the page-ready mark")
+    assert line.endswith("[page_ready]")
 
 
 # --- the JS halves, with a stubbed runner ---------------------------------------
