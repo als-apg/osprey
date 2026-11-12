@@ -2,8 +2,10 @@
  * OSPREY Channel Finder — All PVs view
  *
  * The filters fill the shared panel sidebar (primitives.css
- * .osprey-panel-sidebar); right of it, the section header, the rows and the
- * actions on the selection.
+ * .osprey-panel-sidebar); right of it, the head row, the rows, the pager and,
+ * floating over the rows while something is selected, the selection bar. The
+ * rows scroll inside their own area, both ways; the description gives way
+ * first, so every column stays reachable in a narrow panel.
  */
 
 /* Edge to edge under the toolbar, like the graph finder. */
@@ -47,6 +49,7 @@
 }
 
 .allpvs-main {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -57,7 +60,7 @@
 }
 
 .allpvs-head,
-.allpvs-actions {
+.allpvs-pager {
   flex: none;
   display: flex;
   align-items: center;
@@ -67,6 +70,10 @@
   color: var(--text-secondary);
 }
 
+.allpvs-head {
+  flex-wrap: wrap;
+}
+
 .allpvs-searched {
   min-width: 0;
   overflow: hidden;
@@ -74,8 +81,40 @@
   white-space: nowrap;
 }
 
-.allpvs-partial:empty {
+.allpvs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.allpvs-chips:empty,
+.allpvs-partial:empty,
+.allpvs-csv-status:empty {
   display: none;
+}
+
+.allpvs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 22px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--surface-selected);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.allpvs-chip button {
+  padding: 0 var(--space-1);
+  color: var(--text-muted);
+  line-height: var(--leading-none);
+}
+
+.allpvs-chip button:hover {
+  color: var(--text-primary);
 }
 
 .allpvs-grow {
@@ -114,10 +153,12 @@
   user-select: all;
 }
 
+/* The table area scrolls both ways inside itself; the panel never does. */
 .allpvs-body {
   display: flex;
   flex: 1;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--border-default);
@@ -170,8 +211,16 @@
   background: var(--surface-selected);
 }
 
-.allpvs-table tbody tr.inactive td.name,
-.allpvs-table tbody tr.inactive td.status {
+.allpvs-table tbody tr.inactive td.name {
+  color: var(--text-muted);
+}
+
+.allpvs-inactive {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
@@ -189,11 +238,17 @@
   text-decoration: underline;
 }
 
+/* The description takes what the other columns leave, wraps, and is the first
+   to give way, down to its minimum; below that the table area scrolls. */
+.allpvs-table th.col-desc,
 .allpvs-table td.desc {
   width: 100%;
-  max-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 12rem;
+}
+
+.allpvs-table td.desc {
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--text-secondary);
 }
 
@@ -208,17 +263,20 @@
   color: var(--text-secondary);
 }
 
+.allpvs-table th.col-value,
+.allpvs-table td.allpvs-value {
+  text-align: right;
+}
+
 .allpvs-table td.allpvs-value {
   color: var(--text-primary);
 }
 
 .allpvs-table td.allpvs-value.dim,
-.allpvs-table td.allpvs-value.no-answer {
+.allpvs-table td.allpvs-value.no-answer,
+.allpvs-table td.allpvs-alarm.dim,
+.allpvs-unit {
   color: var(--text-muted);
-}
-
-.allpvs-table td.allpvs-value[data-alarm] {
-  color: var(--color-warning);
 }
 
 .allpvs-table .mark {
@@ -230,6 +288,40 @@
   color: var(--text-secondary);
 }
 
-.allpvs-actions {
+.allpvs-pager {
   font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--text-muted);
+}
+
+.allpvs-pager:empty {
+  display: none;
+}
+
+/* Floats at the bottom centre of the rows' column, only while something is selected. */
+.allpvs-selection-bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-6);
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  width: max-content;
+  max-width: calc(100% - 2 * var(--space-4));
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-dialog);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.allpvs-selection-bar strong {
+  color: var(--text-primary);
 }

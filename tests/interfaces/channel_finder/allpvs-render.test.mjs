@@ -1,18 +1,19 @@
 // @ts-check
 /**
- * The All PVs markup (allpvs-render.js): escaping, counts, the value cells and
- * the actions each model draws.
+ * The All PVs markup (allpvs-render.js): escaping, counts, the value and alarm
+ * cells, the filters, the pager and the selection bar each model draws.
  *   npx vitest run tests/interfaces/channel_finder/allpvs-render.test.mjs
  */
 
 import { test, expect, describe } from 'vitest';
 import {
-  actionsHtml,
+  chipsHtml,
   countHtml,
   facetsHtml,
+  pagerHtml,
+  selectionBarHtml,
   tableHtml,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/allpvs-render.js';
-import { FACET_KEYS } from '../../../src/osprey/interfaces/channel_finder/static/js/route.js';
 
 const ROW = {
   name: 'SR:<b>X</b>',
@@ -97,7 +98,7 @@ describe('allpvs-render', () => {
       ])
     );
     expect(found?.textContent).toBe('2');
-    expect(found?.getAttribute('data-alarm')).toBe('1');
+    expect(found?.hasAttribute('data-alarm')).toBe(false);
     const silent = cell(
       new Map([
         [
@@ -117,20 +118,109 @@ describe('allpvs-render', () => {
     expect(cell(new Map(), 'values read failed')?.getAttribute('title')).toBe('values read failed');
   });
 
-  test('one facet group per route filter key, in its order', () => {
+  test('a value reads rounded with its unit, the full value and read time on hover', () => {
+    const values = new Map([
+      [
+        ROW.name,
+        {
+          name: ROW.name,
+          outcome: /** @type {const} */ ('found'),
+          value: 46.23456,
+          timestamp: '2026-11-12T08:00:00Z',
+          severity: 2,
+          status: 'HIHI',
+          units: 'degC',
+          precision: 1,
+        },
+      ],
+    ]);
+    const cell = parse(tableHtml(page(), new Set(), values, '')).querySelector('td.allpvs-value');
+    expect(cell?.textContent).toBe('46.2 degC');
+    expect(cell?.querySelector('.allpvs-unit')?.textContent).toBe('degC');
+    expect(cell?.getAttribute('title')).toBe('46.23456 · 2026-11-12T08:00:00Z');
+  });
+
+  test('no Status column; an inactive row carries its chip, an active one nothing', () => {
+    const inactive = { ...ROW, name: 'SR:OFF', status: /** @type {const} */ ('Inactive') };
+    const box = parse(tableHtml(page({ rows: [ROW, inactive] }), new Set(), null, ''));
+    const heads = [...box.querySelectorAll('th')].map((th) => th.textContent);
+    expect(heads).toEqual(['', '', 'Name', 'Description', 'Value', 'Record', 'IOC']);
+    const [active, off] = [...box.querySelectorAll('tbody tr')];
+    expect(active.querySelector('.allpvs-inactive')).toBeNull();
+    expect(active.textContent).not.toContain('Active');
+    expect(off.querySelector('td.name .allpvs-inactive')?.textContent).toBe('Inactive');
+    expect(off.classList.contains('inactive')).toBe(true);
+  });
+
+  test('the alarm cell marks a state, dots OK or none, and dashes a missing answer', () => {
+    const major = {
+      severity: 'MAJOR',
+      status: 'HIHI_ALARM',
+      latched: true,
+      acknowledged: false,
+      time: '2026-03-02T08:12:30Z',
+    };
+    const ok = { ...major, severity: 'OK', status: 'NO_ALARM', latched: false };
+    const rows = [
+      { ...ROW, name: 'A', alarm: major },
+      { ...ROW, name: 'B', alarm: ok },
+      { ...ROW, name: 'C', alarm: null },
+    ];
+    const box = parse(tableHtml(page({ rows }), new Set(), null, '', { reason: '' }));
+    expect([...box.querySelectorAll('th')].map((th) => th.textContent)).toContain('Alarm');
+    const cells = [...box.querySelectorAll('td.allpvs-alarm')];
+    expect(cells[0].querySelector('.cf-sev--major')?.textContent).toBe('MAJOR');
+    expect(cells[0].getAttribute('title')).toBe(
+      'HIHI_ALARM · latched · not acknowledged · since 2026-03-02T08:12:30Z'
+    );
+    expect(cells.slice(1).map((td) => td.textContent)).toEqual(['·', '·']);
+
+    const missing = parse(
+      tableHtml(page(), new Set(), null, '', { reason: 'alarm feed still loading' })
+    ).querySelector('td.allpvs-alarm');
+    expect(missing?.textContent).toBe('—');
+    expect(missing?.getAttribute('title')).toBe('alarm feed still loading');
+    expect(missing?.querySelector('.cf-sev')).toBeNull();
+
+    const off = parse(tableHtml(page({ rows }), new Set(), null, ''));
+    expect(off.querySelector('td.allpvs-alarm')).toBeNull();
+    expect([...off.querySelectorAll('th')].map((th) => th.textContent)).not.toContain('Alarm');
+  });
+
+  test('the sidebar lists Alarm first, each severity with its mark', () => {
     const one = [{ value: 'v', count: 1 }];
-    const facets = { origin: one, ioc: one, record_type: one, alarm: one };
+    const alarm = [
+      { value: 'MAJOR', count: 2 },
+      { value: 'none', count: 5 },
+    ];
+    const facets = { origin: one, ioc: one, record_type: one, alarm };
     const box = parse(facetsHtml(page({ facets }), NO_FILTERS()));
     const groups = [...box.querySelectorAll('.allpvs-facet-group')];
-    expect(groups.map((g) => g.querySelector('.allpvs-facet')?.getAttribute('data-facet'))).toEqual(
-      FACET_KEYS
-    );
     expect(groups.map((g) => g.querySelector('.osprey-section-label')?.textContent)).toEqual([
+      'Alarm',
       'Origin',
       'IOC',
       'Record type',
-      'Alarm',
     ]);
+    const marks = [...groups[0].querySelectorAll('.cf-sev')];
+    expect(marks.map((m) => [m.className, m.textContent])).toEqual([
+      ['cf-sev cf-sev--major', 'MAJOR'],
+      ['cf-sev cf-sev--none', 'No alarm'],
+    ]);
+  });
+
+  test('a chip per filter in force, each removing its own value, then clear all', () => {
+    const filters = NO_FILTERS();
+    filters.ioc.add('sim-SR');
+    filters.alarm.add('none');
+    const box = parse(chipsHtml(filters, false));
+    const chips = [...box.querySelectorAll('.allpvs-chip')];
+    expect(chips.map((c) => c.firstChild?.textContent)).toEqual(['Alarm: No alarm', 'IOC: sim-SR']);
+    const remove = chips[1].querySelector('button');
+    expect([remove?.dataset.facet, remove?.dataset.value]).toEqual(['ioc', 'sim-SR']);
+    expect(box.querySelector('[data-action="clear-all"]')).not.toBeNull();
+    expect(chipsHtml(NO_FILTERS(), false)).toBe('');
+    expect(parse(chipsHtml(NO_FILTERS(), true)).textContent).toBe('clear all');
   });
 
   test('a filter in force stays listed with no count for it', () => {
@@ -143,23 +233,35 @@ describe('allpvs-render', () => {
     expect(facetsHtml(page({ outcome: 'unavailable' }), NO_FILTERS())).toBe('');
   });
 
-  test('the actions follow the model', () => {
-    const model = { answer: page(), page: 0, selected: 0, csvStatus: '', plot: null, send: false };
-    const bare = parse(actionsHtml(model));
-    expect(bare.querySelector('[data-action="csv"]')).not.toBeNull();
+  test('the pager names the rows shown and the page', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({ ...ROW, name: `PV:${i}` }));
+    const second = parse(pagerHtml(page({ total: 4750, rows }), 1));
+    expect(second.textContent).toContain('rows 51–100 of 4,750');
+    expect(second.textContent).toContain('page 2 of 95');
+    expect(second.querySelector('[data-action="prev"]')?.hasAttribute('disabled')).toBe(false);
+    const only = parse(pagerHtml(page(), 0));
+    expect(only.textContent).toContain('rows 1–1 of 1');
+    expect(only.querySelector('[data-action="next"]')?.hasAttribute('disabled')).toBe(true);
+    expect(pagerHtml(page({ rows: [] }), 0)).toBe('');
+  });
+
+  test('the selection bar shows only with a selection, and follows the model', () => {
+    expect(selectionBarHtml({ selected: 0, plot: null, send: true })).toBe('');
+
+    const bare = parse(selectionBarHtml({ selected: 2, plot: null, send: false }));
+    expect(bare.textContent).toContain('2 selected');
     expect(bare.querySelector('[data-action="plot"], [data-action="send"]')).toBeNull();
+    const actions = [...bare.querySelectorAll('button')].map((b) => b.dataset.action);
+    expect(actions).toEqual(['copy-names', 'clear']);
 
-    const plot = { disabled: false, label: 'Plot', title: '' };
-    const none = parse(actionsHtml({ ...model, plot, send: true }));
-    expect(none.querySelector('[data-action="plot"]')?.getAttribute('title')).toBe(
-      'Select PVs to plot'
-    );
-    expect(none.querySelector('[data-action="send"]')?.hasAttribute('disabled')).toBe(true);
-
-    const paged = parse(
-      actionsHtml({ ...model, answer: page({ total: 120 }), page: 1, selected: 2 })
-    );
-    expect(paged.textContent).toContain('page 2 of 3');
-    expect(paged.textContent).toContain('2 selected');
+    const plot = { disabled: true, label: 'Plot (max 12)', title: 'at most 12' };
+    const full = parse(selectionBarHtml({ selected: 13, plot, send: true }));
+    expect([...full.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
+      'Plot (max 12)',
+      'Send to assistant',
+      'Copy names',
+      'Clear',
+    ]);
+    expect(full.querySelector('[data-action="plot"]')?.hasAttribute('disabled')).toBe(true);
   });
 });

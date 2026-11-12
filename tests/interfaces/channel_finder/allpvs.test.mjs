@@ -1,7 +1,8 @@
 // @ts-check
 /**
- * The All PVs view (allpvs.js): rows and marks, filters, the request line, the
- * states, current values, CSV, and the Plot and Send hand-offs under their gates.
+ * The All PVs view (allpvs.js): rows and marks, the alarm column, filters and
+ * their chips, the request line, the states, current values, CSV, and the
+ * selection bar's Plot, Send and Copy names under their gates.
  * The answers are the shared route fixture's; the toolbar is index.html's.
  *   npx vitest run tests/interfaces/channel_finder/allpvs.test.mjs
  */
@@ -135,6 +136,16 @@ async function mount(setup = {}) {
   return { state, view, container, fetchMock, searches, postMessage, labels, routes };
 }
 
+/**
+ * A directory row as a target with no answer from the alarm feed serves it.
+ * @param {Record<string, unknown>} row
+ */
+function withoutAlarm(row) {
+  const copy = { ...row };
+  delete copy.alarm;
+  return copy;
+}
+
 /** @param {HTMLElement} root */
 const rows = (root) => [
   .../** @type {NodeListOf<HTMLElement>} */ (root.querySelectorAll('tbody tr')),
@@ -175,17 +186,19 @@ function pageOf(n) {
 }
 
 describe('rows and states', () => {
-  test('rows carry their marks, status, values and the directory label', async () => {
+  test('rows carry their marks, alarm, values and the directory label', async () => {
     const { container, labels } = await mount();
     await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
     const [curated, directory] = rows(container);
     expect(curated.textContent).toContain('◆');
     expect(curated.textContent).toContain('DEMO:BPM01:X');
-    expect(curated.textContent).toContain('Active');
+    expect(curated.textContent).not.toContain('Active');
+    expect(curated.querySelector('.allpvs-alarm .cf-sev--major')).not.toBeNull();
     expect(directory.textContent).toContain('◇');
-    expect(directory.textContent).toContain('Inactive');
+    expect(directory.querySelector('.allpvs-inactive')?.textContent).toBe('Inactive');
     expect(directory.classList.contains('inactive')).toBe(true);
-    await vi.waitFor(() => expect(curated.textContent).toContain('0.125'));
+    expect(directory.querySelector('.allpvs-alarm')?.textContent).toBe('·');
+    await vi.waitFor(() => expect(curated.textContent).toContain('0.125 mm'));
     expect(directory.textContent).toContain('no answer');
     expect(document.getElementById('cf-result-count')?.textContent).toBe('2 PVs');
     expect(labels).toHaveBeenCalledWith('All PVs');
@@ -194,7 +207,10 @@ describe('rows and states', () => {
   test('the plain-words line and the request behind its toggle', async () => {
     const { container } = await mount();
     await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
-    expect(container.textContent).toContain(ROUTES.search.searched);
+    expect(container.querySelector('.allpvs-searched')?.textContent).toBe('every PV');
+    expect(container.querySelector('.allpvs-searched')?.getAttribute('title')).toBe(
+      ROUTES.search.searched
+    );
     const request = /** @type {HTMLElement} */ (container.querySelector('.allpvs-request'));
     expect(request.hidden).toBe(true);
     button(container, 'show request')?.click();
@@ -260,6 +276,35 @@ describe('rows and states', () => {
     expect(chip?.textContent).toBe('partial');
   });
 
+  test('an alarm feed without an answer dashes the column and names it in partial', async () => {
+    const reason = 'alarm feed still loading';
+    const search = {
+      ...ROUTES.search,
+      rows: ROUTES.search.rows.map(withoutAlarm),
+      partial: [{ part: 'alarm', reason }],
+    };
+    const { container } = await mount({ search });
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    const cells = [...container.querySelectorAll('td.allpvs-alarm')];
+    expect(cells.map((td) => [td.textContent, td.getAttribute('title')])).toEqual([
+      ['—', reason],
+      ['—', reason],
+    ]);
+    expect(container.querySelector('.osprey-chip--warn')?.textContent).toBe('partial');
+  });
+
+  test('no alarm feed, no Alarm column', async () => {
+    const search = {
+      ...ROUTES.search,
+      rows: ROUTES.search.rows.map(withoutAlarm),
+    };
+    const { container } = await mount({ search });
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    expect(container.querySelector('td.allpvs-alarm')).toBeNull();
+    const heads = [...container.querySelectorAll('th')].map((th) => th.textContent);
+    expect(heads).not.toContain('Alarm');
+  });
+
   test('Refresh reads the visible page again', async () => {
     const { container, fetchMock } = await mount();
     await vi.waitFor(() => expect(rows(container)[0].textContent).toContain('0.125'));
@@ -290,6 +335,21 @@ describe('search and filters', () => {
     await vi.waitFor(() => expect(searches.at(-1)).toContain('q=BPM02'));
   });
 
+  test('the head states the words of the answer shown, not the words being typed', async () => {
+    const { container, searches } = await mount();
+    const input = /** @type {HTMLInputElement} */ (document.getElementById('cf-search'));
+    input.value = 'BPM02';
+    input.dispatchEvent(new Event('input'));
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    expect(searches).toHaveLength(1);
+    expect(container.querySelector('.allpvs-searched')?.textContent).toBe('every PV');
+
+    await vi.waitFor(() => expect(searches).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(container.querySelector('.allpvs-searched')?.textContent).toBe('matches BPM02')
+    );
+  });
+
   test('the route words win over scopeQuery', async () => {
     const { state, searches } = await mount({ query: 'old', params: { q: 'new words' } });
     expect(state.scopeQuery).toBe('new words');
@@ -315,7 +375,7 @@ describe('search and filters', () => {
     const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
     await vi.waitFor(() => expect(sidebar.querySelectorAll('.osprey-list-row')).toHaveLength(7));
     const labels = [...sidebar.querySelectorAll('.osprey-section-label')].map((l) => l.textContent);
-    expect(labels).toEqual(['Origin', 'IOC', 'Record type', 'Alarm']);
+    expect(labels).toEqual(['Alarm', 'Origin', 'IOC', 'Record type']);
     const curated = /** @type {HTMLButtonElement} */ (
       sidebar.querySelector('[data-facet="origin"][data-value="curated"]')
     );
@@ -324,6 +384,53 @@ describe('search and filters', () => {
     expect(sidebar.textContent).toContain('◇ Control system only');
     curated.click();
     await vi.waitFor(() => expect(searches.at(-1)).toContain('origin=curated'));
+  });
+
+  test('the Alarm facet filters the search and writes the route', async () => {
+    const { searches, routes } = await mount({ params: { q: 'BPM' } });
+    const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
+    const major = () =>
+      /** @type {HTMLButtonElement|null} */ (
+        sidebar.querySelector('[data-facet="alarm"][data-value="MAJOR"]')
+      );
+    await vi.waitFor(() => expect(major()).not.toBeNull());
+    expect(major()?.querySelector('.cf-sev--major')).not.toBeNull();
+    expect(sidebar.querySelector('[data-facet="alarm"][data-value="none"]')?.textContent).toContain(
+      'No alarm'
+    );
+    major()?.click();
+    await vi.waitFor(() => expect(searches.at(-1)).toContain('alarm=MAJOR'));
+    expect(routes.mock.calls.at(-1)?.[0].params).toEqual({ q: 'BPM', alarm: ['MAJOR'] });
+  });
+
+  test("a chip's × removes that one filter and writes the route", async () => {
+    const { container, searches, routes } = await mount({
+      params: { q: 'BPM', ioc: ['IOC1'], alarm: ['MAJOR'] },
+    });
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    const chips = () =>
+      [...container.querySelectorAll('.allpvs-chip')].map((c) => c.firstChild?.textContent);
+    expect(chips()).toEqual(['Alarm: MAJOR', 'IOC: IOC1']);
+    /** @type {HTMLButtonElement} */ (
+      container.querySelector('.allpvs-chip [data-facet="ioc"][data-value="IOC1"]')
+    ).click();
+    expect(routes.mock.calls.at(-1)?.[0].params).toEqual({ q: 'BPM', alarm: ['MAJOR'] });
+    await vi.waitFor(() => expect(searches.at(-1)).not.toContain('ioc='));
+    expect(searches.at(-1)).toContain('alarm=MAJOR');
+    await vi.waitFor(() => expect(chips()).toEqual(['Alarm: MAJOR']));
+  });
+
+  test('clear all empties the words and the filters', async () => {
+    const { container, state, searches, routes } = await mount({
+      params: { q: 'BPM', origin: ['curated'] },
+    });
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    button(container, 'clear all')?.click();
+    expect(state.scopeQuery).toBe('');
+    expect(/** @type {HTMLInputElement} */ (document.getElementById('cf-search')).value).toBe('');
+    expect(routes.mock.calls.at(-1)?.[0].params).toEqual({ q: '' });
+    await vi.waitFor(() => expect(searches.at(-1)).not.toContain('origin='));
+    expect(searches.at(-1)).not.toContain('q=BPM');
   });
 
   test('above the filter cap the sidebar says why there are no filters', async () => {
@@ -393,11 +500,22 @@ describe('the address bar', () => {
 });
 
 describe('Plot and Send', () => {
+  test('the selection bar shows only while something is selected', async () => {
+    const { container } = await mount();
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    expect(container.querySelector('.allpvs-selection-bar')).toBeNull();
+    select(container, 0);
+    expect(container.querySelector('.allpvs-selection-bar')?.textContent).toContain('1 selected');
+    button(container, 'Clear')?.click();
+    expect(container.querySelector('.allpvs-selection-bar')).toBeNull();
+  });
+
   test('Plot posts the Canopy url with pv in selection order', async () => {
     const { container, postMessage } = await mount();
-    await vi.waitFor(() => expect(plot(container)).not.toBeNull());
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
     select(container, 1);
     select(container, 0);
+    await vi.waitFor(() => expect(plot(container)).not.toBeNull());
     plot(container)?.click();
     expect(postMessage).toHaveBeenCalledWith(
       {
@@ -411,8 +529,9 @@ describe('Plot and Send', () => {
 
   test('Plot is disabled past 12 selected', async () => {
     const { container } = await mount({ search: pageOf(13) });
-    await vi.waitFor(() => expect(plot(container)).not.toBeNull());
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(13));
     for (let i = 0; i < 12; i++) select(container, i);
+    await vi.waitFor(() => expect(plot(container)).not.toBeNull());
     expect(plot(container)?.disabled).toBe(false);
     select(container, 12);
     expect(plot(container)?.disabled).toBe(true);
@@ -443,9 +562,24 @@ describe('Plot and Send', () => {
     );
   });
 
+  test('Copy names copies the selection in selection order, one per line', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const { container } = await mount();
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    select(container, 1);
+    select(container, 0);
+    button(container, 'Copy names')?.click();
+    await vi.waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('DEMO:BPM01:HEARTBEAT\nDEMO:BPM01:X')
+    );
+  });
+
   test('a pop-out shows no Plot and no Send', async () => {
     const { container, fetchMock } = await mount({ framed: false });
     await vi.waitFor(() => expect(rows(container)[0].textContent).toContain('0.125'));
+    select(container, 0);
+    expect(container.querySelector('.allpvs-selection-bar')).not.toBeNull();
     expect(plot(container)).toBeNull();
     expect(send(container)).toBeNull();
     expect(fetchMock.mock.calls.some(([, opts]) => opts?.method === 'HEAD')).toBe(false);
@@ -457,6 +591,7 @@ describe('Plot and Send', () => {
       expect(fetchMock.mock.calls.some(([, opts]) => opts?.method === 'HEAD')).toBe(true)
     );
     await vi.waitFor(() => expect(rows(container)[0].textContent).toContain('0.125'));
+    select(container, 0);
     expect(plot(container)).toBeNull();
     expect(send(container)).not.toBeNull();
   });
@@ -480,7 +615,10 @@ describe('the selection basket', () => {
   }
 
   /** @param {HTMLElement} root */
-  const selection = (root) => root.querySelector('.allpvs-actions')?.textContent ?? '';
+  const selection = (root) => root.querySelector('.allpvs-selection')?.textContent ?? '';
+
+  /** @param {HTMLElement} root */
+  const pager = (root) => root.querySelector('.allpvs-pager')?.textContent ?? '';
 
   test('new words keep it, and Plot posts it in selection order', async () => {
     const { container, postMessage, searches } = await mount({ search: byWords, query: 'A' });
@@ -523,10 +661,10 @@ describe('the selection basket', () => {
 
     /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="next"]')).click();
     await vi.waitFor(() => expect(searches.at(-1)).toContain('page=1'));
-    await vi.waitFor(() => expect(selection(container)).toContain('page 2'));
+    await vi.waitFor(() => expect(pager(container)).toContain('page 2'));
     expect(selection(container)).toContain('2 selected');
 
-    button(container, 'clear')?.click();
+    button(container, 'Clear')?.click();
     expect(selection(container)).not.toContain('selected');
   });
 
