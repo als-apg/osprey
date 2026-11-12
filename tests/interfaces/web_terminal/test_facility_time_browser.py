@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._launchers import launch_web_terminal
 
 try:
@@ -75,6 +76,7 @@ def _open_hook_log(page, base_url):
     """Load the index and expand the hook log in the Settings drawer."""
     page.route("**/api/hooks/debug-log**", _fulfill_json(_HOOK_LOG))
     page.goto(f"{base_url}/", wait_until="load")
+    wait_for_page_ready(page)
     page.wait_for_selector("#hook-debug-log-toggle", state="attached")
     page.evaluate("document.getElementById('hook-debug-log-toggle').click()")
     page.wait_for_selector("td.log-ts", state="attached")
@@ -94,6 +96,7 @@ def test_hook_log_and_session_activity_read_the_facility_clock(
 
         page.route("**/api/session-log**", _fulfill_json(_SESSION_LOG))
         page.goto(f"{base_url}/static/session.html", wait_until="load")
+        wait_for_page_ready(page)
         page.locator('.pill[data-view="toollog"]').click()
         expect(page.locator(".log-row .col-time").first).to_have_text("05:04:05")
 

@@ -57,6 +57,7 @@ from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.interfaces.web_terminal.session_handoff import ERROR_SESSION_ATTACHED_ELSEWHERE
 from osprey_connectors import control_context
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._control_context import read_record
 
 # The stack, the waits and the vocabulary are test_posture_toggle_browser's,
@@ -799,6 +800,7 @@ def test_a_terminal_with_the_picker_off_mounts_no_chip(tmp_path, monkeypatch, ch
         )
         try:
             page.goto(base_url, wait_until="load")
+            wait_for_page_ready(page)
             expect(page.locator("#command-palette-btn")).to_have_count(1, timeout=TIMEOUT)
             expect(page.locator("html")).to_have_attribute("data-control-target", "off")
             expect(page.locator(CHIP)).to_have_count(0)

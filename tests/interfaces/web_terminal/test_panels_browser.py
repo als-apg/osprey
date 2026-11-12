@@ -78,7 +78,7 @@ from osprey.interfaces._serving import run_app_server
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
-from tests.interfaces._browser import wait_for_dock_settled
+from tests.interfaces._browser import wait_for_dock_settled, wait_for_page_ready
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import (
     UNSERVED,
@@ -1209,6 +1209,7 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
         expect(_service_tab(page, "OPS")).to_have_count(0)
 
         page.reload()
+        wait_for_page_ready(page)
         expect(page.locator('#panel-rail [data-panel-id="ops"]')).to_have_count(1)
         assert _rail_order(page) == after
 
@@ -1541,6 +1542,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         # Switch to project B and reload — a different key, no stored layout.
         app.state.project_cwd = cwd_b
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1557,6 +1559,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         # Switch back to A — its arrangement (terminal left) returns.
         app.state.project_cwd = cwd_a
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1649,6 +1652,7 @@ def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
         # And the reset persists across a reload (custom arrangement is gone).
         page.wait_for_timeout(500)
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
         groups = _dock_groups(page)
@@ -1697,6 +1701,7 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
         # Corrupt it and reload.
         page.evaluate("(k) => localStorage.setItem(k, '{ not valid json')", key)
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1929,6 +1934,7 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
 
             page = chromium_browser.new_page()
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             expect(page.locator('button[data-panel-id="data-viz"]')).to_be_attached(timeout=10_000)
 
             # The visible, healthy panel is the one docked and on screen.
@@ -1979,6 +1985,7 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
 
             page = chromium_browser.new_page()
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             expect(page.locator('button[data-panel-id="terminal"]')).to_be_attached(timeout=10_000)
 
             # The premise: data-viz's health poll really reaches the live stub
@@ -2509,6 +2516,7 @@ def test_header_contribution_reaches_the_fallback_bar_without_dockview(
             page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
             page.route("**/dockview-core*", lambda route: route.abort())
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             rail = page.locator('button.panel-rail-button[data-panel-id="contrib-demo"]')
             expect(rail).not_to_have_class(re.compile(r"\bdisabled\b"), timeout=15_000)
             assert (
@@ -3418,6 +3426,7 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         page = chromium_browser.new_page()
         arm_terminal_tab(page)
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
         # The Agent tile's header is re-parented while the dock boots; a press
         # landing between the two moves opens no menu.
@@ -3465,7 +3474,7 @@ def test_agent_header_menu_opens_while_the_panel_list_is_still_loading(tmp_path,
         held = []
         page.route("**/api/panels", lambda route: held.append(route))
         arm_terminal_tab(page)
-        page.goto(base_url, wait_until="domcontentloaded")
+        page.goto(base_url, wait_until="domcontentloaded")  # page-ready: its panel list is held
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
         assert held, "the panel list was answered before the menu could be tried"
 
@@ -3739,6 +3748,7 @@ def _palette_reload(page: Page) -> None:
     would race the rebuild rather than the behaviour it means to assert.
     """
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=10_000)
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
 
@@ -3880,6 +3890,7 @@ def test_palette_window_row_moves_the_panel_frame_on_its_proxied_url(tmp_path, c
         with page.context.expect_page() as popup_info:
             row.click()
         popup = popup_info.value
+        wait_for_page_ready(popup)
         frame = popup.locator('iframe.panel-iframe[data-panel-id="ariel"]')
         expect(frame).to_be_visible(timeout=10_000)
 

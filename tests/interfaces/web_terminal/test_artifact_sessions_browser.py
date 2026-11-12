@@ -40,6 +40,8 @@ from docs.screenshots.contact_sheet import (
     hermetic_hub,
 )
 
+from tests.interfaces._browser import wait_for_page_ready
+
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 try:
@@ -131,6 +133,7 @@ def page(context):
 
 def _boot(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(f"{_TREE} .osprey-tree-session").first).to_be_visible(timeout=_TIMEOUT_MS)
 
 
@@ -414,6 +417,7 @@ def test_entering_an_older_transcript_keeps_its_save_and_a_terminal_clear_shows_
 
     _settle_pointer(page)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", new_tid, timeout=_TIMEOUT_MS)
 
 
@@ -579,6 +583,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     # Reload: the same session, the artifact shown in the docked panel.
     _settle_pointer(page)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
     expect(_row(page, profile.id)).to_have_attribute("aria-selected", "true", timeout=_TIMEOUT_MS)
 
@@ -605,6 +610,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     page.evaluate("() => localStorage.removeItem('osprey-pty-session')")
     authorize_browser_context(page.context)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
 
     # The pen button opens a new session, and a reload stays on it.
@@ -615,6 +621,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     minted = _pointer(page)
     _settle_pointer(page)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", f"key:{minted}", timeout=_TIMEOUT_MS)
 
 
@@ -635,6 +642,7 @@ def test_without_a_docked_artifacts_panel_page_load_only_reveals(hub, page):
     _remove_artifacts_from_rail(page)
     page.wait_for_timeout(1500)  # the layout and the pointer are written debounced
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
     # The layout is left as it was: the Artifacts tile is not docked again.
     page.wait_for_timeout(1000)
@@ -909,6 +917,7 @@ def test_open_in_new_window_keeps_the_artifact_the_tile_showed(hub, page):
     with page.expect_popup() as info:
         page.locator('.tile-tab[data-panel-id="iframe:artifacts"] .tile-tab-window').click()
     popup = info.value
+    wait_for_page_ready(popup)
     frame = popup.frame_locator(_ARTIFACTS_FRAME)
     expect(frame.locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(frame.locator("#preview-empty")).to_be_hidden()
@@ -958,7 +967,9 @@ def test_the_window_shows_the_viewer_even_when_the_type_registry_answers_last(hu
     page.context.route("**/api/type-registry", _registry_last)
     with page.expect_popup() as info:
         page.locator('.tile-tab[data-panel-id="iframe:artifacts"] .tile-tab-window').click()
-    frame = info.value.frame_locator(_ARTIFACTS_FRAME)
+    window = info.value
+    wait_for_page_ready(window)
+    frame = window.frame_locator(_ARTIFACTS_FRAME)
     expect(frame.locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
 
 
@@ -1031,6 +1042,7 @@ def test_deleting_a_past_session_drops_its_row_and_its_artifacts(hub, page):
     assert _store(hub).get_entry(profile.id) is None
 
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute(
         "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
     )

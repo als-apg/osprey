@@ -23,6 +23,8 @@ from threading import Event, Thread
 import pytest
 from docs.screenshots.contact_sheet import SEEDED_SESSIONS, hermetic_hub
 
+from tests.interfaces._browser import wait_for_page_ready
+
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 try:
@@ -47,11 +49,13 @@ _PAST_SETTLE_MS = 1_000
 _ACTIVE = re.compile(r"\bactive\b")
 _EMBEDDED = re.compile(r"\bembedded\b")
 
-#: A first-party panel page's one duty here: every panel page calls this on load.
+#: A first-party panel page's duties here: every panel page calls these on load.
 _PANEL_HTML = b"""<!doctype html><html><head><title>notes</title></head><body>
 <script type="module">
   import { applyEmbedded } from '/design-system/js/frame-params.js';
+  import { markPageReady } from '/design-system/js/page-ready.js';
   applyEmbedded();
+  markPageReady();
 </script></body></html>"""
 
 
@@ -165,6 +169,7 @@ def _in_a_session(page: Page, hub) -> str:
     """Boot the hub on a seeded session, with its layout stored; its transcript id."""
     tid = SEEDED_SESSIONS[0].transcript_id
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     row = page.locator(f'{_TREE} .osprey-tree-session[data-session-id="{tid}"]')
     expect(row).to_be_visible(timeout=_TIMEOUT_MS)
     row.locator(".osprey-tree-title").click()
@@ -187,9 +192,10 @@ def _stored_layout(page: Page, hub, tid: str, *, holding: str | None = None) -> 
 def test_a_visit_opens_a_panel_the_session_layout_does_not_hold(page, hub):
     _in_a_session(page, hub)
     expect(_tile(page, "notes")).to_have_count(0)
-    page.goto("about:blank")
+    page.goto("about:blank")  # page-ready: leaves the hub; about:blank is no OSPREY page
 
     page.goto(f"{hub.base_url}/panel/notes/#entry?id=X", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
 
     expect(page).to_have_url(f"{hub.base_url}/", timeout=_TIMEOUT_MS)
     _expect_on_screen_at(page, "notes", "/panel/notes/", "#entry?id=X")
@@ -200,7 +206,7 @@ def test_a_visit_lands_on_its_page_when_the_layout_holds_the_panel_on_another(pa
     page.locator('[data-panel-id="notes"]').first.click()
     expect(_tile(page, "notes")).to_have_count(1, timeout=_TIMEOUT_MS)
     layout = _stored_layout(page, hub, tid, holding="notes")
-    page.goto("about:blank")
+    page.goto("about:blank")  # page-ready: leaves the hub; about:blank is no OSPREY page
     layout["pages"]["notes"] = "/panel/notes/other"
     stored = page.request.put(
         f"{hub.base_url}/api/sessions/{tid}/layout",
@@ -210,6 +216,7 @@ def test_a_visit_lands_on_its_page_when_the_layout_holds_the_panel_on_another(pa
     assert stored.ok, stored.text()
 
     page.goto(f"{hub.base_url}/panel/notes/deep?x=1#entry?id=X", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
 
     _expect_on_screen_at(page, "notes", "/panel/notes/deep", "#entry?id=X")
     assert "x=1" in _frame_location(page, "notes")["query"]
@@ -217,9 +224,10 @@ def test_a_visit_lands_on_its_page_when_the_layout_holds_the_panel_on_another(pa
 
 def test_a_panel_that_answers_after_settle_still_opens(page, hub, healthy):
     _in_a_session(page, hub)
-    page.goto("about:blank")
+    page.goto("about:blank")  # page-ready: leaves the hub; about:blank is no OSPREY page
 
     page.goto(f"{hub.base_url}/panel/late/#entry", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page).to_have_url(f"{hub.base_url}/", timeout=_TIMEOUT_MS)
     page.wait_for_timeout(_PAST_SETTLE_MS * 2)
     expect(_tile(page, "late")).to_have_count(0)
@@ -231,6 +239,7 @@ def test_a_panel_that_answers_after_settle_still_opens(page, hub, healthy):
 
 def test_an_unknown_id_says_so_and_leaves_the_hub_as_it_is(page, hub):
     page.goto(f"{hub.base_url}/?open=nope&at=%2Fpanel%2Fnope%2F", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
 
     expect(page.locator(_NOTICE)).to_have_text("nope is not a panel here.", timeout=_TIMEOUT_MS)
     expect(page).to_have_url(f"{hub.base_url}/")
@@ -240,6 +249,7 @@ def test_an_unknown_id_says_so_and_leaves_the_hub_as_it_is(page, hub):
 def test_a_first_party_panel_page_goes_through_the_same_guard(page, hub):
     """The artifacts gallery is a real panel shell behind the real proxy."""
     page.goto(f"{hub.base_url}/panel/artifacts/", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
 
     expect(page).to_have_url(f"{hub.base_url}/", timeout=_TIMEOUT_MS)
     expect(_tile(page, "artifacts")).to_have_count(1, timeout=_TIMEOUT_MS)
@@ -247,6 +257,7 @@ def test_a_first_party_panel_page_goes_through_the_same_guard(page, hub):
 
 def test_an_embedded_visit_stays_on_the_panel_page(page, hub):
     page.goto(f"{hub.base_url}/panel/notes/?embedded=true", wait_until="load")
+    wait_for_page_ready(page)
 
     page.wait_for_timeout(_PAST_SETTLE_MS)
     assert page.url == f"{hub.base_url}/panel/notes/?embedded=true"

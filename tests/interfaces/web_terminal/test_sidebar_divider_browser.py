@@ -48,6 +48,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -146,6 +147,7 @@ def _page(browser: Browser, url: str, height: int, stored: str | None = None) ->
     page = ctx.new_page()
     try:
         page.goto(url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         _ready(page)
         yield page
     finally:
@@ -305,6 +307,7 @@ def test_an_earlier_builds_pixels_become_a_fraction_once(tmp_path, chromium_brow
             f"'written', localStorage.getItem('{_KEY}')))"
         )
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         _ready(page)
         # The fraction is applied to the rail's room as it stands, which the
         # late blocks shrink as they render: the height is 300 px once they have.

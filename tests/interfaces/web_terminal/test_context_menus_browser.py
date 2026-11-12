@@ -319,6 +319,7 @@ def test_a_right_click_on_the_terminal_body_opens_the_terminal_menu(tmp_path, ch
     with live_chat_server(tmp_path) as (base_url, _app):
         page = chromium_browser.new_page(viewport={"width": 1400, "height": 900})
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".op-session-bar")).to_be_visible(timeout=_TIMEOUT_MS)
         open_terminal(page)
         screen = page.locator("#terminal-container .xterm-screen")
@@ -368,6 +369,7 @@ def test_a_pop_out_reload_keeps_the_chat_menus(hub, page):
     _boot_hermetic(page, hub)
     popup = _detach_agent(page)
     popup.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(popup)
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(popup.locator(f"{_POP_BAR} button.tile-tab-reattach")).to_be_visible(timeout=_TIMEOUT_MS)
     _converse(popup, "after the reload")

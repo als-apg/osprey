@@ -64,6 +64,7 @@ from playwright.sync_api import Frame, FrameLocator, Page, expect
 
 from osprey.interfaces._serving import run_app_server
 from tests._container_support import is_docker_available, start_or_fail, stop_quietly
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._chat_server import (
     OBSERVED_PROMPTS,
     PLANS,
@@ -433,6 +434,7 @@ def _ariel_stack(
                     page = browser.new_page(viewport={"width": 1600, "height": 1000})
                     page.add_init_script(_PROBES)
                     page.goto(base_url, wait_until="domcontentloaded")
+                    wait_for_page_ready(page)
                     expect(page.locator(_INPUT)).to_be_visible(timeout=15_000)
 
                     stack = Stack(
@@ -748,6 +750,7 @@ def test_ariel_entry_open_after_a_hub_reload_shows_the_entry(stack_factory):
     expect(stack.frame_locator.locator(_ROWS).first).to_be_visible(timeout=15_000)
 
     stack.page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(stack.page)
     expect(stack.page.locator(_INPUT)).to_be_visible(timeout=15_000)
     stack.wait_settled()
 

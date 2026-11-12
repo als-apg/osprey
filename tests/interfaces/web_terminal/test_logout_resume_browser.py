@@ -129,8 +129,12 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         # Sign-out ends the server's sessions before it navigates, which a
         # loaded host does slowly: the wait is for the navigation to commit,
         # with no budget of its own (0; the per-test timeout is the hang
-        # breaker), and readiness is the landing page's own mark.
-        page.wait_for_url(lambda u: u.startswith(landing_url), wait_until="commit", timeout=0)
+        # breaker), and readiness is the landing stand-in's own marker.
+        page.wait_for_url(
+            lambda u: u.startswith(landing_url),
+            wait_until="commit",
+            timeout=0,
+        )  # page-ready: the landing stand-in is this test's own page
         expect(page.locator("#landing-marker")).to_be_visible()
 
         # The auth session was asked to end at the ORIGIN ROOT, naming this user once.
@@ -146,6 +150,7 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         page.route("**/api/sessions/last-active", lambda route: route.abort())
         with page.expect_websocket() as cut_ws:
             page.goto(base_url, wait_until="load")
+            wait_for_page_ready(page)
         assert f"session_id={stored_id}" not in cut_ws.value.url, (
             f"logout left the stored pointer behind: {cut_ws.value.url}"
         )
@@ -158,6 +163,7 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         _put_last_active(base_url, stored_id)
         with page.expect_websocket() as return_ws:
             page.goto(base_url, wait_until="load")
+            wait_for_page_ready(page)
         resumed = return_ws.value.url
         # The socket asks for the server's key. (No PTY by that id lives in this
         # stand-in, so what the client stores after the server's answer is not

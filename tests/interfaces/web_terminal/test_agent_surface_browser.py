@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._chat_server import _PTY_SPAWNS, live_chat_server
 from tests.interfaces.web_terminal._surface import back_to_chat, open_terminal
 
@@ -40,6 +41,7 @@ def _open(opener, base_url: str) -> tuple[Page, list[str]]:
         lambda ws: sockets.append(ws.url) if "/ws/terminal" in ws.url else None,
     )
     page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(".op-session-bar")).to_be_visible(timeout=10_000)
     return page, sockets
 
@@ -94,6 +96,7 @@ def test_the_choice_survives_a_reload_and_a_new_tab_starts_in_chat(tmp_path, chr
         open_terminal(page)
 
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         _on_terminal(page)
 
         other, sockets = _open(context, base_url)
@@ -102,6 +105,7 @@ def test_the_choice_survives_a_reload_and_a_new_tab_starts_in_chat(tmp_path, chr
 
         back_to_chat(page)
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         _on_chat(page)
         context.close()
 

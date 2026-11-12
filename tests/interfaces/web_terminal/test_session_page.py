@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._launchers import launch_web_terminal
 
 try:
@@ -64,6 +65,7 @@ def test_session_nav_pills_switch_views(tmp_path, monkeypatch, chromium_browser)
         # Arrange -- initial load triggers refreshActive() for the default view.
         with page.expect_request(lambda r: "/api/session-agents" in r.url):
             page.goto(f"{base_url}/static/session.html", wait_until="load")
+            wait_for_page_ready(page)
 
         expect(page.locator('.pill[data-view="agents"]')).to_have_class("pill active")
         expect(page.locator("#view-agents")).to_have_class("view active")
@@ -101,6 +103,7 @@ def test_session_refresh_loop_repaints_active_view(tmp_path, monkeypatch, chromi
 
         with page.expect_request(lambda r: "/api/session-agents" in r.url):
             page.goto(f"{base_url}/static/session.html", wait_until="load")
+            wait_for_page_ready(page)
 
         # Act -- advance virtual time past the 12s interval.
         with page.expect_request(lambda r: "/api/session-agents" in r.url) as repaint_info:

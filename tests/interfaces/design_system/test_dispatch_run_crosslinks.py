@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
@@ -151,6 +152,7 @@ def _open_run(page: Page, base_url: str, run_id: str) -> None:
     repaints the screen.
     """
     page.goto(f"{base_url}/", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
     page.evaluate(
         """([nextState, runId]) => {

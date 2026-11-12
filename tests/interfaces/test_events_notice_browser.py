@@ -17,6 +17,7 @@ import pytest
 from playwright.sync_api import Route, expect
 
 from osprey.dispatch.dashboard import render_dashboard_html
+from tests.interfaces._browser import wait_for_page_ready
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -60,6 +61,7 @@ def _open(chromium_browser, state: dict, *, embedded: bool = True):
 
     page.route(f"{_ORIGIN}/**", handle)
     page.goto(f"{_ORIGIN}/{'?embedded=true' if embedded else ''}")
+    wait_for_page_ready(page)
     # The first poll has landed once the panel-wide "Connecting" state is gone.
     expect(page.locator("#panel-state")).to_be_hidden()
     return page
