@@ -60,15 +60,17 @@ class AlarmState(_Backend, ABC):
         """Stop feeding the snapshot."""
 
     @abstractmethod
-    async def state_for(self, pv: str, deadline: float) -> AlarmStateRecord | Unavailable | None:
-        """The alarm state of *pv*, waiting up to *deadline* seconds for catch-up.
+    async def state_for(
+        self, channel: str, deadline: float
+    ) -> AlarmStateRecord | Unavailable | None:
+        """The alarm state of *channel*, waiting up to *deadline* seconds for catch-up.
 
         ``None`` is a caught-up feed that holds none for it.
         """
 
     @abstractmethod
-    async def config_for(self, pv: str, deadline: float) -> AlarmConfigRecord | Unavailable:
-        """The live alarm configuration of *pv*, waiting up to *deadline* seconds for catch-up."""
+    async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+        """The live alarm configuration of *channel*, waiting up to *deadline* seconds for catch-up."""
 
     @abstractmethod
     async def probe(self, deadline: float) -> str | Unavailable:

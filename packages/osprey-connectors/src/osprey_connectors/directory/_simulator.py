@@ -63,10 +63,10 @@ _INPUT_RECORD_TYPES = {
 
 #: What each simulator-served signal is: its record type and its description.
 _SERVED_ADDRESSES = {
-    STATUS_SIGNAL: ("stringin", "simulation status of IOC {ioc}"),
-    HEARTBEAT: ("longin", "heartbeat counter of IOC {ioc}"),
-    UPTIME: ("ai", "seconds since IOC {ioc} started"),
-    ENGINEER: ("stringin", "responsible engineer of IOC {ioc}"),
+    STATUS_SIGNAL: ("stringin", "simulation status of IOC {server}"),
+    HEARTBEAT: ("longin", "heartbeat counter of IOC {server}"),
+    UPTIME: ("ai", "seconds since IOC {server} started"),
+    ENGINEER: ("stringin", "responsible engineer of IOC {server}"),
 }
 
 
@@ -75,7 +75,7 @@ def _first_sentence(text: str | None) -> str | None:
     return (f"{head}." if sep else head) or None
 
 
-def _channel_record(channel: Channel, ioc: str) -> DirectoryRecord:
+def _channel_record(channel: Channel, server: str) -> DirectoryRecord:
     types = _OUTPUT_RECORD_TYPES if channel.role == SETPOINT else _INPUT_RECORD_TYPES
     properties = {"role": channel.role, "valueType": channel.value_type}
     if channel.unit is not None:
@@ -85,23 +85,23 @@ def _channel_record(channel: Channel, ioc: str) -> DirectoryRecord:
             name=channel.address,
             status="Active",
             description=_first_sentence(channel.description),
-            record_type=types.get(channel.value_type),
-            ioc=ioc,
+            channel_type=types.get(channel.value_type),
+            server=server,
             host=_HOST,
         ),
         properties=properties,
     )
 
 
-def _served_record(address: str, ioc: str, signal: str) -> DirectoryRecord:
-    record_type, description = _SERVED_ADDRESSES[signal]
+def _served_record(address: str, server: str, signal: str) -> DirectoryRecord:
+    channel_type, description = _SERVED_ADDRESSES[signal]
     return DirectoryRecord(
         row=DirectoryRow(
             name=address,
             status="Active",
-            description=description.format(ioc=ioc),
-            record_type=record_type,
-            ioc=ioc,
+            description=description.format(server=server),
+            channel_type=channel_type,
+            server=server,
             host=_HOST,
         ),
         properties={SERVED_SIGNAL_PROPERTY: signal},
@@ -114,8 +114,8 @@ def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
     records = {}
     for address in view.channels():
         channel = view.channel(address)
-        ioc = f"sim-{channel.owner}" if channel.owner in physics else _TEXTURE_IOC
-        records[address] = _channel_record(channel, ioc)
+        server = f"sim-{channel.owner}" if channel.owner in physics else _TEXTURE_IOC
+        records[address] = _channel_record(channel, server)
     for model, address in view.status_addresses().items():
         records[address] = _served_record(address, f"sim-{model}", STATUS_SIGNAL)
     for model, signals in view.ioc_health_by_model().items():
@@ -142,8 +142,8 @@ def _passes_filters(record: DirectoryRecord, query: DirectoryQuery) -> bool:
     row = record.row
     return (
         (query.status is None or row.status == query.status)
-        and (not query.ioc or row.ioc in query.ioc)
-        and (not query.record_type or row.record_type in query.record_type)
+        and (not query.server or row.server in query.server)
+        and (not query.channel_type or row.channel_type in query.channel_type)
         and all(record.properties.get(key) == value for key, value in query.properties.items())
     )
 
@@ -181,10 +181,10 @@ def _searched(query: DirectoryQuery) -> str:
         parts.append(f"name matches {query.name}")
     if query.status:
         parts.append(f"status {query.status}")
-    if query.ioc:
-        parts.append(f"IOC {' or '.join(query.ioc)}")
-    if query.record_type:
-        parts.append(f"record type {' or '.join(query.record_type)}")
+    if query.server:
+        parts.append(f"IOC {' or '.join(query.server)}")
+    if query.channel_type:
+        parts.append(f"record type {' or '.join(query.channel_type)}")
     parts.extend(f"{key} {value}" for key, value in query.properties.items())
     return " · ".join(parts) or "every PV"
 

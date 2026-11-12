@@ -34,6 +34,7 @@ from osprey.services.pv_directory._connectors import (
     DIRECTORY_CONNECTORS_AVAILABLE,
     FLOOR_REASON,
     NO_SOURCE_REASON,
+    SERVED_FIELD,
     DirectoryPage,
     DirectoryQuery,
     Outcome,
@@ -65,8 +66,10 @@ _CACHE_SIZE = 32
 #: How far past its deadline an alarm-feed probe may run before it is cut off.
 _PROBE_GRACE_S = 1.0
 
-#: The row fields the facets count, after ``origin``.
+#: The served names of the row fields the facets count, after ``origin``.
 _ROW_FACETS = ("ioc", "record_type")
+#: The contract field of each served name.
+_CONTRACT_FIELD = {served: field for field, served in SERVED_FIELD.items()}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -555,7 +558,10 @@ def _facets(
     kept = [row for row, origin in marked if not origins or origin in origins]
     return {
         "origin": _tally(origin for _row, origin in marked),
-        **{name: _tally(getattr(row, name) for row in kept) for name in _ROW_FACETS},
+        **{
+            name: _tally(getattr(row, _CONTRACT_FIELD[name]) for row in kept)
+            for name in _ROW_FACETS
+        },
     }
 
 
@@ -569,8 +575,8 @@ def _tally(values: Iterable[Any]) -> list[Mapping[str, Any]]:
 
 
 def _split_origin(fields: Mapping[str, Any]) -> tuple[tuple[str, ...], Any]:
-    """The origin filter of a search's keywords, and the query the server answers."""
-    rest = dict(fields)
+    """The origin filter of a search's served keywords, and the query the server answers."""
+    rest = {_CONTRACT_FIELD.get(key, key): value for key, value in fields.items()}
     origin = rest.pop("origin", None)
     if origin is None:
         origins: tuple[str, ...] = ()
@@ -594,10 +600,10 @@ def _searched(query: Any, origins: tuple[str, ...]) -> str:
         parts.append(f"name matches {query.name}")
     if query.status:
         parts.append(f"status {query.status}")
-    if query.ioc:
-        parts.append(f"IOC {' or '.join(query.ioc)}")
-    if query.record_type:
-        parts.append(f"record type {' or '.join(query.record_type)}")
+    if query.server:
+        parts.append(f"IOC {' or '.join(query.server)}")
+    if query.channel_type:
+        parts.append(f"record type {' or '.join(query.channel_type)}")
     parts.extend(f"{key} {value}" for key, value in query.properties.items())
     if origins:
         parts.append(f"origin {' or '.join(origins)}")

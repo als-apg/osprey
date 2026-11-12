@@ -103,6 +103,7 @@ __all__ = [
     "PutLog",
     "PutRow",
     "Source",
+    "SERVED_FIELD",
     "Unavailable",
     "as_payload",
     "has_simulator",
@@ -116,6 +117,13 @@ FLOOR_REASON = "installed osprey-connectors has no PV directory support (upgrade
 
 #: The reason a section with no source on the current target answers.
 NO_SOURCE_REASON = "not available for this target"
+
+#: The served name of each contract field the framework serves under its EPICS word.
+#: Routes, pages and tool answers keep ``ioc``, ``record_type`` and ``pv``.
+SERVED_FIELD = {"server": "ioc", "channel_type": "record_type", "channel": "pv"}
+
+#: The records whose fields are served under :data:`SERVED_FIELD`.
+_SERVED_RECORDS = tuple(record for record in (DirectoryRow, PutRow) if record is not None)
 
 
 def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
@@ -136,7 +144,8 @@ def as_payload(result: Any) -> Any:
     """*result*, a contract dataclass or a container of them, as plain JSON values.
 
     A ``Source`` becomes ``{target, service, label, rehearsal}``, its label named
-    by :func:`~osprey.services.pv_directory.vocabulary.source_label`. Other
+    by :func:`~osprey.services.pv_directory.vocabulary.source_label`; a directory
+    row and a put row name their fields by :data:`SERVED_FIELD`. Other
     dataclasses become mappings field by field, enum members their values,
     mappings and sequences their JSON forms; anything else is returned as it is.
     """
@@ -148,8 +157,9 @@ def as_payload(result: Any) -> Any:
             "rehearsal": result.rehearsal,
         }
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
+        names = SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
         return {
-            field.name: as_payload(getattr(result, field.name))
+            names.get(field.name, field.name): as_payload(getattr(result, field.name))
             for field in dataclasses.fields(result)
         }
     if isinstance(result, Enum):

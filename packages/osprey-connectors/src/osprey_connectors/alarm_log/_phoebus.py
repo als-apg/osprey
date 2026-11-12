@@ -68,13 +68,13 @@ class PhoebusAlarmLogger(AlarmLog):
         self._transport = transport
 
     async def history(
-        self, pv: str, since: datetime | None, limit: int, deadline: float
+        self, channel: str, since: datetime | None, limit: int, deadline: float
     ) -> HistoryPage:
         # One row more than asked for tells a full page from a longer history.
-        answer = await self._search(pv, limit + 1, since, deadline)
+        answer = await self._search(channel, limit + 1, since, deadline)
         if isinstance(answer, Unavailable):
             return self._page(Outcome.UNAVAILABLE, reason=answer.reason)
-        matching = _rows_of(answer, pv)
+        matching = _rows_of(answer, channel)
         rows = [row for row in matching if _in_window(row, since)]
         if not rows:
             return self._page(Outcome.NO_MATCH, reason=_NO_LOGGED_EVENTS)
@@ -84,12 +84,12 @@ class PhoebusAlarmLogger(AlarmLog):
             Outcome.FOUND, rows=[_history_row(row) for row in rows[:limit]], truncated=truncated
         )
 
-    async def config_for(self, pv: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+    async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         started = time.monotonic()
-        answer = await self._search(pv, _CONFIG_SEARCH_SIZE, None, deadline)
+        answer = await self._search(channel, _CONFIG_SEARCH_SIZE, None, deadline)
         if isinstance(answer, Unavailable):
             return answer
-        rows = _rows_of(answer, pv)
+        rows = _rows_of(answer, channel)
         newest = _newest_config_row(rows)
         if newest is not None:
             return _config_record(newest)
@@ -103,7 +103,7 @@ class PhoebusAlarmLogger(AlarmLog):
                 "GET", _CONFIG_PATH, params={"config": f"config:{path}"}, deadline=remaining
             )
             if isinstance(fallback, list):
-                newest = _newest_config_row(_rows_of(fallback, pv))
+                newest = _newest_config_row(_rows_of(fallback, channel))
                 if newest is not None:
                     return _config_record(newest)
         return AlarmConfigRecord(in_tree="unknown", path=path)

@@ -53,8 +53,8 @@ _MALFORMED = Unavailable("malformed response")
 _ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
     {
         "status": "pvStatus",
-        "record_type": "recordType",
-        "ioc": "iocName",
+        "channel_type": "recordType",
+        "server": "iocName",
         "host": "hostName",
         "last_announced": "time",
     }
@@ -64,7 +64,7 @@ _ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
 _DEFAULT_DESCRIPTION_PROPERTY = "recordDesc"
 
 #: The properties with a known set of values, for a deployment whose section names none.
-_DEFAULT_EXACT_PROPERTIES = (_ROW_FIELD_PROPERTIES["status"], _ROW_FIELD_PROPERTIES["record_type"])
+_DEFAULT_EXACT_PROPERTIES = (_ROW_FIELD_PROPERTIES["status"], _ROW_FIELD_PROPERTIES["channel_type"])
 
 #: Rows asked for when only an exact name is wanted: a term with a wildcard in it
 #: can match more than the one name it is checked against.
@@ -112,10 +112,10 @@ def _searched(query: DirectoryQuery) -> str:
         parts.append(f"name matches {query.name}")
     if query.status:
         parts.append(f"status {query.status}")
-    if query.ioc:
-        parts.append(f"IOC {' or '.join(query.ioc)}")
-    if query.record_type:
-        parts.append(f"record type {' or '.join(query.record_type)}")
+    if query.server:
+        parts.append(f"IOC {' or '.join(query.server)}")
+    if query.channel_type:
+        parts.append(f"record type {' or '.join(query.channel_type)}")
     parts.extend(f"{key} {value}" for key, value in query.properties.items())
     return " · ".join(parts) or "every PV"
 
@@ -220,10 +220,10 @@ class ChannelFinderDirectory(ChannelDirectory):
             )
         if query.status:
             params.append((_ROW_FIELD_PROPERTIES["status"], _one_value(query.status)))
-        if query.ioc:
-            params.append((_ROW_FIELD_PROPERTIES["ioc"], _any_of(query.ioc)))
-        if query.record_type:
-            params.append((_ROW_FIELD_PROPERTIES["record_type"], _any_of(query.record_type)))
+        if query.server:
+            params.append((_ROW_FIELD_PROPERTIES["server"], _any_of(query.server)))
+        if query.channel_type:
+            params.append((_ROW_FIELD_PROPERTIES["channel_type"], _any_of(query.channel_type)))
         return params
 
     def _searches(self, query: DirectoryQuery) -> list[_Params]:
@@ -248,8 +248,8 @@ class ChannelFinderDirectory(ChannelDirectory):
                 name=channel["name"],
                 status=status if status in ("Active", "Inactive") else None,  # type: ignore[arg-type]
                 description=properties.pop(self._description_property, None),
-                record_type=properties.pop(_ROW_FIELD_PROPERTIES["record_type"], None),
-                ioc=properties.pop(_ROW_FIELD_PROPERTIES["ioc"], None),
+                channel_type=properties.pop(_ROW_FIELD_PROPERTIES["channel_type"], None),
+                server=properties.pop(_ROW_FIELD_PROPERTIES["server"], None),
                 host=properties.pop(_ROW_FIELD_PROPERTIES["host"], None),
                 last_announced=properties.pop(_ROW_FIELD_PROPERTIES["last_announced"], None),
             ),

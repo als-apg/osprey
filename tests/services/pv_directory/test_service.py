@@ -76,8 +76,8 @@ class FakeBackend:
         description = self.spec.settings.get("description_property") or "recordDesc"
         return {
             "status": "pvStatus",
-            "record_type": "recordType",
-            "ioc": "iocName",
+            "channel_type": "recordType",
+            "server": "iocName",
             "host": "hostName",
             "last_announced": "time",
             "description": description,
@@ -108,7 +108,7 @@ class FakeDirectory(FakeBackend):
         return [
             row
             for row in self.rows
-            if query.words in row.name and (not query.ioc or row.ioc in query.ioc)
+            if query.words in row.name and (not query.server or row.server in query.server)
         ]
 
     async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
@@ -234,8 +234,8 @@ def _service(config: dict[str, Any], tmp_path: Path) -> Any:
 
 async def test_search_marks_rows_and_removes_hidden_properties(tmp_path: Path) -> None:
     FakeDirectory.rows = [
-        _row("SR:BPM1", ioc="ioc-a", host="h1", record_type="ai"),
-        _row("SR:BPM2", ioc="ioc-b", host="h2", record_type="ao"),
+        _row("SR:BPM1", server="ioc-a", host="h1", channel_type="ai"),
+        _row("SR:BPM2", server="ioc-b", host="h2", channel_type="ao"),
     ]
     section = {**FACILITY, "display": {"hidden_properties": ["hostName"]}}
     directory = _service(_config(tmp_path, LIVE_BUILD, section, "SR:BPM1"), tmp_path)
@@ -274,7 +274,7 @@ async def test_search_marks_rows_and_removes_hidden_properties(tmp_path: Path) -
 async def test_search_filters_by_origin_over_the_fetched_set(
     tmp_path: Path, built: list[Any]
 ) -> None:
-    FakeDirectory.rows = [_row(f"SR:PV{i}", ioc="ioc-a") for i in range(5)]
+    FakeDirectory.rows = [_row(f"SR:PV{i}", server="ioc-a") for i in range(5)]
     config = _config(tmp_path, LIVE_BUILD, FACILITY, "SR:PV1", "SR:PV3")
     directory = _service(config, tmp_path)
 
@@ -477,7 +477,7 @@ async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path:
 
 
 def _described_rows(name: str) -> None:
-    FakeDirectory.rows = [_row(name, description="Cavity temperature", ioc="ioc-a")]
+    FakeDirectory.rows = [_row(name, description="Cavity temperature", server="ioc-a")]
     FakeDirectory.records = {
         name: DirectoryRecord(row=_row(name, description="Cavity temperature"))
     }

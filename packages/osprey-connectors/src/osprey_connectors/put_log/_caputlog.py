@@ -68,23 +68,23 @@ class CaPutLog(PutLog):
         self._transport = transport
 
     async def history(
-        self, pv: str, since: datetime | None, limit: int, deadline: float
+        self, channel: str, since: datetime | None, limit: int, deadline: float
     ) -> HistoryPage:
-        """The logged writes of *pv*, newest first within the page the service returned."""
+        """The logged writes of *channel*, newest first within the page the service returned."""
         limit = max(1, min(limit, _MAX_ROWS))
         # One row past the limit, so a full page differs from one that just fills.
-        envelope = await self._search(f"{pv}.*", limit + 1, deadline)
+        envelope = await self._search(f"{channel}.*", limit + 1, deadline)
         if isinstance(envelope, Unavailable):
             return self._page(Outcome.UNAVAILABLE, reason=envelope.reason)
 
         results = envelope["results"]
-        hits = [hit for hit in results if _is_write_to(_recorded(hit, "pv"), pv)]
+        hits = [hit for hit in results if _is_write_to(_recorded(hit, "pv"), channel)]
         if since is not None:
             floor = _as_utc(since)
             hits = [hit for hit in hits if (stamp := _stamp(hit)) is None or stamp >= floor]
         hits.sort(key=lambda hit: _stamp(hit) or _EARLIEST, reverse=True)
 
-        rows = [_row(hit, pv) for hit in hits[:limit]]
+        rows = [_row(hit, channel) for hit in hits[:limit]]
         truncated = len(hits) > limit or _left_unread(envelope, limit)
         if not rows:
             return self._page(Outcome.NO_MATCH, truncated=truncated, reason=_NO_ROWS_REASON)
@@ -172,12 +172,12 @@ def _left_unread(envelope: Mapping[str, Any], limit: int) -> bool:
     return total > read if isinstance(total, int) else read > limit
 
 
-def _row(hit: Mapping[str, Any], pv: str) -> PutRow:
+def _row(hit: Mapping[str, Any], channel: str) -> PutRow:
     recorded = _recorded(hit, "pv")
     return PutRow(
         at=_at(hit),
-        pv=recorded,
-        field=recorded[len(pv) :] or None,
+        channel=recorded,
+        field=recorded[len(channel) :] or None,
         old=_recorded(hit, "old"),
         new=_recorded(hit, "new"),
         user=_recorded(hit, "user"),

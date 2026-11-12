@@ -23,13 +23,19 @@ from osprey_connectors.service_answers import (
 
 @dataclass(frozen=True, kw_only=True)
 class DirectoryRow:
-    """One PV."""
+    """One channel, as the directory lists it.
+
+    ``server`` is the process serving the channel and ``channel_type`` its type
+    there: EPICS RecSync's ``iocName`` and ``recordType``, a Tango database's
+    device-server instance and device class, a DOOCS ENS server name and device
+    type. ``last_announced`` is RecSync's ``time`` or Tango's last export time.
+    """
 
     name: str
     status: Literal["Active", "Inactive"] | None = None
     description: str | None = None
-    record_type: str | None = None
-    ioc: str | None = None
+    channel_type: str | None = None
+    server: str | None = None
     host: str | None = None
     last_announced: str | None = None
 
@@ -55,13 +61,13 @@ class DirectoryQuery:
     name: str | None = None
     properties: Mapping[str, str] = field(default_factory=dict, hash=False)
     status: str | None = None
-    ioc: tuple[str, ...] = ()
-    record_type: tuple[str, ...] = ()
+    server: tuple[str, ...] = ()
+    channel_type: tuple[str, ...] = ()
     page: int = 0
     page_size: int = 50
 
     def __post_init__(self) -> None:
-        for name in ("ioc", "record_type"):
+        for name in ("server", "channel_type"):
             object.__setattr__(self, name, _filter_values(getattr(self, name)))
 
 

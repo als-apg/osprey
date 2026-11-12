@@ -470,7 +470,7 @@ async def test_an_empty_history_says_nothing_was_logged_with_its_caveats_and_lin
 
 
 async def test_a_history_answers_its_rows_newest_twenty_by_default(tmp_path: Path) -> None:
-    FakePutLog.rows = [PutRow(at="t2", pv="SR:BPM1", old="1", new="2", user="op")]
+    FakePutLog.rows = [PutRow(at="t2", channel="SR:BPM1", old="1", new="2", user="op")]
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG})
 
     result = json.loads(await put_history.put_history("SR:BPM1"))

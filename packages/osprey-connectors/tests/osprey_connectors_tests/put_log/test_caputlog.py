@@ -119,7 +119,7 @@ async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
     assert page.rows == [
         PutRow(
             at="2026-10-28T21:03:11.000Z",
-            pv=f"{PV}.HIHI",
+            channel=f"{PV}.HIHI",
             field=".HIHI",
             old="45",
             new="50",
@@ -138,7 +138,7 @@ async def test_a_put_to_the_pv_itself_has_no_field() -> None:
 
     page = await backend.history(PV, None, 25, 5.0)
 
-    assert page.rows[0].pv == PV
+    assert page.rows[0].channel == PV
     assert page.rows[0].field is None
 
 
@@ -170,7 +170,7 @@ async def test_rows_of_other_pvs_the_text_match_returned_are_not_this_pvs_histor
 
     page = await backend.history(PV, None, 25, 5.0)
 
-    assert [row.pv for row in page.rows] == [f"{PV}.HIHI"]
+    assert [row.channel for row in page.rows] == [f"{PV}.HIHI"]
 
 
 async def test_only_rows_of_other_pvs_is_no_logged_puts() -> None:

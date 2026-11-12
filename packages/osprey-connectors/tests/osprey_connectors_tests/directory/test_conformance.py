@@ -67,7 +67,9 @@ Answer = Callable[[str, str, Any], Any]
 # --- the out-of-tree backend ------------------------------------------------------
 
 _MEMORY_RECORD = DirectoryRecord(
-    row=DirectoryRow(name=PV, status="Active", description="Cavity 1 temperature", ioc="rf1-cav"),
+    row=DirectoryRow(
+        name=PV, status="Active", description="Cavity 1 temperature", server="rf1-cav"
+    ),
     properties={"iocName": "rf1-cav"},
 )
 
