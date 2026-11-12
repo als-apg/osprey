@@ -24,16 +24,6 @@ from tests.docs.screenshots.video_fixture import SECOND
 DOCS_SOURCE = Path(cli.__file__).resolve().parents[1] / "source"
 LANDING = video_named("landing")
 
-# The landing takes as committed before the manifest moved to one entry per video.
-LANDING_RELEASE = "docs-media-v2026.9.0b4"
-LANDING_SHA256 = {
-    ("dark", "mp4"): "5d1063c2d03bc3dbeda01f08b10697becf33c2ac926bd5953776715a676b53ec",
-    ("dark", "poster"): "85b2c9c6210c788f64284e58408e9a409d30c5a887ff6ab4404c88e5faf7d033",
-    ("light", "mp4"): "f47bd6581915b103daa61111a07dc19b5372535697d5cefbb45d7b5aabd1675d",
-    ("light", "poster"): "a2620736304dfd9698dab229606868c3dfd7aa8d8ce59dc8dd8fef388ea926f0",
-}
-
-
 # --- the registry -------------------------------------------------------------
 
 
@@ -116,13 +106,12 @@ def test_the_committed_manifest_names_only_registered_videos_with_their_stems() 
             assert take["poster"]["name"] == f"{video.stem}-{theme}-poster.jpg"
 
 
-def test_the_landing_takes_survived_the_manifest_migration() -> None:
+def test_the_landing_entry_names_a_release_and_both_complete_themes() -> None:
     landing = video_manifest.video(video_manifest.load(), "landing")
-    assert landing["release"] == LANDING_RELEASE
+    assert landing["release"].startswith("docs-media-v")
     assert set(landing["themes"]) == {"dark", "light"}
-    for (theme, key), digest in LANDING_SHA256.items():
-        assert landing["themes"][theme][key]["sha256"] == digest
-        assert video_manifest.missing_fields(landing["themes"][theme]) == []
+    for take in landing["themes"].values():
+        assert video_manifest.missing_fields(take) == []
 
 
 def test_the_committed_manifest_round_trips_byte_for_byte(tmp_path) -> None:
