@@ -32,7 +32,7 @@ from tests.cli._template_projects import create_project_with_manifest
 SERVER = "pv-directory"
 PREFIX = f"mcp__{SERVER}__"
 DIRECTORY_TOOLS = ("directory_properties", "directory_search", "ioc_record", "pv_record")
-GATED_TOOLS = ("alarm_config", "alarm_history", "alarm_state", "put_history")
+GATED_TOOLS = ("active_alarms", "alarm_config", "alarm_history", "alarm_state", "put_history")
 
 _DIRECTORY = {"type": "channelfinder", "settings": {"url": "http://directory.invalid"}}
 _ALARM_LOG = {"type": "phoebus_alarm_logger", "settings": {"url": "http://alarms.invalid"}}
@@ -46,7 +46,7 @@ _PUT_LOG = {"type": "olog_put_log", "settings": {"url": "http://puts.invalid"}}
 SECTIONS = {
     "full": (
         {**_DIRECTORY, "alarm_log": _ALARM_LOG, "alarm_state": _ALARM_STATE, "put_log": _PUT_LOG},
-        {"alarm_config", "alarm_history", "alarm_state", "put_history"},
+        {"active_alarms", "alarm_config", "alarm_history", "alarm_state", "put_history"},
     ),
     "directory-only": (dict(_DIRECTORY), set()),
     "alarm-log-only": (
@@ -55,12 +55,12 @@ SECTIONS = {
     ),
     "alarm-state-only": (
         {**_DIRECTORY, "alarm_state": _ALARM_STATE},
-        {"alarm_config", "alarm_state"},
+        {"active_alarms", "alarm_config", "alarm_state"},
     ),
     "put-log-only": ({**_DIRECTORY, "put_log": _PUT_LOG}, {"put_history"}),
     "va-demo-replay": (
         {"alarm_state": {"replay_file": "demo:example-alarms"}},
-        {"alarm_config", "alarm_state"},
+        {"active_alarms", "alarm_config", "alarm_state"},
     ),
 }
 
@@ -221,6 +221,7 @@ def test_the_va_demo_replay_serves_alarm_state_and_config_only(
 ) -> None:
     tools = _subagent_tools(renders["va-demo-replay"])
     assert _own(tools) == [
+        "active_alarms",
         "alarm_config",
         "alarm_state",
         "directory_properties",

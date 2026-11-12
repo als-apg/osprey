@@ -41,6 +41,7 @@ _UNCONDITIONAL = {"directory_search", "directory_properties", "pv_record", "ioc_
 
 #: Each gated tool and the context key that offers it.
 _OPTIONAL_KEYS = {
+    "active_alarms": "pv_directory_alarm_state",
     "alarm_state": "pv_directory_alarm_state",
     "alarm_history": "pv_directory_alarm_log",
     "alarm_config": "pv_directory_alarm_config",
@@ -141,9 +142,12 @@ class TestResolved:
         assert server["permissions_ask"] == []
 
     @pytest.mark.parametrize("tool", sorted(_OPTIONAL_KEYS))
-    def test_a_configured_sub_block_adds_exactly_its_tool(self, tool):
-        server = _get(resolve_servers({}, _configured_ctx(**{_OPTIONAL_KEYS[tool]: True})))
-        assert set(server["permissions_allow"]) == _UNCONDITIONAL | {tool}
+    def test_a_configured_sub_block_adds_exactly_its_tools(self, tool):
+        key = _OPTIONAL_KEYS[tool]
+        server = _get(resolve_servers({}, _configured_ctx(**{key: True})))
+        offered = {name for name, offering in _OPTIONAL_KEYS.items() if offering == key}
+        assert tool in offered
+        assert set(server["permissions_allow"]) == _UNCONDITIONAL | offered
 
     def test_every_sub_block_allows_every_tool(self):
         ctx = _configured_ctx(**dict.fromkeys(_OPTIONAL_KEYS.values(), True))

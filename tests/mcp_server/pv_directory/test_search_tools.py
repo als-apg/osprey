@@ -364,7 +364,8 @@ def test_a_gated_module_registers_only_when_its_optional_tools_key_holds(
     withheld = dataclasses.replace(held, predicates={**held.predicates, key: False})
 
     on, off = FastMCP("probe-on"), FastMCP("probe-off")
-    assert server.register_tools(on, held) == [tool]
+    sharing = sorted(name for name, offer in _OPTIONAL_TOOLS.items() if offer.key == key)
+    assert server.register_tools(on, held) == sharing
     assert server.register_tools(off, withheld) == []
     assert tool in _tool_names(on)
     assert not set(_OPTIONAL_TOOLS) & _tool_names(off)

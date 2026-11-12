@@ -1,11 +1,11 @@
 """Tests for the gated history tools, in process on fake backends.
 
-``alarm_state``, ``alarm_config``, ``alarm_history`` and ``put_history`` register
-only when their predicate holds, so the vocabulary guard over the server's
-module-level tools never sees them: this file registers them on a throwaway
-server and runs the guard itself. The facts reach backends only through the
-directory service, which builds every backend through the factory's create
-API; each test swaps those calls for fakes.
+``active_alarms``, ``alarm_state``, ``alarm_config``, ``alarm_history`` and
+``put_history`` register only when their predicate holds, so the vocabulary
+guard over the server's module-level tools never sees them: this file registers
+them on a throwaway server and runs the guard itself. The facts reach backends
+only through the directory service, which builds every backend through the
+factory's create API; each test swaps those calls for fakes.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ KAFKA = {
     "settings": {"bootstrap_servers": "kafka:9092", "topic": "Accelerator"},
 }
 EVERY_SERVICE = {**FACILITY, "alarm_log": ALARM_LOG, "alarm_state": KAFKA, "put_log": PUT_LOG}
-TOOLS = {"alarm_state", "alarm_config", "alarm_history", "put_history"}
+TOOLS = {"active_alarms", "alarm_state", "alarm_config", "alarm_history", "put_history"}
 
 
 # -- fakes --------------------------------------------------------------------
@@ -244,7 +244,7 @@ def _schema_texts(node: Any) -> Iterator[str]:
 # -- registration -------------------------------------------------------------
 
 
-def test_the_four_tools_name_no_protocol_word_and_register_read_only(tmp_path: Path) -> None:
+def test_the_gated_tools_name_no_protocol_word_and_register_read_only(tmp_path: Path) -> None:
     tools = _registered(_context(tmp_path, LIVE_BUILD, EVERY_SERVICE))
 
     assert set(tools) == TOOLS
@@ -260,8 +260,11 @@ def test_the_four_tools_name_no_protocol_word_and_register_read_only(tmp_path: P
     [
         (FACILITY, set()),
         ({**FACILITY, "alarm_log": ALARM_LOG}, {"alarm_history", "alarm_config"}),
-        ({**FACILITY, "alarm_state": KAFKA}, {"alarm_state", "alarm_config"}),
-        ({"alarm_state": {"replay_file": "demo:example-alarms"}}, {"alarm_state", "alarm_config"}),
+        ({**FACILITY, "alarm_state": KAFKA}, {"active_alarms", "alarm_state", "alarm_config"}),
+        (
+            {"alarm_state": {"replay_file": "demo:example-alarms"}},
+            {"active_alarms", "alarm_state", "alarm_config"},
+        ),
         ({**FACILITY, "put_log": PUT_LOG}, {"put_history"}),
         (EVERY_SERVICE, TOOLS),
     ],
