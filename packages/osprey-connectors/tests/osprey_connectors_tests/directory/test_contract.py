@@ -26,7 +26,6 @@ SOURCE = Source(target="va", service="simulator_view", label="All PVs", rehearsa
             DirectoryRow,
             [
                 "name",
-                "origin",
                 "status",
                 "description",
                 "record_type",
@@ -45,7 +44,6 @@ SOURCE = Source(target="va", service="simulator_view", label="All PVs", rehearsa
                 "status",
                 "ioc",
                 "record_type",
-                "origin",
                 "page",
                 "page_size",
             ],
@@ -72,8 +70,9 @@ def test_a_record_has_the_contract_fields_in_order(record, fields):
     assert [f.name for f in dataclasses.fields(record)] == fields
 
 
-def test_a_row_starts_with_an_unknown_origin():
-    assert DirectoryRow(name="SR:BPM:01").origin == "unknown"
+def test_neither_a_row_nor_a_query_carries_an_origin():
+    assert "origin" not in {field.name for field in dataclasses.fields(DirectoryRow)}
+    assert "origin" not in {field.name for field in dataclasses.fields(DirectoryQuery)}
 
 
 def test_row_field_properties_name_the_recsync_property_of_each_row_field():
@@ -128,7 +127,7 @@ def test_queries_that_differ_only_in_properties_are_different_keys():
     assert len({first, second}) == 2
 
 
-@pytest.mark.parametrize("name", ["ioc", "record_type", "origin"])
+@pytest.mark.parametrize("name", ["ioc", "record_type"])
 def test_one_filter_value_is_one_value_not_its_letters(name):
     assert getattr(DirectoryQuery(**{name: "abc"}), name) == ("abc",)
     assert getattr(DirectoryQuery(**{name: None}), name) == ()

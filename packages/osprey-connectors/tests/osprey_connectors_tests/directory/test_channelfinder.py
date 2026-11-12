@@ -211,7 +211,7 @@ class TestNameTerms:
 
 
 class TestFilters:
-    async def test_every_filter_goes_to_the_server_and_origin_does_not(self):
+    async def test_every_filter_goes_to_the_server(self):
         directory, replay = backend(always())
 
         await directory.search(
@@ -220,7 +220,6 @@ class TestFilters:
                 status="Inactive",
                 ioc=("rf1-cav", "rf2-cav"),
                 record_type="ai",
-                origin=("curated",),
             ),
             DEADLINE,
         )
@@ -229,7 +228,6 @@ class TestFilters:
         assert sent["pvStatus"] == "Inactive"
         assert sent["iocName"] == "rf1-cav|rf2-cav"
         assert sent["recordType"] == "ai"
-        assert all("origin" not in key for key in sent)
         assert dict(replay.params_to(COUNT)[0]) == {
             key: value for key, value in sent.items() if not key.startswith(("~size", "~from"))
         }
@@ -413,7 +411,6 @@ class TestRows:
         page = await directory.search(DirectoryQuery(name="DEMO*"), DEADLINE)
 
         row = page.rows[0]
-        assert row.origin == "unknown"
         assert row.status == "Active"
         assert row.description == "Cavity 1 cooling water temperature"
         assert row.record_type == "ai"
@@ -491,7 +488,6 @@ class TestDescribe:
 
         assert isinstance(record, DirectoryRecord)
         assert record.row.status == "Active"
-        assert record.row.origin == "unknown"
         assert record.properties["caPort"] == "5064"
         assert record.properties["Engineer"] == "rf-group"
         assert record.tags == []

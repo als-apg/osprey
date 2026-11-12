@@ -39,15 +39,12 @@ DEFAULT_DESCRIPTION_PROPERTY: str = "recordDesc"
 #: valued with that row's signal from ``simulation.view``; channel rows carry none.
 SERVED_SIGNAL_PROPERTY: str = "signal"
 
-_Origin = Literal["curated", "directory", "unknown"]
-
 
 @dataclass(frozen=True, kw_only=True)
 class DirectoryRow:
-    """One PV. Backends leave ``origin`` unknown: only the service can compute it."""
+    """One PV."""
 
     name: str
-    origin: _Origin = "unknown"
     status: Literal["Active", "Inactive"] | None = None
     description: str | None = None
     record_type: str | None = None
@@ -69,9 +66,8 @@ class DirectoryRecord:
 class DirectoryQuery:
     """One search, built only by the service; callers pass these fields as keywords.
 
-    Everything goes to the server except ``origin``, which the service computes
-    over the fetched set. A query keys the service's cache, so it hashes: the
-    repeatable filters become tuples and ``properties`` stays out of the hash.
+    A query keys the service's cache, so it hashes: the repeatable filters become
+    tuples and ``properties`` stays out of the hash.
     """
 
     words: str = ""
@@ -80,12 +76,11 @@ class DirectoryQuery:
     status: str | None = None
     ioc: tuple[str, ...] = ()
     record_type: tuple[str, ...] = ()
-    origin: tuple[str, ...] = ()
     page: int = 0
     page_size: int = 50
 
     def __post_init__(self) -> None:
-        for name in ("ioc", "record_type", "origin"):
+        for name in ("ioc", "record_type"):
             object.__setattr__(self, name, _filter_values(getattr(self, name)))
 
 
@@ -101,8 +96,8 @@ class DirectoryPage:
 
     ``searched`` is the search in plain words and ``request`` the literal request
     sent. ``partial`` lists ``{part, reason}`` for what missed the deadline;
-    ``facets`` maps ``origin``, ``ioc`` and ``record_type`` to ``{value, count}``
-    lists, and is ``None`` with ``facets_reason`` when it could not be computed.
+    ``facets`` maps a row field to ``{value, count}`` lists, and is ``None`` with
+    ``facets_reason`` when it could not be computed.
     """
 
     outcome: Outcome
