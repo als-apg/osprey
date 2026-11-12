@@ -46,6 +46,14 @@ published on the host. Consumers branch on exactly these two, so a third mode
 is a deliberate addition here rather than a string a profile can invent."""
 
 DEFAULT_NETWORK_MODE: NetworkMode = "bridge"
+
+#: How the event dispatcher and its workers reach each other. ``http``: the
+#: dispatcher dials each worker's own port. ``bus``: every worker connects to
+#: the dispatcher's one ZeroMQ bus and listens on no port (``osprey.dispatch.bus``).
+DispatchTransport = Literal["http", "bus"]
+
+#: The members of :data:`DispatchTransport`, for validation.
+VALID_DISPATCH_TRANSPORTS: tuple[str, ...] = ("http", "bus")
 """Attachment a service gets when it declares none — the behaviour that
 existed before the axis, so an unset ``network:`` renders as it always did."""
 
@@ -590,6 +598,24 @@ class DispatchConfig:
     service config (host mode only) so the compose render and the host-port
     preflight derive the same ports from one declared rule instead of each
     hardcoding the step."""
+
+    transport: DispatchTransport = "http"
+    """How the dispatcher and its workers reach each other, one of
+    :data:`VALID_DISPATCH_TRANSPORTS`.
+
+    ``http`` (the default) is the dispatcher dialing a worker's own port, which
+    is why the workers spend the ``worker`` band on the host network. ``bus``
+    turns that around: the dispatcher binds one ZeroMQ socket at
+    :attr:`bus_port`, every worker connects to it and opens no port of its own,
+    and the dispatcher hands each run to the least-loaded worker. The chat
+    bridges then read runs through the dispatcher's ``/worker`` facade. Keys
+    are minted per container by ``osprey up``."""
+
+    bus_port: int = default_port("dispatch_bus")
+    """Port the dispatcher binds its bus on, at the layout's ``dispatch_bus``
+    slot. Read only when :attr:`transport` is ``bus``, and spent on the host only
+    in host-network mode: on the compose bridge the workers reach it by the
+    dispatcher's service name. Same default rule as :attr:`dispatcher_port`."""
 
     timeout_sec: int = 300
     inactivity_sec: int = 120

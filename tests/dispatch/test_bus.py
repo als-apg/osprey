@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -393,20 +392,20 @@ async def test_a_stream_of_an_unknown_run_is_unavailable(harness):
 
 
 @pytest.fixture
-def curve(tmp_path: Path):
-    bus_keys.generate(tmp_path, "server", ["w1", "w2"])
-    rogue = tmp_path / "rogue"
-    bus_keys.generate(rogue, "unused", ["w1"])
+def curve():
+    secrets = {name: bus_keys.new_secret() for name in ("server", "w1", "w2", "rogue")}
+    server = bus_keys.server_keys(
+        secrets["server"], {name: bus_keys.public_of(secrets[name]) for name in ("w1", "w2")}
+    )
 
-    def client_keys(name: str, directory: Path = tmp_path) -> bus_keys.ClientKeys:
-        return bus_keys.load_client_keys(directory / f"{name}.key_secret", tmp_path / "server.key")
+    def client_keys(name: str) -> bus_keys.ClientKeys:
+        return bus_keys.client_keys(secrets[name], bus_keys.public_of(secrets["server"]))
 
-    server = bus_keys.load_server_keys(tmp_path / "server.key_secret", tmp_path / "workers")
-    return server, client_keys, rogue
+    return server, client_keys
 
 
 async def test_a_worker_with_a_listed_key_joins_under_its_name(harness, curve):
-    server, client_keys, _ = curve
+    server, client_keys = curve
     bus = await harness.bus(keys=server)
     harness.join(bus.endpoint, FakeWorker("w1"), keys=client_keys("w1"))
     await until(lambda: bus.live() == ["w1"])
@@ -415,15 +414,15 @@ async def test_a_worker_with_a_listed_key_joins_under_its_name(harness, curve):
 
 
 async def test_a_worker_with_an_unlisted_key_never_joins(harness, curve):
-    server, client_keys, rogue = curve
+    server, client_keys = curve
     bus = await harness.bus(keys=server)
-    harness.join(bus.endpoint, FakeWorker("w1"), keys=client_keys("w1", rogue))
+    harness.join(bus.endpoint, FakeWorker("w1"), keys=client_keys("rogue"))
     await asyncio.sleep(HB * 8)
     assert bus.live() == []
 
 
 async def test_a_worker_cannot_join_under_another_workers_name(harness, curve):
-    server, client_keys, _ = curve
+    server, client_keys = curve
     bus = await harness.bus(keys=server)
     # w2's own, listed key, presented under w1's name.
     harness.join(bus.endpoint, FakeWorker("w1"), keys=client_keys("w2"))
@@ -431,7 +430,58 @@ async def test_a_worker_cannot_join_under_another_workers_name(harness, curve):
     assert bus.live() == []
 
 
-def test_a_server_with_no_worker_keys_refuses_to_start(tmp_path):
-    bus_keys.generate(tmp_path, "server", [])
-    with pytest.raises(BusKeyError, match="no worker certificate"):
-        bus_keys.load_server_keys(tmp_path / "server.key_secret", tmp_path / "workers")
+def test_a_public_key_is_derived_from_its_secret():
+    secret = bus_keys.new_secret()
+    assert len(secret) == 64
+    assert bus_keys.public_of(secret) == bus_keys.public_of(secret) != secret
+
+
+@pytest.mark.parametrize(
+    ("workers", "match"),
+    [({}, "no worker key"), ({"w1": "zz"}, "not hex"), ({"w1": "00" * 16}, "16 bytes")],
+)
+def test_server_keys_refuse_what_no_worker_could_join_with(workers, match):
+    with pytest.raises(BusKeyError, match=match):
+        bus_keys.server_keys(bus_keys.new_secret(), workers)
+
+
+def test_two_workers_may_not_share_a_key():
+    public = bus_keys.public_of(bus_keys.new_secret())
+    with pytest.raises(BusKeyError, match="the same key"):
+        bus_keys.server_keys(bus_keys.new_secret(), {"w1": public, "w2": public})
+
+
+def test_the_worker_key_list_round_trips():
+    workers = {"dispatch-worker-2": "ab" * 32, "dispatch-worker-1": "cd" * 32}
+    text = bus_keys.format_worker_keys(workers)
+    assert text.startswith("dispatch-worker-1=")
+    assert bus_keys.parse_worker_keys(text) == workers
+
+
+@pytest.mark.parametrize("text", ["w1", "w1=", "=ab", "w1=ab,w1=cd"])
+def test_a_malformed_worker_key_list_is_refused(text):
+    with pytest.raises(BusKeyError):
+        bus_keys.parse_worker_keys(text)
+
+
+def test_the_worker_takes_its_secret_out_of_the_environment():
+    from osprey.dispatch.bus import settings
+
+    secret = bus_keys.new_secret()
+    environ = {
+        settings.CONNECT_ENV: "tcp://event-dispatcher:10050",
+        settings.WORKER_NAME_ENV: "dispatch-worker-1",
+        settings.SECRET_KEY_ENV: secret,
+        settings.SERVER_KEY_ENV: bus_keys.public_of(bus_keys.new_secret()),
+    }
+    worker = settings.worker_settings(environ)
+    assert worker is not None and worker.keys is not None
+    assert settings.SECRET_KEY_ENV not in environ
+
+
+def test_a_dispatcher_with_a_secret_requires_the_worker_list():
+    from osprey.dispatch.bus import settings
+
+    environ = {settings.BIND_ENV: "tcp://0.0.0.0:1", settings.SECRET_KEY_ENV: bus_keys.new_secret()}
+    with pytest.raises(BusKeyError, match=settings.WORKER_KEYS_ENV):
+        settings.server_settings(environ)

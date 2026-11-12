@@ -625,6 +625,7 @@ def derive_host_network_bindings(config):
     base = _resolve_base(config)
 
     dispatcher = _service_block(config, "event_dispatcher")
+    on_bus = dispatcher.get("transport") == "bus"
     if _on_host_network(dispatcher):
         port = _int_or_default(dispatcher.get("port"), default_port("dispatcher", base=base))
         bindings.append(
@@ -637,9 +638,32 @@ def derive_host_network_bindings(config):
                 host_network=True,
             )
         )
+        if on_bus:
+            # The dispatch bus, the dispatcher's second host socket. Reported
+            # under the dispatcher's own service name, which is how a redeploy
+            # recognises its still-running container, so the remedy is named
+            # here: the name alone cannot tell this port from the HTTP one.
+            bus_slot = default_port("dispatch_bus", base=base)
+            bus_port = _int_or_default(dispatcher.get("bus_port"), bus_slot)
+            bindings.append(
+                HostPortBinding(
+                    service="event-dispatcher",
+                    host_ip=str(dispatcher.get("bind") or _HOST_NETWORK_BIND),
+                    host_port=bus_port,
+                    container_port=bus_port,
+                    compose_file=_DERIVED_SOURCE,
+                    host_network=True,
+                    remedy=(
+                        PORT_BASE_CONFIG_KEY
+                        if bus_port == bus_slot
+                        else "services.event_dispatcher.bus_port"
+                    ),
+                )
+            )
 
     worker = _service_block(config, "dispatch_worker")
-    if _on_host_network(worker):
+    # A worker on the bus connects to the dispatcher and binds nothing.
+    if _on_host_network(worker) and not on_bus:
         worker_base = _int_or_default(
             worker.get("worker_port_base"), default_port("worker", 1, base=base)
         )

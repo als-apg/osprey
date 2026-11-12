@@ -190,7 +190,25 @@ def _worker_targets(cfg: Mapping[str, Any], base: int) -> tuple[list[_Target], l
     worker = _as_dict(_as_dict(cfg.get("services")).get("dispatch_worker"))
     count = _int_or_default(worker.get("worker_count"), _DEFAULT_WORKER_COUNT)
     host_network = str(worker.get("network") or "").strip() == "host"
+    on_bus = worker.get("transport") == "bus"
 
+    if on_bus:
+        # Connected to the dispatcher, listening on nothing: there is no
+        # /health to read the account from. The dispatcher's /health lists the
+        # workers it hears.
+        return [], [
+            CheckResult(
+                _row_name(f"dispatch_worker_{i}"),
+                CATEGORY,
+                Status.SKIP,
+                f"Dispatch worker {i}: not probed — on the dispatch bus, it listens on no port",
+                details=(
+                    f"Expected account {_WORKER_IDENTITY_PREFIX}{i}; check it with "
+                    "`docker exec <worker> whoami`."
+                ),
+            )
+            for i in range(1, count + 1)
+        ]
     if not host_network:
         return [], [
             CheckResult(

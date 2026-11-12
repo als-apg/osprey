@@ -50,6 +50,15 @@
 {%- set on_host = (dw.network | default('bridge', true)) == 'host' %}
 {%- set port_base = dw.worker_port_base | default(osprey_ports.worker, true) %}
 {%- set port_stride = dw.worker_port_stride | default(1) %}
+{#- The dispatch bus: on it a worker connects to the dispatcher and listens on
+    no port, so the port arithmetic above is not used. The dispatcher is found
+    by its service name on the compose bridge, and on the host network at the
+    address it binds (loopback unless it binds one interface in particular). #}
+{%- set dispatcher_block = services.event_dispatcher | default({}, true) %}
+{%- set on_bus = (dispatcher_block.transport | default('http', true)) == 'bus' %}
+{%- set bus_port = dispatcher_block.bus_port | default(osprey_ports.dispatch_bus, true) %}
+{%- set bus_bind = dispatcher_block.bind | default('', true) %}
+{%- set bus_host = ((bus_bind if bus_bind not in ('', '0.0.0.0') else '127.0.0.1') if on_host else 'event-dispatcher') %}
 {%- set mongo_deployed = 'mongodb' in (deployed_services | default([])) %}
 {%- set postgres_deployed = 'postgresql' in (deployed_services | default([])) %}
 
@@ -92,6 +101,10 @@ services:
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
       # The same trigger for this worker's agent-record login file.
       osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_DISPATCH_WORKER_{{ i }}:-}"
+{%- if on_bus %}
+      # And for this worker's bus key file.
+      osprey.dispatch-bus.digest: "${OSPREY_DISPATCH_BUS_DIGEST_DISPATCH_WORKER_{{ i }}:-}"
+{%- endif %}
     restart: unless-stopped
 {%- if osprey_env_chain | default([]) %}
     # Provider auth: the worker's startup hook (inject_provider_env) resolves
@@ -123,11 +136,26 @@ services:
       # workers write as one identity. Always listed, because the record is
       # always deployed and `osprey build` writes the file before this one.
       - .env.agent-record.login.{{ 'dispatch-worker-shared' if mode == 'shared' else 'dispatch-worker-' ~ i }}
+{%- if on_bus %}
+      # This worker's bus keys and no other worker's: its own secret and the
+      # dispatcher's public key. The worker takes the secret out of its
+      # environment before it starts any run.
+      - .env.dispatch-bus.dispatch-worker-{{ i }}
+{%- endif %}
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+{%- if on_bus %}
+      # On the bus: connect to the dispatcher under this worker's name, which
+      # is the name its key is listed under there. No port is bound, so the
+      # healthcheck reads the file every heartbeat touches instead.
+      DISPATCH_BUS_CONNECT: "tcp://{{ bus_host }}:{{ bus_port }}"
+      DISPATCH_BUS_WORKER_NAME: dispatch-worker-{{ i }}
+      DISPATCH_BUS_ALIVE_FILE: /tmp/osprey-dispatch-bus-alive
+{%- else %}
       DISPATCH_WORKER_PORT: "{{ worker_port }}"
-{%- if on_host %}
+{%- endif %}
+{%- if on_host and not on_bus %}
       # On the host namespace the worker's listening socket IS a host socket,
       # so it binds the loopback interface rather than every interface: the
       # dispatcher and the health probe both reach it as localhost, and nothing
@@ -432,7 +460,11 @@ services:
     -- its own loopback on the compose bridge, the host's under `host` -- and
     the port is this worker's own. #}
     healthcheck:
+{%- if on_bus %}
+      test: ["CMD-SHELL", "python -c \"import os,sys,time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/osprey-dispatch-bus-alive') < 30 else 1)\""]
+{%- else %}
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ worker_port }}/health').status==200 else 1)\""]
+{%- endif %}
       interval: 10s
       timeout: 5s
       retries: 5

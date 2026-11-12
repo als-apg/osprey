@@ -924,6 +924,14 @@ def _inject_dispatch(
         # The compose render (per-worker DISPATCH_WORKER_PORT + healthcheck) and
         # the host-port preflight both derive from these three keys.
         worker_config["worker_port_stride"] = dispatch.worker_port_stride
+    if dispatch.transport == "bus":
+        # One knob, both halves, like the network: the dispatcher binds the bus
+        # and the workers connect to it, so a half on HTTP could not reach the
+        # other. Written only off the default, so an HTTP deployment's
+        # config.yml is byte-for-byte what it was before the knob existed.
+        dispatcher_config["transport"] = dispatch.transport
+        dispatcher_config["bus_port"] = dispatch.bus_port
+        worker_config["transport"] = dispatch.transport
     anchored_put(config["services"], "event_dispatcher", dispatcher_config)
     anchored_put(config["services"], "dispatch_worker", worker_config)
     deployed = config.get("deployed_services", []) or []

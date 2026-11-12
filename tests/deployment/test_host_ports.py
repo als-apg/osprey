@@ -1934,3 +1934,28 @@ class TestTheHostLocalRecordIsTakenOver:
         )
 
         assert [c.service for c in conflicts] == ["postgresql"]
+
+
+class TestDispatchBusBindings:
+    """On the bus the dispatcher binds a second host socket and the workers none."""
+
+    def _bus_config(self, **dispatcher):
+        return _host_config(
+            event_dispatcher={"network": "host", "transport": "bus", **dispatcher},
+            dispatch_worker={"network": "host", "transport": "bus", "worker_count": 3},
+        )
+
+    def test_the_bus_port_is_claimed_and_the_worker_band_is_not(self):
+        bindings = derive_host_network_bindings(self._bus_config())
+        assert [(b.service, b.host_port) for b in bindings] == [
+            ("event-dispatcher", default_port("dispatcher")),
+            ("event-dispatcher", default_port("dispatch_bus")),
+        ]
+
+    def test_a_bus_port_on_its_slot_moves_with_the_block(self):
+        bus = derive_host_network_bindings(self._bus_config())[1]
+        assert bus.remedy == "deployment.port_base"
+
+    def test_a_bus_port_moved_off_its_slot_names_its_own_key(self):
+        bus = derive_host_network_bindings(self._bus_config(bus_port=40050))[1]
+        assert (bus.host_port, bus.remedy) == (40050, "services.event_dispatcher.bus_port")

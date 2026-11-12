@@ -183,7 +183,7 @@ def _dispatch_defaults():
     return DispatchConfig(triggers="tutorial_triggers.yml")
 
 
-def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
+def _pair_blocks(*, on_host: bool, worker_count: int = 1, bus: bool = False) -> dict[str, dict]:
     """The two ``services.<half>`` blocks a dispatch build writes.
 
     Only the keys a compose render reads — ``path`` and ``additional_dirs`` are
@@ -209,6 +209,11 @@ def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
         dispatcher["network"] = "host"
         worker["network"] = "host"
         worker["worker_port_stride"] = dispatch.worker_port_stride
+    if bus:
+        # Written only on the bus, like the network: `dispatch.transport: bus`.
+        dispatcher["transport"] = "bus"
+        dispatcher["bus_port"] = dispatch.bus_port
+        worker["transport"] = "bus"
     return {"event_dispatcher": dispatcher, "dispatch_worker": worker}
 
 
@@ -250,7 +255,31 @@ class Scenario:
     stack, not per service."""
 
 
+_BRIDGES = ("gchat_bridge", "nextcloud_bridge", "teams_bridge", "slack_bridge")
+
 SCENARIOS: tuple[Scenario, ...] = (
+    # The pair on the dispatch bus (`dispatch.transport: bus`) on the compose
+    # bridge: the dispatcher binds the bus, two workers connect to it by its
+    # service name with no port of their own, and every chat bridge reads runs
+    # through the dispatcher's /worker facade. Two workers, because each must
+    # name its own key file and its own bus name.
+    Scenario(
+        name="pair-on-bus",
+        services=_pair_blocks(on_host=False, worker_count=2, bus=True),
+        deployed=("event_dispatcher", "dispatch_worker", *_BRIDGES),
+        templates=("event_dispatcher", "dispatch_worker", *_BRIDGES),
+    ),
+    # The same on the host network, where the bus is a host socket on loopback
+    # and the bridges reach the facade at localhost.
+    Scenario(
+        name="pair-on-bus-on-host",
+        services={
+            **_pair_blocks(on_host=True, worker_count=2, bus=True),
+            **{bridge: {"network": "host"} for bridge in _BRIDGES},
+        },
+        deployed=("event_dispatcher", "dispatch_worker", *_BRIDGES),
+        templates=("event_dispatcher", "dispatch_worker", *_BRIDGES),
+    ),
     # The pair itself on the host namespace, with the archiver store deployed so
     # the worker's address rewrite is in the render rather than merely possible.
     # This is the shape `dispatch.network: host` produces.
@@ -775,16 +804,20 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
     ``env_file:`` naming a path that is not there fails ``compose up`` outright,
     so membership is fixed at render time from the files the repo actually had.
     The bridges do not render a chain; only the worker does. Every worker lists
-    its agent-record login last, whatever the shape: the record is always
-    deployed.
+    its agent-record login after the chain, whatever the shape: the record is
+    always deployed. On the dispatch bus its own bus key file follows, and no
+    other worker's.
     """
     scenario, key = case
     if key != "dispatch_worker":
         return
     document = yaml.safe_load(_golden_text(scenario, key))
+    on_bus = scenario.services.get("dispatch_worker", {}).get("transport") == "bus"
     for name, service in document["services"].items():
         expected = list(scenario.expected_chain)
         expected.append(f".env.agent-record.login.{name}")
+        if on_bus:
+            expected.append(f".env.dispatch-bus.{name}")
         assert service["env_file"] == expected, (
             f"{scenario.name}/{name} lists a chain its repo did not carry"
         )

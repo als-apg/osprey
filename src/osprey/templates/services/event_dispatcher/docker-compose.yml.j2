@@ -31,6 +31,10 @@
     way the macros spell it (unset means `bridge`), rather than repeated as a
     conditional beside the env var. -#}
 {%- set on_host_network = (services.event_dispatcher.network | default('bridge', true)) == 'host' -%}
+{#- The dispatch bus (`services.event_dispatcher.transport: bus`): the workers
+    connect to this container instead of listening themselves. Off the bus none
+    of the blocks below that test it render a byte. -#}
+{%- set on_bus = (services.event_dispatcher.transport | default('http', true)) == 'bus' -%}
 # The event-dispatcher's image is built from the Dockerfile beside this file
 # unless services.event_dispatcher.image names a different image, which this
 # file then runs as named with no build. OSPREY_DISPATCH_IMAGE names one for a
@@ -81,7 +85,19 @@ services:
     empty value — no chain at all, or a caller that skipped the injection — is
     a valid label rather than an error. #}
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+{%- if on_bus %}
+      # Moves with this container's bus key file, so a worker added to or
+      # removed from the deployment is accepted or refused by a dispatcher
+      # recreated to read the new list.
+      osprey.dispatch-bus.digest: "${OSPREY_DISPATCH_BUS_DIGEST_EVENT_DISPATCHER:-}"
+{%- endif %}
     restart: unless-stopped
+{%- if on_bus %}
+    # The bus keys: this dispatcher's secret and every worker's public key, in a
+    # file only this container reads. `osprey up` mints it.
+    env_file:
+      - .env.dispatch-bus.event-dispatcher
+{%- endif %}
 {#- Published ports, suppressed under `host`: the service then binds the host's
     own namespace directly and there is no port map left to publish. -#}
 {{- net.ports(services.event_dispatcher, entries=[
@@ -116,6 +132,13 @@ services:
       # auto-generates strong random tokens into the project .env when unset.
       EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN}
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+{%- if on_bus %}
+      # The bus the workers connect to, on the interface the MCP server binds
+      # and for the same reason. Never published: on the compose bridge the
+      # workers reach it by this service's name, and on the host network it is
+      # already a host socket.
+      DISPATCH_BUS_BIND: "tcp://{{ services.event_dispatcher.bind | default('127.0.0.1' if on_host_network else '0.0.0.0', true) }}:{{ services.event_dispatcher.bus_port | default(osprey_ports.dispatch_bus, true) }}"
+{%- endif %}
       TRIGGERS_YML: /app/triggers.yml
       OSPREY_FACILITY_NAME: "{{ services.event_dispatcher.facility_name | default('') }}"
       CHANNEL_STRIP_PREFIX: "{{ services.event_dispatcher.channel_strip_prefix | default('') }}"
