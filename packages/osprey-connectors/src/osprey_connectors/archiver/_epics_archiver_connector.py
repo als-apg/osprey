@@ -305,33 +305,35 @@ class EPICSArchiverConnector(ArchiverConnector):
         """
         Get archiving metadata for a channel.
 
-        Returns basic information without querying the archiver metadata API.
+        The connector does not ask the appliance's management interface, so it
+        cannot say whether the channel is archived: ``is_archived`` is ``None``.
 
         Args:
             channel: Channel address (EPICS PV name)
 
         Returns:
-            ArchiverMetadata with basic archiving information
+            ArchiverMetadata with ``is_archived=None`` and the reason in
+            ``description``
         """
-        # Basic implementation - could be enhanced with direct archiver API calls
         return ArchiverMetadata(
             channel=channel,
-            is_archived=True,  # Assume true if no error
-            description=f"EPICS Archived PV: {channel}",
+            is_archived=None,
+            description=(
+                "the EPICS Archiver Appliance connector does not ask the appliance "
+                "whether this channel is archived"
+            ),
         )
 
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """
         Check which PVs are archived.
 
-        Note: Basic implementation that assumes all PVs are archived.
-        Could be enhanced with actual archiver API calls.
+        The appliance is not asked, so every channel answers ``None`` (unknown).
 
         Args:
             channels: Channel addresses to check (EPICS PV names)
 
         Returns:
-            Dictionary mapping channel address to availability status
+            Dictionary mapping every channel address to ``None``
         """
-        # Basic implementation - could be enhanced with archiver API calls
-        return dict.fromkeys(channels, True)
+        return dict.fromkeys(channels, None)
