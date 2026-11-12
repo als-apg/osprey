@@ -31,7 +31,8 @@
       "height": 910,
       "backgroundColor": {
         "$role": "Display_Background",
-        "fallback": "#ffffff"
+        "fallback": "#fafbfc",
+        "fallbackDark": "#181b1f"
       }
     },
     "geometry": {
@@ -60,7 +61,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -89,7 +91,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -118,7 +121,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -147,7 +151,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -176,7 +181,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -205,7 +211,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -234,7 +241,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -263,7 +271,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -292,7 +301,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -321,7 +331,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -350,7 +361,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -379,7 +391,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -408,7 +421,8 @@
         "props": {
           "lineColor": {
             "$role": "Grid",
-            "fallback": "#808080"
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
           },
           "lineWidth": 3,
           "points": [
@@ -451,8 +465,9 @@
               "text": "BPM6",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -485,8 +500,9 @@
               "text": "BPM5",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -519,8 +535,9 @@
               "text": "BPM4",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -537,7 +554,8 @@
         "id": "w-022",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:VCM:09"
         },
         "geometry": {
           "x": 1701,
@@ -553,8 +571,9 @@
               "text": "VC9",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -570,14 +589,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -601,28 +621,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -633,7 +657,8 @@
         "id": "w-025",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:HCM:09"
         },
         "geometry": {
           "x": 1701,
@@ -649,8 +674,9 @@
               "text": "HC9",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -666,14 +692,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -697,28 +724,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_HCM",
+                      "fallback": "#6f4fc2",
+                      "fallbackDark": "#9d82e6"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -729,7 +760,8 @@
         "id": "w-028",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:VCM:08"
         },
         "geometry": {
           "x": 1640,
@@ -745,8 +777,9 @@
               "text": "VC8",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -762,14 +795,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -793,28 +827,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -825,7 +863,8 @@
         "id": "w-031",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:HCM:08"
         },
         "geometry": {
           "x": 1640,
@@ -841,8 +880,9 @@
               "text": "HC8",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -858,14 +898,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -889,28 +930,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_HCM",
+                      "fallback": "#6f4fc2",
+                      "fallbackDark": "#9d82e6"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -921,7 +966,8 @@
         "id": "w-034",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:DIPOLE:04"
         },
         "geometry": {
           "x": 1490,
@@ -937,8 +983,9 @@
               "text": "B4",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -954,14 +1001,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "MINOR",
-                "fallback": "#ff8000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -985,28 +1033,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Dipole",
+                      "fallback": "#d9822b",
+                      "fallbackDark": "#f0a252"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "MINOR",
-                  "fallback": "#ff8000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -1017,7 +1069,8 @@
         "id": "w-037",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QF:06"
         },
         "geometry": {
           "x": 1600,
@@ -1031,8 +1084,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -1057,7 +1110,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "Attention",
-                "fallback": "#ffa000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -1081,28 +1135,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Attention",
-                  "fallback": "#ffa000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -1114,8 +1172,9 @@
               "text": "Q7",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1132,7 +1191,8 @@
         "id": "w-040",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:VCM:07"
         },
         "geometry": {
           "x": 1440,
@@ -1148,8 +1208,9 @@
               "text": "VC7",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1165,14 +1226,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -1196,28 +1258,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -1228,7 +1294,8 @@
         "id": "w-043",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:HCM:07"
         },
         "geometry": {
           "x": 1440,
@@ -1244,8 +1311,9 @@
               "text": "HC7",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1261,14 +1329,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -1292,28 +1361,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_HCM",
+                      "fallback": "#6f4fc2",
+                      "fallbackDark": "#9d82e6"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -1324,7 +1397,8 @@
         "id": "w-046",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QD:05"
         },
         "geometry": {
           "x": 1390,
@@ -1340,8 +1414,9 @@
               "text": "Q6.2",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1357,8 +1432,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -1381,7 +1456,11 @@
               ],
               "closed": true,
               "fill": true,
-              "fillColor": "#3232ff"
+              "fillColor": {
+                "$role": "Family_Quad",
+                "fallback": "#2f62c4",
+                "fallbackDark": "#7b9cff"
+              }
             },
             "geometry": {
               "x": 1390,
@@ -1404,22 +1483,25 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
@@ -1433,7 +1515,8 @@
         "id": "w-049",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QF:05"
         },
         "geometry": {
           "x": 1340,
@@ -1447,8 +1530,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -1473,7 +1556,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "Attention",
-                "fallback": "#ffa000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -1497,28 +1581,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Attention",
-                  "fallback": "#ffa000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -1530,8 +1618,9 @@
               "text": "Q6.1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1548,7 +1637,8 @@
         "id": "w-052",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:DIPOLE:03"
         },
         "geometry": {
           "x": 1190,
@@ -1564,8 +1654,9 @@
               "text": "B3",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1581,14 +1672,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "MINOR",
-                "fallback": "#ff8000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -1612,28 +1704,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Dipole",
+                      "fallback": "#d9822b",
+                      "fallbackDark": "#f0a252"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "MINOR",
-                  "fallback": "#ff8000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -1660,8 +1756,9 @@
               "text": "TV6",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1694,8 +1791,9 @@
               "text": "TV5",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1712,7 +1810,8 @@
         "id": "w-059",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "SR:MAG:SEPTUM:01"
         },
         "geometry": {
           "x": 1760,
@@ -1728,8 +1827,9 @@
               "text": "SEK",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1745,8 +1845,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -1771,7 +1871,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "ActiveText",
-                "fallback": "#ffff00"
+                "fallback": "#1f62c4",
+                "fallbackDark": "#6e9fff"
               }
             },
             "geometry": {
@@ -1795,28 +1896,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Septum",
+                      "fallback": "#8b8f99",
+                      "fallbackDark": "#a7abb5"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
                       "$role": "STOP",
-                      "fallback": "#ff0000"
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "ActiveText",
-                  "fallback": "#ffff00"
+                  "fallback": "#1f62c4",
+                  "fallbackDark": "#6e9fff"
                 }
               }
             ]
@@ -1843,8 +1948,9 @@
               "text": "SEN",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1862,8 +1968,8 @@
         "type": "polygon",
         "props": {
           "lineColor": {
-            "$role": "Text",
-            "fallback": "#000000"
+            "$role": "Transparent",
+            "fallback": "#ffffff00"
           },
           "lineWidth": 1,
           "points": [
@@ -1888,8 +1994,10 @@
           "fill": true,
           "fillColor": {
             "$role": "ActiveText",
-            "fallback": "#ffff00"
-          }
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "device": "SR:MAG:SEPTUM:02"
         },
         "geometry": {
           "x": 1840,
@@ -1912,28 +2020,32 @@
               {
                 "expression": "{0} == 1",
                 "value": {
-                  "$role": "On",
-                  "fallback": "#00ff00"
+                  "$role": "Family_Septum",
+                  "fallback": "#8b8f99",
+                  "fallbackDark": "#a7abb5"
                 }
               },
               {
                 "expression": "{0} == 0",
                 "value": {
                   "$role": "STOP",
-                  "fallback": "#ff0000"
+                  "fallback": "#c4162a",
+                  "fallbackDark": "#e05454"
                 }
               },
               {
                 "expression": "{0} != (1  or  0)",
                 "value": {
-                  "$role": "INVALID",
-                  "fallback": "#ff00ff"
+                  "$role": "STOP",
+                  "fallback": "#c4162a",
+                  "fallbackDark": "#e05454"
                 }
               }
             ],
             "default": {
               "$role": "ActiveText",
-              "fallback": "#ffff00"
+              "fallback": "#1f62c4",
+              "fallbackDark": "#6e9fff"
             }
           }
         ]
@@ -1958,8 +2070,9 @@
               "text": "BPM3",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -1976,7 +2089,8 @@
         "id": "w-067",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QF:04"
         },
         "geometry": {
           "x": 1110,
@@ -1990,8 +2104,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -2016,7 +2130,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "Attention",
-                "fallback": "#ffa000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -2040,28 +2155,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Attention",
-                  "fallback": "#ffa000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -2073,8 +2192,9 @@
               "text": "Q5.2",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2091,7 +2211,8 @@
         "id": "w-070",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QD:04"
         },
         "geometry": {
           "x": 1060,
@@ -2107,8 +2228,9 @@
               "text": "Q5.1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2124,8 +2246,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -2148,7 +2270,11 @@
               ],
               "closed": true,
               "fill": true,
-              "fillColor": "#3232ff"
+              "fillColor": {
+                "$role": "Family_Quad",
+                "fallback": "#2f62c4",
+                "fallbackDark": "#7b9cff"
+              }
             },
             "geometry": {
               "x": 1060,
@@ -2171,22 +2297,25 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
@@ -2200,7 +2329,8 @@
         "id": "w-073",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:HCM:05"
         },
         "geometry": {
           "x": 1010,
@@ -2216,8 +2346,9 @@
               "text": "HC5",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2233,14 +2364,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -2264,28 +2396,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_HCM",
+                      "fallback": "#6f4fc2",
+                      "fallbackDark": "#9d82e6"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -2312,8 +2448,9 @@
               "text": "TV4",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2330,7 +2467,8 @@
         "id": "w-078",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QF:03"
         },
         "geometry": {
           "x": 930,
@@ -2344,8 +2482,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -2370,7 +2508,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "Attention",
-                "fallback": "#ffa000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -2394,28 +2533,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Attention",
-                  "fallback": "#ffa000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -2427,8 +2570,9 @@
               "text": "Q4",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2445,7 +2589,8 @@
         "id": "w-081",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:DIPOLE:02"
         },
         "geometry": {
           "x": 860,
@@ -2461,8 +2606,9 @@
               "text": "B2",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2478,14 +2624,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "MINOR",
-                "fallback": "#ff8000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -2509,28 +2656,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Dipole",
+                      "fallback": "#d9822b",
+                      "fallbackDark": "#f0a252"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "MINOR",
-                  "fallback": "#ff8000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -2557,8 +2708,9 @@
               "text": "TV3",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2575,7 +2727,8 @@
         "id": "w-086",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:VCM:04"
         },
         "geometry": {
           "x": 780,
@@ -2591,8 +2744,9 @@
               "text": "VC4",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2608,14 +2762,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -2639,28 +2794,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -2671,7 +2830,8 @@
         "id": "w-089",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:HCM:04"
         },
         "geometry": {
           "x": 780,
@@ -2687,8 +2847,9 @@
               "text": "HC4",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2704,14 +2865,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -2735,28 +2897,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_HCM",
+                      "fallback": "#6f4fc2",
+                      "fallbackDark": "#9d82e6"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -2767,7 +2933,8 @@
         "id": "w-092",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QF:02"
         },
         "geometry": {
           "x": 730,
@@ -2781,8 +2948,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -2807,7 +2974,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "Attention",
-                "fallback": "#ffa000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -2831,28 +2999,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Attention",
-                  "fallback": "#ffa000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -2864,8 +3036,9 @@
               "text": "Q3.2",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2882,7 +3055,8 @@
         "id": "w-095",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QD:03"
         },
         "geometry": {
           "x": 680,
@@ -2898,8 +3072,9 @@
               "text": "Q3.1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -2915,8 +3090,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -2939,7 +3114,11 @@
               ],
               "closed": true,
               "fill": true,
-              "fillColor": "#3232ff"
+              "fillColor": {
+                "$role": "Family_Quad",
+                "fallback": "#2f62c4",
+                "fallbackDark": "#7b9cff"
+              }
             },
             "geometry": {
               "x": 680,
@@ -2962,22 +3141,25 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
@@ -3007,8 +3189,9 @@
               "text": "BPM2",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3025,7 +3208,8 @@
         "id": "w-100",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:DIPOLE:01"
         },
         "geometry": {
           "x": 580,
@@ -3041,8 +3225,9 @@
               "text": "B1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3058,14 +3243,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "MINOR",
-                "fallback": "#ff8000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -3089,28 +3275,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Dipole",
+                      "fallback": "#d9822b",
+                      "fallbackDark": "#f0a252"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "MINOR",
-                  "fallback": "#ff8000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -3121,7 +3311,8 @@
         "id": "w-103",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:VCM:03"
         },
         "geometry": {
           "x": 541,
@@ -3137,8 +3328,9 @@
               "text": "VC3",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3154,14 +3346,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -3185,28 +3378,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -3217,7 +3414,8 @@
         "id": "w-106",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:HCM:03"
         },
         "geometry": {
           "x": 541,
@@ -3233,8 +3431,9 @@
               "text": "HC3",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3250,14 +3449,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -3281,28 +3481,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_HCM",
+                      "fallback": "#6f4fc2",
+                      "fallbackDark": "#9d82e6"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -3313,7 +3517,8 @@
         "id": "w-109",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QD:02"
         },
         "geometry": {
           "x": 501,
@@ -3327,8 +3532,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -3353,7 +3558,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "Attention",
-                "fallback": "#ffa000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -3377,28 +3583,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Attention",
-                  "fallback": "#ffa000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -3410,8 +3620,9 @@
               "text": "Q2.2",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3428,7 +3639,8 @@
         "id": "w-112",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QD:01"
         },
         "geometry": {
           "x": 461,
@@ -3444,8 +3656,9 @@
               "text": "Q2.1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3461,8 +3674,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -3485,7 +3698,11 @@
               ],
               "closed": true,
               "fill": true,
-              "fillColor": "#3232ff"
+              "fillColor": {
+                "$role": "Family_Quad",
+                "fallback": "#2f62c4",
+                "fallbackDark": "#7b9cff"
+              }
             },
             "geometry": {
               "x": 461,
@@ -3508,22 +3725,25 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
@@ -3553,8 +3773,9 @@
               "text": "TV2",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3571,7 +3792,8 @@
         "id": "w-117",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:VCM:02"
         },
         "geometry": {
           "x": 400,
@@ -3587,8 +3809,9 @@
               "text": "VC2",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3604,14 +3827,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -3635,28 +3859,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -3667,7 +3895,8 @@
         "id": "w-120",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:HCM:02"
         },
         "geometry": {
           "x": 400,
@@ -3696,8 +3925,9 @@
                   "text": "HC2",
                   "align": "center",
                   "foregroundColor": {
-                    "$role": "Text",
-                    "fallback": "#000000"
+                    "$role": "Text_Muted",
+                    "fallback": "#6e6e77",
+                    "fallbackDark": "#8e8e9a"
                   },
                   "fontSize": 8
                 },
@@ -3713,14 +3943,15 @@
                 "type": "rectangle",
                 "props": {
                   "lineColor": {
-                    "$role": "Text",
-                    "fallback": "#000000"
+                    "$role": "Transparent",
+                    "fallback": "#ffffff00"
                   },
                   "lineWidth": 1,
                   "fill": true,
                   "fillColor": {
                     "$role": "Text",
-                    "fallback": "#000000"
+                    "fallback": "#24292e",
+                    "fallbackDark": "#ccccdc"
                   }
                 },
                 "geometry": {
@@ -3744,28 +3975,32 @@
                       {
                         "expression": "{0} == 1",
                         "value": {
-                          "$role": "On",
-                          "fallback": "#00ff00"
+                          "$role": "Family_HCM",
+                          "fallback": "#6f4fc2",
+                          "fallbackDark": "#9d82e6"
                         }
                       },
                       {
                         "expression": "{0} == 0",
                         "value": {
-                          "$role": "MAJOR",
-                          "fallback": "#ff0000"
+                          "$role": "STOP",
+                          "fallback": "#c4162a",
+                          "fallbackDark": "#e05454"
                         }
                       },
                       {
                         "expression": "{0} != (1  or  0)",
                         "value": {
-                          "$role": "INVALID",
-                          "fallback": "#ff00ff"
+                          "$role": "STOP",
+                          "fallback": "#c4162a",
+                          "fallbackDark": "#e05454"
                         }
                       }
                     ],
                     "default": {
                       "$role": "Text",
-                      "fallback": "#000000"
+                      "fallback": "#24292e",
+                      "fallbackDark": "#ccccdc"
                     }
                   }
                 ]
@@ -3778,7 +4013,8 @@
         "id": "w-124",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:QF:01"
         },
         "geometry": {
           "x": 361,
@@ -3792,8 +4028,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -3818,7 +4054,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "Attention",
-                "fallback": "#ffa000"
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
               }
             },
             "geometry": {
@@ -3842,28 +4079,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Attention",
-                  "fallback": "#ffa000"
+                  "fallback": "#b5710d",
+                  "fallbackDark": "#f5b73d"
                 }
               }
             ]
@@ -3875,8 +4116,9 @@
               "text": "Q1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3909,8 +4151,9 @@
               "text": "TV1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3927,7 +4170,8 @@
         "id": "w-129",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:VCM:01"
         },
         "geometry": {
           "x": 300,
@@ -3943,8 +4187,9 @@
               "text": "VC1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -3960,14 +4205,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -3991,28 +4237,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -4039,8 +4289,9 @@
               "text": "BPM1",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -4057,7 +4308,8 @@
         "id": "w-134",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BR:MAG:SEPTUM:02"
         },
         "geometry": {
           "x": 160,
@@ -4073,8 +4325,9 @@
               "text": "SEK",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -4090,8 +4343,8 @@
             "type": "polygon",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "points": [
@@ -4116,7 +4369,8 @@
               "fill": true,
               "fillColor": {
                 "$role": "ActiveText",
-                "fallback": "#ffff00"
+                "fallback": "#1f62c4",
+                "fallbackDark": "#6e9fff"
               }
             },
             "geometry": {
@@ -4140,28 +4394,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_Septum",
+                      "fallback": "#8b8f99",
+                      "fallbackDark": "#a7abb5"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
                       "$role": "STOP",
-                      "fallback": "#ff0000"
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "ActiveText",
-                  "fallback": "#ffff00"
+                  "fallback": "#1f62c4",
+                  "fallbackDark": "#6e9fff"
                 }
               }
             ]
@@ -4188,8 +4446,9 @@
               "text": "SEN",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -4207,8 +4466,8 @@
         "type": "polygon",
         "props": {
           "lineColor": {
-            "$role": "Text",
-            "fallback": "#000000"
+            "$role": "Transparent",
+            "fallback": "#ffffff00"
           },
           "lineWidth": 1,
           "points": [
@@ -4233,8 +4492,10 @@
           "fill": true,
           "fillColor": {
             "$role": "ActiveText",
-            "fallback": "#ffff00"
-          }
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "device": "BR:MAG:SEPTUM:01"
         },
         "geometry": {
           "x": 80,
@@ -4257,28 +4518,32 @@
               {
                 "expression": "{0} == 1",
                 "value": {
-                  "$role": "On",
-                  "fallback": "#00ff00"
+                  "$role": "Family_Septum",
+                  "fallback": "#8b8f99",
+                  "fallbackDark": "#a7abb5"
                 }
               },
               {
                 "expression": "{0} == 0",
                 "value": {
                   "$role": "STOP",
-                  "fallback": "#ff0000"
+                  "fallback": "#c4162a",
+                  "fallbackDark": "#e05454"
                 }
               },
               {
                 "expression": "{0} != (1  or  0)",
                 "value": {
-                  "$role": "INVALID",
-                  "fallback": "#ff00ff"
+                  "$role": "STOP",
+                  "fallback": "#c4162a",
+                  "fallbackDark": "#e05454"
                 }
               }
             ],
             "default": {
               "$role": "ActiveText",
-              "fallback": "#ffff00"
+              "fallback": "#1f62c4",
+              "fallbackDark": "#6e9fff"
             }
           }
         ]
@@ -4287,7 +4552,8 @@
         "id": "w-140",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:VCM:05"
         },
         "geometry": {
           "x": 1010,
@@ -4303,8 +4569,9 @@
               "text": "VC5",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "fontSize": 8
             },
@@ -4320,14 +4587,15 @@
             "type": "rectangle",
             "props": {
               "lineColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
               },
               "lineWidth": 1,
               "fill": true,
               "fillColor": {
                 "$role": "Text",
-                "fallback": "#000000"
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
               }
             },
             "geometry": {
@@ -4351,28 +4619,32 @@
                   {
                     "expression": "{0} == 1",
                     "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
                     "expression": "{0} == 0",
                     "value": {
-                      "$role": "MAJOR",
-                      "fallback": "#ff0000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
                     "expression": "{0} != (1  or  0)",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
                   "$role": "Text",
-                  "fallback": "#000000"
+                  "fallback": "#24292e",
+                  "fallbackDark": "#ccccdc"
                 }
               }
             ]
@@ -4383,7 +4655,8 @@
         "id": "w-143",
         "type": "group",
         "props": {
-          "layoutMode": "absolute"
+          "layoutMode": "absolute",
+          "device": "BTS:MAG:HCM:01"
         },
         "geometry": {
           "x": 240,
@@ -4412,8 +4685,9 @@
                   "text": "HC1",
                   "align": "center",
                   "foregroundColor": {
-                    "$role": "Text",
-                    "fallback": "#000000"
+                    "$role": "Text_Muted",
+                    "fallback": "#6e6e77",
+                    "fallbackDark": "#8e8e9a"
                   },
                   "fontSize": 8
                 },
@@ -4429,14 +4703,15 @@
                 "type": "rectangle",
                 "props": {
                   "lineColor": {
-                    "$role": "Text",
-                    "fallback": "#000000"
+                    "$role": "Transparent",
+                    "fallback": "#ffffff00"
                   },
                   "lineWidth": 1,
                   "fill": true,
                   "fillColor": {
                     "$role": "Text",
-                    "fallback": "#000000"
+                    "fallback": "#24292e",
+                    "fallbackDark": "#ccccdc"
                   }
                 },
                 "geometry": {
@@ -4460,28 +4735,32 @@
                       {
                         "expression": "{0} == 1",
                         "value": {
-                          "$role": "On",
-                          "fallback": "#00ff00"
+                          "$role": "Family_HCM",
+                          "fallback": "#6f4fc2",
+                          "fallbackDark": "#9d82e6"
                         }
                       },
                       {
                         "expression": "{0} == 0",
                         "value": {
-                          "$role": "MAJOR",
-                          "fallback": "#ff0000"
+                          "$role": "STOP",
+                          "fallback": "#c4162a",
+                          "fallbackDark": "#e05454"
                         }
                       },
                       {
                         "expression": "{0} != (1  or  0)",
                         "value": {
-                          "$role": "INVALID",
-                          "fallback": "#ff00ff"
+                          "$role": "STOP",
+                          "fallback": "#c4162a",
+                          "fallbackDark": "#e05454"
                         }
                       }
                     ],
                     "default": {
                       "$role": "Text",
-                      "fallback": "#000000"
+                      "fallback": "#24292e",
+                      "fallbackDark": "#ccccdc"
                     }
                   }
                 ]
@@ -4501,7 +4780,8 @@
             "loctv": "loc://btstv6",
             "paddle": "BTS:DIAG:TV:06:PADDLE:SP",
             "paddle_rb": "BTS:DIAG:TV:06:PADDLE:RB"
-          }
+          },
+          "device": "BTS:DIAG:TV:06"
         },
         "geometry": {
           "x": 700,
@@ -4521,7 +4801,8 @@
             "loctv": "loc://btstv5",
             "paddle": "BTS:DIAG:TV:05:PADDLE:SP",
             "paddle_rb": "BTS:DIAG:TV:05:PADDLE:RB"
-          }
+          },
+          "device": "BTS:DIAG:TV:05"
         },
         "geometry": {
           "x": 660,
@@ -4541,7 +4822,8 @@
             "loctv": "loc://btstv4",
             "paddle": "BTS:DIAG:TV:04:PADDLE:SP",
             "paddle_rb": "BTS:DIAG:TV:04:PADDLE:RB"
-          }
+          },
+          "device": "BTS:DIAG:TV:04"
         },
         "geometry": {
           "x": 620,
@@ -4561,7 +4843,8 @@
             "loctv": "loc://btstv3",
             "paddle": "BTS:DIAG:TV:03:PADDLE:SP",
             "paddle_rb": "BTS:DIAG:TV:03:PADDLE:RB"
-          }
+          },
+          "device": "BTS:DIAG:TV:03"
         },
         "geometry": {
           "x": 580,
@@ -4581,7 +4864,8 @@
             "loctv": "loc://btstv2",
             "paddle": "BTS:DIAG:TV:02:PADDLE:SP",
             "paddle_rb": "BTS:DIAG:TV:02:PADDLE:RB"
-          }
+          },
+          "device": "BTS:DIAG:TV:02"
         },
         "geometry": {
           "x": 540,
@@ -4601,7 +4885,8 @@
             "loctv": "loc://btstv1",
             "paddle": "BTS:DIAG:TV:01:PADDLE:SP",
             "paddle_rb": "BTS:DIAG:TV:01:PADDLE:RB"
-          }
+          },
+          "device": "BTS:DIAG:TV:01"
         },
         "geometry": {
           "x": 500,
@@ -4619,7 +4904,8 @@
             "BPM": "BTS BPM1",
             "BPM_X": "BTS:DIAG:BPM:01:POSITION:X",
             "BPM_Y": "BTS:DIAG:BPM:01:POSITION:Y"
-          }
+          },
+          "device": "BTS:DIAG:BPM:01"
         },
         "geometry": {
           "x": 740,
@@ -4637,7 +4923,8 @@
             "BPM": "BTS BPM2",
             "BPM_X": "BTS:DIAG:BPM:02:POSITION:X",
             "BPM_Y": "BTS:DIAG:BPM:02:POSITION:Y"
-          }
+          },
+          "device": "BTS:DIAG:BPM:02"
         },
         "geometry": {
           "x": 870,
@@ -4655,7 +4942,8 @@
             "BPM": "BTS BPM3",
             "BPM_X": "BTS:DIAG:BPM:03:POSITION:X",
             "BPM_Y": "BTS:DIAG:BPM:03:POSITION:Y"
-          }
+          },
+          "device": "BTS:DIAG:BPM:03"
         },
         "geometry": {
           "x": 1000,
@@ -4673,7 +4961,8 @@
             "BPM": "BTS BPM4",
             "BPM_X": "BTS:DIAG:BPM:04:POSITION:X",
             "BPM_Y": "BTS:DIAG:BPM:04:POSITION:Y"
-          }
+          },
+          "device": "BTS:DIAG:BPM:04"
         },
         "geometry": {
           "x": 1130,
@@ -4691,7 +4980,8 @@
             "BPM": "BTS BPM5",
             "BPM_X": "BTS:DIAG:BPM:05:POSITION:X",
             "BPM_Y": "BTS:DIAG:BPM:05:POSITION:Y"
-          }
+          },
+          "device": "BTS:DIAG:BPM:05"
         },
         "geometry": {
           "x": 1250,
@@ -4709,7 +4999,8 @@
             "BPM": "BTS BPM6",
             "BPM_X": "BTS:DIAG:BPM:06:POSITION:X",
             "BPM_Y": "BTS:DIAG:BPM:06:POSITION:Y"
-          }
+          },
+          "device": "BTS:DIAG:BPM:06"
         },
         "geometry": {
           "x": 1380,
@@ -4729,7 +5020,8 @@
             "COLOR_PV": "BTS:MAG:VCM:01:STATUS:ON",
             "DESC": "BTS VC1",
             "MON_PV": "BTS:MAG:VCM:01:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:VCM:01"
         },
         "geometry": {
           "x": 610,
@@ -4749,7 +5041,8 @@
             "COLOR_PV": "BTS:MAG:QF:01:STATUS:ON",
             "DESC": "BTS Q1",
             "MON_PV": "BTS:MAG:QF:01:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QF:01"
         },
         "geometry": {
           "x": 460,
@@ -4769,7 +5062,8 @@
             "COLOR_PV": "BTS:MAG:HCM:01:STATUS:ON",
             "DESC": "BTS HC1",
             "MON_PV": "BTS:MAG:HCM:01:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:HCM:01"
         },
         "geometry": {
           "x": 610,
@@ -4789,7 +5083,8 @@
             "COLOR_PV": "BR:MAG:SEPTUM:01:STATUS:ON",
             "DESC": "BR SEN",
             "MON_PV": "BR:MAG:SEPTUM:01:CURRENT:RB"
-          }
+          },
+          "device": "BR:MAG:SEPTUM:01"
         },
         "geometry": {
           "x": 460,
@@ -4809,7 +5104,8 @@
             "COLOR_PV": "BTS:MAG:VCM:02:STATUS:ON",
             "DESC": "BTS VC2",
             "MON_PV": "BTS:MAG:VCM:02:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:VCM:02"
         },
         "geometry": {
           "x": 700,
@@ -4829,7 +5125,8 @@
             "COLOR_PV": "BTS:MAG:VCM:03:STATUS:ON",
             "DESC": "BTS VC3",
             "MON_PV": "BTS:MAG:VCM:03:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:VCM:03"
         },
         "geometry": {
           "x": 790,
@@ -4849,7 +5146,8 @@
             "COLOR_PV": "BTS:MAG:VCM:04:STATUS:ON",
             "DESC": "BTS VC4",
             "MON_PV": "BTS:MAG:VCM:04:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:VCM:04"
         },
         "geometry": {
           "x": 880,
@@ -4869,7 +5167,8 @@
             "COLOR_PV": "BTS:MAG:VCM:05:STATUS:ON",
             "DESC": "BTS VC5",
             "MON_PV": "BTS:MAG:VCM:05:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:VCM:05"
         },
         "geometry": {
           "x": 970,
@@ -4889,7 +5188,8 @@
             "COLOR_PV": "BTS:MAG:VCM:07:STATUS:ON",
             "DESC": "BTS VC7",
             "MON_PV": "BTS:MAG:VCM:07:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:VCM:07"
         },
         "geometry": {
           "x": 1060,
@@ -4909,7 +5209,8 @@
             "COLOR_PV": "BTS:MAG:VCM:08:STATUS:ON",
             "DESC": "BTS VC8",
             "MON_PV": "BTS:MAG:VCM:08:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:VCM:08"
         },
         "geometry": {
           "x": 1150,
@@ -4929,7 +5230,8 @@
             "COLOR_PV": "BTS:MAG:VCM:09:STATUS:ON",
             "DESC": "BTS VC9",
             "MON_PV": "BTS:MAG:VCM:09:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:VCM:09"
         },
         "geometry": {
           "x": 1240,
@@ -4949,7 +5251,8 @@
             "COLOR_PV": "BTS:MAG:HCM:02:STATUS:ON",
             "DESC": "BTS HC2",
             "MON_PV": "BTS:MAG:HCM:02:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:HCM:02"
         },
         "geometry": {
           "x": 700,
@@ -4969,7 +5272,8 @@
             "COLOR_PV": "BTS:MAG:HCM:03:STATUS:ON",
             "DESC": "BTS HC3",
             "MON_PV": "BTS:MAG:HCM:03:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:HCM:03"
         },
         "geometry": {
           "x": 790,
@@ -4989,7 +5293,8 @@
             "COLOR_PV": "BTS:MAG:HCM:04:STATUS:ON",
             "DESC": "BTS HC4",
             "MON_PV": "BTS:MAG:HCM:04:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:HCM:04"
         },
         "geometry": {
           "x": 880,
@@ -5009,7 +5314,8 @@
             "COLOR_PV": "BTS:MAG:HCM:05:STATUS:ON",
             "DESC": "BTS HC5",
             "MON_PV": "BTS:MAG:HCM:05:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:HCM:05"
         },
         "geometry": {
           "x": 970,
@@ -5029,7 +5335,8 @@
             "COLOR_PV": "BTS:MAG:HCM:07:STATUS:ON",
             "DESC": "BTS HC7",
             "MON_PV": "BTS:MAG:HCM:07:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:HCM:07"
         },
         "geometry": {
           "x": 1060,
@@ -5049,7 +5356,8 @@
             "COLOR_PV": "BTS:MAG:HCM:08:STATUS:ON",
             "DESC": "BTS HC8",
             "MON_PV": "BTS:MAG:HCM:08:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:HCM:08"
         },
         "geometry": {
           "x": 1150,
@@ -5069,7 +5377,8 @@
             "COLOR_PV": "BTS:MAG:HCM:09:STATUS:ON",
             "DESC": "BTS HC9",
             "MON_PV": "BTS:MAG:HCM:09:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:HCM:09"
         },
         "geometry": {
           "x": 1240,
@@ -5089,7 +5398,8 @@
             "COLOR_PV": "BTS:MAG:QD:01:STATUS:ON",
             "DESC": "BTS Q2.1",
             "MON_PV": "BTS:MAG:QD:01:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QD:01"
         },
         "geometry": {
           "x": 550,
@@ -5109,7 +5419,8 @@
             "COLOR_PV": "BTS:MAG:QD:02:STATUS:ON",
             "DESC": "BTS Q2.2",
             "MON_PV": "BTS:MAG:QD:02:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QD:02"
         },
         "geometry": {
           "x": 640,
@@ -5129,7 +5440,8 @@
             "COLOR_PV": "BTS:MAG:QD:03:STATUS:ON",
             "DESC": "BTS Q3.1",
             "MON_PV": "BTS:MAG:QD:03:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QD:03"
         },
         "geometry": {
           "x": 730,
@@ -5149,7 +5461,8 @@
             "COLOR_PV": "BTS:MAG:QF:02:STATUS:ON",
             "DESC": "BTS Q3.2",
             "MON_PV": "BTS:MAG:QF:02:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QF:02"
         },
         "geometry": {
           "x": 820,
@@ -5169,7 +5482,8 @@
             "COLOR_PV": "BTS:MAG:QF:03:STATUS:ON",
             "DESC": "BTS Q4",
             "MON_PV": "BTS:MAG:QF:03:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QF:03"
         },
         "geometry": {
           "x": 910,
@@ -5189,7 +5503,8 @@
             "COLOR_PV": "BTS:MAG:QD:04:STATUS:ON",
             "DESC": "BTS Q5.1",
             "MON_PV": "BTS:MAG:QD:04:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QD:04"
         },
         "geometry": {
           "x": 1000,
@@ -5207,9 +5522,10 @@
             "CNTL_PV": "BTS:MAG:QF:04:CURRENT:SP",
             "COLOR_CODE": "3",
             "COLOR_PV": "BTS:MAG:QF:04:STATUS:ON",
-            "DESC": "BTS 5.2",
+            "DESC": "BTS Q5.2",
             "MON_PV": "BTS:MAG:QF:04:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QF:04"
         },
         "geometry": {
           "x": 1090,
@@ -5229,7 +5545,8 @@
             "COLOR_PV": "BTS:MAG:QF:05:STATUS:ON",
             "DESC": "BTS Q6.1",
             "MON_PV": "BTS:MAG:QF:05:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QF:05"
         },
         "geometry": {
           "x": 1180,
@@ -5249,7 +5566,8 @@
             "COLOR_PV": "BTS:MAG:QD:05:STATUS:ON",
             "DESC": "BTS Q6.2",
             "MON_PV": "BTS:MAG:QD:05:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QD:05"
         },
         "geometry": {
           "x": 1270,
@@ -5269,7 +5587,8 @@
             "COLOR_PV": "BTS:MAG:QF:06:STATUS:ON",
             "DESC": "BTS Q7",
             "MON_PV": "BTS:MAG:QF:06:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:QF:06"
         },
         "geometry": {
           "x": 1360,
@@ -5289,7 +5608,8 @@
             "COLOR_PV": "BR:MAG:SEPTUM:02:STATUS:ON",
             "DESC": "BR SEK",
             "MON_PV": "BR:MAG:SEPTUM:02:CURRENT:RB"
-          }
+          },
+          "device": "BR:MAG:SEPTUM:02"
         },
         "geometry": {
           "x": 550,
@@ -5309,7 +5629,8 @@
             "COLOR_PV": "BTS:MAG:DIPOLE:01:STATUS:ON",
             "DESC": "BTS B1",
             "MON_PV": "BTS:MAG:DIPOLE:01:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:DIPOLE:01"
         },
         "geometry": {
           "x": 730,
@@ -5329,7 +5650,8 @@
             "COLOR_PV": "BTS:MAG:DIPOLE:02:STATUS:ON",
             "DESC": "BTS B2",
             "MON_PV": "BTS:MAG:DIPOLE:02:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:DIPOLE:02"
         },
         "geometry": {
           "x": 820,
@@ -5349,7 +5671,8 @@
             "COLOR_PV": "BTS:MAG:DIPOLE:03:STATUS:ON",
             "DESC": "BTS B3",
             "MON_PV": "BTS:MAG:DIPOLE:03:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:DIPOLE:03"
         },
         "geometry": {
           "x": 910,
@@ -5369,7 +5692,8 @@
             "COLOR_PV": "BTS:MAG:DIPOLE:04:STATUS:ON",
             "DESC": "BTS B4",
             "MON_PV": "BTS:MAG:DIPOLE:04:CURRENT:RB"
-          }
+          },
+          "device": "BTS:MAG:DIPOLE:04"
         },
         "geometry": {
           "x": 1000,
@@ -5389,7 +5713,8 @@
             "COLOR_PV": "SR:MAG:SEPTUM:01:STATUS:ON",
             "DESC": "SR SEK",
             "MON_PV": "SR:MAG:SEPTUM:01:CURRENT:RB"
-          }
+          },
+          "device": "SR:MAG:SEPTUM:01"
         },
         "geometry": {
           "x": 1270,
@@ -5409,7 +5734,8 @@
             "COLOR_PV": "SR:MAG:SEPTUM:02:STATUS:ON",
             "DESC": "SR SEN",
             "MON_PV": "SR:MAG:SEPTUM:02:CURRENT:RB"
-          }
+          },
+          "device": "SR:MAG:SEPTUM:02"
         },
         "geometry": {
           "x": 1360,
@@ -5443,10 +5769,15 @@
         "type": "pv-led",
         "props": {
           "pv": "formula://f-001",
-          "onColor": "#00ff00",
+          "onColor": {
+            "$role": "OK",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
           "offColor": {
-            "$role": "MAJOR",
-            "fallback": "#ff0000"
+            "$role": "Attention",
+            "fallback": "#b5710d",
+            "fallbackDark": "#f5b73d"
           }
         },
         "geometry": {
@@ -5464,7 +5795,8 @@
           "align": "center",
           "foregroundColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           }
         },
         "geometry": {
@@ -5480,11 +5812,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
-          "lineWidth": 1,
+          "lineWidth": 2,
           "fill": true,
-          "fillColor": "#ffff00"
+          "fillColor": {
+            "$role": "Tile_Background",
+            "fallback": "#ffffff",
+            "fallbackDark": "#22252b"
+          },
+          "device": "BTS:DIAG:BPM:01"
         },
         "geometry": {
           "x": 274,
@@ -5499,11 +5837,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
           "lineWidth": 1,
           "fill": true,
-          "fillColor": "#1e90ff"
+          "fillColor": {
+            "$role": "Text_Muted",
+            "fallback": "#6e6e77",
+            "fallbackDark": "#8e8e9a"
+          },
+          "device": "BTS:DIAG:TV:01"
         },
         "geometry": {
           "x": 334,
@@ -5518,11 +5862,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
           "lineWidth": 1,
           "fill": true,
-          "fillColor": "#1e90ff"
+          "fillColor": {
+            "$role": "Text_Muted",
+            "fallback": "#6e6e77",
+            "fallbackDark": "#8e8e9a"
+          },
+          "device": "BTS:DIAG:TV:02"
         },
         "geometry": {
           "x": 434,
@@ -5537,11 +5887,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
-          "lineWidth": 1,
+          "lineWidth": 2,
           "fill": true,
-          "fillColor": "#ffff00"
+          "fillColor": {
+            "$role": "Tile_Background",
+            "fallback": "#ffffff",
+            "fallbackDark": "#22252b"
+          },
+          "device": "BTS:DIAG:BPM:02"
         },
         "geometry": {
           "x": 644,
@@ -5556,11 +5912,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
           "lineWidth": 1,
           "fill": true,
-          "fillColor": "#1e90ff"
+          "fillColor": {
+            "$role": "Text_Muted",
+            "fallback": "#6e6e77",
+            "fallbackDark": "#8e8e9a"
+          },
+          "device": "BTS:DIAG:TV:03"
         },
         "geometry": {
           "x": 824,
@@ -5575,11 +5937,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
           "lineWidth": 1,
           "fill": true,
-          "fillColor": "#1e90ff"
+          "fillColor": {
+            "$role": "Text_Muted",
+            "fallback": "#6e6e77",
+            "fallbackDark": "#8e8e9a"
+          },
+          "device": "BTS:DIAG:TV:04"
         },
         "geometry": {
           "x": 975,
@@ -5594,11 +5962,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
-          "lineWidth": 1,
+          "lineWidth": 2,
           "fill": true,
-          "fillColor": "#ffff00"
+          "fillColor": {
+            "$role": "Tile_Background",
+            "fallback": "#ffffff",
+            "fallbackDark": "#22252b"
+          },
+          "device": "BTS:DIAG:BPM:03"
         },
         "geometry": {
           "x": 1154,
@@ -5613,11 +5987,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
-          "lineWidth": 1,
+          "lineWidth": 2,
           "fill": true,
-          "fillColor": "#ffff00"
+          "fillColor": {
+            "$role": "Tile_Background",
+            "fallback": "#ffffff",
+            "fallbackDark": "#22252b"
+          },
+          "device": "BTS:DIAG:BPM:04"
         },
         "geometry": {
           "x": 1304,
@@ -5632,11 +6012,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
           "lineWidth": 1,
           "fill": true,
-          "fillColor": "#1e90ff"
+          "fillColor": {
+            "$role": "Text_Muted",
+            "fallback": "#6e6e77",
+            "fallbackDark": "#8e8e9a"
+          },
+          "device": "BTS:DIAG:TV:05"
         },
         "geometry": {
           "x": 1544,
@@ -5651,11 +6037,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
-          "lineWidth": 1,
+          "lineWidth": 2,
           "fill": true,
-          "fillColor": "#ffff00"
+          "fillColor": {
+            "$role": "Tile_Background",
+            "fallback": "#ffffff",
+            "fallbackDark": "#22252b"
+          },
+          "device": "BTS:DIAG:BPM:05"
         },
         "geometry": {
           "x": 1574,
@@ -5670,11 +6062,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
-          "lineWidth": 1,
+          "lineWidth": 2,
           "fill": true,
-          "fillColor": "#ffff00"
+          "fillColor": {
+            "$role": "Tile_Background",
+            "fallback": "#ffffff",
+            "fallbackDark": "#22252b"
+          },
+          "device": "BTS:DIAG:BPM:06"
         },
         "geometry": {
           "x": 1674,
@@ -5689,11 +6087,17 @@
         "props": {
           "lineColor": {
             "$role": "Text",
-            "fallback": "#000000"
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
           },
           "lineWidth": 1,
           "fill": true,
-          "fillColor": "#1e90ff"
+          "fillColor": {
+            "$role": "Text_Muted",
+            "fallback": "#6e6e77",
+            "fallbackDark": "#8e8e9a"
+          },
+          "device": "BTS:DIAG:TV:06"
         },
         "geometry": {
           "x": 1734,

@@ -206,18 +206,20 @@ class TestWhatTheTemplateShips:
         report = json.loads((library / REPORT_JSON).read_bytes())
         tops = [row["top"] for row in report["writeBindings"]]
         vacuum = {n: len(_sector_writes(n)) for n in range(1, 13)}
-        # The three at the end: _tv on its own, its macro-only names left unresolved.
-        assert len(tops) == 89 + 2 * sum(vacuum.values()) + 3 + 3
+        # The four at the end: _tv and _KnobDevice on their own, their macro-only
+        # names left unresolved.
+        assert len(tops) == 195 + 2 * sum(vacuum.values()) + 3 + 4
         assert {top: tops.count(top) for top in set(tops)} == {
-            "gtl/GTL": 70,
-            "bts/BTS": 18,
+            "gtl/GTL": 141,
+            "bts/BTS": 53,
             "sr/orbit-feedback": 1,
             "common/embedded/_tv": 3,
+            "common/embedded/_KnobDevice": 1,
             **{f"sr/sector-{n:02d}": w + (3 if n == 1 else 0) for n, w in vacuum.items()},
             **{f"sr/_vacuum-{n:02d}": w for n, w in vacuum.items()},
         }
-        # Every vacuum write is one push button.
-        assert len(report["commandButtons"]) == 10 + 2 * sum(vacuum.values())
+        # Every vacuum write is one push button; BTS and GTL have one each.
+        assert len(report["commandButtons"]) == 2 + 2 * sum(vacuum.values())
         for key in ("executeActions", "absoluteUrls"):
             assert report[key] == [], key
 
