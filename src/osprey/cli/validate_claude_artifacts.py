@@ -81,18 +81,29 @@ def _parse_frontmatter(md_text: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _loose_delimiter(line: str) -> bool:
+    """Whether a looser reader could take *line* for a delimiter.
+
+    True for a line that starts with ``---`` once a byte-order mark is dropped, or that
+    is ``---`` once any Unicode whitespace (a no-break space, a form feed) is stripped.
+    """
+    return line.removeprefix("\ufeff").startswith("---") or line.strip() == "---"
+
+
 def _unreadable_frontmatter(md_text: str) -> bool:
     """Whether the text opens a frontmatter block a reader could take differently.
 
-    True when no delimiter line closes the block, when a line inside it starts with
-    ``---`` (a looser reader closes there and misses the keys after it), or when the
-    block is not a YAML mapping. A caller that copies the file on refuses it.
+    True when a looser reader opens a block on the first line but the delimiter rule
+    does not, when no delimiter line closes the block, when a line inside it a looser
+    reader would close on (one starting with ``---``, or ``---`` after a Unicode strip)
+    hides the keys after it, or when the block is not a YAML mapping. A caller that
+    copies the file on refuses it.
     """
     block = _frontmatter_lines(md_text)
     if block is None:
-        return False
+        return _loose_delimiter(md_text.split("\n", 1)[0])
     lines, closed = block
-    if not closed or any(line.startswith("---") for line in lines):
+    if not closed or any(_loose_delimiter(line) for line in lines):
         return True
     return _parse_frontmatter(md_text) is None
 
@@ -150,7 +161,13 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
 
     errors: list[str] = []
     for md_file in sorted(agents_dir.glob("*.md")):
-        text = md_file.read_text(encoding="utf-8")
+        text = _normalised_text(md_file)
+        if _unreadable_frontmatter(text):
+            errors.append(
+                f"agent file {md_file.name}: the frontmatter does not parse as a YAML mapping "
+                "closed by a line that is exactly ---"
+            )
+            continue
         fm = _parse_frontmatter(text)
         if not fm:
             continue
@@ -190,7 +207,7 @@ def agent_file_models(agents_dir: Path) -> dict[str, str | None]:
         return {}
     models: dict[str, str | None] = {}
     for md_file in sorted(agents_dir.glob("*.md")):
-        fm = _parse_frontmatter(md_file.read_text(encoding="utf-8")) or {}
+        fm = _parse_frontmatter(_normalised_text(md_file)) or {}
         model = fm.get("model")
         models[md_file.stem] = None if model is None else str(model)
     return models
