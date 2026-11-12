@@ -182,6 +182,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
+  --cf-severity-invalid: #b877d9;
   --wt-crt-scanline-opacity: 0;
   --wt-crt-vignette-opacity: 0;
   --wt-crt-glow-opacity: 0;
@@ -336,6 +337,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
+  --cf-severity-invalid: #b877d9;
   --wt-crt-scanline-opacity: 0;
   --wt-crt-vignette-opacity: 0;
   --wt-crt-glow-opacity: 0;
@@ -490,6 +492,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
+  --cf-severity-invalid: #9333ea;
   --wt-crt-scanline-opacity: 0;
   --wt-crt-vignette-opacity: 0;
   --wt-crt-glow-opacity: 0;
@@ -644,6 +647,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
+  --cf-severity-invalid: #d9d9d9;
   --wt-crt-scanline-opacity: 0;
   --wt-crt-vignette-opacity: 0;
   --wt-crt-glow-opacity: 0;
@@ -798,6 +802,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
+  --cf-severity-invalid: #1a1a1a;
   --wt-crt-scanline-opacity: 0;
   --wt-crt-vignette-opacity: 0;
   --wt-crt-glow-opacity: 0;
@@ -952,6 +957,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
+  --cf-severity-invalid: #9333ea;
   --wt-crt-scanline-opacity: 0;
   --wt-crt-vignette-opacity: 0;
   --wt-crt-glow-opacity: 0;
@@ -1106,6 +1112,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
+  --cf-severity-invalid: #b877d9;
   --wt-crt-scanline-opacity: 1;
   --wt-crt-vignette-opacity: 1;
   --wt-crt-glow-opacity: 1;
@@ -1260,6 +1267,7 @@
   --art-panel-gap: 8px;
   --art-browser-band-height: 210px;
   --cf-font-pv: 'Syne Mono', 'JetBrains Mono', monospace;
+  --cf-severity-invalid: #9333ea;
   --wt-crt-scanline-opacity: 0;
   --wt-crt-vignette-opacity: 0;
   --wt-crt-glow-opacity: 0;
