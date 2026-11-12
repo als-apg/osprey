@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from osprey.port_layout import default_port
-from osprey_connectors.archiver._base import ArchiverMetadata
+from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 from osprey_connectors.archiver._mongodb_archiver_connector import (
@@ -1266,9 +1266,13 @@ class TestErrorHandlingWithoutDocker:
 
         connector._collection.find.assert_not_called()
 
+    @pytest.mark.skipif(
+        not hasattr(ArchiverConnector, "store_extent"),
+        reason="installed osprey-connectors reports a failed read as not archived",
+    )
     @pytest.mark.asyncio
-    async def test_availability_query_errors_degrade_to_not_archived(self):
-        """get_metadata()/check_availability() report not-archived instead of raising."""
+    async def test_availability_query_errors_degrade_to_unknown(self):
+        """get_metadata()/check_availability() report unknown (None) instead of raising."""
         connector = self._erroring_connector(
             find_one=RuntimeError("cursor lost"),
             count_documents=RuntimeError("cursor lost"),
@@ -1277,13 +1281,13 @@ class TestErrorHandlingWithoutDocker:
         metadata = await connector.get_metadata("BEAM:CURRENT")
         assert isinstance(metadata, ArchiverMetadata)
         assert metadata.channel == "BEAM:CURRENT"
-        assert metadata.is_archived is False
+        assert metadata.is_archived is None
         # An unreadable store reports no coverage rather than inventing one.
         assert metadata.archival_start is None
         assert metadata.archival_end is None
 
         availability = await connector.check_availability(["BEAM:CURRENT", "BEAM:LIFETIME"])
-        assert availability == {"BEAM:CURRENT": False, "BEAM:LIFETIME": False}
+        assert availability == {"BEAM:CURRENT": None, "BEAM:LIFETIME": None}
 
     @pytest.mark.asyncio
     async def test_get_data_pymongo_connection_loss_maps_to_connector_unavailable(self):
@@ -1734,8 +1738,12 @@ class TestWaveformReadWithoutDocker:
         assert metadata.archival_start == early["date"]
         assert metadata.archival_end == documents[-1]["date"]
 
+    @pytest.mark.skipif(
+        not hasattr(ArchiverConnector, "store_extent"),
+        reason="installed osprey-connectors reports a failed read as not archived",
+    )
     @pytest.mark.asyncio
-    async def test_an_interrupted_read_reports_absent_not_an_error(self):
+    async def test_an_interrupted_read_reports_unknown_not_an_error(self):
         pymongo_errors = pytest.importorskip("pymongo.errors")
         lost = pymongo_errors.AutoReconnect("connection reset")
         connector = _waveform_connector(waveforms=_sek_documents(1), waveform_raises=lost)
@@ -1743,8 +1751,8 @@ class TestWaveformReadWithoutDocker:
         availability = await connector.check_availability([WAVEFORM_CHANNEL])
         metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
 
-        assert availability == {WAVEFORM_CHANNEL: False}
-        assert metadata.is_archived is False
+        assert availability == {WAVEFORM_CHANNEL: None}
+        assert metadata.is_archived is None
         assert metadata.archival_start is None
         assert metadata.archival_end is None
 
@@ -1843,3 +1851,137 @@ class TestWaveformReadAgainstMongo:
             waveform_store[0]["date"]
         ).tz_localize(None)
         assert len(scalar) > 0
+
+
+class _MemoryStore:
+    """An in-memory collection answering the reads ``store_extent`` and metadata make."""
+
+    def __init__(self, documents, *, fail: bool = False):
+        self._documents = list(documents)
+        self._fail = fail
+
+    def _check(self):
+        if self._fail:
+            raise RuntimeError("store down")
+
+    def find_one(self, query, _projection=None, sort=None):
+        self._check()
+        rows = [d for d in self._documents if self._matches(d, query)]
+        if sort:
+            key, direction = sort[0]
+            rows.sort(key=lambda d: d[key], reverse=direction < 0)
+        return rows[0] if rows else None
+
+    def find(self, query, _projection=None):
+        self._check()
+        return [d for d in self._documents if self._matches(d, query)]
+
+    def count_documents(self, query, **_options):
+        self._check()
+        return sum(1 for d in self._documents if self._matches(d, query))
+
+    @staticmethod
+    def _matches(document, query):
+        for key, condition in query.items():
+            if isinstance(condition, dict) and "$exists" in condition:
+                if (key in document) != condition["$exists"]:
+                    return False
+            elif document.get(key) != condition:
+                return False
+        return True
+
+
+def _memory_connector(scalars, waveforms=(), *, fail=False):
+    connector = MongoDBArchiverConnector()
+    connector._connected = True
+    connector._collection = _MemoryStore(scalars, fail=fail)
+    connector._waveforms = _MemoryStore(waveforms, fail=fail)
+    connector._timeout = 10
+    return connector
+
+
+@pytest.mark.skipif(
+    not hasattr(ArchiverConnector, "store_extent"),
+    reason="installed osprey-connectors predates ArchiverConnector.store_extent",
+)
+class TestStoreExtentWithoutDocker:
+    """``store_extent`` answers the store's channels and its sample span."""
+
+    @pytest.mark.asyncio
+    async def test_a_two_tier_store_answers_every_channel_and_its_span(self):
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        coarse = [
+            {"_id": n, "date": base + timedelta(minutes=n), "SR:A": 1.0, "OLD:ONLY": 3.0}
+            for n in range(0, 60, 10)
+        ]
+        dense = [
+            {
+                "_id": 100 + n,
+                "date": base + timedelta(minutes=60, seconds=10 * n),
+                "SR:A": 1.0,
+                field_name("REC.RBV"): 2.0,
+                "expireAt": base,
+            }
+            for n in range(6)
+        ]
+        traces = [
+            {"date": base + timedelta(minutes=30), field_name("SR:WAVE"): [1.0, 2.0]},
+            {"date": base + timedelta(minutes=50), field_name("SR:WAVE"): [1.0, 2.0]},
+            {"date": base + timedelta(minutes=50), field_name("SR:TRACE.X"): [3.0]},
+        ]
+        connector = _memory_connector(coarse + dense, traces)
+
+        extent = await connector.store_extent()
+
+        # The newest documents name the channels: one dropped since is not listed.
+        assert extent.channels == frozenset({"SR:A", "REC.RBV", "SR:WAVE", "SR:TRACE.X"})
+        assert extent.oldest == base
+        assert extent.newest == base + timedelta(minutes=60, seconds=50)
+        assert extent.reason is None
+
+    @pytest.mark.asyncio
+    async def test_a_failing_store_answers_unknown_with_a_reason(self):
+        connector = _memory_connector([], fail=True)
+
+        extent = await connector.store_extent()
+
+        assert extent.channels is None
+        assert extent.oldest is None and extent.newest is None
+        assert "could not be read" in extent.reason
+
+    @pytest.mark.asyncio
+    async def test_an_empty_store_holds_no_channels(self):
+        extent = await _memory_connector([]).store_extent()
+
+        assert extent.channels == frozenset()
+        assert extent.newest is None
+
+    @pytest.mark.asyncio
+    async def test_a_failed_read_is_unknown_not_unarchived(self):
+        connector = _memory_connector([], fail=True)
+
+        metadata = await connector.get_metadata("SR:A")
+        availability = await connector.check_availability(["SR:A", "SR:B"])
+
+        assert metadata.is_archived is None
+        assert "could not be read" in metadata.description
+        assert availability == {"SR:A": None, "SR:B": None}
+
+    @pytest.mark.asyncio
+    async def test_a_failed_read_never_answers_the_exception_text(self):
+        connector = _memory_connector([])
+        leak = ConnectionError("cannot reach mongodb://reader:secret@archive.example:27017")
+
+        class Leaking:
+            def find_one(self, *_args, **_kwargs):
+                raise leak
+
+            find = find_one
+
+        connector._collection = connector._waveforms = Leaking()
+
+        metadata = await connector.get_metadata("SR:A")
+        extent = await connector.store_extent()
+
+        assert metadata.description == "the MongoDB archive could not be read: ConnectionError"
+        assert extent.reason == "the MongoDB archive could not be read: ConnectionError"

@@ -34,6 +34,7 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.alarm_state.AlarmState": (
         "an out-of-tree alarm-state backend subclasses it"
     ),
+    "osprey_connectors.archiver.ArchiveExtent": ("an archiver's store_extent answers in this type"),
     "osprey_connectors.archiver.ArchiverMetadata": (
         "an archiver's get_metadata answers in this type"
     ),

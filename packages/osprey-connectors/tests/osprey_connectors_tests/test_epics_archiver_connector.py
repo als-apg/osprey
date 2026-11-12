@@ -431,8 +431,8 @@ class TestMetadataMethods:
     """Tests for metadata methods."""
 
     @pytest.mark.asyncio
-    async def test_get_metadata_returns_archiver_metadata(self):
-        """Test that get_metadata returns ArchiverMetadata dataclass."""
+    async def test_get_metadata_does_not_claim_the_channel_archived(self):
+        """The connector does not ask the appliance, so membership is unknown."""
         connector = EPICSArchiverConnector()
         await connector.connect({"url": "https://archiver.example.com"})
 
@@ -440,14 +440,14 @@ class TestMetadataMethods:
 
         assert isinstance(metadata, ArchiverMetadata)
         assert metadata.channel == "BEAM:CURRENT"
-        assert metadata.is_archived is True
-        assert "BEAM:CURRENT" in metadata.description
+        assert metadata.is_archived is None
+        assert "does not ask the appliance" in metadata.description
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_check_availability_returns_dict(self):
-        """Test that check_availability returns dict mapping PVs to True."""
+    async def test_check_availability_answers_unknown_per_channel(self):
+        """Every channel answers ``None``: the appliance is not asked."""
         connector = EPICSArchiverConnector()
         await connector.connect({"url": "https://archiver.example.com"})
 
@@ -458,7 +458,7 @@ class TestMetadataMethods:
         assert len(availability) == len(channels)
         for pv in channels:
             assert pv in availability
-            assert availability[pv] is True
+            assert availability[pv] is None
 
         await connector.disconnect()
 
