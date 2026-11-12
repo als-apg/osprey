@@ -15,6 +15,9 @@ from __future__ import annotations
 from typing import Any
 
 COMPOSER = "#operator-container .op-input-area textarea"
+# An approval card: the reason it gives, and the button that allows the call.
+CARD = "#operator-container .op-card-reason"
+ALLOW = "#operator-container .op-btn-primary"
 
 # The page is on the chat and its composer is on screen.
 MOUNTED_JS = """
