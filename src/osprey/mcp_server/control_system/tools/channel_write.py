@@ -837,6 +837,11 @@ async def channel_write(
       limits grounds and never sent it to the machine, or the control system
       itself denied the write (`refusal_reason` `CONTROL_SYSTEM_REFUSED`), or
       the address is not a channel of this facility (`CHANNEL_NOT_FOUND`).
+      A write refused by the checks stops the whole call: every write is
+      checked before any is sent, and the others come back `refused` with
+      `BATCH_REFUSED`. Report the write that carries its own reason as the
+      cause. A refusal the control system gives only at the send does not
+      undo writes already sent; each row says what happened to its channel.
     - `failed` — sent to the machine, which did not take it.
     - `confirmed` — a re-read of the channel holds the value sent. An alarm on
       the channel does not change that: report `alarm_status` and
