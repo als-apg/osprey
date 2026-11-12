@@ -8,10 +8,12 @@
  * them back to the address bar (replace, not push) on every new search.
  *
  *   toolbar   [sidebar toggle] [Curated | <directory> | Feedback] …… [N PVs] [search]
- *   sidebar   Origin · IOC · Record type, each value with its count
- *   body      <what was searched> [partial] …… [refresh] [show request]
- *             the rows, with their current values
- *             N selected · clear …… page · CSV · Plot · Send to assistant
+ *   sidebar   Alarm · Origin · IOC · Record type, each value with its count
+ *   body      <words> [IOC: x ×] clear all [partial] …… [refresh] [export] show request
+ *             the rows, with their current values and, with an alarm feed, its marks
+ *             rows 1–50 of N …… ‹ page 1 of M ›
+ *             (floating, while something is selected)
+ *             N selected · Plot · Send to assistant · Copy names · Clear
  *
  * While mounted the view holds the toolbar's search field, its result count and
  * its sidebar toggle (panel-toolbar.js). The words it searches are
@@ -30,11 +32,14 @@ import { copyText } from '/design-system/js/clipboard.js';
 import { messageOf } from './utils.js';
 import {
   PAGE_SIZE,
-  actionsHtml,
+  chipsHtml,
   countHtml,
   facetsHtml,
+  pagerHtml,
+  selectionBarHtml,
   skeletonHtml,
   tableHtml,
+  wordsText,
 } from './allpvs-render.js';
 import { FACET_KEYS } from './route.js';
 import { state } from './state.js';
@@ -67,6 +72,7 @@ const SIDEBAR_KEY = 'cf-allpvs-filters';
  *   page: number,
  *   filters: Record<FacetKey, Set<string>>,
  *   answer: DirectoryPage|null,
+ *   answerWords: string,
  *   values: Map<string, ValueRow>|null,
  *   valuesReason: string,
  *   searchSeq: number,
@@ -94,6 +100,7 @@ export function mountAllPvs(container, params = {}) {
   container.innerHTML = skeletonHtml();
   const root = /** @type {HTMLElement} */ (container.querySelector('.allpvs'));
   root.querySelector('[data-action="refresh"]')?.append(icon('refresh'));
+  root.querySelector('[data-action="csv"]')?.append(icon('download'));
   root.querySelector('[data-action="copy-request"]')?.append(icon('copy'));
 
   const release = claimToolbar();
@@ -113,6 +120,7 @@ export function mountAllPvs(container, params = {}) {
     page: 0,
     filters: facetRecord((key) => new Set(params[key])),
     answer: null,
+    answerWords: '',
     values: null,
     valuesReason: '',
     searchSeq: 0,
@@ -133,7 +141,7 @@ export function mountAllPvs(container, params = {}) {
   void createPlotCheck()().then((ok) => {
     if (view !== mounted) return;
     mounted.canPlot = ok;
-    renderActions();
+    renderSelection();
   });
 
   writeRoute();
@@ -219,18 +227,21 @@ async function runSearch() {
   if (!current.answer) {
     renderState(body(), { icon: 'search', message: 'Searching' });
   }
+  const filters = currentFilters();
   /** @type {DirectoryPage} */
   let answer;
   try {
-    answer = await searchDirectory(currentFilters());
+    answer = await searchDirectory(filters);
   } catch (err) {
     if (view !== current || seq !== current.searchSeq) return;
     current.answer = null;
+    current.answerWords = filters.q ?? '';
     showFailure(`Directory did not answer: ${messageOf(err)}`, true);
     return;
   }
   if (view !== current || seq !== current.searchSeq) return;
   current.answer = answer;
+  current.answerWords = filters.q ?? '';
   current.values = null;
   current.valuesReason = '';
   state.emit('directoryLabel', answer.source.label);
@@ -281,7 +292,8 @@ function showFailure(message, retry) {
   setResultCount('');
   renderHead();
   renderFacets();
-  renderActions();
+  renderPager();
+  renderSelection();
   renderState(body(), {
     icon: 'database',
     message,
@@ -300,7 +312,8 @@ function render() {
   }
   renderHead();
   renderFacets();
-  renderActions();
+  renderPager();
+  renderSelection();
   if (answer.outcome === 'no_match' || answer.rows.length === 0) {
     renderState(body(), {
       icon: 'search',
@@ -311,11 +324,19 @@ function render() {
   renderTable();
 }
 
-/** The section header: what was searched, partial, Refresh and the request. */
+/**
+ * The head row: the words, the filters in force, partial, Refresh, Export and
+ * the request.
+ */
 function renderHead() {
   if (!view) return;
   const answer = view.answer;
-  part('.allpvs-searched').textContent = answer?.searched ?? '';
+  // The words of the answer shown, not the words being typed.
+  const words = view.answerWords;
+  const searched = part('.allpvs-searched');
+  searched.textContent = wordsText(words);
+  searched.title = answer?.searched ?? '';
+  part('.allpvs-chips').innerHTML = chipsHtml(view.filters, words !== '');
 
   const partial = part('.allpvs-partial');
   partial.replaceChildren();
@@ -328,8 +349,10 @@ function renderHead() {
     partial.append(chip);
   }
 
-  const refresh = /** @type {HTMLButtonElement} */ (part('[data-action="refresh"]'));
-  refresh.disabled = !answer?.rows.length;
+  const found = Boolean(answer && answer.outcome !== 'unavailable' && answer.rows.length);
+  /** @type {HTMLButtonElement} */ (part('[data-action="refresh"]')).disabled = !found;
+  /** @type {HTMLButtonElement} */ (part('[data-action="csv"]')).disabled = !found;
+  renderCsvStatus();
 
   const request = answer?.request ?? '';
   part('[data-action="request"]').hidden = request === '';
@@ -349,6 +372,29 @@ function renderFacets() {
   part('.allpvs-facets').innerHTML = facetsHtml(view.answer, view.filters);
 }
 
+/** Why an export failed, as a warn chip beside the Export icon. */
+function renderCsvStatus() {
+  if (!view) return;
+  const { csvStatus } = view;
+  part('.allpvs-csv-status').innerHTML = csvStatus
+    ? `<span class="osprey-chip osprey-chip--warn"><span class="osprey-chip-label"></span></span>`
+    : '';
+  const label = part('.allpvs-csv-status .osprey-chip-label');
+  if (label) label.textContent = csvStatus;
+}
+
+/**
+ * The Alarm column of the current answer: on when a row carries the feed's
+ * state or the feed's answer is listed as partial.
+ * @param {DirectoryPage} answer
+ * @returns {import('./allpvs-render.js').AlarmColumn}
+ */
+function alarmColumn(answer) {
+  const missing = answer.partial.find((entry) => entry.part === 'alarm');
+  if (missing) return { reason: missing.reason };
+  return answer.rows.some((row) => 'alarm' in row) ? { reason: '' } : null;
+}
+
 /** The rows of the current page. */
 function renderTable() {
   if (!view?.answer?.rows.length || view.answer.outcome === 'unavailable') return;
@@ -356,7 +402,7 @@ function renderTable() {
   const selected = state.selection;
   const host = body();
   clearState(host);
-  host.innerHTML = tableHtml(answer, selected, values, valuesReason);
+  host.innerHTML = tableHtml(answer, selected, values, valuesReason, alarmColumn(answer));
   const head = /** @type {HTMLInputElement} */ (host.querySelector('[data-action="select-page"]'));
   head.indeterminate = !head.checked && answer.rows.some((row) => selected.has(row.name));
 }
@@ -366,17 +412,19 @@ function selectedNames() {
   return [...state.selection];
 }
 
-/** The pager, the selection and the actions on it. */
-function renderActions() {
+/** The pager under the rows. */
+function renderPager() {
   if (!view) return;
-  const { answer, page, canPlot, csvStatus } = view;
-  const selected = state.selection;
-  part('.allpvs-actions').innerHTML = actionsHtml({
-    answer,
-    page,
-    selected: selected.size,
-    csvStatus,
-    plot: canPlot ? plotButton(selected.size) : null,
+  part('.allpvs-pager').innerHTML = pagerHtml(view.answer, view.page);
+}
+
+/** The floating bar of the selection and the actions on it. */
+function renderSelection() {
+  if (!view) return;
+  const selected = state.selection.size;
+  part('.allpvs-selection').innerHTML = selectionBarHtml({
+    selected,
+    plot: view.canPlot ? plotButton(selected) : null,
     send: handoffAllowed(),
   });
 }
@@ -423,7 +471,13 @@ function onClick(event) {
     case 'clear':
       state.selection.clear();
       renderTable();
-      renderActions();
+      renderSelection();
+      return;
+    case 'clear-all':
+      clearAll();
+      return;
+    case 'copy-names':
+      void copyText(selectedNames().join('\n'));
       return;
     case 'csv':
       void exportCsv();
@@ -454,7 +508,7 @@ function onChange(event) {
       else state.selection.delete(row.name);
     }
     renderTable();
-    renderActions();
+    renderSelection();
     return;
   }
   const name = /** @type {HTMLElement|null} */ (box.closest('tbody tr'))?.dataset.name;
@@ -475,8 +529,9 @@ function toggleRow(name) {
     state.selection.add(name);
   }
   view.csvStatus = '';
+  renderCsvStatus();
   renderTable();
-  renderActions();
+  renderSelection();
 }
 
 /**
@@ -491,6 +546,17 @@ function toggleFacet(key, value) {
   restart();
 }
 
+/** Search every PV again: no words, no filters. */
+function clearAll() {
+  if (!view) return;
+  state.scopeQuery = '';
+  const input = searchInput();
+  if (input) input.value = '';
+  window.clearTimeout(view.debounce);
+  for (const set of Object.values(view.filters)) set.clear();
+  restart();
+}
+
 /**
  * Post a hand-off to the host, addressed to this page's own origin.
  * @param {{ type: string, [key: string]: unknown }} message
@@ -501,7 +567,7 @@ function handOff(message) {
   window.parent.postMessage(message, window.location.origin);
 }
 
-/** The search as CSV, downloaded, or the export's reason beside the actions. */
+/** The search as CSV, downloaded, or the export's reason beside its icon. */
 async function exportCsv() {
   if (!view) return;
   const current = view;
@@ -514,7 +580,7 @@ async function exportCsv() {
   } catch {
     if (view !== current) return;
     current.csvStatus = 'CSV: export did not answer';
-    renderActions();
+    renderCsvStatus();
     return;
   }
   if (view !== current) return;
@@ -529,7 +595,7 @@ async function exportCsv() {
     }
     current.csvStatus =
       typeof detail === 'string' ? `CSV: ${detail}` : `CSV: export did not answer (${resp.status})`;
-    renderActions();
+    renderCsvStatus();
     return;
   }
   const text = await resp.text();
@@ -543,5 +609,5 @@ async function exportCsv() {
   link.remove();
   // Revoked once the browser has taken the download, not before.
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  renderActions();
+  renderCsvStatus();
 }

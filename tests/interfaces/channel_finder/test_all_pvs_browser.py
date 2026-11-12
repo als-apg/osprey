@@ -25,6 +25,8 @@ Coverage, each in Chromium:
       alive once its heartbeat advances, and links to the IOC's PVs.
   (f) without the section the switch is Explore · Feedback and ``#/pv/<name>``
       shows Explore.
+  (g) at the panel width a 1600 px window leaves beside the agent pane, every
+      column is reachable by scrolling the table area alone.
 
 Run:
     .venv/bin/pytest tests/interfaces/channel_finder/test_all_pvs_browser.py -m browser -v
@@ -33,7 +35,9 @@ Run:
 from __future__ import annotations
 
 import os
+import re
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -56,7 +60,6 @@ from tests.interfaces.conftest import use_process_web_credentials
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from playwright.sync_api import Browser
 
@@ -79,6 +82,24 @@ ROWS = ".allpvs-table tbody tr[data-name]"
 WORD = "since"
 #: The IOC page's second HEARTBEAT read comes 2 s after the first.
 ALIVE_TIMEOUT_MS = 30_000
+
+_STATIC = Path(__file__).parents[3] / "src/osprey/interfaces"
+
+
+def _agent_pane_panel_width(window: int) -> int:
+    """The width a service tile gets beside the agent pane in a *window* px wide web terminal.
+
+    The sidebar takes ``--wt-sidebar-width``, a service opened beside the agent
+    pane ``SERVICE_SHARE`` of the rest, less the ``--wt-gutter`` its card pads.
+    """
+    tokens = (_STATIC / "design_system/static/css/tokens.css").read_text(encoding="utf-8")
+    dock = (_STATIC / "web_terminal/static/js/dock-open.js").read_text(encoding="utf-8")
+
+    def token(name: str) -> int:
+        return int(re.search(rf"--{name}:\s*(\d+)px", tokens).group(1))  # type: ignore[union-attr]
+
+    share = float(re.search(r"SERVICE_SHARE = ([\d.]+);", dock).group(1))  # type: ignore[union-attr]
+    return int((window - token("wt-sidebar-width")) * share) - token("wt-gutter")
 
 
 def _build(parent: Path) -> Path:
@@ -160,8 +181,8 @@ def bare_panel_url(render: Path, tmp_path: Path) -> Iterator[str]:
         yield url
 
 
-def _open(browser: Browser, url: str, route: str) -> PanelHost:
-    page = browser.new_page(viewport=VIEWPORT)
+def _open(browser: Browser, url: str, route: str, viewport: dict[str, int] = VIEWPORT) -> PanelHost:
+    page = browser.new_page(viewport=viewport)
     host = open_panel_host(page, f"{url}/{route}")
     host.wait_for_selector("#cf-views button[data-view]")
     return host
@@ -396,3 +417,55 @@ def test_without_the_section_the_tabs_are_todays_and_a_pv_link_shows_explore(
     assert _tabs(host) == ["Explore", "Feedback"]
     host.wait_for_selector("#graph-finder-table")
     assert host.locator(".pv-page").count() == 0
+
+
+def test_every_column_is_reachable_at_1600_px_with_the_agent_pane_open(
+    chromium_browser: Browser, panel_url: str
+):
+    viewport = {"width": _agent_pane_panel_width(1600), "height": 1000}
+    host = _open(chromium_browser, panel_url, f"#/allpvs?q={WORD}", viewport)
+    host.wait_for_selector(ROWS)
+    host.wait_for_selector(".allpvs-table thead th:text-is('Alarm')")
+    _values_read(host)
+
+    assert host.evaluate(
+        "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth"
+    )
+    # The operator scrolls the table area itself: it is a scroll container, not a clip.
+    assert host.evaluate(
+        "() => ['auto', 'scroll'].includes("
+        "getComputedStyle(document.querySelector('.allpvs-body')).overflowX)"
+    )
+    headers = host.evaluate(
+        """() => {
+            const area = document.querySelector('.allpvs-body');
+            const heads = [...document.querySelectorAll('.allpvs-table thead th')]
+                .filter(th => th.textContent.trim());
+            return heads.map(th => {
+                th.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                const box = th.getBoundingClientRect();
+                const frame = area.getBoundingClientRect();
+                const scrolled = [];
+                for (let el = area.parentElement; el; el = el.parentElement) {
+                    if (el.scrollLeft) scrolled.push(el.className || el.tagName);
+                }
+                return {
+                    name: th.textContent.trim(),
+                    inside: box.left >= frame.left - 1 && box.right <= frame.right + 1
+                        && box.left >= 0 && box.right <= document.documentElement.clientWidth,
+                    scrolled,
+                    pageX: window.scrollX,
+                };
+            });
+        }"""
+    )
+    host.locator(f"{ROWS} input[type=checkbox]").first.check()
+    host.wait_for_selector(".allpvs-selection-bar")
+    assert host.evaluate(
+        "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth"
+    ), "the selection bar widens the panel"
+    names = [header["name"] for header in headers]
+    assert names == ["Name", "Description", "Value", "Alarm", "Record", "IOC"], names
+    for header in headers:
+        assert header["inside"], header
+        assert header["scrolled"] == [] and header["pageX"] == 0, header
