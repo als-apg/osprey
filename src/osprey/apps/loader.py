@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from osprey.apps.errors import AppManifestError, Violation
-from osprey.apps.manifest import AppManifest, parse_manifest
+from osprey.apps.manifest import NO_HOOKS_MESSAGE, AppManifest, parse_manifest
 from osprey.apps.origin import (
     MANIFEST_FILE,
     AppOrigin,
@@ -216,6 +216,7 @@ def check_deployment(root: Path) -> DeploymentApps:
     if manifests:
         _refuse_unbuildable_services(root, manifests, host)
         _refuse_missing_skills(root, manifests)
+        _refuse_hooks(root, manifests)
     dependencies = list(host.dependencies or [])
     check_pins(deployment_packages(root, dependencies, apps=host.apps), framework_pins())
     refuse_shadowed_packages(
@@ -461,6 +462,50 @@ def _refuse_unbuildable_services(
                     "does not exist",
                 )
             )
+    if found:
+        raise AppManifestError.from_violations(found)
+
+
+def _refuse_hooks(root: Path, manifests: tuple[AppManifest, ...]) -> None:
+    """Refuse every place an application could bring hook code into the operator session.
+
+    A ``hooks/`` directory at the application root, a ``.claude/`` directory anywhere
+    under it (a settings file there can carry hooks), and a ``hooks`` key in a listed
+    skill's frontmatter. An unlisted skill is never installed, so it is not read. The
+    directory is the one the manifest came from.
+    """
+    from osprey.cli.validate_claude_artifacts import _parse_frontmatter
+
+    found: list[Violation] = []
+    for manifest in manifests:
+        origin = origin_of(manifest, root)
+        app_dir = origin.directory
+        home = f"{APPS_DIRNAME}/{manifest.name}"
+        carriers = [app_dir / "hooks"] if (app_dir / "hooks").is_dir() else []
+        carriers += sorted(p for p in app_dir.rglob(".claude") if p.is_dir())
+        for carrier in carriers:
+            relative = carrier.relative_to(app_dir).as_posix()
+            source = origin.manifest_source if origin.installed else home
+            found.append(
+                Violation(manifest.name, relative, "no_hooks", NO_HOOKS_MESSAGE, source=source)
+            )
+        for skill in manifest.skills:
+            relative = f"skills/{skill}/SKILL.md"
+            skill_file = app_dir / relative
+            if not skill_file.is_file():
+                continue
+            frontmatter = _parse_frontmatter(skill_file.read_text(encoding="utf-8"))
+            if "hooks" in (frontmatter or {}):
+                source = origin.manifest_source if origin.installed else f"{home}/{relative}"
+                found.append(
+                    Violation(
+                        manifest.name,
+                        f"skills.{skill}.hooks",
+                        "no_hooks",
+                        NO_HOOKS_MESSAGE,
+                        source=source,
+                    )
+                )
     if found:
         raise AppManifestError.from_violations(found)
 

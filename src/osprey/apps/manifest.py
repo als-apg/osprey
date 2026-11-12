@@ -50,6 +50,13 @@ _FRAGMENT_KEYS = ("binds", "volumes", "env_file", "depends_on", "ports")
 
 _PANEL_PREFIX = "/panel"
 
+#: Why an application may not carry a hook, and what it declares instead.
+NO_HOOKS_MESSAGE = (
+    "apps ship no hook code: declare the fact in app.yml "
+    "(`tools.approval` for a write, `tools.deny_in_jobs` for a job-only refusal, "
+    "`tools.errors` for the agent's guidance) and OSPREY's hooks act on it"
+)
+
 Slug = Annotated[str, StringConstraints(pattern=APP_NAME_PATTERN)]
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
 EnvName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
@@ -331,6 +338,13 @@ class AppManifest(_Strict):
         """Record where the loader found this manifest, and return it."""
         self._origin = origin
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_hooks(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "hooks" in data:
+            raise PydanticCustomError("no_hooks", NO_HOOKS_MESSAGE, {"at": "hooks"})
+        return data
 
     @model_validator(mode="before")
     @classmethod
