@@ -57,6 +57,7 @@ def test_modules_keeps_a_path_that_is_gone() -> None:
 
 
 GLOBBED = check.Lane("glob-e2e", "containers", ("tests/e2e/**",), modules=("tests/e2e/x_*.py",))
+EMPTY = check.Lane("empty-e2e", "containers", ("tests/e2e/**",), modules=())
 
 
 @pytest.mark.parametrize(
@@ -65,12 +66,13 @@ GLOBBED = check.Lane("glob-e2e", "containers", ("tests/e2e/**",), modules=("test
         ("no-such-lane", "0 lanes have the id"),
         ("e2e-tests", "names no module list"),
         ("glob-e2e", "names no module list"),
+        ("empty-e2e", "names no module list"),
     ],
-    ids=["unknown", "no-modules", "globs"],
+    ids=["unknown", "no-modules", "globs", "empty"],
 )
 def test_modules_refuses_a_lane_with_no_list_of_plain_paths(lane_id: str, refusal: str) -> None:
     with pytest.raises(ValueError, match=refusal):
-        lane.modules(lane_id, (*check.LANES, GLOBBED))
+        lane.modules(lane_id, (*check.LANES, GLOBBED, EMPTY))
 
 
 def test_modules_prints_one_path_per_line(capsys: pytest.CaptureFixture[str]) -> None:
@@ -85,6 +87,33 @@ def test_modules_takes_exactly_one_lane_with_a_list(argv: list[str]) -> None:
     with pytest.raises(SystemExit) as exited:
         lane.main(argv)
     assert exited.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("argv", "refusal"),
+    [
+        (["ignores"], "derived no --ignore list"),
+        (["modules", "empty-e2e"], "lane 'empty-e2e' names no module list"),
+    ],
+    ids=["ignores", "modules"],
+)
+def test_an_empty_list_exits_non_zero(
+    argv: list[str],
+    refusal: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Handed no list, the shared lane would run every module and the model-free
+    lane would collect the whole tree; the step's ``bash -e`` stops on the exit
+    status instead. An empty tree empties ``ignores``, ``EMPTY`` ``modules``."""
+    monkeypatch.setattr(check, "repository_files", list)
+    monkeypatch.setattr(check, "LANES", (*check.LANES, EMPTY))
+    with pytest.raises(SystemExit) as exited:
+        lane.main(argv)
+    assert exited.value.code == 2
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert refusal in err
 
 
 @pytest.mark.parametrize(
@@ -112,10 +141,15 @@ def test_the_shared_sweep_brings_up_no_stack_a_lane_owns() -> None:
     assert set(lane.stacks(FILES, "")).isdisjoint(owned)
 
 
+@pytest.mark.parametrize("files", [None, []], ids=["no-project", "no-module"])
 def test_stacks_prints_nothing_when_no_module_names_a_project(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    files: list[str] | None, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An empty line would reach the cleanup script as one empty project name."""
+    """An empty line would reach the cleanup script as one empty project name.
+    Nothing to remove is no error, unlike an empty ``ignores`` or ``modules``:
+    the cleanup step reads an empty result as none."""
     monkeypatch.setenv("E2E_FILTER", "tests/e2e/test_rf_cavity_correlation_scenario.py")
+    if files is not None:
+        monkeypatch.setattr(check, "repository_files", lambda: files)
     assert lane.main(["stacks"]) == 0
     assert capsys.readouterr().out == ""

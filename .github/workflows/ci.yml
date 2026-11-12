@@ -1016,9 +1016,8 @@ jobs:
           # Every module another lane hosts (or no CI job runs) is left out; the LANES tables
           # in scripts/repo_checks.py are the one list, and the step prints what it derived.
           python3 scripts/ci/e2e_shared_lane.py ignores > "$RUNNER_TEMP/e2e-ignores"
+          # The script refuses an empty list, and bash -e ends the step on its exit.
           mapfile -t ignores < "$RUNNER_TEMP/e2e-ignores"
-          # No list would run every dedicated lane's modules here too.
-          [ "${#ignores[@]}" -gt 0 ] || { echo "::error::derived no --ignore list"; exit 1; }
           # -n 4 --dist loadfile: real-LLM round-trips at near-zero CPU.
           uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
             -p no_skips --no-skips-message "✅ the E2E suite ran" --no-skips-allow-partial \
@@ -1071,7 +1070,6 @@ jobs:
         # modules in the LANES table of scripts/repo_checks.py.
         python3 scripts/ci/e2e_shared_lane.py modules e2e-no-model > "$RUNNER_TEMP/e2e-modules"
         mapfile -t modules < "$RUNNER_TEMP/e2e-modules"
-        [ "${#modules[@]}" -gt 0 ] || { echo "::error::derived no model-free modules"; exit 1; }
         uv run pytest "${modules[@]}" \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           -p no_skips --no-skips-message "✅ every model-free E2E test ran; none skipped"

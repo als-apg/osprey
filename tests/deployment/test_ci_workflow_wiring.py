@@ -4009,9 +4009,6 @@ def test_only_the_model_free_lane_files_carry_the_marker(workflow: dict[str, Any
 #: How the model-free step derives its paths: the lane's modules, read at run time.
 NO_MODEL_MODULES_CMD = f"python3 scripts/ci/e2e_shared_lane.py modules {NO_MODEL_JOB}"
 NO_MODEL_SPLICE = 'uv run pytest "${modules[@]}"'
-_EMPTY_MODULES_REFUSAL = re.compile(
-    r'\[ "\$\{#modules\[@\]\}" -gt 0 \] \|\| \{ echo "::error::[^"]+"; exit 1; \}'
-)
 
 
 def _model_free_step_problems(wf: dict[str, Any]) -> list[str]:
@@ -4019,14 +4016,11 @@ def _model_free_step_problems(wf: dict[str, Any]) -> list[str]:
     run = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"]
     asked = re.search(rf"{re.escape(NO_MODEL_MODULES_CMD)}\s", run)
     derive, splice = asked.start() if asked else -1, run.find(NO_MODEL_SPLICE)
-    refusal = _EMPTY_MODULES_REFUSAL.search(run)
     problems = []
     if derive < 0:
         problems.append(f"does not run {NO_MODEL_MODULES_CMD!r}")
     if splice < 0:
         problems.append("hands pytest no derived list")
-    if refusal is None or not derive < refusal.start() < splice:
-        problems.append("runs an empty list instead of refusing it")
     if named := [token for token in run.split() if token.startswith("tests/")]:
         problems.append(f"names {named} itself")
     return problems
@@ -4034,18 +4028,14 @@ def _model_free_step_problems(wf: dict[str, Any]) -> list[str]:
 
 def test_model_free_step_runs_its_lanes_modules(workflow: dict[str, Any]) -> None:
     """The step takes its paths from the lane, as the shared lane takes its
-    ``--ignore`` list, and refuses an empty one: pytest handed no path collects
-    the whole tree, where every test not marked ``model_free`` is refused."""
+    ``--ignore`` list. Handed no path, pytest would collect the whole tree, and
+    the conftest's provider refusal would not stop it: ci.yml names
+    ``OSPREY_E2E_PROVIDER`` workflow-wide. So an empty list never gets there:
+    the script refuses a lane that names no modules and ``bash -e`` ends the
+    step (tests/scripts/test_e2e_shared_lane.py), and the marker tests above
+    red on a lane emptied while its modules keep ``model_free``. Past both,
+    only the lane's ``-p no_skips`` gate would red the run, at its end."""
     assert _model_free_step_problems(workflow) == []
-
-
-def test_model_free_step_runs_its_lanes_modules__mutation_drops_the_refusal() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
-    refusal = _EMPTY_MODULES_REFUSAL.search(step["run"])
-    assert refusal, "the step refuses no empty list; stale"
-    step["run"] = step["run"].replace(refusal.group(), "")
-    assert _model_free_step_problems(mutated) == ["runs an empty list instead of refusing it"]
 
 
 def test_model_free_step_runs_its_lanes_modules__mutation_asks_another_lane() -> None:
