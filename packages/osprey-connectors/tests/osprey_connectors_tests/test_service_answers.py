@@ -168,6 +168,13 @@ def test_the_counts_are_derived_from_the_rows_and_cannot_be_passed():
         AlarmStates(rows=rows, stale=False, last_contact=None, counts={"OK": 9})  # type: ignore[call-arg]
 
 
+def test_a_severity_that_is_not_text_is_counted_under_its_text():
+    rows = (_row("A", "MAJOR"), _row("B", 3), _row("C", 3))  # type: ignore[arg-type]
+    states = AlarmStates(rows=rows, stale=False, last_contact=None)
+
+    assert dict(states.counts) == {"3": 2, "MAJOR": 1}
+
+
 def test_the_list_converts_to_the_json_shape_with_its_counts():
     states = AlarmStates(rows=(_row("A", "MINOR"),), stale=False, last_contact="t")
 
