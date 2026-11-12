@@ -202,6 +202,8 @@ export function createGraphStage(host, { onSelect, onFocus, onRelayout, onMenu }
       svg('defs', {}, markers),
       viewport,
     ]);
+    // The stage pans and drags on pointer events, so a touch must not scroll the page.
+    surface.style.touchAction = 'none';
     statusEl = el('div', { class: 'okf-graph-status', role: 'status' });
     host.replaceChildren(surface, statusEl, el('div', { class: 'okf-graph-hint', text: HINT }));
 

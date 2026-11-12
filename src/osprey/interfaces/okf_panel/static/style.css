@@ -560,7 +560,6 @@ label.okf-graph-legend-row:hover {
   height: 100%;
   cursor: grab;
   user-select: none;
-  touch-action: none;
 }
 
 .okf-graph-svg:active {
