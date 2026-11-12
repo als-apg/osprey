@@ -111,11 +111,13 @@ import { state } from './state.js';
  */
 
 /**
+ * `guidance` and `displays` come as the alarm server keeps them (a list of
+ * `{title, details}`, a string, or null); alarm-text.js reads them as text.
  * @typedef {{
  *   in_tree: 'yes'|'no'|'unknown',
  *   path: string|null,
- *   guidance: string|null,
- *   displays: string|null,
+ *   guidance: unknown,
+ *   displays: unknown,
  *   enabled: boolean|null,
  *   latching: boolean|null,
  *   label: 'live configuration'|'last logged configuration',

@@ -121,8 +121,8 @@
         "record": {
           "in_tree": "yes",
           "path": "/Demo/BPM/DEMO:BPM01:X",
-          "guidance": null,
-          "displays": null,
+          "guidance": [{"title": "Response", "details": "Check cavity 1 cooling water flow and the tuner position before re-enabling RF."}],
+          "displays": [{"title": "RF cavity 1", "details": "rf/cavity_01.bob"}],
           "enabled": true,
           "latching": true,
           "label": "live configuration"
