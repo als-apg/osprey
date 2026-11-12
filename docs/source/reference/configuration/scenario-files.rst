@@ -165,8 +165,9 @@ Channel faults
 A disconnected setpoint's readback is the disconnected reading. A setpoint
 that is its own readback reads its demand and reports ``udf`` itself.
 
-A channel fault holds in both venues of the simulator (:ref:`va-two-venues`). ``offline``, a read
-that never answers, is not one of these faults.
+A channel fault holds in both venues of the simulator
+(:ref:`va-two-venues`). ``offline``, a read that never answers, is not one of
+these faults.
 
 On an injection chain (:ref:`va-injection-chain`) a ``stuck`` or
 ``disconnected`` request starts no shot, and a ``frozen`` reading raises no

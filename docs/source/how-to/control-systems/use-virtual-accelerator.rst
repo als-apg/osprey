@@ -20,7 +20,7 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
    - Pointing a project at the Virtual Accelerator the stack already deploys
    - Moving a running deployment between the machines it describes
    - The simulator's two venues, and why plans go browse-only in process
-   - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
+   - Applying, stilling and writing simulator scenarios
    - Write limits
    - The stored archive the stack deploys, and the one pairing it refuses
 
@@ -770,7 +770,7 @@ The demo preset ships seven scenarios in
      - What it shows
    * - ``nominal``
      - All systems nominal. It carries the background logbook narrative of
-       the weeks before the demo and is always in the active set.
+       the weeks before the demo.
    * - ``rf-thermal``
      - Three thermal excursions on cavity 1 in the week before an
        investigation. Each is a temperature rise, a reflected-power spike and
@@ -846,16 +846,14 @@ before anything is written, and the refusal names the target. Archive events
 are not a target: events of several scenarios on one channel combine, so
 ``[vacuum-burst, rf-thermal]`` composes.
 
-What a switch does in each venue
---------------------------------
+What a switch does to the running simulator
+-------------------------------------------
 
-``osprey sim apply <scenario>`` works the same in both venues. Applying a
-scenario writes the project's ``var/agent_data/simulation/active_scenarios``
-file; the in-container engine polls it and, within about a second, composed
-channel values reflect the new scenario. There is one behavioral difference
-between the venues. Served, a scenario switch only refreshes the engine-composed
-channels: setpoints you wrote during the session live in the IOC's own records
-and **survive** the switch. (In process, written values are reset.)
+``osprey sim apply <scenario>`` works the same in both venues (`Two venues`_).
+It writes the project's ``var/agent_data/simulation/active_scenarios`` file,
+and the simulator re-reads the file on its next pass (``simulation.tick_s``,
+1 s by default). The machine then starts again at the new set's start state:
+setpoints written during the session are dropped, served and in process alike.
 
 The served simulator's container mounts two directories:
 
@@ -878,7 +876,7 @@ A scenario file may define its own ``still``, which replaces the built-in one.
 ``still`` composes with overrides and faults. It is refused beside a scenario
 that sets the same reading's ``noise`` or ``couple``.
 
-``still`` holds in both venues of the simulator (`Two venues`_).
+``still`` holds in both venues.
 
 Write a scenario
 ----------------
