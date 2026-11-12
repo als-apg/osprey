@@ -14,6 +14,7 @@ import importlib
 import json
 import sys
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -1212,6 +1213,220 @@ async def test_an_ioc_without_a_configured_feed_carries_no_alarms(tmp_path: Path
     page = _facts(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
 
     assert "alarms" not in await page.ioc_facts("ioc-a")
+
+
+# -- the archive ----------------------------------------------------------------
+
+APPLIANCE = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
+
+
+class _Metadata:
+    """An ``ArchiverMetadata`` answer."""
+
+    def __init__(self, archived: bool | None, **fields: Any) -> None:
+        self.is_archived = archived
+        self.archival_start = fields.get("start")
+        self.archival_end = fields.get("end")
+        self.sampling_period = fields.get("period")
+        self.description = fields.get("description")
+
+
+class _Held:
+    """A ``store_extent`` answer."""
+
+    def __init__(self, channels: Any = None, reason: str | None = None, **times: Any) -> None:
+        self.channels = channels
+        self.oldest = times.get("oldest")
+        self.newest = times.get("newest")
+        self.reason = reason
+
+
+class FakeArchiver:
+    """An archiver connector answering ``metadata`` and ``held``; ``fail`` makes reads raise."""
+
+    metadata: Any = None
+    held: Any = None
+    fail = False
+
+    async def get_metadata(self, channel: str) -> Any:  # noqa: ARG002 - a fake
+        if self.fail:
+            raise RuntimeError("store down")
+        return self.metadata
+
+    async def store_extent(self) -> Any:
+        return self.held
+
+    async def disconnect(self) -> None:
+        pass
+
+
+@pytest.fixture
+def archiver(monkeypatch: pytest.MonkeyPatch) -> type[FakeArchiver]:
+    async def create(config: Any) -> FakeArchiver:  # noqa: ARG001 - the factory's signature
+        return FakeArchiver()
+
+    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", create)
+    monkeypatch.setattr(FakeArchiver, "metadata", _Metadata(None, description="cannot say"))
+    monkeypatch.setattr(FakeArchiver, "held", _Held(reason="this archiver does not say"))
+    monkeypatch.setattr(FakeArchiver, "fail", False)
+    return FakeArchiver
+
+
+def _archived(tmp_path: Path, section: Any = FACILITY, **display: Any) -> dict[str, Any]:
+    FakeDirectory.records = _records(
+        _record("SR:BPM1"), _record("SR:BPM2"), _record("SR:RF1", ioc="ioc-b")
+    )
+    config = _config(tmp_path, LIVE_BUILD, {**section, "display": display}, "SR:BPM1")
+    config["archiver"] = APPLIANCE
+    return config
+
+
+@pytest.mark.usefixtures("archiver")
+async def test_the_archive_section_follows_the_directory_only_with_an_archive(
+    tmp_path: Path,
+) -> None:
+    with_archive = _facts(_archived(tmp_path, {**FACILITY, "put_log": PUT_LOG}), tmp_path)
+    without = _facts(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    keys = [section["section"] for section in (await with_archive.pv_facts("SR:BPM1"))["sections"]]
+    plain = [section["section"] for section in (await without.pv_facts("SR:BPM1"))["sections"]]
+
+    assert keys == ["directory", "archive", "put_history"]
+    assert plain == ["directory"]
+
+
+@pytest.mark.usefixtures("archiver")
+async def test_an_archiver_that_cannot_say_answers_found_with_archived_null(tmp_path: Path) -> None:
+    page = _facts(_archived(tmp_path), tmp_path)
+
+    section = _sections(await page.pv_facts("SR:BPM1"))["archive"]
+
+    assert section["outcome"] == "found"
+    assert section["source"] == {
+        "target": "live",
+        "service": "epics_archiver",
+        "label": "epics_archiver",
+        "rehearsal": False,
+    }
+    assert section["caveats"] == []
+    assert section["record"] == {
+        "archived": None,
+        "first_sample": None,
+        "last_sample": None,
+        "sampling_period_s": None,
+        "description": "cannot say",
+    }
+
+
+async def test_an_archived_pv_answers_its_samples_in_utc(
+    tmp_path: Path, archiver: type[FakeArchiver]
+) -> None:
+    archiver.metadata = _Metadata(
+        True, start=datetime(2026, 11, 1), end=datetime(2026, 11, 12, 8, 0, 4), period=10.0
+    )
+    page = _facts(_archived(tmp_path), tmp_path)
+
+    record = _sections(await page.pv_facts("SR:BPM1"))["archive"]["record"]
+
+    assert record["archived"] is True
+    assert record["first_sample"] == "2026-11-01T00:00:00+00:00"
+    assert record["last_sample"] == "2026-11-12T08:00:04+00:00"
+    assert record["sampling_period_s"] == 10.0
+
+
+async def test_a_raised_archive_read_is_unavailable_with_its_reason(
+    tmp_path: Path, archiver: type[FakeArchiver]
+) -> None:
+    archiver.fail = True
+    page = _facts(_archived(tmp_path), tmp_path)
+
+    answer = await page.pv_facts("SR:BPM1")
+    section = _sections(answer)["archive"]
+
+    assert section["outcome"] == "unavailable"
+    assert section["reason"] == "the archive failed: RuntimeError"
+    assert answer["outcome"] == "found"
+
+
+async def test_a_raised_archive_read_never_serves_the_exception_text(
+    tmp_path: Path, archiver: type[FakeArchiver], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def leaking(self: FakeArchiver, channel: str) -> Any:  # noqa: ARG001 - a fake
+        raise ConnectionError("cannot reach https://reader:secret@archiver.example/mgmt")
+
+    monkeypatch.setattr(archiver, "get_metadata", leaking)
+    page = _facts(_archived(tmp_path), tmp_path)
+
+    section = _sections(await page.pv_facts("SR:BPM1"))["archive"]
+
+    assert section["reason"] == "the archive failed: ConnectionError"
+    assert "https://" not in str(section) and "secret" not in str(section)
+
+
+@pytest.mark.usefixtures("archiver")
+async def test_an_archive_on_another_target_says_not_available(
+    tmp_path: Path, record: _Record
+) -> None:
+    record.move("va", 1)
+    config = _config(tmp_path, VA_BUILD, {})
+    config["archiver"] = APPLIANCE
+    page = _facts(config, tmp_path)
+
+    section = _sections(await page.pv_facts("SR:BPM1"))["archive"]
+
+    assert section["outcome"] == "unavailable"
+    assert section["reason"] == _connectors.NO_SOURCE_REASON
+
+
+async def test_the_archive_summary_counts_the_directory_per_ioc(
+    tmp_path: Path, archiver: type[FakeArchiver]
+) -> None:
+    archiver.held = _Held(
+        channels=frozenset({"SR:BPM1", "SR:RF1", "SR:GONE"}),
+        oldest=datetime(2026, 10, 13),
+        newest=datetime(2026, 11, 12, 8, 0, 4),
+    )
+    page = _facts(_archived(tmp_path), tmp_path)
+
+    summary = await page.archive_summary()
+
+    assert summary["outcome"] == "found"
+    assert summary["archived"] == {"count": 2, "of": 3}
+    assert summary["by_ioc"] == [
+        {"ioc": "ioc-a", "pvs": 2, "archived": 1},
+        {"ioc": "ioc-b", "pvs": 1, "archived": 1},
+    ]
+    assert "by_ioc_reason" not in summary
+    assert summary["newest_sample"] == "2026-11-12T08:00:04+00:00"
+    assert summary["oldest_sample"] == "2026-10-13T00:00:00+00:00"
+    assert summary["freshness_bound_s"] is None
+    assert summary["configuration"] == {"archiver": {"type": "epics_archiver"}}
+    assert summary["targets"] == [{"target": "live", "archive": True}]
+
+
+@pytest.mark.usefixtures("archiver")
+async def test_an_archive_that_cannot_list_its_channels_counts_nothing(tmp_path: Path) -> None:
+    page = _facts(_archived(tmp_path), tmp_path)
+
+    summary = await page.archive_summary()
+
+    assert summary["archived"] == {"count": None, "of": 3, "reason": "this archiver does not say"}
+    assert summary["by_ioc"] == []
+    assert summary["by_ioc_reason"] == "this archiver does not say"
+    assert summary["newest_sample"] is None
+
+
+async def test_above_the_filter_cap_the_summary_gives_the_caps_reason(
+    tmp_path: Path, archiver: type[FakeArchiver]
+) -> None:
+    archiver.held = _Held(channels=frozenset({"SR:BPM1"}))
+    page = _facts(_archived(tmp_path, filter_cap=2), tmp_path)
+
+    summary = await page.archive_summary()
+
+    reason = "too many results to filter (3); narrow the search"
+    assert summary["archived"] == {"count": None, "of": 3, "reason": reason}
+    assert summary["by_ioc_reason"] == reason
 
 
 # -- connectors without the PV directory modules -------------------------------

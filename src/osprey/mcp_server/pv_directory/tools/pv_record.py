@@ -35,7 +35,9 @@ async def pv_record(pvs: list[str]) -> str:
 
     For each address, one entry with every configured section: the directory
     record (its ``origin``: "curated", "directory" or "unknown", and its
-    properties), and, where the deployment configures them, alarm state, alarm
+    properties), and, where the deployment configures them, the archive's facts
+    (``archive``: whether the archive records the channel, ``null`` when the
+    archiver cannot say, its first and last sample), alarm state, alarm
     configuration, alarm history and put history. Each section has its own
     ``outcome``; a section with no answer is ``unavailable`` with its
     ``reason``. ``not_listed`` means the directory does not list that address,
