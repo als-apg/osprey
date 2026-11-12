@@ -226,6 +226,11 @@ export function renderSafety(payload, model) {
     );
   }
   const identity = payload.session?.identity ?? '';
+  // The model lists a subagent's calls under the call that started it; these read by time.
+  const byTime = (/** @type {ToolNode[]} */ calls) =>
+    [...calls].sort((a, b) => (Date.parse(a.ts) || 0) - (Date.parse(b.ts) || 0));
+  const approvalCards = byTime(model.approvals).map((n) => approvalCard(n, identity));
+  const gateRows = byTime(model.gated).map(gateRow);
   const allowed = model.tools.filter((n) => n.verdict === 'allowed').length;
   const denied = model.tools.filter((n) => n.verdict === 'denied').length;
   const approved = model.approvals.filter((n) => n.verdict === 'approved').length;
@@ -244,14 +249,13 @@ export function renderSafety(payload, model) {
     card('Denied', denied, denied ? 'Calls the rules refused.' : 'No call was refused.', 'err') +
     `</div>`;
   const approvals = model.approvals.length
-    ? heading('user', 'Approvals', model.approvals.length) +
-      model.approvals.map((n) => approvalCard(n, identity)).join('')
+    ? heading('user', 'Approvals', model.approvals.length) + approvalCards.join('')
     : '';
   const gated = model.gated.length
     ? `${heading('shield-check', 'Calls through a server gate', model.gated.length)}` +
       `<table class="act-table"><thead><tr><th>Time</th><th>Call</th><th>Arguments</th>` +
       `<th>Gate</th><th>Writes</th><th>Target</th><th>Decision</th></tr></thead>` +
-      `<tbody>${model.gated.map(gateRow).join('')}</tbody></table>`
+      `<tbody>${gateRows.join('')}</tbody></table>`
     : '';
   return `<div class="act-view">${cards}${approvals}${gated}</div>`;
 }

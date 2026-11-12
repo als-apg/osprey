@@ -835,6 +835,10 @@ pre.act-result {
   text-overflow: ellipsis;
 }
 
+.act-table td.act-name .act-srv {
+  margin-right: var(--space-2);
+}
+
 .act-table tr.row {
   cursor: pointer;
 }

@@ -363,6 +363,32 @@ def test_tool_calls_table_cells_do_not_overlap_at_1280(
         assert found["faults"] == []
 
 
+_NAME_GAP_JS = """
+() => [...document.querySelectorAll('table.act-table td.act-name')]
+  .filter((cell) => cell.querySelector('.act-srv'))
+  .map((cell) => {
+    const server = cell.querySelector('.act-srv').getBoundingClientRect();
+    const tool = cell.querySelector('.act-tool').getBoundingClientRect();
+    return Math.round(tool.left - server.right);
+  })
+"""
+
+
+@pytest.mark.usefixtures("record")
+@pytest.mark.parametrize("view", ["tools", "safety"])
+def test_table_sets_the_server_apart_from_the_tool_name(
+    tmp_path, monkeypatch, chromium_browser, view
+):
+    with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
+        page.goto(f"{url}/{view}", wait_until="load")
+        expect(page.locator("table.act-table td.act-name .act-srv").first).to_be_visible()
+
+        gaps = page.evaluate(_NAME_GAP_JS)
+
+        assert gaps, "no call of an MCP server in the table"
+        assert all(gap >= 6 for gap in gaps), gaps
+
+
 def test_unavailable_record_offers_try_again(tmp_path, monkeypatch, chromium_browser, record):
     record.unavailable = "record service down"
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):

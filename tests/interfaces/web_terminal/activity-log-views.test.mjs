@@ -12,7 +12,7 @@ import {
   renderSafety,
   renderTools,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-log-views.js';
-import { call, dom, payload, texts, uiState } from '../_support/activity-log.mjs';
+import { APPROVAL, call, dom, payload, texts, uiState } from '../_support/activity-log.mjs';
 import { qs } from '../_support/dom.mjs';
 import { stampFacilityZone } from '../_support/facility-zone.mjs';
 
@@ -186,6 +186,26 @@ describe('renderSafety', () => {
     expect(texts(rows[0], 'td')[3]).toBe('controls');
     expect(texts(rows[1], 'td')[3]).toBe('bluesky');
     expect(texts(safety, '.act-h2 .osprey-count')).toContain('2');
+  });
+
+  test('gated calls and approvals read in time order, whichever agent made them', () => {
+    const trail = [
+      { ts: '2026-11-12T10:00:09+00:00', surface: 'controls', decision: 'allowed', reason: '' },
+    ];
+    const gate = { server: 'controls', tool: 'channel_write', trail, approval: APPROVAL };
+    const late = call('late', { ...gate, ts: '2026-11-12T10:00:09+00:00', agent: 'explorer' });
+    const agent = call('a1', {
+      tool: 'Agent',
+      sub: { id: 'agent-1', type: 'explorer', description: '', ms: null, children: [late] },
+    });
+    const early = call('early', { ...gate, ts: '2026-11-12T10:00:03+00:00' });
+    const safety = view(renderSafety, sessionOf([agent, early]));
+    const jumps = (/** @type {string} */ selector) =>
+      [...safety.querySelectorAll(selector)].map(
+        (el) => /** @type {HTMLElement} */ (el).dataset.jump
+      );
+    expect(jumps('table.act-table tr.row')).toEqual(['early', 'late']);
+    expect(jumps('.act-approval button[data-jump]')).toEqual(['early', 'late']);
   });
 
   test('gate entries without any approval', () => {

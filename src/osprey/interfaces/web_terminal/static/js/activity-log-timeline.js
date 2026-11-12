@@ -229,9 +229,10 @@ function steps(nodes, key, ui) {
 /**
  * What a turn cost: its model requests, at any depth.
  * @param {ActivityNode[]} nodes
+ * @param {string} label  what the requests belong to
  * @returns {string} `''` for a turn with no model request on record
  */
-function turnFooter(nodes) {
+function turnFooter(nodes, label) {
   let requests = 0;
   let cost = 0;
   let ms = 0;
@@ -243,7 +244,7 @@ function turnFooter(nodes) {
   });
   if (!requests) return '';
   const text =
-    `Turn: ${count(requests, 'model request')}, ${formatDuration(ms)} model time, ` +
+    `${label}: ${count(requests, 'model request')}, ${formatDuration(ms)} model time, ` +
     `$${cost.toFixed(2)}`;
   return (
     `<div class="act-row act-turn-foot" data-kind="note"><span class="act-t"></span>` +
@@ -264,7 +265,9 @@ function turns(payload, ui) {
   return turnsOf(payload.nodes)
     .map((turn, index) => {
       const shown = talk ? turn.nodes.filter((node) => node.t === 'answer') : turn.nodes;
-      const rows = steps(shown, `t${index}`, ui) + (talk ? '' : turnFooter(turn.nodes));
+      // What the record holds ahead of the first prompt is not a turn of the session.
+      const label = turn.prompt ? 'Turn' : 'Before the first prompt';
+      const rows = steps(shown, `t${index}`, ui) + (talk ? '' : turnFooter(turn.nodes, label));
       return (
         `<section class="act-turn">${turn.prompt ? promptBlock(turn.prompt, identity) : ''}` +
         `${rows ? `<div class="act-steps">${rows}</div>` : ''}</section>`

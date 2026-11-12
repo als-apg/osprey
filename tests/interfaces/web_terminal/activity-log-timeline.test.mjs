@@ -164,6 +164,26 @@ describe('renderTimeline', () => {
     ]);
   });
 
+  test('model requests before the first prompt are not called a turn', () => {
+    const timeline = view(
+      renderTimeline,
+      payload(
+        {},
+        {
+          nodes: [
+            { t: 'usage', ts: '2026-11-12T09:59:46+00:00', cost: 0.000224, ms: 2053 },
+            { t: 'prompt', ts: '2026-11-12T10:00:00+00:00', text: 'Go' },
+            { t: 'usage', ts: '2026-11-12T10:00:04+00:00', cost: 0.03, ms: 3880 },
+          ],
+        }
+      )
+    );
+    expect(texts(timeline, '.act-turn-foot')).toEqual([
+      'Before the first prompt: 1 model request, 2.1 s model time, $0.00',
+      'Turn: 1 model request, 3.9 s model time, $0.03',
+    ]);
+  });
+
   test('a run of task-list calls folds into one row', () => {
     const p = sessionOf([
       call('t1', { name: 'TaskCreate', tool: 'TaskCreate' }),
