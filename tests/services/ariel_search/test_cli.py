@@ -2073,7 +2073,9 @@ class TestSilentStore:
     """Every ``osprey ariel`` command gives the store the same stated deadline."""
 
     @pytest.mark.wallclock
-    @pytest.mark.parametrize("args", [["status"], ["migrate"], ["purge", "--yes"]])
+    @pytest.mark.parametrize(
+        "args", [["status"], ["migrate"], ["purge", "--yes"], ["search", "beam current"]]
+    )
     def test_a_silent_store_ends_the_command_with_its_name_and_the_deadline(
         self, monkeypatch, args
     ):

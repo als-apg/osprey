@@ -1846,11 +1846,13 @@ async def resync_qmd_mirror_best_effort(
     config: ARIELConfig | None = None,
     store_deadline_s: float | None = None,
 ) -> QmdResyncResult | None:
-    """Run :func:`run_qmd_resync` as a pre-step that cannot fail its caller.
+    """Run :func:`run_qmd_resync` as a pre-step whose mirror problems do not fail its caller.
 
     Ingest and watch run this before doing their own work. Their job is getting
     entries into Postgres; a mirror that cannot be written is worth a warning,
-    not an aborted ingestion.
+    not an aborted ingestion. A store that does not answer within the caller's
+    deadline is not a mirror problem: the caller's own open would wait on the
+    same store, so it stops the caller.
 
     Args:
         config_dict: Raw ``ariel`` config section.
@@ -1859,14 +1861,17 @@ async def resync_qmd_mirror_best_effort(
 
     Returns:
         The pass result, or ``None`` when the module is disabled or the pass
-        failed.
+        failed. A silent store returns nothing: :class:`StoreSilentError`
+        stops the caller.
     """
-    from osprey.services.ariel_search.exceptions import ModuleConfigError
+    from osprey.services.ariel_search.exceptions import ModuleConfigError, StoreSilentError
     from osprey_connectors.logger import get_logger
 
     try:
         result = await run_qmd_resync(config_dict, config=config, store_deadline_s=store_deadline_s)
     except ModuleConfigError:  # a configuration problem stops the caller too.
+        raise
+    except StoreSilentError:  # the caller's deadline passed: its caller reports it
         raise
     except Exception as e:  # a mirror problem must not stop ingestion.
         get_logger("ariel").warning(f"qmd mirror resync failed, continuing: {e}")
@@ -3151,7 +3156,7 @@ async def run_search(
         Result dict, or ``{"error": ...}`` when the search could not run.
     """
     from osprey.services.ariel_search import create_ariel_service
-    from osprey.services.ariel_search.exceptions import ConfigurationError
+    from osprey.services.ariel_search.exceptions import ConfigurationError, StoreSilentError
     from osprey.services.ariel_search.models import normalize_search_mode
 
     if not config_dict:
@@ -3193,6 +3198,8 @@ async def run_search(
     except ConfigurationError as e:
         # A configuration refusal names its own fix.
         return {"error": f"{e.message}. {e.remedy}" if e.remedy else e.message}
+    except StoreSilentError:  # the caller's deadline passed: its caller reports it
+        raise
     except Exception as e:
         msg = str(e)
         if "connection" in msg.lower() or "connect" in msg.lower():
