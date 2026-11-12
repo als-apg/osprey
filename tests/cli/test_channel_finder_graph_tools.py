@@ -49,6 +49,7 @@ _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 
 #: The ``pv-directory`` tools demo's section serves: no alarm log, no put log.
 _DEMO_PV_DIRECTORY_TOOLS = [
+    "mcp__pv-directory__active_alarms",
     "mcp__pv-directory__alarm_config",
     "mcp__pv-directory__alarm_state",
     "mcp__pv-directory__directory_properties",

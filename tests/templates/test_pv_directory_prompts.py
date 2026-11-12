@@ -98,6 +98,7 @@ def test_a_section_with_only_alarm_log_lists_history_and_config(tmp_path: Path) 
     assert "alarm_history" in tools
     assert "alarm_config" in tools
     assert "alarm_state" not in tools
+    assert "active_alarms" not in tools
     assert "put_history" not in tools
 
 
@@ -105,6 +106,7 @@ def test_a_section_with_only_alarm_state_names_no_put_history(tmp_path: Path) ->
     ctx = _context(tmp_path, {**_DIRECTORY, "alarm_state": _ALARM_STATE}, served=True)
     assert "put_history" not in ctx["pv_directory_tools"]
     assert "alarm_state" in ctx["pv_directory_tools"]
+    assert "active_alarms" in ctx["pv_directory_tools"]
     for template in (_MAIN, _APP, _SUBAGENT):
         assert "put_history" not in _render(template, ctx), template
 

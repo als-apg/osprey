@@ -816,6 +816,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         # or writes-check hook, permissions_ask stays empty and every tool is
         # auto-allowed. A gated tool's allow row follows its sub-block's key.
         permissions_allow=[
+            "active_alarms",
             "alarm_config",
             "alarm_history",
             "alarm_state",
@@ -827,6 +828,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         ],
         permissions_ask=[],
         optional_tools={
+            "active_alarms": OptionalTool("pv_directory_alarm_state"),
             "alarm_state": OptionalTool("pv_directory_alarm_state"),
             "alarm_history": OptionalTool("pv_directory_alarm_log"),
             "alarm_config": OptionalTool("pv_directory_alarm_config"),

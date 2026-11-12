@@ -294,6 +294,7 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
                 f"mcp__channel-finder__{t}"
                 for t in CHANNEL_FINDER_TOOLS_BY_PIPELINE["hierarchical"]
             ),
+            "mcp__pv-directory__active_alarms",
             "mcp__pv-directory__alarm_config",
             "mcp__pv-directory__alarm_state",
             "mcp__pv-directory__directory_properties",
