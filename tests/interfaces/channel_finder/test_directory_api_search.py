@@ -31,6 +31,7 @@ _COLUMNS = [
     "ioc",
     "host",
     "last_announced",
+    "alarm",
 ]
 #: The fixture page's row count: a page of this size comes back full.
 _PAGE_ROWS = len(_FIXTURE["search"]["rows"])
@@ -74,11 +75,16 @@ def _client(service: FakeService) -> TestClient:
     return TestClient(app)
 
 
+def _cell(row: dict[str, Any], column: str) -> str:
+    value = row.get(column)
+    if column == "alarm":
+        severity = (value or {}).get("severity")
+        return "" if severity in (None, "OK") else severity
+    return "" if value is None else str(value)
+
+
 def _expected_rows() -> list[list[str]]:
-    return [
-        ["" if row[column] is None else str(row[column]) for column in _COLUMNS]
-        for row in _FIXTURE["search"]["rows"]
-    ]
+    return [[_cell(row, column) for column in _COLUMNS] for row in _FIXTURE["search"]["rows"]]
 
 
 class TestSearch:
@@ -99,6 +105,8 @@ class TestSearch:
             ("ioc", "demo-ioc-rf"),
             ("record_type", "ai"),
             ("record_type", "calc"),
+            ("alarm", "MAJOR"),
+            ("alarm", "none"),
             ("page", "2"),
             ("page_size", "25"),
         ]
@@ -112,6 +120,7 @@ class TestSearch:
                 "origin": ("curated", "directory"),
                 "ioc": ("demo-ioc-bpm", "demo-ioc-rf"),
                 "record_type": ("ai", "calc"),
+                "alarm": ("MAJOR", "none"),
                 "page": 2,
                 "page_size": 25,
             }
@@ -129,6 +138,7 @@ class TestSearch:
                 "origin": (),
                 "ioc": (),
                 "record_type": (),
+                "alarm": (),
                 "page": 0,
                 "page_size": 50,
             }
@@ -156,7 +166,7 @@ class TestCount:
         resp = _client(service).get("/api/directory/count")
 
         assert resp.json() == _FIXTURE["count"]
-        assert service.counts == [{"words": ""}]
+        assert service.counts == [{"words": "", "alarm": ()}]
 
     def test_with_q_it_counts_the_words(self):
         service = FakeService()
@@ -164,7 +174,15 @@ class TestCount:
         resp = _client(service).get("/api/directory/count", params={"q": "BPM01"})
 
         assert resp.json() == _FIXTURE["count"]
-        assert service.counts == [{"words": "BPM01"}]
+        assert service.counts == [{"words": "BPM01", "alarm": ()}]
+
+    def test_an_alarm_filter_reaches_the_count(self):
+        service = FakeService()
+
+        params = [("q", "BPM01"), ("alarm", "MAJOR"), ("alarm", "MINOR")]
+        _client(service).get("/api/directory/count", params=params)
+
+        assert service.counts == [{"words": "BPM01", "alarm": ("MAJOR", "MINOR")}]
 
     def test_an_unavailable_count_carries_its_reason(self):
         resp = _client(FakeService(count=_UNAVAILABLE)).get("/api/directory/count")
@@ -184,6 +202,15 @@ class TestExport:
         assert lines[0] == [_FIXTURE["search"]["searched"]]
         assert lines[1] == _COLUMNS
         assert lines[2:] == _expected_rows()
+        assert [line[-1] for line in lines[2:]] == ["MAJOR", ""]
+
+    def test_an_alarm_filter_reaches_the_export(self):
+        service = FakeService()
+
+        _client(service).get("/api/directory/export.csv", params={"alarm": "none"})
+
+        assert service.counts[0]["alarm"] == ("none",)
+        assert service.searches[0]["alarm"] == ("none",)
 
     def test_within_the_filter_cap_one_search_fetches_the_whole_set(self):
         service = FakeService(total=120)
@@ -192,7 +219,7 @@ class TestExport:
         _client(service).get("/api/directory/export.csv", params=params)
 
         filters = {"words": "BPM01", "name": None, "origin": (), "ioc": ("demo-ioc-bpm",)}
-        filters["record_type"] = ()
+        filters.update(record_type=(), alarm=())
         assert service.counts == [filters]
         assert service.searches == [{**filters, "page": 0, "page_size": 120}]
 

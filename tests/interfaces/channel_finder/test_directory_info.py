@@ -28,6 +28,7 @@ from osprey.interfaces.channel_finder import directory_api
 from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
 from osprey.services.pv_directory import _connectors, service
 from osprey_connectors import control_context
+from osprey_connectors.alarm_state import AlarmStateRecord
 from osprey_connectors.directory import ChannelDirectory, DirectoryPage, DirectoryRow
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import Source
@@ -328,9 +329,12 @@ def test_the_fixture_search_is_a_directory_page() -> None:
     page = _routes()["search"]
     contract = {served: field for field, served in _connectors.SERVED_FIELD.items()}
     rows = [
-        DirectoryRow(**{contract.get(k, k): v for k, v in row.items() if k != "origin"})
+        DirectoryRow(
+            **{contract.get(k, k): v for k, v in row.items() if k not in ("origin", "alarm")}
+        )
         for row in page["rows"]
     ]
+    states = {row["name"]: AlarmStateRecord(**row["alarm"]) for row in page["rows"] if row["alarm"]}
     served = page["source"]
     source = Source(
         kind="directory",
@@ -341,7 +345,7 @@ def test_the_fixture_search_is_a_directory_page() -> None:
     rebuilt = DirectoryPage(**{**page, "source": source, "rows": rows})
     payload = _connectors.as_payload(rebuilt)
     payload["rows"] = [
-        service._served_row(row, served["origin"])
+        service._served_row(row, served["origin"], states)
         for row, served in zip(rows, page["rows"], strict=True)
     ]
 

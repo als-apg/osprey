@@ -9,6 +9,13 @@
       {
         "name": "DEMO:BPM01:X",
         "origin": "curated",
+        "alarm": {
+          "severity": "MAJOR",
+          "status": "HIGH_ALARM",
+          "latched": true,
+          "acknowledged": false,
+          "time": "2026-11-05T08:10:02.000Z"
+        },
         "status": "Active",
         "description": "BPM 01 horizontal position",
         "record_type": "ai",
@@ -19,6 +26,7 @@
       {
         "name": "DEMO:BPM01:HEARTBEAT",
         "origin": "directory",
+        "alarm": null,
         "status": "Inactive",
         "description": null,
         "record_type": "calc",
@@ -32,7 +40,8 @@
     "facets": {
       "origin": [{"value": "curated", "count": 1}, {"value": "directory", "count": 1}],
       "ioc": [{"value": "demo-ioc-bpm", "count": 2}],
-      "record_type": [{"value": "ai", "count": 1}, {"value": "calc", "count": 1}]
+      "record_type": [{"value": "ai", "count": 1}, {"value": "calc", "count": 1}],
+      "alarm": [{"value": "MAJOR", "count": 1}, {"value": "none", "count": 1}]
     },
     "facets_reason": null,
     "reason": null
