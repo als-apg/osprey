@@ -147,8 +147,9 @@ class ProfileProvenance:
     preset_hash: str
     """Content hash of that preset as resolved at materialization time."""
     providers_hash: str = ""
-    """Content hash of the ``providers.yml`` catalog written beside the profile
-    at materialization time
+    """Content hash of the packaged provider catalog the repo's
+    ``providers.yml`` last took: the one ``osprey init`` wrote it from, or
+    ``osprey init --revalidate`` last brought it up to
     (:func:`~osprey.profiles.providers.compute_providers_hash`). Empty for a
     profile emitted before the catalog became a sibling file — the catalog note
     is then simply not drawn, which is right: there is nothing to compare."""

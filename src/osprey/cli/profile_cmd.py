@@ -320,10 +320,6 @@ class _ProviderCatalogPlan(NamedTuple):
     """Provider name → entry, parsed. What the ``.env`` seeding reads to learn
     which environment variable each provider's key lives in."""
 
-    content_hash: str
-    """:func:`~osprey.profiles.providers.compute_providers_hash` of that content,
-    stamped into the emitted profile's ``provenance.providers_hash``."""
-
     carried: tuple[str, ...]
     """Entry names taken from the repo's existing catalog because the packaged
     one does not declare them — the operator's own gateways. Empty on a first
@@ -389,8 +385,8 @@ def _plan_provider_catalog(
             of them is added back.
 
     Returns:
-        The file content, its parsed entries, its hash, and the names carried
-        over (:class:`_ProviderCatalogPlan`).
+        The file content, its parsed entries, and the names carried over
+        (:class:`_ProviderCatalogPlan`).
 
     Raises:
         click.UsageError: The repo's existing catalog does not parse. Refusing
@@ -399,22 +395,13 @@ def _plan_provider_catalog(
             replacing it would drop gateways.
     """
 
-    from osprey.profiles.providers import (
-        compute_providers_hash,
-        load_provider_catalog,
-        packaged_catalog_path,
-    )
+    from osprey.profiles.providers import load_provider_catalog, packaged_catalog_path
 
     packaged_path = packaged_catalog_path()
     packaged_text = packaged_path.read_text(encoding="utf-8")
 
     def _packaged_only() -> _ProviderCatalogPlan:
-        return _ProviderCatalogPlan(
-            packaged_text,
-            dict(load_provider_catalog(None).entries),
-            compute_providers_hash(packaged_path),
-            (),
-        )
+        return _ProviderCatalogPlan(packaged_text, dict(load_provider_catalog(None).entries), ())
 
     previous = _previous_provider_catalog(target)
     if previous is None:
@@ -482,20 +469,19 @@ def _staged_provider_plan(
     existing_entries: Mapping[str, Any],
     carried: tuple[str, ...],
 ) -> _ProviderCatalogPlan:
-    """The plan for writing *text*, validated and hashed as every reader of the file sees it."""
+    """The plan for writing *text*, validated as every reader of the file sees it."""
     import tempfile
 
-    from osprey.profiles.providers import compute_providers_hash, load_provider_catalog
+    from osprey.profiles.providers import load_provider_catalog
 
-    # Staged rather than hashed in memory: the validation and the hash are the
-    # ones every other reader of a catalog file gets, over the exact bytes this
-    # repo is about to hold, so a merge that produced something unreadable
-    # fails here rather than at the next build.
+    # Staged rather than parsed in memory: the validation is the one every
+    # other reader of a catalog file gets, over the exact bytes this repo is
+    # about to hold, so a merge that produced something unreadable fails here
+    # rather than at the next build.
     with tempfile.TemporaryDirectory() as staging:
         staged = Path(staging) / PROVIDERS_FILENAME
         staged.write_text(text, encoding="utf-8")
         entries = dict(load_provider_catalog(Path(staging)).entries)
-        digest = compute_providers_hash(staged)
     if set(entries) != set(packaged_entries) | set(existing_entries):
         raise click.UsageError(
             f"Could not merge the provider catalog at {previous} with the one OSPREY "
@@ -503,7 +489,7 @@ def _staged_provider_plan(
             f"that file somewhere you can read it, re-run this command to get a fresh "
             f"`{PROVIDERS_FILENAME}`, then paste your own entries back into it."
         )
-    return _ProviderCatalogPlan(text, entries, digest, carried)
+    return _ProviderCatalogPlan(text, entries, carried)
 
 
 def _catalog_mapping(text: str) -> dict[str, Any]:
@@ -1881,7 +1867,6 @@ def _materialize_profile_directory(
         project_name=project_name,
         extra_layers=extra_layers,
         include_flow_diagram=True,
-        providers_hash=catalog.content_hash,
     )
 
     # The repo root is allowed to exist — it usually does (an empty clone, the

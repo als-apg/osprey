@@ -86,7 +86,11 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import CommentMark, YAMLError
 from ruamel.yaml.tokens import CommentToken
 
-from osprey.profiles.providers import PROVIDERS_FILENAME
+from osprey.profiles.providers import (
+    PROVIDERS_FILENAME,
+    compute_providers_hash,
+    packaged_catalog_path,
+)
 from osprey.utils.config_writer import _yaml as _ROUND_TRIP
 from osprey.utils.workspace import (
     APPS_DIRNAME,
@@ -1861,6 +1865,20 @@ def _restamp_header(text: str, preset: str, preset_hash: str) -> str:
     return "".join(lines)
 
 
+def _restamp_tier(text: str, item: Any) -> str:
+    """The tier *text* with its recorded hash brought to the installed tier's.
+
+    The hash is replaced where it stands, in ``provenance:`` and in the header
+    line that says the same in prose, so nothing else in the file moves. A
+    stamp that is not a hash OSPREY wrote is set through the document instead.
+    """
+    if item.recorded_hash.startswith("sha256:") and item.recorded_hash in text:
+        return text.replace(item.recorded_hash, item.installed_hash)
+    document = _load_text(text, item.rel)
+    document["provenance"]["preset_hash"] = item.installed_hash
+    return _dump_text(document)
+
+
 def _reference_document(preset: str, *, project_name: str, profile_name: str) -> CommentedMap:
     """The profile ``osprey init --preset <preset>`` would write, with comments.
 
@@ -2233,7 +2251,7 @@ def _remove_node(document: Any, path: tuple[Any, ...]) -> bool:
     as a key of their own. Any other list or mapping the removal empties stays,
     written ``[]`` or ``{}``.
     """
-    from .build_profile_emit import _drop_key_and_pre_comment
+    from .build_profile_emit import _append_trailing, _drop_key_and_pre_comment
 
     trail = _node_trail(document, path)
     if trail is None:
@@ -2243,14 +2261,25 @@ def _remove_node(document: Any, path: tuple[Any, ...]) -> bool:
         while depth and len(trail[depth][0]) == 1:
             depth -= 1
     container, key = trail[depth]
-    if isinstance(container, CommentedMap):
-        _drop_key_and_pre_comment(container, key)
+    if isinstance(container, (CommentedMap, CommentedSeq)):
+        orphaned = _drop_key_and_pre_comment(container, key)
     else:
+        orphaned = None
         del container[key]
     if not len(container) and isinstance(container, (CommentedMap, CommentedSeq)):
         # An empty block collection is dumped as `{}` or `[]` after whatever
         # comment its key is later handed, at column 0: not YAML.
         container.fa.set_flow_style()
+        if container is not document:
+            holder, held = trail[depth - 1] if depth else (document, path[0])
+            entry = holder.ca.items.get(held)
+            if entry and not entry[3]:
+                # The comment that stood above the first member, now none: left
+                # an empty list, it pads the `[]` and eats the line's end.
+                entry[3] = None
+            if orphaned is not None:
+                # The block introducing whatever follows the emptied collection.
+                _append_trailing(holder, held, orphaned)
     return True
 
 
@@ -2301,6 +2330,7 @@ def _apply_preset_changes(
     comments: dict[str, str] | None = None,
     skips: dict[str, str] | None = None,
     fill: bool = False,
+    switched: bool = False,
 ) -> _Applied:
     """Apply what the preset changed from *start* to today, where *document* left it alone.
 
@@ -2317,6 +2347,8 @@ def _apply_preset_changes(
             empty). Only a ``config:`` leaf ``profile.yml`` lacks is written;
             whatever else the file lacks or states differently goes to
             :attr:`_Applied.left` (:func:`_unrecorded`).
+        switched: With *fill*, whether that is because the repo has a saved
+            copy of another preset: the listed lines then name no missing one.
     """
     from .build_profile_updates import (
         flatten,
@@ -2348,7 +2380,7 @@ def _apply_preset_changes(
             # removed. The fill only ever wrote the `config:` keys of
             # profile.yml, so the rest is said, not written.
             if dotted is None or skips is None or dotted not in skips:
-                done.left.extend(_unrecorded(item, change, user, present, preset))
+                done.left.extend(_unrecorded(item, change, user, present, preset, switched))
             continue
         if kind == "added":
             if path in present:
@@ -2384,18 +2416,22 @@ def _unrecorded(
     user: dict[tuple[Any, ...], Any],
     present: set[tuple[Any, ...]],
     preset: str,
+    switched: bool = False,
 ) -> list[str]:
     """What the preset has at *change* that the file lacks or states differently, a line each.
 
     For a file no saved copy covers: the preset's change and the operator's
     own look the same, so neither is assumed. A value ``profile.yml`` states
     under ``config:`` is not listed: the fill has always kept those as the
-    operator's.
+    operator's. With *switched* the saved copy is of the preset the repo
+    followed before, and the lines do not say there is none.
     """
     from .build_profile_updates import ORDER, Member, render_path
     from .profile_conventions import library_entry_shadow
 
     kept = item.rel == PROFILE_FILENAME and change.path[0] == "config"
+    differs = "" if switched else " (no saved copy says which of the two changed)"
+    lacks = "" if switched else "no saved copy says which of the two changed, so "
     lines: list[str] = []
     listed: list[tuple[Any, ...]] = []
     for rel, value in change.new.items():
@@ -2419,15 +2455,13 @@ def _unrecorded(
             if not kept and full in user and user[full] != value:
                 lines.append(
                     f"{item.rel}: {render_path(full)}: the {preset} preset has "
-                    f"{_brief({(): value})}; yours is {_brief({(): user[full]})} "
-                    f"(no saved copy says which of the two changed)"
+                    f"{_brief({(): value})}; yours is {_brief({(): user[full]})}{differs}"
                 )
         elif node not in listed:
             listed.append(node)
             lines.append(
                 f"{item.rel}: {render_path(node)}: the {preset} preset has it and this file "
-                f"does not; no saved copy says which of the two changed, so add it by hand "
-                f"if you want it"
+                f"does not; {lacks}add it by hand if you want it"
             )
     return lines
 
@@ -3459,7 +3493,12 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     preset_hash = ""
     if resolved is not None:
         preset_hash = compute_preset_hash(resolved) or "(unavailable)"
-        _stamp_provenance(document, resolved, preset_hash, plan.content_hash)
+        # The packaged catalog's hash, not the repo file's: the saved copy
+        # written below records the packaged catalog, and that is what a later
+        # run compares the stamp with.
+        _stamp_provenance(
+            document, resolved, preset_hash, compute_providers_hash(packaged_catalog_path())
+        )
 
     # ── The saved copy: what the presets produce today ──────────────────────
     from .build_profile_updates import PRESET_BASE_DIR, saved_copy_texts
@@ -3571,9 +3610,11 @@ def _apply_presets(
     plan = None
     for item in covered:
         start, filled = starting_point(item, saved)
+        switched = False
         if filled and item.rel == PROFILE_FILENAME and recorded and recorded != preset:
             # Filled the same way, for another reason: no saved copy is of this preset.
             result.switched_from = recorded
+            switched = bool(saved)
         elif filled and item.rel == PROFILE_FILENAME:
             result.filled_once.append(item.rel)
         if item.rel == PROVIDERS_FILENAME:
@@ -3606,12 +3647,18 @@ def _apply_presets(
             comments=_config_comments(source) if source else None,
             skips=skips,
             fill=filled,
+            switched=switched,
         )
         result.applied.extend(done.applied)
         result.skipped.update(done.skipped)
         result.left_for_you.extend(done.left)
         if done.applied and item.rel != PROFILE_FILENAME:
             writes[item.rel] = _dump_text(target)
+        if item.rel.startswith(f"{TIERS_DIRNAME}/") and item.recorded_hash != item.installed_hash:
+            # The saved copy written below records today's tier, so the tier's
+            # own stamp says the same: without it, a repo that later loses its
+            # saved copy reads as holding a tier older than the installed one.
+            writes[item.rel] = _restamp_tier(_text_of(root, item.rel, {**texts, **writes}), item)
     for name in changed_apps(root, saved, digests=digests):
         result.left_for_you.append(
             f"{APPS_DIRNAME}/{name}/: the preset's copy of this application has changed since "

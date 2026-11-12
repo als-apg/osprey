@@ -745,8 +745,8 @@ def test_providers_from_before_the_saved_copy_keeps_yours_and_lists_what_it_lack
 def test_providers_refresh_is_in_the_diff_and_restamps_the_hash(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """The stamp describes the file the repo ends up holding, and the diff shows it."""
-    from osprey.profiles.providers import compute_providers_hash
+    """The stamp records the packaged catalog the file was brought up to, and the diff shows it."""
+    from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
 
     repo = tmp_path / "facility"
     _init(runner, repo, "hello-world")
@@ -765,7 +765,9 @@ def test_providers_refresh_is_in_the_diff_and_restamps_the_hash(
 
     assert f"+++ b/{PROVIDERS_FILENAME}" in result.output
     assert compute_providers_hash(catalog) != stale
-    assert _profile_data(profile)["provenance"]["providers_hash"] == compute_providers_hash(catalog)
+    assert _profile_data(profile)["provenance"]["providers_hash"] == compute_providers_hash(
+        packaged_catalog_path()
+    )
 
 
 def test_an_unparsable_catalog_refuses_with_the_repo_untouched(

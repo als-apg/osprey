@@ -10,9 +10,9 @@ re-run, and this module is where both are pinned.
   receives a corrected endpoint again; without the keep, re-running the command
   costs the operator their own gateways, which nothing else in the repo
   remembers.
-* The emitted profile stamps ``provenance.providers_hash`` over the catalog that
-  actually landed, so a later build can say the two documents have parted
-  without guessing which.
+* The emitted profile stamps ``provenance.providers_hash`` over the packaged
+  catalog the repo's file was written from, so a later build can say the
+  packaged catalog has moved on without guessing.
 
 The catalog's own loader, shape and hash are ``tests/profiles/test_providers_catalog.py``'s
 subject; what ``osprey init`` does with it is this module's.
@@ -96,14 +96,14 @@ def test_the_catalog_belongs_to_the_source_zone(runner: CliRunner, tmp_path: Pat
 
 
 def test_the_emitted_profile_stamps_the_catalog_hash(runner: CliRunner, tmp_path: Path) -> None:
-    """`provenance.providers_hash` is the machine-readable record of what the
-    catalog held when the profile was written, beside the preset's own hash."""
+    """`provenance.providers_hash` is the machine-readable record of the packaged
+    catalog the repo's file was written from, beside the preset's own hash."""
     target = tmp_path / "my-facility"
 
     assert _new(runner, target).exit_code == 0
 
     provenance = _provenance(target)
-    assert provenance["providers_hash"] == compute_providers_hash(target / PROVIDERS_FILENAME)
+    assert provenance["providers_hash"] == compute_providers_hash(packaged_catalog_path())
     assert provenance["providers_hash"].startswith("sha256:")
 
 
@@ -199,10 +199,12 @@ def test_force_refreshes_an_entry_osprey_ships(runner: CliRunner, tmp_path: Path
     assert "house-gateway" in entries
 
 
-def test_force_restamps_the_hash_over_the_merged_catalog(runner: CliRunner, tmp_path: Path) -> None:
-    """The stamp describes the file that ended up in the repo, not the packaged
-    copy — otherwise every repo with a gateway of its own reads as drifted the
-    moment it is re-initialized."""
+def test_force_stamps_the_packaged_catalog_not_the_merged_file(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The stamp is compared with the packaged catalog, so it records that one:
+    stamped over the merged file, every repo with a gateway of its own would
+    read as holding an older catalog the moment it lost its saved copy."""
     target = tmp_path / "my-facility"
     assert _new(runner, target).exit_code == 0
     _add_gateway(target)
@@ -210,8 +212,8 @@ def test_force_restamps_the_hash_over_the_merged_catalog(runner: CliRunner, tmp_
     assert _new(runner, target, "--force").exit_code == 0
 
     stamped = _provenance(target)["providers_hash"]
-    assert stamped == compute_providers_hash(target / PROVIDERS_FILENAME)
-    assert stamped != compute_providers_hash(packaged_catalog_path())
+    assert stamped == compute_providers_hash(packaged_catalog_path())
+    assert stamped != compute_providers_hash(target / PROVIDERS_FILENAME)
 
 
 def test_a_catalog_that_does_not_parse_refuses_the_re_init(

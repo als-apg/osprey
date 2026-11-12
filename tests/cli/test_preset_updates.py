@@ -697,3 +697,101 @@ def test_revalidate_digests_the_copied_applications_once(
     _revalidate(repo)
 
     assert len(calls) == 1
+
+
+# ── A removal takes the key's own comment and leaves its neighbours' ─────────
+
+
+@pytest.mark.parametrize("position", ["first", "middle", "last"])
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("config", "target"), "target: 1"),
+        (("config", "target"), "target:\n    - one\n    - two"),
+        (("config", "target.inner.leaf"), "target:\n    inner:\n      leaf: 1"),
+        (("config", "target", Member("two")), "target:\n    - one\n    # about two\n    - two"),
+    ],
+    ids=["scalar", "block-list", "nested-mapping", "last-list-member"],
+)
+def test_a_removed_key_takes_its_own_comment_and_leaves_the_next_keys(
+    path: tuple[Any, ...], value: str, position: str
+) -> None:
+    """ruamel hangs the comment above a key on whatever was written last before it."""
+    from osprey.cli.init_revalidate import _dump_text, _load_text, _remove_node
+
+    member = len(path) == 3
+    keys = {
+        "first": ["target", "b", "c"],
+        "middle": ["a", "target", "c"],
+        "last": ["a", "b", "target"],
+    }
+    blocks = [
+        f"  # about {key}\n  # in two lines\n  {value if key == 'target' else f'{key}: 0'}\n"
+        for key in keys[position]
+    ]
+    text = f"config:\n{''.join(blocks)}# about after\n# in two lines\nafter: 0\n"
+    document = _load_text(text, PROFILE)
+
+    assert _remove_node(document, path)
+
+    out = _dump_text(document)
+    kept = [key for key in keys[position] if member or key != "target"]
+    expected: dict[str, Any] = {"config": dict.fromkeys(kept, 0), "after": 0}
+    if member:
+        expected["config"]["target"] = ["one"]
+    assert yaml.safe_load(out) == expected
+    lines = out.splitlines()
+    for key in (*kept, "after"):
+        at = next(i for i, line in enumerate(lines) if line.strip().startswith(f"{key}:"))
+        assert [line.strip() for line in lines[at - 2 : at]] == [f"# about {key}", "# in two lines"]
+    gone = "# about two" if member else "# about target"
+    assert gone not in out
+    assert out.count("#") == 2 * (len(kept) + 1)
+
+
+# ── Once recorded, every hash is the installed source's ──────────────────────
+
+
+def test_a_saved_copy_deleted_after_revalidate_recorded_it_leaves_nothing_to_take(
+    repo: Path,
+) -> None:
+    """Deleting the saved copy is the advised repair for an unreadable one."""
+    from osprey.cli.profile_cmd import _catalog_entry_blocks
+
+    shutil.rmtree(repo / ".osprey")
+    _edit(repo / "tiers/admin.yml", "  preset_hash: sha256:", "  preset_hash: sha256:0ld")
+    catalog = repo / "providers.yml"
+    _edit(catalog, _catalog_entry_blocks(catalog.read_text(encoding="utf-8"))["vllm"], "")
+
+    first = _revalidate(repo)
+
+    assert "+++ b/tiers/admin.yml" in first.output
+    assert "0ld" not in (repo / "tiers/admin.yml").read_text(encoding="utf-8")
+    stale = {i.rel for i in covered_files(repo) if i.recorded_hash != i.installed_hash}
+    assert not stale
+    assert "already current; nothing to rewrite" in _revalidate(repo).output
+    shutil.rmtree(repo / ".osprey")
+    assert preset_update_status(repo / PROFILE).state is PresetUpdateState.UNTRACKED
+    assert not _presets_changed(repo)
+    assert LEFT not in _revalidate(repo).output
+    assert "preset has changed" not in _validate(repo).output
+
+
+# ── A preset switch says what the new preset has, and blames no missing record ─
+
+
+def test_a_preset_switch_lists_what_the_new_preset_has_without_naming_a_saved_copy(
+    repo: Path, tmp_path: Path
+) -> None:
+    older = tmp_path / "older"
+    shutil.copytree(repo, older)
+    shutil.rmtree(older / ".osprey")
+    _edit(older / PROFILE, "  preset_hash: sha256:", "  preset_hash: sha256:0ld")
+    _edit(older / PROFILE, PANEL, "")
+
+    switched = _left(_revalidate(repo, "--preset", "hello-world").output)
+
+    assert "the hello-world preset has it and this file does not" in switched
+    assert "saved copy" not in switched
+    # A repo with no saved copy still says why neither side is assumed.
+    assert "no saved copy says which of the two changed" in _left(_revalidate(older).output)

@@ -30,7 +30,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML, CommentedMap
+from ruamel.yaml import YAML, CommentedMap, CommentedSeq
 from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
@@ -1044,21 +1044,32 @@ def _set_pre_comment(cm: CommentedMap, key: Any, lines: list[str], indent: int) 
     entry[1] = (entry[1] or []) + tokens
 
 
-def _deepest_leaf(cm: CommentedMap, key: Any) -> tuple[CommentedMap, Any]:
-    """Return the map and key whose ca entry holds ``key``'s trailing block.
+def _deepest_leaf(cm: Any, key: Any) -> tuple[Any, Any]:
+    """Return the collection and key whose ca entry holds ``key``'s trailing block.
 
-    ruamel stores a trailing comment on the last key actually rendered under
-    ``key``, which is the deepest last leaf when ``key``'s value is a mapping.
+    ruamel stores a trailing comment on the last node actually rendered under
+    ``key``: the deepest last key or item when ``key``'s value is a block
+    mapping or a block list.
     """
-    container: CommentedMap = cm
-    leaf_key = key
-    while isinstance(container.get(leaf_key), CommentedMap) and len(container[leaf_key]) > 0:
-        container = container[leaf_key]
-        leaf_key = list(container.keys())[-1]
-    return container, leaf_key
+    container, leaf_key = cm, key
+    while True:
+        value = container[leaf_key]
+        if (
+            not isinstance(value, (CommentedMap, CommentedSeq))
+            or not len(value)
+            or value.fa.flow_style()
+        ):
+            return container, leaf_key
+        container = value
+        leaf_key = list(value.keys())[-1] if isinstance(value, CommentedMap) else len(value) - 1
 
 
-def _take_trailing(cm: CommentedMap, key: Any) -> str | None:
+def _trailing_slot(container: Any) -> int:
+    """Where a ca entry of *container* keeps the token a trailing block is part of."""
+    return 2 if isinstance(container, CommentedMap) else 0
+
+
+def _take_trailing(cm: Any, key: Any) -> str | None:
     """Detach and return the comment block ``key`` holds for its successor.
 
     ruamel packs a key's own end-of-line comment and every comment line up to
@@ -1067,27 +1078,30 @@ def _take_trailing(cm: CommentedMap, key: Any) -> str | None:
     """
     container, leaf_key = _deepest_leaf(cm, key)
     entry = container.ca.items.get(leaf_key)
-    if not entry or entry[2] is None:
+    slot = _trailing_slot(container)
+    if not entry or entry[slot] is None:
         return None
     # `entry` is ruamel's untyped ca list, so pin the token text to `str`
     # before splitting it — the three parts are what this returns.
-    first, sep, rest = str(entry[2].value).partition("\n")
+    first, sep, rest = str(entry[slot].value).partition("\n")
     if not sep or not rest.strip():
         return None
-    entry[2].value = first + "\n"
+    entry[slot].value = first + "\n"
     return rest
 
 
-def _append_trailing(cm: CommentedMap, key: Any, block: str) -> None:
+def _append_trailing(cm: Any, key: Any, block: str) -> None:
     """Render ``block`` after ``key``, keeping any block ``key`` already holds."""
-    entry = cm.ca.items.setdefault(key, [None, None, None, None])
-    if entry[2] is None:
-        entry[2] = CommentToken("\n" + block, CommentMark(0), None)
+    container, leaf_key = _deepest_leaf(cm, key)
+    entry = container.ca.items.setdefault(leaf_key, [None, None, None, None])
+    slot = _trailing_slot(container)
+    if entry[slot] is None:
+        entry[slot] = CommentToken("\n" + block, CommentMark(0), None)
     else:
-        entry[2].value += block
+        entry[slot].value += block
 
 
-def _drop_key_and_pre_comment(cm: CommentedMap, key: Any) -> None:
+def _drop_key_and_pre_comment(cm: Any, key: Any) -> str | None:
     """Delete ``key`` from ``cm`` together with the comment block above it.
 
     :func:`_sync_to_resolved` deletes a key the resolved profile does not carry
@@ -1097,16 +1111,22 @@ def _drop_key_and_pre_comment(cm: CommentedMap, key: Any) -> None:
     on its own behalf — the block is the key's own explanation and has to go
     with it, or the emitted file explains a key it does not contain.
 
-    The block the key holds for its SUCCESSOR still survives, moved onto the
-    predecessor exactly as the sync would have moved it.
+    The block the key holds for its SUCCESSOR still survives: moved onto the
+    predecessor exactly as the sync would have moved it, or, when the key was
+    the first, put above the key that is first now.
 
     Args:
-        cm: The document to edit, in place.
-        key: The key to remove. A no-op when it is absent.
+        cm: The mapping or list to edit, in place.
+        key: The key, or the list index, to remove. A no-op when it is absent.
+
+    Returns:
+        The successor's block when ``key`` was the only one, so nothing in
+        ``cm`` can hold it: it introduces whatever follows ``cm``, and only the
+        caller can reach that. ``None`` otherwise.
     """
-    keys = list(cm.keys())
+    keys = list(cm.keys()) if isinstance(cm, CommentedMap) else list(range(len(cm)))
     if key not in keys:
-        return
+        return None
     index = keys.index(key)
     successor_block = _take_trailing(cm, key)
     if index > 0:
@@ -1116,8 +1136,27 @@ def _drop_key_and_pre_comment(cm: CommentedMap, key: Any) -> None:
         _take_trailing(cm, predecessor)
         if successor_block is not None:
             _append_trailing(cm, predecessor, successor_block)
+            successor_block = None
+    else:
+        # The first key's introduction is the collection's own leading comment.
+        # Only the block directly above the key goes: what a blank line sets
+        # apart (a file header) is not about this key.
+        above = cm.ca.comment[1] if cm.ca.comment else None
+        while above and not str(above[-1].value).endswith("\n\n"):
+            above.pop()
     del cm[key]
-    cm.ca.items.pop(key, None)
+    if isinstance(cm, CommentedMap):
+        cm.ca.items.pop(key, None)
+    if successor_block is None or not len(cm):
+        return successor_block
+    lines = [line for line in successor_block.splitlines() if line.strip()]
+    indent = len(lines[0]) - len(lines[0].lstrip())
+    if not cm.ca.comment:
+        cm.ca.comment = [None, []]
+    cm.ca.comment[1].extend(
+        CommentToken(line.strip() + "\n", CommentMark(indent), None) for line in lines
+    )
+    return None
 
 
 def _relocate_trailing(cm: CommentedMap, old_last_key: Any, new_last_key: Any) -> None:
@@ -1459,7 +1498,6 @@ def emit_standalone_profile_yaml(
     profile_name: str,
     extra_layers: tuple[Mapping[str, Any], ...] = (),
     include_flow_diagram: bool = False,
-    providers_hash: str | None = None,
     *,
     project_name: str,
 ) -> str:
@@ -1483,13 +1521,6 @@ def emit_standalone_profile_yaml(
         include_flow_diagram: Embed the four-zone map and the edit → build → up
             loop in the generated header. Set for the main ``profile.yml``
             only; render siblings keep the compact header.
-        providers_hash: Content hash of the ``providers.yml`` the caller is
-            about to write beside this profile. ``osprey init`` passes the hash
-            of the catalog it materialized — which on a ``--force`` re-init
-            still carries the operator's own entries, so the stamp describes
-            the file that ends up in the repo rather than the packaged copy.
-            ``None`` stamps the packaged catalog, the right answer for every
-            caller that emits a profile without writing a catalog beside it.
 
     Returns:
         Complete ``profile.yml`` content: fully explicit (no ``extends:``),
@@ -1520,18 +1551,14 @@ def emit_standalone_profile_yaml(
     # they cannot disagree.
     normalized = base_anchor.stem
     preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
-    # The catalog stamp is the same kind of fact about a second file: what
-    # `providers.yml` held when this profile was written, so a later build can
-    # say the packaged catalog has moved on without guessing.
-    catalog_hash = (
-        providers_hash
-        if providers_hash is not None
-        else compute_providers_hash(packaged_catalog_path())
-    )
+    # The catalog stamp is the same kind of fact about a second file: the
+    # packaged catalog `providers.yml` was written from, so a later build can
+    # say the packaged catalog has moved on without guessing. Never the hash of
+    # the repo's own file, whose entries are the operator's to add and edit.
     resolved["provenance"] = {
         "preset": normalized,
         "preset_hash": preset_hash,
-        "providers_hash": catalog_hash,
+        "providers_hash": compute_providers_hash(packaged_catalog_path()),
     }
 
     # Defaults-synthesis: every EXPLICIT member the preset left unset is written
