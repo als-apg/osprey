@@ -36,9 +36,76 @@ from tests._vocabulary import (
     RETIRED_ROSTER_WORD,
     RETIRED_TWO_KIND_PHRASE,
     SITE_EXAMPLE_WORD,
+    Phrase,
+    fold_lines,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+# --- the fold a phrase row is matched over -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "folded"),
+    [
+        ("the tier\nor app", "the tier or app"),
+        ("# the tier\n# or app", "# the tier or app"),
+        ("    the tier\n    or app", "    the tier or app"),
+        ("// the tier\n  // or app", "// the tier or app"),
+        (" * the tier\n * or app", " * the tier or app"),
+        ("; the tier\n;or app", "; the tier or app"),
+        ("-- the tier\n-- or app", "-- the tier or app"),
+        (".. the tier\n.. or app", ".. the tier or app"),
+        ("> the tier\n> or app", "> the tier or app"),
+        ("| the tier\n| or app", "| the tier or app"),
+        ("\tthe tier\r\n\tor app", "\tthe tier or app"),
+    ],
+)
+def test_fold_lines_joins_a_wrapped_line(text: str, folded: str) -> None:
+    assert fold_lines(text).text == folded
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the tier\n\nAnd app",
+        "# the tier\n#\n# And app",
+        "the tier\n   \nAnd app",
+    ],
+)
+def test_fold_lines_keeps_a_break(text: str) -> None:
+    lines = [line for _, line in fold_lines(text).lines()]
+
+    assert len(lines) > 1
+    assert not any(re.search(r"tier\s+(?:And\s+)?app", line) for line in lines)
+
+
+@pytest.mark.parametrize("bullet", ["-", "+"])
+def test_fold_lines_keeps_a_list_bullet(bullet: str) -> None:
+    folded = fold_lines(f"{bullet} a tier\n{bullet} and an app")
+
+    assert folded.text == f"{bullet} a tier {bullet} and an app"
+    assert re.search(RETIRED_TWO_KIND_PHRASE, folded.text) is None
+
+
+def test_fold_lines_folds_one_prefix_only() -> None:
+    assert fold_lines("# the tier\n# # or app").text == "# the tier # or app"
+
+
+def test_fold_lines_maps_an_offset_to_its_original_line() -> None:
+    folded = fold_lines("one\n\n  # two\n  # three\nfour\n")
+
+    for word, line in [("one", 1), ("two", 3), ("three", 4), ("four", 5)]:
+        assert folded.line_at(folded.text.index(word)) == line
+    assert [line for _, line in folded.lines()] == ["one", "", "  # two three four", ""]
+    assert all(folded.text[start:].startswith(line) for start, line in folded.lines())
+
+
+def test_the_two_kind_row_is_a_phrase_and_the_word_rows_are_not() -> None:
+    assert isinstance(RETIRED_TWO_KIND_PHRASE, Phrase)
+    for row in (ENGINE_WORDS, RETIRED_ROSTER_WORD, SITE_EXAMPLE_WORD):
+        assert not isinstance(row, Phrase)
 
 
 def _planted_repo(root: Path, files: Mapping[str, str]) -> Path:
