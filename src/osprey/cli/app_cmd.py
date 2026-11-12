@@ -34,6 +34,10 @@ from osprey.apps.errors import AppManifestError, Violation
 from osprey.apps.manifest import APP_NAME_PATTERN, AppManifest
 from osprey.apps.origin import AppOrigin, origin_of
 from osprey.apps.rules import shadows_installed, taken_package
+from osprey.interfaces.design_system.panels.validator import (
+    PANEL_STYLESHEETS,
+    missing_stylesheets,
+)
 from osprey.utils.config_writer import load_config_document
 from osprey.utils.workspace import APPS_DIRNAME
 
@@ -52,10 +56,6 @@ JS_CHECK_DIR = _OSPREY_DIR / "apps" / "js_check"
 _DESIGN_SYSTEM_STATIC = _OSPREY_DIR / "interfaces" / "design_system" / "static"
 #: What ``/design-system/js`` resolves to under a panel's tests.
 _DESIGN_SYSTEM_JS = _DESIGN_SYSTEM_STATIC / "js"
-#: The design-system sheets every panel's ``index.html`` loads, as the framing serves them.
-PANEL_STYLESHEETS = tuple(
-    f"/design-system/css/{sheet}" for sheet in ("tokens.css", "base.css", "primitives.css")
-)
 
 _JS_SUFFIXES = (".js", ".mjs")
 _JS_TEST_SUFFIXES = (".test.js", ".test.mjs")
@@ -340,7 +340,7 @@ def _style_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
         index = app_dir / "panel" / "index.html"
         if not index.is_file():
             continue
-        links = _stylesheet_links(index.read_text(encoding="utf-8"))
+        html = index.read_text(encoding="utf-8")
         found += [
             Violation(
                 checked.name,
@@ -349,10 +349,9 @@ def _style_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
                 f"does not load {sheet}; a panel links {', '.join(PANEL_STYLESHEETS)}",
                 source=checked.origin.display("panel/index.html"),
             )
-            for sheet in PANEL_STYLESHEETS
-            if sheet not in links
+            for sheet in missing_stylesheets(html)
         ]
-        defined = _defined_classes(app_dir, links)
+        defined = _defined_classes(app_dir, _stylesheet_links(html))
         for rel, used in _used_classes(app_dir):
             if undefined := sorted(used - defined):
                 found.append(

@@ -516,7 +516,10 @@ def summarize_cli(package: Path) -> None:
         shown = " ".join(sorted(parameters, key=lambda p: p.startswith("--")))
         print(f"  osprey app {command} {shown}".rstrip())
         print(_wrap(_doc_line(node), "      "))
-    for line in _constants(tree, ("PANEL_STYLESHEETS", "_JS_TEST_SUFFIXES", "_NOT_AUTHORED_DIRS")):
+    for line in _constants(tree, ("_JS_TEST_SUFFIXES", "_NOT_AUTHORED_DIRS")):
+        print(line)
+    validator = _parse(package / "interfaces" / "design_system" / "panels" / "validator.py")
+    for line in _constants(validator, ("PANEL_STYLESHEETS",)) if validator is not None else []:
         print(line)
     sheet = package / "interfaces" / "design_system" / "static" / "css" / "primitives.css"
     if sheet.is_file():

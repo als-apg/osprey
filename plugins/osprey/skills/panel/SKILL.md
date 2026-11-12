@@ -195,7 +195,7 @@ If it raises, fix each reported `PanelRule` and re-run until it is silent:
 | `MANIFEST_MISSING` | no `manifest.json` in the dir | add it (Step 4) |
 | `MANIFEST_INVALID` | bad JSON, missing/empty/wrong-typed field, or `id` not a kebab slug | fix the manifest (Step 4) |
 | `ENTRY_MISSING` | the `entry` file doesn't exist on disk | create it, or fix the `entry` value |
-| `MISSING_DESIGN_SYSTEM_LINK` | entry HTML doesn't link `tokens.css` | add the `<link>` (Step 1) |
+| `MISSING_DESIGN_SYSTEM_LINK` | entry HTML doesn't link all three sheets: `tokens.css`, `base.css`, `primitives.css` | add the missing `<link>` (Step 1) |
 | `MISSING_THEME_BOOT` | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
 | `RAW_HEX_COLOR` | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
 
