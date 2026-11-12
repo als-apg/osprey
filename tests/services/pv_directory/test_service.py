@@ -567,6 +567,276 @@ async def test_an_alarm_filter_above_the_filter_cap_is_unavailable(tmp_path: Pat
     await directory.aclose()
 
 
+# -- the archive join -----------------------------------------------------------
+
+_APPLIANCE = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
+
+
+@dataclasses.dataclass(frozen=True)
+class _Held:
+    """A ``store_extent`` answer: the channels the store records, or unknown and why."""
+
+    channels: frozenset[str] | None = None
+    oldest: Any = None
+    newest: Any = None
+    reason: str | None = None
+
+
+class FakeArchiver:
+    """An archiver connector whose store records ``held``."""
+
+    held: Any = _Held(channels=frozenset())
+
+    def __init__(self) -> None:
+        self.disconnected = False
+
+    async def store_extent(self) -> Any:
+        return self.held
+
+    async def disconnect(self) -> None:
+        self.disconnected = True
+
+
+@pytest.fixture
+def archivers(monkeypatch: pytest.MonkeyPatch) -> list[FakeArchiver]:
+    """Every archiver connector the service builds, in order."""
+    made: list[FakeArchiver] = []
+
+    async def create(config: Any) -> FakeArchiver:
+        assert config == _APPLIANCE
+        made.append(FakeArchiver())
+        return made[-1]
+
+    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", create)
+    monkeypatch.setattr(FakeArchiver, "held", _Held(channels=frozenset({"SR:PV1", "SR:PV3"})))
+    return made
+
+
+def _archived_directory(tmp_path: Path, *, feed: bool = False, archive: bool = True) -> Any:
+    """Three rows on ``live``, an archive recording PV1 and PV3; PV1 MAJOR with *feed*."""
+    FakeDirectory.rows = [_row(f"SR:PV{i}", server="ioc-a") for i in (1, 2, 3)]
+    FakeAlarmState.held = {"SR:PV1": _MAJOR}
+    section = {**FACILITY, **({"alarm_state": _FEED} if feed else {})}
+    config = _config(tmp_path, LIVE_BUILD, section, "SR:PV1", "SR:PV2")
+    if archive:
+        config["archiver"] = _APPLIANCE
+    return _service(config, tmp_path)
+
+
+async def test_search_marks_each_row_archived_from_the_stores_channels(
+    tmp_path: Path, archivers: list[FakeArchiver]
+) -> None:
+    directory = _archived_directory(tmp_path)
+
+    page = await directory.search(words="SR")
+
+    assert [row["archived"] for row in page["rows"]] == [True, False, True]
+    assert "archived_reason" not in page
+    assert page["facets"]["archived"] == [
+        {"value": "yes", "count": 2},
+        {"value": "no", "count": 1},
+    ]
+    assert len(archivers) == 1
+    await directory.aclose()
+
+
+@pytest.mark.usefixtures("archivers")
+async def test_an_archive_that_cannot_list_its_channels_marks_every_row_unknown(
+    tmp_path: Path,
+) -> None:
+    FakeArchiver.held = _Held(reason="this archiver does not report what it holds")
+    directory = _archived_directory(tmp_path)
+
+    page = await directory.search(words="SR")
+    filtered = await directory.search(words="SR", archived=["no"])
+    counted = await directory.count(words="SR", archived=["no"])
+
+    assert [row["archived"] for row in page["rows"]] == [None, None, None]
+    assert page["archived_reason"] == "this archiver does not report what it holds"
+    assert page["facets"]["archived"] == [{"value": "unknown", "count": 3}]
+    reason = "cannot filter by archive: this archiver does not report what it holds"
+    assert (filtered["outcome"], filtered["reason"]) == ("unavailable", reason)
+    assert (counted["outcome"], counted["reason"]) == ("unavailable", reason)
+    await directory.aclose()
+
+
+@pytest.mark.usefixtures("archivers")
+async def test_a_connectors_release_without_store_extent_reads_as_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delattr(FakeArchiver, "store_extent")
+    directory = _archived_directory(tmp_path)
+
+    page = await directory.search(words="SR")
+
+    assert [row["archived"] for row in page["rows"]] == [None, None, None]
+    assert page["archived_reason"] == (
+        "installed osprey-connectors cannot list the archive's channels (upgrade it)"
+    )
+    await directory.aclose()
+
+
+async def test_no_archive_on_the_target_adds_no_key_and_refuses_the_filter(
+    tmp_path: Path, archivers: list[FakeArchiver]
+) -> None:
+    directory = _archived_directory(tmp_path, archive=False)
+
+    page = await directory.search(words="SR")
+    filtered = await directory.search(words="SR", archived=["yes"])
+
+    assert all("archived" not in row for row in page["rows"])
+    assert "archived" not in page["facets"]
+    assert filtered["reason"] == "cannot filter by archive: not available for this target"
+    assert archivers == []
+    await directory.aclose()
+
+
+@pytest.mark.usefixtures("archivers")
+async def test_an_archive_filter_cuts_the_page_and_the_count(tmp_path: Path) -> None:
+    directory = _archived_directory(tmp_path)
+
+    page = await directory.search(words="SR", archived=["no"])
+
+    assert [row["name"] for row in page["rows"]] == ["SR:PV2"]
+    assert page["total"] == 1
+    assert page["searched"] == "name or description matches SR · archived no"
+    assert (await directory.count(words="SR", archived=["yes"]))["total"] == 2
+    await directory.aclose()
+
+
+@pytest.mark.usefixtures("archivers")
+async def test_each_joined_group_counts_under_the_other_groups_filters(tmp_path: Path) -> None:
+    directory = _archived_directory(tmp_path, feed=True)
+
+    by_archive = await directory.search(words="SR", archived=["yes"])
+    by_alarm = await directory.search(words="SR", alarm=["MAJOR"])
+
+    # The archive filter narrows the origin and alarm groups, never its own.
+    assert by_archive["facets"]["origin"] == [
+        {"value": "curated", "count": 1},
+        {"value": "directory", "count": 1},
+    ]
+    assert by_archive["facets"]["alarm"] == [
+        {"value": "MAJOR", "count": 1},
+        {"value": "none", "count": 1},
+    ]
+    assert by_archive["facets"]["archived"] == [
+        {"value": "yes", "count": 2},
+        {"value": "no", "count": 1},
+    ]
+    assert by_archive["facets"]["ioc"] == [{"value": "ioc-a", "count": 2}]
+    # The alarm filter narrows the archive group.
+    assert by_alarm["facets"]["archived"] == [{"value": "yes", "count": 1}]
+    await directory.aclose()
+
+
+async def test_a_store_that_cannot_be_reached_is_tried_once_until_asked_fresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts: list[Any] = []
+
+    async def unreachable(config: Any) -> Any:
+        attempts.append(config)
+        raise ConnectionError("connection refused")
+
+    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", unreachable)
+    directory = _archived_directory(tmp_path)
+
+    first = await directory.search(words="SR")
+    second = await directory.search(words="SR")
+    connector, _source, reason = await directory.archive(fresh=True)
+
+    assert first["archived_reason"] == "cannot reach the archive: ConnectionError"
+    assert second["archived_reason"] == first["archived_reason"]
+    assert connector is None and reason == first["archived_reason"]
+    assert len(attempts) == 2
+    await directory.aclose()
+
+
+async def test_a_failed_archive_build_never_serves_the_exception_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def leaking(config: Any) -> Any:  # noqa: ARG001 - the factory's signature
+        raise ConnectionError("cannot reach mongodb://reader:secret@archive.example:27017")
+
+    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", leaking)
+    directory = _archived_directory(tmp_path)
+
+    answer = await directory.search(words="SR")
+    _connector, _source, reason = await directory.archive()
+
+    assert reason == answer["archived_reason"] == "cannot reach the archive: ConnectionError"
+    assert "mongodb://" not in str(answer) and "secret" not in str(answer)
+    await directory.aclose()
+
+
+async def test_a_store_that_hangs_on_connect_is_waited_for_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts: list[Any] = []
+
+    async def hanging(config: Any) -> Any:
+        attempts.append(config)
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", hanging)
+    directory = _archived_directory(tmp_path)
+
+    pages = [await directory.search(words="SR") for _ in range(3)]
+
+    assert len(attempts) == 1
+    assert pages[-1]["archived_reason"] == "the archive did not answer within 0.3 s"
+    await directory.aclose()
+
+
+@pytest.mark.usefixtures("archivers")
+async def test_a_store_whose_extent_read_hangs_is_read_once_until_asked_fresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads: list[None] = []
+
+    async def hanging(_self: FakeArchiver) -> Any:
+        reads.append(None)
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(FakeArchiver, "store_extent", hanging)
+    directory = _archived_directory(tmp_path)
+
+    pages = [await directory.search(words="SR") for _ in range(3)]
+    assert len(reads) == 1
+    assert pages[-1]["archived_reason"] == "no answer within 0.3 s"
+
+    await directory.archive_extent(fresh=True)
+    assert len(reads) == 2
+    await directory.aclose()
+
+
+async def test_the_archive_connector_is_disconnected_when_the_target_moves(
+    tmp_path: Path, archivers: list[FakeArchiver], record: _Record
+) -> None:
+    record.move("live", 1)
+    directory = _archived_directory(tmp_path)
+
+    await directory.search(words="SR")
+    first = archivers[0]
+    connector, source, reason = await directory.archive()
+    assert connector is first and reason is None
+    assert _connectors.as_payload(source) == {
+        "target": "live",
+        "service": "epics_archiver",
+        "label": "epics_archiver",
+        "rehearsal": False,
+    }
+
+    record.move("live", 2)
+    await directory.search(words="SR")
+
+    assert first.disconnected is True
+    assert len(archivers) == 2
+    await directory.aclose()
+    assert archivers[1].disconnected is True
+
+
 # -- describe -----------------------------------------------------------------
 
 

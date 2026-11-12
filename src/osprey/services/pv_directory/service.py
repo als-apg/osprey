@@ -15,11 +15,13 @@ its count is within ``display.filter_cap``. Rows carry their origin mark and los
 the properties ``display.hidden_properties`` names. When the target has an alarm
 feed, each row also carries ``alarm``: the feed's state for it, ``None`` when the
 feed holds none; a feed that does not answer marks no row and is listed in
-``partial`` instead.
+``partial`` instead. When the target has an archive, each row carries
+``archived``: whether the store records the PV now, ``None`` when the archiver
+cannot say (the page's ``archived_reason`` says why).
 
-Backends, the alarm snapshot and the cached sets belong to one (target,
-generation): when either moves, they are dropped, the snapshot closed, and the
-next call builds afresh.
+Backends, the archiver connector, the alarm snapshot and the cached sets belong
+to one (target, generation): when either moves, they are dropped, the snapshot
+closed, the connector disconnected, and the next call builds afresh.
 """
 
 from __future__ import annotations
@@ -29,9 +31,9 @@ import dataclasses
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import Awaitable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from osprey.services.pv_directory._connectors import (
     DIRECTORY_CONNECTORS_AVAILABLE,
@@ -41,21 +43,26 @@ from osprey.services.pv_directory._connectors import (
     DirectoryPage,
     DirectoryQuery,
     Outcome,
+    Source,
     Unavailable,
     as_payload,
     service_targets,
     unavailable_payload,
 )
 from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
+from osprey.services.pv_directory.archive import Extent, read_extent
 from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey.services.pv_directory.origin import Origin, mark
 from osprey_connectors import control_context
+from osprey_connectors.archive_targets import archive_targets
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.types import baseline_target
+from osprey_connectors.types import baseline_target, resolve_archiver_type
 
 __all__ = ["DirectoryService"]
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 _SECTION_KEY = "pv_directory"
 _KINDS = ("pv_directory", "alarm_log", "alarm_state", "put_log")
@@ -73,6 +80,16 @@ _PROBE_GRACE_S = 1.0
 _ALARM_VALUES = ("UNDEFINED", "INVALID", "MAJOR", "MINOR", "none")
 #: The fields of a feed state a row carries.
 _ALARM_FIELDS = ("severity", "status", "latched", "acknowledged", "time")
+#: The archive filter's values: the store records the PV, does not, or cannot say.
+_ARCHIVED_VALUES = ("yes", "no", "unknown")
+#: The cache key of a failed archiver build's reason.
+_ARCHIVE_FAILED = ("archive", "failed")
+#: The cache key of the store's extent; the in-flight key of its read.
+_ARCHIVE_EXTENT = ("archive",)
+#: The in-flight key of the archiver connector's build.
+_ARCHIVE_BUILD = ("archive", "build")
+#: What an archive read answers when the target moved while it ran.
+_MOVED_REASON = "the target moved"
 
 #: The served names of the row fields the facets count, after ``origin``.
 _ROW_FACETS = ("ioc", "record_type")
@@ -113,6 +130,9 @@ class DirectoryService:
         self._at: tuple[str, int] | None = None
         self._built: dict[str, tuple[Any, Any, str | None]] = {}
         self._snapshot: AlarmSnapshot | None = None
+        self._archive: tuple[Any, Any, None] | None = None
+        #: The archive reads in flight, by (position, key); a caller that gives up leaves them running.
+        self._pending: dict[tuple[Any, ...], asyncio.Task[Any]] = {}
         self._sets: OrderedDict[tuple[Any, ...], tuple[float, Any]] = OrderedDict()
         self._lock = asyncio.Lock()
 
@@ -130,19 +150,21 @@ class DirectoryService:
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
             return _no_source_page(reason or NO_SOURCE_REASON, target)
-        origins, alarms, server = _split_filters(fields)
-        cut = bool(origins or alarms)
+        origins, alarms, archived, server = _split_filters(fields)
+        cut = bool(origins or alarms or archived)
         deadline = self._timeout()
         started = time.monotonic()
 
         count = asyncio.create_task(self._count(at, backend, server, deadline))
         full = asyncio.create_task(self._full_set(at, backend, server, count, started, deadline))
         feed = asyncio.create_task(self._alarm_index(deadline))
+        store = asyncio.create_task(self._archive_index(deadline))
         page = None if cut else asyncio.create_task(backend.search(server, deadline))
-        tasks = [task for task in (count, full, feed, page) if task is not None]
+        tasks = [task for task in (count, full, feed, store, page) if task is not None]
         await asyncio.wait(tasks, timeout=deadline)
         late = f"no answer within {deadline:g} s"
         counted, fetched, index = _result(count, late), _result(full, late), _result(feed, late)
+        held = _result(store, late)
         await _cancel(tasks)
 
         partial: list[Mapping[str, str]] = []
@@ -157,7 +179,7 @@ class DirectoryService:
         marked: list[tuple[Any, Origin]] | None = None
         if isinstance(fetched, _FullSet):
             marked = self._marked(backend, fetched.rows)
-            facets = _facets(marked, origins, alarms, index)
+            facets = _facets(marked, origins, alarms, archived, index, held)
         else:
             facets_reason = fetched.reason
             if not isinstance(fetched, _TooMany):
@@ -165,7 +187,9 @@ class DirectoryService:
 
         fields_out: dict[str, Any]
         if cut:
-            fields_out = self._cut_page(server, origins, alarms, marked, fetched, index)
+            fields_out = self._cut_page(
+                server, (origins, alarms, archived), marked, fetched, index, held
+            )
         else:
             fields_out = self._server_page(backend, _result(page, late), total, partial)
             if fields_out.get("total") is None:
@@ -173,7 +197,7 @@ class DirectoryService:
         rows = fields_out.pop("rows", [])
         payload: dict[str, Any] = as_payload(
             DirectoryPage(
-                searched=_searched(server, origins, alarms),
+                searched=_searched(server, origins, alarms, archived),
                 source=source,
                 partial=partial,
                 facets=facets,
@@ -182,7 +206,9 @@ class DirectoryService:
             )
         )
         alarm_states = index if isinstance(index, dict) else None
-        payload["rows"] = [_served_row(row, origin, alarm_states) for row, origin in rows]
+        payload["rows"] = [_served_row(row, origin, alarm_states, held) for row, origin in rows]
+        if isinstance(held, Unavailable):
+            payload["archived_reason"] = held.reason
         return payload
 
     async def count(self, **fields: Any) -> dict[str, Any]:
@@ -192,22 +218,23 @@ class DirectoryService:
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
             return _no_source_count(reason or NO_SOURCE_REASON, target)
-        origins, alarms, server = _split_filters(fields)
+        origins, alarms, archived, server = _split_filters(fields)
         deadline = self._timeout()
         started = time.monotonic()
         answer: Any
-        if origins or alarms:
+        if origins or alarms or archived:
             count = asyncio.create_task(self._count(at, backend, server, deadline))
-            answer, index = await asyncio.gather(
+            answer, index, held = await asyncio.gather(
                 self._bounded(
                     self._full_set(at, backend, server, count, started, deadline), deadline
                 ),
                 self._bounded(self._alarm_index(deadline), deadline) if alarms else _none(),
+                self._bounded(self._archive_index(deadline), deadline) if archived else _none(),
             )
             await _cancel([count])
             if isinstance(answer, _FullSet):
-                answer = _unfiltered(alarms, index) or sum(
-                    _kept(origins, alarms, index)(row, origin)
+                answer = _unfiltered(alarms, index, archived, held) or sum(
+                    _kept(origins, alarms, archived, index, held)(row, origin)
                     for row, origin in self._marked(backend, answer.rows)
                 )
         else:
@@ -299,6 +326,28 @@ class DirectoryService:
         answers = await asyncio.gather(*(self._probe(kind, target) for kind in asked))
         return dict(zip(asked, answers, strict=True))
 
+    async def archive(self, *, fresh: bool = False) -> tuple[Any, Any, str | None]:
+        """``(connector, source, None)`` for the current target's archive, else ``(None, None, reason)``.
+
+        The archiver connector is built once per (target, generation), read
+        only through ``get_metadata`` and ``store_extent``, and disconnected
+        when the target moves. ``NO_SOURCE_REASON`` when the deployment's
+        archive does not serve the target. A failed build answers its reason
+        for as long as a fetched set is cached, so a store that is down costs
+        one wait, not one per search; *fresh* tries again at once.
+        """
+        await self._sync()
+        return await self._archive_connector(fresh=fresh)
+
+    async def archive_extent(self, *, fresh: bool = False) -> Extent | None:
+        """What the current target's archive holds, ``None`` when the target has none.
+
+        The answer, known or not, is cached like a fetched result set; *fresh*
+        reads the store again.
+        """
+        await self._sync()
+        return await self._extent(self._timeout(), fresh=fresh)
+
     async def aclose(self) -> None:
         """Close the alarm snapshot and drop every backend and cached set; idempotent."""
         await self._retire()
@@ -324,10 +373,15 @@ class DirectoryService:
 
     async def _retire(self) -> None:
         snapshot, self._snapshot = self._snapshot, None
+        archive, self._archive = self._archive, None
+        pending, self._pending = list(self._pending.values()), {}
         self._built.clear()
         self._sets.clear()
+        await _cancel(pending)
         if snapshot is not None:
             await snapshot.aclose()
+        if archive is not None:
+            await _disconnect(archive[0])
 
     async def _resolve(self, kind: str) -> tuple[Any, Any, str | None]:
         """``(backend, source, None)``, or ``(None, None, reason)`` when there is none."""
@@ -384,6 +438,122 @@ class DirectoryService:
         if isinstance(answer, str):
             return {"outcome": "found", "source": as_payload(source), "evidence": answer}
         return {"outcome": "unavailable", "source": as_payload(source), "reason": answer.reason}
+
+    # -- the archive -----------------------------------------------------
+
+    def _has_archive(self) -> bool:
+        """Whether the deployment's archive serves the current target."""
+        if not DIRECTORY_CONNECTORS_AVAILABLE:
+            return False
+        target = self._at[0] if self._at else self._position()[0]
+        return target in archive_targets(self._config)
+
+    async def _archive_connector(self, *, fresh: bool = False) -> tuple[Any, Any, str | None]:
+        if not DIRECTORY_CONNECTORS_AVAILABLE:
+            return None, None, FLOOR_REASON
+        if not self._has_archive():
+            return None, None, NO_SOURCE_REASON
+        at = self._at
+        if self._archive is not None:
+            return self._archive
+        failed = None if fresh else self._cached(at, _ARCHIVE_FAILED)
+        if isinstance(failed, str):
+            return None, None, failed
+        return await self._once(
+            at, _ARCHIVE_BUILD, lambda: self._build_archive(at), (None, None, _MOVED_REASON)
+        )
+
+    async def _once(
+        self,
+        at: tuple[str, int] | None,
+        key: tuple[Any, ...],
+        read: Callable[[], Coroutine[Any, Any, _T]],
+        moved: _T,
+    ) -> _T:
+        """The one in-flight *read* of *key* on *at*, started if none runs.
+
+        The read runs to its own deadline whatever its callers do, so a caller
+        that gives up first neither repeats it nor keeps it from recording its
+        answer; a store that is down costs one wait, not one per search.
+        *moved* answers when the target moves while the read runs.
+        """
+        full = (at, *key)
+        task = self._pending.get(full)
+        if task is None:
+            task = asyncio.create_task(read())
+            self._pending[full] = task
+            task.add_done_callback(
+                lambda done: self._pending.pop(full) if self._pending.get(full) is done else None
+            )
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if task.cancelled() and not (current is not None and current.cancelling()):
+                return moved  # retired with its target, not this caller's cancellation
+            raise
+
+    async def _build_archive(self, at: tuple[str, int] | None) -> tuple[Any, Any, str | None]:
+        section = self._config.get("archiver")
+        target = at[0] if at else self._position()[0]
+        deadline = self._timeout()
+        try:
+            connector = await asyncio.wait_for(
+                ConnectorFactory.create_archiver_connector(dict(section or {})), deadline
+            )
+        except TimeoutError:
+            reason = f"the archive did not answer within {deadline:g} s"
+            self._store(at, _ARCHIVE_FAILED, reason)
+            return None, None, reason
+        except Exception as failure:
+            logger.warning("cannot reach the archive", exc_info=True)
+            reason = f"cannot reach the archive: {type(failure).__name__}"
+            self._store(at, _ARCHIVE_FAILED, reason)
+            return None, None, reason
+        if self._at != at:
+            await _disconnect(connector)
+            return None, None, _MOVED_REASON
+        source = Source(
+            kind="archive",
+            target=target,  # type: ignore[arg-type]
+            service=resolve_archiver_type(section),
+            rehearsal=target == "standin",
+        )
+        self._archive = (connector, source, None)
+        return self._archive
+
+    async def _extent(self, deadline: float, *, fresh: bool = False) -> Extent | None:
+        if not self._has_archive():
+            return None
+        at = self._at
+        if not fresh:
+            cached = self._cached(at, _ARCHIVE_EXTENT)
+            if isinstance(cached, Extent):
+                return cached
+        return await self._once(
+            at,
+            _ARCHIVE_EXTENT,
+            lambda: self._read_extent(at, deadline),
+            Extent(reason=_MOVED_REASON),
+        )
+
+    async def _read_extent(self, at: tuple[str, int] | None, deadline: float) -> Extent:
+        """Read the store's extent and cache the answer, known or not, like a fetched set."""
+        connector, _source, reason = await self._archive_connector()
+        extent = (
+            Extent(reason=reason) if connector is None else await read_extent(connector, deadline)
+        )
+        self._store(at, _ARCHIVE_EXTENT, extent)
+        return extent
+
+    async def _archive_index(self, deadline: float) -> Any:
+        """The channels the store records: a set, ``Unavailable`` when unknown, ``None`` with no archive."""
+        extent = await self._extent(deadline)
+        if extent is None:
+            return None
+        if extent.channels is None:
+            return Unavailable(extent.reason or "the archive does not say what it holds")
+        return extent.channels
 
     # -- searching -------------------------------------------------------
 
@@ -447,19 +617,20 @@ class DirectoryService:
     def _cut_page(
         self,
         query: Any,
-        origins: tuple[str, ...],
-        alarms: tuple[str, ...],
+        filters: tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]],
         marked: list[tuple[Any, Origin]] | None,
         fetched: Any,
         index: Any,
+        held: Any,
     ) -> dict[str, Any]:
-        """The page of an origin- or alarm-filtered search, cut from the whole fetched set."""
+        """The page of an origin-, alarm- or archive-filtered search, cut from the fetched set."""
+        origins, alarms, archived = filters
         if marked is None:
             return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": fetched.reason}
-        refused = _unfiltered(alarms, index)
+        refused = _unfiltered(alarms, index, archived, held)
         if refused is not None:
             return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": refused.reason}
-        keeps = _kept(origins, alarms, index)
+        keeps = _kept(origins, alarms, archived, index, held)
         kept = [pair for pair in marked if keeps(*pair)]
         size = max(query.page_size, 0)
         start = max(query.page, 0) * size
@@ -594,6 +765,14 @@ async def _none() -> None:
     return None
 
 
+async def _disconnect(connector: Any) -> None:
+    """Disconnect an archiver connector; a failure is logged, never raised."""
+    try:
+        await connector.disconnect()
+    except Exception:
+        logger.warning("the archive connector did not disconnect cleanly", exc_info=True)
+
+
 def _alarm_value(index: Mapping[str, Any], name: str) -> str:
     """The alarm filter's value of the PV *name*: its severity, or ``none`` for OK or no state."""
     state = index.get(name)
@@ -601,20 +780,49 @@ def _alarm_value(index: Mapping[str, Any], name: str) -> str:
     return "none" if severity in (None, "OK") else str(severity)
 
 
-def _unfiltered(alarms: tuple[str, ...], index: Any) -> Unavailable | None:
-    """Why an alarm filter cannot be applied: the feed did not answer, or there is none."""
-    if not alarms or isinstance(index, dict):
-        return None
-    reason = index.reason if isinstance(index, Unavailable) else NO_SOURCE_REASON
-    return Unavailable(f"cannot filter by alarm: {reason}")
+def _archived_value(held: Any, name: str) -> str:
+    """The archive filter's value of the PV *name*: ``yes``, ``no``, or ``unknown``."""
+    if not isinstance(held, frozenset):
+        return "unknown"
+    return "yes" if name in held else "no"
 
 
-def _kept(origins: tuple[str, ...], alarms: tuple[str, ...], index: Any) -> Any:
-    """Whether a marked row passes the origin and alarm filters; one without its index passes."""
+def _unfiltered(
+    alarms: tuple[str, ...], index: Any, archived: tuple[str, ...] = (), held: Any = None
+) -> Unavailable | None:
+    """Why an alarm or archive filter cannot be applied: no answer, or no such service."""
+    if alarms and not isinstance(index, dict):
+        reason = index.reason if isinstance(index, Unavailable) else NO_SOURCE_REASON
+        return Unavailable(f"cannot filter by alarm: {reason}")
+    if archived and not isinstance(held, frozenset):
+        reason = held.reason if isinstance(held, Unavailable) else NO_SOURCE_REASON
+        return Unavailable(f"cannot filter by archive: {reason}")
+    return None
+
+
+def _kept(
+    origins: tuple[str, ...],
+    alarms: tuple[str, ...],
+    archived: tuple[str, ...],
+    index: Any,
+    held: Any,
+) -> Any:
+    """Whether a marked row passes the origin, alarm and archive filters.
+
+    A filter whose service did not answer passes every row; :func:`_unfiltered`
+    refuses such a filter before any row is kept.
+    """
     states = index if isinstance(index, dict) else None
+    channels = held if isinstance(held, frozenset) else None
 
     def keeps(row: Any, origin: Origin) -> bool:
         if origins and origin not in origins:
+            return False
+        if (
+            archived
+            and channels is not None
+            and _archived_value(channels, row.name) not in archived
+        ):
             return False
         return not (alarms and states is not None) or _alarm_value(states, row.name) in alarms
 
@@ -625,18 +833,23 @@ def _facets(
     marked: list[tuple[Any, Origin]],
     origins: tuple[str, ...],
     alarms: tuple[str, ...],
+    archived: tuple[str, ...],
     index: Any,
+    held: Any,
 ) -> dict[str, list[Mapping[str, Any]]]:
     """Value counts over the fetched set, each group under the other groups' filters.
 
-    The ``alarm`` group is present when the feed answered, its values worst first.
+    The ``alarm`` group is present when the feed answered, its values worst first;
+    the ``archived`` group when the target has an archive (``unknown`` for every
+    row when the archive cannot say what it holds).
     """
-    by_alarm = _kept((), alarms, index)
-    by_origin = _kept(origins, (), index)
-    both = _kept(origins, alarms, index)
-    kept = [row for row, origin in marked if both(row, origin)]
+    by_origin_group = _kept((), alarms, archived, index, held)
+    by_alarm_group = _kept(origins, (), archived, index, held)
+    by_archive_group = _kept(origins, alarms, (), index, held)
+    every = _kept(origins, alarms, archived, index, held)
+    kept = [row for row, origin in marked if every(row, origin)]
     facets: dict[str, list[Mapping[str, Any]]] = {
-        "origin": _tally(origin for row, origin in marked if by_alarm(row, origin)),
+        "origin": _tally(origin for row, origin in marked if by_origin_group(row, origin)),
         **{
             name: _tally(getattr(row, _CONTRACT_FIELD[name]) for row in kept)
             for name in _ROW_FACETS
@@ -644,9 +857,18 @@ def _facets(
     }
     if isinstance(index, dict):
         counted = _tally(
-            _alarm_value(index, row.name) for row, origin in marked if by_origin(row, origin)
+            _alarm_value(index, row.name) for row, origin in marked if by_alarm_group(row, origin)
         )
         facets["alarm"] = sorted(counted, key=_alarm_order)
+    if held is not None:
+        stored = _tally(
+            _archived_value(held, row.name)
+            for row, origin in marked
+            if by_archive_group(row, origin)
+        )
+        facets["archived"] = sorted(
+            stored, key=lambda entry: _ARCHIVED_VALUES.index(entry["value"])
+        )
     return facets
 
 
@@ -665,11 +887,15 @@ def _tally(values: Iterable[Any]) -> list[Mapping[str, Any]]:
     return [{"value": value, "count": count} for value, count in ordered]
 
 
-def _split_filters(fields: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...], Any]:
-    """The origin and alarm filters of a search's served keywords, and the server's query."""
+def _split_filters(
+    fields: Mapping[str, Any],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], Any]:
+    """The origin, alarm and archive filters of a search's served keywords, and the server's query."""
     rest = {_CONTRACT_FIELD.get(key, key): value for key, value in fields.items()}
-    origins, alarms = (_values(rest.pop(key, None)) for key in ("origin", "alarm"))
-    return origins, alarms, DirectoryQuery(**rest)
+    origins, alarms, archived = (
+        _values(rest.pop(key, None)) for key in ("origin", "alarm", "archived")
+    )
+    return origins, alarms, archived, DirectoryQuery(**rest)
 
 
 def _values(value: Any) -> tuple[str, ...]:
@@ -679,9 +905,13 @@ def _values(value: Any) -> tuple[str, ...]:
 
 
 def _served_row(
-    row: Any, origin: Origin, alarm_states: Mapping[str, Any] | None = None
+    row: Any, origin: Origin, alarm_states: Mapping[str, Any] | None = None, held: Any = None
 ) -> dict[str, Any]:
-    """*row* as served: its name, its origin mark, its alarm when the feed answered, the rest."""
+    """*row* as served: its name, its origin mark, its alarm when the feed answered, the rest.
+
+    With an archive on the target (*held* not ``None``) the row carries
+    ``archived``: ``True`` or ``False``, ``None`` when the archive cannot say.
+    """
     payload: dict[str, Any] = as_payload(row)
     served: dict[str, Any] = {"name": payload.pop("name"), "origin": origin}
     if alarm_states is not None:
@@ -689,10 +919,17 @@ def _served_row(
         served["alarm"] = (
             None if state is None else {key: getattr(state, key) for key in _ALARM_FIELDS}
         )
+    if held is not None:
+        served["archived"] = served["name"] in held if isinstance(held, frozenset) else None
     return {**served, **payload}
 
 
-def _searched(query: Any, origins: tuple[str, ...], alarms: tuple[str, ...] = ()) -> str:
+def _searched(
+    query: Any,
+    origins: tuple[str, ...],
+    alarms: tuple[str, ...] = (),
+    archived: tuple[str, ...] = (),
+) -> str:
     """The search in plain words."""
     parts = []
     if query.words.strip():
@@ -710,6 +947,8 @@ def _searched(query: Any, origins: tuple[str, ...], alarms: tuple[str, ...] = ()
         parts.append(f"origin {' or '.join(origins)}")
     if alarms:
         parts.append(f"alarm {' or '.join(alarms)}")
+    if archived:
+        parts.append(f"archived {' or '.join(archived)}")
     return " · ".join(parts) or "every PV"
 
 

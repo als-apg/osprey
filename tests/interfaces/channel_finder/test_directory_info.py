@@ -330,11 +330,16 @@ def test_the_fixture_search_is_a_directory_page() -> None:
     contract = {served: field for field, served in _connectors.SERVED_FIELD.items()}
     rows = [
         DirectoryRow(
-            **{contract.get(k, k): v for k, v in row.items() if k not in ("origin", "alarm")}
+            **{
+                contract.get(k, k): v
+                for k, v in row.items()
+                if k not in ("origin", "alarm", "archived")
+            }
         )
         for row in page["rows"]
     ]
     states = {row["name"]: AlarmStateRecord(**row["alarm"]) for row in page["rows"] if row["alarm"]}
+    held = frozenset(row["name"] for row in page["rows"] if row["archived"])
     served = page["source"]
     source = Source(
         kind="directory",
@@ -345,7 +350,7 @@ def test_the_fixture_search_is_a_directory_page() -> None:
     rebuilt = DirectoryPage(**{**page, "source": source, "rows": rows})
     payload = _connectors.as_payload(rebuilt)
     payload["rows"] = [
-        service._served_row(row, served["origin"], states)
+        service._served_row(row, served["origin"], states, held)
         for row, served in zip(rows, page["rows"], strict=True)
     ]
 
