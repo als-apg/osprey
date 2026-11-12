@@ -27,6 +27,7 @@ const VIEW_MODULES = {
   allpvs: ['allpvs.js', 'mountAllPvs', 'unmountAllPvs'],
   pv: ['pv-page.js', 'mountPvPage', 'unmountPvPage'],
   ioc: ['ioc-page.js', 'mountIocPage', 'unmountIocPage'],
+  alarms: ['alarms.js', 'mountAlarms', 'unmountAlarms'],
 };
 
 /** @type {EventListener[]} */
@@ -48,8 +49,9 @@ afterEach(() => {
  * that answers `info`, or rejects when `info` is null.
  * @param {Record<string, any> | null} info
  * @param {string} [hash]
+ * @param {any} [alarms] - the answer of the alarm route
  */
-async function boot(info, hash = '') {
+async function boot(info, hash = '', alarms = {}) {
   document.body.innerHTML = `
     <div id="cf-panel">
       <header id="cf-toolbar">
@@ -85,6 +87,8 @@ async function boot(info, hash = '') {
   }));
 
   let answer = info;
+  /** @type {string[]} */
+  const alarmReads = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {any} */ url, /** @type {any} */ opts) => {
@@ -98,6 +102,10 @@ async function boot(info, hash = '') {
         answer = directory
           ? { ...rest, directory, pipeline_type: type }
           : { ...rest, pipeline_type: type };
+      }
+      if (path.includes('/api/directory/alarms')) {
+        alarmReads.push(path);
+        return { ok: true, json: async () => alarms };
       }
       return { ok: true, json: async () => (path.includes('/api/info') ? answer : {}) };
     })
@@ -115,7 +123,7 @@ async function boot(info, hash = '') {
   const { state } = await import(`${JS}/state.js`);
   await import(`${JS}/app.js`);
   await vi.waitFor(() => expect(hashListeners).toHaveLength(1));
-  return { state, views, contributions };
+  return { state, views, contributions, alarmReads };
 }
 
 /** Follow the current hash the way the browser does after a button sets it. */
@@ -130,9 +138,20 @@ function buttons() {
   ]);
 }
 
+/**
+ * A button's label: its own text, without a count pill.
+ * @param {HTMLButtonElement} button
+ */
+function label(button) {
+  return [...button.childNodes]
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent)
+    .join('');
+}
+
 /** @returns {string[]} the buttons as `view:label`. */
 function names() {
-  return buttons().map((button) => `${button.dataset.view}:${button.textContent}`);
+  return buttons().map((button) => `${button.dataset.view}:${label(button)}`);
 }
 
 /** @returns {string[]} the views of the pressed buttons. */
@@ -340,5 +359,97 @@ describe('the tile bar', () => {
     state.emit('directoryLabel', 'Channel Finder');
     click('feedback');
     expect(contributions.flat().filter((item) => item?.kind === 'nav')).toEqual([]);
+  });
+});
+
+describe('the Alarms tab', () => {
+  const ALARM_DIRECTORY = {
+    ...WITH_DIRECTORY,
+    directory: { ...DESCRIPTOR, configured_services: ['alarm_state'] },
+  };
+  const WITH_ALARMS = ['explore:Curated', 'allpvs:All PVs', 'alarms:Alarms', 'feedback:Feedback'];
+  const SOURCE = { target: 'va', service: 'alarm_replay', label: 'alarm_replay', rehearsal: false };
+
+  /**
+   * An alarm route answer with `counts`.
+   * @param {Record<string, any>} counts
+   */
+  const counted = (counts) => ({ outcome: 'found', source: SOURCE, caveats: [], counts, rows: [] });
+
+  /** @returns {HTMLElement|null} */
+  const pill = () => document.querySelector('#cf-views button[data-view="alarms"] .osprey-count');
+
+  test('with an alarm-state service the seg reads Curated · All PVs · Alarms · Feedback', async () => {
+    await boot(ALARM_DIRECTORY);
+    expect(names()).toEqual(WITH_ALARMS);
+  });
+
+  test("without one the seg is today's, and #/alarms falls back to Curated", async () => {
+    const { views } = await boot(WITH_DIRECTORY, '#/alarms');
+    expect(names()).toEqual(WITH);
+    expect(views.alarms.mount).not.toHaveBeenCalled();
+    expect(pressed()).toEqual(['explore']);
+  });
+
+  test('#/alarms mounts the view and presses the tab', async () => {
+    const { views } = await boot(ALARM_DIRECTORY, '#/alarms');
+    expect(views.alarms.mount).toHaveBeenCalledTimes(1);
+    expect(pressed()).toEqual(['alarms']);
+    click('feedback');
+    expect(views.alarms.unmount).toHaveBeenCalled();
+  });
+
+  test('the pill shows the active count in the worst tone', async () => {
+    const { alarmReads } = await boot(
+      ALARM_DIRECTORY,
+      '',
+      counted({ MAJOR: 2, INVALID: 1, MINOR: 1, OK: 7 })
+    );
+    await vi.waitFor(() => expect(pill()?.textContent).toBe('4'));
+    expect(pill()?.dataset.severity).toBe('invalid');
+    expect(names()).toEqual(WITH_ALARMS);
+    expect(new URLSearchParams(alarmReads[0].split('?')[1]).get('limit')).toBe('0');
+  });
+
+  test('the pill follows the alarmCounts event, and disappears at zero', async () => {
+    const { state } = await boot(ALARM_DIRECTORY, '', counted({ MINOR: 1 }));
+    await vi.waitFor(() => expect(pill()?.textContent).toBe('1'));
+    expect(pill()?.dataset.severity).toBe('minor');
+    state.emit('alarmCounts', counted({ MAJOR: 1, OK: 2 }));
+    expect(pill()?.textContent).toBe('1');
+    expect(pill()?.dataset.severity).toBe('major');
+    state.emit('alarmCounts', counted({ OK: 3 }));
+    expect(pill()).toBeNull();
+  });
+
+  test('the button names its count apart from its label', async () => {
+    const { state } = await boot(ALARM_DIRECTORY, '', counted({ MAJOR: 2 }));
+    const button = () => document.querySelector('#cf-views button[data-view="alarms"]');
+    await vi.waitFor(() => expect(pill()?.textContent).toBe('2'));
+    expect(button()?.getAttribute('aria-label')).toBe('Alarms, 2 active');
+    state.emit('alarmCounts', counted({ OK: 3 }));
+    expect(button()?.hasAttribute('aria-label')).toBe(false);
+  });
+
+  test('the pill is text, never markup', async () => {
+    const { state } = await boot(ALARM_DIRECTORY);
+    state.emit('alarmCounts', counted({ '<img src=x onerror=alert(1)>': 2, MAJOR: '<b>1</b>' }));
+    expect(document.querySelector('#cf-views img, #cf-views b')).toBeNull();
+    const shown = pill();
+    if (shown) expect(shown.children).toHaveLength(0);
+  });
+
+  test('a directoryLabel event keeps the pill', async () => {
+    const { state } = await boot(ALARM_DIRECTORY, '', counted({ MAJOR: 1 }));
+    await vi.waitFor(() => expect(pill()?.textContent).toBe('1'));
+    state.emit('directoryLabel', 'Channel Finder');
+    expect(pill()?.textContent).toBe('1');
+    expect(names()[1]).toBe('allpvs:Channel Finder');
+  });
+
+  test('without an alarm-state service the alarm route is not read', async () => {
+    const { alarmReads } = await boot(WITH_DIRECTORY);
+    await Promise.resolve();
+    expect(alarmReads).toEqual([]);
   });
 });

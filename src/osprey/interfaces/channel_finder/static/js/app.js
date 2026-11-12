@@ -15,6 +15,9 @@ import { mountExplore, unmountExplore } from './explore.js';
 import { initToolbar, TOOLBAR_IDS } from './panel-toolbar.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
 import { mountAllPvs, unmountAllPvs } from './allpvs.js';
+import { mountAlarms, unmountAlarms } from './alarms.js';
+import { activeSummary } from './alarms-render.js';
+import { fetchActiveAlarms } from './directory-api.js';
 import { mountPvPage, unmountPvPage } from './pv-page.js';
 import { mountIocPage, unmountIocPage } from './ioc-page.js';
 import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
@@ -37,15 +40,24 @@ const VIEWS = {
   explore: { mount: mountExplore, unmount: unmountExplore },
   feedback: { mount: mountFeedback, unmount: unmountFeedback },
   allpvs: { mount: mountAllPvs, unmount: unmountAllPvs },
+  alarms: { mount: mountAlarms, unmount: unmountAlarms },
   pv: { mount: mountPvPage, unmount: unmountPvPage },
   ioc: { mount: mountIocPage, unmount: unmountIocPage },
 };
 
 // Views that exist only while /api/info carries the directory descriptor.
-const DIRECTORY_VIEWS = new Set(['allpvs', 'pv', 'ioc']);
+const DIRECTORY_VIEWS = new Set(['allpvs', 'alarms', 'pv', 'ioc']);
+
+/** How often the Alarms tab's pill is read while the panel is visible. */
+const BADGE_POLL_MS = 15000;
+
+/** @typedef {import('./directory-api.js').ActiveAlarms} ActiveAlarms */
 
 /** @type {string|null} */
 let currentView = null;
+// The last alarm counts read, by the badge poll or the Alarms view.
+/** @type {ActiveAlarms|null} */
+let alarmCounts = null;
 // The hash of the route mounted now, as formatRoute spells it; an equal route is not re-mounted.
 /** @type {string|null} */
 let currentRouteKey = null;
@@ -80,6 +92,15 @@ async function init() {
   renderViewSwitch();
   state.on('directoryLabel', renderViewSwitch);
 
+  // The Alarms tab's pill: read every 15 s while the panel is visible, and
+  // whenever the Alarms view reads the list.
+  state.on('alarmCounts', (answer) => {
+    alarmCounts = answer;
+    renderAlarmPill();
+  });
+  void readAlarmCounts();
+  window.setInterval(() => void readAlarmCounts(), BADGE_POLL_MS);
+
   // Route to initial view; a view states its route from its first mount on.
   state.on('replaceRoute', replaceRoute);
   routeFromHash();
@@ -94,7 +115,13 @@ async function init() {
  */
 function viewAvailable(view) {
   if (!Object.hasOwn(VIEWS, view)) return false;
+  if (view === 'alarms' && !alarmsConfigured()) return false;
   return !DIRECTORY_VIEWS.has(view) || state.directory !== null;
+}
+
+/** @returns {boolean} whether the deployment configures an alarm-state service */
+function alarmsConfigured() {
+  return state.directory?.configured_services?.includes('alarm_state') ?? false;
 }
 
 function routeFromHash() {
@@ -148,8 +175,8 @@ function activateView(viewName, params) {
 
 /**
  * The view switch's buttons: the scope switch when /api/info carries the
- * directory descriptor, with Curated being whichever paradigm runs, and
- * Explore | Feedback otherwise.
+ * directory descriptor, with Curated being whichever paradigm runs and Alarms
+ * when an alarm-state service is configured, and Explore | Feedback otherwise.
  * @returns {{ id: string, label: string }[]}
  */
 function viewTabs() {
@@ -162,8 +189,20 @@ function viewTabs() {
   return [
     { id: 'explore', label: 'Curated' },
     { id: 'allpvs', label: state.directory.label },
+    ...(alarmsConfigured() ? [{ id: 'alarms', label: 'Alarms' }] : []),
     { id: 'feedback', label: 'Feedback' },
   ];
+}
+
+/**
+ * A button's label is its text node; a count pill beside it is left alone.
+ * @param {Element} button
+ * @param {string} label
+ */
+function writeLabel(button, label) {
+  const text = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+  if (!text) button.prepend(label);
+  else if (text.textContent !== label) text.textContent = label;
 }
 
 /**
@@ -189,9 +228,48 @@ function renderViewSwitch() {
       buttons.splice(index, 0, created);
       button = created;
     }
-    if (button.textContent !== label) button.textContent = label;
+    writeLabel(button, label);
   });
   for (const extra of buttons.slice(tabs.length)) extra.remove();
+  renderAlarmPill();
+}
+
+// ---- Alarms pill ----
+
+/** Read the alarm counts alone, while the panel is visible and Alarms exists. */
+async function readAlarmCounts() {
+  if (document.hidden || !alarmsConfigured()) return;
+  try {
+    state.emit('alarmCounts', await fetchActiveAlarms({ limit: 0 }));
+  } catch {
+    // The pill keeps its last count; the Alarms view says why the feed is down.
+  }
+}
+
+/**
+ * The Alarms button's pill: the number of channels in alarm, in the tone of
+ * the worst severity; absent at zero or without an answer.
+ */
+function renderAlarmPill() {
+  const button = document.querySelector(`#${TOOLBAR_IDS.views} button[data-view="alarms"]`);
+  if (!button) return;
+  let pill = /** @type {HTMLElement|null} */ (button.querySelector('.osprey-count'));
+  const { active, worst } =
+    alarmCounts?.outcome === 'found' ? activeSummary(alarmCounts) : { active: 0, worst: 'NONE' };
+  if (!active) {
+    pill?.remove();
+    button.removeAttribute('aria-label');
+    return;
+  }
+  if (!pill) {
+    pill = document.createElement('span');
+    pill.className = 'osprey-count cf-alarm-pill';
+    button.append(pill);
+  }
+  pill.textContent = String(active);
+  pill.dataset.severity = worst.toLowerCase();
+  // The pill's digits would run into the label: "Alarms2".
+  button.setAttribute('aria-label', `Alarms, ${active} active`);
 }
 
 // ---- Pipeline Switcher ----
@@ -276,6 +354,7 @@ async function switchPipeline(newType) {
     state.setGraphInfo(info.tools, info.graph_store);
     state.directory = info.directory ?? null;
     renderViewSwitch();
+    void readAlarmCounts();
     renderProvenance();
     updatePipelineBadge(info.pipeline_type);
 
