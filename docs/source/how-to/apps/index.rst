@@ -260,8 +260,8 @@ Either way an app runs only when the profile's ``apps:`` block lists it. An
 installed app's package must be one the project image installs, so its
 distribution goes in the profile's ``dependencies``. A directory under
 ``apps/`` may not take the name of an installed app, listed or not: the build
-refuses it and names the package that installs the app. OSPREY's own apps are
-installed apps of this kind, shipped inside OSPREY.
+refuses it and names the package that installs the app. No app's package
+lives under ``osprey`` or ``osprey_connectors``, wherever the app comes from.
 
 Where to go next
 ================

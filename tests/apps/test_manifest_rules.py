@@ -753,7 +753,8 @@ def test_a_built_packages_build_requirement_an_unlisted_directory_declares_is_re
 
 # --- installed applications -------------------------------------------------------------
 
-OWN_MODULE = "osprey.apps.first_party.knob.tools"
+OWN_PACKAGE = "knob_dist.knob"
+OWN_MODULE = f"{OWN_PACKAGE}.tools"
 
 
 def _installed(**changes: Any) -> AppManifest:
@@ -762,13 +763,13 @@ def _installed(**changes: Any) -> AppManifest:
     return _manifest(**changes).bind_origin(_origin())
 
 
-def _origin() -> AppOrigin:
+def _origin(module: str = OWN_PACKAGE) -> AppOrigin:
     return AppOrigin(
         kind="installed",
         directory=Path("/site/knob"),
         distribution="knob-dist",
         version="1.2.3",
-        module="osprey.apps.first_party.knob",
+        module=module,
     )
 
 
@@ -824,13 +825,28 @@ def test_an_installed_apps_tool_module_lies_under_its_own_package() -> None:
     assert _rules(err) == ["tools_module_outside_package"]
     assert err.field == "tools.module"
     assert err.violations[0].where.startswith(
-        "osprey/apps/first_party/knob/app.yml (installed by knob-dist 1.2.3)"
+        "knob_dist/knob/app.yml (installed by knob-dist 1.2.3)"
     )
 
 
-def test_the_taken_package_refusal_spares_only_an_installed_app() -> None:
-    assert _rules(_refused([_manifest(tools__module=OWN_MODULE)])) == ["taken_package"]
-    validate([_installed()], logins={}, reserved=EMPTY)
+@pytest.mark.parametrize("package", ["osprey.apps.knob", "osprey_connectors.knob", "json.knob"])
+def test_an_installed_apps_package_in_a_taken_package_is_refused(package: str) -> None:
+    """One rule for both origins: no application's package lives under a framework root."""
+    installed = _manifest(tools__module=f"{package}.tools", **{"containers__knob-cache": _DROP})
+
+    err = _refused([installed.bind_origin(_origin(package))])
+
+    assert _rules(err) == ["taken_package"]
+    assert err.field == ""
+    assert package.split(".")[0] in err.message
+
+
+def test_an_installed_app_without_tools_is_refused_a_taken_package() -> None:
+    bare = _manifest(tools=_DROP, **{"containers__knob-cache": _DROP})
+
+    err = _refused([bare.bind_origin(_origin("osprey.knob"))])
+
+    assert _rules(err) == ["taken_package"]
 
 
 def test_an_installed_apps_image_container_is_refused() -> None:

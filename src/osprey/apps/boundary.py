@@ -8,9 +8,9 @@ runs it in a deployment repository.
 
 Every import statement counts, including ones inside functions and under
 ``if TYPE_CHECKING:``; an ``importlib.import_module("...")`` string does not. A package's
-own modules and third-party imports are outside the rule. An installed application's package
-may itself live under ``osprey``; the caller names it as ``own`` and imports under it are the
-application's.
+own modules and third-party imports are outside the rule. No application package lives
+under ``osprey`` or ``osprey_connectors``: an import under either is OSPREY's, whatever
+package holds it.
 """
 
 from __future__ import annotations
@@ -50,12 +50,7 @@ def _absolute_imports(tree: ast.AST) -> Iterator[tuple[str, int]]:
                 yield target, node.lineno
 
 
-def _is_own(imported: str, own: str | None) -> bool:
-    """Whether a dotted name is the application's own package or a name under it."""
-    return own is not None and (imported == own or imported.startswith(f"{own}."))
-
-
-def _check_source(path: Path, package: Path, app: str, own: str | None) -> Iterator[Violation]:
+def _check_source(path: Path, package: Path, app: str) -> Iterator[Violation]:
     """Yield the violations of one source file of *package*."""
     relative = path.relative_to(package.parent)
     source = relative.as_posix()
@@ -66,11 +61,7 @@ def _check_source(path: Path, package: Path, app: str, own: str | None) -> Itera
         return
 
     for imported, line in _absolute_imports(tree):
-        if (
-            imported.split(".")[0] in _FRAMEWORK_ROOTS
-            and not _is_allowed(imported)
-            and not _is_own(imported, own)
-        ):
+        if imported.split(".")[0] in _FRAMEWORK_ROOTS and not _is_allowed(imported):
             yield Violation(app, imported, "import_boundary", _RULE_MESSAGE, f"{source}:{line}")
 
     depth = len(relative.parts) - 1
@@ -85,16 +76,13 @@ def _check_source(path: Path, package: Path, app: str, own: str | None) -> Itera
             )
 
 
-def check_package(package: Path, *, app: str = "", own: str | None = None) -> list[Violation]:
+def check_package(package: Path, *, app: str = "") -> list[Violation]:
     """Check every Python source file under *package* against the import boundary.
 
     Args:
         package: The package's directory.
         app: The application the violations belong to, when the caller knows it.
-        own: The application's own dotted package, for an installed application; its
-            imports under it are the application's, never OSPREY's. ``None`` for a
-            deployment application, whose packages are outside the framework roots.
-            A relative import is measured from *package* either way.
+            A relative import is measured from *package*.
 
     Returns:
         Every violation, by file and then in source order. A violation's ``field`` is the
@@ -109,5 +97,5 @@ def check_package(package: Path, *, app: str = "", own: str | None = None) -> li
     return [
         violation
         for path in sorted(package.rglob("*.py"))
-        for violation in _check_source(path, package, app, own)
+        for violation in _check_source(path, package, app)
     ]
