@@ -2075,8 +2075,9 @@ jobs:
         uv run osprey init deploy-cache-warmup --preset demo \
           --set provider=als-apg --set model="$OSPREY_E2E_FORCE_MODEL"
         cd deploy-cache-warmup
-        # As deploy-e2e renders: the host venv and lifecycle hooks are not in any image.
-        uv run osprey build --skip-deps --skip-lifecycle
+        # As deploy-e2e renders: the host venv and lifecycle hooks are not in any image. The render is
+        # `--dev` too: `up --dev` refuses a build/ whose service images would install the release.
+        uv run osprey build --dev --skip-deps --skip-lifecycle
         uv run osprey up -d --dev
 
     - *capture-diagnostics
