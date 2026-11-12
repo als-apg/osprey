@@ -672,7 +672,7 @@ class TestSyncWatchCommand:
     def _patch_composite(self, monkeypatch, result: Any = None, error: BaseException | None = None):
         calls: list[dict[str, Any]] = []
 
-        async def _composite(config_dict, progress=None):  # noqa: ARG001 - the run_sync_watch signature
+        async def _composite(config_dict, progress=None, *, store_deadline_s=None):  # noqa: ARG001 - the run_sync_watch signature
             calls.append({"config_dict": config_dict})
             if error is not None:
                 raise error

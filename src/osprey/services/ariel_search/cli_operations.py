@@ -755,7 +755,7 @@ async def get_status(
         image_embedding_marker,
         status_expander,
     )
-    from osprey.services.ariel_search.exceptions import ConfigurationError
+    from osprey.services.ariel_search.exceptions import ConfigurationError, StoreSilentError
 
     # Computed first and unconditionally: the vocabulary line must survive a
     # database that is down and a config that will not parse. The same parse
@@ -880,6 +880,8 @@ async def get_status(
                 "coverage": coverage,
             }
 
+    except StoreSilentError:  # the caller's deadline passed: its caller reports it
+        raise
     except Exception as e:
         msg = str(e)
         if "connection" in msg.lower() or "connect" in msg.lower():

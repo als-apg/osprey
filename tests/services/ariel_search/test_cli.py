@@ -999,7 +999,7 @@ class TestSearchResultRendering:
             lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
         )
 
-        async def fake_run_search(_config_dict, query, _mode, _limit):
+        async def fake_run_search(_config_dict, query, _mode, _limit, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return {
                 "query": query,
                 "answer": None,
@@ -1042,7 +1042,7 @@ class TestSearchResultRendering:
             lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
         )
 
-        async def fake_run_search(_config_dict, query, _mode, _limit):
+        async def fake_run_search(_config_dict, query, _mode, _limit, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return {
                 "query": query,
                 "answer": None,
@@ -1322,7 +1322,7 @@ class TestStatusVocabularyLine:
         )
 
     def _patch_status(self, monkeypatch, result):
-        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+        async def fake_get_status(config_dict, *, config_dir=None, store_deadline_s=None):  # noqa: ARG001 - the get_status signature
             return result
 
         monkeypatch.setattr(
@@ -1431,7 +1431,7 @@ class TestStatusCaptionLines:
             "captions": captions,
         }
 
-        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+        async def fake_get_status(config_dict, *, config_dir=None, store_deadline_s=None):  # noqa: ARG001 - the get_status signature
             return result
 
         monkeypatch.setattr(
@@ -1787,7 +1787,7 @@ class TestStatusEmbeddingBuilds:
             "captions": None,
         }
 
-        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+        async def fake_get_status(config_dict, *, config_dir=None, store_deadline_s=None):  # noqa: ARG001 - the get_status signature
             return result
 
         monkeypatch.setattr(
@@ -1956,7 +1956,7 @@ class TestStatusReportErrors:
             lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
         )
 
-        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+        async def fake_get_status(config_dict, *, config_dir=None, store_deadline_s=None):  # noqa: ARG001 - the get_status signature
             return {"status": "error", "message": "boom", "errors": [refusal], "vocabulary": None}
 
         monkeypatch.setattr(
@@ -1984,7 +1984,7 @@ class TestStatusReportVocabularyExpansion:
         )
 
     def _vocabulary(self, monkeypatch, vocabulary):
-        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+        async def fake_get_status(config_dict, *, config_dir=None, store_deadline_s=None):  # noqa: ARG001 - the get_status signature
             return {"status": "error", "message": "boom", "vocabulary": vocabulary}
 
         monkeypatch.setattr(
@@ -2067,3 +2067,37 @@ class TestStatusReportVocabularyExpansion:
         assert result.exit_code == 0
         assert "Vocabulary: disabled" in flat(result.stdout)
         assert "expand_entries" not in result.output
+
+
+class TestSilentStore:
+    """Every ``osprey ariel`` command gives the store the same stated deadline."""
+
+    @pytest.mark.wallclock
+    @pytest.mark.parametrize("args", [["status"], ["migrate"], ["purge", "--yes"]])
+    def test_a_silent_store_ends_the_command_with_its_name_and_the_deadline(
+        self, monkeypatch, args
+    ):
+        import time
+
+        from ._silent_store import MARGIN_S, SHORT_DEADLINE_S, silent_store, silent_uri
+
+        monkeypatch.setattr("osprey.cli.ariel._STORE_DEADLINE_S", SHORT_DEADLINE_S)
+        with silent_store() as port:
+            config = {"database": {"uri": silent_uri(port)}}
+            monkeypatch.setattr(
+                "osprey.cli.ariel.get_config_value",
+                lambda key, default=None: config if key == "ariel" else default,
+            )
+            started = time.monotonic()
+            result = CliRunner().invoke(ariel_group, args)
+            elapsed = time.monotonic() - started
+
+        assert result.exit_code == 1, result.output
+        assert SHORT_DEADLINE_S <= elapsed < SHORT_DEADLINE_S + MARGIN_S
+        said = flat(result.output)
+        assert (
+            f"the ARIEL store at 127.0.0.1:{port}/ariel did not answer within "
+            f"{SHORT_DEADLINE_S:g} s"
+        ) in said
+        assert said.count("did not answer") == 1
+        assert "owner-secret" not in said
