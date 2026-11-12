@@ -489,13 +489,27 @@ def _refuse_unbuildable_services(
         raise AppManifestError.from_violations(found)
 
 
+SKILL_FRONTMATTER_MESSAGE = (
+    "the frontmatter of SKILL.md does not parse as a YAML mapping; "
+    "OSPREY cannot tell what the skill declares"
+)
+
+
+def _normalised_text(path: Path) -> str:
+    """The file's text with a leading byte-order mark dropped and every line ending ``\\n``."""
+    text = path.read_bytes().decode("utf-8").removeprefix("\ufeff")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _refuse_hooks(root: Path, manifests: tuple[AppManifest, ...]) -> None:
     """Refuse every place an application could bring hook code into the operator session.
 
     A ``hooks/`` directory at the application root, a ``.claude/`` directory anywhere
     under it (a settings file there can carry hooks), and a ``hooks`` key in a listed
-    skill's frontmatter. An unlisted skill is never installed, so it is not read. The
-    directory is the one the manifest came from.
+    skill's frontmatter. A listed skill whose frontmatter opens but does not parse as a
+    mapping is refused too: what cannot be read is not taken as "no hooks". An unlisted
+    skill is never installed, so it is not read. The directory is the one the manifest
+    came from.
     """
     from osprey.cli.validate_claude_artifacts import _parse_frontmatter
 
@@ -517,9 +531,20 @@ def _refuse_hooks(root: Path, manifests: tuple[AppManifest, ...]) -> None:
             skill_file = app_dir / relative
             if not skill_file.is_file():
                 continue
-            frontmatter = _parse_frontmatter(skill_file.read_text(encoding="utf-8"))
-            if "hooks" in (frontmatter or {}):
-                source = origin.manifest_source if origin.installed else f"{home}/{relative}"
+            text = _normalised_text(skill_file)
+            frontmatter = _parse_frontmatter(text)
+            source = origin.manifest_source if origin.installed else f"{home}/{relative}"
+            if frontmatter is None and text.split("\n", 1)[0].rstrip() == "---":
+                found.append(
+                    Violation(
+                        manifest.name,
+                        f"skills.{skill}.frontmatter",
+                        "skill_frontmatter",
+                        SKILL_FRONTMATTER_MESSAGE,
+                        source=source,
+                    )
+                )
+            elif "hooks" in (frontmatter or {}):
                 found.append(
                     Violation(
                         manifest.name,

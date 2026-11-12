@@ -153,3 +153,63 @@ def test_hooks_in_an_installed_applications_listed_skill_are_refused(
 
     [(field, _message)] = _no_hooks(exc)
     assert field == f"skills.{_installed.NAME}.hooks"
+
+
+_HOOKED_SKILL = "---\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n---\nbody\n"
+
+
+def _skill_frontmatter(exc: pytest.ExceptionInfo[AppManifestError]) -> list[str]:
+    return [v.field for v in exc.value.violations if v.rule == "skill_frontmatter"]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        _HOOKED_SKILL.replace("\n", "\r\n").encode("utf-8"),
+        b"\xef\xbb\xbf" + _HOOKED_SKILL.encode("utf-8"),
+    ],
+    ids=["crlf", "byte-order-mark"],
+)
+def test_hooks_in_a_listed_skill_are_refused_whatever_the_line_endings_or_bom(
+    lifecycle_repo: Path,  # noqa: F811
+    raw: bytes,
+) -> None:
+    app_dir = _app(lifecycle_repo, skills=["knob"])
+    skill_file = app_dir / "skills" / "knob" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True, exist_ok=True)
+    skill_file.write_bytes(raw)
+
+    with pytest.raises(AppManifestError) as exc:
+        check_deployment(lifecycle_repo)
+
+    [(field, _message)] = _no_hooks(exc)
+    assert field == "skills.knob.hooks"
+
+
+@pytest.mark.parametrize(
+    "frontmatter",
+    ["name: knob\nhooks: [unclosed\n", "- name\n- hooks\n"],
+    ids=["unparseable-yaml", "a-list"],
+)
+def test_a_listed_skill_whose_frontmatter_is_not_a_mapping_is_refused(
+    lifecycle_repo: Path,  # noqa: F811
+    frontmatter: str,
+) -> None:
+    app_dir = _app(lifecycle_repo, skills=["knob"])
+    _write(app_dir / "skills" / "knob" / "SKILL.md", f"---\n{frontmatter}---\nbody\n")
+
+    with pytest.raises(AppManifestError) as exc:
+        check_deployment(lifecycle_repo)
+
+    assert _skill_frontmatter(exc) == ["skills.knob.frontmatter"]
+    [message] = [v.message for v in exc.value.violations if v.rule == "skill_frontmatter"]
+    assert "does not parse as a YAML mapping" in message
+
+
+def test_a_listed_skill_with_no_frontmatter_passes_the_hooks_check(
+    lifecycle_repo: Path,  # noqa: F811
+) -> None:
+    app_dir = _app(lifecycle_repo, skills=["knob"])
+    _write(app_dir / "skills" / "knob" / "SKILL.md", "# knob\n\nbody\n")
+
+    check_deployment(lifecycle_repo)
