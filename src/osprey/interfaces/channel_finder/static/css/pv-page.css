@@ -9,6 +9,25 @@
   min-width: 0;
 }
 
+.pvp-crumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+
+.pvp-crumb a {
+  color: var(--text-accent);
+}
+
+.pvp-crumb-leaf {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 /* Header: mark, name and status chips on one line, the actions at its end. */
 .pvp-head {
   display: grid;
@@ -47,6 +66,7 @@
 
 .pvp-actions {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
   grid-column: 2;
   grid-row: 1;
@@ -54,9 +74,6 @@
 
 .pvp-sub {
   grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
   margin: 0;
   color: var(--text-secondary);
 }
@@ -66,26 +83,123 @@
   color: var(--text-accent);
 }
 
-.pvp-section {
+/* The alarm banner, tinted by the severity's token. */
+.pvp-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, currentColor 7%, var(--surface-card));
+  color: var(--cf-severity-invalid);
+}
+
+.pvp-banner--major {
+  color: var(--color-error);
+}
+
+.pvp-banner--minor {
+  color: var(--color-warning);
+}
+
+.pvp-banner-alarm {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+}
+
+.pvp-banner-rest,
+.pvp-banner-guidance {
+  color: var(--text-primary);
+}
+
+.pvp-banner-guidance {
+  flex: 1 1 260px;
+  max-width: 420px;
+  margin-left: auto;
+}
+
+/* Two columns of cards; one column on a narrow panel. */
+.pvp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .pvp-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pvp-col {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-4);
   min-width: 0;
 }
 
-.pvp-section-title {
+.pvp-card {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-2);
-  padding: 0;
-  margin: 0;
+  padding: var(--space-3) var(--space-4);
 }
 
-.pvp-section-aside {
+.pvp-card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.pvp-card-aside {
+  margin-left: auto;
   font-weight: var(--weight-regular);
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.pvp-card-part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+/* A card whose service is not configured: one dashed line. */
+.pvp-off {
+  padding: var(--space-2) var(--space-4);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-xl);
   color: var(--text-muted);
 }
 
 .pvp-refresh {
   margin-left: auto;
+}
+
+.pvp-bigval {
+  font-family: var(--font-mono);
+  font-size: var(--text-4xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.pvp-unit {
+  margin-left: var(--space-2);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
 }
 
 .pvp-facts {
@@ -124,6 +238,28 @@
   gap: var(--space-1);
 }
 
+/* Guidance and displays: a title line and a details line per entry. */
+.pvp-entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pvp-entry-title {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+}
+
+.pvp-entry-details {
+  color: var(--text-secondary);
+}
+
+.pvp-guidance {
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--border-default);
+  background: var(--surface-well);
+}
+
 .pvp-logbook {
   list-style: none;
   margin: 0;
@@ -158,20 +294,4 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Guidance and displays: a title line and a details line per entry. */
-.pvp-entries {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.pvp-entry-title {
-  font-family: var(--font-display);
-  font-weight: var(--weight-semibold);
-}
-
-.pvp-entry-details {
-  color: var(--text-secondary);
 }

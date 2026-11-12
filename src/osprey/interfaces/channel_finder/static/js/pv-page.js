@@ -2,21 +2,24 @@
 /**
  * OSPREY Channel Finder — PV Page
  *
- * The view of `#/pv/<name>` (Panel view contract): every configured section
- * of one PV, in a fixed order, each only when the facts carry it, then the
- * logbook mentions and the current value.
+ * The view of `#/pv/<name>` (Panel view contract): one card per connector
+ * answer about one PV.
  *
- *   [◆ NAME  Active  ⚠ alarm feed stale]           [Plot] [Send to assistant]
- *   Directory · Alarm state · Alarm history · Alarm configuration ·
- *   Put history · Logbook · Current value
+ *   All PVs / IOC / NAME
+ *   [◆ NAME  Active  ⚠ alarm feed stale]   [⧉] [Send to assistant] [Plot]
+ *   [alarm banner, only when the alarm server reports the PV not OK]
+ *   Value · Alarm · Put history          | Directory · Logbook
  *
- * A section that has no answer says why, on its own line; the page never
- * reads a missing answer as a clear state. The logbook is read by this page,
+ * A card whose service the deployment does not configure (the descriptor's
+ * `configured_services`) is one dashed line; a configured card that has no
+ * answer says why. The page never reads a missing answer as a clear state.
+ * The logbook is read by this page,
  * through ARIEL's own search at its mount, with the operator's session: the
  * panel's backend holds no logbook credential. The toolbar search opens All
  * PVs (panel-toolbar.js).
  */
 
+import { copyText } from '/design-system/js/clipboard.js';
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { icon } from '/design-system/js/icons.js';
 import { renderState } from '/design-system/js/panel-state.js';
@@ -30,20 +33,24 @@ import {
   plotUrl,
   readValues,
 } from './directory-api.js';
+import { sinceText } from './alarms-render.js';
 import { formatRoute } from './route.js';
 import { state } from './state.js';
 import { messageOf } from './utils.js';
+import { formatValue } from './value-format.js';
 import {
   NO_TARGET,
-  SECTION_ORDER,
-  facts,
-  factsSection,
+  alarmBanner,
+  alarmCard,
+  directoryCard,
+  logbookCard,
   node,
-  sectionFrame,
-  severityText,
+  putHistoryCard,
+  recordAlarmText,
   timeText,
   unavailableLine,
-  valueText,
+  unconfiguredLine,
+  valueCard,
 } from './pv-page-sections.js';
 
 /** @typedef {import('./directory-api.js').PvFacts} PvFacts */
@@ -164,7 +171,7 @@ export async function readLogbook(name) {
 }
 
 /**
- * Fill the logbook section; a row opens the entry in ARIEL through the host,
+ * Fill the logbook card; a row opens the entry in ARIEL through the host,
  * or is an ordinary link where there is no host to hand it to.
  * @param {HTMLElement} frame
  * @param {LogbookSection} logbook
@@ -213,15 +220,15 @@ function fillLogbook(frame, logbook) {
 // ---- Current value ----
 
 /**
- * Read the PV's value and show it in the value section and as the record's
- * own alarm.
+ * Read the PV's value and show it in the Value card and as the record's own
+ * alarm in the Alarm card and the banner.
  * @param {HTMLElement} page
  * @param {string} name
  * @returns {Promise<void>}
  */
 async function refreshValue(page, name) {
   const slot = page.querySelector('[data-slot="value"]');
-  const own = page.querySelector('[data-slot="record-alarm"]');
+  const owns = () => page.querySelectorAll('[data-slot="record-alarm"]');
   if (slot) slot.replaceChildren(node('p', 'pvp-note', 'Reading…'));
   /** @type {ValueRow|undefined} */
   let row;
@@ -238,32 +245,21 @@ async function refreshValue(page, name) {
     const text =
       row?.outcome === 'no_answer' ? 'no answer' : `Unavailable: ${row?.reason || failure}`;
     slot?.replaceChildren(node('p', 'pvp-note', text));
-    if (own) own.textContent = row?.outcome === 'no_answer' ? 'no answer' : 'unavailable';
+    for (const own of owns()) {
+      own.textContent = row?.outcome === 'no_answer' ? 'no answer' : 'unavailable';
+    }
     return;
   }
-  /** @type {[string, string][]} */
-  const pairs = [['Value', valueText(row.value)]];
-  if (row.timestamp) pairs.push(['Time', timeText(row.timestamp)]);
-  slot?.replaceChildren(facts(pairs));
-  if (own) own.textContent = [severityText(row.severity), row.status].filter(Boolean).join(' ');
-}
-
-/**
- * @param {HTMLElement} page
- * @param {string} name
- * @returns {HTMLElement}
- */
-function valueSection(page, name) {
-  const frame = sectionFrame('value');
-  const refresh = node('button', 'osprey-btn pvp-refresh');
-  refresh.setAttribute('type', 'button');
-  refresh.append(icon('refresh'), node('span', 'osprey-btn-label', 'Refresh'));
-  refresh.addEventListener('click', () => void refreshValue(page, name));
-  frame.querySelector('h3')?.append(refresh);
-  const slot = node('div');
-  slot.dataset.slot = 'value';
-  frame.append(slot);
-  return frame;
+  const formatted = formatValue(row);
+  const big = node('div', 'pvp-bigval', formatted.text);
+  if (formatted.title) big.title = formatted.title;
+  if (formatted.unit) big.append(node('small', 'pvp-unit', formatted.unit));
+  const alarm = recordAlarmText(row);
+  const read = [row.timestamp && `read ${timeText(row.timestamp)}`, alarm && `record ${alarm}`]
+    .filter(Boolean)
+    .join(' · ');
+  slot?.replaceChildren(big, node('p', 'pvp-note', read));
+  for (const own of owns()) own.textContent = alarm;
 }
 
 // ---- Header ----
@@ -287,6 +283,27 @@ function listingChip(directory) {
   element.append(node('span', 'osprey-chip-label', chip[1]));
   element.dataset.slot = 'listing';
   return element;
+}
+
+/**
+ * The breadcrumb: All PVs, the PV's IOC when the directory names one, the PV.
+ * @param {string} name
+ * @param {string|null|undefined} ioc
+ * @returns {HTMLElement}
+ */
+function breadcrumb(name, ioc) {
+  const crumb = node('nav', 'pvp-crumb');
+  crumb.setAttribute('aria-label', 'Breadcrumb');
+  const all = /** @type {HTMLAnchorElement} */ (node('a', '', 'All PVs'));
+  all.href = formatRoute({ view: 'allpvs', params: {} });
+  crumb.append(all, node('span', 'pvp-crumb-sep', '/'));
+  if (ioc) {
+    const link = /** @type {HTMLAnchorElement} */ (node('a', '', ioc));
+    link.href = formatRoute({ view: 'ioc', params: { name: ioc } });
+    crumb.append(link, node('span', 'pvp-crumb-sep', '/'));
+  }
+  crumb.append(node('span', 'pvp-crumb-leaf', name));
+  return crumb;
 }
 
 /**
@@ -323,24 +340,26 @@ function header(name, sections) {
   head.append(title);
 
   const row = /** @type {DirectoryRecord|null|undefined} */ (directory?.record)?.row;
-  if (row?.description || row?.ioc) {
-    const line = node('p', 'pvp-sub');
-    if (row.description) line.append(node('span', '', row.description));
-    if (row.ioc) {
-      const ioc = /** @type {HTMLAnchorElement} */ (node('a', 'pvp-ioc', row.ioc));
-      ioc.href = formatRoute({ view: 'ioc', params: { name: row.ioc } });
-      line.append(node('span', '', 'IOC '), ioc);
-    }
-    head.append(line);
-  }
+  if (row?.description) head.append(node('p', 'pvp-sub', row.description));
   const actions = node('div', 'pvp-actions');
   actions.dataset.slot = 'actions';
+  const copy = node('button', 'osprey-icon-btn');
+  copy.setAttribute('type', 'button');
+  copy.setAttribute('aria-label', 'Copy name');
+  copy.title = 'Copy name';
+  copy.dataset.action = 'copy';
+  copy.append(icon('copy'));
+  copy.addEventListener('click', async () => {
+    const copied = await copyText(name);
+    showToast(copied ? `Copied ${name}` : 'Copy failed', { kind: copied ? 'success' : 'error' });
+  });
+  actions.append(copy);
   head.append(actions);
   return head;
 }
 
 /**
- * Offer Plot (CANOPY, Trace answering) and Send to assistant, only where the
+ * Offer Send to assistant and Plot (CANOPY, Trace answering), only where the
  * host can be handed them.
  * @param {HTMLElement} actions
  * @param {string} name
@@ -370,10 +389,22 @@ async function fillActions(actions, name, plotCheck) {
       window.location.origin
     );
   });
-  actions.prepend(plot);
+  actions.append(plot);
 }
 
 // ---- The page ----
+
+/**
+ * Whether the deployment configures `kind`: the descriptor says, and without
+ * one the facts do (they carry only configured sections).
+ * @param {'alarm_state'|'alarm_log'|'put_log'|'logbook'} kind
+ * @param {boolean} inFacts
+ * @returns {boolean}
+ */
+function configured(kind, inFacts) {
+  const services = state.directory?.configured_services;
+  return services ? services.includes(kind) : inFacts;
+}
 
 /**
  * @param {HTMLElement} container
@@ -415,22 +446,48 @@ async function load(container, name) {
 
   /** @type {Map<string, PvFactsSection>} */
   const bySection = new Map(facts.sections.map((section) => [section.section, section]));
+  const directory = bySection.get('directory');
+  const alarmState = bySection.get('alarm_state');
+  const alarmConfig = bySection.get('alarm_config');
+  const alarmHistory = bySection.get('alarm_history');
+  const putHistory = bySection.get('put_history');
+  const row = /** @type {DirectoryRecord|null|undefined} */ (directory?.record)?.row;
+
   const page = node('div', 'pv-page');
-  page.append(header(name, bySection));
-  for (const id of SECTION_ORDER) {
-    const section = bySection.get(id);
-    if (section) page.append(factsSection(section));
-  }
+  page.append(breadcrumb(name, row?.ioc), header(name, bySection));
+  const since = alarmState?.record
+    ? sinceText(/** @type {AlarmStateRecord} */ (alarmState.record).time, Date.now())
+    : '';
+  const banner = alarmBanner(alarmState, alarmConfig, since);
+  if (banner) page.append(banner);
+
+  const left = node('div', 'pvp-col');
+  const right = node('div', 'pvp-col');
+  left.append(valueCard(() => void refreshValue(page, name)));
+  const alarms =
+    configured('alarm_state', Boolean(alarmState)) ||
+    configured('alarm_log', Boolean(alarmHistory));
+  left.append(
+    alarms
+      ? alarmCard({ state: alarmState, config: alarmConfig, history: alarmHistory })
+      : unconfiguredLine('Alarms')
+  );
+  if (!configured('put_log', Boolean(putHistory))) left.append(unconfiguredLine('Put history'));
+  else if (putHistory) left.append(putHistoryCard(putHistory));
+  else left.append(missingCard('put_history', 'Put history'));
+
+  if (directory) right.append(directoryCard(directory));
   /** @type {HTMLElement|null} */
   let logbookFrame = null;
-  if (state.directory?.ariel) {
-    logbookFrame = sectionFrame('logbook');
-    const pending = node('p', 'pvp-note', 'Reading…');
-    pending.dataset.slot = 'logbook';
-    logbookFrame.append(pending);
-    page.append(logbookFrame);
+  if (configured('logbook', Boolean(state.directory?.ariel))) {
+    logbookFrame = logbookCard();
+    right.append(logbookFrame);
+  } else {
+    right.append(unconfiguredLine('Logbook'));
   }
-  page.append(valueSection(page, name));
+  const grid = node('div', 'pvp-grid');
+  grid.append(left, right);
+  page.append(grid);
   container.replaceChildren(page);
 
   const actions = /** @type {HTMLElement} */ (page.querySelector('[data-slot="actions"]'));
@@ -444,6 +501,19 @@ async function load(container, name) {
     );
   }
   await Promise.all(tasks);
+}
+
+/**
+ * A configured card the facts do not carry: the facts said nothing of it.
+ * @param {string} id
+ * @param {string} title
+ * @returns {HTMLElement}
+ */
+function missingCard(id, title) {
+  const frame = node('section', 'osprey-card pvp-card');
+  frame.dataset.section = id;
+  frame.append(node('h3', 'pvp-card-title', title), unavailableLine('no answer'));
+  return frame;
 }
 
 /**

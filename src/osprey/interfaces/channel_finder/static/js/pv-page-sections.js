@@ -1,14 +1,19 @@
 // @ts-check
 /**
- * OSPREY Channel Finder — PV Page sections
+ * OSPREY Channel Finder — PV Page cards
  *
- * The facts sections of the PV page, each rendered from its payload alone
- * (PV facts per section), and the small DOM pieces the page shares with
- * them. Every value is set as text.
+ * The cards of the PV page, each built from the facts sections it shows (PV
+ * facts per section), and the small DOM pieces the page shares with them. A
+ * card whose service the deployment does not configure is one dashed line
+ * ({@link unconfiguredLine}); a configured card without an answer says why.
+ * Every value is set as text; severities draw through severityMark.
  */
 
+import { icon } from '/design-system/js/icons.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
 import { configEntries } from './alarm-text.js';
+import { formatRoute } from './route.js';
+import { severityMark, severityOf } from './severity.js';
 
 /** @typedef {import('./directory-api.js').PvFactsSection} PvFactsSection */
 /** @typedef {import('./directory-api.js').DirectoryRecord} DirectoryRecord */
@@ -16,31 +21,11 @@ import { configEntries } from './alarm-text.js';
 /** @typedef {import('./directory-api.js').AlarmConfigRecord} AlarmConfigRecord */
 /** @typedef {import('./directory-api.js').AlarmHistoryRow} AlarmHistoryRow */
 /** @typedef {import('./directory-api.js').PutRow} PutRow */
-
-/** The facts sections, in the order the page shows them. */
-export const SECTION_ORDER = Object.freeze(
-  /** @type {const} */ ([
-    'directory',
-    'alarm_state',
-    'alarm_history',
-    'alarm_config',
-    'put_history',
-  ])
-);
-
-/** @type {Record<PvFactsSection['section'] | 'logbook' | 'value', string>} */
-const TITLES = {
-  directory: 'Directory',
-  alarm_state: 'Alarm state',
-  alarm_history: 'Alarm history',
-  alarm_config: 'Alarm configuration',
-  put_history: 'Put history',
-  logbook: 'Logbook',
-  value: 'Current value',
-};
+/** @typedef {import('./directory-api.js').ValueRow} ValueRow */
 
 export const NO_TARGET = 'not available for this target';
 const STALE_FEED = 'stale (the alarm feed is not updating)';
+const NOT_IN_TREE = 'Not in the alarm tree';
 /** The rows a history carries at most (the facts service's limit). */
 const HISTORY_LIMIT = 20;
 const RETENTION_UNKNOWN = 'Retention unknown: how far back the service keeps rows is not known';
@@ -97,13 +82,26 @@ export function severityText(severity) {
 }
 
 /**
- * A value as one line of text.
- * @param {unknown} value
+ * The record's own alarm from a value read: its severity and status, once
+ * when the two say the same.
+ * @param {ValueRow} row
  * @returns {string}
  */
-export function valueText(value) {
-  if (value === null || value === undefined) return '';
-  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+export function recordAlarmText(row) {
+  const words = [severityText(row.severity), row.status ?? ''].filter(Boolean);
+  return [...new Set(words)].join(' ');
+}
+
+/**
+ * The severity mark of `severity`, with `text` in place of the word.
+ * @param {unknown} severity
+ * @param {string} [text]
+ * @returns {HTMLElement}
+ */
+function mark(severity, text) {
+  const holder = node('span', 'pvp-sev');
+  holder.innerHTML = severityMark(severityOf(severity), text);
+  return holder;
 }
 
 /**
@@ -133,6 +131,26 @@ export function facts(pairs) {
 }
 
 /**
+ * Guidance or displays as one title line and one details line per entry; null
+ * for none.
+ * @param {unknown} value
+ * @param {string} [className] - of each entry
+ * @returns {HTMLElement|null}
+ */
+export function entriesNode(value, className = 'pvp-entry') {
+  const entries = configEntries(value);
+  if (!entries.length) return null;
+  const list = node('div', 'pvp-entries');
+  for (const entry of entries) {
+    const item = node('div', className);
+    if (entry.title) item.append(node('div', 'pvp-entry-title', entry.title));
+    if (entry.details) item.append(node('div', 'pvp-entry-details', entry.details));
+    list.append(item);
+  }
+  return list;
+}
+
+/**
  * A table of rows; every cell is text.
  * @param {string[]} heads
  * @param {string[][]} rows
@@ -156,220 +174,315 @@ function table(heads, rows) {
 }
 
 /**
- * A section frame with its title; the body goes into the returned element.
- * @param {keyof typeof TITLES} id
- * @param {string} [label] - shown beside the title
+ * A card with its title; the body goes into the returned element.
+ * @param {string} id - the `data-section` the page and its tests find it by
+ * @param {string} title
+ * @param {string} [aside] - shown beside the title
  * @returns {HTMLElement}
  */
-export function sectionFrame(id, label) {
-  const section = node('section', 'pvp-section');
+function card(id, title, aside) {
+  const section = node('section', 'osprey-card pvp-card');
   section.dataset.section = id;
-  const head = node('h3', 'osprey-section-label pvp-section-title', TITLES[id]);
-  if (label) head.append(node('span', 'pvp-section-aside', label));
+  const head = node('h3', 'pvp-card-title', title);
+  if (aside) head.append(node('span', 'pvp-card-aside', aside));
   section.append(head);
   return section;
 }
 
-// ---- Sections ----
-
 /**
- * @param {PvFactsSection} section
+ * The one dashed line of a card whose service is not configured.
+ * @param {string} title
  * @returns {HTMLElement}
  */
-function directorySection(section) {
-  const frame = sectionFrame('directory');
-  if (section.outcome === 'unavailable') {
-    frame.append(unavailableLine(section.reason));
-    return frame;
-  }
-  if (section.outcome === 'not_listed') {
-    frame.append(node('p', 'pvp-note', `Not listed in ${section.source.label}`));
-    return frame;
-  }
-  const record = /** @type {DirectoryRecord|null|undefined} */ (section.record);
-  const properties = record?.properties ?? {};
-  const names = Object.keys(properties);
-  const first = section.detail_properties ?? names;
-  const shown = first.filter((name) => Object.hasOwn(properties, name));
-  const rest = names.filter((name) => !shown.includes(name));
-  if (shown.length) frame.append(facts(shown.map((name) => [name, properties[name]])));
-  if (rest.length) {
-    const more = node('details', 'pvp-more');
-    more.append(node('summary', '', 'All properties'));
-    more.append(facts(rest.map((name) => [name, properties[name]])));
-    frame.append(more);
-  }
-  if (record?.tags?.length) frame.append(facts([['Tags', record.tags.join(', ')]]));
-  return frame;
+export function unconfiguredLine(title) {
+  const line = node('div', 'pvp-off', `${title} · not configured`);
+  line.dataset.off = title;
+  return line;
 }
 
 /**
- * The live alarm state, and beside it the record's own alarm from the value
- * read, which fills in when the read answers.
+ * The footer lines of a section: the caveats of its source and, on a history
+ * that answered, that only the newest rows are shown or that its retention is
+ * not known.
  * @param {PvFactsSection} section
- * @returns {HTMLElement}
+ * @returns {string[]}
  */
-function alarmStateSection(section) {
-  const frame = sectionFrame('alarm_state');
-  const own = node('span', 'pvp-record-alarm', '…');
-  own.dataset.slot = 'record-alarm';
-  if (section.outcome === 'unavailable') {
-    frame.append(unavailableLine(section.reason));
-    frame.append(facts([['Record', own]]));
-    return frame;
-  }
-  const record = /** @type {AlarmStateRecord|null|undefined} */ (section.record);
-  /** @type {[string, string | Node][]} */
-  const pairs = [];
-  if (!record) {
-    pairs.push(['Alarm server', 'no state']);
-  } else if (record.stale) {
-    pairs.push(['Alarm server', STALE_FEED]);
-  } else {
-    const words = [record.severity, record.status].filter(Boolean).join(' ');
-    pairs.push(['Alarm server', words]);
-    pairs.push(['Latched', record.latched ? 'yes' : 'no']);
-    pairs.push(['Acknowledged', record.acknowledged ? 'yes' : 'no']);
-    if (record.message && record.message !== record.status) pairs.push(['Message', record.message]);
-    if (record.time) pairs.push(['Since', timeText(record.time)]);
-  }
-  pairs.push(['Record', own]);
-  frame.append(facts(pairs));
-  return frame;
-}
-
-/**
- * @param {PvFactsSection} section
- * @returns {HTMLElement}
- */
-function alarmConfigSection(section) {
-  const record = /** @type {AlarmConfigRecord|null|undefined} */ (section.record);
-  const frame = sectionFrame('alarm_config', section.label ?? record?.label);
-  if (section.outcome === 'unavailable') {
-    frame.append(unavailableLine(section.reason));
-    return frame;
-  }
-  if (!record) return frame;
-  /** @type {[string, string | Node][]} */
-  const pairs = [['In alarm tree', record.in_tree]];
-  if (record.path) pairs.push(['Path', record.path]);
-  if (record.enabled !== null) pairs.push(['Enabled', record.enabled ? 'yes' : 'no']);
-  if (record.latching !== null) pairs.push(['Latching', record.latching ? 'yes' : 'no']);
-  const guidance = entriesNode(record.guidance);
-  if (guidance) pairs.push(['Guidance', guidance]);
-  const displays = entriesNode(record.displays);
-  if (displays) pairs.push(['Displays', displays]);
-  frame.append(facts(pairs));
-  return frame;
-}
-
-/**
- * Guidance or displays as one title line and one details line per entry; null
- * for none.
- * @param {unknown} value
- * @returns {HTMLElement|null}
- */
-export function entriesNode(value) {
-  const entries = configEntries(value);
-  if (!entries.length) return null;
-  const list = node('div', 'pvp-entries');
-  for (const entry of entries) {
-    const item = node('div', 'pvp-entry');
-    if (entry.title) item.append(node('div', 'pvp-entry-title', entry.title));
-    if (entry.details) item.append(node('div', 'pvp-entry-details', entry.details));
-    list.append(item);
-  }
-  return list;
-}
-
-/**
- * The footer of a section: the caveats of its source and, on a history that
- * answered, that only the newest rows are shown or that its retention is not
- * known.
- * @param {PvFactsSection} section
- * @returns {HTMLElement|null}
- */
-function sectionFooter(section) {
-  const lines = [...section.caveats];
+function footerLines(section) {
+  const lines = [...(section.caveats ?? [])];
   if (section.truncated) lines.push(`Newest ${HISTORY_LIMIT} rows shown`);
   if (section.outcome !== 'unavailable' && section.retention_known === false) {
     lines.push(RETENTION_UNKNOWN);
   }
-  if (!lines.length) return null;
-  const footer = node('footer', 'pvp-footer');
-  for (const line of lines) footer.append(node('p', 'pvp-note', line));
-  return footer;
+  return lines;
 }
 
 /**
- * Alarm or put history, each row with the user it recorded.
+ * A footer of `lines`, each once; null for none.
+ * @param {string[]} lines
+ * @returns {HTMLElement|null}
+ */
+function footer(lines) {
+  const unique = [...new Set(lines)];
+  if (!unique.length) return null;
+  const element = node('footer', 'pvp-footer');
+  for (const line of unique) element.append(node('p', 'pvp-note', line));
+  return element;
+}
+
+/**
+ * A history section's rows as a table, or its reason, or that it has none.
  * @param {PvFactsSection} section
  * @returns {HTMLElement}
  */
-function historySection(section) {
-  const id = section.section === 'put_history' ? 'put_history' : 'alarm_history';
-  const frame = sectionFrame(id);
+function historyBody(section) {
+  if (section.outcome === 'unavailable') return unavailableLine(section.reason);
+  if (!section.rows?.length) return node('p', 'pvp-note', 'No rows recorded');
+  if (section.section === 'put_history') {
+    const rows = /** @type {PutRow[]} */ (section.rows);
+    return table(
+      ['Time', 'Field', 'Old', 'New', 'User', 'Client'],
+      rows.map((row) => [
+        timeText(row.at),
+        row.field ?? '',
+        row.old ?? '',
+        row.new ?? '',
+        row.user ?? '',
+        row.client ?? '',
+      ])
+    );
+  }
+  const rows = /** @type {AlarmHistoryRow[]} */ (section.rows);
+  return table(
+    ['Time', 'Severity', 'Status', 'Message', 'User'],
+    rows.map((row) => [timeText(row.time), row.severity, row.status, row.message, row.user ?? ''])
+  );
+}
+
+// ---- Cards ----
+
+/**
+ * The Value card: the value with its unit, the read time and the record's own
+ * alarm, filled by the page's value read; Refresh reads again.
+ * @param {() => void} onRefresh
+ * @returns {HTMLElement}
+ */
+export function valueCard(onRefresh) {
+  const frame = card('value', 'Value');
+  const refresh = node('button', 'osprey-icon-btn pvp-refresh');
+  refresh.setAttribute('type', 'button');
+  refresh.setAttribute('aria-label', 'Refresh');
+  refresh.title = 'Refresh';
+  refresh.append(icon('refresh'));
+  refresh.addEventListener('click', onRefresh);
+  frame.querySelector('h3')?.append(refresh);
+  const slot = node('div', 'pvp-value');
+  slot.dataset.slot = 'value';
+  slot.append(node('p', 'pvp-note', 'Reading…'));
+  frame.append(slot);
+  return frame;
+}
+
+/**
+ * The Directory card: IOC, host, record type and origin, the detail
+ * properties first and the rest behind All properties, then the tags.
+ * @param {PvFactsSection} section
+ * @returns {HTMLElement}
+ */
+export function directoryCard(section) {
+  const frame = card('directory', 'Directory');
   if (section.outcome === 'unavailable') {
     frame.append(unavailableLine(section.reason));
-  } else if (!section.rows?.length) {
-    frame.append(node('p', 'pvp-note', 'No rows recorded'));
-  } else if (id === 'put_history') {
-    const rows = /** @type {PutRow[]} */ (section.rows);
-    frame.append(
-      table(
-        ['Time', 'Field', 'Old', 'New', 'User', 'Client'],
-        rows.map((row) => [
-          timeText(row.at),
-          row.field ?? '',
-          row.old ?? '',
-          row.new ?? '',
-          row.user ?? '',
-          row.client ?? '',
-        ])
-      )
-    );
+  } else if (section.outcome === 'not_listed') {
+    frame.append(node('p', 'pvp-note', `Not listed in ${section.source.label}`));
   } else {
-    const rows = /** @type {AlarmHistoryRow[]} */ (section.rows);
-    frame.append(
-      table(
-        ['Time', 'Severity', 'Status', 'Message', 'User'],
-        rows.map((row) => [
-          timeText(row.time),
-          row.severity,
-          row.status,
-          row.message,
-          row.user ?? '',
-        ])
-      )
-    );
+    const record = /** @type {DirectoryRecord|null|undefined} */ (section.record);
+    const row = record?.row;
+    /** @type {[string, string | Node][]} */
+    const pairs = [];
+    if (row?.ioc) {
+      const link = /** @type {HTMLAnchorElement} */ (node('a', 'pvp-ioc', row.ioc));
+      link.href = formatRoute({ view: 'ioc', params: { name: row.ioc } });
+      pairs.push(['IOC', link]);
+    }
+    if (row?.host) pairs.push(['Host', row.host]);
+    if (row?.record_type) pairs.push(['Record type', row.record_type]);
+    if (section.origin === 'curated') pairs.push(['Origin', 'Curated']);
+    else if (section.origin === 'directory') pairs.push(['Origin', 'Control system only']);
+    if (pairs.length) frame.append(facts(pairs));
+
+    const properties = record?.properties ?? {};
+    const names = Object.keys(properties);
+    const first = section.detail_properties ?? names;
+    const shown = first.filter((name) => Object.hasOwn(properties, name));
+    const rest = names.filter((name) => !shown.includes(name));
+    if (shown.length) frame.append(facts(shown.map((name) => [name, properties[name]])));
+    if (rest.length) {
+      const more = node('details', 'pvp-more');
+      more.append(node('summary', '', 'All properties'));
+      more.append(facts(rest.map((name) => [name, properties[name]])));
+      frame.append(more);
+    }
+    if (record?.tags?.length) frame.append(facts([['Tags', record.tags.join(', ')]]));
   }
+  const lines = footer(footerLines(section));
+  if (lines) frame.append(lines);
   return frame;
 }
 
 /**
+ * The alarm server's lines of the Alarm card, from the alarm state section.
  * @param {PvFactsSection} section
+ * @param {HTMLElement} own - the record's own alarm, filled by the value read
+ * @returns {HTMLElement[]}
+ */
+function alarmStateLines(section, own) {
+  if (section.outcome === 'unavailable') {
+    return [unavailableLine(section.reason), facts([['Record', own]])];
+  }
+  const record = /** @type {AlarmStateRecord|null|undefined} */ (section.record);
+  if (!record) return [mark(null, NOT_IN_TREE), facts([['Record', own]])];
+  /** @type {[string, string | Node][]} */
+  const pairs = [];
+  if (record.stale) {
+    pairs.push(['Alarm server', STALE_FEED]);
+  } else {
+    const words = [record.severity, record.message || record.status].filter(Boolean);
+    pairs.push(['Alarm server', mark(record.severity, words.join(' · '))]);
+  }
+  pairs.push(['Record', own]);
+  if (!record.stale) {
+    if (record.time) pairs.push(['Since', timeText(record.time)]);
+    pairs.push(['Latched', record.latched ? 'yes' : 'no']);
+    pairs.push(['Acknowledged', record.acknowledged ? 'yes' : 'no']);
+  }
+  return [facts(pairs)];
+}
+
+/**
+ * The configuration's lines of the Alarm card: tree path, enabled, latching
+ * and displays, then each guidance entry as a block.
+ * @param {PvFactsSection} section
+ * @returns {HTMLElement[]}
+ */
+function alarmConfigLines(section) {
+  if (section.outcome === 'unavailable') return [unavailableLine(section.reason)];
+  const record = /** @type {AlarmConfigRecord|null|undefined} */ (section.record);
+  if (!record) return [];
+  /** @type {[string, string | Node][]} */
+  const pairs = [];
+  if (record.in_tree !== 'yes') pairs.push(['In alarm tree', record.in_tree]);
+  if (record.path) pairs.push(['Tree path', record.path]);
+  if (record.enabled !== null) pairs.push(['Enabled', record.enabled ? 'yes' : 'no']);
+  if (record.latching !== null) pairs.push(['Latching', record.latching ? 'yes' : 'no']);
+  const displays = entriesNode(record.displays);
+  if (displays) pairs.push(['Displays', displays]);
+  const lines = pairs.length ? [facts(pairs)] : [];
+  const guidance = entriesNode(record.guidance, 'pvp-guidance');
+  if (guidance) lines.push(guidance);
+  return lines;
+}
+
+/**
+ * The Alarm card: one card from the alarm state, alarm configuration and
+ * alarm history sections, each line keeping its own section's answer.
+ * History is shown only with an alarm history section.
+ * @param {{ state?: PvFactsSection, config?: PvFactsSection, history?: PvFactsSection }} sections
  * @returns {HTMLElement}
  */
-export function factsSection(section) {
-  const frame = sectionBody(section);
-  const footer = sectionFooter(section);
-  if (footer) frame.append(footer);
+export function alarmCard({ state, config, history }) {
+  const configRecord = /** @type {AlarmConfigRecord|null|undefined} */ (config?.record);
+  const frame = card('alarm', 'Alarm', config?.label ?? configRecord?.label);
+  const present = [state, config, history].filter((s) => s !== undefined);
+  if (
+    present.length &&
+    present.every((s) => s.outcome === 'unavailable' && s.reason === NO_TARGET)
+  ) {
+    frame.append(unavailableLine(NO_TARGET));
+    return frame;
+  }
+  const own = node('span', 'pvp-record-alarm', '…');
+  own.dataset.slot = 'record-alarm';
+  if (state) frame.append(...alarmStateLines(state, own));
+  else frame.append(facts([['Record', own]]));
+  if (config) frame.append(...alarmConfigLines(config));
+  if (history) {
+    const part = node('div', 'pvp-card-part');
+    part.dataset.part = 'history';
+    part.append(node('div', 'osprey-section-label', 'History'), historyBody(history));
+    frame.append(part);
+  }
+  const lines = footer([state, config, history].flatMap((s) => (s ? footerLines(s) : [])));
+  if (lines) frame.append(lines);
   return frame;
 }
 
 /**
+ * The Put history card.
  * @param {PvFactsSection} section
  * @returns {HTMLElement}
  */
-function sectionBody(section) {
-  switch (section.section) {
-    case 'directory':
-      return directorySection(section);
-    case 'alarm_state':
-      return alarmStateSection(section);
-    case 'alarm_config':
-      return alarmConfigSection(section);
-    default:
-      return historySection(section);
+export function putHistoryCard(section) {
+  const frame = card('put_history', 'Put history');
+  frame.append(historyBody(section));
+  const lines = footer(footerLines(section));
+  if (lines) frame.append(lines);
+  return frame;
+}
+
+/**
+ * The Logbook card, its body filled by the page once ARIEL answers.
+ * @returns {HTMLElement}
+ */
+export function logbookCard() {
+  const frame = card('logbook', 'Logbook');
+  const pending = node('p', 'pvp-note', 'Reading…');
+  pending.dataset.slot = 'logbook';
+  frame.append(pending);
+  return frame;
+}
+
+/**
+ * The alarm banner, only when the alarm server reports the PV not OK: the
+ * severity and alarm, how long and since when, latched (with the record's own
+ * alarm now) and acknowledged, and the first guidance entry.
+ * @param {PvFactsSection|undefined} state
+ * @param {PvFactsSection|undefined} config
+ * @param {string} since - how long the alarm has held, e.g. `38 min`; empty when not known
+ * @returns {HTMLElement|null}
+ */
+export function alarmBanner(state, config, since) {
+  if (state?.outcome !== 'found') return null;
+  const record = /** @type {AlarmStateRecord|null|undefined} */ (state.record);
+  const severity = severityOf(record?.severity);
+  if (!record || severity === 'OK' || severity === 'NONE') return null;
+
+  const banner = node('div', `pvp-banner pvp-banner--${severity.toLowerCase()}`);
+  banner.setAttribute('role', 'status');
+  const head = node('div', 'pvp-banner-main');
+  const words = [record.severity, record.message || record.status].filter(Boolean);
+  head.append(node('div', 'pvp-banner-alarm', words.join(' · ')));
+
+  const rest = node('div', 'pvp-banner-rest');
+  const when = [since && `for ${since}`, record.time && `since ${timeText(record.time)}`]
+    .filter(Boolean)
+    .join(', ');
+  if (when) rest.append(when, ' · ');
+  if (record.latched) {
+    const own = node('span', '', record.status || '…');
+    own.dataset.slot = 'record-alarm';
+    rest.append('latched (record now ', own, ') · ');
   }
+  rest.append(record.acknowledged ? 'acknowledged' : 'not acknowledged');
+  head.append(rest);
+  banner.append(head);
+
+  const configRecord = /** @type {AlarmConfigRecord|null|undefined} */ (config?.record);
+  const [first] = configEntries(configRecord?.guidance);
+  if (first) {
+    const guidance = node('div', 'pvp-banner-guidance');
+    if (first.title) guidance.append(node('strong', '', `${first.title}. `));
+    guidance.append(first.details);
+    banner.append(guidance);
+  }
+  return banner;
 }
