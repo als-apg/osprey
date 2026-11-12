@@ -29,6 +29,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_TEMPLATE_DIR,
@@ -2667,6 +2668,7 @@ def _project_image_build_cmd(
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.extend(site_image_build_args(config, project_root))
+    cmd.extend(build_cache_args(runtime, PROJECT_KEY))
     with_plain_build_progress(cmd)
     cmd.append(project_root)
     return cmd
