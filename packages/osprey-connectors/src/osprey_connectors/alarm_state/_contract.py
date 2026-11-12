@@ -7,7 +7,8 @@ The shared answers and the rules every backend follows are in
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from osprey_connectors.service_answers import Unavailable, _Backend
@@ -24,6 +25,44 @@ class AlarmStateRecord:
     message: str | None = None
     time: str | None = None
     stale: bool = False
+
+
+@dataclass(frozen=True, kw_only=True)
+class AlarmStateRow:
+    """One channel the feed holds a state for.
+
+    ``channel`` is the channel address; ``path`` is the alarm-tree place the state
+    was reported under, ``None`` for a backend with no tree. Tango alarm devices
+    and DOOCS alarm servers fill ``path`` where they keep a hierarchy.
+    """
+
+    channel: str
+    path: str | None
+    state: AlarmStateRecord
+
+
+@dataclass(frozen=True, kw_only=True)
+class AlarmStates:
+    """Every channel's alarm state now, and the counts per severity.
+
+    ``counts`` is derived from the rows' severities, ``OK`` included and a ``None``
+    severity not counted, so it cannot disagree with them. ``last_contact`` is the
+    ISO-8601 UTC time the backend last heard from the feed (a message or an offset
+    check), ``None`` when it never has; ``stale`` is the backend's flag.
+    """
+
+    rows: tuple[AlarmStateRow, ...]
+    stale: bool
+    last_contact: str | None
+    counts: Mapping[str, int] = field(init=False, hash=False)
+
+    def __post_init__(self) -> None:
+        counts: dict[str, int] = {}
+        for row in self.rows:
+            severity = row.state.severity
+            if severity is not None:
+                counts[severity] = counts.get(severity, 0) + 1
+        object.__setattr__(self, "counts", dict(sorted(counts.items())))
 
 
 @dataclass(frozen=True, kw_only=True)
