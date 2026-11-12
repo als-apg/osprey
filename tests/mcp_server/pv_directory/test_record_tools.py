@@ -385,6 +385,25 @@ async def test_the_va_ioc_names_its_engineer_channel(tmp_path: Path, record: _Re
     ]
 
 
+async def test_an_ioc_record_passes_its_alarms_through(tmp_path: Path, record: _Record) -> None:
+    record.move("va", 1)
+    FakeDirectory.records = _records(_record("SR:BPM1:X", ioc="sim-SR"))
+    kafka = {
+        "type": "phoebus_alarm_server",
+        "settings": {"bootstrap_servers": "kafka:9092", "topic": "Accelerator"},
+    }
+    _install(tmp_path, VA_BUILD, {"alarm_state": kafka})
+
+    facts = json.loads(await ioc_record.ioc_record("sim-SR"))
+
+    assert facts["alarms"] == {
+        "outcome": "unavailable",
+        "reason": "cannot filter by alarm: not available for this target",
+    }
+    _install(tmp_path, VA_BUILD, {})
+    assert "alarms" not in json.loads(await ioc_record.ioc_record("sim-SR"))
+
+
 async def test_an_ioc_name_is_one_encoded_link_segment(tmp_path: Path) -> None:
     _install(tmp_path, LIVE_BUILD, FACILITY)
 

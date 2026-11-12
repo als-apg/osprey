@@ -169,6 +169,20 @@
     "engineer": "operator",
     "engineer_source": "directory property",
     "health_pvs": ["DEMO:BPM01:HEARTBEAT"],
+    "alarms": {
+      "outcome": "found",
+      "total": 1,
+      "rows": [
+        {
+          "pv": "DEMO:BPM01:X",
+          "severity": "MAJOR",
+          "status": "HIGH_ALARM",
+          "latched": true,
+          "acknowledged": false,
+          "time": "2026-11-05T08:10:02.000Z"
+        }
+      ]
+    },
     "links": {"panel": "/panel/channel-finder/#/ioc/demo-ioc-bpm"}
   },
   "logbook/availability": {
