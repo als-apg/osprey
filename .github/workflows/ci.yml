@@ -73,7 +73,7 @@ env:
 # 10 minutes, and a capped step sits below it; a job with no such data keeps 60.
 jobs:
   test:
-    name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} (${{ matrix.shard }})
+    name: Test Python — ${{ matrix.python-version }} on ${{ matrix.os }}, ${{ matrix.shard }}
     runs-on: ${{ matrix.os }}
     # Generous on purpose: runtime varies by runner, and a cap at the healthy runtime reds healthy runs.
     timeout-minutes: 75
@@ -176,7 +176,7 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   serial-suites:
-    name: Serial suites Python ${{ matrix.python-version }} on ubuntu-latest
+    name: Serial Test Suites — Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     # Suites that must not share a runner (they time the box or need their own process). The job cap is
     # the step caps plus setup; test_ci_workflow_wiring.py holds the sum.
@@ -212,7 +212,8 @@ jobs:
       run: uv run python scripts/check.py run live-ca
 
   dependency-floor:
-    name: Archiver suite at the declared dependency floor
+    # The archiver suite against the lowest dependency versions the package declares.
+    name: Archiver Dependency Floor Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -257,7 +258,8 @@ jobs:
           -v --tb=short
 
   optimizer:
-    name: Optimizer service (engine + real Redis)
+    # The optimizer engine against a real Redis.
+    name: Optimizer Service Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The `service` extra is installed only here, so the `test` lanes skip its engine suite.
@@ -296,7 +298,8 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   connectors-standalone:
-    name: Connectors suite without the framework
+    # The connectors suite with no framework installed.
+    name: Connectors Standalone Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -340,7 +343,8 @@ jobs:
       run: python3 scripts/ci/connectors_compat_matrix.py github-output
 
   connectors-compat:
-    name: Connectors HEAD under framework ${{ matrix.framework || '(none listed)' }}
+    # Connectors HEAD under each listed framework release.
+    name: Connectors Compat — framework ${{ matrix.framework || 'none listed' }}
     needs: connectors-compat-plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -390,7 +394,8 @@ jobs:
         --venv "$COMPAT_VENV" --workdir "$RUNNER_TEMP/contracts"
 
   framework-at-connectors-floor:
-    name: Framework HEAD at its declared connectors floor
+    # Framework HEAD against its declared connectors floor.
+    name: Framework at Connectors Floor Tests
     needs: connectors-compat-plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -500,7 +505,8 @@ jobs:
       run: python3 scripts/check.py run gitleaks --base "$BASE"
 
   docs:
-    name: Documentation Build (Check Only)
+    # Check only: the deploy lives in docs.yml.
+    name: Documentation Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -538,7 +544,8 @@ jobs:
       run: python3 scripts/check.py run linkcheck
 
   package:
-    name: Package Build (framework + lean connectors wheel)
+    # The framework and lean connectors wheels.
+    name: Package Build
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -558,7 +565,8 @@ jobs:
         retention-days: 7
 
   static-checks:
-    name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
+    # Preset YAML and builds, skill ↔ MCP-tool consistency, podman-compose parse.
+    name: Preset Static Checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -569,7 +577,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Run Tier 0 static checks
+    - name: Run the preset static checks
       timeout-minutes: 15
       run: uv run pytest tests/integration/test_preset_static.py tests/integration/test_preset_build.py -v --tb=short
 
@@ -607,7 +615,8 @@ jobs:
         engine: podman
 
   visual-theming:
-    name: Behavioral + Visual Theming (Playwright, design system)
+    # Playwright over the design system.
+    name: Behavioral + Visual Theming Tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # No `if:`: nothing else runs the browser suites, and UI changes come from outside `interfaces/`.
@@ -691,7 +700,8 @@ jobs:
           -v --tb=short
 
   visual-theming-agent:
-    name: Watchdog Browser + Visual Regression (Playwright)
+    # Playwright.
+    name: Watchdog Browser + Visual Regression Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -828,7 +838,8 @@ jobs:
         commit_user_email: "github-actions[bot]@users.noreply.github.com"
 
   frontend-js:
-    name: Frontend JS (typecheck + lint + vitest)
+    # Typecheck, lint and vitest.
+    name: Frontend JS Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -853,7 +864,8 @@ jobs:
       run: python3 scripts/check.py run tsc eslint prettier vitest app-check-js
 
   plugin-smoke:
-    name: Plugin marketplace smoke (install the osprey plugin)
+    # Installs the osprey plugin from the marketplace.
+    name: Plugin Marketplace Smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # No `if:`: changes outside `plugins/` can break the install.
@@ -903,7 +915,7 @@ jobs:
       run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
 
   build-boot-smoke:
-    name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
+    name: Preset Build + MCP Boot — ${{ matrix.preset }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -918,7 +930,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Run Tier 1 boot smoke for preset
+    - name: Run the build + MCP boot smoke for the preset
       env:
         PRESET: ${{ matrix.preset }}
         # Over /tmp's tmpfs quota otherwise; see "Run unit tests".
@@ -926,7 +938,7 @@ jobs:
       run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 
   agentic-per-preset:
-    name: Tier 3 — Agentic flow (${{ matrix.preset }})
+    name: Preset Agentic Flow — ${{ matrix.preset }}
     runs-on: ubuntu-latest
     # Above the 3x-p90 rule: ten runs of data, and the gateway's latency is not ours to bound.
     timeout-minutes: 25
@@ -956,7 +968,7 @@ jobs:
 
     - *install-pinned-cli
 
-    - name: Run Tier 3 agentic test for preset
+    - name: Run the agentic flow test for the preset
       timeout-minutes: 20
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
@@ -1046,7 +1058,8 @@ jobs:
         [ -z "$projects" ] || scripts/ci/cleanup_stacks.sh $projects
 
   e2e-no-model:
-    name: Model-Free E2E (the tests/e2e files that reach no gateway)
+    # The tests/e2e files that reach no model gateway.
+    name: Model-Free E2E
     runs-on: ubuntu-latest
     # Any PR, forks included: no secret, no image push.
     if: &any-pr-or-secret-revalidation >-
@@ -1087,7 +1100,8 @@ jobs:
     - *capture-diagnostics
 
   agent-record-e2e:
-    name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
+    # Replays every captured fixture through the real stack.
+    name: Agent Record E2E — ${{ matrix.backend }}
     runs-on: ubuntu-latest
     if: *any-pr-or-secret-revalidation
     # One case per runner: cases share a per-host project name and port block. The wiring test holds the cells.
@@ -1135,7 +1149,8 @@ jobs:
       run: scripts/ci/cleanup_stacks.sh osprey-e2e-agent-record
 
   benchmarks:
-    name: On-Demand Benchmarks (channel-finder MCP + Tier 2 model)
+    # Channel-finder MCP benchmarks and the agentic tier-2 tests.
+    name: Model Benchmarks
     runs-on: ubuntu-latest
     # Dispatch-only: they measure the model, not the change, so all-checks-passed does not need them.
     if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
@@ -1173,7 +1188,8 @@ jobs:
           -v --tb=short
 
   deploy-e2e:
-    name: Deploy E2E Test (build + deploy pipeline)
+    # The build + deploy pipeline.
+    name: Deploy E2E
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Same-repo only even without secrets: house policy for every image build-and-deploy job. No base
@@ -1476,7 +1492,8 @@ jobs:
         scripts/ci/cleanup_stacks.sh $CLEANUP
 
   orm-roundtrip-e2e:
-    name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
+    # VA + bluesky bridge + Tiled, full Docker stack.
+    name: ORM + Grid Scan Roundtrip E2E
     runs-on: ubuntu-latest
     # Sequential steps: two modules bind CA port 5064, and a runner fits one stack at a time.
     if: *same-repo-pr-or-secret-revalidation
@@ -1517,7 +1534,8 @@ jobs:
           preflight-probe
 
   nextcloud-talk-bridge-e2e:
-    name: Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)
+    # Real Talk server + dispatch stack.
+    name: Nextcloud Talk Bridge E2E
     runs-on: ubuntu-latest
     if: *full-ci-pr-or-secret-revalidation
     # A job `permissions:` replaces the defaults; `packages: read` for the PRIVATE ghcr Talk fixture.
@@ -1564,7 +1582,8 @@ jobs:
     - *capture-diagnostics
 
   gchat-bridge-e2e:
-    name: Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)
+    # Pub/Sub emulator + dispatch stack.
+    name: Google Chat Bridge E2E
     runs-on: ubuntu-latest
     if: *full-ci-pr-or-secret-revalidation
     timeout-minutes: 45
@@ -1611,7 +1630,8 @@ jobs:
     - *capture-diagnostics
 
   teams-slack-bridge-e2e:
-    name: Microsoft Teams + Slack Bridge E2E (loopback fakes, no container)
+    # Microsoft Teams and Slack over loopback fakes, no container.
+    name: Teams + Slack Bridge E2E
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -1642,7 +1662,8 @@ jobs:
     - *capture-diagnostics
 
   privilege-split-e2e:
-    name: Privilege Split E2E (built images, stat-level ownership proof)
+    # Built images, stat-level ownership proof.
+    name: Privilege Split E2E
     runs-on: ubuntu-latest
     # The job `name:` names only the first module: branch protection matches on it.
     timeout-minutes: 120
@@ -1690,7 +1711,8 @@ jobs:
 
   # The one Dockerfile test that spends model tokens, apart from dockerfile-e2e below, which holds no key.
   dockerfile-agent-e2e:
-    name: Dockerfile Agent E2E (one agent turn through the generated image)
+    # One agent turn through the generated image.
+    name: Dockerfile Agent E2E
     runs-on: ubuntu-latest
     # No runs to measure yet: dockerfile-e2e's caps, which cover the same image build.
     timeout-minutes: 40
@@ -1718,7 +1740,8 @@ jobs:
     - *capture-diagnostics
 
   dockerfile-e2e:
-    name: Dockerfile E2E (generated container image)
+    # The generated container image.
+    name: Dockerfile E2E
     runs-on: ubuntu-latest
     # Above the 25 + 15 of the step caps, with room for setup and the proxy steps.
     timeout-minutes: 50
@@ -1769,7 +1792,7 @@ jobs:
       run: scripts/ci/proxied_build.sh stop
 
   multi-user-deploy-lifecycle-e2e:
-    name: Multi-User Deploy Lifecycle E2E (${{ matrix.runtime }} runtime)
+    name: Multi-User Deploy Lifecycle E2E — ${{ matrix.runtime }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # PRs into main only (not epic phases): it runs real destructive lifecycle verbs.
@@ -1842,7 +1865,8 @@ jobs:
       run: ENGINE="$RUNTIME" scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
   full-chain-auth-e2e:
-    name: Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)
+    # Real sidecar + role-resolved tier render + audit ledgers.
+    name: Full-Chain Auth E2E
     runs-on: ubuntu-latest
     # Above the single-build auth lanes: test_full_chain_auth_lane_outbudgets_the_single_build_lanes
     # pins the relation and test_full_chain_auth_lane_caps_are_the_measured_ones the numbers.
@@ -1887,7 +1911,8 @@ jobs:
           osprey-e2e-full-chain-auth
 
   two-shape-boot-e2e:
-    name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
+    # Bridge + host network axis, podman-compose.
+    name: Two-Shape Boot E2E
     runs-on: ubuntu-latest
     timeout-minutes: 75
     if: *same-repo-pr-or-secret-revalidation
@@ -1935,7 +1960,8 @@ jobs:
         podman rmi -f osprey-e2e-two-shape-dispatch:local || true
 
   qmd-sidecar-e2e:
-    name: qmd Sidecar E2E (image build + live daemon over a fixture corpus)
+    # Image build + live daemon over a fixture corpus.
+    name: qmd Sidecar E2E
     runs-on: ubuntu-latest
     if: *same-repo-pr-or-secret-revalidation
     # Covers the step caps plus the image build; tests/integration/test_qmd_sidecar_time_budget.py checks it.
@@ -2005,7 +2031,7 @@ jobs:
         docker rmi -f osprey-qmd:ci-mounted || true
 
   qmd-cache-warmup:
-    name: qmd Layer Cache Warm-up (pushes to main)
+    name: qmd Layer Cache Warm-up
     runs-on: ubuntu-latest
     # Main pushes only: a PR can restore caches from main but not from other PRs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -2020,7 +2046,7 @@ jobs:
         warm: "true"
 
   deploy-cache-warmup:
-    name: Deploy Layer Cache Warm-up (pushes to main)
+    name: Deploy Layer Cache Warm-up
     runs-on: ubuntu-latest
     # Main pushes only: every PR lane reads what this writes, so only reviewed code may write it.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -2078,7 +2104,8 @@ jobs:
       run: scripts/ci/cleanup_stacks.sh deploy-cache-warmup
 
   target-switch-agentic-e2e:
-    name: Control-Target Switch Agentic E2E (a real agent moving between the virtual accelerator and the bench IOC)
+    # A real agent moving between the virtual accelerator and the bench IOC.
+    name: Control-Target Switch Agentic E2E
     runs-on: ubuntu-latest
     if: *full-ci-pr-or-secret-revalidation
     timeout-minutes: 45
@@ -2240,7 +2267,7 @@ jobs:
   # The credential never shares a step with code the change controls, and nothing the job builds
   # reaches the shared Actions cache.
   canopy-contract:
-    name: CANOPY contract
+    name: CANOPY Contract
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

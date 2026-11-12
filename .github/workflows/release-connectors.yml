@@ -94,9 +94,9 @@ jobs:
           test=Test Python
           lint=Lint and Code Quality
           package=Package Build
-          connectors-standalone=Connectors suite without the framework
-          connectors-compat=Connectors HEAD under framework
-          framework-at-connectors-floor=Framework HEAD at its declared connectors floor
+          connectors-standalone=Connectors Standalone Tests
+          connectors-compat=Connectors Compat
+          framework-at-connectors-floor=Framework at Connectors Floor Tests
       run: python3 scripts/ci/require_green_lanes.py --lanes "$REQUIRED_LANES"
 
   build:

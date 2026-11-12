@@ -220,7 +220,7 @@ class TestLastGreen:
             [_run(3, "ccc", event="push"), _run(2, "bbb", conclusion="failure"), _run(1, "aaa")],
             {
                 3: push_jobs,
-                2: _revalidation_jobs(**{"Tier 3": "failure"}),
+                2: _revalidation_jobs(**{"Preset Agentic Flow": "failure"}),
                 1: _revalidation_jobs(),
             },
         )
@@ -228,7 +228,7 @@ class TestLastGreen:
 
     def test_a_matrix_lane_matches_by_prefix_and_needs_every_cell(self) -> None:
         jobs = _revalidation_jobs()
-        cell = next(j for j in jobs if j["name"] == "Tier 3 — Agentic flow (hello-world)")
+        cell = next(j for j in jobs if j["name"] == "Preset Agentic Flow — hello-world")
         cell["conclusion"] = "failure"
         fake = FakeGh(
             "bbb",
@@ -315,7 +315,7 @@ class TestReport:
         assert f"https://github.com/{REPO}/actions/runs/2" in body
         assert "Dispatch Stack E2E — Scan Stack Agentic" in body and "E2E Tests" in body
         assert "last green aaa" in body
-        assert "Tier 0" not in body
+        assert "Preset Static Checks" not in body
 
     def test_red_again_updates_the_open_issue_without_a_second(self) -> None:
         fake = _red_fake()
