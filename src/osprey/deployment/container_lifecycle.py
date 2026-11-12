@@ -4841,7 +4841,13 @@ def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
     # asked for, as a side effect of a deploy meant to rebuild only the store.
     anchor = persisted_scenario_anchor(config, project_dir)
     try:
-        result = apply_scenarios(project_dir, names, seed_logbook=False, now=anchor)
+        result = apply_scenarios(
+            project_dir,
+            names,
+            seed_logbook=False,
+            now=anchor,
+            store_deadline_s=_ARIEL_STORE_DEADLINE_S,
+        )
     except Exception as exc:
         # `nominal` leads the set and is implicit, so the recovery command names
         # the faults — which is what the operator activated and what `sim apply`
@@ -5203,6 +5209,12 @@ _ARIEL_STORE_SERVICE = "postgresql"
 _ARIEL_HEALTH_TIMEOUT_S = 90.0
 _ARIEL_HEALTH_POLL_S = 2.0
 
+# How long each of the deploy's opens of a store that has come up gives it to
+# answer: the schema step, the seed step and the scenario steps. Separate from
+# the start-up wait above, so a slow first start or slow migrations leave the
+# next step its whole time rather than what the wait left over.
+_ARIEL_STORE_DEADLINE_S = 30.0
+
 # The one command that finishes the job by hand, named in every warning below.
 # `quickstart` rather than `migrate`: it runs the migration AND reports what it
 # found, so an operator following the message once ends up where this staging
@@ -5280,17 +5292,21 @@ def _wait_for_ariel_store(ariel_config: dict, deadline: float) -> None:
             time.sleep(_ARIEL_HEALTH_POLL_S)
 
 
-def _migrate_ariel_store(ariel_config: dict) -> None:
+def _migrate_ariel_store(ariel_config: dict, store_deadline_s: float) -> None:
     """Create ARIEL's schema, idempotently.
 
     Wrapped rather than called inline so the deploy has one seam for "the schema
     now exists", and so the async boundary lives in exactly one place.
+
+    :param ariel_config: ARIEL config with its DSN already resolved.
+    :param store_deadline_s: Seconds the store gets to answer, the deploy's
+        own stated time for a store open (``_ARIEL_STORE_DEADLINE_S``).
     """
     import asyncio
 
     from osprey.services.ariel_search.cli_operations import run_migrate
 
-    asyncio.run(run_migrate(ariel_config))
+    asyncio.run(run_migrate(ariel_config, store_deadline_s=store_deadline_s))
 
 
 def _stage_ariel_store(
@@ -5361,7 +5377,7 @@ def _stage_ariel_store(
     ariel_config = _ariel_store_config(config, project_dir)
     try:
         _wait_for_ariel_store(ariel_config, time.monotonic() + _ARIEL_HEALTH_TIMEOUT_S)
-        _migrate_ariel_store(ariel_config)
+        _migrate_ariel_store(ariel_config, store_deadline_s=_ARIEL_STORE_DEADLINE_S)
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"ARIEL's schema could not be created, so its panel and MCP tools will "
@@ -5373,7 +5389,12 @@ def _stage_ariel_store(
     _report_step("ARIEL schema ready")
 
     try:
-        seeded = simulation_apply.seed_active_logbook(config, project_dir, ariel_config)
+        seeded = simulation_apply.seed_active_logbook(
+            config,
+            project_dir,
+            ariel_config,
+            store_deadline_s=_ARIEL_STORE_DEADLINE_S,
+        )
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"ARIEL's schema is in place but its logbook could not be seeded, so the "
@@ -5409,7 +5430,9 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
     from osprey.simulation.apply import activate_default_scenarios
 
     try:
-        active = activate_default_scenarios(config, project_dir)
+        active = activate_default_scenarios(
+            config, project_dir, store_deadline_s=_ARIEL_STORE_DEADLINE_S
+        )
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"The default scenarios (simulation.default_scenarios) could not be activated, "

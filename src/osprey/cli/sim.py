@@ -426,11 +426,19 @@ def apply_command(
             seed_logbook=seed_logbook,
             seed_archive=seed_archive,
             now=now,
+            store_deadline_s=_STORE_DEADLINE_S,
         )
     except (ValueError, RuntimeError) as exc:
         output.fail("The scenarios could not be applied", str(exc))
         raise SystemExit(1) from None
     except Exception as exc:
+        from osprey.services.ariel_search.exceptions import StoreSilentError
+
+        if isinstance(exc, StoreSilentError):
+            output.fail(
+                str(exc), None, "check that the ARIEL database is running, or pass --no-seed"
+            )
+            raise SystemExit(1) from None
         msg = str(exc)
         if "connect" in msg.lower():
             output.fail(

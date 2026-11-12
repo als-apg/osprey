@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 
 _ariel_service_instance: ARIELSearchService | None = None
 
+#: Seconds the search capability gives the ARIEL store to answer when it opens
+#: the shared service. A silent store raises and caches nothing, so the next
+#: call asks the store again.
+_STORE_DEADLINE_S = 10.0
+
 
 async def get_ariel_search_service() -> ARIELSearchService:
     """Get or create the ARIEL search service singleton.
@@ -28,6 +33,8 @@ async def get_ariel_search_service() -> ARIELSearchService:
 
     Raises:
         ConfigurationError: If ARIEL is not configured in config.yml.
+        StoreSilentError: If the store does not answer within
+            :data:`_STORE_DEADLINE_S`; nothing is cached.
     """
     global _ariel_service_instance
 
@@ -53,7 +60,9 @@ async def get_ariel_search_service() -> ARIELSearchService:
             get_config_value("services.postgresql", {}),
             base=resolve_port_base({"deployment": get_config_value("deployment", {})}),
         )
-        _ariel_service_instance = await create_ariel_service(ariel_config)
+        _ariel_service_instance = await create_ariel_service(
+            ariel_config, store_deadline_s=_STORE_DEADLINE_S
+        )
 
     return _ariel_service_instance
 

@@ -411,3 +411,38 @@ async def test_search_tool_answers_with_the_refusal(tmp_path, monkeypatch):
             await get_tool_fn(keyword_search)(query="beam current")
 
     assert captured["envelope"]["error_message"] == _TABLE_MISSING
+
+
+@pytest.mark.wallclock
+async def test_a_silent_store_is_a_service_unavailable_refusal_and_caches_nothing(
+    tmp_path, monkeypatch
+):
+    """The first tool call gives the store the server's stated deadline; a
+    store that does not answer is refused with its name and the deadline."""
+    import time
+
+    from tests.services.ariel_search._silent_store import (
+        MARGIN_S,
+        SHORT_DEADLINE_S,
+        silent_store,
+        silent_uri,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "osprey.mcp_server.ariel.server_context._STORE_DEADLINE_S", SHORT_DEADLINE_S
+    )
+    with silent_store() as port:
+        config = {"ariel": {"database": {"uri": silent_uri(port)}}}
+        (tmp_path / "config.yml").write_text(json.dumps(config))
+        ctx = initialize_ariel_context()
+        started = time.monotonic()
+        with assert_raises_error(error_type="service_unavailable") as captured:
+            await ctx.service()
+        elapsed = time.monotonic() - started
+
+    assert SHORT_DEADLINE_S <= elapsed < SHORT_DEADLINE_S + MARGIN_S
+    assert captured["envelope"]["error_message"] == (
+        f"the ARIEL store at 127.0.0.1:{port}/ariel did not answer within {SHORT_DEADLINE_S:g} s"
+    )
+    assert ctx._service is None

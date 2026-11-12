@@ -247,7 +247,7 @@ def _ariel_capability_service(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     built: list[Any] = []
 
-    async def fake_create(config: Any) -> Any:
+    async def fake_create(config: Any, *, store_deadline_s=None) -> Any:  # noqa: ARG001 - the signature it stands in for
         built.append(config)
         return object()
 

@@ -998,7 +998,7 @@ class TestRunQuickstart:
         config = {"ariel": dict(_DB)}
         (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
 
-        async def _no_seed(_ariel_config, _entries, _pictures):
+        async def _no_seed(_ariel_config, _entries, _pictures, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return 0, False
 
         monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
@@ -1010,7 +1010,14 @@ class TestRunQuickstart:
         async def _count(_config_dict, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return len(logbook)
 
-        async def _seed(_config_dict, entries, _progress=None, *, pictures=None):  # noqa: ARG001 - stands in for seed_logbook_entries
+        async def _seed(
+            _config_dict,
+            entries,
+            _progress=None,
+            *,
+            pictures=None,  # noqa: ARG001 - the signature it stands in for
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             logbook.extend(entries)
             return len(entries)
 

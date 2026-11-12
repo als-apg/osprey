@@ -46,7 +46,7 @@ def test_default_anchor_seeds_logbook_in_facility_zone(tmp_path, monkeypatch):
 
     captured: dict = {}
 
-    async def _fake_seed(_ariel_config, entries, _pictures):
+    async def _fake_seed(_ariel_config, entries, _pictures, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         captured["entries"] = entries
         return len(entries), True
 
@@ -95,7 +95,7 @@ def test_deploy_time_entries_and_calendar_events_name_one_instant(tmp_path, monk
 
     project = _make_project(tmp_path)
 
-    async def _no_seed(_ariel_config, entries, _pictures):
+    async def _no_seed(_ariel_config, entries, _pictures, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         return len(entries), True
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
