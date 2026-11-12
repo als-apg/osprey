@@ -748,6 +748,28 @@ describe('the poll', () => {
     expect(popover()?.hidden).toBe(true);
   });
 
+  test('a live feed keeps the band and the feed popover across a poll, and ticks its last contact', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const first = Date.parse(ALARMS.last_contact);
+    let calls = 0;
+    const contactAt = (/** @type {number} */ n) => new Date(first + n * 5000).toISOString();
+    const { container, view, counts } = await mount({
+      alarms: () => ({ ...ALARMS, last_contact: contactAt(calls++) }),
+    });
+    await settled(container);
+    const chip = /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="feed"]'));
+    const since = () =>
+      /** @type {HTMLElement|null} */ (chip.querySelector('[data-since]'))?.dataset.since;
+    expect(since()).toBe(contactAt(0));
+    chip.click();
+    expect(popover()?.hidden).toBe(false);
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(2));
+    expect(container.querySelector('[data-action="feed"]')).toBe(chip);
+    expect(since()).toBe(contactAt(1));
+    expect(popover()?.hidden).toBe(false);
+  });
+
   test('a read slower than the poll is not superseded by the next tick, and is drawn', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     /** @type {(value: any) => void} */

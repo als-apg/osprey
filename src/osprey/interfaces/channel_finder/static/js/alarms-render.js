@@ -251,15 +251,18 @@ export function countHtml(n) {
 }
 
 /**
- * The feed chip's label markup and tone.
+ * The feed chip's label markup and tone. The last contact moves with every
+ * answer of a live feed, so its placeholder carries no time: the view writes
+ * the time into it in place, and the band's markup stays the same.
  * @param {ActiveAlarms} answer
  * @returns {{ html: string, tone: 'ok'|'warn' }}
  */
 export function feedChip(answer) {
   if (answer.stale) return { html: 'feed stale', tone: 'warn' };
-  const ago = sinceHtml(answer.last_contact);
   return {
-    html: ago ? `feed live · last contact ${ago} ago` : 'feed live',
+    html: sinceHtml(answer.last_contact)
+      ? 'feed live · last contact <span data-since=""></span> ago'
+      : 'feed live',
     tone: 'ok',
   };
 }

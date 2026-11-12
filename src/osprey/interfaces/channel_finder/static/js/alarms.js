@@ -371,6 +371,8 @@ function renderBand() {
     view.feedPopover = null;
   }
   if (writePart(band, html)) band.querySelector('[data-action="refresh"]')?.append(icon('refresh'));
+  const contact = /** @type {HTMLElement|null} */ (band.querySelector('[data-since]'));
+  if (contact) contact.dataset.since = view.answer.last_contact ?? '';
   tick(band);
 }
 
