@@ -121,6 +121,7 @@ from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
+    from osprey.apps.agents import AppAgent
     from osprey.apps.manifest import AppManifest
     from osprey.apps.rules import LoginSelection
     from osprey.facility.build import FacilityDocument
@@ -2050,6 +2051,41 @@ def _copy_app_skills(
     return copied
 
 
+def _copy_app_agents(
+    repo_root: Path,
+    render_dir: Path,
+    manifests: Sequence[AppManifest],
+    agents: Mapping[str, Sequence[AppAgent]],
+    selection: LoginSelection,
+) -> list[str]:
+    """Copy the subagents of the applications this render shows into its ``.claude/agents/``.
+
+    Each file is copied as written; regeneration then adds the ``model:`` line the
+    deployment decides. Runs after the profile's own artifacts, so a name already
+    taken there is refused rather than either copy silently winning.
+
+    Returns:
+        The agent names copied.
+    """
+    from osprey.apps.agents import AGENTS_DIR
+    from osprey.apps.origin import origin_of
+    from osprey.apps.projection import login_agents
+
+    directories = {m.name: origin_of(m, repo_root).directory for m in manifests}
+    copied: list[str] = []
+    for app, agent in login_agents(manifests, agents, selection):
+        destination = render_dir / ".claude" / "agents" / f"{agent.name}.md"
+        if destination.exists():
+            raise BuildProfileError(
+                f"Application {app!r} carries an agent named {agent.name!r}, and this render "
+                f"already has an agent by that name; rename the application's agent."
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(directories[app] / AGENTS_DIR / f"{agent.name}.md", destination)
+        copied.append(agent.name)
+    return copied
+
+
 def _content_dir(roots: FacilityRoots) -> Path | None:
     """The ``content_dir`` the facility pipeline takes for ``roots``.
 
@@ -2504,6 +2540,7 @@ def _render_project(
                 shared.applications.manifests,
                 _rendered_config(render_dir) if build_profile.deploy_services else host_config,
                 shared.applications.logins[login],
+                shared.applications.agents,
             )
 
         # The selection, projected. The tab strip is read from `web.panels` alone,
@@ -2610,6 +2647,15 @@ def _render_project(
             )
             if copied:
                 progress("  ✓ Applied %d application skill(s): %s", len(copied), ", ".join(copied))
+            copied = _copy_app_agents(
+                repo_root,
+                render_dir,
+                shared.applications.manifests,
+                shared.applications.agents,
+                shared.applications.logins[login],
+            )
+            if copied:
+                progress("  ✓ Applied %d application agent(s): %s", len(copied), ", ".join(copied))
 
         # The limits database is the limits view, written below with the other
         # facility outputs; the render names it before anything reads the config.
@@ -2732,7 +2778,12 @@ def _render_project(
         pin_errors = agent_model_pin_errors(
             render_dir / ".claude" / "agents",
             spec.agent_models,
-            {*FRAMEWORK_AGENTS, *(rendered_claude_code.get("agents") or {})},
+            {
+                *FRAMEWORK_AGENTS,
+                *(rendered_claude_code.get("agents") or {}),
+                # An application's agent is the deployment's wherever its app is hidden.
+                *(a.name for agents in shared.applications.agents.values() for a in agents),
+            },
         )
         if pin_errors:
             raise BuildProfileError("Agent model pins do not apply:\n  " + "\n  ".join(pin_errors))
