@@ -9,7 +9,9 @@ value it was commanded to -- so the fixtures here perturb every axis reading by
 +/-1e-9 before handing it to `render`. Without that perturbation a
 float-equality-keyed implementation passes every test in this file while
 producing ``num_points**2`` one-point cells against a real stack; with it, the
-same implementation fails immediately.
+same implementation fails immediately. A run that also records the exact
+demand (``<name>_setpoint``) keys on that column instead; the tolerance still
+guards devices that report a single column.
 
 Runs in the normal unit lane -- the bluesky stack is a core dependency -- with
 the same `importorskip` guard as its siblings so a slimmed install skips rather
@@ -478,6 +480,66 @@ def test_three_axes_drop_rows_whose_outer_readbacks_are_off_grid() -> None:
     assert panel.annotations == [
         "2 of 8 rows are not shown: their axis readings did not land on a grid point."
     ]
+
+
+def _with_demands(
+    rows: list[dict[str, Any]], axes: list[GridAxis], offset: float
+) -> list[dict[str, Any]]:
+    """*rows* as a connector settable with a distinct readback PV records them.
+
+    The device's own column holds the readback, here a full *offset* away from
+    the commanded position (a magnet that settled inside its deadband, not
+    inside the grid tolerance), and ``<name>_setpoint`` holds the exact demand.
+    """
+    shaped: list[dict[str, Any]] = []
+    for row in rows:
+        row = dict(row)
+        for axis in axes:
+            demand = row[axis.setpoint]
+            row[f"{axis.setpoint}_setpoint"] = demand
+            row[axis.setpoint] = demand + offset
+        shaped.append(row)
+    return shaped
+
+
+def test_two_axis_keys_cells_on_the_demand_when_the_run_records_one() -> None:
+    """A corrector's readback settles to its deadband, not to the grid tolerance.
+
+    The demand column is the commanded grid position, so the heatmap keys on it
+    and the readback's settle error never drops a row.
+    """
+    axes = [_axis("hcm1", -1.0, 1.0, 5), _axis("hcm2", -1.0, 1.0, 5)]
+    params = PARAMS(readbacks=["bpm"], axes=axes)
+    rows = _with_demands(_rows(axes, {"bpm": "bpm"}, jitter=0.0), axes, offset=2e-3)
+
+    panel = _sole_panel(render(_window(rows), params))
+    mark = panel.mark
+
+    assert isinstance(mark, HeatmapMark)
+    assert mark.source_points == 25
+    assert panel.annotations == []
+    assert panel.x_columns.names == ["hcm2_setpoint"]
+    assert panel.y_columns.names == ["hcm1_setpoint"]
+
+
+def test_three_axes_key_outer_combinations_on_the_demand() -> None:
+    axes = [
+        _axis("hcm1", 0.0, 1.0, 2),
+        _axis("hcm2", 0.0, 1.0, 2),
+        _axis("hcm3", 0.0, 1.0, 3),
+    ]
+    params = PARAMS(readbacks=["bpm"], axes=axes)
+    rows = _with_demands(_rows(axes, {"bpm": "bpm"}, jitter=0.0), axes, offset=2e-3)
+
+    panel = _sole_panel(render(_window(rows), params))
+    mark = panel.mark
+
+    assert isinstance(mark, LinesMark)
+    assert mark.source_points == 12
+    assert len(mark.series) == 4
+    assert panel.annotations == []
+    # The fast axis is a line, not a cell: x stays the value the device reported.
+    assert panel.x_columns.names == ["hcm3"]
 
 
 # =========================================================================
