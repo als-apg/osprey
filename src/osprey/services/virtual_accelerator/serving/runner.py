@@ -33,6 +33,15 @@ name that timed pass posted is dropped from the slices still to come, whose
 value for it is the older one. The read that precedes the post is not sliced:
 a timed pass waits for it.
 
+**Queued writes.** The runner opens no batching window, so a write that
+arrives alone is served at once. The plain writes already queued behind it
+when its cycle starts, each to a channel the pass does not hold yet, are
+served by that same pass: one ``model.set``, one readback, one post, and
+every put completed by it. Merging stops at the first queued item that is
+anything else, which is served next as it was queued, so nothing is served
+out of its arrival order. A merged pass that fails is rolled back and its
+writes are served one cycle each, so every put gets its own verdict.
+
 Every model access happens on the run loop's thread. The composite is not
 thread-safe, so a model RPC call taken on a p4p worker thread is answered by
 a job the run loop runs, never on the thread that received it; that rule is
@@ -48,6 +57,7 @@ import time
 from collections.abc import Collection
 from functools import partial
 from pathlib import Path
+from queue import Empty
 from typing import TYPE_CHECKING, Any
 
 from lume_pva_apg.runner import Runner
@@ -108,6 +118,8 @@ class ModelRunner(Runner):
     Of what it reads, a write pass publishes the written channels and those
     whose value or undefined condition changed since they were last
     published; a pass with no input values reads and publishes them all.
+    The writes queued when a write's cycle starts share its pass
+    (:meth:`_run_cycle`).
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
     composite as it was, and a model with ``restore`` takes the cached state
@@ -226,11 +238,88 @@ class ModelRunner(Runner):
         return self._first_pass_error
 
     def _run_cycle(self, item: dict[str, Any]) -> None:
-        """Note the input values this pass writes, then run it and record its outcome."""
+        """Serve ``item``, a write together with the plain writes queued behind it.
+
+        A plain write carries values and nothing else: no reset, no job, no
+        tick. When ``item`` is one, the plain writes already in the queue are
+        taken into its pass, up to the first item that is not one or that
+        writes a channel the pass already holds. That item is served next,
+        unchanged, by the same rule, so arrival order holds and a channel
+        written twice gets a pass per value. Nothing is waited for: an empty
+        queue leaves ``item`` a pass of its own.
+
+        A merged pass that succeeds completes every put it served. One that
+        fails is rolled back as any failed pass is, records no outcome, and
+        its writes are then served one cycle each in arrival order, so a put
+        is refused only when its own write is.
+        """
+        following: dict[str, Any] | None = item
+        while following is not None:
+            item = following
+            merged, following = self._queued_writes(item)
+            if not merged:
+                self._serve(item)
+                continue
+            writes = [item, *merged]
+            outcome: list[str | None] = []
+            self._serve(
+                {
+                    "values": {
+                        name: value for write in writes for name, value in write["values"].items()
+                    },
+                    "done": [outcome.append],
+                    "reset": False,
+                    "jobs": [],
+                    "tick": False,
+                },
+                record=False,
+            )
+            if outcome != [None]:
+                for write in writes:
+                    self._serve(write)
+                continue
+            for write in writes:
+                for done in write["done"]:
+                    try:
+                        done(None)
+                    except Exception as exc:
+                        LOG.error("Error signalling put-completion: %s", exc)
+            self._record_pass(None)
+
+    def _queued_writes(
+        self, item: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        """The queued plain writes ``item``'s pass takes, and the item taken off after them.
+
+        The queue cannot be looked into, so the item that ends the merge is
+        taken off it and returned for the caller to serve next; ``None`` when
+        the queue ran empty first. An ``item`` that is not a plain write takes
+        nothing.
+        """
+        merged: list[dict[str, Any]] = []
+        if not _is_plain_write(item):
+            return merged, None
+        held = set(item["values"])
+        while True:
+            try:
+                queued = self.queue.get_nowait()
+            except Empty:
+                return merged, None
+            if not _is_plain_write(queued) or not held.isdisjoint(queued["values"]):
+                return merged, queued
+            held.update(queued["values"])
+            merged.append(queued)
+
+    def _serve(self, item: dict[str, Any], *, record: bool = True) -> None:
+        """Note the input values this pass writes, then run it and record its outcome.
+
+        ``record`` false leaves the outcome to the caller.
+        """
         self._values = item["values"]
         self._set_landed = False
         self._pass_started = False
-        item["done"].append(self._record_pass)
+        if record:
+            item["done"].append(self._record_pass)
         super()._run_cycle(item)
 
     def _set_cached_state(self, state: dict[str, Any]) -> None:
@@ -590,6 +679,11 @@ class ModelRunner(Runner):
             )
         )
         self.providers[f"{self.config['prefix']}{RPC_PV}"] = channel
+
+
+def _is_plain_write(item: dict[str, Any]) -> bool:
+    """Whether a queue item carries values and nothing else: no reset, no job, no tick."""
+    return bool(item["values"]) and not (item.get("reset") or item.get("jobs") or item.get("tick"))
 
 
 __all__ = ["ModelRunner"]
