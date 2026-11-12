@@ -17,6 +17,11 @@
  * Current values are read when the rows shown change and on Refresh; the
  * inspector reads the selected PV's facts. Nothing here writes: no
  * acknowledge, no configuration change.
+ *
+ * A part's markup is a function of the answer and the filters, never of the
+ * clock: a part is rewritten only when its markup changed (keeping the focus
+ * on the same control), and the relative times are ticked in place, so a poll
+ * does not disturb the reader.
  */
 
 import { panelApiPrefix } from '/design-system/js/dom.js';
@@ -35,6 +40,7 @@ import {
   filterRows,
   inspectorHtml,
   listHtml,
+  sinceText,
   skeletonHtml,
   treeHtml,
 } from './alarms-render.js';
@@ -82,11 +88,52 @@ const SIDEBAR_KEY = 'cf-alarms-tree';
  *   sidebar: PanelSidebarApi|null,
  *   timer: number|undefined,
  *   controller: AbortController,
+ *   feedPopover: {close: () => void}|null,
  * }} View
  */
 
 /** @type {View|null} */
 let view = null;
+
+/** The markup each part was last written with. @type {WeakMap<Element, string>} */
+const written = new WeakMap();
+
+/**
+ * Write `html` into a part unless it already holds that markup; the focus,
+ * when inside, moves to the same control in the new markup.
+ * @param {HTMLElement} el
+ * @param {string} html
+ * @returns {boolean} whether the part was rewritten
+ */
+function writePart(el, html) {
+  if (written.get(el) === html) return false;
+  /** @type {string|null} */
+  let selector = null;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && el.contains(active)) {
+    const { tile, node, action } = active.dataset;
+    const href = active.matches('a[href]') ? active.getAttribute('href') : null;
+    if (tile !== undefined) selector = `[data-tile="${CSS.escape(tile)}"]`;
+    else if (node !== undefined) selector = `[data-node="${CSS.escape(node)}"]`;
+    else if (action !== undefined) selector = `[data-action="${CSS.escape(action)}"]`;
+    else if (href !== null) selector = `a[href="${CSS.escape(href)}"]`;
+  }
+  el.innerHTML = html;
+  written.set(el, html);
+  if (selector) /** @type {HTMLElement|null} */ (el.querySelector(selector))?.focus();
+  return true;
+}
+
+/**
+ * Tick every relative time under `el`.
+ * @param {HTMLElement} el
+ */
+function tick(el) {
+  const now = Date.now();
+  for (const node of el.querySelectorAll('[data-since]')) {
+    node.textContent = sinceText(/** @type {HTMLElement} */ (node).dataset.since, now);
+  }
+}
 
 /**
  * The route carries no params: tile and tree filters are view state.
@@ -113,6 +160,7 @@ export function mountAlarms(container) {
     sidebar: null,
     timer: undefined,
     controller,
+    feedPopover: null,
   };
   root.addEventListener('click', onClick, { signal });
   document.addEventListener(
@@ -142,8 +190,9 @@ export function mountAlarms(container) {
 
 export function unmountAlarms() {
   if (!view) return;
-  const { controller, timer, sidebar } = view;
+  const { controller, timer, sidebar, feedPopover } = view;
   view = null;
+  feedPopover?.close();
   state.off('pipelineChanged', noTreeTitle);
   window.clearInterval(timer);
   controller.abort();
@@ -252,9 +301,15 @@ function shownRows() {
 function showFailure(message, retry) {
   if (!view) return;
   setResultCount('');
-  part('.alarms-banner').hidden = true;
-  part('.alarms-band').hidden = true;
-  part('.alarms-body').hidden = true;
+  view.feedPopover?.close();
+  view.feedPopover = null;
+  for (const selector of ['.alarms-banner', '.alarms-band', '.alarms-body']) {
+    const el = part(selector);
+    el.hidden = true;
+    written.delete(el);
+  }
+  written.delete(part('.alarms-list'));
+  written.delete(part('.alarms-inspector'));
   showTree([]);
   const host = part('.alarms-state');
   host.hidden = false;
@@ -275,8 +330,7 @@ function render() {
 
   const banner = part('.alarms-banner');
   banner.hidden = !answer.stale;
-  if (answer.stale) {
-    banner.innerHTML = bannerHtml(answer.last_contact);
+  if (answer.stale && writePart(banner, bannerHtml(answer.last_contact))) {
     banner.prepend(icon('triangle-alert'));
   }
 
@@ -294,8 +348,13 @@ function renderBand() {
   if (!view?.answer) return;
   const band = part('.alarms-band');
   band.hidden = false;
-  band.innerHTML = bandHtml(view.answer, view.severity, Date.now());
-  band.querySelector('[data-action="refresh"]')?.append(icon('refresh'));
+  const html = bandHtml(view.answer, view.severity);
+  if (written.get(band) !== html) {
+    view.feedPopover?.close();
+    view.feedPopover = null;
+  }
+  if (writePart(band, html)) band.querySelector('[data-action="refresh"]')?.append(icon('refresh'));
+  tick(band);
 }
 
 /**
@@ -315,12 +374,13 @@ function showTree(nodes) {
     aside.hidden = true;
     handle.hidden = true;
     aside.replaceChildren();
+    written.delete(aside);
     noTreeTitle();
     return;
   }
   aside.hidden = false;
   handle.hidden = false;
-  aside.innerHTML = treeHtml(nodes, view.node);
+  writePart(aside, treeHtml(nodes, view.node));
   view.sidebar ??= attachSidebar(aside, handle, SIDEBAR_KEY);
 }
 
@@ -344,6 +404,7 @@ function renderList() {
     inspector.hidden = true;
     const filtered = view.severity !== null || view.node !== null;
     const total = typeof answer.total === 'number' ? answer.total : 0;
+    written.delete(list);
     renderState(list, {
       icon: 'check',
       message: filtered ? 'No active alarms for this filter' : 'No active alarms',
@@ -355,12 +416,11 @@ function renderList() {
   }
   if (!rows.some((row) => row.pv === view?.selected)) view.selected = rows[0].pv;
   inspector.hidden = false;
-  list.innerHTML = listHtml(rows, {
-    selected: view.selected,
-    values: view.values,
-    stale: Boolean(answer.stale),
-    now: Date.now(),
-  });
+  writePart(
+    list,
+    listHtml(rows, { selected: view.selected, values: view.values, stale: Boolean(answer.stale) })
+  );
+  tick(list);
 }
 
 /** The inspector of the selected row; its facts are read on first sight. */
@@ -371,15 +431,19 @@ function renderInspector() {
   if (!row) return;
   const facts = view.facts.get(name);
   const send = handoffAllowed() && Boolean(panelApiPrefix());
-  part('.alarms-inspector').innerHTML = inspectorHtml({
-    row,
-    facts: typeof facts === 'object' ? facts : null,
-    factsReason: typeof facts === 'string' ? facts : '',
-    value: view.values?.get(name),
-    plot: send && view.canPlot && plotUrl([name]) !== null,
-    send,
-    now: Date.now(),
-  });
+  const inspector = part('.alarms-inspector');
+  writePart(
+    inspector,
+    inspectorHtml({
+      row,
+      facts: typeof facts === 'object' ? facts : null,
+      factsReason: typeof facts === 'string' ? facts : '',
+      value: view.values?.get(name),
+      plot: send && view.canPlot && plotUrl([name]) !== null,
+      send,
+    })
+  );
+  tick(inspector);
   if (facts === undefined) void readFacts(name);
 }
 
@@ -418,7 +482,10 @@ function onClick(event) {
       return;
     case 'feed':
       if (view.answer) {
-        openInfoPopover(actionEl, { title: 'Alarm feed', rows: feedRows(view.answer) });
+        view.feedPopover = openInfoPopover(actionEl, {
+          title: 'Alarm feed',
+          rows: feedRows(view.answer),
+        });
       }
       return;
     case 'plot':

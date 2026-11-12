@@ -203,6 +203,19 @@ export function sinceText(time, now) {
   return hours % 24 ? `${days} d ${hours % 24} h` : `${days} d`;
 }
 
+/**
+ * A placeholder for how long ago `time` was: the view ticks its text in place
+ * (`sinceText`), so the markup never depends on the clock. Empty when `time`
+ * is not a time.
+ * @param {string|null|undefined} time
+ * @returns {string}
+ */
+export function sinceHtml(time) {
+  const at = time ? Date.parse(time) : NaN;
+  if (Number.isNaN(at)) return '';
+  return `<span data-since="${esc(String(time))}"></span>`;
+}
+
 // ---- Skeleton, band and banner ----
 
 /**
@@ -238,15 +251,17 @@ export function countHtml(n) {
 }
 
 /**
- * The feed chip's label and tone.
+ * The feed chip's label markup and tone.
  * @param {ActiveAlarms} answer
- * @param {number} now
- * @returns {{ label: string, tone: 'ok'|'warn' }}
+ * @returns {{ html: string, tone: 'ok'|'warn' }}
  */
-export function feedChip(answer, now) {
-  if (answer.stale) return { label: 'feed stale', tone: 'warn' };
-  const ago = sinceText(answer.last_contact, now);
-  return { label: ago ? `feed live · last contact ${ago} ago` : 'feed live', tone: 'ok' };
+export function feedChip(answer) {
+  if (answer.stale) return { html: 'feed stale', tone: 'warn' };
+  const ago = sinceHtml(answer.last_contact);
+  return {
+    html: ago ? `feed live · last contact ${ago} ago` : 'feed live',
+    tone: 'ok',
+  };
 }
 
 /**
@@ -254,10 +269,9 @@ export function feedChip(answer, now) {
  * Unacknowledged and Latched tiles, Refresh, and the feed chip.
  * @param {ActiveAlarms} answer
  * @param {TileFilter|null} pressed
- * @param {number} now
  * @returns {string}
  */
-export function bandHtml(answer, pressed, now) {
+export function bandHtml(answer, pressed) {
   const counts = tileCounts(answer);
   /** @param {TileFilter} key @param {string} label */
   const tile = (key, label) => {
@@ -271,7 +285,7 @@ export function bandHtml(answer, pressed, now) {
   const severities = SEVERITY_TILES.filter((key) => key !== 'UNDEFINED' || counts.UNDEFINED)
     .map((key) => tile(key, severityMark(key)))
     .join('');
-  const chip = feedChip(answer, now);
+  const chip = feedChip(answer);
   return (
     severities +
     '<span class="alarms-band-rule" aria-hidden="true"></span>' +
@@ -281,7 +295,7 @@ export function bandHtml(answer, pressed, now) {
     '<button type="button" class="osprey-icon-btn" data-action="refresh"' +
     ' aria-label="Refresh" title="Refresh"></button>' +
     `<button type="button" class="osprey-chip osprey-chip--${chip.tone}" data-action="feed">` +
-    `<span class="osprey-chip-label">${esc(chip.label)}</span></button>`
+    `<span class="osprey-chip-label">${chip.html}</span></button>`
   );
 }
 
@@ -373,10 +387,10 @@ function flagsHtml(row) {
 /**
  * The active rows, in the order given.
  * @param {AlarmRow[]} rows
- * @param {{ selected: string|null, values: Map<string, ValueRow>|null, stale: boolean, now: number }} model
+ * @param {{ selected: string|null, values: Map<string, ValueRow>|null, stale: boolean }} model
  * @returns {string}
  */
-export function listHtml(rows, { selected, values, stale, now }) {
+export function listHtml(rows, { selected, values, stale }) {
   const body = rows
     .map((row) => {
       const severity = severityOf(row.severity);
@@ -395,7 +409,7 @@ export function listHtml(rows, { selected, values, stale, now }) {
         `<td class="alarms-pv"><a href="${esc(link)}">${esc(row.pv)}</a></td>` +
         `<td class="alarms-status">${esc(row.status)}</td>` +
         valueCell(values?.get(row.pv), values !== null) +
-        `<td class="alarms-for" title="${esc(timeText(row.time))}">${esc(sinceText(row.time, now) || '—')}</td>` +
+        `<td class="alarms-for" title="${esc(timeText(row.time))}">${sinceHtml(row.time) || '—'}</td>` +
         `<td class="alarms-flags">${flagsHtml(row)}</td></tr>`
       );
     })
@@ -420,7 +434,6 @@ export function listHtml(rows, { selected, values, stale, now }) {
  *   value: ValueRow|undefined,
  *   plot: boolean,
  *   send: boolean,
- *   now: number,
  * }} InspectorModel
  */
 
@@ -491,7 +504,7 @@ function transitionsHtml(history, loaded) {
  * @param {InspectorModel} model
  * @returns {string}
  */
-export function inspectorHtml({ row, facts, factsReason, value, plot, send, now }) {
+export function inspectorHtml({ row, facts, factsReason, value, plot, send }) {
   const severity = severityOf(row.severity);
   const loaded = facts !== null;
   const directory = /** @type {DirectoryRecord|null|undefined} */ (
@@ -539,16 +552,18 @@ export function inspectorHtml({ row, facts, factsReason, value, plot, send, now 
 
   const guidance = entriesHtml('Guidance', config?.guidance, 'alarms-guidance');
 
+  /** @type {string[]} */
+  const factRows = [];
+  const since = timeText(row.time);
+  if (since) factRows.push(`<dt>Since</dt><dd>${esc(since)} (${sinceHtml(row.time)} ago)</dd>`);
   /** @type {[string, string][]} */
   const pairs = [];
-  const since = timeText(row.time);
-  if (since) pairs.push(['Since', `${since} (${sinceText(row.time, now)} ago)`]);
   const recordNow = value?.outcome === 'found' ? value.status : null;
   if (recordNow) pairs.push(['Record now', recordNow]);
   if (config && config.latching !== null) pairs.push(['Latching', config.latching ? 'yes' : 'no']);
   const path = row.path || config?.path;
   if (path) pairs.push(['Tree path', path]);
-  const factRows = pairs.map(([label, text]) => `<dt>${esc(label)}</dt><dd>${esc(text)}</dd>`);
+  for (const [label, text] of pairs) factRows.push(`<dt>${esc(label)}</dt><dd>${esc(text)}</dd>`);
   if (dirRow?.ioc) {
     const iocLink = formatRoute({ view: 'ioc', params: { name: dirRow.ioc } });
     factRows.push(`<dt>IOC</dt><dd><a href="${esc(iocLink)}">${esc(dirRow.ioc)}</a></dd>`);
