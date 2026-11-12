@@ -4,8 +4,9 @@
 ``/api/directory`` only when the ``pv_directory`` section is configured, so an
 unconfigured panel has no directory route at all. The routes themselves live in
 :mod:`.directory_search_api`, :mod:`.directory_pages_api`,
-:mod:`.directory_alarms_api` and :mod:`.directory_values_api`; every one answers
-through the ``DirectoryService`` the lifespan puts on ``app.state``.
+:mod:`.directory_alarms_api`, :mod:`.directory_archive_api` and
+:mod:`.directory_values_api`; every one answers through the ``DirectoryService``
+the lifespan puts on ``app.state``.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from fastapi import APIRouter
 
 from osprey.interfaces.channel_finder import (
     directory_alarms_api,
+    directory_archive_api,
     directory_pages_api,
     directory_search_api,
     directory_values_api,
@@ -25,6 +27,7 @@ from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.services.pv_directory.resolve import ResolvedSection, predicates
 from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, source_label
+from osprey_connectors.archive_targets import archive_targets
 
 __all__ = ["ariel_configured", "directory_descriptor", "router"]
 
@@ -35,6 +38,7 @@ router = APIRouter()
 router.include_router(directory_search_api.router)
 router.include_router(directory_pages_api.router)
 router.include_router(directory_alarms_api.router)
+router.include_router(directory_archive_api.router)
 router.include_router(directory_values_api.router)
 
 
@@ -64,11 +68,15 @@ async def directory_descriptor(
     Returns:
         ``{label, configured_services, canopy, ariel}``; ``label`` is the
         directory's served label, the same with or without a source.
+        ``configured_services`` names ``archive`` when the deployment's archive
+        serves some target.
     """
     _backend, source, _reason = await service.backend("pv_directory")
     flags = predicates(resolved)
     ariel = ariel_configured(config)
     services = [name for name in _SERVICES if flags[f"pv_directory_{name}"]]
+    if archive_targets(config):
+        services.append("archive")
     if ariel:
         services.append("logbook")
     return {

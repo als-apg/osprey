@@ -75,4 +75,5 @@ def test_every_directory_route_is_a_get():
     app.include_router(router)
     paths = {path: set(methods) for path, methods in app.openapi()["paths"].items()}
     assert "/alarms" in paths
+    assert "/archive" in paths
     assert all(methods == {"get"} for methods in paths.values()), paths

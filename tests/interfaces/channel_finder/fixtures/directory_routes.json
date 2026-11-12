@@ -193,6 +193,29 @@
     "available": true,
     "source": {"target": "live", "service": "ariel", "label": "ariel", "rehearsal": false}
   },
+  "archive": {
+    "outcome": "found",
+    "source": {"target": "va", "service": "mongodb_archiver", "label": "mongodb_archiver", "rehearsal": false},
+    "archived": {"count": 4731, "of": 4750},
+    "by_ioc": [
+      {"ioc": "sim-SR", "pvs": 2400, "archived": 2390},
+      {"ioc": "sim-BR", "pvs": 2350, "archived": 2341}
+    ],
+    "newest_sample": "2026-11-12T08:00:04+00:00",
+    "oldest_sample": "2026-10-13T08:00:00+00:00",
+    "freshness_bound_s": 60,
+    "configuration": {
+      "archiver": {"type": "mongodb_archiver"},
+      "va_archiver": {
+        "retention_days": 30,
+        "hot_span_hours": 48,
+        "hot_cadence_sec": 10,
+        "tail_cadence_sec": 60,
+        "recorder_cadence_sec": 10
+      }
+    },
+    "targets": [{"target": "va", "archive": true}, {"target": "live", "archive": false}]
+  },
   "alarms": {
     "outcome": "found",
     "source": {"target": "va", "service": "alarm_replay", "label": "alarm_replay", "rehearsal": false},
