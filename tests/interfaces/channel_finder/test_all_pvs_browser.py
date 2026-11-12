@@ -27,6 +27,8 @@ Coverage, each in Chromium:
       shows Explore.
   (g) at the panel width a 1600 px window leaves beside the agent pane, every
       column is reachable by scrolling the table area alone.
+  (h) the Alarm facet's MAJOR narrows the rows to the latched channel, and the
+      result count follows it.
 
 Run:
     .venv/bin/pytest tests/interfaces/channel_finder/test_all_pvs_browser.py -m browser -v
@@ -469,3 +471,20 @@ def test_every_column_is_reachable_at_1600_px_with_the_agent_pane_open(
     for header in headers:
         assert header["inside"], header
         assert header["scrolled"] == [] and header["pageX"] == 0, header
+
+
+def test_the_alarm_facet_narrows_the_rows_to_the_alarm_and_the_count_follows(
+    chromium_browser: Browser, panel_url: str
+):
+    host = _open(chromium_browser, panel_url, "#/allpvs")
+    host.wait_for_selector(ROWS)
+    major = host.locator('.allpvs-facet[data-facet="alarm"][data-value="MAJOR"]')
+    major.wait_for()
+    assert major.locator(".allpvs-facet-n").inner_text() == "1"
+    major.click()
+    host.wait_for_function(
+        "() => document.querySelector('#cf-result-count strong')?.textContent === '1'"
+        " && document.querySelectorAll('.allpvs-table tbody tr[data-name]').length === 1"
+    )
+    assert [row["name"] for row in _rows(host)] == [LATCHED_PV]
+    assert "alarm=MAJOR" in host.evaluate("location.hash")

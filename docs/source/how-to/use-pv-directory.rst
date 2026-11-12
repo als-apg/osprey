@@ -66,9 +66,10 @@ A search works the way ChannelFinder searches:
 - A word holding ``*`` or ``?`` matches names as a glob. A leading ``=`` asks
   for the exact name.
 
-The line above the rows says what was searched, with the hit count. **show
-request** reveals the literal request that ran. The sidebar filters the whole
-result by **Origin**, **IOC** and **Record type**.
+The line above the rows says what was searched, with each filter in force as a
+removable chip. **show request** reveals the literal request that ran. The
+sidebar filters the whole result by **Alarm**, **Origin**, **IOC** and
+**Record type**.
 
 Each row carries one of two marks:
 
@@ -77,18 +78,19 @@ Each row carries one of two marks:
   tree does not declare it. In the demo these are the simulator's own status
   and IOC health PVs, such as ``<code>:SIM:<model>:HEARTBEAT``.
 
-A row also shows the description, current value, record type, IOC and status.
-An inactive PV is dimmed. A value reads ``no answer`` when the PV did not
-answer.
+A row also shows the description, the current value with its unit, the alarm
+server's severity (when an alarm feed is configured), record type and IOC. An
+inactive PV is dimmed and marked Inactive. A value reads ``no answer`` when the
+PV did not answer. Export CSV is the download icon above the rows.
 
-Tick rows to act on them; the selection survives new words, filters, paging
-and a visit to a PV or IOC page.
+Ticking rows raises a bar with the actions on them; the selection survives new
+words, filters, paging and a visit to a PV or IOC page.
 
-- **Export CSV** downloads the search result as CSV.
 - **Plot** opens the selection in CANOPY's trace view, at most 12 PVs. It is
   shown only when CANOPY is enabled and serves its trace view.
 - **Send to assistant** puts the names into the prompt. It is offered only
   inside the web terminal.
+- **Copy names** copies the names, one per line.
 
 
 Alarms
