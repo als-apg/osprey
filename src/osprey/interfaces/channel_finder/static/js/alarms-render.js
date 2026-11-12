@@ -409,7 +409,7 @@ export function listHtml(rows, { selected, values, stale, cut }) {
         .join(' ');
       const link = formatRoute({ view: 'pv', params: { name: row.pv } });
       return (
-        `<tr class="${classes}" data-name="${esc(row.pv)}" aria-selected="${row.pv === selected}">` +
+        `<tr class="${classes}" data-name="${esc(row.pv)}" tabindex="0" aria-selected="${row.pv === selected}">` +
         `<td class="alarms-sevbar"></td>` +
         `<td>${severityMark(severity)}</td>` +
         `<td class="alarms-pv"><a href="${esc(link)}">${esc(row.pv)}</a></td>` +

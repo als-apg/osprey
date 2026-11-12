@@ -113,6 +113,7 @@ afterEach(() => {
  *   alarms?: any | (() => any),
  *   alarmsStatus?: number,
  *   facts?: (name: string) => any,
+ *   factsGate?: Promise<unknown>,
  *   framed?: boolean,
  * }} Setup
  */
@@ -123,7 +124,7 @@ afterEach(() => {
  * @param {Setup} [setup]
  */
 async function mount(setup = {}) {
-  const { alarms = ALARMS, alarmsStatus = 200, facts = factsOf, framed = true } = setup;
+  const { alarms = ALARMS, alarmsStatus = 200, facts = factsOf, factsGate, framed = true } = setup;
   window.history.replaceState(null, '', '/u/a/panel/channel-finder/?embedded=true');
   const postMessage = vi.fn();
   vi.stubGlobal('parent', framed ? { postMessage } : window);
@@ -136,10 +137,11 @@ async function mount(setup = {}) {
     if (opts.method === 'HEAD') return answer(200, '');
     if (target.startsWith('/api/directory/alarms')) {
       reads.push(target);
-      return answer(alarmsStatus, typeof alarms === 'function' ? alarms() : alarms);
+      return answer(alarmsStatus, typeof alarms === 'function' ? await alarms() : alarms);
     }
     if (target.startsWith('/api/directory/pv/')) {
       const name = decodeURIComponent(target.slice('/api/directory/pv/'.length));
+      if (factsGate) await factsGate;
       return answer(200, facts(name));
     }
     if (target.startsWith('/api/directory/values')) {
@@ -489,6 +491,40 @@ describe('the inspector', () => {
     expect(inspector(container).textContent).not.toContain('The record is back to');
   });
 
+  test('a row is reached by keyboard and Enter selects it', async () => {
+    const { container } = await mount();
+    await loaded(container);
+    const second = rows(container)[1];
+    expect(second.tabIndex).toBe(0);
+    second.focus();
+    second.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(rows(container)[1].getAttribute('aria-selected')).toBe('true');
+    expect(inspector(container).textContent).toContain(MINOR_ROW.pv);
+    expect(document.activeElement).toBe(rows(container)[1]);
+  });
+
+  test("the selected PV's facts are read once while the first read is pending", async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    /** @type {(value?: unknown) => void} */
+    let release = () => {};
+    const factsGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const { container, fetchMock, view, counts } = await mount({ factsGate });
+    await loaded(container);
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(rows(container)[0].querySelector('.alarms-value')?.textContent).toContain('46.2')
+    );
+    const factReads = () =>
+      fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/directory/pv/'));
+    expect(factReads()).toHaveLength(1);
+    release();
+    await vi.waitFor(() => expect(inspector(container).textContent).toContain('Response'));
+    expect(factReads()).toHaveLength(1);
+  });
+
   test('on a narrow panel a row opens its PV page', async () => {
     const { container } = await mount();
     await loaded(container);
@@ -609,10 +645,20 @@ describe('states', () => {
 });
 
 describe('the poll', () => {
-  test('reads every 5 s while mounted, and stops on unmount', async () => {
+  test('reads every 5 s while mounted, and stops and aborts its reads on unmount', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-    const { container, reads, view, counts } = await mount();
-    await loaded(container);
+    const { container, reads, view, counts, fetchMock } = await mount();
+    await settled(container);
+    /** @param {string} prefix @returns {AbortSignal[]} */
+    const signals = (prefix) =>
+      fetchMock.mock.calls
+        .filter(([url]) => String(url).startsWith(prefix))
+        .map(([, opts]) => /** @type {any} */ (opts)?.signal);
+    const sideReads = [...signals('/api/directory/values'), ...signals('/api/directory/pv/')];
+    expect(sideReads.length).toBeGreaterThan(1);
+    expect(sideReads.every((signal) => signal instanceof AbortSignal && !signal.aborted)).toBe(
+      true
+    );
     expect(reads).toHaveLength(1);
     vi.advanceTimersByTime(view.POLL_MS);
     await vi.waitFor(() => expect(reads).toHaveLength(2));
@@ -623,6 +669,7 @@ describe('the poll', () => {
     await Promise.resolve();
     expect(reads).toHaveLength(2);
     expect(document.getElementById('cf-result-count')?.textContent).toBe('');
+    expect(sideReads.every((signal) => signal.aborted)).toBe(true);
   });
 
   test('an identical answer leaves every part, and the focus, as it was', async () => {
@@ -699,6 +746,42 @@ describe('the poll', () => {
     await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(3));
     expect(chip().textContent).toBe('feed stale');
     expect(popover()?.hidden).toBe(true);
+  });
+
+  test('a read slower than the poll is not superseded by the next tick, and is drawn', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    /** @type {(value: any) => void} */
+    let release = () => {};
+    const slow = new Promise((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const { container, reads, view } = await mount({
+      alarms: () => (calls++ === 0 ? slow : ALARMS),
+    });
+    vi.advanceTimersByTime(view.POLL_MS * 2);
+    await Promise.resolve();
+    expect(reads).toHaveLength(1);
+    release(ALARMS);
+    await loaded(container);
+    expect(names(container)).toEqual([MAJOR_ROW.pv, MINOR_ROW.pv]);
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+  });
+
+  test('an empty filtered list keeps the focus on Clear filter across a poll', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const { container, view, counts } = await mount();
+    await loaded(container);
+    tile(container, 'INVALID')?.click();
+    const clear = /** @type {HTMLButtonElement} */ (
+      container.querySelector('.alarms-list .osprey-state button')
+    );
+    clear.focus();
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(2));
+    expect(container.querySelector('.alarms-list .osprey-state button')).toBe(clear);
+    expect(document.activeElement).toBe(clear);
   });
 
   test('a late answer for a view that is gone is dropped', async () => {
