@@ -972,7 +972,7 @@ class TestSearchResultRendering:
         canned = self._keyword_result()
         stub = self._StubService(canned)
 
-        async def fake_create(_config):
+        async def fake_create(_config, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return stub
 
         monkeypatch.setattr(ariel_pkg, "create_ariel_service", fake_create)

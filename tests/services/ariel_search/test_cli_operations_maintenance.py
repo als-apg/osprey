@@ -60,7 +60,7 @@ _DB = {"database": {"uri": "postgresql://localhost/test"}}
 def _patch_held_entries(monkeypatch, count: int) -> None:
     """Make the logbook report ``count`` entries already held."""
 
-    async def _count(_config_dict):
+    async def _count(_config_dict, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         return count
 
     monkeypatch.setattr(ops, "logbook_entry_count", _count)
@@ -1007,14 +1007,21 @@ class TestRunQuickstart:
         logbook: list[dict] = []
         embedded: list[str] = []
 
-        async def _count(_config_dict):
+        async def _count(_config_dict, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return len(logbook)
 
         async def _seed(_config_dict, entries, _progress=None, *, pictures=None):  # noqa: ARG001 - stands in for seed_logbook_entries
             logbook.extend(entries)
             return len(entries)
 
-        async def _resync(config_dict, rebuild=False, page_size=None, progress=None):  # noqa: ARG001 - stands in for run_qmd_resync
+        async def _resync(
+            config_dict,  # noqa: ARG001 - the signature it stands in for
+            rebuild=False,  # noqa: ARG001 - the signature it stands in for
+            page_size=None,  # noqa: ARG001 - the signature it stands in for
+            progress=None,  # noqa: ARG001 - the signature it stands in for
+            *,
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             return None
 
         async def _enhance(_config, _module, _force, limit, _progress=None, **_kwargs):
