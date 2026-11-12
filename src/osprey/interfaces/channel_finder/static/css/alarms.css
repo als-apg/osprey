@@ -365,3 +365,27 @@
     display: none;
   }
 }
+
+/* The Alarms tab's pill (app.js): the active count in the worst severity's tone. */
+.cf-alarm-pill {
+  margin-left: var(--space-1);
+}
+
+.cf-alarm-pill[data-severity='major'] {
+  --cf-alarm-tone: var(--color-error);
+}
+
+.cf-alarm-pill[data-severity='invalid'],
+.cf-alarm-pill[data-severity='undefined'] {
+  --cf-alarm-tone: var(--cf-severity-invalid);
+}
+
+.cf-alarm-pill[data-severity='minor'] {
+  --cf-alarm-tone: var(--color-warning);
+}
+
+.cf-alarm-pill[data-severity] {
+  background: color-mix(in srgb, var(--cf-alarm-tone, var(--text-muted)) 18%, transparent);
+  color: var(--cf-alarm-tone, var(--text-muted));
+  font-weight: var(--weight-semibold);
+}
