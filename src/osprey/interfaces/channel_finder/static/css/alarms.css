@@ -1,0 +1,367 @@
+/**
+ * OSPREY Channel Finder — Alarms view
+ *
+ * The alarm tree fills the shared panel sidebar (primitives.css
+ * .osprey-panel-sidebar); right of it, the stale-feed banner, the summary
+ * band, and the list beside the inspector. At a panel width of 720 px or less
+ * the inspector is hidden and a row opens its PV page (alarms.js).
+ */
+
+/* Edge to edge under the toolbar, like All PVs. */
+.view-container:has(> .alarms) {
+  height: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+.alarms {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.alarms-tree {
+  padding: var(--space-2);
+}
+
+.alarms-node {
+  --alarms-depth: 0;
+  padding-left: calc(var(--space-2) + var(--alarms-depth) * var(--space-3));
+}
+
+.alarms-node[aria-pressed='true'] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+/* In the tree the mark's shape carries the severity; the label keeps the row's text. */
+.alarms-node .cf-sev {
+  min-width: 0;
+  color: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+.alarms-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.alarms-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--surface-card));
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.alarms-banner > .osprey-ic {
+  flex: none;
+  color: var(--color-warning);
+}
+
+.alarms-banner[hidden],
+.alarms-band[hidden],
+.alarms-body[hidden],
+.alarms-state[hidden],
+.alarms-inspector[hidden] {
+  display: none;
+}
+
+.alarms-band {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.alarms-tile {
+  min-width: 108px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.alarms-tile:hover {
+  background: var(--surface-hover);
+}
+
+.alarms-tile[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.alarms-tile-n {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.alarms-tile-k {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.alarms-tile.is-zero .alarms-tile-n,
+.alarms-tile.is-zero .alarms-tile-k,
+.alarms-tile.is-zero .cf-sev {
+  color: var(--text-muted);
+}
+
+.alarms-band-rule {
+  align-self: stretch;
+  width: 1px;
+  margin: var(--space-1);
+  background: var(--border-default);
+}
+
+.alarms-grow {
+  flex: 1;
+}
+
+.alarms-state:empty {
+  display: none;
+}
+
+.alarms-state {
+  flex: 1;
+  min-height: 0;
+}
+
+.alarms-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  border-top: 1px solid var(--surface-hairline);
+}
+
+.alarms-list {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.alarms-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+}
+
+.alarms-table th {
+  position: sticky;
+  top: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-primary);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.alarms-table td {
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--surface-hairline);
+  white-space: nowrap;
+}
+
+.alarms-table tbody tr {
+  cursor: pointer;
+}
+
+.alarms-table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.alarms-table tbody tr.sel {
+  background: var(--surface-selected);
+}
+
+.alarms-table tr.is-stale td {
+  opacity: 0.55;
+}
+
+.alarms-table .alarms-sevbar {
+  width: 3px;
+  padding: 0;
+}
+
+.alarms-row--major .alarms-sevbar {
+  background: var(--color-error);
+}
+
+.alarms-row--invalid .alarms-sevbar,
+.alarms-row--undefined .alarms-sevbar {
+  background: var(--cf-severity-invalid);
+}
+
+.alarms-row--minor .alarms-sevbar {
+  background: var(--color-warning);
+}
+
+.alarms-pv a {
+  font-family: var(--cf-font-pv);
+  color: var(--text-primary);
+}
+
+.alarms-status,
+.alarms-value,
+.alarms-for {
+  font-family: var(--font-mono);
+}
+
+.alarms-value.dim,
+.alarms-unit {
+  color: var(--text-muted);
+}
+
+.alarms-flag {
+  margin-right: var(--space-1);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.alarms-flag.is-hot {
+  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+  color: var(--color-error);
+}
+
+.alarms-inspector {
+  width: 348px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-left: 1px solid var(--surface-hairline);
+  background: var(--bg-panel);
+  overflow: auto;
+  font-size: var(--text-md);
+}
+
+.alarms-insp-name {
+  margin: var(--space-1) 0 0;
+  font-family: var(--cf-font-pv);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.alarms-insp-desc {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.alarms-insp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.alarms-insp-part > .osprey-section-label {
+  padding: 0;
+}
+
+.alarms-insp-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+}
+
+.alarms-latched,
+.alarms-guidance,
+.alarms-display {
+  margin: 0 0 var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  background: var(--surface-selected);
+}
+
+.alarms-latched {
+  border-left-color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 7%, transparent);
+}
+
+.alarms-display {
+  border-left-color: var(--border-default);
+  background: none;
+}
+
+.alarms-guidance > strong,
+.alarms-display > strong {
+  display: block;
+  font-weight: var(--weight-semibold);
+}
+
+.alarms-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.alarms-facts dt {
+  color: var(--text-muted);
+}
+
+.alarms-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.alarms-tl {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alarms-tl li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.alarms-tl-time {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.alarms-muted {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.alarms-read-only {
+  margin-top: auto;
+}
+
+@container panel (max-width: 720px) {
+  .alarms-inspector {
+    display: none;
+  }
+}
