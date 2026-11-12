@@ -10,7 +10,7 @@ these pages is a real read through that child.
 
 Coverage, each in Chromium:
 
-  (a) the view switch reads Curated · <directory label> · Feedback; All PVs
+  (a) the view switch reads Curated · <directory label> · Alarms · Feedback; All PVs
       holds the toolbar search and result count and draws its filters in the
       shared sidebar, and no ``nav`` header contribution is sent.
   (b) a word search lists curated (◆) and control-system-only (◇) rows, the
@@ -168,7 +168,13 @@ def _open(browser: Browser, url: str, route: str) -> PanelHost:
 
 
 def _tabs(host: PanelHost) -> list[str]:
-    return [text.strip() for text in host.locator("#cf-views button[data-view]").all_inner_texts()]
+    """The view switch's labels, without the Alarms tab's count pill."""
+    return host.eval_on_selector_all(
+        "#cf-views button[data-view]",
+        """buttons => buttons.map(b => [...b.childNodes]
+            .filter(n => n.nodeType === Node.TEXT_NODE)
+            .map(n => n.textContent).join('').trim())""",
+    )
 
 
 def _pressed(host: PanelHost) -> str | None:
@@ -234,7 +240,7 @@ def test_all_pvs_holds_the_toolbar_and_the_shared_sidebar(
 ):
     host = _open(chromium_browser, panel_url, "#/allpvs")
     host.wait_for_selector(ROWS)
-    assert _tabs(host) == ["Curated", "All PVs", "Feedback"]
+    assert _tabs(host) == ["Curated", "All PVs", "Alarms", "Feedback"]
     assert _pressed(host) == "allpvs"
 
     assert host.locator("#cf-search").is_enabled()
