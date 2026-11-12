@@ -653,6 +653,8 @@ preset does not reach an existing deployment.</p>
                   your own words
   watchdogs/      one directory per watchdog the profile declares
   mcp_servers/    the MCP server packages the preset ships
+  .osprey/        what the presets produced, so --revalidate can tell their
+                  changes from yours; commit it, never edit it
   ci-extra.yml    the facility&#39;s own CI jobs; never regenerated
   .gitignore      keeps build/, var/, the .env files and apps/*/panel/vendor/
                   out of version control
@@ -1556,24 +1558,25 @@ osprey<span class="w"> </span>validate<span class="w"> </span>tiers/readonly.yml
 <p>Resolves the profile and runs the full consistency check — convention
 directories, the data tree, service templates, lifecycle steps, environment
 variables — reporting every problem found, not just the first.</p>
-<p>It also compares the profile with the preset it was materialized from, so a
-line the preset gained after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> (a panel, a hook, a permission)
-does not go missing silently. Only <em>structural</em> differences are refused — a
-key or list member one document has and the other has not. One you mean is
-claimed once, with a comment above the line:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="c1"># DEVIATION: this deployment reads the facility&#39;s own knowledge graph</span>
-<span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.example:7687</span>
+<p>The profile is yours to edit. No difference from the preset it was
+materialized from is refused or listed. When the preset bundled with your
+OSPREY has changed since the repository last took it, <code class="docutils literal notranslate"><span class="pre">validate</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> print one line saying so.</p>
+</section>
+<section id="upgrading-osprey">
+<span id="id1"></span><h3>Upgrading OSPREY<a class="headerlink" href="#upgrading-osprey" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-U<span class="w"> </span>osprey-framework
+osprey<span class="w"> </span>init<span class="w"> </span>--revalidate<span class="w">      </span><span class="c1"># applies the presets&#39; changes, prints the diff</span>
+<span class="c1"># review the diff; drop any change you do not want; commit</span>
+osprey<span class="w"> </span>validate
+osprey<span class="w"> </span>build
 </pre></div>
 </div>
-<p>Unclaimed structural differences fail the check (<code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> only reports
-them); a stale marker is reported too. The tag defaults to <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code> and is
-set by <code class="docutils literal notranslate"><span class="pre">provenance.deviation_marker</span></code>.</p>
-<p>A key both documents carry with <em>different values</em> — <code class="docutils literal notranslate"><span class="pre">web.theme:</span> <span class="pre">dark</span></code> where
-the preset says <code class="docutils literal notranslate"><span class="pre">light</span></code> — is only reported, never refused. The profile is the
-source of truth for what this deployment runs, so an edited setting needs no
-marker, and a preset that changes a value in a later release does not fail a
-build that was fine yesterday.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> applies only what the presets changed since the
+repository last took them, and only where you kept the preset’s old value. Your
+own edits are left alone, and anything you deleted stays deleted. A change you
+drop from the diff before committing is not offered again; to take it later,
+copy it from the preset by hand.</p>
 </section>
 </section>
 <section id="what-the-build-does">
@@ -1635,12 +1638,14 @@ directory.”</strong> — <code class="docutils literal notranslate"><span clas
 repository it runs in, and found none at or above the working directory. Run it
 from inside the repository, point at one with <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">PATH</span></code>, or create one with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">&lt;name&gt;</span> <span class="pre">--preset</span> <span class="pre">&lt;NAME&gt;</span></code>.</p>
-<p><strong>“profile.yml was materialized from preset … at …; the preset bundled with
-OSPREY … is … — it has moved on since”</strong> — a note, not an error. The preset your
-profile came from has changed in the OSPREY release you run. Your deployment
-does not change with it, because the profile inherits nothing. To see what
-moved, diff a fresh <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> against your profile, as shown under
-<em>Preset → Profile → Build</em> above.</p>
+<p><strong>“The … preset has changed since this repo last took it”</strong> — a note, not an
+error. The preset your profile came from has changed in the OSPREY release you
+run. Your deployment does not change with it, because the profile inherits
+nothing. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> to take the changes (see
+<a class="reference internal" href="#upgrading-osprey"><span class="std std-ref">Upgrading OSPREY</span></a>).</p>
+<p><strong>“This repo predates preset tracking”</strong> — a note, not an error. The repository
+was made by an OSPREY release that kept no copy of what its preset produced.
+Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> once, and commit what it writes.</p>
 <p><strong>“Profile convention directories are invalid”</strong> — a convention directory has
 the wrong shape: a <code class="docutils literal notranslate"><span class="pre">.md</span></code> directory holding something else, or a skill that is
 a file rather than a directory. Every problem is listed at once.</p>
@@ -1777,6 +1782,7 @@ relax the constraint in the profile.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building">Building</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#checking-a-profile-without-building">Checking a profile without building</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrading-osprey">Upgrading OSPREY</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-build-does">What the build does</a></li>

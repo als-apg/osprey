@@ -604,14 +604,24 @@ no container runtime answers. To keep the old data instead, pass
 <code class="docutils literal notranslate"><span class="pre">--reuse-stores</span></code> to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--no-git</span></code> — Skip <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and the initial commit.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--revalidate</span> <span class="pre">[--preset</span> <span class="pre">NAME]</span></code> — Bring an existing deployment repository to
-this OSPREY in place: the current profile vocabulary, every config key the
-profile leaves to its preset (from <code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code>, or the preset the profile
-records), the provider entries and keys OSPREY ships that <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>
-lacks and no deviation marker claims absent (every value already in it is
-kept, an edited entry OSPREY ships included), and, while the profile’s lists name nothing by path, the repo’s own
+this OSPREY in place: the current profile vocabulary, what the presets changed
+since the repository last took them, the provider entries and keys OSPREY
+added since (every value already in <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> is kept), and, while the
+profile’s lists name nothing by path, the repo’s own
 skills, agents, rules, output styles and hooks named by path in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
 and each app (a bare entry the repo ships a file for becomes its path), so
 every render keeps what it carried.
+A preset change is applied only where your file still holds the preset’s old
+value: an added key, panel or step you lack is added, and a removed or changed
+one you kept is removed or updated. Anything you changed yourself is left
+alone, and a key, entry or provider you deleted is not added back. What it does
+not apply but you may want is printed once, under “left for you”. Drop any
+change you do not want from the diff before you commit: it is not offered
+again. <code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> switches the profile to that preset and fills in what
+it has and the profile lacks. A repository made before this tracking existed
+starts it on its first <code class="docutils literal notranslate"><span class="pre">--revalidate</span></code>: nothing records what its presets said,
+so that run fills in the <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys the profile lacks and lists whatever
+else differs from the presets under “left for you”, applying none of it.
 Your deployment’s own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key
@@ -674,7 +684,7 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 <section id="osprey-validate">
 <h2>osprey validate<a class="headerlink" href="#osprey-validate" title="Link to this heading">#</a></h2>
 <p>Check the deployment profile without building.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span><span class="o">[</span>TARGET<span class="o">]</span><span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span><span class="w"> </span><span class="o">[</span>--drift<span class="w"> </span>error<span class="p">|</span>warn<span class="o">]</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span><span class="o">[</span>TARGET<span class="o">]</span><span class="w"> </span><span class="o">[</span>--repo<span class="w"> </span>DIRECTORY<span class="o">]</span>
 </pre></div>
 </div>
 <p>With no argument, validates the deployment repository enclosing the working
@@ -686,25 +696,10 @@ directories, the <code class="docutils literal notranslate"><span class="pre">da
 then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.</p>
-<p>A profile <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote is also compared with the preset it came from,
-tier and app files included, and the two kinds of difference are treated
-differently.</p>
-<p><strong>Structural</strong> differences are refused: a key or list member the preset has and
-the profile lacks, one the profile adds that the preset does not know, or an
-<code class="docutils literal notranslate"><span class="pre">exclude:</span></code> of something the preset keeps. Each is reported with both
-<code class="docutils literal notranslate"><span class="pre">file:line</span></code> references unless a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">&lt;why&gt;</span></code> comment within three
-lines above the profile line claims it (for a missing line, a comment anywhere
-naming the key or member). The tag is set by <code class="docutils literal notranslate"><span class="pre">provenance.deviation_marker</span></code>; a
-marker that no longer marks a difference is reported as stale.
-<code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> prints them and passes.</p>
-<p><strong>Value</strong> differences — a key both documents carry, set to different values —
-are always only reported, on every setting. The profile is the source of truth,
-so a preset that changes a value in a later OSPREY release turns up as a note
-rather than failing a build that was fine yesterday.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> prints the same list under <code class="docutils literal notranslate"><span class="pre">-v</span></code> and, whenever the bundled
-preset’s hash differs from the recorded one, a one-line note that the preset
-has moved on. A <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> that no longer matches the packaged catalog
-is reported the same way — as a note, never a refusal.</p>
+<p>The profile is yours to edit, so no difference from the preset <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
+wrote it from is refused or listed, in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, a tier or app file, or
+<code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>. When the bundled preset has changed since, <code class="docutils literal notranslate"><span class="pre">validate</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> print one line saying so.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
 osprey<span class="w"> </span>validate<span class="w"> </span>tiers/readonly.yml
 osprey<span class="w"> </span>validate<span class="w"> </span>--repo<span class="w"> </span>~/my-assistant

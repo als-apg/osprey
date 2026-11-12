@@ -815,12 +815,10 @@ PEP 508 spec.</p></td>
 <td><p><em>written</em></p></td>
 <td><p>Which preset this profile was materialized from, that preset’s hash, and
 the hash of the <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> beside it. Written by the
-materialization; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares the profile with that
-preset and refuses unmarked <em>structural</em> differences, while a key both
-carry with different values is only reported (see
-<a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset drift</span></a>). The one key you may add is
-<code class="docutils literal notranslate"><span class="pre">deviation_marker</span></code>, the tag of the <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">&lt;TAG&gt;:</span> <span class="pre">&lt;why&gt;</span></code> comment that
-marks a difference as deliberate (default <code class="docutils literal notranslate"><span class="pre">DEVIATION</span></code>).</p></td>
+materialization; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> say when that
+preset has changed since (see <a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset updates</span></a>). A
+<code class="docutils literal notranslate"><span class="pre">deviation_marker</span></code> key an earlier release read is accepted and
+ignored; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> removes it.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1025,14 +1023,11 @@ own declaration answers.</p>
 place to declare the provider.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">provider:</span></code> naming an entry the file does not declare is refused, and the
 message lists the names it does declare.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares each entry OSPREY ships with the one in the file,
-key by key, as preset drift: a value you changed is a note, a key or model the
-two disagree on having is refused unless a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span></code> comment above it
-claims it. Entries you added are not compared. The comparison is with the
-catalog this OSPREY release ships, not with the hash under <code class="docutils literal notranslate"><span class="pre">provenance:</span></code>.
+<li><p>The file is yours to edit, like <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses
+and lists no difference from the catalog OSPREY ships.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> keeps every value in the file and adds the
-entries and keys OSPREY ships that it lacks, except one such a comment
-names as absent (<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">providers.openrouter:</span> <span class="pre">…</span></code>).</p></li>
+entries and keys OSPREY added since the repository last took the catalog.
+An entry or key you deleted is not added back.</p></li>
 </ul>
 </section>
 <section id="the-posture-floor">
@@ -1122,24 +1117,20 @@ list. A change in the rendered <code class="docutils literal notranslate"><span 
 needs <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a session reload. <a class="reference internal" href="../../how-to/control-systems/code-review.html"><span class="doc">Review the Agent’s Code</span></a> sets
 it up; <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a> says what it does.</p>
 </section>
-<section id="preset-drift">
-<span id="profile-preset-drift"></span><h2>Preset drift<a class="headerlink" href="#preset-drift" title="Link to this heading">#</a></h2>
+<section id="preset-updates">
+<span id="profile-preset-drift"></span><h2>Preset updates<a class="headerlink" href="#preset-updates" title="Link to this heading">#</a></h2>
 <p>A profile <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote records the preset it came from under
-<code class="docutils literal notranslate"><span class="pre">provenance:</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> compares the two and splits what it finds:</p>
-<ul class="simple">
-<li><p>A <strong>structural</strong> difference — a key, block or list member one document has
-and the other has not — is refused, with both <code class="docutils literal notranslate"><span class="pre">file:line</span></code> references,
-unless a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">&lt;why&gt;</span></code> comment within three lines above the line
-claims it (for a line the profile does not have, a comment anywhere naming
-the key or member). <code class="docutils literal notranslate"><span class="pre">--drift=warn</span></code> reports these and passes.</p></li>
-<li><p>A <strong>value</strong> difference on a key both documents carry is only reported. Your
-profile is the source of truth, and a preset that changes a value in a newer
-OSPREY release should not fail your build.</p></li>
-</ul>
-<p>So the external-store recipe below, which takes <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> out of
-<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> and adds <code class="docutils literal notranslate"><span class="pre">services.graphdb.uri</span></code> and <code class="docutils literal notranslate"><span class="pre">.username</span></code>, is
-three structural differences and wants marker comments; changing <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>
-from the preset’s <code class="docutils literal notranslate"><span class="pre">light</span></code> to <code class="docutils literal notranslate"><span class="pre">dark</span></code> is a value difference and wants
+<code class="docutils literal notranslate"><span class="pre">provenance:</span></code>. From then on the profile is yours: no difference from the
+preset is refused or listed, whether you changed a value, added a key or dropped
+a list member. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> also keeps a plain copy of what the presets
+produced, so OSPREY can tell a preset’s later changes from your edits. When a
+preset bundled with your OSPREY has changed since the repository last took it,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> print one line saying so, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> applies the changes. It applies a change only
+where you kept the preset’s old value, and leaves your own edits alone. The
+same holds for each tier file, against the bundled tier it names, and for
+<code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>. An application copied into <code class="docutils literal notranslate"><span class="pre">apps/</span></code> is
+code: when the preset’s copy changes, <code class="docutils literal notranslate"><span class="pre">--revalidate</span></code> says so once and copies
 nothing.</p>
 <p>A profile written before the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block carried everything spells only
 what its facility changed, and still names a packaged app template at its top
@@ -1148,11 +1139,12 @@ level. Such a profile is refused, naming that key and the verb that fixes it:</p
 osprey<span class="w"> </span>init<span class="w"> </span>--revalidate<span class="w"> </span>--preset<span class="w"> </span>demo<span class="w">              </span><span class="c1"># or name it</span>
 </pre></div>
 </div>
-<p>It writes every key the preset documents and the profile lacks into the
-profile’s own <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, each under the comment the preset documents it
-with, drops that retired key, and refreshes <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>. It only adds —
-nothing already in the file is touched — and your deployment’s own selections
-are left for you and named in the output.</p>
+<p>Such a profile has no record of what its preset said when it was written, so
+this once it writes every key the preset documents and the profile lacks into
+the profile’s own <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, each under the comment the preset
+documents it with, drops that retired key, and refreshes <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>. It
+only adds — nothing already in the file is touched — and your deployment’s own
+selections are left for you and named in the output.</p>
 </section>
 <section id="mcp-server-injection">
 <span id="profile-mcp-servers"></span><h2>MCP server injection<a class="headerlink" href="#mcp-server-injection" title="Link to this heading">#</a></h2>
@@ -1675,16 +1667,11 @@ whole, so write out the services you <em>do</em> want rather than the one you ar
 taking away:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
 <span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="c1"># DEVIATION: the graph store is the facility&#39;s, not this deployment&#39;s</span>
 <span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.org:7687</span>
 <span class="w">  </span><span class="nt">services.graphdb.username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neo4j</span>
-<span class="w">  </span><span class="c1"># DEVIATION: graphdb is the facility&#39;s store, so deployed_services drops it</span>
 <span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
-<p>Those are structural differences from the preset — two added keys and a dropped
-list member — which is why the marker comments are there. Without them
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses the profile (<a class="reference internal" href="#profile-preset-drift"><span class="std std-ref">Preset drift</span></a>).</p>
 <p>The procedure that goes with those keys — the password to place, what is minted
 and seeded on each path, and how to load a corpus into a store OSPREY does not
 run — is in
@@ -2457,7 +2444,7 @@ there; every write is then refused <code class="docutils literal notranslate"><s
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-provider-catalog-providers-yml">The provider catalog — providers.yml</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-posture-floor">The posture floor</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-review">Code review</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-drift">Preset drift</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-updates">Preset updates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-injection">MCP server injection</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#shipping-the-server-s-code">Shipping the server’s code</a></li>
 </ul>

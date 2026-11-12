@@ -1050,9 +1050,9 @@ honoured</p></td>
 <section id="upgrade-notes">
 <span id="ariel-picture-search-upgrade"></span><h2>Upgrade notes<a class="headerlink" href="#upgrade-notes" title="Link to this heading">#</a></h2>
 <p><strong>Profile keys.</strong> An existing deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is explicit and does
-not gain the new keys; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> lists them as drift. Add the lines
-shown below, or run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> (it writes every lacking leaf,
-with the side effects named below); until then
+not gain the new keys. Add the lines shown below, or run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> (it writes every lacking leaf, with the side effect
+named below); until then
 <code class="docutils literal notranslate"><span class="pre">image_caption</span></code> and <code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> keep their code defaults (off) and the
 view tool its default (on).</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
@@ -1080,9 +1080,8 @@ packaged entry:</p>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-vl-embedding-2b</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> also writes it, with side effects: it fills in every
-key the profile leaves to its preset and stamps provenance, which turns on the
-strict preset-drift check (see <a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift</span></a>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> also writes it, with a side effect: it fills in
+every key the profile leaves to its preset and stamps provenance.</p>
 <p><strong>Search indexes.</strong> The upgrade builds a v2 full-text index and a trigram index
 over attachment text, and keeps the v1 indexes (the full-text index and, with
 the semantic processor on, its search index); a later release drops them. The
