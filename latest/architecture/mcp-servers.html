@@ -567,12 +567,12 @@ bin that was used and whether it was requested or chosen automatically.</p></li>
 write-gated and under what constraints (lookup, pattern match, summary). Not a channel
 roster – an unlisted channel may still exist; use channel-finder to discover what channels
 exist.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">control_target</span></code> – Report which control system the deployment points at (<code class="docutils literal notranslate"><span class="pre">live</span></code>,
+<li><p><code class="docutils literal notranslate"><span class="pre">control_target</span></code> – Report which control system the login’s sessions point at (<code class="docutils literal notranslate"><span class="pre">live</span></code>,
 <code class="docutils literal notranslate"><span class="pre">va</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code>), each target’s endpoints and reachability, and whether the session
 may move to it now. Read-only: it connects to nothing.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">control_target_set</span></code> – Point the deployment’s control-system tools at another target.
-The target belongs to the deployment, so every session on it moves too (requires human
-approval).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">control_target_set</span></code> – Point the login’s control-system tools at another target.
+The target belongs to the login, not to one session, so every session of that
+login moves too (requires human approval).</p></li>
 </ul>
 <p>An application’s write tools take the same path: they enter the gate as their server’s
 <code class="docutils literal notranslate"><span class="pre">writes:</span></code> list, the switch’s position decides each call, and no per-tool approval policy exists

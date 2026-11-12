@@ -543,6 +543,156 @@ parallel connector is its interface to an archiver. Everything above them — th
 agent, the plans, the safety layers — is written against those two interfaces,
 so moving from the simulator to real hardware is a change of
 <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> and its connector block, not of code.</p>
+<section id="what-a-connector-is-and-who-talks-to-it">
+<h2>What a connector is, and who talks to it<a class="headerlink" href="#what-a-connector-is-and-who-talks-to-it" title="Link to this heading">#</a></h2>
+<p>A connector is a Python object with a fixed set of methods: connect, read a
+channel, write a channel, subscribe, get metadata. Each control system (EPICS,
+DOOCS, the simulator, the mock) is one class that implements them.</p>
+<p>Nothing in OSPREY reaches a control system any other way. There is no shared
+connector service: each caller below holds its own connector instance, built
+from the same <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and pointed at the login’s control target.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 428" role="img" aria-labelledby="connector-callers-title connector-callers-desc">
+  <title id="connector-callers-title">Who talks to a connector</title>
+  <desc id="connector-callers-desc">The agent, agent-written Python, notebooks, Bluesky plans, and panels and apps each hold their own connector instance, and every instance reaches the control system through the same interface. The operator sets the control target and the write switches in the login's control-context record, which every connector reads.</desc>
+  <defs>
+    <marker id="connector-callers-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="192" y1="52" x2="384" y2="52" marker-end="url(#connector-callers-arr)"/>
+  <polyline class="e-warn e-dash" points="704,52 936,52 936,266 912,266" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="112" y1="176" x2="112" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="288" y1="176" x2="288" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="464" y1="176" x2="464" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="640" y1="176" x2="640" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="816" y1="176" x2="816" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="112" y1="292" x2="112" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="288" y1="292" x2="288" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="464" y1="292" x2="464" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="640" y1="292" x2="640" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="816" y1="292" x2="816" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <!-- arrow labels -->
+  <text class="ta" x="288" y="44" text-anchor="middle">SETS</text>
+  <text class="ta ta-warn" x="820" y="44" text-anchor="middle">READ BY EVERY CONNECTOR</text>
+  <rect class="mask" x="476" y="322" width="140" height="12" rx="2"/>
+  <text class="ta ta-acc" x="480" y="331">READ · WRITE · SUBSCRIBE</text>
+  <!-- zone: one instance per caller -->
+  <rect class="zone" x="16" y="208" width="896" height="104" rx="6"/>
+  <rect class="mask" x="128" y="216" width="144" height="12" rx="2"/>
+  <text class="te" x="132" y="225">ONE INSTANCE PER CALLER</text>
+  <!-- operator and the login's record -->
+  <rect class="mask" x="32" y="24" width="160" height="56" rx="6"/>
+  <rect class="nb-in" x="32" y="24" width="160" height="56" rx="6"/>
+  <text class="tn" x="112" y="48" text-anchor="middle">Operator</text>
+  <text class="ts" x="112" y="64" text-anchor="middle">chip · approval prompt</text>
+  <rect class="mask" x="384" y="24" width="320" height="56" rx="6"/>
+  <rect class="nb-warn" x="384" y="24" width="320" height="56" rx="6"/>
+  <text class="tn" x="544" y="48" text-anchor="middle">Control-context record</text>
+  <text class="ts" x="544" y="64" text-anchor="middle">one per login · control target · write switches</text>
+  <!-- callers -->
+  <rect class="mask" x="32" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="32" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="112" y="144" text-anchor="middle">Agent</text>
+  <text class="ts" x="112" y="160" text-anchor="middle">controls tools</text>
+  <rect class="mask" x="208" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="208" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="288" y="144" text-anchor="middle">Agent-written Python</text>
+  <text class="ts" x="288" y="160" text-anchor="middle">osprey.runtime</text>
+  <rect class="mask" x="384" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="384" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="464" y="144" text-anchor="middle">Notebooks</text>
+  <text class="ts" x="464" y="160" text-anchor="middle">osprey.runtime</text>
+  <rect class="mask" x="560" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="560" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="640" y="144" text-anchor="middle">Bluesky plans</text>
+  <text class="ts" x="640" y="160" text-anchor="middle">queue worker</text>
+  <rect class="mask" x="736" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="736" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="816" y="144" text-anchor="middle">Panels and apps</text>
+  <text class="ts" x="816" y="160" text-anchor="middle">CANOPY · app backends</text>
+  <!-- connectors (focal) -->
+  <rect class="mask" x="32" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="32" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="112" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="112" y="278" text-anchor="middle">controls server or its child</text>
+  <rect class="mask" x="208" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="208" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="288" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="288" y="278" text-anchor="middle">one per run</text>
+  <rect class="mask" x="384" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="384" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="464" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="464" y="278" text-anchor="middle">target read per cell</text>
+  <rect class="mask" x="560" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="560" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="640" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="640" y="278" text-anchor="middle">the worker's own target</text>
+  <rect class="mask" x="736" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="736" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="816" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="816" y="278" text-anchor="middle">one per backend</text>
+  <!-- control system -->
+  <rect class="mask" x="32" y="352" width="864" height="52" rx="6"/>
+  <rect class="nb-ext" x="32" y="352" width="864" height="52" rx="6"/>
+  <text class="tn" x="464" y="374" text-anchor="middle">Control system</text>
+  <text class="ts" x="464" y="390" text-anchor="middle">EPICS · DOOCS · simulator</text>
+</svg>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Who</p></th>
+<th class="head"><p>How it reaches the connector</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Operator</p></td>
+<td><p>Never directly. The operator picks the control target, sets the write
+switch (off, asked or allowed) and answers approval prompts. Each login
+has its own target and switches. See
+<a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a> and
+<a class="reference internal" href="switch-control-target.html#how-to-switch-control-target"><span class="std std-ref">Switch the Control Target at Run Time</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Agent</p></td>
+<td><p>Through the <code class="docutils literal notranslate"><span class="pre">controls</span></code> tools: <code class="docutils literal notranslate"><span class="pre">channel_read</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> and
+<code class="docutils literal notranslate"><span class="pre">archiver_read</span></code>. With two or more targets configured, the connector
+runs in a child process and a switch replaces that process: a process
+holds one Channel Access context, so a new target needs a new process.
+With one target it runs inside the <code class="docutils literal notranslate"><span class="pre">controls</span></code> server.</p></td>
+</tr>
+<tr class="row-even"><td><p>Agent-written Python</p></td>
+<td><p>Through <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> (<code class="docutils literal notranslate"><span class="pre">read_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">write_channel</span></code>). Each
+run builds its own connector for the login’s target. A write is refused
+if the target changed after the run started. See
+<a class="reference internal" href="#how-to-write-from-a-program"><span class="std std-ref">Writing from a program</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Notebooks</p></td>
+<td><p>The same <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> calls. The kernel re-reads the target
+before each cell. See <a class="reference internal" href="../web-terminal/notebooks.html#notebooks-write-channel"><span class="std std-ref">Notebooks</span></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p>Bluesky plans</p></td>
+<td><p>Every plan read and write goes through a connector the queue worker
+builds for its own target, which can differ from the login’s.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Panels and apps</p></td>
+<td><p>CANOPY’s data process serves every PV from one connector and is
+replaced when the target moves. An app backend builds its own
+connector for the target of the login it answers; a write approved
+for another target is refused. See <a class="reference internal" href="../apps/index.html#how-to-apps"><span class="std std-ref">Build Your Own OSPREY Apps</span></a>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Because every path ends in the same class, the last write check is the same
+everywhere: the connector re-checks the write switch on each write, whoever
+called it. The checks before that point differ by path and are listed in order
+in <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-order"><span class="std std-ref">Enforcement order</span></a>.</p>
+</section>
 <section id="one-api-whatever-the-machine">
 <h2>One API, whatever the machine<a class="headerlink" href="#one-api-whatever-the-machine" title="Link to this heading">#</a></h2>
 <p>The Python API is the same for every connector, and works from a script of your
@@ -1214,6 +1364,7 @@ safety gates, and the archiver <code class="docutils literal notranslate"><span 
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-connector-is-and-who-talks-to-it">What a connector is, and who talks to it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-api-whatever-the-machine">One API, whatever the machine</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-a-control-system">Pick a control system</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-an-archiver">Pick an archiver</a></li>
