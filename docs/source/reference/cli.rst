@@ -163,7 +163,9 @@ not apply but you may want is printed once, under "left for you". Drop any
 change you do not want from the diff before you commit: it is not offered
 again. ``--preset NAME`` switches the profile to that preset and fills in what
 it has and the profile lacks. A repository made before this tracking existed
-starts it on its first ``--revalidate``.
+starts it on its first ``--revalidate``: nothing records what its presets said,
+so that run fills in the ``config:`` keys the profile lacks and lists whatever
+else differs from the presets under "left for you", applying none of it.
 Your deployment's own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key

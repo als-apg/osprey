@@ -35,7 +35,8 @@ in place, with the round-trip writer so every comment the operator kept survives
    ``profile.yml``, each tier file and ``triggers.yml``, where the file still
    holds the preset's old value. A file no saved copy covers starts from
    today's output while its recorded hash matches; otherwise every ``config:``
-   leaf it lacks is filled once, as before. Each added ``config:`` leaf comes
+   leaf ``profile.yml`` lacks is filled once, as before, and whatever else the
+   file lacks or states differently is listed. Each added ``config:`` leaf comes
    with the preset's comment; the retired ``app_template:`` key is dropped.
    The deployment's own selections (the keys the manifest marks
    ``deployment-data`` or ``data-map``) are never written, and neither is
@@ -47,7 +48,9 @@ in place, with the round-trip writer so every comment the operator kept survives
    kept, and only the entries and keys OSPREY ships that it lacks, and that
    the saved copy does not hold, are added. One the saved copy holds and the
    file lacks was deleted on purpose. A packaged value the catalog changed
-   since, which the file still holds, is listed.
+   since, which the file still holds, is listed. With no saved copy and a
+   changed catalog, nothing is added: what the file lacks is listed, unless a
+   deviation marker from an earlier release claims it absent.
 7. ``provenance:`` is restamped with the preset, its hash and the catalog's
    hash, and ``requires_osprey_version`` at the schema floor, so a release
    that predates the vocabulary refuses the rewritten repo.
@@ -240,6 +243,8 @@ class RevalidateResult:
     """Preset changes not applied that the operator may want, one line each: said once."""
     filled_once: list[str] = field(default_factory=list)
     """Files no saved copy covered, whose preset had moved on: filled the old way, once."""
+    switched_from: str | None = None
+    """The preset ``provenance:`` named, when ``--preset`` moved the profile to another."""
     saved_copy: bool = False
     """Whether the saved copy under ``.osprey/preset-base/`` was written or changed."""
     providers_kept: tuple[str, ...] = ()
@@ -2045,6 +2050,12 @@ def _config_home(config: Any, dotted: str) -> tuple[Any, str] | None:
     Any split between dotted and nested addresses the same leaf, so every cut
     is tried, the longest dotted head first.
     """
+    trail = _config_trail(config, dotted)
+    return trail[-1] if trail else None
+
+
+def _config_trail(config: Any, dotted: str) -> list[tuple[Any, str]] | None:
+    """Every mapping *config* spells the leaf *dotted* through, outermost first, each with its key."""
     if not isinstance(config, dict):
         return None
     segments = dotted.split(".")
@@ -2053,10 +2064,10 @@ def _config_home(config: Any, dotted: str) -> tuple[Any, str] | None:
         if head not in config:
             continue
         if cut == len(segments):
-            return config, head
-        found = _config_home(config[head], ".".join(segments[cut:]))
-        if found is not None:
-            return found
+            return [(config, head)]
+        below = _config_trail(config[head], ".".join(segments[cut:]))
+        if below is not None:
+            return [(config, head), *below]
     return None
 
 
@@ -2082,23 +2093,32 @@ def _step_index(container: Any, step: Any) -> Any:
 
 def _find_node(document: Any, path: tuple[Any, ...]) -> tuple[Any, Any] | None:
     """The container holding the node at flattened *path*, and its key or index."""
+    trail = _node_trail(document, path)
+    return trail[-1] if trail else None
+
+
+def _node_trail(document: Any, path: tuple[Any, ...]) -> list[tuple[Any, Any]] | None:
+    """Every container down to the node at flattened *path*, outermost first, each with its key."""
     steps = list(path)
     if steps[0] == "config" and len(steps) > 1:
-        found = _config_home(document.get("config"), steps[1])
+        found = _config_trail(document.get("config"), steps[1])
         if found is None:
             return None
-        container, key = found
+        trail: list[tuple[Any, Any]] = list(found)
         steps = steps[2:]
     else:
-        container, key = document, _step_index(document, steps.pop(0))
+        key = _step_index(document, steps.pop(0))
         if key is None:
             return None
+        trail = [(document, key)]
     for step in steps:
+        container, key = trail[-1]
         container = container[key]
         key = _step_index(container, step)
         if key is None:
             return None
-    return container, key
+        trail.append((container, key))
+    return trail
 
 
 def _preset_value(document: Any, path: tuple[Any, ...]) -> Any:
@@ -2206,17 +2226,31 @@ def _add_node(
 
 
 def _remove_node(document: Any, path: tuple[Any, ...]) -> bool:
-    """Remove the node at *path*; ``False`` when the file does not hold it."""
+    """Remove the node at *path*; ``False`` when the file does not hold it.
+
+    A ``config:`` leaf spelled nested goes with every mapping that held nothing
+    else: those are the leaf's spelling, and left behind empty they would read
+    as a key of their own. Any other list or mapping the removal empties stays,
+    written ``[]`` or ``{}``.
+    """
     from .build_profile_emit import _drop_key_and_pre_comment
 
-    found = _find_node(document, path)
-    if found is None:
+    trail = _node_trail(document, path)
+    if trail is None:
         return False
-    container, key = found
+    depth = len(trail) - 1
+    if path[0] == "config" and len(path) == 2:
+        while depth and len(trail[depth][0]) == 1:
+            depth -= 1
+    container, key = trail[depth]
     if isinstance(container, CommentedMap):
         _drop_key_and_pre_comment(container, key)
     else:
         del container[key]
+    if not len(container) and isinstance(container, (CommentedMap, CommentedSeq)):
+        # An empty block collection is dumped as `{}` or `[]` after whatever
+        # comment its key is later handed, at column 0: not YAML.
+        container.fa.set_flow_style()
     return True
 
 
@@ -2266,6 +2300,7 @@ def _apply_preset_changes(
     elsewhere: Iterable[dict[tuple[Any, ...], Any]] = (),
     comments: dict[str, str] | None = None,
     skips: dict[str, str] | None = None,
+    fill: bool = False,
 ) -> _Applied:
     """Apply what the preset changed from *start* to today, where *document* left it alone.
 
@@ -2278,6 +2313,10 @@ def _apply_preset_changes(
             ``profile.yml`` into a tier is not added back.
         comments: The preset's comment for each ``config:`` leaf, dotted.
         skips: The ``config:`` leaves never written, each with the reason.
+        fill: Whether nothing records what the preset said (*start* is then
+            empty). Only a ``config:`` leaf ``profile.yml`` lacks is written;
+            whatever else the file lacks or states differently goes to
+            :attr:`_Applied.left` (:func:`_unrecorded`).
     """
     from .build_profile_updates import (
         flatten,
@@ -2303,6 +2342,14 @@ def _apply_preset_changes(
                 done.skipped[_TIER_KEY] = note
             continue
         here = subtree(user, path)
+        if fill and (dotted is None or path in present or item.rel != PROFILE_FILENAME):
+            # Nothing says the preset added what the file lacks here: a panel
+            # or a list member missing from it is as likely one the operator
+            # removed. The fill only ever wrote the `config:` keys of
+            # profile.yml, so the rest is said, not written.
+            if dotted is None or skips is None or dotted not in skips:
+                done.left.extend(_unrecorded(item, change, user, present, preset))
+            continue
         if kind == "added":
             if path in present:
                 # The file has the node already: what it lacks below it is added.
@@ -2329,6 +2376,60 @@ def _apply_preset_changes(
         for node in nodes:
             _apply_one(document, item, node, kind, comments, done)
     return done
+
+
+def _unrecorded(
+    item: Any,
+    change: Any,
+    user: dict[tuple[Any, ...], Any],
+    present: set[tuple[Any, ...]],
+    preset: str,
+) -> list[str]:
+    """What the preset has at *change* that the file lacks or states differently, a line each.
+
+    For a file no saved copy covers: the preset's change and the operator's
+    own look the same, so neither is assumed. A value ``profile.yml`` states
+    under ``config:`` is not listed: the fill has always kept those as the
+    operator's.
+    """
+    from .build_profile_updates import ORDER, Member, render_path
+    from .profile_conventions import library_entry_shadow
+
+    kept = item.rel == PROFILE_FILENAME and change.path[0] == "config"
+    lines: list[str] = []
+    listed: list[tuple[Any, ...]] = []
+    for rel, value in change.new.items():
+        full = (*change.path, *rel)
+        if full[-1] == ORDER:
+            continue
+        node = next(
+            (
+                full[:cut]
+                for cut in range(len(change.path), len(full) + 1)
+                if full[:cut] not in present
+            ),
+            None,
+        )
+        if node is not None and len(node) == 2 and isinstance(node[1], Member):
+            # The repo's own file under a library name is listed by its path.
+            shadow = library_entry_shadow(str(node[0]), node[1].value)
+            if shadow is not None and (node[0], Member(shadow)) in present:
+                continue
+        if node is None:
+            if not kept and full in user and user[full] != value:
+                lines.append(
+                    f"{item.rel}: {render_path(full)}: the {preset} preset has "
+                    f"{_brief({(): value})}; yours is {_brief({(): user[full]})} "
+                    f"(no saved copy says which of the two changed)"
+                )
+        elif node not in listed:
+            listed.append(node)
+            lines.append(
+                f"{item.rel}: {render_path(node)}: the {preset} preset has it and this file "
+                f"does not; no saved copy says which of the two changed, so add it by hand "
+                f"if you want it"
+            )
+    return lines
 
 
 def _tier_key_note(
@@ -3337,11 +3438,17 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     elif PRESET_DATA_BUNDLE_KEY in document:
         _drop_key_and_pre_comment(document, PRESET_DATA_BUNDLE_KEY)
     renamed_away = {f"{TIERS_DIRNAME}/{old}.yml" for old in file_renames}
-    plan, covered = _apply_presets(
+    planned = {**writes, **{rel: _dump_text(doc) for rel, doc in documents.items()}}
+    # A tier this run renames or moves is at its new path only once the plan is
+    # applied: until then its text is the one read from the old path.
+    for layer in layers.values():
+        if layer.origin != layer.rel and layer.rel not in deletes:
+            planned.setdefault(layer.rel, layer.text)
+    plan, covered, app_digests = _apply_presets(
         root,
         document,
         resolved,
-        {**writes, **{rel: _dump_text(doc) for rel, doc in documents.items()}},
+        planned,
         deletes | renamed_away,
         writes,
         result,
@@ -3357,7 +3464,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     # ── The saved copy: what the presets produce today ──────────────────────
     from .build_profile_updates import PRESET_BASE_DIR, saved_copy_texts
 
-    base_texts = saved_copy_texts(root, covered)
+    base_texts = saved_copy_texts(root, covered, digests=app_digests)
     held = root / PRESET_BASE_DIR
     old_base = (
         {p.relative_to(root).as_posix(): p for p in held.rglob("*") if p.is_file()}
@@ -3418,7 +3525,7 @@ def _apply_presets(
     gone: set[str],
     writes: dict[str, str],
     result: RevalidateResult,
-) -> tuple[Any, list[Any]]:
+) -> tuple[Any, list[Any], dict[str, tuple[str, str]]]:
     """Apply what the presets changed since the saved copy, to every covered file.
 
     ``profile.yml`` is edited in *document*; a tier file or ``triggers.yml``
@@ -3426,17 +3533,36 @@ def _apply_presets(
     goes into *result*.
 
     Returns:
-        The ``providers.yml`` plan, and the covered files (what the saved copy
-        is rewritten from).
+        The ``providers.yml`` plan, and the covered files and the copied
+        applications' digests (what the saved copy is rewritten from).
 
     Raises:
         BuildProfileError: A covered file does not parse, a preset will not
-            emit, or ``providers.yml`` does not parse.
+            emit, ``providers.yml`` does not parse, or a file of the saved
+            copy or an application sidecar cannot be read.
     """
-    from .build_profile_updates import changed_apps, covered_files, read_saved_copy, starting_point
+    from .build_profile_presets import _normalize_preset_name
+    from .build_profile_updates import (
+        PresetRecordError,
+        _bundled_app_digests,
+        changed_apps,
+        covered_files,
+        read_saved_copy,
+        starting_point,
+    )
 
     covered = covered_files(root, preset=preset, texts=texts, gone=gone)
-    saved = read_saved_copy(root)
+    try:
+        saved = read_saved_copy(root)
+        digests = _bundled_app_digests(root)
+    except PresetRecordError as e:
+        # Still a refusal: read as if there were no saved copy, every edit the
+        # operator made would be taken for the preset's own.
+        raise BuildProfileError(f"{e}\n{e.repair}") from e
+    stamp = document.get("provenance")
+    recorded = (
+        _normalize_preset_name(str(stamp.get("preset") or "")) if isinstance(stamp, dict) else ""
+    )
     tiers = {
         item.rel: _flat_document(_safe_load(_text_of(root, item.rel, texts), item.rel))
         for item in covered
@@ -3445,10 +3571,13 @@ def _apply_presets(
     plan = None
     for item in covered:
         start, filled = starting_point(item, saved)
-        if filled:
+        if filled and item.rel == PROFILE_FILENAME and recorded and recorded != preset:
+            # Filled the same way, for another reason: no saved copy is of this preset.
+            result.switched_from = recorded
+        elif filled and item.rel == PROFILE_FILENAME:
             result.filled_once.append(item.rel)
         if item.rel == PROVIDERS_FILENAME:
-            plan = _plan_providers(root, item, start, result)
+            plan = _plan_providers(root, item, start, result, fill=filled, document=document)
             continue
         if item.rel == PROFILE_FILENAME:
             target: Any = document
@@ -3462,7 +3591,9 @@ def _apply_presets(
             skips = _skipped_keys(document, leaves)
         else:
             target = _load_text(_text_of(root, item.rel, texts), item.rel)
-            label = item.key.removesuffix(".yml")
+            # The trigger set is the profile's preset's; a tier has a source of its own.
+            is_tier = item.rel.startswith(f"{TIERS_DIRNAME}/")
+            label = item.key.removesuffix(".yml") if is_tier else preset or ""
             source = _reference_text(root, item, document, None)
             skips = None
         done = _apply_preset_changes(
@@ -3474,20 +3605,21 @@ def _apply_presets(
             elsewhere=list(tiers.values()) if item.rel == PROFILE_FILENAME and not filled else [],
             comments=_config_comments(source) if source else None,
             skips=skips,
+            fill=filled,
         )
         result.applied.extend(done.applied)
         result.skipped.update(done.skipped)
         result.left_for_you.extend(done.left)
         if done.applied and item.rel != PROFILE_FILENAME:
             writes[item.rel] = _dump_text(target)
-    for name in changed_apps(root, saved):
+    for name in changed_apps(root, saved, digests=digests):
         result.left_for_you.append(
             f"{APPS_DIRNAME}/{name}/: the preset's copy of this application has changed since "
             f"you copied it; compare the two and take what you want by hand"
         )
     if plan is None:
         plan = _plan_providers(root, None, {}, result)
-    return plan, covered
+    return plan, covered, digests
 
 
 def _text_of(root: Path, rel: str, texts: dict[str, str]) -> str:
@@ -3512,13 +3644,46 @@ def _reference_text(root: Path, item: Any, document: Any, preset: str | None) ->
     return None
 
 
-def _plan_providers(root: Path, item: Any, start: dict[str, Any], result: RevalidateResult) -> Any:
+def _legacy_claims(text: str, document: Any) -> set[str]:
+    """The provider entries and keys a deviation marker in *text* claims absent, dotted.
+
+    The comment an earlier release read to keep a deleted entry out
+    (``# DEVIATION: providers.openrouter: …``, or under the profile's own
+    ``deviation_marker:``). A repo from before the saved copy has no other
+    record of a deletion.
+    """
+    from .build_profile_load import RETIRED_PROVENANCE_KEY
+
+    block = document.get("provenance") if document is not None else None
+    own = block.get(RETIRED_PROVENANCE_KEY) if isinstance(block, dict) else None
+    markers = {"DEVIATION", own} if isinstance(own, str) and own else {"DEVIATION"}
+    claim = re.compile(
+        rf"^\s*#\s*(?:{'|'.join(map(re.escape, sorted(markers)))}):\s*(providers\.[^\s:]+):",
+        re.MULTILINE,
+    )
+    return set(claim.findall(text))
+
+
+def _plan_providers(
+    root: Path,
+    item: Any,
+    start: dict[str, Any],
+    result: RevalidateResult,
+    *,
+    fill: bool = False,
+    document: Any = None,
+) -> Any:
     """The ``providers.yml`` this repo is brought to; refuses before anything is written.
 
     A packaged entry or key the file lacks is added, unless the saved copy
     *start* has it: then the operator deleted it on purpose. A packaged entry
     or key the catalog changed or removed since is never rewritten here: one
     the file still holds as the saved copy has it is listed for the operator.
+
+    With *fill*, no saved copy covers the file, and an entry or key it lacks is
+    as likely deleted as new: none is added. Each is listed for the operator,
+    unless a deviation marker from an earlier release claims it absent
+    (:func:`_legacy_claims`, read under *document*'s ``deviation_marker:``).
     """
     import click
 
@@ -3527,20 +3692,29 @@ def _plan_providers(root: Path, item: Any, start: dict[str, Any], result: Revali
 
     deleted: set[str] = set()
     if item is not None:
+        text = _text_of(root, PROVIDERS_FILENAME, {})
         try:
-            user = flatten(
-                _plain(_safe_load(_text_of(root, PROVIDERS_FILENAME, {}), PROVIDERS_FILENAME) or {})
-            )
+            user = flatten(_plain(_safe_load(text, PROVIDERS_FILENAME) or {}))
         except BuildProfileError:
             # The file does not parse; the merge below refuses it in its own words.
             user = None
         if user is not None:
             present = prefixes(user)
+            # With *fill*, *start* is empty and today's catalog stands in for it.
             deleted = {
                 render_path(path)
-                for path in prefixes(flatten(start))
+                for path in prefixes(flatten(item.today if fill else start))
                 if path[0] == "providers" and len(path) in (2, 3) and path not in present
             }
+            claimed = _legacy_claims(text, document) if fill else set()
+            for name in sorted(deleted if fill else ()):
+                if name in claimed or name.rsplit(".", 1)[0] in deleted:
+                    continue
+                result.left_for_you.append(
+                    f"{PROVIDERS_FILENAME}: {name}: the catalog OSPREY ships has it and this "
+                    f"file does not; no saved copy says which of the two changed, so add it "
+                    f"by hand if you want it"
+                )
             for change in preset_delta(start, item.today):
                 if change.kind != "added" and subtree(user, change.path) == change.old:
                     result.left_for_you.append(

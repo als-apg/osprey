@@ -199,9 +199,15 @@ def _presets_changed(manifest: dict[str, Any]) -> bool:
     if not profile:
         return False
     try:
-        from osprey.cli.build_profile_updates import preset_update_note
+        from osprey.cli.build_profile_updates import PresetUpdateState, preset_update_status
 
-        return preset_update_note(Path(profile)) is not None
+        # Only a changed preset, tracked or not: a repo with no saved copy whose
+        # presets are as it recorded them, or a preset this OSPREY does not
+        # bundle, also has a note to print and nothing to take.
+        return preset_update_status(Path(profile)).state in (
+            PresetUpdateState.CHANGED,
+            PresetUpdateState.UNTRACKED_CHANGED,
+        )
     except Exception:  # advisory only; a comparison that fails says nothing
         return False
 

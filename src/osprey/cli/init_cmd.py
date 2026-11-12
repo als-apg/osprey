@@ -1582,10 +1582,16 @@ def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[s
         output.report(
             f"Rewrote {len(result.changed)} file(s) in {target}. Review the diff and commit."
         )
+    if result.switched_from:
+        output.note(
+            f"profile.yml was made from the {result.switched_from} preset and now follows "
+            f"{result.preset}: every `config:` key {result.preset} has and it lacks was filled in."
+        )
     for rel in result.filled_once:
         output.note(
             f"{rel} predates preset tracking and its preset has changed since it was "
-            f"written, so everything the preset has and it lacks was filled in, this once."
+            f"written, so every `config:` key the preset has and it lacks was filled in, "
+            f"this once."
         )
     if result.applied:
         output.report(f"Applied {len(result.applied)} change(s) the presets made:")

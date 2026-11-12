@@ -31,6 +31,7 @@ the bundled tree, and a change is only ever reported.
 
 from __future__ import annotations
 
+import enum
 import hashlib
 import shutil
 from collections.abc import Callable, Iterable, Mapping
@@ -83,6 +84,42 @@ _MATERIALIZATION_KEYS: frozenset[str] = frozenset(
 
 #: Top-level blocks whose lists are ordered: the lifecycle step lists.
 _ORDERED_ROOTS: frozenset[str] = frozenset({"lifecycle"})
+
+
+class PresetRecordError(BuildProfileError):
+    """A record of what a preset produced cannot be read.
+
+    A file of the saved copy, or an application's ``.provenance`` sidecar:
+    what OSPREY wrote for itself, not a file the operator configures.
+
+    Attributes:
+        rel: The record, relative to the repo root.
+    """
+
+    def __init__(self, rel: str, problem: str) -> None:
+        super().__init__(problem)
+        self.rel = rel
+
+    @property
+    def repair(self) -> str:
+        """How to put the record right, as one sentence."""
+        if self.rel.startswith(f"{PRESET_BASE_DIR.as_posix()}/"):
+            return (
+                f"Restore it from version control, or delete `{PRESET_BASE_DIR.as_posix()}/` "
+                f"and run `osprey init --revalidate` to record it again."
+            )
+        return "Restore it from version control, or delete it to treat the application as your own."
+
+
+def _read_record(root: Path, path: Path) -> Any:
+    """Parse the record at *path*, naming it by its real place under *root* when it fails."""
+    rel = path.relative_to(root).as_posix()
+    try:
+        return _parse_profile_document(path.read_text(encoding="utf-8"), rel)
+    except BuildProfileError as e:
+        raise PresetRecordError(rel, str(e)) from e
+    except (OSError, UnicodeDecodeError) as e:
+        raise PresetRecordError(rel, f"Cannot read {rel}: {e}") from e
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +180,9 @@ def _bundled_app_digests(root: Path) -> dict[str, tuple[str, str]]:
     Only an application whose ``.provenance`` sidecar names a bundled preset
     that still ships it is listed. An application with no sidecar is the
     operator's own.
+
+    Raises:
+        PresetRecordError: A sidecar cannot be read.
     """
     from .build_profile_presets import _load_preset_raw, _normalize_preset_name
 
@@ -151,10 +191,7 @@ def _bundled_app_digests(root: Path) -> dict[str, tuple[str, str]]:
         sidecar = app_dir / APP_PROVENANCE_FILENAME
         if not sidecar.is_file():
             continue
-        recorded = _parse_profile_document(
-            sidecar.read_text(encoding="utf-8"),
-            f"{app_dir.relative_to(root).as_posix()}/{APP_PROVENANCE_FILENAME}",
-        )
+        recorded = _read_record(root, sidecar)
         if not isinstance(recorded, Mapping) or not recorded.get("preset"):
             continue
         try:
@@ -186,6 +223,10 @@ class CoveredFile:
             for itself.
         recorded_hash: The hash the repo recorded for the file's source.
         installed_hash: The installed source's hash.
+
+    ``triggers.yml`` is copied verbatim and never stamped, so its two hashes
+    are of the repo's file and of today's output: the file is the only record
+    of what was copied.
     """
 
     rel: str
@@ -323,14 +364,16 @@ def covered_files(
         PROFILE_TRIGGERS_FILENAME in texts or (root / PROFILE_TRIGGERS_FILENAME).is_file()
     ):
         document = _parse_profile_document(triggers.read_text(encoding="utf-8"), triggers.name)
-        # Copied verbatim and never stamped, so no hash says it moved.
+        today = dict(document) if isinstance(document, Mapping) else {}
+        held = _read(root, PROFILE_TRIGGERS_FILENAME, texts)
+        # Copied verbatim and never stamped: only the file says what was copied.
         covered.append(
             CoveredFile(
                 PROFILE_TRIGGERS_FILENAME,
                 PROFILE_TRIGGERS_FILENAME,
-                dict(document) if isinstance(document, Mapping) else {},
-                "",
-                "",
+                today,
+                _content_hash(held if isinstance(held, Mapping) else {}),
+                _content_hash(today),
             )
         )
     return covered
@@ -347,19 +390,33 @@ def has_saved_copy(root: Path) -> bool:
 
 
 def read_saved_copy(root: Path) -> dict[str, Any]:
-    """The saved copy, by its path under :data:`PRESET_BASE_DIR`; empty when there is none."""
+    """The saved copy, by its path under :data:`PRESET_BASE_DIR`; empty when there is none.
+
+    Raises:
+        PresetRecordError: A file of the saved copy cannot be read.
+    """
     base = root / PRESET_BASE_DIR
     saved: dict[str, Any] = {}
     if not base.is_dir():
         return saved
     for path in sorted(base.rglob("*.yml")):
-        key = path.relative_to(base).as_posix()
-        saved[key] = _parse_profile_document(path.read_text(encoding="utf-8"), key)
+        saved[path.relative_to(base).as_posix()] = _read_record(root, path)
     return saved
 
 
-def saved_copy_texts(root: Path, covered: Iterable[CoveredFile]) -> dict[str, str]:
+def saved_copy_texts(
+    root: Path,
+    covered: Iterable[CoveredFile],
+    *,
+    digests: Mapping[str, tuple[str, str]] | None = None,
+) -> dict[str, str]:
     """The saved copy recording *covered* and *root*'s copied applications, as files.
+
+    Args:
+        root: The repo root.
+        covered: The covered files (:func:`covered_files`).
+        digests: The copied applications' digests, when the caller has them
+            already (:func:`_bundled_app_digests`); default: computed here.
 
     Returns:
         Repo-relative path → text. The whole saved copy: a file it does not
@@ -369,7 +426,9 @@ def saved_copy_texts(root: Path, covered: Iterable[CoveredFile]) -> dict[str, st
     texts = {f"{base}/README": _BASE_README}
     for item in covered:
         texts[f"{base}/{item.key}"] = _dump(item.today)
-    apps = {name: digest for name, (digest, _copied) in _bundled_app_digests(root).items()}
+    if digests is None:
+        digests = _bundled_app_digests(root)
+    apps = {name: digest for name, (digest, _copied) in digests.items()}
     if apps:
         texts[f"{base}/{_APPS_BASE}"] = _dump(dict(sorted(apps.items())))
     return texts
@@ -393,32 +452,34 @@ def _dump(document: Any) -> str:
     return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=4096)
 
 
+def _content_hash(document: Mapping[str, Any]) -> str:
+    """A hash of *document* as it is compared (:func:`flatten`): spelling and order aside."""
+    leaves = sorted((repr(path), repr(value)) for path, value in flatten(document).items())
+    return f"sha256:{hashlib.sha256(repr(leaves).encode('utf-8')).hexdigest()}"
+
+
 def starting_point(item: CoveredFile, saved: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
-    """The document *item*'s delta is taken from, and whether it is a one-time fill.
+    """The document *item*'s delta is taken from, and whether nothing records it.
 
     The saved copy when there is one. A file with none (a repo made before the
     saved copy existed, a tier added since, a preset just switched to) starts
     from today's output while its recorded hash still matches the installed
     source: there is nothing to apply. Otherwise nothing records what the
-    preset said when the file was written, so the file is filled once the way
-    ``osprey init --revalidate`` always filled it: every ``config:`` leaf
-    ``profile.yml`` lacks, and every provider entry and key ``providers.yml``
-    lacks.
+    preset said when the file was written, and the delta is the whole of
+    today's output. ``osprey init --revalidate`` then fills ``profile.yml``
+    once the way it always did, with every ``config:`` leaf it lacks, and
+    lists whatever else the file lacks or states differently: without a
+    record, a preset's change cannot be told from the operator's own.
 
     Returns:
-        ``(document, filled)``: *filled* is true for that one-time fill.
+        ``(document, filled)``: *filled* is true when nothing records the file.
     """
     held = saved.get(item.key)
     if isinstance(held, Mapping):
         return dict(held), False
-    if item.recorded_hash == item.installed_hash or item.rel not in (
-        PROFILE_FILENAME,
-        PROVIDERS_FILENAME,
-    ):
+    if item.recorded_hash == item.installed_hash:
         return dict(item.today), False
-    if item.rel == PROVIDERS_FILENAME:
-        return {}, True
-    return {key: value for key, value in item.today.items() if key != "config"}, True
+    return {}, True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -611,20 +672,107 @@ def preset_delta(saved: Mapping[str, Any], today: Mapping[str, Any]) -> list[Cha
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def changed_apps(root: Path, saved: Mapping[str, Any]) -> list[str]:
+def changed_apps(
+    root: Path,
+    saved: Mapping[str, Any],
+    *,
+    digests: Mapping[str, tuple[str, str]] | None = None,
+) -> list[str]:
     """The copied applications whose bundled tree changed since the repo last took it.
 
     Compared with the digest the saved copy records, or, when it records none,
     the one the application's sidecar recorded at copy time. The operator's
-    edits to the copy are never part of it.
+    edits to the copy are never part of it. *digests* is as for
+    :func:`saved_copy_texts`.
     """
     held = saved.get(_APPS_BASE)
     recorded = held if isinstance(held, Mapping) else {}
+    if digests is None:
+        digests = _bundled_app_digests(root)
     return [
         name
-        for name, (bundled, copied) in sorted(_bundled_app_digests(root).items())
+        for name, (bundled, copied) in sorted(digests.items())
         if bundled != recorded.get(name, copied)
     ]
+
+
+class PresetUpdateState(enum.Enum):
+    """Where a profile stands against the presets it took."""
+
+    #: No ``provenance:``: the profile took nothing from a preset.
+    NO_PRESET = "no-preset"
+    #: Its preset is not one this OSPREY bundles: there is nothing to compare.
+    NOT_BUNDLED = "not-bundled"
+    #: The repo has no saved copy: it predates preset tracking. Its presets
+    #: are as it recorded them, so ``osprey init --revalidate`` only starts it.
+    UNTRACKED = "untracked"
+    #: No saved copy, and a preset has changed since the repo recorded it:
+    #: ``osprey init --revalidate`` has the one-time fill to make.
+    UNTRACKED_CHANGED = "untracked-changed"
+    #: A file of the saved copy, or an application sidecar, cannot be read.
+    UNREADABLE = "unreadable"
+    #: The presets produce what the repo last took.
+    CURRENT = "current"
+    #: The presets have changed: ``osprey init --revalidate`` has changes to apply.
+    CHANGED = "changed"
+
+
+@dataclass(frozen=True)
+class PresetUpdateStatus:
+    """A profile's :class:`PresetUpdateState`, and the one line to print about it, if any."""
+
+    state: PresetUpdateState
+    note: str | None = None
+
+
+def preset_update_status(profile_file: Path) -> PresetUpdateStatus:
+    """Where *profile_file* stands against its presets, with the line to print about it.
+
+    A record OSPREY keeps for itself that cannot be read (a file of the saved
+    copy, an application sidecar) is a state with a note naming it, not an
+    error: only the operator's own files refuse.
+
+    Raises:
+        BuildProfileError: A covered file does not parse, or a preset will not emit.
+    """
+    from .build_profile_presets import _normalize_preset_name, list_presets
+    from .profile_root import resolve_profile_root
+
+    root, _kind = resolve_profile_root(profile_file)
+    preset = _provenance(_read(root, PROFILE_FILENAME, {})).get("preset")
+    if not preset:
+        return PresetUpdateStatus(PresetUpdateState.NO_PRESET)
+    preset = _normalize_preset_name(str(preset))
+    if preset not in list_presets():
+        return PresetUpdateStatus(
+            PresetUpdateState.NOT_BUNDLED,
+            f"provenance names preset {preset!r}, which this OSPREY does not bundle: "
+            f"the profile cannot be compared with it",
+        )
+    if not has_saved_copy(root):
+        note = "This repo predates preset tracking: run `osprey init --revalidate` to start it."
+        if any(starting_point(item, {})[1] for item in covered_files(root)):
+            return PresetUpdateStatus(PresetUpdateState.UNTRACKED_CHANGED, note)
+        return PresetUpdateStatus(PresetUpdateState.UNTRACKED, note)
+    try:
+        saved = read_saved_copy(root)
+        moved = bool(changed_apps(root, saved))
+    except PresetRecordError as e:
+        return PresetUpdateStatus(
+            PresetUpdateState.UNREADABLE,
+            f"{e.rel} cannot be read, so preset updates cannot be checked. {e.repair}",
+        )
+    moved = moved or any(
+        flatten(starting_point(item, saved)[0]) != flatten(item.today)
+        for item in covered_files(root)
+    )
+    if not moved:
+        return PresetUpdateStatus(PresetUpdateState.CURRENT)
+    return PresetUpdateStatus(
+        PresetUpdateState.CHANGED,
+        f"The {preset} preset has changed since this repo last took it: run "
+        f"`osprey init --revalidate` to apply the changes.",
+    )
 
 
 def preset_update_note(profile_file: Path) -> str | None:
@@ -637,29 +785,4 @@ def preset_update_note(profile_file: Path) -> str | None:
     Raises:
         BuildProfileError: A covered file does not parse, or a preset will not emit.
     """
-    from .build_profile_presets import _normalize_preset_name, list_presets
-    from .profile_root import resolve_profile_root
-
-    root, _kind = resolve_profile_root(profile_file)
-    preset = _provenance(_read(root, PROFILE_FILENAME, {})).get("preset")
-    if not preset:
-        return None
-    preset = _normalize_preset_name(str(preset))
-    if preset not in list_presets():
-        return (
-            f"provenance names preset {preset!r}, which this OSPREY does not bundle: "
-            f"the profile cannot be compared with it"
-        )
-    if not has_saved_copy(root):
-        return "This repo predates preset tracking: run `osprey init --revalidate` to start it."
-    saved = read_saved_copy(root)
-    moved = changed_apps(root, saved) or any(
-        flatten(starting_point(item, saved)[0]) != flatten(item.today)
-        for item in covered_files(root)
-    )
-    if not moved:
-        return None
-    return (
-        f"The {preset} preset has changed since this repo last took it: run "
-        f"`osprey init --revalidate` to apply the changes."
-    )
+    return preset_update_status(profile_file).note

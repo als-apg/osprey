@@ -24,18 +24,23 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_profile_updates import (
+    APP_PROVENANCE_FILENAME,
     PRESET_BASE_DIR,
     Entry,
     Member,
+    PresetRecordError,
+    PresetUpdateState,
     covered_files,
     flatten,
     preset_delta,
+    preset_update_status,
     read_saved_copy,
 )
 from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.set_cmd import set as set_cmd
 from osprey.cli.validate_cmd import validate
+from osprey.deployment import staleness
 
 PROFILE = "profile.yml"
 ROOT_BASE = "presets/demo.yml"
@@ -435,3 +440,260 @@ def test_a_repo_from_before_the_saved_copy_with_its_preset_moved_on(repo: Path) 
     assert "predates preset tracking" in result.output
     assert "added config.web.theme" in result.output
     assert NOTE not in _validate(repo).output
+
+
+# ── a saved copy that does not parse ─────────────────────────────────────────
+
+CONFLICT = "<<<<<<< HEAD\nwatch: []\n=======\nwatch: [a]\n>>>>>>> theirs\n"
+TRIGGERS_BASE = f"{PRESET_BASE_DIR.as_posix()}/triggers.yml"
+
+
+def test_an_unreadable_saved_copy_is_a_note_naming_the_record_not_a_refusal(repo: Path) -> None:
+    (repo / TRIGGERS_BASE).write_text(CONFLICT, encoding="utf-8")
+
+    result = _validate(repo)
+
+    assert "Profile is valid" in result.output
+    assert TRIGGERS_BASE in result.output
+    assert "Invalid YAML in triggers.yml" not in result.output
+    assert "osprey init --revalidate" in result.output
+    assert NOTE not in result.output
+
+
+def test_build_goes_on_past_an_unreadable_saved_copy(repo: Path) -> None:
+    (repo / TRIGGERS_BASE).write_text(CONFLICT, encoding="utf-8")
+    args = ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
+
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 0, result.output
+    assert TRIGGERS_BASE in result.output
+    assert "Build error" not in result.output
+
+
+def test_the_saved_copy_loader_names_the_record_it_could_not_read(repo: Path) -> None:
+    (repo / TRIGGERS_BASE).write_text(CONFLICT, encoding="utf-8")
+
+    with pytest.raises(PresetRecordError) as caught:
+        read_saved_copy(repo)
+
+    assert caught.value.rel == TRIGGERS_BASE
+    assert f"Invalid YAML in {TRIGGERS_BASE}" in str(caught.value)
+    assert "Invalid YAML in triggers.yml" not in str(caught.value)
+
+
+def test_an_unreadable_application_sidecar_is_a_note_too(repo: Path) -> None:
+    sidecar = repo / "apps" / "knob" / APP_PROVENANCE_FILENAME
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text(CONFLICT, encoding="utf-8")
+
+    status = preset_update_status(repo / PROFILE)
+
+    assert status.state is PresetUpdateState.UNREADABLE
+    assert status.note is not None
+    assert f"apps/knob/{APP_PROVENANCE_FILENAME}" in status.note
+    assert "\n" not in status.note
+
+
+# ── the state behind the note ────────────────────────────────────────────────
+
+
+def _presets_changed(repo: Path) -> bool:
+    manifest = {"build_args": {"profile_path_abs": str(repo / PROFILE)}}
+    return staleness._presets_changed(manifest)
+
+
+def test_only_a_changed_preset_sends_osprey_up_to_revalidate(repo: Path) -> None:
+    assert preset_update_status(repo / PROFILE).state is PresetUpdateState.CURRENT
+    assert not _presets_changed(repo)
+
+    _older_preset(repo, ROOT_BASE, _without_panel)
+
+    status = preset_update_status(repo / PROFILE)
+    assert status.state is PresetUpdateState.CHANGED
+    assert status.note is not None and NOTE in status.note
+    assert _presets_changed(repo)
+
+
+def test_a_preset_this_osprey_does_not_bundle_has_nothing_to_take(repo: Path) -> None:
+    _edit(repo / PROFILE, "  preset: demo\n", "  preset: elsewhere\n")
+
+    status = preset_update_status(repo / PROFILE)
+
+    assert status.state is PresetUpdateState.NOT_BUNDLED
+    assert status.note is not None and "does not bundle" in status.note
+    assert not _presets_changed(repo)
+
+
+def test_a_repo_from_before_the_saved_copy_has_nothing_to_take(repo: Path) -> None:
+    shutil.rmtree(repo / ".osprey")
+
+    status = preset_update_status(repo / PROFILE)
+
+    assert status.state is PresetUpdateState.UNTRACKED
+    assert status.note is not None and "predates preset tracking" in status.note
+    assert not _presets_changed(repo)
+
+
+@pytest.mark.parametrize(
+    ("rel", "stamp"),
+    [
+        (PROFILE, "preset_hash"),
+        (PROFILE, "providers_hash"),
+        ("tiers/admin.yml", "preset_hash"),
+    ],
+)
+def test_a_repo_from_before_the_saved_copy_whose_preset_moved_on_has_changes_to_take(
+    repo: Path, rel: str, stamp: str
+) -> None:
+    shutil.rmtree(repo / ".osprey")
+    _edit(repo / rel, f"  {stamp}: sha256:", f"  {stamp}: sha256:0ld")
+
+    status = preset_update_status(repo / PROFILE)
+
+    assert status.state is PresetUpdateState.UNTRACKED_CHANGED
+    assert status.note is not None and "predates preset tracking" in status.note
+    assert _presets_changed(repo)
+
+
+def test_an_unreadable_saved_copy_has_nothing_to_take(repo: Path) -> None:
+    (repo / TRIGGERS_BASE).write_text(CONFLICT, encoding="utf-8")
+
+    assert preset_update_status(repo / PROFILE).state is PresetUpdateState.UNREADABLE
+    assert not _presets_changed(repo)
+
+
+# ── a repo from before the saved copy: what cannot be told apart is listed ───
+
+LEFT = "Preset changes left for you"
+
+
+def _left(output: str) -> str:
+    """The lines ``--revalidate`` printed under "left for you"."""
+    return output.split(LEFT, 1)[1] if LEFT in output else ""
+
+
+def test_a_tier_from_before_the_saved_copy_whose_login_moved_on_is_listed(repo: Path) -> None:
+    """Nothing says what the bundled login changed: what the tier lacks or states differently."""
+    shutil.rmtree(repo / ".osprey")
+    tier = repo / "tiers" / "admin.yml"
+    _edit(tier, "  preset_hash: sha256:", "  preset_hash: sha256:0ld")
+    _edit(tier, "  web.scaffold_gallery.write_enabled: true\n", "")
+    _edit(tier, "  web.config_panel.enabled: true\n", "  web.config_panel.enabled: false\n")
+    _edit(tier, "  - bluesky ", "  - bluesky-removed ")
+    before = yaml.safe_load(tier.read_text(encoding="utf-8"))
+
+    first = _revalidate(repo)
+
+    left = _left(first.output)
+    assert "tiers/admin.yml: config.web.scaffold_gallery.write_enabled" in left
+    assert "tiers/admin.yml: config.web.config_panel.enabled" in left
+    assert "tiers/admin.yml: web_panels: bluesky:" in left
+    assert "tiers/readonly.yml" not in first.output
+    # Listed, never written: a key the tier lacks is as likely one the operator removed.
+    after = yaml.safe_load(tier.read_text(encoding="utf-8"))
+    assert {k: v for k, v in after.items() if k != "provenance"} == {
+        k: v for k, v in before.items() if k != "provenance"
+    }
+    assert "tiers/admin.yml" in read_saved_copy(repo)
+    assert LEFT not in _revalidate(repo).output
+
+
+def test_triggers_from_before_the_saved_copy_that_differ_from_the_presets_are_listed(
+    repo: Path,
+) -> None:
+    """``triggers.yml`` carries no hash: the file itself is the only record of what was copied."""
+    shutil.rmtree(repo / ".osprey")
+    triggers = repo / "triggers.yml"
+    document = yaml.safe_load(triggers.read_text(encoding="utf-8"))
+    document["triggers"] = [t for t in document["triggers"] if t["name"] != "hello-dispatch"]
+    document["dispatcher"]["max_queue_depth"] = 7
+    triggers.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    before = triggers.read_text(encoding="utf-8")
+
+    first = _revalidate(repo)
+
+    left = _left(first.output)
+    assert "triggers.yml: triggers[hello-dispatch]" in left
+    assert "triggers.yml: dispatcher.max_queue_depth" in left
+    assert triggers.read_text(encoding="utf-8") == before
+    assert LEFT not in _revalidate(repo).output
+
+
+def test_the_one_time_fill_lists_what_the_profile_lacks_outside_config(repo: Path) -> None:
+    """The fill writes ``config:`` keys only: a panel the profile lacks is listed, not dropped."""
+    shutil.rmtree(repo / ".osprey")
+    _edit(repo / PROFILE, "  preset_hash: sha256:", "  preset_hash: sha256:0ld")
+    _edit(repo / PROFILE, PANEL, "")
+    _edit(repo / PROFILE, THEME, "")
+
+    first = _revalidate(repo)
+
+    assert "added config.web.theme" in first.output
+    assert "profile.yml: web_panels: jupyter:" in _left(first.output)
+    assert "jupyter" not in _profile(repo)["web_panels"]
+    assert LEFT not in _revalidate(repo).output
+
+
+def test_a_provider_missing_from_before_the_saved_copy_is_listed_not_added(repo: Path) -> None:
+    """With no saved copy, an entry the file lacks is as likely one the operator removed."""
+    from osprey.cli.profile_cmd import _catalog_entry_blocks
+
+    shutil.rmtree(repo / ".osprey")
+    _edit(repo / PROFILE, "  providers_hash: sha256:", "  providers_hash: sha256:0ld")
+    catalog = repo / "providers.yml"
+    blocks = _catalog_entry_blocks(catalog.read_text(encoding="utf-8"))
+    # One entry and one key an earlier release's marker claims absent, and one of each unclaimed.
+    _edit(catalog, blocks["openrouter"], "  # DEVIATION: providers.openrouter: no route out.\n")
+    _edit(catalog, blocks["vllm"], "")
+    _edit(
+        catalog,
+        "    health_model: claude-haiku-4-5\n",
+        "    # DEVIATION: providers.cborg.health_model: probed with the default model.\n",
+    )
+    _edit(catalog, "    health_model: gpt-5.6-luna\n", "")
+    before = catalog.read_text(encoding="utf-8")
+
+    first = _revalidate(repo)
+
+    assert catalog.read_text(encoding="utf-8") == before
+    left = _left(first.output)
+    assert "providers.yml: providers.vllm:" in left
+    assert "providers.yml: providers.openai.health_model:" in left
+    assert "openrouter" not in first.output
+    assert "cborg" not in first.output
+    second = _revalidate(repo)
+    assert catalog.read_text(encoding="utf-8") == before
+    assert LEFT not in second.output
+
+
+def test_revalidate_refuses_an_unreadable_saved_copy_and_says_how_to_recover(repo: Path) -> None:
+    (repo / TRIGGERS_BASE).write_text(CONFLICT, encoding="utf-8")
+    before = (repo / PROFILE).read_text(encoding="utf-8")
+
+    result = CliRunner().invoke(init, [str(repo), "--revalidate"])
+
+    assert result.exit_code != 0
+    assert f"Invalid YAML in {TRIGGERS_BASE}" in result.output
+    assert "Restore it from version control, or delete" in result.output
+    assert (repo / PROFILE).read_text(encoding="utf-8") == before
+    assert (repo / TRIGGERS_BASE).read_text(encoding="utf-8") == CONFLICT
+
+
+def test_revalidate_digests_the_copied_applications_once(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.cli import build_profile_updates
+
+    calls: list[Path] = []
+    real = build_profile_updates._bundled_app_digests
+
+    def counted(root: Path) -> dict[str, tuple[str, str]]:
+        calls.append(root)
+        return real(root)
+
+    monkeypatch.setattr(build_profile_updates, "_bundled_app_digests", counted)
+
+    _revalidate(repo)
+
+    assert len(calls) == 1
