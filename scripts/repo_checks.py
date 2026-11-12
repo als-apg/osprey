@@ -2318,6 +2318,11 @@ LANES: tuple[Lane, ...] = (
             "src/osprey/deployment/build_cache.py",
             "src/osprey/templates/**/Dockerfile*",
             "uv.lock",
+            # The two target images it writes beside the demo deployment's.
+            "docker/virtual-accelerator/**",
+            "docker/bench-ioc/**",
+            ".github/actions/build-virtual-accelerator-image/**",
+            ".github/actions/build-bench-ioc-image/**",
         ),
     ),
     _e2e(
