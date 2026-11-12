@@ -156,7 +156,7 @@ def test_an_admitted_judge_call_is_forwarded_as_the_agents(terminal, forwarded):
 
 @pytest.fixture
 def build_dir(tmp_path: Path, monkeypatch) -> Path:
-    """A built project whose knowledge-style app server is the fixture app's."""
+    """A built project with two applications' tool servers beside the controls server."""
     build = tmp_path / "build"
     build.mkdir()
     (build / "config.yml").write_text("control_system:\n  writes: allowed\n")

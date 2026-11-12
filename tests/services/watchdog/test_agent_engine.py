@@ -732,7 +732,7 @@ class _FakeGrants:
 
 @pytest.fixture
 def app_build(build_dir: Path) -> Path:
-    """The build with the Knowledge app's tool server and one more app's beside the rest."""
+    """The build with two applications' tool servers beside the rest, one named ``knowledge``."""
     document = json.loads((build_dir / ".mcp.json").read_text())
     document["mcpServers"]["knowledge"] = {
         "command": "knowledge-app-mcp",
@@ -763,40 +763,43 @@ def _judge_with(grants, build, defn, stream, monkeypatch, **kw):
 _PANELS = {"knowledge": "knowledge-panel", "orbit-bump": "orbit"}
 
 
+def _app_definition(tmp_path: Path, **overrides) -> WatchdogDefinition:
+    """A judge whose ``tools`` name the orbit-bump application's tool server."""
+    return _definition(tmp_path, tools=(READ_TOOL, "mcp__orbit-bump__state"), **overrides)
+
+
 class TestJudgeReadCredential:
-    def test_knowledge_is_a_base_server(self, app_build, tmp_path, monkeypatch):
+    def test_the_base_servers_are_the_two_framework_ones(self, app_build, tmp_path, monkeypatch):
         stream = _Scripted(_result())
         _judge_with(_FakeGrants(_PANELS), app_build, _definition(tmp_path), stream, monkeypatch)
-        assert set(stream.kwargs["mcp_servers"]) == {
-            "controls",
-            "knowledge",
-            "osprey_facility_knowledge",
-        }
-        assert "knowledge" not in stream.kwargs["require_mcp_servers"]
+        assert set(stream.kwargs["mcp_servers"]) == {"controls", "osprey_facility_knowledge"}
 
-    def test_a_base_app_server_gets_a_token_for_its_panel_only(
+    def test_a_declared_server_called_knowledge_joins_only_when_named(
         self, app_build, tmp_path, monkeypatch
     ):
         grants = _FakeGrants(_PANELS)
         stream = _Scripted(_result())
-        _judge_with(grants, app_build, _definition(tmp_path), stream, monkeypatch)
-        ((token, panels),) = grants.minted
+        defn = _definition(tmp_path, tools=(READ_TOOL, "mcp__knowledge__search"))
+        _judge_with(grants, app_build, defn, stream, monkeypatch)
+        assert "knowledge" in stream.kwargs["mcp_servers"]
+        ((_token, panels),) = grants.minted
         assert panels == frozenset({"knowledge-panel"})
+
+    def test_an_app_server_named_by_tools_gets_a_token_for_its_panel_only(
+        self, app_build, tmp_path, monkeypatch
+    ):
+        grants = _FakeGrants(_PANELS)
+        stream = _Scripted(_result())
+        _judge_with(grants, app_build, _app_definition(tmp_path), stream, monkeypatch)
+        ((token, panels),) = grants.minted
+        assert panels == frozenset({"orbit"})
         servers = stream.kwargs["mcp_servers"]
-        assert servers["knowledge"]["env"]["OSPREY_PANEL_TOKEN"] == token
+        assert "knowledge" not in servers
+        assert servers["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == token
         for name in ("controls", "osprey_facility_knowledge"):
             assert servers[name]["env"]["OSPREY_PANEL_TOKEN"] == ""
         assert stream.kwargs["env"]["OSPREY_PANEL_TOKEN"] == ""
         assert grants.live == set()
-
-    def test_an_app_server_named_by_tools_joins_the_grant(self, app_build, tmp_path, monkeypatch):
-        grants = _FakeGrants(_PANELS)
-        stream = _Scripted(_result())
-        defn = _definition(tmp_path, tools=(READ_TOOL, "mcp__orbit-bump__state"))
-        _judge_with(grants, app_build, defn, stream, monkeypatch)
-        ((token, panels),) = grants.minted
-        assert panels == frozenset({"knowledge-panel", "orbit"})
-        assert stream.kwargs["mcp_servers"]["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == token
 
     def test_no_app_server_mints_nothing(self, build_dir, tmp_path, monkeypatch):
         grants = _FakeGrants(_PANELS)
@@ -809,14 +812,14 @@ class TestJudgeReadCredential:
     def test_an_app_with_no_panel_mints_nothing(self, app_build, tmp_path, monkeypatch):
         grants = _FakeGrants({})
         stream = _Scripted(_result())
-        _judge_with(grants, app_build, _definition(tmp_path), stream, monkeypatch)
+        _judge_with(grants, app_build, _app_definition(tmp_path), stream, monkeypatch)
         assert grants.minted == []
-        assert stream.kwargs["mcp_servers"]["knowledge"]["env"]["OSPREY_PANEL_TOKEN"] == ""
+        assert stream.kwargs["mcp_servers"]["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == ""
 
     def test_without_grants_an_app_server_stays_blank(self, app_build, tmp_path, monkeypatch):
         stream = _Scripted(_result())
-        _judge(app_build, _definition(tmp_path), stream, monkeypatch)
-        assert stream.kwargs["mcp_servers"]["knowledge"]["env"]["OSPREY_PANEL_TOKEN"] == ""
+        _judge(app_build, _app_definition(tmp_path), stream, monkeypatch)
+        assert stream.kwargs["mcp_servers"]["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == ""
 
     @pytest.mark.parametrize(
         ("stream_args", "error"),
@@ -834,7 +837,7 @@ class TestJudgeReadCredential:
     ):
         grants = _FakeGrants(_PANELS)
         stream = _Scripted(*stream_args.get("events", ()), raises=stream_args.get("raises"))
-        verdict = _judge_with(grants, app_build, _definition(tmp_path), stream, monkeypatch)
+        verdict = _judge_with(grants, app_build, _app_definition(tmp_path), stream, monkeypatch)
         assert verdict.error_type == error
         assert len(grants.minted) == 1
         assert grants.live == set()
@@ -842,7 +845,7 @@ class TestJudgeReadCredential:
     def test_the_token_is_revoked_on_timeout(self, app_build, tmp_path, monkeypatch):
         grants = _FakeGrants(_PANELS)
         stream = _Scripted(hang=True)
-        defn = _definition(tmp_path, timeout_s=0.2)
+        defn = _app_definition(tmp_path, timeout_s=0.2)
         verdict = _judge_with(grants, app_build, defn, stream, monkeypatch)
         assert verdict.error_type == "timeout"
         assert len(grants.minted) == 1
@@ -872,7 +875,7 @@ class TestJudgeReadCredential:
         verdict = _judge_with(
             grants,
             app_build,
-            _definition(tmp_path, timeout_s=0.1),
+            _app_definition(tmp_path, timeout_s=0.1),
             lambda *a, **k: Stubborn(),
             monkeypatch,
         )
@@ -887,7 +890,7 @@ class TestJudgeReadCredential:
         async def scenario():
             task = asyncio.create_task(
                 AgentEngine(app_build, judge_grants=grants).judge(
-                    _definition(tmp_path),
+                    _app_definition(tmp_path),
                     SessionNodes(),
                     "p",
                     deadline=time.monotonic() + 60,

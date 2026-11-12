@@ -237,7 +237,7 @@ The route, model and interactive budget (three seconds in all) are under ``api.j
 model id is pinned.
 
 **Agent.** The session view, the watchdog's ``references/``, and the read tools of the
-``controls``, ``osprey_facility_knowledge`` and ``knowledge`` servers plus its ``tools``. Its
+``controls`` and ``osprey_facility_knowledge`` servers plus its ``tools``. Its
 servers run in read-only mode, its environment ties it to no session, and a refused call is
 reported in ``refused_tools``. An application's read tools reach its backend with a read
 credential minted for the run: it opens only the ``GET`` and ``HEAD`` agent routes of the
