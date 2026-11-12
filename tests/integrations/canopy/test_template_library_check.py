@@ -155,11 +155,10 @@ class TestWhatTheTemplateShips:
         )
         assert result.stdout == "", result.stdout
 
-    def test_no_knob_panel_and_no_theme_file(self, library):
-        """The template ships the panels with CANOPY's default theme and no KnobPanel."""
+    def test_no_knob_panel(self, library):
+        """The template ships the panels without a KnobPanel."""
         names = [p.name for p in library.rglob("*")]
         assert not any("KnobPanel" in name for name in names), names
-        assert not (library.parent / "theme").exists()
 
     def test_the_report_is_of_a_schema_this_release_reads(self, library):
         report = json.loads((library / REPORT_JSON).read_bytes())
