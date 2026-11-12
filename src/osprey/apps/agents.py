@@ -99,11 +99,11 @@ def parse_agent(text: str, *, app: str, name: str, source: str | None = None) ->
         AppManifestError: Carrying every violation of the file, each on field
             ``agents.<name>.<key>``.
     """
-    from osprey.cli.validate_claude_artifacts import _parse_frontmatter
+    from osprey.cli.validate_claude_artifacts import _parse_frontmatter, _unreadable_frontmatter
 
     at = f"agents.{name}"
     frontmatter = _parse_frontmatter(text)
-    if frontmatter is None:
+    if frontmatter is None or _unreadable_frontmatter(text):
         raise AppManifestError.from_violations(
             [
                 Violation(

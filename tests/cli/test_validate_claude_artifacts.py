@@ -13,7 +13,11 @@ import json
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from osprey.cli.validate_claude_artifacts import (
+    _parse_frontmatter,
+    _unreadable_frontmatter,
     agent_file_models,
     agent_model_pin_errors,
     validate_agent_tools_against_permissions,
@@ -228,3 +232,42 @@ def test_a_pin_on_an_agent_file_with_no_model_line_is_refused(tmp_path):
 
     assert len(errors) == 1
     assert "(it has no model: line)" in errors[0]
+
+
+# --- the frontmatter block: it closes on a line that is exactly --- ---------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "---\nname: a\n---\nbody\n",
+        "--- \t\nname: a\n---  \nbody\n",
+        "---\nname: a\n---",
+        "---\nname: a\n---\nbody\n\n---\n\nmore\n",
+    ],
+    ids=["plain", "trailing-blanks", "close-at-end-of-file", "horizontal-rule-in-body"],
+)
+def test_the_block_closes_on_an_exact_line(text):
+    assert _parse_frontmatter(text) == {"name": "a"}
+    assert not _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "line", ["---x: 1", "--- x: 1", "----"], ids=["dashes-then-text", "dashes-space-text", "four"]
+)
+def test_a_line_starting_with_dashes_does_not_close_the_block(line):
+    text = f"---\nname: a\n{line}\nhooks: 1\n---\nbody\n"
+    assert _parse_frontmatter(text) != {"name": "a"}
+    assert _unreadable_frontmatter(text)
+
+
+def test_a_block_no_exact_line_closes_is_unreadable():
+    text = "---\nname: a\nhooks: 1\n"
+    assert _parse_frontmatter(text) is None
+    assert _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize("text", ["# title\n\nbody\n", "----\nname: a\n---\n", ""])
+def test_text_that_opens_no_block_has_none(text):
+    assert _parse_frontmatter(text) is None
+    assert not _unreadable_frontmatter(text)

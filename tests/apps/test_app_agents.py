@@ -365,3 +365,72 @@ def test_an_app_of_agents_only_is_projected() -> None:
 def test_an_app_without_agents_projects_no_agents_key() -> None:
     projected = project_login([_manifest(agents=[])], {}, _login(knob=True))
     assert "agents" not in projected["apps"]["knob"]
+
+
+# --- the block closes where the session closes it: on a line that is exactly --- --
+
+
+def _hidden(line: str, key: str) -> str:
+    """A complete agent frontmatter, then ``line``, then a refused ``key``, then the close."""
+    head = yaml.safe_dump(FRONTMATTER, sort_keys=False)
+    return f"---\n{head}{line}\n{key}: opus\n---\n\nYou read the knob.\n"
+
+
+@pytest.mark.parametrize("key", ["hooks", "model"])
+@pytest.mark.parametrize(
+    "line", ["---x: 1", "--- x: 1", "----"], ids=["dashes-then-text", "dashes-space-text", "four"]
+)
+def test_a_line_starting_with_dashes_never_hides_a_refused_key(line: str, key: str) -> None:
+    with pytest.raises(AppManifestError) as exc:
+        parse_agent(_hidden(line, key), app="knob", name="knob-helper")
+    assert [(v.field, v.rule) for v in exc.value.violations] == [
+        ("agents.knob-helper", "agent_frontmatter")
+    ]
+
+
+def test_an_unclosed_frontmatter_is_refused() -> None:
+    text = _text(FRONTMATTER).replace("---\n\n", "\n", 1)
+    with pytest.raises(AppManifestError) as exc:
+        parse_agent(text, app="knob", name="knob-helper")
+    assert exc.value.rule == "agent_frontmatter"
+
+
+def test_a_horizontal_rule_in_the_body_is_body() -> None:
+    text = _text(FRONTMATTER, body="You read the knob.\n\n---\n\nmodel: opus\n---\n")
+    assert parse_agent(text, app="knob", name="knob-helper").name == "knob-helper"
+
+
+def test_trailing_blanks_on_the_delimiters_are_allowed() -> None:
+    text = _text(FRONTMATTER).replace("---\n", "--- \t\n")
+    assert parse_agent(text, app="knob", name="knob-helper").name == "knob-helper"
+
+
+def _agent_bytes(app_dir: Path, raw: bytes) -> None:
+    path = app_dir / "agents" / "knob-helper.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+
+
+_ENCODINGS = [
+    lambda text: text.replace("\n", "\r\n").encode("utf-8"),
+    lambda text: b"\xef\xbb\xbf" + text.encode("utf-8"),
+]
+
+
+@pytest.mark.parametrize("encode", _ENCODINGS, ids=["crlf", "byte-order-mark"])
+def test_an_agent_file_reads_whatever_the_line_endings_or_bom(
+    lifecycle_repo: Path,  # noqa: F811
+    encode: Any,
+) -> None:
+    _agent_bytes(_app(lifecycle_repo, agents=["knob-helper"]), encode(_text(FRONTMATTER)))
+    [agent] = check_deployment(lifecycle_repo).agents["knob"]
+    assert agent.name == "knob-helper"
+
+
+@pytest.mark.parametrize("encode", _ENCODINGS, ids=["crlf", "byte-order-mark"])
+def test_dashes_never_hide_a_refused_key_whatever_the_line_endings_or_bom(
+    lifecycle_repo: Path,  # noqa: F811
+    encode: Any,
+) -> None:
+    _agent_bytes(_app(lifecycle_repo, agents=["knob-helper"]), encode(_hidden("---x: 1", "hooks")))
+    assert _rules(lifecycle_repo) == [("agents.knob-helper", "agent_frontmatter")]

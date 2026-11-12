@@ -2737,19 +2737,18 @@ def stamp_app_agent_models(project_dir: Path, ctx: Mapping[str, Any]) -> None:
     after ``name:`` and replaces one an earlier regeneration wrote; a render
     with no resolved model gets none.
     """
-    from osprey.cli.validate_claude_artifacts import _FRONTMATTER_RE
+    from osprey.cli.validate_claude_artifacts import _frontmatter_head_length, _normalised_text
 
     spec = ctx.get("claude_code_model_spec")
     for rel in sorted(_app_agent_files(ctx)):
         path = project_dir / rel
         if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8")
+        text = _normalised_text(path)
         # The frontmatter the loader checked: split where it was read.
-        frontmatter = _FRONTMATTER_RE.match(text)
-        if frontmatter is None:
+        end = _frontmatter_head_length(text)
+        if end is None:
             continue
-        end = frontmatter.end(1) + 1
         head, rest = text[:end], text[end:]
         head = _MODEL_LINE.sub("", head)
         if spec:

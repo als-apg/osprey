@@ -213,3 +213,62 @@ def test_a_listed_skill_with_no_frontmatter_passes_the_hooks_check(
     _write(app_dir / "skills" / "knob" / "SKILL.md", "# knob\n\nbody\n")
 
     check_deployment(lifecycle_repo)
+
+
+# --- the block closes where the session closes it: on a line that is exactly --- --
+
+
+_HIDDEN_HOOKS = "---\nname: knob\ndescription: d\n{line}\nhooks:\n  PreToolUse: []\n---\nbody\n"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        _HIDDEN_HOOKS.format(line="---x: 1").encode("utf-8"),
+        _HIDDEN_HOOKS.format(line="--- x: 1").encode("utf-8"),
+        _HIDDEN_HOOKS.format(line="----").encode("utf-8"),
+        _HIDDEN_HOOKS.format(line="---x: 1").replace("\n", "\r\n").encode("utf-8"),
+        b"\xef\xbb\xbf" + _HIDDEN_HOOKS.format(line="---x: 1").encode("utf-8"),
+        b"---\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n",
+    ],
+    ids=[
+        "dashes-then-text",
+        "dashes-space-text",
+        "four-dashes",
+        "crlf",
+        "byte-order-mark",
+        "unclosed",
+    ],
+)
+def test_a_line_starting_with_dashes_never_hides_a_skills_hooks(
+    lifecycle_repo: Path,  # noqa: F811
+    raw: bytes,
+) -> None:
+    app_dir = _app(lifecycle_repo, skills=["knob"])
+    skill_file = app_dir / "skills" / "knob" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True, exist_ok=True)
+    skill_file.write_bytes(raw)
+
+    with pytest.raises(AppManifestError) as exc:
+        check_deployment(lifecycle_repo)
+
+    assert _skill_frontmatter(exc) == ["skills.knob.frontmatter"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "---\nname: knob\ndescription: d\n---\nbody\n",
+        "--- \nname: knob\ndescription: d\n---\t\nbody\n",
+        "---\nname: knob\ndescription: d\n---\nbody\n\n---\n\nmore\n",
+    ],
+    ids=["plain", "trailing-blanks", "horizontal-rule-in-body"],
+)
+def test_a_listed_skill_with_well_formed_frontmatter_loads(
+    lifecycle_repo: Path,  # noqa: F811
+    text: str,
+) -> None:
+    app_dir = _app(lifecycle_repo, skills=["knob"])
+    _write(app_dir / "skills" / "knob" / "SKILL.md", text)
+
+    check_deployment(lifecycle_repo)
