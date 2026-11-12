@@ -274,3 +274,12 @@ def test_an_unknown_severity_ranks_above_every_known_one():
     assert [severity_rank(s) for s in known] == sorted(severity_rank(s) for s in known)
     assert severity_rank("BOGUS") > severity_rank("UNDEFINED")
     assert severity_rank(None) > severity_rank("UNDEFINED")
+
+
+def test_a_severity_that_is_not_text_reads_as_its_text():
+    body = json.loads(_state("MAJOR", "MAJOR"))
+    body["severity"] = 3
+    snapshot = _folded((STATE_KEY, json.dumps(body).encode()))
+    assert state_record(snapshot, PV, stale=False).severity == "3"
+    states = AlarmStates(rows=state_rows(snapshot, stale=False), stale=False, last_contact=None)
+    assert dict(states.counts) == {"3": 1}
