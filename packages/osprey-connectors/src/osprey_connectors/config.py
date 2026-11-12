@@ -38,7 +38,9 @@ from osprey_connectors.workspace import (
     SIMULATION_STATE_DIR_CONFIG_KEY,
     anchored_path,
     dotted_config_str,
+    rendered_config_path,
     repo_root_for_config,
+    resolve_config_path,
 )
 
 if TYPE_CHECKING:
@@ -632,7 +634,10 @@ class ConfigBuilder:
         Initialize configuration builder.
 
         Args:
-            config_path: Path to the config.yml file. If None, looks in current directory.
+            config_path: Path to the config.yml file. If None, the file
+                :func:`osprey_connectors.workspace.resolve_config_path` names:
+                ``OSPREY_CONFIG``, else ``build/config.yml`` under the current
+                directory, else ``config.yml`` in it.
             load_env: When True (the default), load the env chain from the
                 current working directory into ``os.environ``. This env →
                 environ passthrough is load-bearing: it feeds the ``${VAR}``
@@ -651,19 +656,13 @@ class ConfigBuilder:
             load_project_dotenv()
 
         if config_path is None:
-            cwd_config = Path.cwd() / "config.yml"
-            if cwd_config.exists():
-                config_path = cwd_config
-            else:
-                raise FileNotFoundError(
-                    f"No config.yml found in current directory: {Path.cwd()}\n\n"
-                    f"Please run this command from a project directory containing config.yml,\n"
-                    f"or set CONFIG_FILE environment variable to point to your config file.\n\n"
-                    f"Example: export CONFIG_FILE=/path/to/your/config.yml\n\n"
-                    f"For profile-built projects, config.yml is rendered to build/config.yml —\n"
-                    f"run from the built deployment directory, or run `osprey build` first if\n"
-                    f"build/config.yml does not exist yet."
-                )
+            # The same answer every other layer gets to "where is my config":
+            # a second rule here would let one process load the render through
+            # one door and nothing through the other.
+            resolved = resolve_config_path()
+            if not resolved.exists():
+                raise FileNotFoundError(_no_default_config_message(resolved))
+            config_path = resolved
 
         self.config_path = Path(config_path)
 
@@ -953,6 +952,25 @@ def load_project_config(config_path: str | Path, *, wrap_errors: bool = False) -
     return config
 
 
+def _no_default_config_message(resolved: Path) -> str:
+    """Why a lookup that names no config found none, naming where it looked."""
+    if os.environ.get("OSPREY_CONFIG"):
+        return (
+            f"No config.yml found: OSPREY_CONFIG names {resolved}, which does not exist.\n\n"
+            f"Point OSPREY_CONFIG at a rendered config.yml, or unset it to read the one "
+            f"under the current directory."
+        )
+    cwd = Path.cwd()
+    return (
+        f"No config.yml found in current directory: {cwd}\n\n"
+        f"Looked for {rendered_config_path(cwd)} and {cwd / 'config.yml'}.\n\n"
+        f"Run from a project directory (`osprey build` renders its config to "
+        f"build/config.yml),\n"
+        f"or set the CONFIG_FILE environment variable to point to your config file.\n\n"
+        f"Example: export CONFIG_FILE=/path/to/your/config.yml"
+    )
+
+
 _default_config: ConfigBuilder | None = None
 _default_configurable: dict[str, Any] | None = None
 _config_cache: dict[str, ConfigBuilder] = {}
@@ -962,7 +980,8 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     """Get configuration instance (singleton pattern with optional explicit path).
 
     This function supports two modes:
-    1. Default singleton: When no config_path provided, uses CONFIG_FILE env var or cwd/config.yml
+    1. Default singleton: When no config_path provided, uses the CONFIG_FILE env var, else
+       the file :func:`osprey_connectors.workspace.resolve_config_path` names
     2. Explicit path: When config_path provided, caches and returns config for that specific path
 
     Args:
@@ -1055,7 +1074,7 @@ def get_config_builder(
     Args:
         config_path: Optional explicit path to configuration file. If provided,
                     loads configuration from this path. If None, uses the default
-                    singleton (CONFIG_FILE env var or cwd/config.yml).
+                    singleton (CONFIG_FILE env var, else the resolved rendered config).
         set_as_default: If True and config_path is provided, also set this config
                        as the default singleton for future calls without config_path.
 
@@ -1084,7 +1103,7 @@ def default_config_path() -> str | None:
     """Path of the config file the default singleton actually loaded, if any.
 
     This answers "which config is this process's unqualified lookups reading
-    from" — the CONFIG_FILE target, the cwd fallback, or a
+    from" — the CONFIG_FILE target, the resolved rendered config, or a
     :func:`config_anchored_at` anchor, whichever produced the singleton.
     Callers that resolve paths *relative to the config in use* (e.g.
     ``LimitsValidator.resolve_database_path``) anchor on this rather than
@@ -1102,16 +1121,17 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
     """Answer this process's unqualified config lookups from *config_path*.
 
     Every :func:`get_config_value` and :func:`get_facility_timezone` call that
-    names no config resolves the default singleton, which knows exactly two
-    places to look: ``CONFIG_FILE``, and ``config.yml`` in the working
-    directory. Compose satisfies that contract for every container by injecting
-    ``CONFIG_FILE``. On the host there is nobody to inject it, and a deployment
-    repo keeps its render one zone down in ``build/`` while its verbs stand at
-    the repo root — so a host verb doing in-process work satisfies neither
-    branch, and every lookup it makes degrades to a default. Silently: a
-    degraded answer (UTC, an empty dict) is indistinguishable from a configured
-    one at the call site, which is how a whole archive can be synthesized
-    against the wrong clock without anything failing.
+    names no config resolves the default singleton, which looks at
+    ``CONFIG_FILE`` and then where
+    :func:`osprey_connectors.workspace.resolve_config_path` does: ``OSPREY_CONFIG``,
+    and the render under the working directory. A container is handed the
+    variables or starts in its project directory, and a host verb standing at
+    the repo root finds ``build/config.yml`` there. A verb pointed at another
+    deployment with ``--repo`` stands in neither, and every lookup it makes
+    would degrade to a default. Silently: a degraded answer (UTC, an empty
+    dict) is indistinguishable from a configured one at the call site, which is
+    how a whole archive can be synthesized against the wrong clock without
+    anything failing.
 
     This is the host's half of that contract, and it is deliberately in-process
     rather than an exported ``CONFIG_FILE``. The attached start path
@@ -1157,7 +1177,8 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
 
     Args:
         config_path: Optional path to configuration file. If None, uses the
-                    default configuration (CONFIG_FILE env var or cwd/config.yml).
+                    default configuration (CONFIG_FILE env var, else the resolved
+                    rendered config).
 
     Returns:
         Raw configuration dictionary with all values from the YAML file.

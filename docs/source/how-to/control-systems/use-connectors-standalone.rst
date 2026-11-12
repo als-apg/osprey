@@ -86,6 +86,15 @@ The simulator
       :language: yaml
       :caption: config.yml
 
+   With ``CONFIG_FILE`` unset, the file is the one ``OSPREY_CONFIG`` names,
+   else ``build/config.yml`` under the working directory, else ``config.yml``
+   in it. A process started in a built project directory therefore reads that
+   project's config with nothing set. The same file answers
+   ``create_control_system_connector()`` and ``create_archiver_connector()``
+   called with no dict, which build the connector its ``control_system:`` or
+   ``archiver:`` section selects. Without a config they raise
+   ``FileNotFoundError``, naming where they looked.
+
 Writes
    Every write passes the verdict in :ref:`write-safety-config`: the write tier,
    the machine the connector writes to, the login it writes for, and that

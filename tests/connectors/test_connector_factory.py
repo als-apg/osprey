@@ -363,23 +363,15 @@ class TestArchiverTypeResolution:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_an_unloadable_config_falls_back_to_the_mock_archiver_with_a_warning(
-        self, caplog, tmp_path, monkeypatch
-    ):
+    async def test_an_unloadable_config_is_raised_and_no_archiver_is_built(self, caplog):
         def unreadable(*args, **kwargs):
             raise RuntimeError("config.yml is unreadable")
 
-        # The fallback settings name no view, so the mock serves the one beside
-        # the config this process loaded.
-        view = served_tree(tmp_path)
-        monkeypatch.setattr(
-            "osprey_connectors.config.default_config_path",
-            lambda: str(view.parent.parent / "config.yml"),
-        )
-
+        # The mock is for a config that was read and names no archiver. One that
+        # could not be read says nothing about the archiver, and the mock built
+        # in its place would only refuse to connect for want of a simulator view.
         with patch("osprey_connectors.config.get_config_value", unreadable):
-            connector = await ConnectorFactory.create_archiver_connector(None)
+            with pytest.raises(RuntimeError, match="config.yml is unreadable"):
+                await ConnectorFactory.create_archiver_connector(None)
 
-        assert isinstance(connector, MockArchiverConnector)
-        assert "Could not load config: config.yml is unreadable, using defaults" in caplog.text
-        await connector.disconnect()
+        assert types.MOCK_ARCHIVER not in caplog.text
