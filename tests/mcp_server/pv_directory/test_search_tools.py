@@ -31,6 +31,7 @@ from osprey.mcp_server.pv_directory.tools import properties, search
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.pv_directory import _connectors, facts, service
 from osprey_connectors import control_context
+from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
 from osprey_connectors.directory import DirectoryPage, DirectoryRow
 from osprey_connectors.service_answers import Outcome, Source, Unavailable
 from tests._service_factory import patch_create_service
@@ -217,6 +218,77 @@ async def test_a_late_count_stays_in_the_result_as_partial(tmp_path: Path) -> No
     assert result["outcome"] == "found"
     assert [row["name"] for row in result["rows"]] == ["SR:BPM1"]
     assert {entry["part"] for entry in result["partial"]} == {"count", "facets"}
+
+
+class FakeFeed:
+    """An alarm feed answering ``held``: a state per channel, or ``Unavailable``."""
+
+    held: Any = {}
+
+    def __init__(self, spec: Any, *, project_dir: Path | None = None, **seams: Any) -> None:  # noqa: ARG002
+        self.spec = spec
+        self.source = Source(
+            kind=spec.kind, target=spec.target, service=spec.type, rehearsal=spec.rehearsal
+        )
+
+    async def start(self) -> None:
+        pass
+
+    async def aclose(self) -> None:
+        pass
+
+    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        if isinstance(self.held, Unavailable):
+            return self.held
+        rows = tuple(
+            AlarmStateRow(channel=channel, path=None, state=state)
+            for channel, state in self.held.items()
+        )
+        return AlarmStates(rows=rows, stale=False, last_contact=None)
+
+
+_FEED = {
+    "type": "phoebus_alarm_server",
+    "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
+}
+
+
+@pytest.fixture
+def feed(monkeypatch: pytest.MonkeyPatch) -> type[FakeFeed]:
+    async def create(spec: Any, *, project_dir: Path | None = None, **seams: Any) -> Any:
+        return FakeFeed(spec, project_dir=project_dir, **seams)
+
+    patch_create_service(monkeypatch, "alarm_state", create)
+    monkeypatch.setattr(FakeFeed, "held", {})
+    return FakeFeed
+
+
+async def test_a_row_carries_the_alarm_feed_state(tmp_path: Path, feed: type[FakeFeed]) -> None:
+    FakeDirectory.rows = [_row("SR:BPM1"), _row("SR:BPM2")]
+    feed.held = {"SR:BPM1": AlarmStateRecord(severity="MINOR", status="HIGH_ALARM")}
+    _install(tmp_path, {**FACILITY, "alarm_state": _FEED})
+
+    result = json.loads(await search.directory_search(words="SR"))
+
+    assert result["rows"][0]["alarm"]["severity"] == "MINOR"
+    assert result["rows"][1]["alarm"] is None
+    assert result["facets"]["alarm"] == [
+        {"value": "MINOR", "count": 1},
+        {"value": "none", "count": 1},
+    ]
+
+
+async def test_a_feed_without_an_answer_stays_in_the_result_as_partial(
+    tmp_path: Path, feed: type[FakeFeed]
+) -> None:
+    FakeDirectory.rows = [_row("SR:BPM1")]
+    feed.held = Unavailable("alarm feed still loading")
+    _install(tmp_path, {**FACILITY, "alarm_state": _FEED})
+
+    result = json.loads(await search.directory_search(words="SR"))
+
+    assert "alarm" not in result["rows"][0]
+    assert result["partial"] == [{"part": "alarm", "reason": "alarm feed still loading"}]
 
 
 def _no_source_page(form: dict[str, Any]) -> dict[str, Any]:
