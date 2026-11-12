@@ -115,6 +115,7 @@ afterEach(() => {
  *   facts?: (name: string) => any,
  *   factsGate?: Promise<unknown>,
  *   framed?: boolean,
+ *   valuesStatus?: () => number,
  * }} Setup
  */
 
@@ -124,7 +125,14 @@ afterEach(() => {
  * @param {Setup} [setup]
  */
 async function mount(setup = {}) {
-  const { alarms = ALARMS, alarmsStatus = 200, facts = factsOf, factsGate, framed = true } = setup;
+  const {
+    alarms = ALARMS,
+    alarmsStatus = 200,
+    facts = factsOf,
+    factsGate,
+    framed = true,
+    valuesStatus = () => 200,
+  } = setup;
   window.history.replaceState(null, '', '/u/a/panel/channel-finder/?embedded=true');
   const postMessage = vi.fn();
   vi.stubGlobal('parent', framed ? { postMessage } : window);
@@ -146,6 +154,8 @@ async function mount(setup = {}) {
     }
     if (target.startsWith('/api/directory/values')) {
       const names = new URL(target, 'http://x').searchParams.getAll('name');
+      const status = valuesStatus();
+      if (status !== 200) return answer(status, { detail: 'values route down' });
       return answer(
         200,
         names.map((name) => ({
@@ -819,6 +829,29 @@ describe('the poll', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(counts).not.toHaveBeenCalled();
     expect(container.querySelector('.alarms-list tbody')).toBeNull();
+  });
+
+  test('a failed values read is read again at the next poll', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    let valueCalls = 0;
+    const { container, view, counts, fetchMock } = await mount({
+      valuesStatus: () => (valueCalls++ === 0 ? 503 : 200),
+    });
+    await loaded(container);
+    const valueReads = () =>
+      fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/directory/values'))
+        .length;
+    await vi.waitFor(() => expect(valueReads()).toBe(1));
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(valueReads()).toBe(2));
+    await vi.waitFor(() =>
+      expect(rows(container)[0].querySelector('.alarms-value')?.textContent).toContain('46.2')
+    );
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(3));
+    await Promise.resolve();
+    expect(valueReads()).toBe(2);
   });
 
   test('Refresh reads the list and the values again', async () => {

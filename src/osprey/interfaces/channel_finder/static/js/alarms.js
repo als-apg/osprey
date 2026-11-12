@@ -82,6 +82,7 @@ const SIDEBAR_KEY = 'cf-alarms-tree';
  *   selected: string|null,
  *   values: Map<string, ValueRow>|null,
  *   valuesKey: string,
+ *   valuesPending: string|null,
  *   facts: Map<string, PvFacts|string>,
  *   factsPending: Set<string>,
  *   pollSeq: number,
@@ -159,6 +160,7 @@ export function mountAlarms(container) {
     selected: null,
     values: null,
     valuesKey: '',
+    valuesPending: null,
     facts: new Map(),
     factsPending: new Set(),
     pollSeq: 0,
@@ -245,7 +247,8 @@ async function poll() {
 
 /**
  * Read the current values of the rows shown, and of the selected row, when
- * that set has changed.
+ * that set has changed. A set counts as read only once its read answered, so
+ * a failed read is tried again at the next poll.
  */
 async function readShownValues(force = false) {
   if (!view?.answer) return;
@@ -255,17 +258,20 @@ async function readShownValues(force = false) {
     .map((row) => row.pv);
   if (current.selected !== null && !names.includes(current.selected)) names.push(current.selected);
   const key = names.join('\n');
-  if (!force && key === current.valuesKey) return;
-  current.valuesKey = key;
+  if (!force && (key === current.valuesKey || key === current.valuesPending)) return;
+  current.valuesPending = key;
   const seq = ++current.valuesSeq;
   /** @type {ValueRow[]} */
   let rows;
   try {
     rows = await readValues(names, current.controller.signal);
   } catch {
-    rows = [];
+    if (view === current && seq === current.valuesSeq) current.valuesPending = null;
+    return;
   }
   if (view !== current || seq !== current.valuesSeq) return;
+  current.valuesPending = null;
+  current.valuesKey = key;
   const values = new Map(current.values ?? []);
   for (const row of rows) values.set(row.name, row);
   current.values = values;
@@ -567,6 +573,7 @@ function refresh() {
   if (!view) return;
   view.values = null;
   view.valuesKey = '';
+  view.valuesPending = null;
   if (view.selected !== null) view.facts.delete(view.selected);
   void poll();
 }
