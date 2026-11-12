@@ -1,11 +1,11 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.9.0b3-7174-g9b976358e5",
+  "reviewed_against": "2026.9.0b3-7178-g75c671112d",
   "files": {
     "apps/manifest.py": "f30383a21922e2ec70839a5007b98c183a78ce50f577a8411d427cbe8b28a6ec",
     "apps/rules.py": "0865df8356419ef125c16fa6294eaeeef39987e8d0997fd34b3cc6b82bb669e1",
-    "apps/loader.py": "b2361193e1f6d54a6b24f8c3987aa419b9197b441c79e01d5914b44ecd01e343",
-    "apps/agents.py": "ddfc52be35ef3e4052914d2fc3da975d8e40ce8bc5e35b40ecddec17bdcfa9a8",
+    "apps/loader.py": "7c01aabe19065c2e19f745f372a4aea6c957a5c6d7b871a73377f78a742abeb0",
+    "apps/agents.py": "05c9bfb9da6786598beec26c1081c4ed9f347490a2847d74c4f4b3add6c944f3",
     "apps/boundary.py": "f20ca7212e6fbf2ae9db5b3ba8e087645bc6ad210cfbf8742abc9285bb1f2307",
     "apps/sdk/__init__.py": "18da3e914fe4859e022ff48f42dd61ab4c9e555a92fbb837aeec6d5d983293f9",
     "cli/app_cmd.py": "608632f705cf2a13de1f17973417139d17c696db90717a3978106db5b27e0e88",
@@ -18,6 +18,8 @@
     "apps/scaffold-app/scaffold_app/server.py": "f4e4658513c2042afc1db3b614acb7e3c9d9b70c36366cbdab834d175369a5eb",
     "apps/scaffold-app/scaffold_app/tools.py": "bcf6045779fa327b2ea3a2eeafddd4ddf2f5aae9010bc76f57e90eddd3fe3662",
     "apps/scaffold-app/skills/scaffold-app/SKILL.md": "c73be6b7ef5a657cb35452f97017a83c9ea8d3ca62098dba2b00d07bcd1a37cf",
-    "apps/scaffold-app/tests/panel.test.js": "cde12729a397de8d9616c74252c9ecf76b7da50d3c66c8942f28160d760f9220"
+    "apps/scaffold-app/tests/panel.test.js": "cde12729a397de8d9616c74252c9ecf76b7da50d3c66c8942f28160d760f9220",
+    "interfaces/design_system/panels/validator.py": "d09b82ea461282d09050444006d1c78d2647ccdb72e94693dfc9247dc4e40766",
+    "interfaces/design_system/static/css/primitives.css": "6e975a372b0fb1746ee51c2b4e9721a6e815419f36feffe0ee7aeaebdd46639c"
   }
 }
