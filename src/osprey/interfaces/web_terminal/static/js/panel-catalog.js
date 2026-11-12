@@ -29,6 +29,8 @@
  * panel with an icons.js glyph ({@link panelIconName}).
  */
 
+import { ICON_NAMES } from '/design-system/js/icons.js';
+
 /**
  * @typedef {object} Panel
  * @property {string} id
@@ -176,13 +178,14 @@ export const PANEL_ICONS = Object.freeze({
 export const FALLBACK_PANEL_ICON = 'workspace';
 
 /**
- * The icons.js name for a panel's sidebar row.
+ * The icons.js name for a panel's sidebar row. A declared glyph icons.js does
+ * not define wears {@link FALLBACK_PANEL_ICON}: a manifest names any slug.
  * @param {string} id
  * @returns {string}
  */
 export function panelIconName(id) {
   const entry = panelEntry(id);
-  if (entry?.icon) return entry.icon;
+  if (entry?.icon) return ICON_NAMES.includes(entry.icon) ? entry.icon : FALLBACK_PANEL_ICON;
   if (SIDECAR_PANELS.some((p) => p.id === id)) return FALLBACK_PANEL_ICON;
   return Object.hasOwn(PANEL_ICONS, id) ? PANEL_ICONS[id] : FALLBACK_PANEL_ICON;
 }
