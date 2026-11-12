@@ -244,12 +244,13 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     "Auto-configured bluesky bridge plan devices (osprey deploy up)",
     "Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",
     "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
-    # The two blocks the deploy writes today, under the command that exists.
+    # The blocks the deploy writes today, each under the command that exists.
     # Their retired spellings stay at the top of this tuple: a `.env` written
     # before the rename carries the old banner, and a block is matched by its
     # banner exactly.
     "Auto-generated service auth tokens (osprey up)",
     "Auto-generated bluesky RE manager control-socket keypair (osprey up)",
+    "Credentials adopted from pre-existing data volumes (osprey up --reuse-stores)",
 )
 
 #: Every banner whose block reset strips — the minted secrets OSPREY itself

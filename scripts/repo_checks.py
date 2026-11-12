@@ -1293,7 +1293,7 @@ TRACKED_DOCS = ("git", "ls-files", "-z", "--", "*.md", "*.rst")
 SWEEP_LINE_EXCEPTIONS: dict[tuple[str, str], str] = {
     (
         "plugins/osprey/skills/release/SKILL.md",
-        "pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile",
+        "pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile",
     ): (
         "the e2e lane's invocation is declared only in ci.yml's e2e-tests job"
         " until that lane is a check"

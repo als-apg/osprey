@@ -572,16 +572,17 @@ config:
   # claude_code.aliases.haiku: claude-haiku-4-5
   # claude_code.agent_models.logbook-search: claude-sonnet-5
   # Switch a framework server or subagent off, or add an MCP server of your
-  # own (the `mcp_servers:` field above is the usual home for one).
+  # own (a top-level `mcp_servers:` field is the usual home for one; the
+  # hello-world preset shows its shape).
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
-  # The `bluesky:`, `virtual_accelerator:`, `va_archiver:` and `dispatch:`
-  # sections above add their own services at build time. No host ports are
-  # written here: each service publishes on its fixed slot above
+  # The `bluesky:`, `virtual_accelerator:` and `va_archiver:` sections above
+  # and the `dispatch:` section below add their own services at build time. No
+  # host ports are written here: each service publishes on its fixed slot above
   # `deployment.port_base` (set that key to move the whole block). Add
   # `services.<name>.port` (`port_host` for the stores) only to pin one
   # outside it.
