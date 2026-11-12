@@ -1,0 +1,82 @@
+/**
+ * OSPREY Channel Finder — the severity mark (severity.js severityMark)
+ *
+ * One colour and one shape per severity, so two severities stay apart where
+ * the colours do not (the high-contrast themes): MAJOR a filled square,
+ * INVALID a filled diamond, UNDEFINED a hollow diamond, MINOR a filled
+ * circle, OK a check mark, NONE a hollow circle. The word is always printed
+ * beside the shape.
+ */
+
+.cf-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.cf-sev > i {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 9px;
+  height: 9px;
+  background: currentColor;
+}
+
+.cf-sev--major {
+  color: var(--color-error);
+}
+
+.cf-sev--major > i {
+  border-radius: var(--radius-xs);
+}
+
+.cf-sev--invalid,
+.cf-sev--undefined {
+  color: var(--cf-severity-invalid);
+}
+
+.cf-sev--invalid > i,
+.cf-sev--undefined > i {
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+}
+
+.cf-sev--undefined > i,
+.cf-sev--none > i {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.cf-sev--minor {
+  color: var(--color-warning);
+}
+
+.cf-sev--minor > i,
+.cf-sev--none > i {
+  border-radius: var(--radius-full);
+}
+
+.cf-sev--ok {
+  color: var(--color-success);
+}
+
+.cf-sev--ok > i {
+  width: 12px;
+  height: 12px;
+  background: none;
+}
+
+.cf-sev--ok > i > .osprey-ic {
+  width: 12px;
+  height: 12px;
+}
+
+.cf-sev--none {
+  color: var(--text-muted);
+}
