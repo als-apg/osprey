@@ -224,7 +224,9 @@ def sidecar_panel_descriptors(panels_config: object = None) -> list[dict[str, An
     return [
         {
             "id": panel_id,
-            "label": panel_label(panel_id, panels_config),
+            "label": (
+                _authored_text(panels_config, panel_id, "label") or panel.label or panel_id.upper()
+            ),
             "icon": _authored_text(panels_config, panel_id, "icon") or panel.icon or None,
             "description": panel.description or None,
             "configEndpoint": SIDECAR_CONFIG_ENDPOINTS.get(

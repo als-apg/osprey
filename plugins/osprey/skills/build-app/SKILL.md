@@ -284,6 +284,7 @@ containers:
     state: var/<name>         # kept across restarts
 panel:
   label: <sidebar text>
+  icon: <glyph>               # optional: the sidebar row's icon, from the icon set
   container: <name>
   launch_token: true          # write routes demand the terminal's token
   agent_routes:               # what the tools may call; non-GET = write route
