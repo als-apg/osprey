@@ -258,6 +258,8 @@ def test_a_help_page_may_be_an_absolute_https_url() -> None:
     [
         "../secrets.html",
         "how-to/../../outside.html",
+        "how-to/%2e%2e/%2E%2E/outside.html",
+        "%2e./outside.html",
         "/how-to/apps/index.html",
         "http://example.org/dial.html",
         "javascript:alert(1)",
