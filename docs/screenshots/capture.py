@@ -1203,8 +1203,7 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
                         )
                     except AssertionError as exc:
                         raise ScreenshotSkip(
-                            f"{shot.name} ({theme}): the stand-in row never took the "
-                            "rehearsal kind"
+                            f"{shot.name} ({theme}): the stand-in row never took the rehearsal kind"
                         ) from exc
                 # Let the open animation and the first re-render settle.
                 page.wait_for_timeout(600)
