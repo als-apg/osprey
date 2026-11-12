@@ -256,9 +256,8 @@ class TestReplayFile:
 
 class TestInternalTypesPin:
     def test_constants_equal_the_connectors(self) -> None:
-        pytest.importorskip("osprey_connectors.pv_directory")
-        from osprey_connectors import factory
-        from osprey_connectors.pv_directory import targets
+        pytest.importorskip("osprey_connectors.service_targets")
+        from osprey_connectors import factory, service_targets
 
         kafka_rows = {
             row.name
@@ -266,6 +265,6 @@ class TestInternalTypesPin:
             if row.module_path == "osprey_connectors.alarm_state._phoebus_kafka"
         }
 
-        assert resolve.SIMULATOR_VIEW == targets._SIMULATOR_VIEW
-        assert resolve.ALARM_REPLAY == targets._ALARM_REPLAY
+        assert resolve.SIMULATOR_VIEW == service_targets._SIMULATOR_VIEW
+        assert resolve.ALARM_REPLAY == service_targets._ALARM_REPLAY
         assert kafka_rows == {resolve.KAFKA_ALARM_STATE}

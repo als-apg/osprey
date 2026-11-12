@@ -1,6 +1,6 @@
-"""The single HTTP path of every directory backend, and why it can only read.
+"""The single HTTP path of every read-only service backend, and why it can only read.
 
-A directory service sits on the same address as its write routes, so what a
+A service sits on the same address as its write routes, so what a
 backend may send is closed here rather than left to its query code: each backend
 names its (method, path) pairs in ``ALLOWED_REQUESTS``, and anything else is
 refused before a socket opens. ChannelFinder's own read is a ``GET``, but
@@ -51,7 +51,7 @@ from osprey_connectors.connection import (
     read_connection_settings,
     urllib_opener,
 )
-from osprey_connectors.pv_directory.contract import Unavailable
+from osprey_connectors.service_answers import Unavailable
 
 #: The reason a redirect and an HTML answer with a login status carry.
 LOGIN_PAGE_REASON = "answered with a login page (an access proxy is in front of the service)"

@@ -27,15 +27,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors.pv_directory._transport import ReadOnlyTransport
-from osprey_connectors.pv_directory.contract import (
-    BackendSpec,
-    HistoryPage,
-    Outcome,
-    PutLog,
-    PutRow,
-    Unavailable,
-)
+from osprey_connectors._service_http import ReadOnlyTransport
+from osprey_connectors.put_log._contract import PutLog, PutRow
+from osprey_connectors.service_answers import BackendSpec, HistoryPage, Outcome, Unavailable
 
 _SEARCH_PATH = "/search"
 _WHERE = "pv_directory.put_log.settings"

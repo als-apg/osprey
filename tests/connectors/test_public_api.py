@@ -1,6 +1,7 @@
 """The connectors package's public API is exactly what its ``__all__`` lists say.
 
-``control_system``, ``archiver`` and ``ipc`` gather underscore-private
+``control_system``, ``archiver``, ``ipc`` and the service kinds (``directory``,
+``alarm_state``, ``alarm_log``, ``put_log``) gather underscore-private
 implementation modules behind one ``__init__``. The other public modules of the
 package, the ``simulation`` package's among them, are their own API and list it
 in their own ``__all__``. A name is public when a list names it and private when it starts
@@ -37,6 +38,10 @@ NAMESPACES = (
     "osprey_connectors.control_system",
     "osprey_connectors.archiver",
     "osprey_connectors.ipc",
+    "osprey_connectors.directory",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.put_log",
 )
 
 #: The namespaces that resolve some names on first access (PEP 562).
@@ -53,12 +58,6 @@ MODULES = (
     + tuple(
         f"osprey_connectors.simulation.{path.stem}"
         for path in sorted((ROOT / "simulation").glob("*.py"))
-        if not path.stem.startswith("_")
-    )
-    # Not the subpackage itself: its __init__ lists nothing, and only public modules do.
-    + tuple(
-        f"osprey_connectors.pv_directory.{path.stem}"
-        for path in sorted((ROOT / "pv_directory").glob("*.py"))
         if not path.stem.startswith("_")
     )
 )

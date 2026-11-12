@@ -9,16 +9,9 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.pv_directory._simulator import SimulatorDirectory
-from osprey_connectors.pv_directory.contract import (
-    SERVED_SIGNAL_PROPERTY,
-    BackendSpec,
-    DirectoryRecord,
-    Outcome,
-    SearchQuery,
-    Source,
-    Unavailable,
-)
+from osprey_connectors.directory import SERVED_SIGNAL_PROPERTY, DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory._simulator import SimulatorDirectory
+from osprey_connectors.service_answers import BackendSpec, Outcome, Source, Unavailable
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
@@ -123,7 +116,7 @@ def _write_view(
 
 def _spec() -> BackendSpec:
     return BackendSpec(
-        kind="pv_directory", type="simulator_view", target="va", settings={}, rehearsal=False
+        kind="directory", type="simulator_view", target="va", settings={}, rehearsal=False
     )
 
 
@@ -134,14 +127,14 @@ def directory(tmp_path: Path) -> SimulatorDirectory:
 
 
 async def _names(directory: SimulatorDirectory, **fields: Any) -> list[str]:
-    page = await directory.search(SearchQuery(**fields), DEADLINE)
+    page = await directory.search(DirectoryQuery(**fields), DEADLINE)
     return [row.name for row in page.rows]
 
 
 async def test_a_word_search_finds_the_description_and_no_name_carries_the_word(
     directory: SimulatorDirectory,
 ) -> None:
-    page = await directory.search(SearchQuery(words="cooling water"), DEADLINE)
+    page = await directory.search(DirectoryQuery(words="cooling water"), DEADLINE)
 
     assert page.outcome is Outcome.FOUND
     assert [row.name for row in page.rows] == [COOLING]
@@ -283,7 +276,7 @@ async def test_filters_narrow_the_result(
 
 
 async def test_origin_is_left_to_the_service(directory: SimulatorDirectory) -> None:
-    query = SearchQuery(words="cooling", origin="curated")
+    query = DirectoryQuery(words="cooling", origin="curated")
 
     page = await directory.search(query, DEADLINE)
 
@@ -294,7 +287,7 @@ async def test_origin_is_left_to_the_service(directory: SimulatorDirectory) -> N
 async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
     directory: SimulatorDirectory,
 ) -> None:
-    page = await directory.search(SearchQuery(name=f"={SETPOINT}"), DEADLINE)
+    page = await directory.search(DirectoryQuery(name=f"={SETPOINT}"), DEADLINE)
 
     assert asdict(page.rows[0]) == {
         "name": SETPOINT,
@@ -382,12 +375,12 @@ async def test_an_exact_miss_is_not_listed(directory: SimulatorDirectory) -> Non
 async def test_a_search_with_no_rows_is_no_match_never_not_listed(
     directory: SimulatorDirectory, fields: dict[str, Any]
 ) -> None:
-    page = await directory.search(SearchQuery(**fields), DEADLINE)
+    page = await directory.search(DirectoryQuery(**fields), DEADLINE)
 
     assert page.outcome is Outcome.NO_MATCH
     assert page.rows == []
     assert page.total == 0
-    assert await directory.count(SearchQuery(**fields), DEADLINE) == 0
+    assert await directory.count(DirectoryQuery(**fields), DEADLINE) == 0
 
 
 async def test_a_served_no_deck_model_lists_status_and_health_rows_and_no_channels(
@@ -437,7 +430,7 @@ async def test_a_view_listing_an_unknown_health_signal_is_unavailable_and_says_r
     _write_view(tmp_path, ioc_health=["T:SIM:SR:CPU_LOAD"])
     directory = SimulatorDirectory(_spec(), project_dir=tmp_path)
 
-    page = await directory.search(SearchQuery(), DEADLINE)
+    page = await directory.search(DirectoryQuery(), DEADLINE)
 
     assert page.outcome is Outcome.UNAVAILABLE
     assert "rebuild" in (page.reason or "")
@@ -446,14 +439,14 @@ async def test_a_view_listing_an_unknown_health_signal_is_unavailable_and_says_r
 async def test_the_request_is_the_search_in_words_and_never_a_url(
     directory: SimulatorDirectory,
 ) -> None:
-    page = await directory.search(SearchQuery(words="cooling water"), DEADLINE)
+    page = await directory.search(DirectoryQuery(words="cooling water"), DEADLINE)
 
     assert page.request == "simulator data · name or description matches cooling water"
     assert page.searched == "name or description matches cooling water"
 
 
 async def test_the_request_names_every_filter(directory: SimulatorDirectory) -> None:
-    query = SearchQuery(
+    query = DirectoryQuery(
         name="T:SR:*",
         status="Active",
         ioc=("sim-SR", "sim-BARE"),
@@ -470,14 +463,14 @@ async def test_the_request_names_every_filter(directory: SimulatorDirectory) -> 
 
 
 async def test_an_empty_search_lists_every_pv(directory: SimulatorDirectory) -> None:
-    page = await directory.search(SearchQuery(page_size=100), DEADLINE)
+    page = await directory.search(DirectoryQuery(page_size=100), DEADLINE)
 
     assert page.searched == "every PV"
     assert page.outcome is Outcome.FOUND
     # Five channels, two status addresses, three health addresses for each of three IOCs.
     assert page.total == 5 + 2 + 9
     assert [row.name for row in page.rows] == sorted(row.name for row in page.rows)
-    assert await directory.count(SearchQuery(), DEADLINE) == 16
+    assert await directory.count(DirectoryQuery(), DEADLINE) == 16
 
 
 async def test_pages_slice_the_whole_result_and_say_when_more_follows(
@@ -485,9 +478,9 @@ async def test_pages_slice_the_whole_result_and_say_when_more_follows(
 ) -> None:
     every = await _names(directory, page_size=100)
 
-    first = await directory.search(SearchQuery(page=0, page_size=10), DEADLINE)
-    last = await directory.search(SearchQuery(page=1, page_size=10), DEADLINE)
-    beyond = await directory.search(SearchQuery(page=9, page_size=10), DEADLINE)
+    first = await directory.search(DirectoryQuery(page=0, page_size=10), DEADLINE)
+    last = await directory.search(DirectoryQuery(page=1, page_size=10), DEADLINE)
+    beyond = await directory.search(DirectoryQuery(page=9, page_size=10), DEADLINE)
 
     assert [row.name for row in (*first.rows, *last.rows)] == every
     assert (first.total, first.truncated) == (16, True)
@@ -496,7 +489,7 @@ async def test_pages_slice_the_whole_result_and_say_when_more_follows(
 
 
 async def test_the_source_is_the_specs(directory: SimulatorDirectory) -> None:
-    page = await directory.search(SearchQuery(), DEADLINE)
+    page = await directory.search(DirectoryQuery(), DEADLINE)
 
     assert page.source == Source(
         target="va", service="simulator_view", label="All PVs", rehearsal=False
@@ -536,11 +529,11 @@ def test_a_seam_it_does_not_take_is_ignored(tmp_path: Path) -> None:
 
 
 async def _every_answer(directory: SimulatorDirectory) -> list[Any]:
-    page = await directory.search(SearchQuery(words="x"), DEADLINE)
+    page = await directory.search(DirectoryQuery(words="x"), DEADLINE)
     assert page.outcome is Outcome.UNAVAILABLE
     return [
         Unavailable(page.reason or ""),
-        await directory.count(SearchQuery(), DEADLINE),
+        await directory.count(DirectoryQuery(), DEADLINE),
         await directory.describe("T:X", DEADLINE),
         await directory.property_names(DEADLINE),
         await directory.property_values("unit", None, DEADLINE),

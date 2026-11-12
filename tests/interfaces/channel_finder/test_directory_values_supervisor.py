@@ -370,7 +370,7 @@ def test_a_child_that_cannot_start_makes_values_unavailable(fake, supervise) -> 
 
 @pytest.mark.usefixtures("mock_registry")
 def test_the_lifespan_supervises_only_with_the_section(monkeypatch, config_file) -> None:
-    pytest.importorskip("osprey_connectors.pv_directory.contract")
+    pytest.importorskip("osprey_connectors.service_answers")
     from fastapi.testclient import TestClient
 
     from osprey.interfaces.channel_finder.app import create_app

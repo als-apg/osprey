@@ -11,14 +11,9 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.put_log import PutLog, PutRow
 from osprey_connectors.put_log._caputlog import CaPutLog
-from osprey_connectors.pv_directory.contract import (
-    BackendSpec,
-    Outcome,
-    PutLog,
-    PutRow,
-    Unavailable,
-)
+from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
 
 PV = "DEMO:RF1:CAV:TempLimit-SP"
 

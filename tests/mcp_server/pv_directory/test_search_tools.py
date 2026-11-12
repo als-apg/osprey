@@ -21,23 +21,33 @@ from urllib.parse import unquote
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
-from fastmcp import FastMCP  # noqa: E402
+from fastmcp import FastMCP
 
-import osprey.channel_roster as channel_roster  # noqa: E402
-from osprey.mcp_server.pv_directory import server  # noqa: E402
-from osprey.mcp_server.pv_directory.tools import properties, search  # noqa: E402
-from osprey.registry.mcp import FRAMEWORK_SERVERS  # noqa: E402
-from osprey.services.pv_directory import _connectors, facts, service  # noqa: E402
-from osprey_connectors import control_context  # noqa: E402
-from osprey_connectors.factory import ConnectorFactory  # noqa: E402
-from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
+import osprey.channel_roster as channel_roster
+from osprey.mcp_server.pv_directory import server
+from osprey.mcp_server.pv_directory.tools import properties, search
+from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.services.pv_directory import _connectors, facts, service
+from osprey_connectors import control_context
+from osprey_connectors.directory import DirectoryPage, DirectoryRow
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from tests.mcp_server.conftest import assert_raises_error
 
 _NEW_MODULES = (
-    "osprey_connectors.pv_directory",
-    "osprey_connectors.pv_directory.contract",
-    "osprey_connectors.pv_directory.targets",
+    "osprey_connectors.service_answers",
+    "osprey_connectors.service_targets",
+    "osprey_connectors._service_http",
+    "osprey_connectors.directory",
+    "osprey_connectors.directory._contract",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_state._contract",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.alarm_log._contract",
+    "osprey_connectors.put_log",
+    "osprey_connectors.put_log._contract",
 )
 
 LIVE_BUILD = {"type": "epics"}
@@ -59,7 +69,7 @@ class FakeDirectory:
 
     @property
     def source(self) -> Any:
-        return contract.Source(
+        return Source(
             target=self.spec.target,
             service=self.spec.type,
             label=self.label,
@@ -75,8 +85,8 @@ class FakeDirectory:
         hits = self._hits(query)
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
-        return contract.DirectoryPage(
-            outcome=contract.Outcome.FOUND if hits else contract.Outcome.NO_MATCH,
+        return DirectoryPage(
+            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
             searched="from the backend",
             request=f"GET /fake?q={query.words}",
             source=self.source,
@@ -92,12 +102,12 @@ class FakeDirectory:
         return len(self._hits(query))
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return contract.Outcome.NOT_LISTED
+        return Outcome.NOT_LISTED
 
     async def property_values(self, name: str, prefix: str | None, deadline: float) -> Any:  # noqa: ARG002
         self.asked.append((name, prefix))
         if name not in self.values:
-            return contract.Unavailable(f"property {name!r} did not answer")
+            return Unavailable(f"property {name!r} did not answer")
         return [value for value in self.values[name] if value.startswith(prefix or "")]
 
 
@@ -149,7 +159,7 @@ def _install(tmp_path: Path, section: dict[str, Any] | None, *curated: str) -> s
 
 
 def _row(name: str, **fields: Any) -> Any:
-    return contract.DirectoryRow(name=name, **fields)
+    return DirectoryRow(name=name, **fields)
 
 
 # -- directory_search ---------------------------------------------------------

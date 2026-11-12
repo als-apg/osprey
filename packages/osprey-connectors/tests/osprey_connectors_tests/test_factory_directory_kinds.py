@@ -16,6 +16,7 @@ import pytest
 
 from osprey_connectors import factory
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
+from osprey_connectors.directory import ChannelDirectory
 from osprey_connectors.factory import (
     _BUILTIN_ALARM_LOGS,
     _BUILTIN_ALARM_STATES,
@@ -26,13 +27,13 @@ from osprey_connectors.factory import (
     ConnectorFactory,
     register_builtin_connectors,
 )
-from osprey_connectors.pv_directory.contract import BackendSpec, PVDirectory
+from osprey_connectors.service_answers import BackendSpec
 from osprey_connectors_tests._harness import isolated_connector_registries
 
 #: Written out rather than read from the table: a dropped row must still fail.
 _EVERY_BUILTIN = (
-    ("channelfinder", "pv_directory", "create_pv_directory_connector", "ChannelFinderDirectory"),
-    ("simulator_view", "pv_directory", "create_pv_directory_connector", "SimulatorDirectory"),
+    ("channelfinder", "directory", "create_pv_directory_connector", "ChannelFinderDirectory"),
+    ("simulator_view", "directory", "create_pv_directory_connector", "SimulatorDirectory"),
     ("phoebus_alarm_logger", "alarm_log", "create_alarm_log_connector", "PhoebusAlarmLogger"),
     ("phoebus_alarm_server", "alarm_state", "create_alarm_state_connector", "PhoebusAlarmState"),
     ("alarm_replay", "alarm_state", "create_alarm_state_connector", "ReplayAlarmState"),
@@ -40,11 +41,16 @@ _EVERY_BUILTIN = (
 )
 
 _CREATE_BY_KIND = {
-    "pv_directory": "create_pv_directory_connector",
+    "directory": "create_pv_directory_connector",
     "alarm_log": "create_alarm_log_connector",
     "alarm_state": "create_alarm_state_connector",
     "put_log": "create_put_log_connector",
 }
+
+
+def _stem(kind: str) -> str:
+    """The factory's method and registry stem for *kind*; the directory kind keeps its old one."""
+    return "pv_directory" if kind == "directory" else kind
 
 
 def _spec(kind: str, type_name: str, **settings: Any) -> BackendSpec:
@@ -57,7 +63,7 @@ def _spec(kind: str, type_name: str, **settings: Any) -> BackendSpec:
     )
 
 
-class _OutOfTreeBackend(PVDirectory):
+class _OutOfTreeBackend(ChannelDirectory):
     """Records what the factory handed its constructor."""
 
     def __init__(self, spec, *, project_dir=None, **seams):
@@ -99,9 +105,9 @@ def test_a_builtin_resolves_in_a_fresh_interpreter(type_name, kind, create, clas
         sys.modules["aiokafka"] = None
 
         from osprey_connectors.factory import ConnectorFactory
-        from osprey_connectors.pv_directory.contract import BackendSpec
+        from osprey_connectors.service_answers import BackendSpec
 
-        assert not ConnectorFactory._{kind}_connectors
+        assert not ConnectorFactory._{_stem(kind)}_connectors
         spec = BackendSpec(
             kind={kind!r},
             type={type_name!r},
@@ -131,19 +137,19 @@ def test_the_table_is_exactly_the_written_out_builtins():
 @pytest.mark.parametrize(
     ("names", "kind"),
     [
-        (_BUILTIN_PV_DIRECTORIES, "pv_directory"),
+        (_BUILTIN_PV_DIRECTORIES, "directory"),
         (_BUILTIN_ALARM_LOGS, "alarm_log"),
         (_BUILTIN_ALARM_STATES, "alarm_state"),
         (_BUILTIN_PUT_LOGS, "put_log"),
     ],
-    ids=["pv_directory", "alarm_log", "alarm_state", "put_log"],
+    ids=["directory", "alarm_log", "alarm_state", "put_log"],
 )
 def test_each_builtin_tuple_is_its_kinds_rows(names, kind):
     assert set(names) == {row.name for row in _DIRECTORY_BUILTINS if row.kind == kind}
     with isolated_connector_registries(clear=True):
         register_builtin_connectors()
 
-        assert set(names) == set(getattr(ConnectorFactory, f"_{kind}_connectors"))
+        assert set(names) == set(getattr(ConnectorFactory, f"_{_stem(kind)}_connectors"))
 
 
 def test_the_directory_table_stays_private_and_apart():
@@ -210,7 +216,7 @@ async def test_a_seam_is_passed_only_when_it_is_set(tmp_path):
         marker = object()
 
         backend = await ConnectorFactory.create_pv_directory_connector(
-            _spec("pv_directory", "mine"),
+            _spec("directory", "mine"),
             project_dir=tmp_path,
             transport=marker,
             consumer_factory=None,
@@ -230,7 +236,7 @@ async def test_transport_reaches_an_http_backend():
 
     transport = _Transport()
     backend = await ConnectorFactory.create_pv_directory_connector(
-        _spec("pv_directory", "channelfinder"), transport=transport
+        _spec("directory", "channelfinder"), transport=transport
     )
 
     assert await backend.property_names(1.0) == ["iocName", "recordType"]

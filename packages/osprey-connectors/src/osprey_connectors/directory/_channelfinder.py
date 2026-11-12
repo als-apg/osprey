@@ -31,19 +31,17 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
-from osprey_connectors.pv_directory._transport import ReadOnlyTransport
-from osprey_connectors.pv_directory.contract import (
+from osprey_connectors._service_http import ReadOnlyTransport
+from osprey_connectors.directory._contract import (
     DEFAULT_DESCRIPTION_PROPERTY,
     ROW_FIELD_PROPERTIES,
-    BackendSpec,
+    ChannelDirectory,
     DirectoryPage,
+    DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
-    Outcome,
-    PVDirectory,
-    SearchQuery,
-    Unavailable,
 )
+from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
 
 _CHANNELS = "/resources/channels"
 _COUNT = "/resources/channels/count"
@@ -92,7 +90,7 @@ def _literal(path: str, params: _Params) -> str:
     return f"GET {path}?{query}"
 
 
-def _searched(query: SearchQuery) -> str:
+def _searched(query: DirectoryQuery) -> str:
     parts = []
     if query.words.strip():
         parts.append(f"name or description matches {' '.join(query.words.split())}")
@@ -147,7 +145,7 @@ def _properties_of(channel: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-class ChannelFinderDirectory(PVDirectory):
+class ChannelFinderDirectory(ChannelDirectory):
     """Search a ChannelFinder service over its read routes.
 
     Args:
@@ -190,7 +188,7 @@ class ChannelFinderDirectory(PVDirectory):
             else _DEFAULT_EXACT_PROPERTIES
         )
 
-    def _filters(self, query: SearchQuery) -> _Params:
+    def _filters(self, query: DirectoryQuery) -> _Params:
         params: _Params = []
         for key, value in query.properties.items():
             text = str(value)
@@ -207,7 +205,7 @@ class ChannelFinderDirectory(PVDirectory):
             params.append((ROW_FIELD_PROPERTIES["record_type"], _any_of(query.record_type)))
         return params
 
-    def _searches(self, query: SearchQuery) -> list[_Params]:
+    def _searches(self, query: DirectoryQuery) -> list[_Params]:
         """The searches to try in turn, each without its paging."""
         words = query.words.split()
         plain = [word for word in words if not _is_name_term(word)]
@@ -241,7 +239,7 @@ class ChannelFinderDirectory(PVDirectory):
     async def _get(self, path: str, params: _Params | None, deadline: float) -> Any:
         return await self._transport.request("GET", path, params=params, deadline=deadline)
 
-    async def search(self, query: SearchQuery, deadline: float) -> DirectoryPage:
+    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
         started = time.monotonic()
         searched = _searched(query)
         size = max(query.page_size, 0)
@@ -292,7 +290,7 @@ class ChannelFinderDirectory(PVDirectory):
                 partial=[{"part": "count", "reason": why_no_count}] if known is None else [],
             )
 
-    async def count(self, query: SearchQuery, deadline: float) -> int | Unavailable:
+    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:
         started = time.monotonic()
         total: int | Unavailable = 0
         for narrowing in self._searches(query):

@@ -18,7 +18,7 @@ from osprey.services.pv_directory._connectors import (
     FLOOR_REASON,
     NO_SOURCE_REASON,
     as_payload,
-    pv_directory_targets,
+    service_targets,
 )
 from osprey.services.pv_directory.facts import Facts
 
@@ -50,12 +50,12 @@ async def logbook_availability(request: Request) -> dict[str, Any]:
     """
     from osprey.interfaces.channel_finder import directory_api
 
-    if pv_directory_targets is None:
+    if service_targets is None:
         return {"available": False, "source": None, "reason": FLOOR_REASON}
     config = request.app.state.config
     ariel = directory_api.ariel_configured(config)
     target = (await request.app.state.directory_service.count())["source"]["target"]
-    source = pv_directory_targets(config, ariel_configured=ariel)["logbook"].get(target)
+    source = service_targets(config, ariel_configured=ariel)["logbook"].get(target)
     if source is None:
         return {"available": False, "source": None, "reason": NO_SOURCE_REASON}
     return {"available": True, "source": as_payload(source)}

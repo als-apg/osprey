@@ -20,24 +20,32 @@ from typing import Any
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
-from fastmcp import FastMCP  # noqa: E402
+from fastmcp import FastMCP
 
-import osprey.channel_roster as channel_roster  # noqa: E402
-from osprey.mcp_server.pv_directory import server  # noqa: E402
-from osprey.mcp_server.pv_directory.tools import (  # noqa: E402
+import osprey.channel_roster as channel_roster
+from osprey.mcp_server.pv_directory import server
+from osprey.mcp_server.pv_directory.tools import (
     alarm_config,
     alarm_history,
     alarm_state,
     put_history,
 )
-from osprey.services.pv_directory import _connectors  # noqa: E402
-from osprey.services.pv_directory.facts import panel_link  # noqa: E402
-from osprey_connectors import control_context  # noqa: E402
-from osprey_connectors.factory import ConnectorFactory  # noqa: E402
-from tests._vocabulary import PROTOCOL_WORDS  # noqa: E402
-from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
+from osprey.services.pv_directory import _connectors
+from osprey.services.pv_directory.facts import panel_link
+from osprey_connectors import control_context
+from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.put_log import PutRow
+from osprey_connectors.service_answers import (
+    HistoryPage,
+    Outcome,
+    Source,
+    Unavailable,
+)
+from tests._vocabulary import PROTOCOL_WORDS
+from tests.mcp_server.conftest import assert_raises_error
 
 _REAL_ALARM_STATE = ConnectorFactory.create_alarm_state_connector
 
@@ -66,22 +74,22 @@ class FakeBackend:
 
     @property
     def source(self) -> Any:
-        return contract.Source(
+        return Source(
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label if self.spec.kind == "pv_directory" else self.spec.type,
+            label=self.label if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
     def _page(self, rows: list[Any]) -> Any:
         if not rows:
-            return contract.HistoryPage(
-                outcome=contract.Outcome.NO_MATCH,
+            return HistoryPage(
+                outcome=Outcome.NO_MATCH,
                 source=self.source,
                 reason=self.empty_reason,
             )
-        return contract.HistoryPage(
-            outcome=contract.Outcome.FOUND,
+        return HistoryPage(
+            outcome=Outcome.FOUND,
             source=self.source,
             rows=rows,
         )
@@ -92,7 +100,7 @@ class FakeDirectory(FakeBackend):
         return 0
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return contract.Outcome.NOT_LISTED
+        return Outcome.NOT_LISTED
 
 
 class FakeAlarmState(FakeBackend):
@@ -270,7 +278,7 @@ def test_each_tool_registers_only_with_its_sub_block(
 
 async def test_alarm_state_answers_each_channel_with_its_panel_link(tmp_path: Path) -> None:
     FakeAlarmState.states = {
-        "SR:BPM1": contract.AlarmStateRecord(severity="MAJOR", status="HIHI"),
+        "SR:BPM1": AlarmStateRecord(severity="MAJOR", status="HIHI"),
     }
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
@@ -289,7 +297,7 @@ async def test_alarm_state_answers_each_channel_with_its_panel_link(tmp_path: Pa
 
 
 async def test_a_stale_alarm_state_is_reported_as_stale(tmp_path: Path) -> None:
-    FakeAlarmState.states = {"SR:BPM1": contract.AlarmStateRecord(severity="MINOR", stale=True)}
+    FakeAlarmState.states = {"SR:BPM1": AlarmStateRecord(severity="MINOR", stale=True)}
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
     result = json.loads(await alarm_state.alarm_state(["SR:BPM1"]))
@@ -302,8 +310,8 @@ async def test_a_stale_alarm_state_is_reported_as_stale(tmp_path: Path) -> None:
 
 async def test_a_channel_with_no_answer_is_missing_beside_the_answered(tmp_path: Path) -> None:
     FakeAlarmState.states = {
-        "SR:BPM1": contract.AlarmStateRecord(severity="NO_ALARM"),
-        "SR:BPM2": contract.Unavailable("alarm broker cannot be reached: refused"),
+        "SR:BPM1": AlarmStateRecord(severity="NO_ALARM"),
+        "SR:BPM2": Unavailable("alarm broker cannot be reached: refused"),
     }
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
@@ -314,8 +322,8 @@ async def test_a_channel_with_no_answer_is_missing_beside_the_answered(tmp_path:
 
 
 async def test_a_feed_still_loading_is_reported(tmp_path: Path) -> None:
-    FakeAlarmState.states = {"SR:BPM1": contract.Unavailable("alarm feed still loading")}
-    FakeAlarmState.config = contract.Unavailable("alarm feed still loading")
+    FakeAlarmState.states = {"SR:BPM1": Unavailable("alarm feed still loading")}
+    FakeAlarmState.config = Unavailable("alarm feed still loading")
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
     with assert_raises_error(error_type="nothing_answered") as refused:
@@ -393,7 +401,7 @@ async def test_alarm_state_takes_one_to_fifty_names(tmp_path: Path) -> None:
 
 
 async def test_alarm_config_from_the_feed_carries_its_label_and_link(tmp_path: Path) -> None:
-    FakeAlarmState.config = contract.AlarmConfigRecord(
+    FakeAlarmState.config = AlarmConfigRecord(
         in_tree="yes", path="/SR/BPM1", label="live configuration"
     )
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
@@ -407,9 +415,7 @@ async def test_alarm_config_from_the_feed_carries_its_label_and_link(tmp_path: P
 
 
 async def test_alarm_config_with_only_the_logger(tmp_path: Path) -> None:
-    FakeAlarmLog.config = contract.AlarmConfigRecord(
-        in_tree="no", label="last logged configuration"
-    )
+    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no", label="last logged configuration")
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_log": ALARM_LOG})
 
     result = json.loads(await alarm_config.alarm_config("ca://SR:BPM1"))
@@ -423,8 +429,8 @@ async def test_alarm_config_with_only_the_logger(tmp_path: Path) -> None:
 
 
 async def test_alarm_state_and_alarm_config_carry_the_configured_caveats(tmp_path: Path) -> None:
-    FakeAlarmState.states = {"SR:BPM1": contract.AlarmStateRecord(severity="MINOR")}
-    FakeAlarmState.config = contract.AlarmConfigRecord(in_tree="yes", label="live configuration")
+    FakeAlarmState.states = {"SR:BPM1": AlarmStateRecord(severity="MINOR")}
+    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", label="live configuration")
     caveats = ["covers the SR tree only"]
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": {**KAFKA, "caveats": caveats}})
 
@@ -467,7 +473,7 @@ async def test_an_empty_history_says_nothing_was_logged_with_its_caveats_and_lin
 
 
 async def test_a_history_answers_its_rows_newest_twenty_by_default(tmp_path: Path) -> None:
-    FakePutLog.rows = [contract.PutRow(at="t2", pv="SR:BPM1", old="1", new="2", user="op")]
+    FakePutLog.rows = [PutRow(at="t2", pv="SR:BPM1", old="1", new="2", user="op")]
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG})
 
     result = json.loads(await put_history.put_history("SR:BPM1"))

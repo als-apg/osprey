@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from osprey_connectors.pv_directory.contract import AlarmConfigRecord, AlarmStateRecord
+from osprey_connectors.alarm_state._contract import AlarmConfigRecord, AlarmStateRecord
 
 FEED_LOADING = "alarm feed still loading"
 FEED_EMPTY = "no message from the feed yet"

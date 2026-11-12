@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
 from fastapi.testclient import TestClient
 

@@ -2,7 +2,7 @@
 
 :class:`DirectoryService` follows the session's control target: the target of the
 control-context record, or the deployment's baseline when there is none. For that
-target it builds each backend ``pv_directory_targets`` names, through the
+target it builds each backend ``service_targets`` names, through the
 connectors' factory, and answers searches, counts and records as plain payloads,
 on every connectors release: without the PV directory modules every read answers
 ``unavailable`` with the upgrade reason, and a section with no source on the
@@ -37,11 +37,11 @@ from osprey.services.pv_directory._connectors import (
     NO_SOURCE_REASON,
     ROW_FIELD_PROPERTIES,
     DirectoryPage,
+    DirectoryQuery,
     Outcome,
-    SearchQuery,
     Unavailable,
     as_payload,
-    pv_directory_targets,
+    service_targets,
     unavailable_payload,
 )
 from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
@@ -57,6 +57,8 @@ logger = logging.getLogger(__name__)
 
 _SECTION_KEY = "pv_directory"
 _KINDS = ("pv_directory", "alarm_log", "alarm_state", "put_log")
+#: The connectors' kind each section reads, as ``service_targets`` keys its table.
+_TARGETS_ROW = {"pv_directory": "directory"}
 _DEFAULT_TIMEOUT_S = 6.0
 _DEFAULT_FILTER_CAP = 5000
 #: How long a fetched count or result set answers repeat searches of one query.
@@ -118,7 +120,7 @@ class DirectoryService:
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
             return _no_source_page(reason or NO_SOURCE_REASON, target)
-        query = SearchQuery(**fields)
+        query = DirectoryQuery(**fields)
         server = dataclasses.replace(query, origin=())
         deadline = self._timeout()
         started = time.monotonic()
@@ -174,7 +176,7 @@ class DirectoryService:
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
             return _no_source_count(reason or NO_SOURCE_REASON, target)
-        query = SearchQuery(**fields)
+        query = DirectoryQuery(**fields)
         server = dataclasses.replace(query, origin=())
         deadline = self._timeout()
         started = time.monotonic()
@@ -266,8 +268,12 @@ class DirectoryService:
                 return {}
             return {"pv_directory": unavailable_payload(FLOOR_REASON, target=target)}
         wanted = _KINDS if kinds is None else tuple(kinds)
-        table = pv_directory_targets(self._config, ariel_configured=False)
-        asked = [kind for kind in _KINDS if kind in wanted and any(table[kind].values())]
+        table = service_targets(self._config, ariel_configured=False)
+        asked = [
+            kind
+            for kind in _KINDS
+            if kind in wanted and any(table[_TARGETS_ROW.get(kind, kind)].values())
+        ]
         answers = await asyncio.gather(*(self._probe(kind, target) for kind in asked))
         return dict(zip(asked, answers, strict=True))
 
@@ -317,7 +323,8 @@ class DirectoryService:
         return built
 
     async def _build(self, kind: str, target: str) -> tuple[Any, Any, str | None]:
-        spec: Any = pv_directory_targets(self._config, ariel_configured=False)[kind][target]
+        table = service_targets(self._config, ariel_configured=False)
+        spec: Any = table[_TARGETS_ROW.get(kind, kind)][target]
         if spec is None:
             return None, None, NO_SOURCE_REASON
         if kind == "alarm_state" and spec.settings.get("replay_file"):

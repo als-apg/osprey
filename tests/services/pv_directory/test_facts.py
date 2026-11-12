@@ -20,27 +20,50 @@ from typing import Any
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
 
-import osprey.channel_roster as channel_roster  # noqa: E402
-from osprey.services.pv_directory import _connectors, facts, service  # noqa: E402
-from osprey_connectors import control_context  # noqa: E402
-from osprey_connectors.factory import ConnectorFactory  # noqa: E402
-from osprey_connectors.simulation.view import (  # noqa: E402
+import osprey.channel_roster as channel_roster
+from osprey.services.pv_directory import _connectors, facts, service
+from osprey_connectors import control_context
+from osprey_connectors.alarm_log import AlarmHistoryRow
+from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord
+from osprey_connectors.directory import (
+    SERVED_SIGNAL_PROPERTY,
+    DirectoryPage,
+    DirectoryRecord,
+    DirectoryRow,
+)
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.put_log import PutRow
+from osprey_connectors.service_answers import (
+    HistoryPage,
+    Outcome,
+    Source,
+    Unavailable,
+)
+from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
     STATUS_SIGNAL,
     UPTIME,
 )
 
-SIGNAL = contract.SERVED_SIGNAL_PROPERTY
+SIGNAL = SERVED_SIGNAL_PROPERTY
 
 _REAL_ALARM_STATE = ConnectorFactory.create_alarm_state_connector
 
 _NEW_MODULES = (
-    "osprey_connectors.pv_directory",
-    "osprey_connectors.pv_directory.contract",
-    "osprey_connectors.pv_directory.targets",
+    "osprey_connectors.service_answers",
+    "osprey_connectors.service_targets",
+    "osprey_connectors._service_http",
+    "osprey_connectors.directory",
+    "osprey_connectors.directory._contract",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_state._contract",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.alarm_log._contract",
+    "osprey_connectors.put_log",
+    "osprey_connectors.put_log._contract",
 )
 
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -71,10 +94,10 @@ class FakeBackend:
 
     @property
     def source(self) -> Any:
-        return contract.Source(
+        return Source(
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label if self.spec.kind == "pv_directory" else self.spec.type,
+            label=self.label if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
@@ -101,8 +124,8 @@ class FakeDirectory(FakeBackend):
 
     async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return contract.DirectoryPage(
-                outcome=contract.Outcome.UNAVAILABLE,
+            return DirectoryPage(
+                outcome=Outcome.UNAVAILABLE,
                 searched="",
                 request="",
                 source=self.source,
@@ -111,8 +134,8 @@ class FakeDirectory(FakeBackend):
         hits = self._hits(query)
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
-        return contract.DirectoryPage(
-            outcome=contract.Outcome.FOUND if hits else contract.Outcome.NO_MATCH,
+        return DirectoryPage(
+            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
             searched="",
             request="GET /fake",
             source=self.source,
@@ -123,13 +146,13 @@ class FakeDirectory(FakeBackend):
 
     async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return contract.Unavailable(self.fail)
+            return Unavailable(self.fail)
         return len(self._hits(query))
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return contract.Unavailable(self.fail)
-        return self.records.get(name, contract.Outcome.NOT_LISTED)
+            return Unavailable(self.fail)
+        return self.records.get(name, Outcome.NOT_LISTED)
 
 
 class FakeAlarmState(FakeBackend):
@@ -158,10 +181,10 @@ class FakeAlarmLog(FakeBackend):
 
     async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
         await asyncio.sleep(self.delay)
-        return self.page or contract.HistoryPage(
-            outcome=contract.Outcome.FOUND,
+        return self.page or HistoryPage(
+            outcome=Outcome.FOUND,
             source=self.source,
-            rows=[contract.AlarmHistoryRow(time="t1", severity="MAJOR", user="operator one")],
+            rows=[AlarmHistoryRow(time="t1", severity="MAJOR", user="operator one")],
         )
 
     async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
@@ -172,10 +195,10 @@ class FakePutLog(FakeBackend):
     page: Any = None
 
     async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
-        return self.page or contract.HistoryPage(
-            outcome=contract.Outcome.FOUND,
+        return self.page or HistoryPage(
+            outcome=Outcome.FOUND,
             source=self.source,
-            rows=[contract.PutRow(at="t2", pv=pv, old="1", new="2", user="operator two")],
+            rows=[PutRow(at="t2", pv=pv, old="1", new="2", user="operator two")],
         )
 
 
@@ -258,8 +281,8 @@ def _facts(config: dict[str, Any], tmp_path: Path) -> Any:
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = contract.DirectoryRow(name=name, ioc=ioc, host="host-a", status=status)
-    return contract.DirectoryRecord(row=row, properties=properties)
+    row = DirectoryRow(name=name, ioc=ioc, host="host-a", status=status)
+    return DirectoryRecord(row=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
@@ -275,8 +298,8 @@ def _sections(answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 async def test_every_configured_section_answers(tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1", recordDesc="beam position"))
-    FakeAlarmState.state = contract.AlarmStateRecord(severity="MINOR", stale=True)
-    FakeAlarmState.config = contract.AlarmConfigRecord(
+    FakeAlarmState.state = AlarmStateRecord(severity="MINOR", stale=True)
+    FakeAlarmState.config = AlarmConfigRecord(
         in_tree="yes", path="/SR/BPM1", label="live configuration"
     )
     page = _facts(_config(tmp_path, LIVE_BUILD, EVERY_SERVICE, "SR:BPM1"), tmp_path)
@@ -416,9 +439,9 @@ async def test_a_slow_history_misses_its_own_deadline_only(tmp_path: Path) -> No
 async def test_an_unavailable_history_page_keeps_its_reason(tmp_path: Path) -> None:
     section = {**FACILITY, "put_log": PUT_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
-    FakePutLog.page = contract.HistoryPage(
-        outcome=contract.Outcome.UNAVAILABLE,
-        source=contract.Source(target="live", service="caputlog", label="x", rehearsal=False),
+    FakePutLog.page = HistoryPage(
+        outcome=Outcome.UNAVAILABLE,
+        source=Source(target="live", service="caputlog", label="x", rehearsal=False),
         reason="malformed response",
     )
 
@@ -466,11 +489,9 @@ async def test_a_backend_that_cannot_be_built_says_why(
 
 
 async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path: Path) -> None:
-    FakeAlarmState.state = contract.Unavailable("alarm feed still loading")
-    FakeAlarmState.config = contract.Unavailable("alarm feed still loading")
-    FakeAlarmLog.config = contract.AlarmConfigRecord(
-        in_tree="no", label="last logged configuration"
-    )
+    FakeAlarmState.state = Unavailable("alarm feed still loading")
+    FakeAlarmState.config = Unavailable("alarm feed still loading")
+    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no", label="last logged configuration")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -487,8 +508,8 @@ async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path
 
 
 async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Path) -> None:
-    FakeAlarmState.config = contract.Unavailable("no message from the feed yet")
-    FakeAlarmLog.config = contract.AlarmConfigRecord(
+    FakeAlarmState.config = Unavailable("no message from the feed yet")
+    FakeAlarmLog.config = AlarmConfigRecord(
         in_tree="yes", path="/SR/BPM1", label="last logged configuration"
     )
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
@@ -503,7 +524,7 @@ async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Pa
 
 
 async def test_the_logger_alone_answers_the_configuration(tmp_path: Path) -> None:
-    FakeAlarmLog.config = contract.Unavailable("second step failed")
+    FakeAlarmLog.config = Unavailable("second step failed")
     section = {**FACILITY, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -558,8 +579,8 @@ async def test_alarm_state_on_va_from_the_replay(
 
 async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1"))
-    FakeAlarmState.state = contract.AlarmStateRecord(severity="MINOR")
-    FakeAlarmState.config = contract.AlarmConfigRecord(in_tree="yes", label="live configuration")
+    FakeAlarmState.state = AlarmStateRecord(severity="MINOR")
+    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", label="live configuration")
     section = {
         **FACILITY,
         "caveats": ["names only, no values"],
@@ -581,10 +602,8 @@ async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_pat
 
 
 async def test_the_logged_configuration_carries_the_logger_caveats(tmp_path: Path) -> None:
-    FakeAlarmState.config = contract.Unavailable("no message from the feed yet")
-    FakeAlarmLog.config = contract.AlarmConfigRecord(
-        in_tree="yes", label="last logged configuration"
-    )
+    FakeAlarmState.config = Unavailable("no message from the feed yet")
+    FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes", label="last logged configuration")
     section = {
         **FACILITY,
         "alarm_state": {**KAFKA, "caveats": ["covers the SR tree only"]},
@@ -636,11 +655,9 @@ async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
     tmp_path: Path, outcome: str
 ) -> None:
     if outcome == "no_match":
-        FakePutLog.page = contract.HistoryPage(
-            outcome=contract.Outcome.NO_MATCH,
-            source=contract.Source(
-                target="live", service="caputlog", label="caputlog", rehearsal=False
-            ),
+        FakePutLog.page = HistoryPage(
+            outcome=Outcome.NO_MATCH,
+            source=Source(target="live", service="caputlog", label="caputlog", rehearsal=False),
             reason="no logged puts",
         )
     section = {
@@ -663,9 +680,9 @@ async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
 
 
 async def test_an_answered_history_names_its_configured_source(tmp_path: Path) -> None:
-    FakePutLog.page = contract.HistoryPage(
-        outcome=contract.Outcome.FOUND,
-        source=contract.Source(target="live", service="caputlog", label="x", rehearsal=False),
+    FakePutLog.page = HistoryPage(
+        outcome=Outcome.FOUND,
+        source=Source(target="live", service="caputlog", label="x", rehearsal=False),
     )
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG}), tmp_path)
 
@@ -708,9 +725,9 @@ async def test_an_unlisted_pv_with_logged_puts_is_not_listed(tmp_path: Path) -> 
 
 
 async def test_an_unlisted_pv_nothing_else_found_is_unknown(tmp_path: Path) -> None:
-    FakePutLog.page = contract.HistoryPage(
-        outcome=contract.Outcome.FOUND,
-        source=contract.Source(target="live", service="caputlog", label="x", rehearsal=False),
+    FakePutLog.page = HistoryPage(
+        outcome=Outcome.FOUND,
+        source=Source(target="live", service="caputlog", label="x", rehearsal=False),
     )
     section = {**FACILITY, "alarm_state": KAFKA, "put_log": PUT_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)

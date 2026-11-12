@@ -1,4 +1,4 @@
-"""The one place the framework imports the connectors' PV directory modules.
+"""The one place the framework imports the connectors' read-only service modules.
 
 The framework runs on connectors releases that predate those modules, so the
 names below are ``None`` there and :data:`DIRECTORY_CONNECTORS_AVAILABLE` is
@@ -18,31 +18,34 @@ from enum import Enum
 from typing import Any
 
 try:
-    from osprey_connectors.pv_directory.contract import (
+    from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
+    from osprey_connectors.alarm_state import (
         ALARM_STALE_WINDOW_S,
+        AlarmConfigRecord,
+        AlarmState,
+        AlarmStateRecord,
+    )
+    from osprey_connectors.directory import (
         DEFAULT_DESCRIPTION_PROPERTY,
         ROW_FIELD_PROPERTIES,
         SERVED_SIGNAL_PROPERTY,
-        AlarmConfigRecord,
-        AlarmHistoryRow,
-        AlarmLog,
-        AlarmState,
-        AlarmStateRecord,
-        BackendSpec,
+        ChannelDirectory,
         DirectoryPage,
+        DirectoryQuery,
         DirectoryRecord,
         DirectoryRow,
+    )
+    from osprey_connectors.put_log import PutLog, PutRow
+    from osprey_connectors.service_answers import (
+        BackendSpec,
         HistoryPage,
         Outcome,
-        PutLog,
-        PutRow,
-        PVDirectory,
-        SearchQuery,
         Source,
         Unavailable,
     )
-    from osprey_connectors.pv_directory.targets import has_simulator, pv_directory_targets
+    from osprey_connectors.service_targets import service_targets
     from osprey_connectors.simulation.view import ENGINEER, IOC_HEALTH_SIGNALS
+    from osprey_connectors.simulator import has_simulator
 
     DIRECTORY_CONNECTORS_AVAILABLE = True
 except ImportError:
@@ -58,22 +61,22 @@ except ImportError:
     AlarmState = None  # type: ignore[assignment,misc]
     AlarmStateRecord = None  # type: ignore[assignment,misc]
     BackendSpec = None  # type: ignore[assignment,misc]
+    ChannelDirectory = None  # type: ignore[assignment,misc]
     ENGINEER = None  # type: ignore[assignment]
     IOC_HEALTH_SIGNALS = None  # type: ignore[assignment]
     DirectoryPage = None  # type: ignore[assignment,misc]
+    DirectoryQuery = None  # type: ignore[assignment,misc]
     DirectoryRecord = None  # type: ignore[assignment,misc]
     DirectoryRow = None  # type: ignore[assignment,misc]
     HistoryPage = None  # type: ignore[assignment,misc]
     Outcome = None  # type: ignore[assignment,misc]
     PutLog = None  # type: ignore[assignment,misc]
     PutRow = None  # type: ignore[assignment,misc]
-    PVDirectory = None  # type: ignore[assignment,misc]
     SERVED_SIGNAL_PROPERTY = None  # type: ignore[assignment]
-    SearchQuery = None  # type: ignore[assignment,misc]
     Source = None  # type: ignore[assignment,misc]
     Unavailable = None  # type: ignore[assignment,misc]
     has_simulator = None  # type: ignore[assignment]
-    pv_directory_targets = None  # type: ignore[assignment]
+    service_targets = None  # type: ignore[assignment]
 
 __all__ = [
     "ALARM_STALE_WINDOW_S",
@@ -91,20 +94,20 @@ __all__ = [
     "AlarmState",
     "AlarmStateRecord",
     "BackendSpec",
+    "ChannelDirectory",
     "DirectoryPage",
+    "DirectoryQuery",
     "DirectoryRecord",
     "DirectoryRow",
     "HistoryPage",
     "Outcome",
-    "PVDirectory",
     "PutLog",
     "PutRow",
-    "SearchQuery",
     "Source",
     "Unavailable",
     "as_payload",
     "has_simulator",
-    "pv_directory_targets",
+    "service_targets",
     "unavailable_payload",
 ]
 

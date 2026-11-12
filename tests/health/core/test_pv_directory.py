@@ -28,15 +28,23 @@ KAFKA = {
     "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator", "timeout_s": 0.2},
 }
 _NEW_MODULES = (
-    "osprey_connectors.pv_directory",
-    "osprey_connectors.pv_directory.contract",
-    "osprey_connectors.pv_directory.targets",
+    "osprey_connectors.service_answers",
+    "osprey_connectors.service_targets",
+    "osprey_connectors._service_http",
+    "osprey_connectors.directory",
+    "osprey_connectors.directory._contract",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_state._contract",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.alarm_log._contract",
+    "osprey_connectors.put_log",
+    "osprey_connectors.put_log._contract",
 )
 
 
 @pytest.fixture
 def contract() -> Any:
-    return pytest.importorskip("osprey_connectors.pv_directory.contract")
+    return pytest.importorskip("osprey_connectors.service_answers")
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +75,7 @@ class _Fake:
 
     @property
     def source(self) -> Any:
-        contract = importlib.import_module("osprey_connectors.pv_directory.contract")
+        contract = importlib.import_module("osprey_connectors.service_answers")
         return contract.Source(
             target=self.spec.target, service=self.spec.type, label="All PVs", rehearsal=False
         )
@@ -79,7 +87,7 @@ class _Fake:
 @pytest.fixture
 def fakes(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     """Fakes behind the directory, alarm logger and put log create calls."""
-    pytest.importorskip("osprey_connectors.pv_directory.contract")
+    pytest.importorskip("osprey_connectors.service_answers")
     from osprey_connectors.factory import ConnectorFactory
 
     made: list[Any] = []
@@ -191,7 +199,7 @@ async def test_each_configured_service_is_one_row_with_its_evidence(
 
 @pytest.mark.usefixtures("fakes")
 async def test_an_unreachable_service_warns_with_its_reason(tmp_path: Path, contract: Any) -> None:
-    _Fake.answers = {"pv_directory": contract.Unavailable("the service answered a login page")}
+    _Fake.answers = {"directory": contract.Unavailable("the service answered a login page")}
 
     rows = await pv_directory(_config(tmp_path, LIVE_BUILD, FACILITY), cwd=tmp_path)()
 

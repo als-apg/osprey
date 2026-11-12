@@ -1,43 +1,45 @@
-"""The contract every directory-kind backend and its consumers share."""
+"""The answers every read-only service backend shares, and the contract of each kind."""
 
 from __future__ import annotations
 
 import ast
 import dataclasses
+import importlib
 import inspect
 from pathlib import Path
 
 import pytest
 
 import osprey_connectors
-from osprey_connectors.pv_directory import contract
-from osprey_connectors.pv_directory.contract import (
+from osprey_connectors import service_answers
+from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
+from osprey_connectors.alarm_state import (
     ALARM_STALE_WINDOW_S,
-    DEFAULT_DESCRIPTION_PROPERTY,
-    ROW_FIELD_PROPERTIES,
     AlarmConfigRecord,
-    AlarmHistoryRow,
-    AlarmLog,
     AlarmState,
     AlarmStateRecord,
-    BackendSpec,
+)
+from osprey_connectors.directory import (
+    ChannelDirectory,
     DirectoryPage,
+    DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
+)
+from osprey_connectors.put_log import PutLog, PutRow
+from osprey_connectors.service_answers import (
+    BackendSpec,
     HistoryPage,
     Outcome,
-    PutLog,
-    PutRow,
-    PVDirectory,
-    SearchQuery,
     Source,
     Unavailable,
 )
 
 PACKAGE = Path(osprey_connectors.__file__).parent
+KINDS = ("directory", "alarm_log", "alarm_state", "put_log")
 SOURCE = Source(target="va", service="simulator_view", label="All PVs", rehearsal=False)
 ABCS = {
-    PVDirectory: {"search", "count", "describe", "property_names", "property_values", "probe"},
+    ChannelDirectory: {"search", "count", "describe", "property_names", "property_values", "probe"},
     AlarmLog: {"history", "config_for", "probe"},
     AlarmState: {"start", "aclose", "state_for", "config_for", "probe"},
     PutLog: {"history", "probe"},
@@ -48,7 +50,7 @@ RECORDS = (
     BackendSpec,
     DirectoryRow,
     DirectoryRecord,
-    SearchQuery,
+    DirectoryQuery,
     DirectoryPage,
     AlarmHistoryRow,
     PutRow,
@@ -60,7 +62,7 @@ RECORDS = (
 
 def _spec(**changes) -> BackendSpec:
     fields = {
-        "kind": "pv_directory",
+        "kind": "directory",
         "type": "channelfinder",
         "target": "standin",
         "settings": {"url": "https://cf.example.org"},
@@ -69,7 +71,7 @@ def _spec(**changes) -> BackendSpec:
     return BackendSpec(**(fields | changes))
 
 
-class _Directory(PVDirectory):
+class _Directory(ChannelDirectory):
     async def search(self, query, deadline):
         raise NotImplementedError
 
@@ -116,50 +118,6 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
     [
         (Source, ["target", "service", "label", "rehearsal"]),
         (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
-        (
-            DirectoryRow,
-            [
-                "name",
-                "origin",
-                "status",
-                "description",
-                "record_type",
-                "ioc",
-                "host",
-                "last_announced",
-            ],
-        ),
-        (DirectoryRecord, ["row", "properties", "tags"]),
-        (
-            SearchQuery,
-            [
-                "words",
-                "name",
-                "properties",
-                "status",
-                "ioc",
-                "record_type",
-                "origin",
-                "page",
-                "page_size",
-            ],
-        ),
-        (
-            DirectoryPage,
-            [
-                "outcome",
-                "searched",
-                "request",
-                "source",
-                "total",
-                "rows",
-                "truncated",
-                "partial",
-                "facets",
-                "facets_reason",
-                "reason",
-            ],
-        ),
         (AlarmHistoryRow, ["time", "severity", "status", "message", "user", "kind"]),
         (PutRow, ["at", "pv", "field", "old", "new", "user", "client"]),
         (
@@ -191,32 +149,8 @@ def test_unavailable_takes_its_reason_positionally_and_requires_it():
         Unavailable()  # type: ignore[call-arg]
 
 
-def test_a_row_starts_with_an_unknown_origin():
-    assert DirectoryRow(name="SR:BPM:01").origin == "unknown"
-
-
 def test_the_stale_window_is_a_minute():
     assert ALARM_STALE_WINDOW_S == 60
-
-
-def test_row_field_properties_name_the_recsync_property_of_each_row_field():
-    assert dict(ROW_FIELD_PROPERTIES) == {
-        "status": "pvStatus",
-        "record_type": "recordType",
-        "ioc": "iocName",
-        "host": "hostName",
-        "last_announced": "time",
-    }
-    fields = [field.name for field in dataclasses.fields(DirectoryRow)]
-    assert list(ROW_FIELD_PROPERTIES) == [name for name in fields if name in ROW_FIELD_PROPERTIES]
-    assert "description" not in ROW_FIELD_PROPERTIES
-    assert "name" not in ROW_FIELD_PROPERTIES
-    with pytest.raises(TypeError):
-        ROW_FIELD_PROPERTIES["status"] = "STATUS"  # type: ignore[index]
-
-
-def test_the_default_description_property_is_record_desc():
-    assert DEFAULT_DESCRIPTION_PROPERTY == "recordDesc"
 
 
 @pytest.mark.parametrize(
@@ -236,49 +170,11 @@ def test_an_unavailable_page_carries_its_reason(build):
         build(reason="")
 
 
-def test_a_page_of_any_other_outcome_needs_no_reason():
-    page = DirectoryPage(outcome=Outcome.NO_MATCH, searched="q", request="r", source=SOURCE)
-
-    assert (page.rows, page.partial, page.total, page.facets) == ([], [], None, None)
-
-
 def test_pages_do_not_share_their_default_lists():
     first = HistoryPage(outcome=Outcome.FOUND, source=SOURCE)
     second = HistoryPage(outcome=Outcome.FOUND, source=SOURCE)
 
     assert first.rows is not second.rows
-
-
-def test_a_record_converts_to_the_json_shape():
-    record = DirectoryRecord(row=DirectoryRow(name="A"), properties={"caPort": "5064"})
-
-    assert dataclasses.asdict(record)["row"]["name"] == "A"
-    assert dataclasses.asdict(record)["properties"] == {"caPort": "5064"}
-
-
-# -- SearchQuery keys a cache -------------------------------------------------
-
-
-def test_equal_queries_hash_alike_whatever_the_filter_spelling():
-    first = SearchQuery(words="bpm", ioc=["a", "b"], properties={"x": "1"})
-    second = SearchQuery(words="bpm", ioc=("a", "b"), properties={"x": "1"})
-
-    assert first == second
-    assert hash(first) == hash(second)
-
-
-def test_queries_that_differ_only_in_properties_are_different_keys():
-    first = SearchQuery(properties={"x": "1"})
-    second = SearchQuery(properties={"x": "2"})
-
-    assert first != second
-    assert len({first, second}) == 2
-
-
-@pytest.mark.parametrize("name", ["ioc", "record_type", "origin"])
-def test_one_filter_value_is_one_value_not_its_letters(name):
-    assert getattr(SearchQuery(**{name: "abc"}), name) == ("abc",)
-    assert getattr(SearchQuery(**{name: None}), name) == ()
 
 
 # -- The ABCs -----------------------------------------------------------------
@@ -339,8 +235,8 @@ def test_another_kind_labels_its_source_with_the_service_name():
 # -- The module surface -------------------------------------------------------
 
 
-def test_every_public_name_of_the_contract_is_listed():
-    tree = ast.parse(inspect.getsource(contract))
+def _public_definitions(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     defined = {
         node.name
         for node in tree.body
@@ -350,12 +246,15 @@ def test_every_public_name_of_the_contract_is_listed():
         for node in tree.body
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
     }
+    return {name for name in defined if not name.startswith("_")}
 
-    assert {name for name in defined if not name.startswith("_")} == set(contract.__all__)
+
+def test_every_public_name_of_the_shared_answers_is_listed():
+    assert _public_definitions(Path(service_answers.__file__)) == set(service_answers.__all__)
 
 
-@pytest.mark.parametrize("package", ["pv_directory", "alarm_log", "alarm_state", "put_log"])
-def test_a_subpackage_root_re_exports_nothing(package):
-    tree = ast.parse((PACKAGE / package / "__init__.py").read_text(encoding="utf-8"))
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_kind_namespace_lists_exactly_its_contract(kind):
+    namespace = importlib.import_module(f"osprey_connectors.{kind}")
 
-    assert [type(node) for node in tree.body] == [ast.Expr], "only a docstring"
+    assert _public_definitions(PACKAGE / kind / "_contract.py") == set(namespace.__all__)

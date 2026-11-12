@@ -8,7 +8,7 @@ model that owns the address, else ``sim-texture``, as the composite routes it.
 
 A search means what it means on ChannelFinder. Words match descriptions first and
 names only when no description matched, in any case; all of them must match. A
-word holding ``*`` or ``?`` and each term of ``SearchQuery.name`` match names as
+word holding ``*`` or ``?`` and each term of ``DirectoryQuery.name`` match names as
 globs, wrapped as ``*term*`` unless the term starts or ends with ``*``; a leading
 ``=`` is the exact name. Properties compare whole values.
 """
@@ -19,16 +19,15 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from typing import Literal
 
-from osprey_connectors.pv_directory.contract import (
+from osprey_connectors.directory._contract import (
     SERVED_SIGNAL_PROPERTY,
+    ChannelDirectory,
     DirectoryPage,
+    DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
-    Outcome,
-    PVDirectory,
-    SearchQuery,
-    Unavailable,
 )
+from osprey_connectors.service_answers import Outcome, Unavailable
 from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
@@ -139,7 +138,7 @@ def _name_matcher(term: str) -> Callable[[str], object]:
     return re.compile(pattern, re.IGNORECASE).fullmatch
 
 
-def _passes_filters(record: DirectoryRecord, query: SearchQuery) -> bool:
+def _passes_filters(record: DirectoryRecord, query: DirectoryQuery) -> bool:
     row = record.row
     return (
         (query.status is None or row.status == query.status)
@@ -149,7 +148,7 @@ def _passes_filters(record: DirectoryRecord, query: SearchQuery) -> bool:
     )
 
 
-def _matching(records: Iterable[DirectoryRecord], query: SearchQuery) -> list[DirectoryRecord]:
+def _matching(records: Iterable[DirectoryRecord], query: DirectoryQuery) -> list[DirectoryRecord]:
     """The records ``query`` matches, in the order given."""
     words = query.words.split()
     matchers = [
@@ -174,7 +173,7 @@ def _matching(records: Iterable[DirectoryRecord], query: SearchQuery) -> list[Di
     ]
 
 
-def _searched(query: SearchQuery) -> str:
+def _searched(query: DirectoryQuery) -> str:
     parts = []
     if query.words.strip():
         parts.append(f"name or description matches {' '.join(query.words.split())}")
@@ -190,7 +189,7 @@ def _searched(query: SearchQuery) -> str:
     return " · ".join(parts) or "every PV"
 
 
-class SimulatorDirectory(PVDirectory):
+class SimulatorDirectory(ChannelDirectory):
     """Every PV the virtual accelerator serves, from the simulator view under ``project_dir``."""
 
     _records_read: Mapping[str, DirectoryRecord] | None = None
@@ -208,7 +207,7 @@ class SimulatorDirectory(PVDirectory):
             return Unavailable(f"the simulator view cannot be read: {failure}")
         return self._records_read
 
-    async def search(self, query: SearchQuery, deadline: float) -> DirectoryPage:  # noqa: ARG002
+    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:  # noqa: ARG002
         searched = _searched(query)
         request = f"{_REQUEST_PREFIX} · {searched}"
         records = self._records()
@@ -234,7 +233,7 @@ class SimulatorDirectory(PVDirectory):
             truncated=start + len(rows) < len(hits),
         )
 
-    async def count(self, query: SearchQuery, deadline: float) -> int | Unavailable:  # noqa: ARG002
+    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:  # noqa: ARG002
         records = self._records()
         return (
             records if isinstance(records, Unavailable) else len(_matching(records.values(), query))

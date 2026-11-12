@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.alarm_state._contract import AlarmConfigRecord, AlarmState, AlarmStateRecord
 from osprey_connectors.alarm_state._fold import (
     FEED_EMPTY,
     FEED_LOADING,
@@ -25,13 +26,7 @@ from osprey_connectors.alarm_state._fold import (
     state_record,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.pv_directory.contract import (
-    AlarmConfigRecord,
-    AlarmState,
-    AlarmStateRecord,
-    BackendSpec,
-    Unavailable,
-)
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 logger = get_logger("alarm_replay")
 

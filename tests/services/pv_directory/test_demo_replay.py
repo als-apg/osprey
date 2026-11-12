@@ -20,7 +20,11 @@ from typing import Any
 
 import pytest
 
-contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+pytest.importorskip("osprey_connectors.service_answers")
+
+from osprey_connectors.alarm_state import AlarmStateRecord
+from osprey_connectors.service_answers import BackendSpec
+
 _replay = pytest.importorskip("osprey_connectors.alarm_state._replay")
 
 from osprey.services.pv_directory import demo  # noqa: E402
@@ -77,7 +81,7 @@ def example_view(tmp_path_factory: pytest.TempPathFactory) -> SimulatorView:
 
 def _fold() -> tuple[dict[str, Any], dict[str, Any], str]:
     """Every replay PV's state and configuration, and the probe, from one load."""
-    spec = contract.BackendSpec(
+    spec = BackendSpec(
         kind="alarm_state",
         type="alarm_replay",
         target="va",
@@ -122,7 +126,7 @@ class TestFold:
     def test_the_file_folds_and_is_not_stale_on_load(self):
         states, _, probe = _fold()
 
-        assert all(isinstance(state, contract.AlarmStateRecord) for state in states.values())
+        assert all(isinstance(state, AlarmStateRecord) for state in states.values())
         assert not any(state.stale for state in states.values())
         assert "stopped" not in probe
 
