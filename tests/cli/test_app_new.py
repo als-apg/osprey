@@ -181,6 +181,32 @@ def test_an_existing_directory_is_refused_without_force(
     assert (lifecycle_repo / "profile.yml").read_text(encoding="utf-8") == profile
 
 
+@pytest.mark.parametrize("force", [(), ("--force",)], ids=["plain", "force"])
+def test_an_installed_applications_name_is_refused_before_anything_is_written(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    force: tuple[str, ...],
+) -> None:
+    from tests.apps import _installed
+
+    _installed.install(monkeypatch)
+    profile = (lifecycle_repo / "profile.yml").read_text(encoding="utf-8")
+    gitignore = (lifecycle_repo / ".gitignore").read_text(encoding="utf-8")
+
+    result = _new(runner, lifecycle_repo, _installed.NAME, *force)
+
+    assert result.exit_code != 0
+    assert (
+        f"apps/{_installed.NAME}/ has the name of the application {_installed.NAME} that "
+        f"{_installed.DIST} {_installed.VERSION} installs; rename the directory and its "
+        "app.yml name"
+    ) in " ".join(result.output.split())
+    assert not (lifecycle_repo / "apps" / _installed.NAME).exists()
+    assert (lifecycle_repo / "profile.yml").read_text(encoding="utf-8") == profile
+    assert (lifecycle_repo / ".gitignore").read_text(encoding="utf-8") == gitignore
+
+
 def test_force_replaces_the_directory_and_lists_the_application_once(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:

@@ -31,7 +31,7 @@ from ruamel.yaml import YAML, YAMLError
 from osprey.apps.boundary import check_package
 from osprey.apps.errors import AppManifestError, Violation
 from osprey.apps.manifest import APP_NAME_PATTERN
-from osprey.apps.rules import taken_package
+from osprey.apps.rules import shadows_installed, taken_package
 from osprey.utils.config_writer import load_config_document
 from osprey.utils.workspace import APPS_DIRNAME
 
@@ -81,7 +81,8 @@ def new(name: str, repo: Path | None, force: bool) -> None:
     NAME with underscores); no port is pinned. The profile's apps: block gains
     NAME: {}, and .gitignore the entry that keeps fetched panel files out of git. A name
     whose package would be a Python keyword or shadow a standard-library or OSPREY module
-    is refused. Whatever exists at apps/NAME/ is left alone unless --force replaces it.
+    is refused, and so is the name of an application an installed package ships. Whatever
+    exists at apps/NAME/ is left alone unless --force replaces it.
     """
     from .build_profile import write_back_cli_overrides
 
@@ -95,6 +96,11 @@ def new(name: str, repo: Path | None, force: bool) -> None:
             f"the Python package {package} would be a keyword or shadow an existing module",
             param_hint="NAME",
         )
+    from osprey.apps.origin import installed_apps
+
+    shadowing = shadows_installed([name], installed_apps())
+    if shadowing:
+        raise click.UsageError(shadowing[0].message)
     root = find_repo_root(repo)
     profile_path = root / PROFILE_FILENAME
     listed = _listed_apps(profile_path)
