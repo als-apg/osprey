@@ -109,6 +109,32 @@ def test_a_violation_reads_as_the_build_prints_it(
         assert text in built.output + caplog.text
 
 
+def test_a_hooks_key_is_refused_saying_what_to_declare(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "app.yml", _manifest("knob") + "hooks:\n  PreToolUse: []\n")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    assert "apps/knob/app.yml: hooks: apps ship no hook code" in result.output
+    assert "`tools.approval` for a write" in result.output
+
+
+def test_a_hooks_directory_is_refused_with_its_rule(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "hooks/x.py", "")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[no_hooks]")]
+    assert line.startswith("apps/knob: hooks: apps ship no hook code")
+
+
 def test_a_requirement_only_an_unlisted_directory_holds_is_reported(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
