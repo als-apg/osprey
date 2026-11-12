@@ -1375,6 +1375,12 @@ osprey ariel
 Manage the ARIEL logbook search service. Run from anywhere inside a deployment
 repo: the commands read its ``build/config.yml``.
 
+Every command gives the database 30 s to answer when it opens it; the limit
+covers the open, not the work after it. A database that does not answer ends
+the command with exit code 1 and
+``the ARIEL store at <host>:<port>/<database> did not answer within 30 s``. A
+database that refuses the connection fails at once.
+
 ``osprey ariel quickstart [-s, --source PATH]``
    Full setup: migrate, then ingest ``--source`` or the configured ingestion
    source; with neither, enhance what the logbook already holds (a deploy
