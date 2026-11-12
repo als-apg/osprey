@@ -34,7 +34,7 @@ class AlarmLog(_Backend, ABC):
     @abstractmethod
     async def history(
         self, channel: str, since: datetime | None, limit: int, deadline: float
-    ) -> HistoryPage:
+    ) -> HistoryPage[AlarmHistoryRow]:
         """The logged alarm events of *channel*, ``AlarmHistoryRow`` rows, newest first."""
 
     @abstractmethod

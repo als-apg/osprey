@@ -69,7 +69,7 @@ class PhoebusAlarmLogger(AlarmLog):
 
     async def history(
         self, channel: str, since: datetime | None, limit: int, deadline: float
-    ) -> HistoryPage:
+    ) -> HistoryPage[AlarmHistoryRow]:
         # One row more than asked for tells a full page from a longer history.
         answer = await self._search(channel, limit + 1, since, deadline)
         if isinstance(answer, Unavailable):
@@ -130,7 +130,7 @@ class PhoebusAlarmLogger(AlarmLog):
             return answer
         return Unavailable(_MALFORMED_REASON)
 
-    def _page(self, outcome: Outcome, **fields: Any) -> HistoryPage:
+    def _page(self, outcome: Outcome, **fields: Any) -> HistoryPage[AlarmHistoryRow]:
         return HistoryPage(outcome=outcome, source=self.source, **fields)
 
 

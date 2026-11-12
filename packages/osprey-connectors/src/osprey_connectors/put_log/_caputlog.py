@@ -69,7 +69,7 @@ class CaPutLog(PutLog):
 
     async def history(
         self, channel: str, since: datetime | None, limit: int, deadline: float
-    ) -> HistoryPage:
+    ) -> HistoryPage[PutRow]:
         """The logged writes of *channel*, newest first within the page the service returned."""
         limit = max(1, min(limit, _MAX_ROWS))
         # One row past the limit, so a full page differs from one that just fills.
@@ -121,7 +121,7 @@ class CaPutLog(PutLog):
         rows: list[PutRow] | None = None,
         truncated: bool = False,
         reason: str | None = None,
-    ) -> HistoryPage:
+    ) -> HistoryPage[PutRow]:
         return HistoryPage(
             outcome=outcome,
             source=self.source,
