@@ -3,8 +3,8 @@
  * OSPREY Channel Finder — All PVs markup
  *
  * Every string the All PVs view (allpvs.js) draws, as pure functions of the
- * answer and the operator's choices. Values from the directory, the alarm feed
- * and the control system are escaped here.
+ * answer and the operator's choices. Values from the directory, the alarm feed,
+ * the archive and the control system are escaped here.
  */
 
 import { formatRoute } from './route.js';
@@ -22,13 +22,34 @@ import { formatValue } from './value-format.js';
 export const PAGE_SIZE = 50;
 
 /** The filters in sidebar and chip order. */
-export const SIDEBAR_ORDER = /** @type {const} */ (['alarm', 'origin', 'ioc', 'record_type']);
+export const SIDEBAR_ORDER = /** @type {const} */ ([
+  'alarm',
+  'origin',
+  'ioc',
+  'record_type',
+  'archived',
+]);
 
 /**
  * The sidebar title of each route filter.
  * @type {Record<FacetKey, string>}
  */
-const FACET_TITLES = { alarm: 'Alarm', origin: 'Origin', ioc: 'IOC', record_type: 'Record type' };
+const FACET_TITLES = {
+  alarm: 'Alarm',
+  origin: 'Origin',
+  ioc: 'IOC',
+  record_type: 'Record type',
+  archived: 'Archive',
+};
+
+/**
+ * The archive filter's values as the sidebar and the chips name them.
+ * @type {Record<string, string>}
+ */
+const ARCHIVED_LABELS = { yes: 'Archived', no: 'Not archived', unknown: 'Unknown' };
+
+/** The archive filter's value of a row the archive cannot place. */
+const ARCHIVE_UNKNOWN = 'unknown';
 
 /** The alarm filter's value for OK or no state. */
 const NO_ALARM = 'none';
@@ -51,7 +72,20 @@ const fmt = (n) => n.toLocaleString('en-US');
 function valueLabel(key, value) {
   if (key === 'origin') return ORIGIN_LABELS[value] ?? value;
   if (key === 'alarm' && value === NO_ALARM) return 'No alarm';
+  if (key === 'archived') return ARCHIVED_LABELS[value] ?? value;
   return value;
+}
+
+/**
+ * The archive mark: a filled square for archived, an outline for not
+ * archived, `·` for unknown. The word is always beside it or on hover.
+ * @param {string} value - `yes`, `no` or `unknown`
+ * @returns {string}
+ */
+function archiveMark(value) {
+  if (value === 'yes') return '<span class="allpvs-arch" aria-hidden="true"></span>';
+  if (value === 'no') return '<span class="allpvs-arch no" aria-hidden="true"></span>';
+  return '<span class="allpvs-arch-unknown" aria-hidden="true">·</span>';
 }
 
 /**
@@ -137,7 +171,7 @@ export function chipsHtml(filters, words) {
 /**
  * The filters: one section per facet with its counts, Alarm first, a value in
  * force kept even when the answer has no count for it; or the reason there
- * are none.
+ * are none. The Archive section shows only once a row's membership is known.
  * @param {DirectoryPage|null} answer
  * @param {Record<FacetKey, Set<string>>} filters
  * @returns {string}
@@ -152,6 +186,10 @@ export function facetsHtml(answer, filters) {
   }
   return SIDEBAR_ORDER.map((key) => {
     const counts = new Map((facets[key] ?? []).map((entry) => [entry.value, entry.count]));
+    if (key === 'archived' && !filters.archived.size) {
+      const known = [...counts].some(([value, count]) => value !== ARCHIVE_UNKNOWN && count > 0);
+      if (!known) return '';
+    }
     for (const value of filters[key]) if (!counts.has(value)) counts.set(value, 0);
     if (!counts.size) return '';
     const items = [...counts]
@@ -159,7 +197,9 @@ export function facetsHtml(answer, filters) {
         const label =
           key === 'alarm'
             ? severityMark(value === NO_ALARM ? 'NONE' : severityOf(value), valueLabel(key, value))
-            : esc(valueLabel(key, value));
+            : key === 'archived'
+              ? `${archiveMark(value)}${esc(valueLabel(key, value))}`
+              : esc(valueLabel(key, value));
         return (
           `<button type="button" class="osprey-list-row allpvs-facet" data-facet="${key}"` +
           ` data-value="${esc(value)}" aria-pressed="${filters[key].has(value)}">` +
@@ -227,15 +267,46 @@ function alarmCell(alarm, reason) {
  */
 
 /**
+ * The archive cell of one row: the mark, the word on hover; `·` with the
+ * reason when the archive cannot say.
+ * @param {boolean|null|undefined} archived
+ * @param {string} reason - why the archive cannot say, if it cannot
+ * @returns {string}
+ */
+function archiveCell(archived, reason) {
+  if (archived === true || archived === false) {
+    const value = archived ? 'yes' : 'no';
+    const word = ARCHIVED_LABELS[value];
+    return `<td class="allpvs-archived" title="${word}">${archiveMark(value)}</td>`;
+  }
+  const why = `unknown: ${reason || 'the archive cannot say'}`;
+  return `<td class="allpvs-archived dim" title="${esc(why)}">·</td>`;
+}
+
+/**
+ * The Arch. column: null when the target has no archive, else why the archive
+ * cannot say what it holds (empty when it can).
+ * @typedef {{ reason: string }|null} ArchiveColumn
+ */
+
+/**
  * The rows of one page.
  * @param {DirectoryPage} answer
  * @param {Set<string>} selected
  * @param {Map<string, ValueRow>|null} values - null while unread
  * @param {string} valuesReason
  * @param {AlarmColumn} [alarmColumn]
+ * @param {ArchiveColumn} [archiveColumn]
  * @returns {string}
  */
-export function tableHtml(answer, selected, values, valuesReason, alarmColumn = null) {
+export function tableHtml(
+  answer,
+  selected,
+  values,
+  valuesReason,
+  alarmColumn = null,
+  archiveColumn = null
+) {
   const rows = answer.rows;
   const all = rows.every((row) => selected.has(row.name));
   const body = rows
@@ -257,7 +328,9 @@ export function tableHtml(answer, selected, values, valuesReason, alarmColumn = 
         valueCell(values?.get(row.name), values !== null, valuesReason) +
         (alarmColumn ? alarmCell(row.alarm, alarmColumn.reason) : '') +
         `<td class="dim">${esc(row.record_type ?? '')}</td>` +
-        `<td class="dim">${ioc}</td></tr>`
+        `<td class="dim">${ioc}</td>` +
+        (archiveColumn ? archiveCell(row.archived, archiveColumn.reason) : '') +
+        '</tr>'
       );
     })
     .join('');
@@ -268,7 +341,7 @@ export function tableHtml(answer, selected, values, valuesReason, alarmColumn = 
             aria-label="Select all on this page" ${all ? 'checked' : ''}></th>
         <th class="col-mark"></th><th>Name</th><th class="col-desc">Description</th>
         <th class="col-value">Value</th>${alarmColumn ? '<th>Alarm</th>' : ''}
-        <th>Record</th><th>IOC</th>
+        <th>Record</th><th>IOC</th>${archiveColumn ? '<th class="col-arch" title="Archived">Arch.</th>' : ''}
       </tr></thead>
       <tbody>${body}</tbody>
     </table>`;

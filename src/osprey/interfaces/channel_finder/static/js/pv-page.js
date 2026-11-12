@@ -8,7 +8,7 @@
  *   All PVs / IOC / NAME
  *   [◆ NAME  Active  ⚠ alarm feed stale]   [⧉] [Send to assistant] [Plot]
  *   [alarm banner, only when the alarm server reports the PV not OK]
- *   Value · Alarm · Put history          | Directory · Logbook
+ *   Value · Alarm · Put history          | Directory · Archive · Logbook
  *
  * A card whose service the deployment does not configure (the descriptor's
  * `configured_services`) is one dashed line; a configured card that has no
@@ -42,6 +42,7 @@ import {
   NO_TARGET,
   alarmBanner,
   alarmCard,
+  archiveCard,
   directoryCard,
   logbookCard,
   node,
@@ -397,7 +398,7 @@ async function fillActions(actions, name, plotCheck) {
 /**
  * Whether the deployment configures `kind`: the descriptor says, and without
  * one the facts do (they carry only configured sections).
- * @param {'alarm_state'|'alarm_log'|'put_log'|'logbook'} kind
+ * @param {'alarm_state'|'alarm_log'|'put_log'|'archive'|'logbook'} kind
  * @param {boolean} inFacts
  * @returns {boolean}
  */
@@ -451,6 +452,7 @@ async function load(container, name) {
   const alarmConfig = bySection.get('alarm_config');
   const alarmHistory = bySection.get('alarm_history');
   const putHistory = bySection.get('put_history');
+  const archive = bySection.get('archive');
   const row = /** @type {DirectoryRecord|null|undefined} */ (directory?.record)?.row;
 
   const page = node('div', 'pv-page');
@@ -477,6 +479,9 @@ async function load(container, name) {
   else left.append(missingCard('put_history', 'Put history'));
 
   if (directory) right.append(directoryCard(directory));
+  if (!configured('archive', Boolean(archive))) right.append(unconfiguredLine('Archive'));
+  else if (archive) right.append(archiveCard(archive));
+  else right.append(missingCard('archive', 'Archive'));
   /** @type {HTMLElement|null} */
   let logbookFrame = null;
   if (configured('logbook', Boolean(state.directory?.ariel))) {

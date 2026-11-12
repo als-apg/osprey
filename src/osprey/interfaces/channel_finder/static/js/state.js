@@ -21,7 +21,7 @@ import { familyOf } from './route.js';
  * section is configured.
  * @typedef {{
  *   label: string,
- *   configured_services: ('alarm_log'|'alarm_state'|'put_log'|'logbook')[],
+ *   configured_services: ('alarm_log'|'alarm_state'|'put_log'|'archive'|'logbook')[],
  *   canopy: boolean,
  *   ariel: boolean,
  * }} DirectoryDescriptor

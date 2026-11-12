@@ -16,6 +16,7 @@ import { initToolbar, TOOLBAR_IDS } from './panel-toolbar.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
 import { mountAllPvs, unmountAllPvs } from './allpvs.js';
 import { mountAlarms, unmountAlarms } from './alarms.js';
+import { mountArchive, unmountArchive } from './archive.js';
 import { activeSummary } from './alarms-render.js';
 import { fetchActiveAlarms } from './directory-api.js';
 import { mountPvPage, unmountPvPage } from './pv-page.js';
@@ -41,12 +42,13 @@ const VIEWS = {
   feedback: { mount: mountFeedback, unmount: unmountFeedback },
   allpvs: { mount: mountAllPvs, unmount: unmountAllPvs },
   alarms: { mount: mountAlarms, unmount: unmountAlarms },
+  archive: { mount: mountArchive, unmount: unmountArchive },
   pv: { mount: mountPvPage, unmount: unmountPvPage },
   ioc: { mount: mountIocPage, unmount: unmountIocPage },
 };
 
 // Views that exist only while /api/info carries the directory descriptor.
-const DIRECTORY_VIEWS = new Set(['allpvs', 'alarms', 'pv', 'ioc']);
+const DIRECTORY_VIEWS = new Set(['allpvs', 'alarms', 'archive', 'pv', 'ioc']);
 
 /** How often the Alarms tab's pill is read while the panel is visible. */
 const BADGE_POLL_MS = 15000;
@@ -122,12 +124,18 @@ async function init() {
 function viewAvailable(view) {
   if (!Object.hasOwn(VIEWS, view)) return false;
   if (view === 'alarms' && !alarmsConfigured()) return false;
+  if (view === 'archive' && !archiveConfigured()) return false;
   return !DIRECTORY_VIEWS.has(view) || state.directory !== null;
 }
 
 /** @returns {boolean} whether the deployment configures an alarm-state service */
 function alarmsConfigured() {
   return state.directory?.configured_services?.includes('alarm_state') ?? false;
+}
+
+/** @returns {boolean} whether the deployment's archive serves some target */
+function archiveConfigured() {
+  return state.directory?.configured_services?.includes('archive') ?? false;
 }
 
 function routeFromHash() {
@@ -181,8 +189,9 @@ function activateView(viewName, params) {
 
 /**
  * The view switch's buttons: the scope switch when /api/info carries the
- * directory descriptor, with Curated being whichever paradigm runs and Alarms
- * when an alarm-state service is configured, and Explore | Feedback otherwise.
+ * directory descriptor, with Curated being whichever paradigm runs, Alarms
+ * when an alarm-state service is configured and Archive when the deployment's
+ * archive serves some target, and Explore | Feedback otherwise.
  * @returns {{ id: string, label: string }[]}
  */
 function viewTabs() {
@@ -196,6 +205,7 @@ function viewTabs() {
     { id: 'explore', label: 'Curated' },
     { id: 'allpvs', label: state.directory.label },
     ...(alarmsConfigured() ? [{ id: 'alarms', label: 'Alarms' }] : []),
+    ...(archiveConfigured() ? [{ id: 'archive', label: 'Archive' }] : []),
     { id: 'feedback', label: 'Feedback' },
   ];
 }

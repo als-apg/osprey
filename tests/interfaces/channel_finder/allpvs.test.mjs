@@ -373,9 +373,9 @@ describe('search and filters', () => {
   test('facets list origin, IOC and record type with counts and filter the search', async () => {
     const { searches } = await mount();
     const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
-    await vi.waitFor(() => expect(sidebar.querySelectorAll('.osprey-list-row')).toHaveLength(7));
+    await vi.waitFor(() => expect(sidebar.querySelectorAll('.osprey-list-row')).toHaveLength(9));
     const labels = [...sidebar.querySelectorAll('.osprey-section-label')].map((l) => l.textContent);
-    expect(labels).toEqual(['Alarm', 'Origin', 'IOC', 'Record type']);
+    expect(labels).toEqual(['Alarm', 'Origin', 'IOC', 'Record type', 'Archive']);
     const curated = /** @type {HTMLButtonElement} */ (
       sidebar.querySelector('[data-facet="origin"][data-value="curated"]')
     );
@@ -401,6 +401,51 @@ describe('search and filters', () => {
     major()?.click();
     await vi.waitFor(() => expect(searches.at(-1)).toContain('alarm=MAJOR'));
     expect(routes.mock.calls.at(-1)?.[0].params).toEqual({ q: 'BPM', alarm: ['MAJOR'] });
+  });
+
+  test('each row carries its archive mark, and the Archive facet filters the search', async () => {
+    const { container, searches, routes } = await mount({ params: { q: 'BPM' } });
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    const marks = [...container.querySelectorAll('td.allpvs-archived')].map((td) =>
+      td.getAttribute('title')
+    );
+    expect(marks).toEqual(['Archived', 'Not archived']);
+    const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
+    const no = /** @type {HTMLButtonElement} */ (
+      sidebar.querySelector('[data-facet="archived"][data-value="no"]')
+    );
+    no.click();
+    await vi.waitFor(() => expect(searches.at(-1)).toContain('archived=no'));
+    expect(routes.mock.calls.at(-1)?.[0].params).toEqual({ q: 'BPM', archived: ['no'] });
+  });
+
+  test('an archive that cannot list its channels dots every row and hides the facet', async () => {
+    const reason = 'this archiver does not report what it holds';
+    const search = {
+      ...ROUTES.search,
+      rows: ROUTES.search.rows.map((/** @type {any} */ row) => ({ ...row, archived: null })),
+      facets: { ...ROUTES.search.facets, archived: [{ value: 'unknown', count: 2 }] },
+      archived_reason: reason,
+    };
+    const { container } = await mount({ search });
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    const cells = [...container.querySelectorAll('td.allpvs-archived')];
+    expect(cells.map((td) => td.textContent)).toEqual(['·', '·']);
+    expect(cells[0].getAttribute('title')).toBe(`unknown: ${reason}`);
+    const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
+    expect(sidebar.querySelector('[data-facet="archived"]')).toBeNull();
+  });
+
+  test('without an archive on the target there is no Arch. column', async () => {
+    const search = {
+      ...ROUTES.search,
+      rows: ROUTES.search.rows.map((/** @type {any} */ row) =>
+        Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'archived'))
+      ),
+    };
+    const { container } = await mount({ search });
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    expect(container.querySelector('th.col-arch')).toBeNull();
   });
 
   test("a chip's × removes that one filter and writes the route", async () => {

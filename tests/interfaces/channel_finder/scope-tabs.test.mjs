@@ -29,6 +29,7 @@ const VIEW_MODULES = {
   pv: ['pv-page.js', 'mountPvPage', 'unmountPvPage'],
   ioc: ['ioc-page.js', 'mountIocPage', 'unmountIocPage'],
   alarms: ['alarms.js', 'mountAlarms', 'unmountAlarms'],
+  archive: ['archive.js', 'mountArchive', 'unmountArchive'],
 };
 
 /** @type {EventListener[]} */
@@ -534,5 +535,38 @@ describe('the Alarms tab', () => {
     const { alarmReads } = await boot(WITH_DIRECTORY);
     await Promise.resolve();
     expect(alarmReads).toEqual([]);
+  });
+});
+
+describe('the Archive tab', () => {
+  const BOTH = {
+    ...WITH_DIRECTORY,
+    directory: { ...DESCRIPTOR, configured_services: ['alarm_state', 'archive'] },
+  };
+
+  test('with both services the seg reads Curated · All PVs · Alarms · Archive · Feedback', async () => {
+    await boot(BOTH);
+    expect(names()).toEqual([
+      'explore:Curated',
+      'allpvs:All PVs',
+      'alarms:Alarms',
+      'archive:Archive',
+      'feedback:Feedback',
+    ]);
+  });
+
+  test('without an archive there is no tab, and #/archive falls back to Curated', async () => {
+    const { views } = await boot(WITH_DIRECTORY, '#/archive');
+    expect(names()).toEqual(WITH);
+    expect(views.archive.mount).not.toHaveBeenCalled();
+    expect(pressed()).toEqual(['explore']);
+  });
+
+  test('#/archive mounts the view and presses the tab', async () => {
+    const { views } = await boot(BOTH, '#/archive');
+    expect(views.archive.mount).toHaveBeenCalledTimes(1);
+    expect(pressed()).toEqual(['archive']);
+    click('feedback');
+    expect(views.archive.unmount).toHaveBeenCalled();
   });
 });

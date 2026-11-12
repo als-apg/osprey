@@ -9,6 +9,7 @@
   {"route":{"view":"allpvs","params":{"q":"temp","alarm":["MAJOR","none"]}},"hash":"#/allpvs?q=temp&alarm=MAJOR&alarm=none"},
   {"route":{"view":"feedback","params":{}},"hash":"#/feedback"},
   {"route":{"view":"alarms","params":{}},"hash":"#/alarms"},
+  {"route":{"view":"allpvs","params":{"ioc":["sim-SR"],"archived":["no"]}},"hash":"#/allpvs?ioc=sim-SR&archived=no"},
   {"route":{"view":"pv","params":{"name":"SR01C:BPM1:X.VAL"}},"hash":"#/pv/SR01C%3ABPM1%3AX.VAL"},
   {"route":{"view":"ioc","params":{"name":"SR01C:BPM1:X.VAL"}},"hash":"#/ioc/SR01C%3ABPM1%3AX.VAL"},
   {"route":{"view":"pv","params":{"name":"a/b"}},"hash":"#/pv/a%2Fb"},

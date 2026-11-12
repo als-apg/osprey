@@ -8,9 +8,10 @@
  * them back to the address bar (replace, not push) on every new search.
  *
  *   toolbar   [sidebar toggle] [Curated | <directory> | Feedback] …… [N PVs] [search]
- *   sidebar   Alarm · Origin · IOC · Record type, each value with its count
+ *   sidebar   Alarm · Origin · IOC · Record type · Archive, each value with its count
  *   body      <words> [IOC: x ×] clear all [partial] …… [refresh] [export] show request
- *             the rows, with their current values and, with an alarm feed, its marks
+ *             the rows, with their current values and, with an alarm feed or an
+ *             archive, their marks
  *             rows 1–50 of N …… ‹ page 1 of M ›
  *             (floating, while something is selected)
  *             N selected · Plot · Send to assistant · Copy names · Clear
@@ -395,6 +396,17 @@ function alarmColumn(answer) {
   return answer.rows.some((row) => 'alarm' in row) ? { reason: '' } : null;
 }
 
+/**
+ * The Arch. column of the current answer: on when a row carries the archive's
+ * answer, with the reason the archive cannot say what it holds.
+ * @param {DirectoryPage} answer
+ * @returns {import('./allpvs-render.js').ArchiveColumn}
+ */
+function archiveColumn(answer) {
+  if (!answer.rows.some((row) => 'archived' in row)) return null;
+  return { reason: answer.archived_reason ?? '' };
+}
+
 /** The rows of the current page. */
 function renderTable() {
   if (!view?.answer?.rows.length || view.answer.outcome === 'unavailable') return;
@@ -402,7 +414,8 @@ function renderTable() {
   const selected = state.selection;
   const host = body();
   clearState(host);
-  host.innerHTML = tableHtml(answer, selected, values, valuesReason, alarmColumn(answer));
+  const [alarms, archive] = [alarmColumn(answer), archiveColumn(answer)];
+  host.innerHTML = tableHtml(answer, selected, values, valuesReason, alarms, archive);
   const head = /** @type {HTMLInputElement} */ (host.querySelector('[data-action="select-page"]'));
   head.indeterminate = !head.checked && answer.rows.some((row) => selected.has(row.name));
 }

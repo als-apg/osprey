@@ -10,7 +10,7 @@ these pages is a real read through that child.
 
 Coverage, each in Chromium:
 
-  (a) the view switch reads Curated · <directory label> · Alarms · Feedback; All PVs
+  (a) the view switch reads Curated · <directory label> · Alarms · Archive · Feedback; All PVs
       holds the toolbar search and result count and draws its filters in the
       shared sidebar, and no ``nav`` header contribution is sent.
   (b) a word search lists curated (◆) and control-system-only (◇) rows, the
@@ -261,7 +261,7 @@ def test_all_pvs_holds_the_toolbar_and_the_shared_sidebar(
 ):
     host = _open(chromium_browser, panel_url, "#/allpvs")
     host.wait_for_selector(ROWS)
-    assert _tabs(host) == ["Curated", "All PVs", "Alarms", "Feedback"]
+    assert _tabs(host) == ["Curated", "All PVs", "Alarms", "Archive", "Feedback"]
     assert _pressed(host) == "allpvs"
 
     assert host.locator("#cf-search").is_enabled()
@@ -349,7 +349,7 @@ def test_a_pv_page_shows_its_cards_alarm_state_and_value(chromium_browser: Brows
     assert host.locator(".pvp-mark").inner_text() == "◆"
     assert _pressed(host) == "allpvs"
 
-    assert _sections(host) == ["value", "alarm", "directory", "logbook"]
+    assert _sections(host) == ["value", "alarm", "directory", "archive", "logbook"]
     assert host.locator('.pvp-card[data-section="alarm"] [data-part="history"]').count() == 0
 
     alarm = _facts(host, "alarm")

@@ -60,6 +60,7 @@ const NO_FILTERS = () => ({
   ioc: new Set(),
   record_type: new Set(),
   alarm: new Set(),
+  archived: new Set(),
 });
 
 describe('allpvs-render', () => {
@@ -207,6 +208,58 @@ describe('allpvs-render', () => {
       ['cf-sev cf-sev--major', 'MAJOR'],
       ['cf-sev cf-sev--none', 'No alarm'],
     ]);
+  });
+
+  test('the archive mark fills an archived row, outlines one not archived, dots unknown', () => {
+    const rows = [
+      { ...ROW, name: 'A', archived: true },
+      { ...ROW, name: 'B', archived: false },
+      { ...ROW, name: 'C', archived: null },
+    ];
+    const reason = 'this archiver does not report what it holds';
+    const box = parse(tableHtml(page({ rows }), new Set(), null, '', null, { reason }));
+    const heads = [...box.querySelectorAll('th')].map((th) => th.textContent);
+    expect(heads.slice(-2)).toEqual(['IOC', 'Arch.']);
+    const cells = [...box.querySelectorAll('td.allpvs-archived')];
+    expect(cells[0].querySelector('.allpvs-arch')?.classList.contains('no')).toBe(false);
+    expect(cells[0].getAttribute('title')).toBe('Archived');
+    expect(cells[1].querySelector('.allpvs-arch.no')).not.toBeNull();
+    expect(cells[1].getAttribute('title')).toBe('Not archived');
+    expect(cells[2].textContent).toBe('·');
+    expect(cells[2].getAttribute('title')).toBe(`unknown: ${reason}`);
+
+    const off = parse(tableHtml(page({ rows }), new Set(), null, ''));
+    expect(off.querySelector('td.allpvs-archived')).toBeNull();
+    expect([...off.querySelectorAll('th')].map((th) => th.textContent)).not.toContain('Arch.');
+  });
+
+  test('the Archive facet follows Record type, and hides while no row is known', () => {
+    const one = [{ value: 'v', count: 1 }];
+    const known = [
+      { value: 'yes', count: 4 },
+      { value: 'no', count: 1 },
+    ];
+    const facets = { origin: one, ioc: one, record_type: one, archived: known };
+    const box = parse(facetsHtml(page({ facets }), NO_FILTERS()));
+    const groups = [...box.querySelectorAll('.allpvs-facet-group')];
+    const titles = groups.map((g) => g.querySelector('.osprey-section-label')?.textContent);
+    expect(titles).toEqual(['Origin', 'IOC', 'Record type', 'Archive']);
+    const values = [...groups[3].querySelectorAll('.allpvs-facet')];
+    expect(values.map((v) => [v.getAttribute('data-value'), v.textContent])).toEqual([
+      ['yes', 'Archived4'],
+      ['no', 'Not archived1'],
+    ]);
+    expect(values[1].querySelector('.allpvs-arch.no')).not.toBeNull();
+
+    const unknown = { ...facets, archived: [{ value: 'unknown', count: 5 }] };
+    const hidden = parse(facetsHtml(page({ facets: unknown }), NO_FILTERS()));
+    expect(hidden.textContent).not.toContain('Archive');
+    const filters = NO_FILTERS();
+    filters.archived.add('no');
+    const kept = parse(facetsHtml(page({ facets: unknown }), filters));
+    expect(kept.querySelector('[data-facet="archived"][data-value="no"]')).not.toBeNull();
+    const chip = parse(chipsHtml(filters, false)).querySelector('.allpvs-chip');
+    expect(chip?.firstChild?.textContent).toBe('Archive: Not archived');
   });
 
   test('a chip per filter in force, each removing its own value, then clear all', () => {
