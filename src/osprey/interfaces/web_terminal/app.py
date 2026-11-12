@@ -37,6 +37,7 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.design_system.favicon import FAVICON_PATH
 from osprey.interfaces.vendor import is_offline, vendor_url
+from osprey.interfaces.web_auth import JudgeGrants, panel_registry_of
 from osprey.interfaces.web_terminal import scenario_sessions, session_meta
 from osprey.interfaces.web_terminal.config_view import (
     UNREADABLE,
@@ -1171,10 +1172,15 @@ def _start_watchdogs(app: FastAPI, view: TerminalConfigView) -> None:
 
     A build that runs watchdogs registers them as one runtime safety switch; the
     runner asks it before every hold, and the intake route before every run.
+
+    ``app.state.judge_grants`` holds the read tokens of the judge runs in flight,
+    which the gate admits on their applications' read routes. Built here, before
+    the panel registry exists, so it reads the registry only when asked.
     """
     os.environ.pop(HOLD_DIR_ENV_VAR, None)
     app.state.session_hold_root = None
     app.state.watchdog_runner = None
+    app.state.judge_grants = JudgeGrants(lambda: panel_registry_of(app))
     config_file = view.path
     if config_file is None:
         return

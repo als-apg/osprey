@@ -89,7 +89,7 @@ import secrets
 import threading
 import time
 import urllib.parse
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -1444,6 +1444,13 @@ class Tier(Enum):
     new member as sufficient. :data:`Tier.OPERATOR` is the default answer for
     anything :func:`classify` does not recognise, so adding a route to the tree
     without touching this module leaves it protected rather than exposed.
+
+    A third credential exists and is not a member: a watchdog judge's read
+    token (:class:`JudgeGrants`). It is not ordered with these two because it is
+    narrower than the panel tier in a different direction, not a step below it:
+    it reaches only the safe-method agent routes of the application panels it
+    was minted for, and none of the arrangement routes the panel tier holds. It
+    is judged per request by :func:`judge_admission`, never by :func:`classify`.
     """
 
     #: The narrow, low-privilege tier: panel arrangement and activity
@@ -1633,3 +1640,119 @@ def classify(
     if route == PANEL_REGISTER_ROUTE and not body_has_url:
         return Tier.PANEL
     return Tier.OPERATOR
+
+
+#: The methods a judge's read token may use: the safe ones, whatever an
+#: application's manifest calls a read. A ``POST`` read route can still change
+#: application state (a computation it caches), and a judge changes nothing.
+JUDGE_METHODS: frozenset[str] = frozenset({"GET", "HEAD"})
+
+
+class JudgeAdmission(Enum):
+    """What the gate does with a request bearing a judge's read token."""
+
+    #: A safe-method agent route of a panel the token was minted for.
+    ADMITTED = "admitted"
+    #: A live token on any other route: answered ``403``.
+    REFUSED = "refused"
+    #: Not a live judge token (never minted, or revoked): answered ``401``.
+    UNKNOWN = "unknown"
+
+
+class JudgeGrants:
+    """The read tokens of the watchdog judge runs in flight, each scoped to panel ids.
+
+    One token per run, minted when the run starts and revoked when it ends, so
+    a token outlives nothing that granted it. Tokens are random, held only in
+    this process's memory under their digest, and never written to disk or
+    config. A run reaches an application's backend through the terminal's
+    panel door like the session agent does; this is the credential it carries
+    there instead of the panel token, which a judge is never given.
+
+    Args:
+        registry: Returns the terminal's panel registry when called. Read on
+            each :meth:`panels_serving`, never at construction: the terminal
+            builds its grants before its registry exists.
+    """
+
+    def __init__(self, registry: Callable[[], PanelRegistry] = lambda: SIDECAR_REGISTRY) -> None:
+        self._registry = registry
+        self._lock = threading.Lock()
+        self._tokens: dict[str, frozenset[str]] = {}
+
+    def mint(self, panel_ids: Iterable[str]) -> str:
+        """A fresh token admitted on the read routes of *panel_ids*.
+
+        Raises:
+            ValueError: *panel_ids* is empty; a run with no application panel
+                gets no token.
+        """
+        panels = frozenset(panel_ids)
+        if not panels:
+            raise ValueError("a judge token grants at least one panel")
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            self._tokens[_digest(token)] = panels
+        return token
+
+    def revoke(self, token: str) -> None:
+        """End *token*; a token already revoked or never minted is ignored."""
+        with self._lock:
+            self._tokens.pop(_digest(token), None)
+
+    def panels_of(self, token: str | None) -> frozenset[str] | None:
+        """The panel ids *token* was minted for, ``None`` when it is not live."""
+        if not token:
+            return None
+        with self._lock:
+            return self._tokens.get(_digest(token))
+
+    def panels_serving(self, apps: Iterable[str]) -> frozenset[str]:
+        """The ids of the application panels *apps* serve, in the current registry."""
+        wanted = set(apps)
+        applications = self._registry().applications
+        return frozenset(pid for pid, panel in applications.items() if panel.app in wanted)
+
+
+def judge_grants_of(app: Any) -> JudgeGrants | None:
+    """The judge grants *app* serves (``app.state.judge_grants``), ``None`` when it has none."""
+    grants = getattr(getattr(app, "state", None), "judge_grants", None)
+    return grants if isinstance(grants, JudgeGrants) else None
+
+
+def judge_admission(
+    grants: JudgeGrants,
+    token: str | None,
+    method: str | None,
+    path: str | None,
+    *,
+    panels: PanelRegistry = SIDECAR_REGISTRY,
+) -> JudgeAdmission:
+    """Whether a request bearing a judge's read token reaches its route.
+
+    Admitted only when all three hold: the method is in :data:`JUDGE_METHODS`;
+    the exact ``(method, path)`` pair is one :func:`panel_tier_routes` opens for
+    *panels*; and the path lies under ``/panel/<id>/`` for an id the token was
+    minted for. The pair match is exact for the reason :func:`classify` gives;
+    the prefix condition is what keeps the static panel-tier routes (panel
+    arrangement, activity, the dispatcher hop) and every other panel's routes
+    out of reach.
+
+    Args:
+        grants: The terminal's grants (:func:`judge_grants_of`).
+        token: The bearer the request carried.
+        method: The request's HTTP method.
+        path: The bare request path, as :func:`classify` takes it.
+        panels: The terminal's panel registry (:func:`panel_registry_of`).
+    """
+    granted = grants.panels_of(token)
+    if granted is None:
+        return JudgeAdmission.UNKNOWN
+    if not method or not path:
+        return JudgeAdmission.REFUSED
+    route = (method.upper(), path)
+    if route[0] not in JUDGE_METHODS or route not in panel_tier_routes(panels):
+        return JudgeAdmission.REFUSED
+    if not any(path.startswith(f"/panel/{panel_id}/") for panel_id in granted):
+        return JudgeAdmission.REFUSED
+    return JudgeAdmission.ADMITTED
