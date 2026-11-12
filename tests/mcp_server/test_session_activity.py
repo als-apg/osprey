@@ -15,6 +15,7 @@ from typing import Any
 
 from osprey.mcp_server.session_activity import (
     RESULT_CAP,
+    result_text,
     result_view,
     session_activity,
     unwrap_result,
@@ -264,6 +265,14 @@ def test_result_unwraps_nested_json_and_cuts():
         "cut": True,
         "key": "k:result",
     }
+
+
+def test_result_text_is_the_whole_text_the_view_cuts():
+    content = json.dumps({"result": json.dumps({"result": "x" * 3000})})
+    assert result_text(content) == "x" * 3000
+    assert result_view(content)["text"] == result_text(content)[:RESULT_CAP]
+    assert json.loads(result_text(json.dumps({"result": {"n": 3}}))) == {"n": 3}
+    assert result_text(None) == ""
 
 
 def test_plain_text_and_persisted_output_results():

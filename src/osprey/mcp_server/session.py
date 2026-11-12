@@ -14,9 +14,10 @@ readers answer:
 
 * :func:`session_events` — ``tool_call`` events for MCP tool calls and an
   ``agent_start``/``agent_stop`` pair around every subagent's own events;
-* :func:`chat_history` — conversation turns ``{role, content, timestamp}``;
-* :func:`agent_steps` — a subagent's steps (``prompt``, ``reasoning``,
-  ``thinking``, ``tool_call``, ``tool_result``).
+* :func:`chat_history` — conversation turns ``{role, content, timestamp}``.
+
+The Activity page's joined reading of a session is
+:func:`osprey.mcp_server.session_activity.session_activity`.
 
 A read answers a :class:`SessionRead` whose ``record`` is ``complete``,
 ``incomplete`` or ``unavailable``; a caller never shows an unavailable or
@@ -53,9 +54,6 @@ MAX_TIMELINE_PAGES = 100
 DISPATCH_RUN_ENV = "OSPREY_DISPATCH_RUN"
 
 _SUBAGENT_TOOLS = ("Agent", "Task")
-
-#: A subagent step's tool-result text is cut to this many characters.
-MAX_STEP_RESULT_LENGTH = 2000
 
 
 def record_client():
@@ -102,13 +100,8 @@ def record_fields(record: str, reason: str) -> dict[str, str]:
     return {"record": record, "record_reason": reason}
 
 
-def read_timeline(
-    session_id: str,
-    *,
-    agent_id: str | None = None,
-    client: Any = None,
-) -> SessionRead:
-    """Every node of *session_id*'s timeline (or of its subagent *agent_id*'s).
+def read_timeline(session_id: str, *, client: Any = None) -> SessionRead:
+    """Every node of *session_id*'s timeline, its subagents' streams nested in it.
 
     The first page waits on a drain of the session, so what the session wrote
     before the call is in the answer; the pages after it follow the cursor of
@@ -125,12 +118,7 @@ def read_timeline(
     for page in range(MAX_TIMELINE_PAGES):
         wait = Drain(session_id=session_id) if page == 0 else None
         try:
-            if agent_id is None:
-                answer = client.timeline(session_id, after=after, wait=wait, narrow_session=narrow)
-            else:
-                answer = client.agent_timeline(
-                    session_id, agent_id, after=after, wait=wait, narrow_session=narrow
-                )
+            answer = client.timeline(session_id, after=after, wait=wait, narrow_session=narrow)
         except Exception as exc:  # a client never raises; a stand-in might
             logger.warning("session read failed: %s", exc)
             answer = None
@@ -463,64 +451,6 @@ def chat_history(
             text = text[:max_chars] + "..."
         turns.append({"role": role, "content": text, "timestamp": _ts(group[0])})
     return turns
-
-
-def agent_steps(nodes: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """A subagent's stream as its steps, in the order it took them.
-
-    Its first prompt is ``prompt``; its words are ``reasoning``, its thinking
-    ``thinking``; a call is ``tool_call`` and its result ``tool_result``
-    (text cut to :data:`MAX_STEP_RESULT_LENGTH`), the results of one line's
-    calls following that line.
-    """
-    steps: list[dict[str, Any]] = []
-    prompted = False
-    for group in lines(nodes):
-        results: list[dict[str, Any]] = []
-        for node in group:
-            kind = node.get("kind")
-            body = _body(node)
-            ts = _ts(node)
-            if kind == "prompt":
-                text = prompt_text(body).strip()
-                if not prompted and text:
-                    steps.append({"kind": "prompt", "timestamp": ts, "text": text})
-                prompted = True
-            elif kind == "answer":
-                text = str(body.get("text") or "").strip()
-                if text:
-                    steps.append({"kind": "reasoning", "timestamp": ts, "text": text})
-            elif kind == "thinking":
-                text = str(body.get("text") or "").strip()
-                if text:
-                    steps.append({"kind": "thinking", "timestamp": ts, "text": text})
-            elif kind == "tool_call":
-                steps.append(
-                    {
-                        "kind": "tool_call",
-                        "timestamp": ts,
-                        "tool": body.get("name", ""),
-                        "arguments": body.get("input", {}),
-                    }
-                )
-                result = node.get("result")
-                if isinstance(result, Mapping):
-                    results.append(_result_step(result, str(body.get("id", ""))))
-            elif kind in ("tool_result", "subagent"):
-                results.append(_result_step(node, node.get("tool_use_id") or ""))
-        steps.extend(results)
-    return steps
-
-
-def _result_step(result: Mapping[str, Any], tool_use_id: str) -> dict[str, Any]:
-    body = _body(result)
-    return {
-        "kind": "tool_result",
-        "timestamp": _ts(result),
-        "tool_use_id": result.get("tool_use_id") or tool_use_id,
-        "text": result_text(body.get("content", ""))[:MAX_STEP_RESULT_LENGTH],
-        "is_error": bool(body.get("is_error")),
-    }
 
 
 # ---------------------------------------------------------------------------

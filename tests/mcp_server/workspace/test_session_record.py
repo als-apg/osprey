@@ -60,15 +60,6 @@ class TestReadTimeline:
         s.read_timeline(SID, client=fake)
         assert [c["narrow_session"] for c in fake.calls_to("timeline")] == [SID, SID]
 
-    def test_an_agent_read_uses_the_agent_timeline(self, monkeypatch):
-        monkeypatch.delenv(s.DISPATCH_RUN_ENV, raising=False)
-        fake = FakeRecordClient({"agent_timeline": _page([{"kind": "prompt"}])})
-        read = s.read_timeline(SID, agent_id="abc", client=fake)
-        (call,) = fake.calls_to("agent_timeline")
-        assert (call["session_id"], call["agent_id"]) == (SID, "abc")
-        assert call["wait"] == Drain(session_id=SID)
-        assert read.nodes == [{"kind": "prompt"}]
-
     def test_an_unavailable_record_reads_unavailable(self):
         read = s.read_timeline(SID, client=FakeRecordClient(unavailable="connection refused"))
         assert read.record == s.RECORD_UNAVAILABLE
@@ -196,30 +187,6 @@ class TestSessionEvents:
         }
         events = s.session_events([orphan], "S")
         assert [e["type"] for e in events] == ["agent_start", "tool_call", "agent_stop"]
-
-    def test_agent_steps_follow_the_subagents_stream(self):
-        prompt = _node("prompt", "cc:a:S:p:0", "t0", {"text": "Plot X"})
-        think = _node("thinking", "cc:a:S:q:0", "t1", {"text": "hmm"})
-        words = _node("answer", "cc:a:S:q:1", "t1", {"text": "Reading X"})
-        call = _node(
-            "tool_call",
-            "cc:a:S:q:2",
-            "t1",
-            {"id": "t9", "name": "mcp__c__read", "input": {"pv": "X"}},
-            result={"ts": "t2", "body": {"content": "y" * 3000, "is_error": True}},
-        )
-        later = _node("prompt", "cc:a:S:r:0", "t3", {"text": "not the task prompt"})
-        steps = s.agent_steps([prompt, think, words, call, later])
-        assert [st["kind"] for st in steps] == [
-            "prompt",
-            "thinking",
-            "reasoning",
-            "tool_call",
-            "tool_result",
-        ]
-        result = steps[-1]
-        assert result["tool_use_id"] == "t9" and result["is_error"] is True
-        assert len(result["text"]) == s.MAX_STEP_RESULT_LENGTH
 
     def test_chat_history_is_one_turn_per_line_with_words(self):
         nodes = [

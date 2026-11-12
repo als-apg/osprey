@@ -83,13 +83,20 @@ def unwrap_result(content: Any) -> Any:
     return content
 
 
+def _text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, indent=1, ensure_ascii=False, default=str)
+
+
 def _view(value: Any, key: str) -> dict[str, Any]:
-    text = (
-        value
-        if isinstance(value, str)
-        else json.dumps(value, indent=1, ensure_ascii=False, default=str)
-    )
+    text = _text(value)
     return {"text": text[:RESULT_CAP], "size": len(text), "cut": len(text) > RESULT_CAP, "key": key}
+
+
+def result_text(content: Any) -> str:
+    """A result's whole text: what :func:`result_view` cuts at :data:`RESULT_CAP`."""
+    return _text(unwrap_result(content))
 
 
 def result_view(content: Any, key: str = "") -> dict[str, Any]:
