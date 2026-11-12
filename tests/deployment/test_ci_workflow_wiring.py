@@ -134,6 +134,7 @@ ARCHIVER_TEST_FILE = "tests/e2e/test_archiver_world_e2e.py"
 TARGET_SWITCH_AGENTIC_JOB = "target-switch-agentic-e2e"
 #: Saves the qmd sidecar layer cache in main's scope; see the qmd section below.
 QMD_WARMUP_JOB = "qmd-cache-warmup"
+DEPLOY_CACHE_WARMUP_JOB = "deploy-cache-warmup"
 VA_LIVE_JOB = "va-live-e2e"
 VA_BLUESKY_JOB = "va-live-e2e[plan-deploy]"
 #: The run step of each lane that executes modules from tests/va/e2e/. The
@@ -3043,55 +3044,6 @@ def test_orm_roundtrip_job_runs_the_grid_scan_module__mutation_drops_the_step() 
     _jobs(mutated)[ORM_JOB]["steps"] = kept
     with pytest.raises(AssertionError):
         test_orm_roundtrip_job_runs_the_grid_scan_module(mutated)
-
-
-ORM_OVERLAY2_STEP = "Use the overlay2 image store"
-
-
-def _orm_overlay2_violations(wf: dict[str, Any]) -> list[str]:
-    """Why the ORM job's images would not all land in the overlay2 store, if they would not."""
-    steps = _jobs(wf)[ORM_JOB]["steps"]
-    names = [step.get("name", "") for step in steps]
-    if ORM_OVERLAY2_STEP not in names:
-        return [f"no {ORM_OVERLAY2_STEP!r} step"]
-    at = names.index(ORM_OVERLAY2_STEP)
-    run = steps[at].get("run", "")
-    problems = [
-        f"{needle!r} missing from the step"
-        for needle in ('"containerd-snapshotter"] = false', "systemctl restart docker", "overlay2")
-        if needle not in run
-    ]
-    first_pytest = next(i for i, step in enumerate(steps) if "pytest" in step.get("run", ""))
-    if at > first_pytest:
-        problems.append("the switch runs after a stack has already built into the containerd store")
-    return problems
-
-
-def test_orm_roundtrip_job_builds_into_the_overlay2_store(workflow: dict[str, Any]) -> None:
-    """Four stacks in a row fit an AWS 72 GB runner only under overlay2: the
-    containerd image store keeps every layer compressed and unpacked and, while
-    a cached stack builds in parallel, unpacks a shared layer once per image
-    (measured on amd64 at a 37 GB cap: ENOSPC at the fourth stack, against a
-    16.7 GiB peak under overlay2). Dropping the switch, or moving it after the
-    first build, reds the lane only on the runners that happen to be small."""
-    assert _orm_overlay2_violations(workflow) == []
-
-
-def test_orm_roundtrip_job_builds_into_the_overlay2_store__mutation_drops_the_step() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[ORM_JOB]["steps"]
-    _jobs(mutated)[ORM_JOB]["steps"] = [s for s in steps if s.get("name") != ORM_OVERLAY2_STEP]
-    assert _orm_overlay2_violations(mutated) == [f"no {ORM_OVERLAY2_STEP!r} step"]
-
-
-def test_orm_roundtrip_job_builds_into_the_overlay2_store__mutation_moves_it_last() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[ORM_JOB]["steps"]
-    switch = next(s for s in steps if s.get("name") == ORM_OVERLAY2_STEP)
-    _jobs(mutated)[ORM_JOB]["steps"] = [s for s in steps if s is not switch] + [switch]
-    assert _orm_overlay2_violations(mutated) == [
-        "the switch runs after a stack has already built into the containerd store"
-    ]
 
 
 def test_dispatch_overlay_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
@@ -6676,7 +6628,7 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 #: reason: ``benchmarks`` is a manually dispatched quality score and model
 #: benchmark (pinned by ``test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it``
 #: and ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), ``qmd-cache-warmup``
-#: runs on main pushes only, whose own run its failure already turns red (needed,
+#: and ``deploy-cache-warmup`` run on main pushes only, whose own run their failure already turns red (needed,
 #: it failed every revalidation as a skipped lane), ``stop-on-failed-cheap-lane`` only cancels
 #: the run (pinned by ``test_cheap_lanes_cancel_a_failed_pull_request_run``), and the gate
 #: cannot depend on itself. Anything else that is not in
@@ -6687,6 +6639,7 @@ JOBS_OUTSIDE_THE_GATE = frozenset(
         BENCHMARKS_JOB,
         TIER2_JOB,
         QMD_WARMUP_JOB,
+        DEPLOY_CACHE_WARMUP_JOB,
         GATE_JOB,
         "stop-on-failed-cheap-lane",
     }
@@ -9382,8 +9335,11 @@ def test_the_dockerfile_agent_turn__mutation_runs_both_modules_in_the_model_free
 # The write token sits in one job that runs no code under test
 # ---------------------------------------------------------------------------
 #
-# The workflow token is read-only, and no job but the canceller (actions: write)
-# and the baseline push widens it. visual-theming-agent renders the Linux
+# The workflow token is read-only, and no job but the canceller (actions: write),
+# the deploy layer-cache warm-up (packages: write) and the baseline push widens
+# it. The warm-up runs repo code, but only on pushes to main: merged code, never
+# a PR's, holds its token, and the builds that run under it never read the
+# credential (BuildKit uses it for the registry push alone). visual-theming-agent renders the Linux
 # baselines from the PR's code, so its checkout keeps no credentials;
 # visual-baselines-push, the only job with a write scope, checks out the PR
 # branch, downloads what the test job uploaded and commits it through the
@@ -9425,8 +9381,14 @@ def test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(
     wf = workflow if workflow is not None else _load_workflow()
     assert wf["permissions"] == {"contents": "read"}, "the workflow token is not read-only"
     # The canceller's actions: write cancels the run and nothing else (pinned with it).
-    assert _write_scopes(wf) == {BASELINE_PUSH_JOB: {"contents"}, CANCEL_JOB: {"actions"}}, (
-        f"write scopes outside the push job: {_write_scopes(wf)}"
+    assert _write_scopes(wf) == {
+        BASELINE_PUSH_JOB: {"contents"},
+        CANCEL_JOB: {"actions"},
+        DEPLOY_CACHE_WARMUP_JOB: {"packages"},
+    }, f"write scopes outside the push job: {_write_scopes(wf)}"
+    # The warm-up's packages: write is merged code's alone.
+    assert _jobs(wf)[DEPLOY_CACHE_WARMUP_JOB].get("if") == QMD_WARMUP_CONDITION, (
+        f"{DEPLOY_CACHE_WARMUP_JOB} holds packages: write on more than pushes to main"
     )
     persisting = [
         name
@@ -9462,6 +9424,14 @@ def test_only_the_baseline_push_job_can_write__mutation_test_job_writes() -> Non
     mutated = _load_workflow()
     _jobs(mutated)[BROWSER_AGENT_JOB]["permissions"] = {"contents": "write"}
     with pytest.raises(AssertionError, match="write scopes outside the push job"):
+        test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
+
+
+def test_only_the_baseline_push_job_can_write__mutation_warmup_runs_on_prs() -> None:
+    mutated = _load_workflow()
+    job = _jobs(mutated)[DEPLOY_CACHE_WARMUP_JOB]
+    job["if"] = f"{job['if']} || github.event_name == 'pull_request'"
+    with pytest.raises(AssertionError, match="more than pushes to main"):
         test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
 
 
@@ -11841,6 +11811,9 @@ def _record_cleanup_steps(wf: dict[str, Any]) -> dict[tuple[str, str], tuple[str
             _module_constant(REPO_ROOT / ARCHIVER_TEST_FILE, "PROJECT_NAME"),
         ),
         (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP): (_deploy_e2e_project(wf),),
+        (DEPLOY_CACHE_WARMUP_JOB, "Clean up any stranded warm-up resources"): (
+            "deploy-cache-warmup",
+        ),
     }
 
 
@@ -15210,6 +15183,82 @@ def test_the_warmup_runs_only_on_pushes_to_main__mutation_forgets_warm_mode() ->
     mutated = copy.deepcopy(_load_workflow())
     _find_named_step(mutated, QMD_WARMUP_JOB, "Warm the qmd layer cache").pop("with")
     assert len(_warmup_problems(mutated)) == 1
+
+
+# ---------------------------------------------------------------------------
+# The deploy layer cache: main writes it, the deploying lanes read it
+# ---------------------------------------------------------------------------
+#
+# osprey.deployment.build_cache hands every image build OSPREY runs the specs in
+# OSPREY_BUILD_CACHE_FROM / _TO. Main's warm-up builds the demo preset with both
+# set; the lanes that deploy through `osprey up` set only the first, so PR code
+# reads main's layers and never writes any.
+
+DEPLOY_CACHE_READ_STEP = "Read the deploy image layers from main's cache"
+#: The jobs that build images through `osprey up`. Not here: the podman-only
+#: two-shape lane (podman reads neither variable), the Dockerfile lanes (their
+#: own `docker build`, not OSPREY's) and lanes that start no container.
+DEPLOY_CACHE_READERS = frozenset(
+    {
+        "agent-record-e2e",
+        "deploy-e2e",
+        "dispatch-stack-e2e",
+        "e2e-no-model",
+        "e2e-tests",
+        "full-chain-auth-e2e",
+        "gchat-bridge-e2e",
+        "multi-user-deploy-lifecycle-e2e",
+        "nextcloud-talk-bridge-e2e",
+        "orm-roundtrip-e2e",
+        "privilege-split-e2e",
+        "qmd-sidecar-e2e",
+        "stack-e2e",
+        "target-switch-agentic-e2e",
+        "va-live-e2e",
+    }
+)
+
+
+def _deploy_cache_problems(wf: dict[str, Any]) -> list[str]:
+    problems = []
+    for name, job in _jobs(wf).items():
+        reads = any(s.get("name") == DEPLOY_CACHE_READ_STEP for s in job.get("steps", []))
+        if reads != (name in DEPLOY_CACHE_READERS | {DEPLOY_CACHE_WARMUP_JOB}):
+            problems.append(f"{name}: reads the deploy layer cache: {reads}")
+        if name != DEPLOY_CACHE_WARMUP_JOB and "OSPREY_BUILD_CACHE_TO" in json.dumps(job):
+            problems.append(f"{name}: writes the deploy layer cache")
+    read = _find_named_step(wf, DEPLOY_CACHE_WARMUP_JOB, DEPLOY_CACHE_READ_STEP)["run"]
+    if "OSPREY_BUILD_CACHE_FROM=" not in read or "OSPREY_BUILD_CACHE_TO" in read:
+        problems.append(f"the read step sets more than the source: {read}")
+    if _jobs(wf)[DEPLOY_CACHE_WARMUP_JOB].get("if") != QMD_WARMUP_CONDITION:
+        problems.append(f"{DEPLOY_CACHE_WARMUP_JOB} runs on more than pushes to main")
+    return problems
+
+
+def test_only_main_writes_the_deploy_layer_cache(workflow: dict[str, Any]) -> None:
+    """Every PR lane reads what the warm-up writes, so a PR's own code must never write it."""
+    assert _deploy_cache_problems(workflow) == []
+
+
+def test_only_main_writes_the_deploy_layer_cache__mutation_a_lane_writes() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)["deploy-e2e"].setdefault("env", {})["OSPREY_BUILD_CACHE_TO"] = "type=inline"
+    assert _deploy_cache_problems(mutated) == ["deploy-e2e: writes the deploy layer cache"]
+
+
+def test_only_main_writes_the_deploy_layer_cache__mutation_a_lane_forgets_to_read() -> None:
+    mutated = _load_workflow()
+    steps = _jobs(mutated)["stack-e2e"]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != DEPLOY_CACHE_READ_STEP]
+    assert _deploy_cache_problems(mutated) == ["stack-e2e: reads the deploy layer cache: False"]
+
+
+def test_only_main_writes_the_deploy_layer_cache__mutation_warmup_on_any_push() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[DEPLOY_CACHE_WARMUP_JOB]["if"] = "github.event_name == 'push'"
+    assert _deploy_cache_problems(mutated) == [
+        f"{DEPLOY_CACHE_WARMUP_JOB} runs on more than pushes to main"
+    ]
 
 
 def _qmd_deploy_problems(wf: dict[str, Any]) -> list[str]:

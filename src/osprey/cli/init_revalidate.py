@@ -29,17 +29,28 @@ in place, with the round-trip writer so every comment the operator kept survives
    current one, a commented retired-key example is dropped, and any other
    prose about them, or a connector block the rewrite empties, is printed as a
    step left to do by hand.
-5. Every ``config:`` leaf the profile leaves to its preset is filled in from
-   that preset, under the preset's own comment; the retired ``app_template:``
-   key is dropped. The deployment's own selections (the keys the manifest
-   marks ``deployment-data`` or ``data-map``) are never filled: the output
-   names each one left out, and so is ``control_system.writes``, so a root
-   that never stated it stays ``never``.
+5. What the presets changed since the repo last took them is applied
+   (:mod:`osprey.cli.build_profile_updates`): the delta between the saved copy
+   under ``.osprey/preset-base/`` and what the presets produce today, in
+   ``profile.yml``, each tier file and ``triggers.yml``, where the file still
+   holds the preset's old value. A file no saved copy covers starts from
+   today's output while its recorded hash matches; otherwise every ``config:``
+   leaf ``profile.yml`` lacks is filled once, as before, and whatever else the
+   file lacks or states differently is listed. Each added ``config:`` leaf comes
+   with the preset's comment; the retired ``app_template:`` key is dropped.
+   The deployment's own selections (the keys the manifest marks
+   ``deployment-data`` or ``data-map``) are never written, and neither is
+   ``control_system.writes``: the output names each. A change the operator
+   overrode is theirs; one to a list compared as a whole, which the operator
+   also changed, is listed once, as is a copied application whose bundled
+   source changed. The saved copy is then rewritten to today's output.
 6. ``providers.yml`` is completed, never rewritten: every value it states is
-   kept, an edited entry OSPREY ships included, and only the entries OSPREY
-   ships that it lacks, and the keys an existing one lacks, are added; one a
-   deviation marker claims absent is not.
-   ``osprey validate`` reports each remaining difference as drift.
+   kept, and only the entries and keys OSPREY ships that it lacks, and that
+   the saved copy does not hold, are added. One the saved copy holds and the
+   file lacks was deleted on purpose. A packaged value the catalog changed
+   since, which the file still holds, is listed. With no saved copy and a
+   changed catalog, nothing is added: what the file lacks is listed, unless a
+   deviation marker from an earlier release claims it absent.
 7. ``provenance:`` is restamped with the preset, its hash and the catalog's
    hash, and ``requires_osprey_version`` at the schema floor, so a release
    that predates the vocabulary refuses the rewritten repo.
@@ -75,7 +86,11 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import CommentMark, YAMLError
 from ruamel.yaml.tokens import CommentToken
 
-from osprey.profiles.providers import PROVIDERS_FILENAME
+from osprey.profiles.providers import (
+    PROVIDERS_FILENAME,
+    compute_providers_hash,
+    packaged_catalog_path,
+)
 from osprey.utils.config_writer import _yaml as _ROUND_TRIP
 from osprey.utils.workspace import (
     APPS_DIRNAME,
@@ -223,20 +238,21 @@ class RevalidateResult:
     manual_steps: list[str] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)
     preset: str | None = None
-    """The preset the profile was filled from; ``None`` when none is known."""
-    filled: list[str] = field(default_factory=list)
-    """Config keys written from the preset."""
+    """The preset the profile was compared with; ``None`` when none is known."""
+    applied: list[str] = field(default_factory=list)
+    """Each preset change applied, one line each (``profile.yml: added web_panels: ariel``)."""
     skipped: dict[str, str] = field(default_factory=dict)
-    """Lacking config keys left out on purpose → why."""
+    """``config:`` keys a preset change touched that are never written → why."""
+    left_for_you: list[str] = field(default_factory=list)
+    """Preset changes not applied that the operator may want, one line each: said once."""
+    filled_once: list[str] = field(default_factory=list)
+    """Files no saved copy covered, whose preset had moved on: filled the old way, once."""
+    switched_from: str | None = None
+    """The preset ``provenance:`` named, when ``--preset`` moved the profile to another."""
+    saved_copy: bool = False
+    """Whether the saved copy under ``.osprey/preset-base/`` was written or changed."""
     providers_kept: tuple[str, ...] = ()
     """The operator's own ``providers.yml`` entries carried over."""
-    drift_refusals: int = 0
-    """Differences from the preset ``osprey validate`` now refuses."""
-    deviation_marker: str = ""
-    """The tag a drift finding is claimed with."""
-    app_drift: list[str] = field(default_factory=list)
-    """Each copied application whose files differ from what ``osprey init`` copied,
-    unclaimed, and each whose preset has moved on since. Reported, never rewritten."""
     retired_policies: list[str] = field(default_factory=list)
     """One line per file that lost ``approval.tools.<tool>`` for a governed tool, naming them."""
 
@@ -1294,7 +1310,7 @@ def _move_retired_layer_dir(root: Path) -> list[str]:
 def _snapshot(root: Path) -> dict[str, str]:
     """The text of every file this rewrite may touch, by repo-relative path."""
     texts: dict[str, str] = {}
-    candidates = [root / PROFILE_FILENAME, root / PROVIDERS_FILENAME]
+    candidates = [root / PROFILE_FILENAME, root / PROVIDERS_FILENAME, root / "triggers.yml"]
     # `apps/` is not a layer directory, but its login files are moved from it.
     for dirname in (*LAYER_DIRNAMES, APPS_DIRNAME, "profiles", CONTEXT_DIRNAME):
         base = root / dirname
@@ -1405,17 +1421,19 @@ def _context_slot_empty(slot: Path) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ── Lacking config leaves from the preset ──
+# ── What the preset changed, applied ──
 #
-# A profile emitted before the preset carried the whole configuration spells
-# only what its facility changed. The rewrite writes every ``config:`` leaf the
-# preset documents and the profile does not
-# (:func:`~osprey.cli.build_profile_drift.lacking_config_keys`), each under the
-# preset's own comment, so the filled file reads like one ``osprey init``
-# emitted. Values already in the file are never touched: the fill only ADDS.
-# Two kinds of leaf are never written, because their absence is correct: one
-# another block of the profile already owns (:func:`_claimed_elsewhere`), and
-# the deployment's own selections (:func:`_deployment_data_keys`).
+# ``osprey init`` saves what the presets produced under ``.osprey/preset-base/``
+# (:mod:`osprey.cli.build_profile_updates`). The delta between that saved copy
+# and what the presets produce today is what they changed; the operator's files
+# are never part of it. Each change is applied where the operator left the
+# preset's value alone: an added key, member, named entry or step the file
+# lacks is added (a ``config:`` leaf under the preset's own comment), a removed
+# or changed one still holding the saved value is removed or updated, and
+# anything else is the operator's. Two kinds of ``config:`` leaf are never
+# written, because their value is the deployment's: one another block of the
+# profile already owns (:func:`_claimed_elsewhere`), and the deployment's own
+# selections (:func:`_deployment_data_keys`).
 # ─────────────────────────────────────────────────────────────────────────────
 
 #: How the emitted profile opens a section of its ``config:`` block. Recognized
@@ -1847,6 +1865,20 @@ def _restamp_header(text: str, preset: str, preset_hash: str) -> str:
     return "".join(lines)
 
 
+def _restamp_tier(text: str, item: Any) -> str:
+    """The tier *text* with its recorded hash brought to the installed tier's.
+
+    The hash is replaced where it stands, in ``provenance:`` and in the header
+    line that says the same in prose, so nothing else in the file moves. A
+    stamp that is not a hash OSPREY wrote is set through the document instead.
+    """
+    if item.recorded_hash.startswith("sha256:") and item.recorded_hash in text:
+        return text.replace(item.recorded_hash, item.installed_hash)
+    document = _load_text(text, item.rel)
+    document["provenance"]["preset_hash"] = item.installed_hash
+    return _dump_text(document)
+
+
 def _reference_document(preset: str, *, project_name: str, profile_name: str) -> CommentedMap:
     """The profile ``osprey init --preset <preset>`` would write, with comments.
 
@@ -1970,24 +2002,20 @@ def _refresh_provenance_comment(document: CommentedMap) -> None:
     token.value = "\n".join(lines)
 
 
-def _stamp_provenance(document: Any, preset: str, preset_hash: str, providers_hash: str) -> str:
+def _stamp_provenance(document: Any, preset: str, preset_hash: str, providers_hash: str) -> None:
     """Record what the profile now carries: the preset, its hash, the catalog's.
 
     Written after the fill rather than before, because that is what makes it
     true: the profile spells every key the preset documents, so the stamp the
-    emitter would have written is the honest one. A ``deviation_marker:`` the
-    operator set is left alone — it is the one key in the block that is
-    theirs. The comment OSPREY emitted above the block is brought up to date
+    emitter would have written is the honest one. A ``deviation_marker:`` key
+    an earlier release honoured is dropped: nothing reads it any more. The
+    comment OSPREY emitted above the block is brought up to date
     (:func:`_refresh_provenance_comment`).
-
-    Returns:
-        The deviation marker now in force, which is what a drift finding has to
-        be claimed with.
     """
     from osprey.utils.config_writer import anchored_put
 
     from .build_profile_emit import _PROVENANCE_COMMENT
-    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
+    from .build_profile_load import RETIRED_PROVENANCE_KEY
 
     stamps = {
         "preset": preset,
@@ -2002,27 +2030,11 @@ def _stamp_provenance(document: Any, preset: str, preset_hash: str, providers_ha
         anchored_put(
             document, "provenance", block, comment=_comment_text(list(_PROVENANCE_COMMENT))
         )
-        return DEFAULT_DEVIATION_MARKER
+        return
     _refresh_provenance_comment(document)
     for key, value in stamps.items():
         block[key] = value
-    return _deviation_marker(document)
-
-
-def _deviation_marker(document: Any) -> str:
-    """The marker that claims a drift finding: *document*'s ``deviation_marker:``, or the default."""
-    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
-
-    block = document.get("provenance")
-    marker = block.get("deviation_marker") if isinstance(block, dict) else None
-    return marker if isinstance(marker, str) and marker else DEFAULT_DEVIATION_MARKER
-
-
-class _Fill(NamedTuple):
-    """What the fill wrote into ``config:``, and what it left out on purpose."""
-
-    filled: list[str]
-    skipped: dict[str, str]
+    block.pop(RETIRED_PROVENANCE_KEY, None)
 
 
 def _stated_tier_word(config: Any) -> Any:
@@ -2033,83 +2045,507 @@ def _stated_tier_word(config: Any) -> Any:
 
 
 def _tier_drift_note(stated: Any, preset: str, preset_word: Any) -> str:
-    """Why the fill leaves a stated tier word alone, and what ``osprey validate`` says of it."""
+    """Why the apply leaves a stated tier word alone."""
     shipped = f"`{preset_word}`" if preset_word is not None else "no value"
     return (
         f"this profile states `{stated}` and preset `{preset}` ships {shipped}; a preset "
-        "never decides whether this deployment allows writes, so it is kept. `osprey "
-        "validate` reports the difference as a preset-drift NOTE, not a refusal; a "
-        "`# DEVIATION:` comment above the line, or spelling the preset's word, silences it."
+        "never decides whether this deployment allows writes, so it is kept."
     )
 
 
-def _fill_lacking_keys(document: CommentedMap, repo_root: Path, preset: str) -> _Fill:
-    """Write every ``config:`` leaf *preset* documents and *document* lacks.
+@dataclass
+class _Applied:
+    """What applying one file's preset changes did, and what it left alone."""
 
-    Planned in memory like the rest of the rewrite: an unbacked key — one the
-    comparison reports missing that the preset's own emitted profile does not
-    carry — refuses the run before anything is written, because the
-    alternative is writing ``key: null`` into the facility's source of truth
-    and calling it the preset's value.
+    applied: list[str] = field(default_factory=list)
+    skipped: dict[str, str] = field(default_factory=dict)
+    left: list[str] = field(default_factory=list)
 
-    Raises:
-        BuildProfileError: The preset cannot be read, or reports a key its own
-            emitted profile does not carry.
+
+def _config_home(config: Any, dotted: str) -> tuple[Any, str] | None:
+    """Where *config* spells the leaf *dotted*: in which mapping, under which key.
+
+    Any split between dotted and nested addresses the same leaf, so every cut
+    is tried, the longest dotted head first.
     """
-    from osprey.utils.config_writer import anchored_put
+    trail = _config_trail(config, dotted)
+    return trail[-1] if trail else None
 
-    from .build_profile_drift import lacking_config_keys
 
-    profile_path = repo_root / PROFILE_FILENAME
-    profile_name = str(document.get("name") or repo_root.name)
-    try:
-        reference = _reference_document(
-            preset,
-            project_name=str(document.get("project_name") or ""),
-            profile_name=profile_name,
+def _config_trail(config: Any, dotted: str) -> list[tuple[Any, str]] | None:
+    """Every mapping *config* spells the leaf *dotted* through, outermost first, each with its key."""
+    if not isinstance(config, dict):
+        return None
+    segments = dotted.split(".")
+    for cut in range(len(segments), 0, -1):
+        head = ".".join(segments[:cut])
+        if head not in config:
+            continue
+        if cut == len(segments):
+            return [(config, head)]
+        below = _config_trail(config[head], ".".join(segments[cut:]))
+        if below is not None:
+            return [(config, head), *below]
+    return None
+
+
+def _step_index(container: Any, step: Any) -> Any:
+    """Where *step* sits in *container*, or ``None`` when it is not there."""
+    from .build_profile_updates import Entry, Member
+
+    if isinstance(step, Entry) and isinstance(container, list):
+        return next(
+            (
+                index
+                for index, item in enumerate(container)
+                if isinstance(item, dict) and item.get("name") == step.name
+            ),
+            None,
         )
-        lacking = lacking_config_keys(document, preset)
-    except BuildProfileError as e:
-        raise BuildProfileError(f"Cannot read preset {preset!r} to fill from: {e}") from e
+    if isinstance(step, Member) and isinstance(container, list):
+        return next((index for index, item in enumerate(container) if item == step.value), None)
+    if isinstance(step, str) and isinstance(container, dict) and step in container:
+        return step
+    return None
 
-    reference_config = reference.get("config")
-    comments = (
-        _leaf_comments(reference_config, reference.ca.items.get("config"))[0]
-        if hasattr(reference_config, "items")
-        else {}
-    )
-    values = _leaf_values(reference_config) if hasattr(reference_config, "items") else {}
 
-    # Keys whose absence is correct rather than accidental. Removed before the
-    # backing check below, because a key that is never written needs no value.
-    skipped = _skipped_keys(document, lacking)
-    stated = _stated_tier_word(document.get("config"))
-    preset_word = values.get(_TIER_KEY)
-    if _TIER_KEY not in skipped and stated is not None and stated != preset_word:
-        skipped[_TIER_KEY] = _tier_drift_note(stated, preset, preset_word)
-    lacking = [key for key in lacking if key not in skipped]
+def _find_node(document: Any, path: tuple[Any, ...]) -> tuple[Any, Any] | None:
+    """The container holding the node at flattened *path*, and its key or index."""
+    trail = _node_trail(document, path)
+    return trail[-1] if trail else None
 
-    unbacked = [key for key in lacking if key not in values]
-    if unbacked:
-        raise BuildProfileError(
-            f"Preset {preset!r} reports {len(unbacked)} key(s) as missing that its own "
-            f"emitted profile does not carry: {', '.join(unbacked[:5])}. Nothing was "
-            f"written. This is a framework inconsistency, not a problem with "
-            f"{profile_path}."
-        )
 
-    if lacking:
+def _node_trail(document: Any, path: tuple[Any, ...]) -> list[tuple[Any, Any]] | None:
+    """Every container down to the node at flattened *path*, outermost first, each with its key."""
+    steps = list(path)
+    if steps[0] == "config" and len(steps) > 1:
+        found = _config_trail(document.get("config"), steps[1])
+        if found is None:
+            return None
+        trail: list[tuple[Any, Any]] = list(found)
+        steps = steps[2:]
+    else:
+        key = _step_index(document, steps.pop(0))
+        if key is None:
+            return None
+        trail = [(document, key)]
+    for step in steps:
+        container, key = trail[-1]
+        container = container[key]
+        key = _step_index(container, step)
+        if key is None:
+            return None
+        trail.append((container, key))
+    return trail
+
+
+def _preset_value(document: Any, path: tuple[Any, ...]) -> Any:
+    """The value at flattened *path* in the plain *document* the preset produces."""
+    from .build_profile_resolve import _dotted_leaves
+    from .build_profile_updates import Entry, Member
+
+    if path[0] == "config" and len(path) > 1:
+        leaves = {".".join(p): v for p, v in _dotted_leaves(dict(document["config"]))}
+        node, rest = leaves[path[1]], path[2:]
+    else:
+        node, rest = document[path[0]], path[1:]
+    for step in rest:
+        if isinstance(step, Entry):
+            node = next(item for item in node if item.get("name") == step.name)
+        elif isinstance(step, Member):
+            node = step.value
+        else:
+            node = node[step]
+    return node
+
+
+def _wrap(steps: tuple[Any, ...], value: Any) -> Any:
+    """*value* nested under *steps*, for a node whose parents the file lacks."""
+    from .build_profile_updates import Entry, Member
+
+    if not steps:
+        return value
+    head, rest = steps[0], steps[1:]
+    if isinstance(head, Member):
+        return [head.value]
+    if isinstance(head, Entry):
+        return [{"name": head.name, **_wrap(rest, value)} if rest else value]
+    return {head: _wrap(rest, value)}
+
+
+def _insert_position(container: list[Any], name: str, order: list[str]) -> int:
+    """Where a new step *name* goes in *container*: after the step before it in *order*."""
+    before = order[: order.index(name)] if name in order else []
+    for previous in reversed(before):
+        index = _step_index(container, _entry(previous))
+        if index is not None:
+            return int(index) + 1
+    return 0
+
+
+def _entry(name: str) -> Any:
+    from .build_profile_updates import Entry
+
+    return Entry(name)
+
+
+def _add_node(
+    document: Any, path: tuple[Any, ...], value: Any, today: Any, comment: str | None
+) -> bool:
+    """Add the node at *path*, creating the parents the file lacks. ``False`` on a shape clash."""
+    from osprey.utils.config_writer import _to_commented, anchored_append, anchored_put
+
+    from .build_profile_updates import ORDER, Entry, Member
+
+    if path[0] == "config" and len(path) > 1:
         config = document.get("config")
         if not isinstance(config, CommentedMap):
             config = CommentedMap()
             # A mapping built here carries no position, and a comment written
-            # into one renders at column 0 — the emitted file's section-header
+            # into one renders at column 0: the emitted file's section-header
             # convention, inside a block where it means nothing.
             config.lc.col = _CONFIG_COLUMN
             anchored_put(document, "config", config)
-        for key in lacking:
-            _put_leaf(config, key, values.get(key), comments.get(key))
-    return _Fill(lacking, skipped)
+        home = _config_home(config, path[1])
+        if home is None:
+            _put_leaf(config, path[1], _wrap(path[2:], value), comment if len(path) == 2 else None)
+            return True
+        container, rest, prefix = home[0][home[1]], path[2:], path[:2]
+    elif path[0] not in document:
+        anchored_put(document, path[0], _to_commented(_wrap(path[1:], value)))
+        return True
+    else:
+        container, rest, prefix = document[path[0]], path[1:], path[:1]
+    for depth, step in enumerate(rest):
+        index = _step_index(container, step)
+        if index is not None:
+            container = container[index]
+            continue
+        remaining = rest[depth + 1 :]
+        if isinstance(step, str):
+            if not isinstance(container, dict):
+                return False
+            anchored_put(container, step, _to_commented(_wrap(remaining, value)))
+            return True
+        if not isinstance(container, list):
+            return False
+        if isinstance(step, Member):
+            item: Any = step.value
+        else:
+            item = {"name": step.name, **_wrap(remaining, value)} if remaining else value
+        order_path = (*prefix, *rest[:depth], ORDER)
+        if isinstance(step, Entry) and prefix[0] == "lifecycle":
+            names = [entry.get("name") for entry in _preset_value(today, order_path[:-1])]
+            container.insert(_insert_position(container, step.name, names), _to_commented(item))
+        else:
+            anchored_append(container, item)
+        return True
+    return False
+
+
+def _remove_node(document: Any, path: tuple[Any, ...]) -> bool:
+    """Remove the node at *path*; ``False`` when the file does not hold it.
+
+    A ``config:`` leaf spelled nested goes with every mapping that held nothing
+    else: those are the leaf's spelling, and left behind empty they would read
+    as a key of their own. Any other list or mapping the removal empties stays,
+    written ``[]`` or ``{}``.
+    """
+    from .build_profile_emit import _append_trailing, _drop_key_and_pre_comment
+
+    trail = _node_trail(document, path)
+    if trail is None:
+        return False
+    depth = len(trail) - 1
+    if path[0] == "config" and len(path) == 2:
+        while depth and len(trail[depth][0]) == 1:
+            depth -= 1
+    container, key = trail[depth]
+    if isinstance(container, (CommentedMap, CommentedSeq)):
+        orphaned = _drop_key_and_pre_comment(container, key)
+    else:
+        orphaned = None
+        del container[key]
+    if not len(container) and isinstance(container, (CommentedMap, CommentedSeq)):
+        # An empty block collection is dumped as `{}` or `[]` after whatever
+        # comment its key is later handed, at column 0: not YAML.
+        container.fa.set_flow_style()
+        if container is not document:
+            holder, held = trail[depth - 1] if depth else (document, path[0])
+            entry = holder.ca.items.get(held)
+            if entry and not entry[3]:
+                # The comment that stood above the first member, now none: left
+                # an empty list, it pads the `[]` and eats the line's end.
+                entry[3] = None
+            if orphaned is not None:
+                # The block introducing whatever follows the emptied collection.
+                _append_trailing(holder, held, orphaned)
+    return True
+
+
+def _set_node(document: Any, path: tuple[Any, ...], value: Any) -> bool:
+    """Replace the value at *path*; ``False`` when the file does not hold it."""
+    from osprey.utils.config_writer import _to_commented, anchored_put
+
+    found = _find_node(document, path)
+    if found is None:
+        return False
+    container, key = found
+    if isinstance(container, CommentedMap):
+        anchored_put(container, key, _to_commented(value))
+    else:
+        container[key] = _to_commented(value)
+    return True
+
+
+def _reorder(document: Any, path: tuple[Any, ...], order: tuple[str, ...]) -> bool:
+    """Put the list at *path* in *order*; ``False`` when it holds a member *order* lacks."""
+    found = _find_node(document, path)
+    if found is None:
+        return False
+    container, key = found
+    items = container[key]
+    names = [item.get("name") if isinstance(item, dict) else item for item in items]
+    if not set(names) <= set(order):
+        return False
+    ranked = sorted(zip(names, list(items), strict=True), key=lambda pair: order.index(pair[0]))
+    items[:] = [item for _name, item in ranked]
+    return True
+
+
+def _flat_document(document: Any) -> dict[tuple[Any, ...], Any]:
+    """*document* in the normalised form, without the keys a repo writes for itself."""
+    from .build_profile_updates import _strip, flatten
+
+    return flatten(_strip(_plain(document)))
+
+
+def _apply_preset_changes(
+    document: Any,
+    item: Any,
+    start: dict[str, Any],
+    preset: str,
+    *,
+    elsewhere: Iterable[dict[tuple[Any, ...], Any]] = (),
+    comments: dict[str, str] | None = None,
+    skips: dict[str, str] | None = None,
+    fill: bool = False,
+    switched: bool = False,
+) -> _Applied:
+    """Apply what the preset changed from *start* to today, where *document* left it alone.
+
+    Args:
+        document: The operator's file, round-trip loaded; edited in place.
+        item: Its :class:`~osprey.cli.build_profile_updates.CoveredFile`.
+        start: What the delta is taken from: the saved copy, as a rule.
+        preset: The preset's name, for the notes.
+        elsewhere: Other files whose keys count as present: a key moved from
+            ``profile.yml`` into a tier is not added back.
+        comments: The preset's comment for each ``config:`` leaf, dotted.
+        skips: The ``config:`` leaves never written, each with the reason.
+        fill: Whether nothing records what the preset said (*start* is then
+            empty). Only a ``config:`` leaf ``profile.yml`` lacks is written;
+            whatever else the file lacks or states differently goes to
+            :attr:`_Applied.left` (:func:`_unrecorded`).
+        switched: With *fill*, whether that is because the repo has a saved
+            copy of another preset: the listed lines then name no missing one.
+    """
+    from .build_profile_updates import (
+        flatten,
+        prefixes,
+        preset_delta,
+        render_path,
+        subtree,
+    )
+
+    done = _Applied()
+    changes = preset_delta(start, item.today)
+    if not changes:
+        return done
+    user = _flat_document(document)
+    present = prefixes([*user, *(p for flat in elsewhere for p in flat)])
+    had = prefixes(flatten(start))
+    for change in changes:
+        path, kind = change.path, change.kind
+        dotted = path[1] if path[0] == "config" and len(path) > 1 else None
+        if dotted is not None and (dotted == _TIER_KEY or dotted.startswith(f"{_TIER_KEY}.")):
+            note = _tier_key_note(document, change, preset, skips)
+            if note is not None:
+                done.skipped[_TIER_KEY] = note
+            continue
+        here = subtree(user, path)
+        if fill and (dotted is None or path in present or item.rel != PROFILE_FILENAME):
+            # Nothing says the preset added what the file lacks here: a panel
+            # or a list member missing from it is as likely one the operator
+            # removed. The fill only ever wrote the `config:` keys of
+            # profile.yml, so the rest is said, not written.
+            if dotted is None or skips is None or dotted not in skips:
+                done.left.extend(_unrecorded(item, change, user, present, preset, switched))
+            continue
+        if kind == "added":
+            if path in present:
+                # The file has the node already: what it lacks below it is added.
+                nodes = _lacking_nodes(path, change.new, present)
+            elif any(
+                path[:cut] in had and path[:cut] not in present for cut in range(1, len(path))
+            ):
+                # A parent the saved copy had and the file lacks: deleted on purpose.
+                continue
+            else:
+                nodes = [path]
+        elif here == change.old:
+            nodes = [path]
+        else:
+            if kind == "changed" and here and here != change.new and _opaque(change):
+                done.left.append(
+                    f"{item.rel}: {render_path(path)}: the preset now has {_brief(change.new)} "
+                    f"(it had {_brief(change.old)}); yours is {_brief(here)}"
+                )
+            continue
+        if dotted is not None and skips is not None and dotted in skips:
+            done.skipped[dotted] = skips[dotted]
+            continue
+        for node in nodes:
+            _apply_one(document, item, node, kind, comments, done)
+    return done
+
+
+def _unrecorded(
+    item: Any,
+    change: Any,
+    user: dict[tuple[Any, ...], Any],
+    present: set[tuple[Any, ...]],
+    preset: str,
+    switched: bool = False,
+) -> list[str]:
+    """What the preset has at *change* that the file lacks or states differently, a line each.
+
+    For a file no saved copy covers: the preset's change and the operator's
+    own look the same, so neither is assumed. A value ``profile.yml`` states
+    under ``config:`` is not listed: the fill has always kept those as the
+    operator's. With *switched* the saved copy is of the preset the repo
+    followed before, and the lines do not say there is none.
+    """
+    from .build_profile_updates import ORDER, Member, render_path
+    from .profile_conventions import library_entry_shadow
+
+    kept = item.rel == PROFILE_FILENAME and change.path[0] == "config"
+    differs = "" if switched else " (no saved copy says which of the two changed)"
+    lacks = "" if switched else "no saved copy says which of the two changed, so "
+    lines: list[str] = []
+    listed: list[tuple[Any, ...]] = []
+    for rel, value in change.new.items():
+        full = (*change.path, *rel)
+        if full[-1] == ORDER:
+            continue
+        node = next(
+            (
+                full[:cut]
+                for cut in range(len(change.path), len(full) + 1)
+                if full[:cut] not in present
+            ),
+            None,
+        )
+        if node is not None and len(node) == 2 and isinstance(node[1], Member):
+            # The repo's own file under a library name is listed by its path.
+            shadow = library_entry_shadow(str(node[0]), node[1].value)
+            if shadow is not None and (node[0], Member(shadow)) in present:
+                continue
+        if node is None:
+            if not kept and full in user and user[full] != value:
+                lines.append(
+                    f"{item.rel}: {render_path(full)}: the {preset} preset has "
+                    f"{_brief({(): value})}; yours is {_brief({(): user[full]})}{differs}"
+                )
+        elif node not in listed:
+            listed.append(node)
+            lines.append(
+                f"{item.rel}: {render_path(node)}: the {preset} preset has it and this file "
+                f"does not; {lacks}add it by hand if you want it"
+            )
+    return lines
+
+
+def _tier_key_note(
+    document: Any, change: Any, preset: str, skips: dict[str, str] | None
+) -> str | None:
+    """Why a preset change to ``control_system.writes`` is not applied, or ``None`` to say nothing."""
+    stated = _stated_tier_word(document.get("config"))
+    shipped = change.new.get(())
+    if stated is None:
+        return (skips or {}).get(_TIER_KEY) or (
+            "a root that does not state it reads as `never`; whether this "
+            "deployment allows writes is never filled in from a preset."
+        )
+    return _tier_drift_note(stated, preset, shipped) if stated != shipped else None
+
+
+def _lacking_nodes(
+    path: tuple[Any, ...], new: dict[tuple[Any, ...], Any], present: set[tuple[Any, ...]]
+) -> list[tuple[Any, ...]]:
+    """The shallowest nodes below *path* that *new* has and the file lacks."""
+    nodes: list[tuple[Any, ...]] = []
+    for rel in new:
+        full = (*path, *rel)
+        node = next(
+            (
+                full[:cut]
+                for cut in range(len(path) + 1, len(full) + 1)
+                if full[:cut] not in present
+            ),
+            None,
+        )
+        if node is not None and node not in nodes:
+            nodes.append(node)
+    return nodes
+
+
+def _apply_one(
+    document: Any,
+    item: Any,
+    node: tuple[Any, ...],
+    kind: str,
+    comments: dict[str, str] | None,
+    done: _Applied,
+) -> None:
+    """Apply one preset change at *node* to *document*, and record it in *done*."""
+    from .build_profile_updates import ORDER, render_path
+
+    dotted = node[1] if node[0] == "config" and len(node) == 2 else None
+    if node[-1] == ORDER:
+        order = tuple(
+            str(entry.get("name")) if isinstance(entry, dict) else str(entry)
+            for entry in _preset_value(item.today, node[:-1])
+        )
+        ok, verb = _reorder(document, node[:-1], order), "reordered"
+    elif kind == "added":
+        comment = (comments or {}).get(dotted) if dotted else None
+        ok = _add_node(document, node, _preset_value(item.today, node), item.today, comment)
+        verb = "added"
+    elif kind == "removed":
+        ok, verb = _remove_node(document, node), "removed"
+    else:
+        ok, verb = _set_node(document, node, _preset_value(item.today, node)), "updated"
+    subject = render_path(node[:-1] if node[-1] == ORDER else node)
+    if ok:
+        done.applied.append(f"{item.rel}: {verb} {subject}")
+    else:
+        done.left.append(
+            f"{item.rel}: {subject}: the preset {kind} it, and this file's shape there "
+            f"differs from the preset's; change it by hand if you want it"
+        )
+
+
+def _opaque(change: Any) -> bool:
+    """Whether *change* is to a list compared as one value (not by member or name)."""
+    return isinstance(change.old.get(()), list) or isinstance(change.new.get(()), list)
+
+
+def _brief(subtree: dict[tuple[Any, ...], Any]) -> str:
+    """One side of a change, short enough for one line."""
+    value = subtree.get(()) if set(subtree) == {()} else {str(k): v for k, v in subtree.items()}
+    text = json.dumps(value, default=str)
+    return text if len(text) <= 80 else text[:77] + "..."
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2559,8 +2995,8 @@ def _moved_login_text(
     today, shipped shadows named by path either way — is re-emitted from the
     bundled login it names, which restamps its provenance. An edited one keeps
     its lines and gains ``lists: own`` and, unless it spells it,
-    ``control_system.writes: never``; *steps* says how ``osprey validate``
-    reports where it differs from the bundled login.
+    ``control_system.writes: never``; *steps* says how to take the bundled
+    login instead.
     """
     from .build_profile_emit import emit_layer_delta_yaml
     from .build_profile_presets import list_tiers
@@ -2589,9 +3025,7 @@ def _moved_login_text(
     if not (isinstance(config, dict) and list(_tier_key_values(config))):
         moved = _pin_never(moved, rel)
     note = (
-        f"; `osprey validate` reports where it differs from the bundled `{bundled}` login — "
-        f"claim each difference with a `# DEVIATION:` comment, or take the bundled file with "
-        f"`osprey scaffold tiers --force`"
+        f"; to take the bundled `{bundled}` login instead, run `osprey scaffold tiers --force`"
         if bundled in list_tiers()
         else ""
     )
@@ -3030,26 +3464,57 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             if named != text:
                 writes[rel] = named
 
-    # ── Lacking config leaves, providers.yml, provenance ────────────────────
+    # ── What the presets changed, providers.yml, provenance ─────────────────
     resolved = _resolve_preset(document, preset, root / PROFILE_FILENAME)
     result.preset = resolved
-    if resolved is not None:
-        fill = _fill_lacking_keys(document, root, resolved)
-        result.filled, result.skipped = fill.filled, fill.skipped
-        if PRESET_DATA_BUNDLE_KEY in document:
-            _drop_key_and_pre_comment(document, PRESET_DATA_BUNDLE_KEY)
-    else:
+    if resolved is None:
         steps.append(_NO_PRESET_STEP)
-    plan = _plan_providers(root, _deviation_marker(document))
+    elif PRESET_DATA_BUNDLE_KEY in document:
+        _drop_key_and_pre_comment(document, PRESET_DATA_BUNDLE_KEY)
+    renamed_away = {f"{TIERS_DIRNAME}/{old}.yml" for old in file_renames}
+    planned = {**writes, **{rel: _dump_text(doc) for rel, doc in documents.items()}}
+    # A tier this run renames or moves is at its new path only once the plan is
+    # applied: until then its text is the one read from the old path.
+    for layer in layers.values():
+        if layer.origin != layer.rel and layer.rel not in deletes:
+            planned.setdefault(layer.rel, layer.text)
+    plan, covered, app_digests = _apply_presets(
+        root,
+        document,
+        resolved,
+        planned,
+        deletes | renamed_away,
+        writes,
+        result,
+    )
     if (root / PROVIDERS_FILENAME).is_file():
         writes[PROVIDERS_FILENAME] = plan.text
         result.providers_kept = plan.carried
     preset_hash = ""
     if resolved is not None:
         preset_hash = compute_preset_hash(resolved) or "(unavailable)"
-        result.deviation_marker = _stamp_provenance(
-            document, resolved, preset_hash, plan.content_hash
+        # The packaged catalog's hash, not the repo file's: the saved copy
+        # written below records the packaged catalog, and that is what a later
+        # run compares the stamp with.
+        _stamp_provenance(
+            document, resolved, preset_hash, compute_providers_hash(packaged_catalog_path())
         )
+
+    # ── The saved copy: what the presets produce today ──────────────────────
+    from .build_profile_updates import PRESET_BASE_DIR, saved_copy_texts
+
+    base_texts = saved_copy_texts(root, covered, digests=app_digests)
+    held = root / PRESET_BASE_DIR
+    old_base = (
+        {p.relative_to(root).as_posix(): p for p in held.rglob("*") if p.is_file()}
+        if held.is_dir()
+        else {}
+    )
+    result.saved_copy = set(old_base) != set(base_texts) or any(
+        path.read_text(encoding="utf-8") != base_texts[rel] for rel, path in old_base.items()
+    )
+    deletes |= set(old_base) - set(base_texts)
+    writes.update(base_texts)
 
     _restamp_floor(document)
     for rel, doc in documents.items():
@@ -3077,81 +3542,234 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     renamed = {layer.origin: layer.rel for layer in layers.values() if layer.origin != layer.rel}
     renamed.update(moved)
     result.diff, result.changed = _diff(before, _snapshot(root), renamed)
-    if resolved is not None:
-        result.drift_refusals = _drift_refusals(
-            root, resolved, preset_hash, plan.content_hash, result.deviation_marker
-        )
-    result.app_drift = _app_drift(root, result.deviation_marker)
     return result
 
 
-def _app_drift(root: Path, marker: str) -> list[str]:
-    """The application differences ``osprey validate`` reports, one line each.
+def _config_comments(text: str) -> dict[str, str]:
+    """The comment above each ``config:`` leaf of an emitted file, dotted."""
+    from ruamel.yaml import YAML
 
-    An application's files are the operator's to edit, so a difference is said
-    and never rewritten: the copy stays as it is, and a marker in its
-    ``.provenance`` sidecar claims it. Never fatal: a sidecar that does not
-    parse reports nothing here and refuses where ``osprey validate`` reads it.
+    reference = YAML().load(text)
+    config = reference.get("config") if isinstance(reference, CommentedMap) else None
+    if not isinstance(config, CommentedMap):
+        return {}
+    return _leaf_comments(config, reference.ca.items.get("config"))[0]
+
+
+def _apply_presets(
+    root: Path,
+    document: CommentedMap,
+    preset: str | None,
+    texts: dict[str, str],
+    gone: set[str],
+    writes: dict[str, str],
+    result: RevalidateResult,
+) -> tuple[Any, list[Any], dict[str, tuple[str, str]]]:
+    """Apply what the presets changed since the saved copy, to every covered file.
+
+    ``profile.yml`` is edited in *document*; a tier file or ``triggers.yml``
+    that changes is put in *writes*. What is applied, skipped and left alone
+    goes into *result*.
+
+    Returns:
+        The ``providers.yml`` plan, and the covered files and the copied
+        applications' digests (what the saved copy is rewritten from).
+
+    Raises:
+        BuildProfileError: A covered file does not parse, a preset will not
+            emit, ``providers.yml`` does not parse, or a file of the saved
+            copy or an application sidecar cannot be read.
     """
-    from .build_profile_drift import _compare_apps
-    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
+    from .build_profile_presets import _normalize_preset_name
+    from .build_profile_updates import (
+        PresetRecordError,
+        _bundled_app_digests,
+        changed_apps,
+        covered_files,
+        read_saved_copy,
+        starting_point,
+    )
 
+    covered = covered_files(root, preset=preset, texts=texts, gone=gone)
     try:
-        findings, _stale, notes = _compare_apps(root, marker or DEFAULT_DEVIATION_MARKER)
-    except BuildProfileError:
-        return []
-    return [finding.render() for finding in findings if not finding.marked] + notes
+        saved = read_saved_copy(root)
+        digests = _bundled_app_digests(root)
+    except PresetRecordError as e:
+        # Still a refusal: read as if there were no saved copy, every edit the
+        # operator made would be taken for the preset's own.
+        raise BuildProfileError(f"{e}\n{e.repair}") from e
+    stamp = document.get("provenance")
+    recorded = (
+        _normalize_preset_name(str(stamp.get("preset") or "")) if isinstance(stamp, dict) else ""
+    )
+    tiers = {
+        item.rel: _flat_document(_safe_load(_text_of(root, item.rel, texts), item.rel))
+        for item in covered
+        if item.rel.startswith(f"{TIERS_DIRNAME}/")
+    }
+    plan = None
+    for item in covered:
+        start, filled = starting_point(item, saved)
+        switched = False
+        if filled and item.rel == PROFILE_FILENAME and recorded and recorded != preset:
+            # Filled the same way, for another reason: no saved copy is of this preset.
+            result.switched_from = recorded
+            switched = bool(saved)
+        elif filled and item.rel == PROFILE_FILENAME:
+            result.filled_once.append(item.rel)
+        if item.rel == PROVIDERS_FILENAME:
+            plan = _plan_providers(root, item, start, result, fill=filled, document=document)
+            continue
+        if item.rel == PROFILE_FILENAME:
+            target: Any = document
+            label = preset or ""
+            source = _reference_text(root, item, document, preset)
+            leaves = [
+                path[1]
+                for path in (*_flat_document(start), *_flat_document(item.today))
+                if path[0] == "config" and len(path) > 1
+            ]
+            skips = _skipped_keys(document, leaves)
+        else:
+            target = _load_text(_text_of(root, item.rel, texts), item.rel)
+            # The trigger set is the profile's preset's; a tier has a source of its own.
+            is_tier = item.rel.startswith(f"{TIERS_DIRNAME}/")
+            label = item.key.removesuffix(".yml") if is_tier else preset or ""
+            source = _reference_text(root, item, document, None)
+            skips = None
+        done = _apply_preset_changes(
+            target,
+            item,
+            start,
+            label,
+            # The one-time fill is the old fill, which read profile.yml alone.
+            elsewhere=list(tiers.values()) if item.rel == PROFILE_FILENAME and not filled else [],
+            comments=_config_comments(source) if source else None,
+            skips=skips,
+            fill=filled,
+            switched=switched,
+        )
+        result.applied.extend(done.applied)
+        result.skipped.update(done.skipped)
+        result.left_for_you.extend(done.left)
+        if done.applied and item.rel != PROFILE_FILENAME:
+            writes[item.rel] = _dump_text(target)
+        if item.rel.startswith(f"{TIERS_DIRNAME}/") and item.recorded_hash != item.installed_hash:
+            # The saved copy written below records today's tier, so the tier's
+            # own stamp says the same: without it, a repo that later loses its
+            # saved copy reads as holding a tier older than the installed one.
+            writes[item.rel] = _restamp_tier(_text_of(root, item.rel, {**texts, **writes}), item)
+    for name in changed_apps(root, saved, digests=digests):
+        result.left_for_you.append(
+            f"{APPS_DIRNAME}/{name}/: the preset's copy of this application has changed since "
+            f"you copied it; compare the two and take what you want by hand"
+        )
+    if plan is None:
+        plan = _plan_providers(root, None, {}, result)
+    return plan, covered, digests
 
 
-def _plan_providers(root: Path, marker: str) -> Any:
+def _text_of(root: Path, rel: str, texts: dict[str, str]) -> str:
+    return texts[rel] if rel in texts else (root / rel).read_text(encoding="utf-8")
+
+
+def _reference_text(root: Path, item: Any, document: Any, preset: str | None) -> str | None:
+    """The emitted text *item*'s preset output comes from, comments and all."""
+    from .build_profile_emit import emit_layer_delta_yaml, materialized_profile_text
+
+    profile_name = str(document.get("name") or root.name)
+    if item.rel == PROFILE_FILENAME and preset:
+        return materialized_profile_text(
+            preset, project_name=str(document.get("project_name") or ""), profile_name=profile_name
+        )
+    if item.rel.startswith(f"{TIERS_DIRNAME}/"):
+        return emit_layer_delta_yaml(
+            preset_name=item.key.removesuffix(".yml"),
+            profile_name=profile_name,
+            profile_filename=item.rel,
+        )
+    return None
+
+
+def _legacy_claims(text: str, document: Any) -> set[str]:
+    """The provider entries and keys a deviation marker in *text* claims absent, dotted.
+
+    The comment an earlier release read to keep a deleted entry out
+    (``# DEVIATION: providers.openrouter: …``, or under the profile's own
+    ``deviation_marker:``). A repo from before the saved copy has no other
+    record of a deletion.
+    """
+    from .build_profile_load import RETIRED_PROVENANCE_KEY
+
+    block = document.get("provenance") if document is not None else None
+    own = block.get(RETIRED_PROVENANCE_KEY) if isinstance(block, dict) else None
+    markers = {"DEVIATION", own} if isinstance(own, str) and own else {"DEVIATION"}
+    claim = re.compile(
+        rf"^\s*#\s*(?:{'|'.join(map(re.escape, sorted(markers)))}):\s*(providers\.[^\s:]+):",
+        re.MULTILINE,
+    )
+    return set(claim.findall(text))
+
+
+def _plan_providers(
+    root: Path,
+    item: Any,
+    start: dict[str, Any],
+    result: RevalidateResult,
+    *,
+    fill: bool = False,
+    document: Any = None,
+) -> Any:
     """The ``providers.yml`` this repo is brought to; refuses before anything is written.
 
-    A packaged entry or key the file lacks is added unless a *marker* comment
-    claims it absent, read as ``osprey validate`` reads it.
+    A packaged entry or key the file lacks is added, unless the saved copy
+    *start* has it: then the operator deleted it on purpose. A packaged entry
+    or key the catalog changed or removed since is never rewritten here: one
+    the file still holds as the saved copy has it is listed for the operator.
+
+    With *fill*, no saved copy covers the file, and an entry or key it lacks is
+    as likely deleted as new: none is added. Each is listed for the operator,
+    unless a deviation marker from an earlier release claims it absent
+    (:func:`_legacy_claims`, read under *document*'s ``deviation_marker:``).
     """
     import click
 
-    from .build_profile_drift import _compare_catalog
+    from .build_profile_updates import flatten, prefixes, preset_delta, render_path, subtree
     from .profile_cmd import _plan_provider_catalog
 
+    deleted: set[str] = set()
+    if item is not None:
+        text = _text_of(root, PROVIDERS_FILENAME, {})
+        try:
+            user = flatten(_plain(_safe_load(text, PROVIDERS_FILENAME) or {}))
+        except BuildProfileError:
+            # The file does not parse; the merge below refuses it in its own words.
+            user = None
+        if user is not None:
+            present = prefixes(user)
+            # With *fill*, *start* is empty and today's catalog stands in for it.
+            deleted = {
+                render_path(path)
+                for path in prefixes(flatten(item.today if fill else start))
+                if path[0] == "providers" and len(path) in (2, 3) and path not in present
+            }
+            claimed = _legacy_claims(text, document) if fill else set()
+            for name in sorted(deleted if fill else ()):
+                if name in claimed or name.rsplit(".", 1)[0] in deleted:
+                    continue
+                result.left_for_you.append(
+                    f"{PROVIDERS_FILENAME}: {name}: the catalog OSPREY ships has it and this "
+                    f"file does not; no saved copy says which of the two changed, so add it "
+                    f"by hand if you want it"
+                )
+            for change in preset_delta(start, item.today):
+                if change.kind != "added" and subtree(user, change.path) == change.old:
+                    result.left_for_you.append(
+                        f"{PROVIDERS_FILENAME}: {render_path(change.path)}: the catalog OSPREY "
+                        f"ships has {_brief(change.new) if change.new else 'removed it'} "
+                        f"(it had {_brief(change.old)}); change it by hand if you want that"
+                    )
     try:
-        findings, _stale = _compare_catalog(root, marker)
-    except BuildProfileError:
-        # The file does not parse; the merge below refuses it in its own words.
-        findings = []
-    claimed = {f.subject for f in findings if f.kind == "missing" and f.marked}
-    try:
-        return _plan_provider_catalog(root, keep_values=True, claimed_absent=claimed)
+        return _plan_provider_catalog(root, keep_values=True, deleted=deleted)
     except click.UsageError as e:
         raise BuildProfileError(e.message) from e
-
-
-def _drift_refusals(
-    root: Path, preset: str, preset_hash: str, providers_hash: str, marker: str
-) -> int:
-    """How many differences from *preset* ``osprey validate`` now refuses.
-
-    Stamping ``provenance:`` is what turns the preset-drift check on: before it
-    there is nothing to compare the profile with, and after it every structural
-    difference from the preset is a refusal until a marker comment claims it.
-    A profile that carried no stamp — or one ``--preset`` just re-pointed — can
-    therefore validate green before the rewrite and be refused after, which the
-    operator has to hear from the verb that did it rather than from the next
-    build. Never fatal: a comparison that cannot be made counts nothing.
-    """
-    from .build_profile_drift import preset_drift_report
-    from .build_profile_schema import ProfileProvenance
-
-    try:
-        card = preset_drift_report(
-            root / PROFILE_FILENAME,
-            ProfileProvenance(
-                preset=preset,
-                preset_hash=preset_hash,
-                providers_hash=providers_hash,
-                deviation_marker=marker,
-            ),
-        )
-    except BuildProfileError:
-        return 0
-    return len(card.refusals)

@@ -354,9 +354,12 @@ def capture_shot(browser: Browser, base_url: str, shot: DocShot) -> list[Path]:
 
     for theme in shot.themes:
         for view in views:
+            # A page that takes no ``?theme=`` (the landing and sign-in pages)
+            # follows the browser's colour scheme, so the theme sets that too.
             page = browser.new_page(
                 viewport={"width": shot.viewport[0], "height": shot.viewport[1]},
                 device_scale_factor=device_scale,
+                color_scheme=theme,
             )
             try:
                 # The interface app is gated by WebAuthMiddleware; a bare page is
@@ -450,7 +453,7 @@ def _capture_static_page(browser: Browser, shot: DocShot) -> list[Path]:
 def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     """Boot the contact sheet's hermetic web terminal and capture a recipe from it.
 
-    One stack serves every theme. Each theme boots on ``shot.hub_agent`` and is
+    One stack serves every theme. Each theme boots on the operator chat and is
     driven into ``shot.stage`` before the shot, through the same routine the
     contact sheet uses, so the doc image and the review card cannot drift apart.
     """
@@ -463,9 +466,7 @@ def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
         for theme in shot.themes:
             dest = dest_dir / _output_filename(shot.name, theme, len(shot.themes))
             element = shot.element_selector if shot.capture_mode == "element" else None
-            capture_hub_view(
-                browser, hub, theme, shot.hub_agent, dest, stage=shot.stage, element=element
-            )
+            capture_hub_view(browser, hub, theme, "chat", dest, stage=shot.stage, element=element)
             paths.append(dest)
     return paths
 
@@ -586,10 +587,11 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     lays down history. *sets* adds ``--set KEY=VALUE`` values to the init,
     after the shared ones. Yields the deployment repo directory
     (``<build_root>/<name>``). The ``finally`` block always tears the deployment
-    down with the repo-scoped ``osprey reset --yes`` — containers, volumes and
-    built images carrying this repo's identity, so the next run's fresh
-    credentials never meet a store initialized with this run's — and removes the
-    build root. It never issues any prune or system-wide command.
+    down with the repo-scoped ``osprey reset --yes --purge-audit`` — containers,
+    volumes and built images carrying this repo's identity, so the next run's
+    fresh credentials never meet a store initialized with this run's, and the
+    agent record with them, so the next run's session list starts empty — and
+    removes the build root. It never issues any prune or system-wide command.
     """
     try:
         build_root = Path(tempfile.mkdtemp(prefix="osprey-docshot-"))
@@ -625,7 +627,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
         provider = os.environ.get(PROVIDER_ENV)
         if provider:
             init_cmd += ["--set", f"provider={provider}"]
-        # A docs video's own deployment settings (videos.DocVideo.init_sets).
+        # A video's or a recipe's own deployment settings (its ``init_sets``).
         for pair in sets:
             init_cmd += ["--set", pair]
         _run_stack_step(
@@ -668,7 +670,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
             # stack, and a silent failure leaks it for the rest of the run.
             # A raise here is caught below and reported rather than dropped.
             subprocess.run(
-                ["osprey", "reset", "--yes"],
+                ["osprey", "reset", "--yes", "--purge-audit"],
                 cwd=str(project_dir),
                 capture_output=True,
                 check=True,
@@ -850,6 +852,9 @@ def _isolated_claude_config(project_dir: Path) -> Path:
     state_path = config_dir / ".claude.json"
     state = json.loads(state_path.read_text()) if state_path.is_file() else {}
     state["autoModeClassifierBillingNoticeAcknowledgedAt"] = _now_ms()
+    # Claude Code announces auto mode as its default once, above the first
+    # prompt; marked as seen so the announcement is not on camera.
+    state["hasSeenAutoDefaultNotice"] = True
     # One Claude Code version everywhere: a session under this config must
     # never update the host's install (it would also put an update notice on
     # camera).
@@ -888,7 +893,8 @@ def _reap_web_server(pid: int) -> None:
 
 #: Opens the hub's Agent tile on the terminal rather than the chat: the per-tab
 #: choice the tile's ⋯ menu stores, seeded before the page loads. The popover
-#: capture answers the CLI trust prompt in the PTY, so it needs the terminal.
+#: capture answers the CLI trust prompt in the PTY, so it needs the terminal,
+#: and crops the popover alone, so the terminal is never in the image.
 TERMINAL_SURFACE_INIT = (
     "if (window === window.top) sessionStorage.setItem('osprey-agent-surface', 'terminal');"
 )
@@ -1132,10 +1138,16 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
     CLI's controls server has published its state record, so the popover will
     render real rows rather than a warning banner. It then opens the popover
     by clicking the chip and crops the recipe's ``element_selector`` at 2x,
-    once per theme.
+    once per theme. Docs media never show the terminal, so a recipe that is
+    not an element crop is refused.
     """
     from playwright.sync_api import expect
 
+    if shot.capture_mode != "element" or not shot.element_selector:
+        raise ValueError(
+            f"{shot.name}: this capture runs behind the Claude Code terminal, "
+            "so it must crop an element_selector"
+        )
     with web_terminal(project_dir) as web:
         base_url = web.base_url
         operator_secret = web.operator_secret
@@ -1179,6 +1191,20 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
                 chip.click()
                 target = page.locator(shot.element_selector)
                 expect(target).to_be_attached(timeout=10_000)
+                # The stand-in's row is named from the configuration at once but
+                # takes its kind from the controls server's report, which can land
+                # a few seconds later; until then the row carries the live
+                # machine's mark under the rehearsal's name.
+                standin = target.locator('.ctc-row[data-target="standin"]')
+                if standin.count():
+                    try:
+                        expect(standin).to_have_attribute(
+                            "data-target-kind", "rehearsal", timeout=45_000
+                        )
+                    except AssertionError as exc:
+                        raise ScreenshotSkip(
+                            f"{shot.name} ({theme}): the stand-in row never took the rehearsal kind"
+                        ) from exc
                 # Let the open animation and the first re-render settle.
                 page.wait_for_timeout(600)
                 reject_error_state(page, f"{shot.name} ({theme})")
@@ -1253,7 +1279,7 @@ def capture_tutorial_stack(
     :func:`capture_on_stack`. Raises :class:`ScreenshotSkip` when the container
     runtime is unavailable so a ``--stack`` run degrades gracefully.
     """
-    with tutorial_stack() as project_dir:
+    with tutorial_stack(shot.init_sets) as project_dir:
         return capture_on_stack(browser_factory(), project_dir, shot, agentic=agentic)
 
 
@@ -1296,31 +1322,38 @@ def capture_on_stack(
 def _capture_stack_shots(
     browser: Browser, shots: list[DocShot], *, agentic: bool, failed: list[str]
 ) -> list[Path]:
-    """Capture every ``tutorial_stack`` recipe on one tutorial stack, built once.
+    """Capture every ``tutorial_stack`` recipe, one stack per distinct ``init_sets``.
 
-    A recipe that skips, or fails on an error state (its name is appended to
-    *failed*), is reported and the rest still run; a stack that never comes up
-    skips them all. One manifest entry is stamped per captured recipe.
+    Recipes naming the same ``init_sets`` share a stack, built once; the stacks
+    run one after another. A recipe that skips, or fails on an error state (its
+    name is appended to *failed*), is reported and the rest still run; a stack
+    that never comes up skips its recipes. One manifest entry is stamped per
+    captured recipe.
     """
+    groups: dict[tuple[str, ...], list[DocShot]] = {}
+    for shot in shots:
+        groups.setdefault(shot.init_sets, []).append(shot)
+
     written: list[Path] = []
-    try:
-        with tutorial_stack() as project_dir:
-            for shot in shots:
-                try:
-                    paths = capture_on_stack(browser, project_dir, shot, agentic=agentic)
-                except ScreenshotSkip as exc:
-                    print(f"skipped {shot.name}: {exc}", file=sys.stderr)
-                    continue
-                except CaptureRejected as exc:
-                    print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
-                    failed.append(shot.name)
-                    continue
-                stamp_manifest(shot.name, shot.kind)
-                written.extend(paths)
-                print(f"captured {shot.name}: {len(paths)} file(s)")
-    except ScreenshotSkip as exc:
-        for shot in shots:
-            print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+    for sets, group in groups.items():
+        try:
+            with tutorial_stack(sets) as project_dir:
+                for shot in group:
+                    try:
+                        paths = capture_on_stack(browser, project_dir, shot, agentic=agentic)
+                    except ScreenshotSkip as exc:
+                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                        continue
+                    except CaptureRejected as exc:
+                        print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
+                        failed.append(shot.name)
+                        continue
+                    stamp_manifest(shot.name, shot.kind)
+                    written.extend(paths)
+                    print(f"captured {shot.name}: {len(paths)} file(s)")
+        except ScreenshotSkip as exc:
+            for shot in group:
+                print(f"skipped {shot.name}: {exc}", file=sys.stderr)
     return written
 
 
@@ -1330,7 +1363,7 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
     ``standalone_interface`` recipes are booted and captured directly;
     ``static_page`` recipes are served from their committed HTML file;
     ``hermetic_hub`` recipes boot the contact sheet's seeded web terminal;
-    ``tutorial_stack`` recipes all share one stack (:func:`_capture_stack_shots`)
+    ``tutorial_stack`` recipes share a stack per ``init_sets`` (:func:`_capture_stack_shots`)
     and are skipped (with a clear notice) where its runtime is absent.
     Absent chromium/Playwright skips the whole run gracefully. One manifest
     entry is stamped per successfully captured recipe ``name``.
@@ -1354,6 +1387,9 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
                         print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
                         failed.append(shot.name)
                         continue
+                    except ScreenshotSkip as exc:  # its app could not be built here
+                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                        continue
                 elif shot.environment == "static_page":
                     try:
                         paths = _capture_static_page(browser, shot)
@@ -1367,7 +1403,7 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
                         print(f"skipped {shot.name}: {exc}", file=sys.stderr)
                         continue
                 else:
-                    continue  # captured below, on one stack shared by every such recipe
+                    continue  # captured below, on a stack shared with its like
 
                 stamp_manifest(shot.name, shot.kind)
                 written.extend(paths)

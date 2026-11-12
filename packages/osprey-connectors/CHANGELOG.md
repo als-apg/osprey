@@ -20,6 +20,17 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.10] - 2026-11-12
+
+### Added
+
+- The simulator view reads the inputs a model declares, each a producer address
+  and an engine block, and is now written as `osprey.facility.simulator/4`; a
+  released `/3` view still loads, with no inputs on any model.
+- A `Composite` orders its children so every producer precedes its consumers and
+  hands each consumer its producers' values through the engine's optional
+  `take_inputs` before it advances; a facility without inputs is unchanged.
+
 ## [2026.11.9] - 2026-11-10
 
 ### Added

@@ -1293,7 +1293,7 @@ TRACKED_DOCS = ("git", "ls-files", "-z", "--", "*.md", "*.rst")
 SWEEP_LINE_EXCEPTIONS: dict[tuple[str, str], str] = {
     (
         "plugins/osprey/skills/release/SKILL.md",
-        "pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile",
+        "pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile",
     ): (
         "the e2e lane's invocation is declared only in ci.yml's e2e-tests job"
         " until that lane is a check"
@@ -2310,6 +2310,15 @@ LANES: tuple[Lane, ...] = (
         "qmd-cache-warmup",
         "main-branch cache",
         ("src/osprey/templates/services/qmd/**", ".github/actions/build-qmd-image/**"),
+    ),
+    Lane(
+        "deploy-cache-warmup",
+        "main-branch cache",
+        (
+            "src/osprey/deployment/build_cache.py",
+            "src/osprey/templates/**/Dockerfile*",
+            "uv.lock",
+        ),
     ),
     _e2e(
         "target-switch-agentic-e2e",

@@ -25,6 +25,7 @@ import yaml
 from osprey.cli.output import report_fact, warn_fact
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_cache import AUTH_SIDECAR_KEY, build_cache_args
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
     _stage_dev_wheel_for_context,
@@ -977,6 +978,7 @@ def build_auth_sidecar_image(
     from osprey.deployment.container_lifecycle import site_image_build_args
 
     cmd.extend(site_image_build_args(config, context_dir))
+    cmd.extend(build_cache_args(cmd[0], AUTH_SIDECAR_KEY))
     with_plain_build_progress(cmd)
     cmd.append(str(context_dir))
 

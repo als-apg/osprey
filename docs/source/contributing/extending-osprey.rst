@@ -379,7 +379,11 @@ What a plug-in is given and asked for:
   keyword ``kind``, ``"orbit"`` or ``"trajectory"``, and names each corrector
   without a column in ``unsolved`` with its text. One whose signature takes
   no ``kind`` is called without it for ``"orbit"``; any other kind is refused
-  as a request, naming the engine, without calling it.
+  as a request, naming the engine, without calling it. Its answer may state
+  ``row_positions`` and ``column_positions``, one lattice element index per
+  row and per column, counted for ``"trajectory"`` from the injection
+  element. An answer without them is served with every ``position`` ``null``;
+  positions that do not line up with the rows or columns fail the solve.
 
 What the container keeps the same for every engine:
 

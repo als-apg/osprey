@@ -336,7 +336,7 @@ def test_relayout_waiter_reports_timeout():
 
 
 def _draft_page(state: object) -> FakePage:
-    ariel = FakePage(values={"#draft-banner[data-draft-id]": state})
+    ariel = FakePage(values={"#ariel-compose-banner[data-draft-id]": state})
     return FakePage(children={video_probes.ARIEL_IFRAME: ariel})
 
 

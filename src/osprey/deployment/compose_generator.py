@@ -37,6 +37,7 @@ from osprey.agent_runner.claude_state import (
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
+from osprey.deployment.build_cache import compose_cache_override_file
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
 from osprey.deployment.compose_merge import _FILE_MODE as _COMPOSE_FILE_MODE
 from osprey.deployment.compose_merge import ComposeMergeError, _load_compose_document
@@ -590,6 +591,16 @@ def compose_base_cmd(
     stack's own) gets none. A render zone without an override leaves the argv
     exactly as the rest of this docstring describes.
 
+    THE BUILD CACHE OVERRIDE
+    ========================
+
+    When ``OSPREY_BUILD_CACHE_FROM`` or ``OSPREY_BUILD_CACHE_TO`` is set and the
+    runtime is Docker, one more ``-f`` follows the labels override: the
+    ``cache_from`` / ``cache_to`` of every service this invocation's files
+    build (:mod:`osprey.deployment.build_cache`). Every invocation carries it,
+    because ``up`` builds too when it finds an image missing. The podman shape
+    gets none: podman-compose reads neither key.
+
     Neither shape uses compose ``profiles:``/``--profile``: podman-compose's
     support for them differs by version, and a service silently left out of a
     deploy is exactly the failure this seam exists to prevent.
@@ -630,6 +641,9 @@ def compose_base_cmd(
             cmd.extend(("-f", str(path if path.is_absolute() else root / path)))
         if labels is not None:
             cmd.extend(("-f", str(_labels_override_file(root, labels))))
+        cache = compose_cache_override_file(cmd[0], root, compose_files)
+        if cache is not None:
+            cmd.extend(("-f", str(cache)))
     if env_file_args is None:
         # Deferred: the provider-shaped resolver lives with the merged file it
         # (re)writes, in the module that owns the lifecycle verbs, and that
