@@ -13,7 +13,7 @@ import copy
 import pytest
 
 from osprey_connectors.archive_targets import APPLIANCE_TARGETS, archive_targets
-from osprey_connectors.service_answers import BackendSpec, Source
+from osprey_connectors.service_answers import BackendSpec
 from osprey_connectors.service_targets import service_targets
 from osprey_connectors.simulator import has_simulator
 from osprey_connectors.types import (
@@ -64,8 +64,8 @@ def _config(section, *, base=SERVED_VA):
     return {**copy.deepcopy(base), "pv_directory": copy.deepcopy(section)}
 
 
-def _table(section, *, base=SERVED_VA, ariel_configured=True):
-    return service_targets(_config(section, base=base), ariel_configured=ariel_configured)
+def _table(section, *, base=SERVED_VA):
+    return service_targets(_config(section, base=base))
 
 
 class TestHasSimulator:
@@ -94,7 +94,8 @@ class TestHasSimulator:
 class TestShape:
     def test_every_row_names_every_target(self):
         table = _table(FULL_SECTION)
-        assert set(table) == {*KINDS, "logbook"}
+        assert list(table) == list(KINDS)
+        assert "logbook" not in table
         for row in table.values():
             assert list(row) == list(CONTROL_TARGETS)
 
@@ -107,14 +108,14 @@ class TestShape:
         ],
     )
     def test_no_section_serves_nothing(self, config):
-        table = service_targets({**SERVED_VA, **config}, ariel_configured=True)
+        table = service_targets({**SERVED_VA, **config})
         for row in table.values():
             assert set(row.values()) == {None}
 
     def test_the_config_is_not_touched(self):
         config = _config(FULL_SECTION)
         before = copy.deepcopy(config)
-        service_targets(config, ariel_configured=True)
+        service_targets(config)
         assert config == before
 
 
@@ -234,25 +235,6 @@ class TestLogsServeTheFacilityOnly:
         assert row[TARGET_LIVE].settings == {}
 
 
-class TestLogbook:
-    def test_serves_live_and_standin_when_ariel_is_configured(self):
-        row = _table({})["logbook"]
-        assert row[TARGET_VA] is None
-        assert row[TARGET_LIVE] == Source(
-            target=TARGET_LIVE, service="ariel", kind="logbook", rehearsal=False
-        )
-        assert row[TARGET_STANDIN] == Source(
-            target=TARGET_STANDIN, service="ariel", kind="logbook", rehearsal=True
-        )
-
-    def test_absent_without_ariel(self):
-        assert set(_table(FULL_SECTION, ariel_configured=False)["logbook"].values()) == {None}
-
-    def test_holds_no_spec(self):
-        for source in _table(FULL_SECTION)["logbook"].values():
-            assert not isinstance(source, BackendSpec)
-
-
 class TestFold:
     def test_directory_spec_folds_description_exact_properties_and_caveats(self):
         settings = _table(FULL_SECTION)["directory"][TARGET_LIVE].settings
@@ -302,7 +284,7 @@ class TestFold:
 
     def test_folded_values_are_copies_of_the_config(self):
         config = _config(FULL_SECTION)
-        table = service_targets(config, ariel_configured=False)
+        table = service_targets(config)
         table["directory"][TARGET_LIVE].settings["exact_properties"].append("mutated")
         table["put_log"][TARGET_LIVE].settings["caveats"].append("mutated")
         assert config["pv_directory"]["display"]["exact_properties"] == ["iocName", "hostName"]
@@ -318,7 +300,7 @@ def test_facility_targets_agree_with_archive_targets():
     config["archiver"] = {"type": EPICS_ARCHIVER, "epics_archiver": {"url": "https://a.example"}}
     assert archive_targets(config) == APPLIANCE_TARGETS
 
-    table = service_targets(config, ariel_configured=True)
+    table = service_targets(config)
     for kind in KINDS:
         facility = {
             target
@@ -326,5 +308,3 @@ def test_facility_targets_agree_with_archive_targets():
             if spec is not None and spec.type not in {"simulator_view", "alarm_replay"}
         }
         assert facility == APPLIANCE_TARGETS, kind
-    served = {target for target, source in table["logbook"].items() if source is not None}
-    assert served == APPLIANCE_TARGETS

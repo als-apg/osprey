@@ -5,8 +5,8 @@ names below are ``None`` there and :data:`DIRECTORY_CONNECTORS_AVAILABLE` is
 false. Every other framework module imports this one, never the connectors'
 modules, and checks the flag before touching a contract type.
 
-:func:`unavailable_payload` and :func:`as_payload` hold no contract type, so they
-work on both paths: a service answers the same JSON shape whether or not the
+:func:`unavailable_payload`, :func:`as_payload` and :func:`logbook_source` check
+for the contract types they use, so they work on both paths: a service answers the same JSON shape whether or not the
 installed connectors have the modules.
 """
 
@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from enum import Enum
 from typing import Any
 
-from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, source_label
+from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, LOGBOOK_SERVICE, source_label
 
 try:
     from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
@@ -27,6 +27,7 @@ try:
         AlarmState,
         AlarmStateRecord,
     )
+    from osprey_connectors.archive_targets import APPLIANCE_TARGETS
     from osprey_connectors.directory import (
         DEFAULT_DESCRIPTION_PROPERTY,
         ROW_FIELD_PROPERTIES,
@@ -55,6 +56,7 @@ except ImportError:
 
     DIRECTORY_CONNECTORS_AVAILABLE = False
     ALARM_STALE_WINDOW_S = None  # type: ignore[assignment]
+    APPLIANCE_TARGETS = None  # type: ignore[assignment]
     DEFAULT_DESCRIPTION_PROPERTY = None  # type: ignore[assignment]
     ROW_FIELD_PROPERTIES = None  # type: ignore[assignment]
     AlarmConfigRecord = None  # type: ignore[assignment,misc]
@@ -82,6 +84,7 @@ except ImportError:
 
 __all__ = [
     "ALARM_STALE_WINDOW_S",
+    "APPLIANCE_TARGETS",
     "DEFAULT_DESCRIPTION_PROPERTY",
     "DIRECTORY_CONNECTORS_AVAILABLE",
     "ENGINEER",
@@ -109,6 +112,7 @@ __all__ = [
     "Unavailable",
     "as_payload",
     "has_simulator",
+    "logbook_source",
     "service_targets",
     "unavailable_payload",
 ]
@@ -161,3 +165,20 @@ def as_payload(result: Any) -> Any:
     if isinstance(result, (list, tuple)):
         return [as_payload(value) for value in result]
     return result
+
+
+def logbook_source(target: str, *, ariel_configured: bool) -> Any:
+    """The logbook *target* reads, or ``None``.
+
+    The logbook belongs to the facility's machine, as its archive does, so it
+    answers on the appliance targets only, and on ``standin`` as a rehearsal.
+    Without the PV directory modules it is ``None``.
+    """
+    if Source is None or not ariel_configured or target not in APPLIANCE_TARGETS:
+        return None
+    return Source(
+        kind="logbook",
+        target=target,  # type: ignore[arg-type]
+        service=LOGBOOK_SERVICE,
+        rehearsal=target == "standin",
+    )
