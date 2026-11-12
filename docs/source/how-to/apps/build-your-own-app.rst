@@ -173,9 +173,11 @@ The first three blocks describe one part each:
 Each block is optional, and so are ``skills`` and ``agents``; an ``app.yml``
 with none of the five is refused. Without ``panel`` the app has no sidebar
 row. Without ``containers`` it has no backend: a ``panel`` is refused, and so
-is a write tool (an ``approval`` entry), which needs a container with
-``drives_target: true``; the tool server only reads or computes and keeps
-nothing between calls. Anything that holds state is a backend.
+is a write tool (an ``approval`` entry) on a login whose tier writes, since it
+needs a container with ``drives_target: true``; a ``config:`` block under the
+app's entry is refused too, since only a backend reads it. The tool server only
+reads or computes and keeps nothing between calls. Anything that holds state is
+a backend.
 
 Every key is listed under `Manifest keys`_. Unknown keys are refused, and a
 key that belongs to the container's compose file (``volumes``, ``ports``,
@@ -626,7 +628,8 @@ Every level refuses unknown keys. Defaults in brackets.
    * - ``summary``
      - One sentence about the app.
    * - ``containers``
-     - Optional. Required by ``panel`` and by any ``tools.approval`` entry.
+     - Optional. Required by ``panel``, and by a ``tools.approval`` entry on
+       a login whose tier writes.
    * - ``containers.<key>``
      - One container; the key is its service name. Exactly one of
        ``runtime: osprey`` (the app's package on the project image) or
@@ -680,6 +683,9 @@ Every level refuses unknown keys. Defaults in brackets.
    * - ``tools.errors.unreachable``, ``tools.errors.refused``
      - The sentences the agent sees for a backend that does not answer, and
        for a refused call.
+   * - ``audit_identity`` [``name``]
+     - The name the containers' spool and state directories file under;
+       refused on an app with no container.
    * - ``vendor``
      - Files fetched into the app at build: ``{url, into, sha256}`` or
        ``{package, version, file, into, sha256}`` (an npm package through

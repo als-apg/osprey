@@ -16,10 +16,13 @@ description: >
 
 # Build an OSPREY app
 
-An app is three parts over one backend: a **backend** container (FastAPI) that
-holds the state and talks to the machine, a **panel** the operator sees, and a
-**tool server** the agent calls. `app.yml` declares all three; `osprey build`
-reads nothing else about the app.
+An app is any of four parts, at least one: a **backend** container (FastAPI)
+that holds the state and talks to the machine, a **panel** the operator sees, a
+**tool server** the agent calls, and **skills**. A panel needs the backend, and
+so does a write tool on a login that writes; without one the tool server only
+reads or computes, keeps nothing between calls and opens no data store of the
+deployment. `app.yml` declares every part (an empty one is refused); `osprey
+build` reads nothing else about the app. The scaffold is the full shape.
 
 This skill carries what does not change from release to release: the order of
 work, the product rules, what to verify and the mistakes to avoid. The facts
@@ -64,8 +67,8 @@ it; steps 3 to 6 refer to it as *the summary*. `--drift-only` and
 These are decisions, not conventions. Each says what the checker enforces
 today and what is left to you.
 
-1. **One backend per app.** The panel and every tool go through the same
-   backend routes. A tool never reads a file, a store or a channel itself; it
+1. **At most one backend per app.** With a backend, the panel and every tool
+   go through the same backend routes. A tool never reads a file, a store or a channel itself; it
    calls a route through the terminal's panel door (`/panel/<app>/<route>`).
    Enforced in part: the import rule keeps app code off OSPREY internals, and
    the door reaches only the routes `panel.agent_routes` declares. Nothing
@@ -104,7 +107,8 @@ today and what is left to you.
 
 - **Is it an app?** State that the operator and the agent both act on, or a
   write that needs its own approval card: an app. A page that only displays:
-  the panel skill. A capability with no screen: an MCP server in the profile.
+  the panel skill. Tools or skills with no screen and no state: an app with
+  no `containers:`.
 - **Write the parity table.** One row per panel element: what it shows or
   does, the backend route, the tool or argument, and whether it writes a
   channel. A route that writes no channel (compute a plan, clear it) backs a
@@ -144,7 +148,8 @@ apps:
 ```
 
 The block is free-form; the build writes it to the file named by
-`OSPREY_APP_CONFIG`, which the backend reads at start.
+`OSPREY_APP_CONFIG`, which the backend reads at start. An app with no
+container has nothing to read it, so its `config:` is refused.
 
 ### 3. Manifest
 
@@ -281,7 +286,7 @@ names it, and says when this has moved). The summary is the authority.
 ```yaml
 name: <name>                  # = directory = panel id = tool server name
 summary: <one sentence>
-containers:
+containers:                   # optional; a panel and armed write tools need one
   <name>:
     runtime: osprey           # or image: with a compose fragment
     command: [python, -m, <package>.server]
