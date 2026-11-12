@@ -2309,6 +2309,15 @@ LANES: tuple[Lane, ...] = (
         "main-branch cache",
         ("src/osprey/templates/services/qmd/**", ".github/actions/build-qmd-image/**"),
     ),
+    Lane(
+        "deploy-cache-warmup",
+        "main-branch cache",
+        (
+            "src/osprey/deployment/build_cache.py",
+            "src/osprey/templates/**/Dockerfile*",
+            "uv.lock",
+        ),
+    ),
     _e2e(
         "target-switch-agentic-e2e",
         "test_target_switch_agentic.py",
