@@ -13,6 +13,13 @@ from typing import Any, Literal
 
 from osprey_connectors.service_answers import Unavailable, _Backend
 
+_SEVERITY_RANK = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}
+
+
+def severity_rank(severity: Any) -> int:
+    """The severity's rank, higher is worse; an unknown one ranks highest, never as recovered."""
+    return _SEVERITY_RANK.get(severity, len(_SEVERITY_RANK))
+
 
 @dataclass(frozen=True, kw_only=True)
 class AlarmStateRecord:

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 
+from osprey_connectors.alarm_state import AlarmStates, severity_rank
 from osprey_connectors.alarm_state._fold import (
     FeedSnapshot,
     config_record,
     fold_message,
     state_record,
+    state_rows,
 )
 
 PV = "DEMO:RF1:CAV:Temp-I"
@@ -213,3 +215,62 @@ def test_a_given_time_replaces_the_recorded_one():
 def test_an_unusable_recorded_time_is_none():
     value = json.dumps({"severity": "OK", "time": {"seconds": "soon"}}).encode()
     assert state_record(_folded((STATE_KEY, value)), PV, stale=False).time is None
+
+
+# -- the list of every channel's state ------------------------------------------
+
+
+def _key(pv: str, group: str = "Demo/RF") -> bytes:
+    return f"state:/{group}/{pv}".encode()
+
+
+def _rows(snapshot: FeedSnapshot, *, stale: bool = False) -> dict[str, object]:
+    return {row.channel: row for row in state_rows(snapshot, stale=stale)}
+
+
+def test_a_tree_node_state_is_not_a_row():
+    snapshot = _folded(
+        (b"state:/Demo/SR", json.dumps({"severity": "MAJOR"}).encode()),
+        (STATE_KEY, _state("MAJOR", "MAJOR")),
+    )
+    assert list(_rows(snapshot)) == [PV]
+
+
+def test_each_row_is_the_channels_record_under_its_latest_path():
+    other = f"state:/Demo/Other/{PV}".encode()
+    snapshot = _folded((STATE_KEY, _state("MINOR", "MINOR")), (other, _state("MAJOR", "OK")))
+    row = _rows(snapshot, stale=True)[PV]
+    assert row.path == f"/Demo/Other/{PV}"
+    assert row.state == state_record(snapshot, PV, stale=True)
+    assert row.state.latched is True
+    assert row.state.stale is True
+
+
+def test_an_acknowledged_alarm_lists_acknowledged():
+    row = _rows(_folded((STATE_KEY, _state("MAJOR_ACK", "MAJOR"))))[PV]
+    assert row.state.severity == "MAJOR"
+    assert row.state.acknowledged is True
+
+
+def test_a_tombstoned_channel_is_gone():
+    snapshot = _folded((STATE_KEY, _state("MAJOR", "MAJOR")), (STATE_KEY, None))
+    assert _rows(snapshot) == {}
+
+
+def test_the_counts_equal_a_hand_count():
+    snapshot = _folded(
+        (_key("A:1"), _state("MAJOR", "MAJOR")),
+        (_key("A:2"), _state("MAJOR_ACK", "MAJOR")),
+        (_key("A:3"), _state("MINOR", "MINOR")),
+        (_key("A:4"), _state("OK", "OK", "NO_ALARM")),
+        (b"state:/Demo/RF", json.dumps({"severity": "MAJOR"}).encode()),
+    )
+    states = AlarmStates(rows=state_rows(snapshot, stale=False), stale=False, last_contact=None)
+    assert dict(states.counts) == {"MAJOR": 2, "MINOR": 1, "OK": 1}
+
+
+def test_an_unknown_severity_ranks_above_every_known_one():
+    known = ["OK", "MINOR", "MAJOR", "INVALID", "UNDEFINED"]
+    assert [severity_rank(s) for s in known] == sorted(severity_rank(s) for s in known)
+    assert severity_rank("BOGUS") > severity_rank("UNDEFINED")
+    assert severity_rank(None) > severity_rank("UNDEFINED")
