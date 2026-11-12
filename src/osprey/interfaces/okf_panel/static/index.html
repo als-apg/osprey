@@ -30,18 +30,33 @@
 <body>
   <!-- #app is the panel root: the size container the toolbar's search field
        and the sidebar's narrow overlay query (data-panel-root). -->
-  <div id="app" data-panel-root>
-    <!-- The panel toolbar (js/toolbar.js): the contents toggle, the breadcrumb,
-         the bundle-health chip and the search field. -->
+  <div id="app" data-panel-root data-graph="{{ 'true' if graph else 'false' }}">
+    <!-- The panel toolbar (js/toolbar.js): the view switcher, the sidebar
+         toggle, the breadcrumb, the bundle-health chip and the search field.
+         data-graph says whether the panel serves a facility graph; without
+         one the switcher stays hidden and the panel is the Knowledge view
+         alone. Each view has its own toggle, context and chip; js/views.js
+         shows the open view's. -->
     <header class="osprey-panel-toolbar okf-toolbar">
       <div class="osprey-panel-toolbar__start">
-        <!-- js/contents.js (panel-sidebar.js) gives it its icon and state. -->
+        <!-- The sidebar toggle keeps the corner above the sidebar, as in
+             every panel. js/contents.js (panel-sidebar.js) gives it its icon
+             and state. -->
         <button id="contents-toggle" class="osprey-icon-btn" type="button"
                 aria-controls="sidebar" aria-expanded="false"
                 aria-label="Show sidebar" title="Show sidebar"></button>
+        <button id="graph-toggle" class="osprey-icon-btn" type="button"
+                aria-controls="graph-sidebar" aria-expanded="false"
+                aria-label="Show sidebar" title="Show sidebar" hidden></button>
+        <span class="okf-toolbar-rule" aria-hidden="true"></span>
+        <div id="okf-views" class="osprey-seg" role="group" aria-label="View" hidden>
+          <button type="button" data-view="knowledge" aria-pressed="true">Knowledge</button>
+          <button type="button" data-view="graph" aria-pressed="false">Graph</button>
+        </div>
         <nav id="crumb" class="osprey-crumb" aria-label="Breadcrumb">
           <span class="osprey-crumb-leaf" aria-current="page">Browse</span>
         </nav>
+        <span id="graph-context" class="osprey-panel-toolbar__text" hidden></span>
       </div>
       <div class="osprey-panel-toolbar__end">
         <!-- Bundle health (osprey addition): the /api/bundle_health check of
@@ -50,13 +65,17 @@
                 type="button" title="Bundle health" aria-live="polite" disabled>
           <span class="osprey-chip-label">Checking bundle</span>
         </button>
+        <!-- What the Graph view draws, and from where. -->
+        <span id="graph-chip" class="osprey-chip osprey-chip--info" hidden>
+          <span class="osprey-chip-label"></span>
+        </span>
         <label class="osprey-search-field">
           <input id="search-input" type="search" name="q" autocomplete="off"
                  placeholder="Search concepts…" aria-label="Search concepts" />
         </label>
       </div>
     </header>
-    <div class="okf-body">
+    <div id="knowledge-view" class="okf-body">
       <!-- The contents list (js/contents.js). data-open="false": the first
            paint never shows a list the boot is about to hide; the overview
            needs none, and a page opens it. -->
@@ -81,6 +100,47 @@
           </div>
         </div>
       </main>
+    </div>
+    <!-- The Graph view (js/graph-view.js): the facility graph, drawn as an
+         overview of its kinds and classes or as the neighbourhood of one
+         node. Its sidebar is the view's controls and legend; the inspector
+         on the right describes the picked node. -->
+    <div id="graph-view" class="okf-body" hidden>
+      <aside id="graph-sidebar" class="osprey-panel-sidebar" data-open="false"
+             aria-label="Graph controls">
+        <div class="okf-graph-controls">
+          <div id="graph-modes" class="osprey-seg" role="group" aria-label="Drawing">
+            <button type="button" data-mode="overview" aria-pressed="true">Overview</button>
+            <button type="button" data-mode="hood" aria-pressed="false">Neighbourhood</button>
+          </div>
+        </div>
+        <div id="graph-hits" class="okf-graph-section" hidden aria-label="Search results"></div>
+        <div id="graph-depth" class="okf-graph-section" hidden>
+          <div class="osprey-section-label">Depth</div>
+          <div class="okf-graph-controls">
+            <div id="graph-hops" class="osprey-seg" role="group" aria-label="Depth">
+              <button type="button" data-hops="1" aria-pressed="false">1 hop</button>
+              <button type="button" data-hops="2" aria-pressed="true">2 hops</button>
+              <button type="button" data-hops="3" aria-pressed="false">3 hops</button>
+            </div>
+          </div>
+        </div>
+        <div class="okf-graph-section">
+          <div class="osprey-section-label">Relations</div>
+          <div id="graph-relations" class="okf-graph-legend"></div>
+        </div>
+        <div class="okf-graph-section">
+          <div class="osprey-section-label">Nodes</div>
+          <div id="graph-kinds" class="okf-graph-legend"></div>
+        </div>
+      </aside>
+      <div id="graph-resizer" class="osprey-splitter" role="separator"
+           aria-orientation="vertical" aria-label="Resize sidebar"
+           tabindex="0"></div>
+      <div class="okf-graph-main">
+        <div id="graph-stage" class="okf-graph-stage"></div>
+        <aside id="graph-inspector" class="okf-graph-inspector" aria-label="Details" hidden></aside>
+      </div>
     </div>
   </div>
   <!-- marked must load before app.js (app.js calls marked.parse).
