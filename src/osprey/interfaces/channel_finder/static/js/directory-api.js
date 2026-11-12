@@ -182,6 +182,43 @@ import { state } from './state.js';
  */
 
 /**
+ * One channel in alarm now, as the alarm route serves it: `path` is its place
+ * in the alarm tree when the feed knows one, `status` the record's alarm now
+ * and `time` when the alarm started.
+ * @typedef {{
+ *   pv: string,
+ *   path: string|null,
+ *   severity: string,
+ *   status: string,
+ *   latched: boolean,
+ *   acknowledged: boolean,
+ *   message: string,
+ *   time: string|null,
+ *   stale: boolean,
+ * }} AlarmRow
+ */
+
+/**
+ * The active alarms of the current target. `counts` (per severity) and `total`
+ * cover every channel the feed holds a state for; `rows` only those not OK,
+ * worst first, then newest. `outcome` is `unavailable` with `reason` when the
+ * feed gave no answer, and `source.service` is "none" when the target has no
+ * alarm-state source.
+ * @typedef {{
+ *   outcome: 'found'|'unavailable',
+ *   source: Source,
+ *   caveats: string[],
+ *   counts?: Record<string, number>,
+ *   total?: number,
+ *   rows?: AlarmRow[],
+ *   truncated?: boolean,
+ *   stale?: boolean,
+ *   last_contact?: string|null,
+ *   reason?: string,
+ * }} ActiveAlarms
+ */
+
+/**
  * The filter parameters of the search and export routes; origin, ioc and
  * record_type repeat, and page counts from 0.
  * @typedef {{
@@ -200,7 +237,7 @@ const PLOT_MAX_PVS = 12;
 
 /**
  * The query string for `filters`, with its `?`; empty when nothing is set.
- * @param {DirectoryFilters} filters
+ * @param {Record<string, string|number|string[]|undefined>} filters
  * @returns {string}
  */
 function queryString(filters) {
@@ -260,6 +297,16 @@ export function fetchIocFacts(name) {
 /** @returns {Promise<LogbookAvailability>} */
 export function fetchLogbookAvailability() {
   return fetchJSON('/api/directory/logbook/availability');
+}
+
+/**
+ * The active alarms; `severity` repeats, and `limit: 0` answers the counts
+ * alone.
+ * @param {{ severity?: string[], limit?: number }} [filters]
+ * @returns {Promise<ActiveAlarms>}
+ */
+export function fetchActiveAlarms({ severity, limit } = {}) {
+  return fetchJSON(`/api/directory/alarms${queryString({ severity, limit })}`);
 }
 
 /**

@@ -21,6 +21,8 @@ describe('parseRoute', () => {
     ['#', { view: 'explore', params: {} }],
     ['#explore', { view: 'explore', params: {} }],
     ['#feedback', { view: 'feedback', params: {} }],
+    ['#/alarms', { view: 'alarms', params: {} }],
+    ['#/alarms?severity=MAJOR', { view: 'alarms', params: {} }],
     ['#allpvs', { view: 'allpvs', params: {} }],
     ['#/allpvs', { view: 'allpvs', params: {} }],
     ['#/allpvs?q=beam%20current', { view: 'allpvs', params: { q: 'beam current' } }],
@@ -145,7 +147,7 @@ describe('formatRoute', () => {
     }
   );
 
-  test.each(['explore', 'feedback'])('the view %s round-trips', (view) => {
+  test.each(['explore', 'feedback', 'alarms'])('the view %s round-trips', (view) => {
     const route = { view, params: {} };
     expect(parseRoute(formatRoute(route))).toEqual(route);
   });
@@ -169,6 +171,7 @@ describe('familyOf', () => {
     ['allpvs', 'allpvs'],
     ['explore', 'explore'],
     ['feedback', 'feedback'],
+    ['alarms', 'alarms'],
   ])('%s belongs to %s', (view, family) => {
     expect(familyOf(view)).toBe(family);
   });

@@ -7,6 +7,7 @@
   {"route":{"view":"allpvs","params":{"ioc":["demo-ioc-bpm"]}},"hash":"#/allpvs?ioc=demo-ioc-bpm"},
   {"route":{"view":"allpvs","params":{"q":"a","origin":["curated"],"ioc":["I1","I2"],"record_type":["ai"]}},"hash":"#/allpvs?q=a&origin=curated&ioc=I1&ioc=I2&record_type=ai"},
   {"route":{"view":"feedback","params":{}},"hash":"#/feedback"},
+  {"route":{"view":"alarms","params":{}},"hash":"#/alarms"},
   {"route":{"view":"pv","params":{"name":"SR01C:BPM1:X.VAL"}},"hash":"#/pv/SR01C%3ABPM1%3AX.VAL"},
   {"route":{"view":"ioc","params":{"name":"SR01C:BPM1:X.VAL"}},"hash":"#/ioc/SR01C%3ABPM1%3AX.VAL"},
   {"route":{"view":"pv","params":{"name":"a/b"}},"hash":"#/pv/a%2Fb"},
