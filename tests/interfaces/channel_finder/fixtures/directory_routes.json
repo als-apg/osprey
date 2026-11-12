@@ -172,6 +172,7 @@
     "alarms": {
       "outcome": "found",
       "total": 1,
+      "counts": {"MAJOR": 1},
       "rows": [
         {
           "pv": "DEMO:BPM01:X",

@@ -1144,6 +1144,8 @@ async def test_an_ioc_with_a_configured_feed_carries_its_active_alarms(tmp_path:
 
     assert alarms["outcome"] == "found"
     assert alarms["total"] == 2
+    # Per severity over the whole IOC, from the search's alarm facet.
+    assert alarms["counts"] == {"MAJOR": 1, "MINOR": 1}
     assert "reason" not in alarms
     assert alarms["rows"] == [
         {
@@ -1172,7 +1174,7 @@ async def test_an_ioc_with_nothing_in_alarm_counts_zero(tmp_path: Path) -> None:
 
     alarms = (await page.ioc_facts("ioc-a"))["alarms"]
 
-    assert alarms == {"outcome": "no_match", "total": 0, "rows": []}
+    assert alarms == {"outcome": "no_match", "total": 0, "rows": [], "counts": {}}
 
 
 async def test_a_feed_still_loading_leaves_the_ioc_alarms_unavailable_never_zero(

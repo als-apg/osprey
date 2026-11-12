@@ -36,7 +36,8 @@ async def ioc_record(ioc: str) -> str:
     engineer is the address of a channel; read it with channel_read for the name.
     With an alarm feed configured, ``alarms`` lists the IOC's channels in alarm
     now (``outcome``, ``total``, ``rows`` of pv, severity, status, latched,
-    acknowledged and time), or ``unavailable`` with the feed's ``reason``.
+    acknowledged and time, and ``counts`` per severity over the whole IOC), or
+    ``unavailable`` with the feed's ``reason``.
     ``links.panel`` is the panel page showing this IOC. ``not_listed`` means
     the directory lists no channel served by that IOC name.
 
