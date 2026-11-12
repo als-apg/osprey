@@ -78,8 +78,8 @@ def _plotly_script_src() -> str:
     return asset_cdn_url("Plotly.js")
 
 
-# The deadline of a whole export of an injected page: its load and its plot's
-# draw are both held to it. The draw gets its own budget, timed from the page's
+# The deadline of a whole export. A plain page's load is held to all of it; an
+# injected page's load and its plot's draw are both held to it. The draw gets its own budget, timed from the page's
 # load; the load (a local file and the Plotly bundle, slow to parse on a loaded
 # host) gets the rest, so a slow load is never read as a plot that did not draw.
 _EXPORT_DEADLINE_MS = 60_000
@@ -199,10 +199,12 @@ async def _render(
 
     Raises:
         PageNotLoadedError: The page had not loaded within the export deadline
-            less the draw budget; no image is written.
+            (less the draw budget, for an injected page); no image is written.
         PlotNotDrawnError: The plot had not drawn within the draw budget, timed
             from the page's load; no image is written.
     """
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
     from osprey.interfaces.vendor import html_needs_plotly
 
     html = source.read_bytes()
@@ -211,13 +213,16 @@ async def _render(
             browser = await p.chromium.launch()
             try:
                 page = await browser.new_page(viewport={"width": width, "height": height})
-                await page.goto(source.as_uri(), wait_until="networkidle")
+                try:
+                    await page.goto(
+                        source.as_uri(), wait_until="networkidle", timeout=_EXPORT_DEADLINE_MS
+                    )
+                except PlaywrightTimeoutError as exc:
+                    raise PageNotLoadedError(source, _EXPORT_DEADLINE_MS) from exc
                 await page.screenshot(path=str(dest), type=fmt, full_page=True)
             finally:
                 await browser.close()
         return
-
-    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
     injected = _inject_plotly(html, f"{source.parent.as_uri()}/", _plotly_script_src())
     with tempfile.NamedTemporaryFile(suffix=".html", dir=dest.parent, delete=False) as tmp:

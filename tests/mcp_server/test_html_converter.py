@@ -420,6 +420,30 @@ class TestPlotlyInjection:
 
         assert list((tmp_path / "out").iterdir()) == []
 
+    async def test_a_plain_page_that_never_settles_ends_within_the_deadline(
+        self, tmp_path, monkeypatch
+    ):
+        """A page with no plot to inject is held to the same deadline: one that
+        never goes network-idle ends with the load refusal, and no image."""
+        monkeypatch.setattr(converter_mod, "_EXPORT_DEADLINE_MS", 300)
+        mock_mod, mock_page, mock_browser = _make_playwright_mock()
+
+        async def _never_settles(_url, *, timeout=0, **_kwargs):
+            if timeout <= 0:
+                await asyncio.Event().wait()
+            await asyncio.sleep(timeout / 1000)
+            raise FakePlaywrightTimeoutError(f"Timeout {timeout}ms exceeded.")
+
+        mock_page.goto.side_effect = _never_settles
+        html = "<html><head></head><body>no plot here</body></html>"
+        with pytest.raises(PageNotLoadedError, match=r"did not load within 300 ms") as info:
+            await asyncio.wait_for(self._run(tmp_path, mock_page, html=html, mock_mod=mock_mod), 5)
+
+        assert isinstance(info.value.__cause__, FakePlaywrightTimeoutError)
+        mock_page.screenshot.assert_not_called()
+        mock_browser.close.assert_awaited_once()
+        assert list((tmp_path / "out").iterdir()) == []
+
     async def test_non_timeout_error_still_removes_copy(self, tmp_path):
         mock_mod, mock_page, _ = _make_playwright_mock()
         mock_page.wait_for_function.side_effect = RuntimeError("page crashed")
@@ -436,7 +460,8 @@ class TestPlotlyInjection:
         html_file, _, _, seen = await self._run(tmp_path, mock_page, html=html, mock_mod=mock_mod)
 
         assert seen["path"] == html_file
-        assert seen["kwargs"] == {"wait_until": "networkidle"}
+        # The whole export deadline: there is no draw to leave a budget for.
+        assert seen["kwargs"] == {"wait_until": "networkidle", "timeout": 60_000}
         mock_page.wait_for_function.assert_not_called()
 
     async def test_page_without_head_injects_after_html(self, tmp_path):
