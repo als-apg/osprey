@@ -549,7 +549,7 @@ its baseline: value overrides, model and channel faults, its own motion
 (drivers, couplings, noise), archive history and logbook entries. The
 simulator activates the scenarios marked ``start: true`` when it first comes
 up; with such marks the profile states no ``simulation.default_scenarios``.
-Writing and applying them is in :doc:`/how-to/run-scenarios`.
+Writing and applying them is in :ref:`how-to-run-scenarios`.
 
 Knowledge
 =========

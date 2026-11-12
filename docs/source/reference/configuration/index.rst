@@ -39,9 +39,18 @@ API keys and per-host values, arrives from the environment instead.
       The environment variables the OSPREY CLI reads and where each belongs --
       provider keys live in the deployment repository's ``.env``.
 
+   .. grid-item-card:: Scenario Files
+      :link: scenario-files
+      :link-type: doc
+      :shadow: md
+
+      Every key a simulator scenario file accepts, the archive event shapes,
+      and what each channel fault does.
+
 .. toctree::
    :hidden:
 
    profile
    config
    environment-variables
+   scenario-files

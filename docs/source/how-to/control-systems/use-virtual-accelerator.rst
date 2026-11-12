@@ -448,7 +448,7 @@ its channel:
 
 Shots run only in the container: in process the chain serves its start
 values and a request starts nothing. What scenarios and channel faults do to
-a chain is in :doc:`/how-to/run-scenarios`.
+a chain is in :ref:`scenario-channel-faults`.
 
 .. _va-turn-by-turn:
 
@@ -742,8 +742,112 @@ without a build, so no deploy rebuilds it from OSPREY's recipe.
 image has to be on the host or pullable where it is named;
 :ref:`deployment-image-builds` says when each start builds.
 
+.. _how-to-run-scenarios:
+
 Scenarios
 =========
+
+A scenario is one way the simulated machine departs from its baseline. It can
+set values in the machine's models, write faults into a physics model, shape
+the history the archive shows, and add logbook entries that narrate it.
+
+You write each scenario as one YAML file under ``data/facility/scenarios/``.
+``osprey build`` serves the scenarios from the simulator view under
+``build/data/simulator/``. The ``osprey sim`` commands list, apply and report
+on them; :ref:`cli-osprey-sim` has their options.
+
+The scenarios the demo ships
+----------------------------
+
+The demo preset ships seven scenarios in
+``data/facility/scenarios/``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Scenario
+     - What it shows
+   * - ``nominal``
+     - All systems nominal. It carries the background logbook narrative of
+       the weeks before the demo and is always in the active set.
+   * - ``rf-thermal``
+     - Three thermal excursions on cavity 1 in the week before an
+       investigation. Each is a temperature rise, a reflected-power spike and
+       a forward-power trip; the last one is a beam dump. The archive shows
+       the excursions. The logbook narrates the dump, the investigation and
+       the cooling repair. Cavity 1 reads 26.5 degC live, and cavity 2 shows
+       one minor excursion for contrast.
+   * - ``rf-thermal-live``
+     - Live thermal wander on cavity 1, for correlation plots. One slow
+       shared driver moves its temperature, tuner, reflected and forward
+       power together, each with its own noise. It adds no archived history.
+       It does not compose with ``rf-thermal``, which writes the same
+       channels.
+   * - ``vacuum-burst``
+     - A vacuum burst in one sector with a correlated beam-current drop at
+       14:32:08 local time, recurring daily in the archive.
+   * - ``bpm-polarity``
+     - BPM 17 reports an inverted reading in both planes. No single channel
+       is out of range; the fault shows only as an orbit correction that does
+       not converge.
+   * - ``orm-dual-fault``
+     - The BPM 17 inversion and corrector HCM01 at half its nominal gain at
+       once, both visible only through an orbit-response measurement.
+   * - ``demo-history``
+     - Three past agent sessions (a sector-7 beam loss, an approved corrector
+       nudge, an orbit review), with the archive events and logbook entries
+       behind them.
+
+The preset starts a fresh deployment in ``rf-thermal`` and ``demo-history``,
+as the profile key ``simulation.default_scenarios`` names (see
+:doc:`/reference/configuration/config`).
+
+A scenario's sessions are laid down only by a deployment's first deploy, from
+its default set. ``osprey sim apply`` never adds or removes sessions: a set
+without ``demo-history`` drops its archive events and logbook entries only.
+
+Apply a scenario
+----------------
+
+Applying a scenario makes it part of the *active set*: the scenarios the
+simulated machine shows now. ``nominal`` is always in the active set.
+
+.. warning::
+
+   ``osprey sim apply`` deletes every entry in the ARIEL logbook and reseeds
+   the logbook from the active scenarios. It also rewrites windows of the
+   stored archive. On a virtual-accelerator deployment, those windows can
+   hold samples recorded from the running machine. The command asks before
+   each of these, unless you pass ``--yes``. To leave both stores untouched,
+   pass ``--no-seed``.
+
+To switch the simulated machine to the ``vacuum-burst`` scenario, run these
+commands in order:
+
+.. code-block:: bash
+
+   osprey sim list
+   osprey sim apply vacuum-burst
+   osprey sim status
+
+#. List the scenarios with ``osprey sim list``. The list marks the active set
+   with ``*`` and says which scenarios carry a logbook narrative.
+#. Apply the scenario with ``osprey sim apply vacuum-burst``. The command
+   replaces the active set with the names you give it, plus ``nominal``. It
+   then purges and reseeds the logbook and rewrites the affected windows of
+   the archive. Live values, history and narrative now tell one story.
+#. Check the simulator with ``osprey sim status``. It shows each served
+   physics model's status and the log it writes.
+
+Several scenarios apply together only when no two of them write the same
+target, a channel or a model's fault. A set that breaks this rule is refused
+before anything is written, and the refusal names the target. Archive events
+are not a target: events of several scenarios on one channel combine, so
+``[vacuum-burst, rf-thermal]`` composes.
+
+What a switch does in each venue
+--------------------------------
 
 ``osprey sim apply <scenario>`` works the same in both venues. Applying a
 scenario writes the project's ``var/agent_data/simulation/active_scenarios``
@@ -751,8 +855,7 @@ file; the in-container engine polls it and, within about a second, composed
 channel values reflect the new scenario. There is one behavioral difference
 between the venues. Served, a scenario switch only refreshes the engine-composed
 channels: setpoints you wrote during the session live in the IOC's own records
-and **survive** the switch. (In process, written values are reset.) ``osprey sim
-apply still`` serves every reading without drift, couplings or noise.
+and **survive** the switch. (In process, written values are reset.)
 
 The served simulator's container mounts two directories:
 
@@ -763,8 +866,35 @@ The served simulator's container mounts two directories:
 
 Both mounts are automatic for the deployed service.
 
-What a scenario may contain, how scenarios compose, and what ``osprey sim
-apply`` refuses is in :doc:`/how-to/run-scenarios`.
+Hold readings still
+-------------------
+
+Every facility has a scenario named ``still`` that stills every float
+reading: the reading serves without drift, couplings or noise. Run
+``osprey sim apply still``. For a deployment that should start still, set
+``simulation.default_scenarios: [still]``.
+
+A scenario file may define its own ``still``, which replaces the built-in one.
+``still`` composes with overrides and faults. It is refused beside a scenario
+that sets the same reading's ``noise`` or ``couple``.
+
+``still`` holds in both venues of the simulator (`Two venues`_).
+
+Write a scenario
+----------------
+
+To add a scenario to your facility:
+
+#. Create ``data/facility/scenarios/<name>.yaml``. The file name is the
+   scenario name.
+#. Add the keys the scenario needs, from :ref:`reference-scenario-files`.
+   Every key is optional.
+#. If a logbook entry has attachments, put the files in the folder
+   ``data/facility/scenarios/<name>/`` beside the scenario file.
+#. Check the sources with ``osprey facility validate``, which writes nothing.
+   An address, model or key the facility does not have stops the check, and
+   the error names the file.
+#. Run ``osprey build``. The new scenario appears in ``osprey sim list``.
 
 Write limits
 ============
