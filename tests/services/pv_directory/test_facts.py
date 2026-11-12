@@ -26,7 +26,12 @@ import osprey.channel_roster as channel_roster
 from osprey.services.pv_directory import _connectors, facts, service
 from osprey_connectors import control_context
 from osprey_connectors.alarm_log import AlarmHistoryRow
-from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord
+from osprey_connectors.alarm_state import (
+    AlarmConfigRecord,
+    AlarmStateRecord,
+    AlarmStateRow,
+    AlarmStates,
+)
 from osprey_connectors.directory import (
     DirectoryPage,
     DirectoryRecord,
@@ -168,9 +173,13 @@ class FakeAlarmState(FakeBackend):
 
     state: Any = None
     config: Any = None
+    listed: Any = None
 
     async def start(self) -> None:
         pass
+
+    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return self.listed
 
     async def aclose(self) -> None:
         pass
@@ -235,6 +244,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(FakeDirectory, "fail", None)
     monkeypatch.setattr(FakeAlarmState, "state", None)
     monkeypatch.setattr(FakeAlarmState, "config", None)
+    monkeypatch.setattr(FakeAlarmState, "listed", None)
     monkeypatch.setattr(FakeAlarmLog, "page", None)
     monkeypatch.setattr(FakeAlarmLog, "config", None)
     monkeypatch.setattr(FakeAlarmLog, "delay", 0.0)
@@ -577,6 +587,150 @@ async def test_alarm_state_on_va_from_the_replay(
     assert config["label"] == "live configuration"
     assert config["record"]["in_tree"] == "yes"
     assert config["caveats"] == caveats
+
+
+# -- every channel in alarm ------------------------------------------------------
+
+
+def _row(channel: str, severity: str | None, time: str, **state: Any) -> Any:
+    record = AlarmStateRecord(severity=severity, time=time, **state)
+    return AlarmStateRow(channel=channel, path=f"/SR/{channel}", state=record)
+
+
+def _listed(*rows: Any, stale: bool = False) -> Any:
+    return AlarmStates(rows=rows, stale=stale, last_contact="2026-11-11T08:00:00.000Z")
+
+
+_EVERY_SEVERITY = (
+    _row("SR:OK", "OK", "2026-11-11T07:59:00.000Z"),
+    _row("SR:MINOR:OLD", "MINOR", "2026-11-11T07:00:00.000Z"),
+    _row("SR:MINOR:NEW", "MINOR", "2026-11-11T07:30:00.000Z", acknowledged=True),
+    _row("SR:UNDEFINED", "UNDEFINED", "2026-11-11T07:10:00.000Z"),
+    _row("SR:MAJOR", "MAJOR", "2026-11-11T06:00:00.000Z", latched=True, message="HIHI_ALARM"),
+    _row("SR:INVALID", "INVALID", "2026-11-11T07:20:00.000Z"),
+    _row("SR:NONE", None, "2026-11-11T07:40:00.000Z"),
+    _row("SR:UNKNOWN", "DISCONNECTED", "2026-11-11T05:00:00.000Z"),
+)
+
+
+async def test_active_alarms_serve_the_counts_over_every_channel_and_the_active_rows(
+    tmp_path: Path,
+) -> None:
+    FakeAlarmState.listed = _listed(*_EVERY_SEVERITY)
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
+
+    answer = await page.active_alarms()
+
+    assert answer["outcome"] == "found"
+    assert answer["source"]["service"] == "phoebus_alarm_server"
+    assert answer["counts"] == {
+        "DISCONNECTED": 1,
+        "INVALID": 1,
+        "MAJOR": 1,
+        "MINOR": 2,
+        "OK": 1,
+        "UNDEFINED": 1,
+    }
+    assert answer["total"] == 8
+    assert answer["stale"] is False
+    assert answer["last_contact"] == "2026-11-11T08:00:00.000Z"
+    assert answer["truncated"] is False
+    assert [row["pv"] for row in answer["rows"]] == [
+        "SR:UNKNOWN",
+        "SR:UNDEFINED",
+        "SR:INVALID",
+        "SR:MAJOR",
+        "SR:MINOR:NEW",
+        "SR:MINOR:OLD",
+    ]
+    assert answer["rows"][3] == {
+        "pv": "SR:MAJOR",
+        "path": "/SR/SR:MAJOR",
+        "severity": "MAJOR",
+        "status": None,
+        "latched": True,
+        "acknowledged": False,
+        "message": "HIHI_ALARM",
+        "time": "2026-11-11T06:00:00.000Z",
+        "stale": False,
+    }
+
+
+async def test_an_unknown_severity_leads_the_active_rows_as_the_fold_ranks_it(
+    tmp_path: Path,
+) -> None:
+    FakeAlarmState.listed = _listed(
+        _row("SR:MAJOR", "MAJOR", "2026-11-11T07:00:00.000Z"),
+        _row("SR:UNKNOWN", "DISCONNECTED", "2026-11-11T05:00:00.000Z"),
+    )
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
+
+    answer = await page.active_alarms()
+
+    assert [row["pv"] for row in answer["rows"]] == ["SR:UNKNOWN", "SR:MAJOR"]
+
+
+async def test_active_alarms_filter_by_severity_and_a_limit_keeps_the_counts(
+    tmp_path: Path,
+) -> None:
+    FakeAlarmState.listed = _listed(*_EVERY_SEVERITY)
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
+
+    minor = await page.active_alarms(severities=["MINOR"])
+    cut = await page.active_alarms(limit=2)
+    counts_only = await page.active_alarms(limit=0)
+
+    assert [row["pv"] for row in minor["rows"]] == ["SR:MINOR:NEW", "SR:MINOR:OLD"]
+    assert minor["counts"]["MAJOR"] == 1
+    assert [row["pv"] for row in cut["rows"]] == ["SR:UNKNOWN", "SR:UNDEFINED"]
+    assert cut["truncated"] is True
+    assert cut["counts"] == minor["counts"]
+    assert counts_only["rows"] == []
+    assert counts_only["total"] == 8
+    assert counts_only["truncated"] is True
+
+
+async def test_active_alarms_of_a_feed_that_cannot_answer_keep_its_reason(tmp_path: Path) -> None:
+    FakeAlarmState.listed = Unavailable("alarm feed still loading")
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
+
+    answer = await page.active_alarms()
+
+    assert answer["outcome"] == "unavailable"
+    assert answer["reason"] == "alarm feed still loading"
+    assert answer["source"]["service"] == "phoebus_alarm_server"
+    assert "rows" not in answer
+
+
+async def test_active_alarms_with_no_source_answer_the_no_source_form(tmp_path: Path) -> None:
+    page = _facts(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    answer = await page.active_alarms()
+
+    assert answer["outcome"] == "unavailable"
+    assert answer["reason"] == "not available for this target"
+    assert answer["source"]["service"] == "none"
+    assert answer["caveats"] == []
+
+
+async def test_active_alarms_on_va_from_the_replay(
+    tmp_path: Path, record: _Record, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("osprey_connectors.alarm_state._replay")
+    patch_create_service(monkeypatch, "alarm_state", _REAL_CREATE)
+    record.move("va", 1)
+    section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
+    config = _config(tmp_path, VA_BUILD, section)
+    directory = service.DirectoryService(config, project_dir=tmp_path)
+
+    answer = await facts.Facts(directory, config).active_alarms()
+    await directory.aclose()
+
+    assert answer["counts"] == {"MAJOR": 1, "MINOR": 1, "OK": 1}
+    assert [(row["pv"], row["latched"], row["acknowledged"]) for row in answer["rows"]] == [
+        ("SR:RF:CAVITY:01:TEMPERATURE:RB", True, False),
+        ("SR:VAC:GAUGE:SR03:PRESSURE:RB", False, True),
+    ]
 
 
 # -- caveats --------------------------------------------------------------------

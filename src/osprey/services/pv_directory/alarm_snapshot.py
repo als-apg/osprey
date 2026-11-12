@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Any, Protocol, TypeVar
 
 __all__ = ["AlarmSnapshot"]
@@ -41,6 +42,8 @@ class _AlarmStateBackend(Protocol):
 
     async def config_for(self, pv: str, deadline: float) -> Any: ...
 
+    async def states(self, deadline: float) -> Any: ...
+
     async def probe(self, deadline: float) -> Any: ...
 
 
@@ -59,11 +62,15 @@ class AlarmSnapshot:
 
     async def state_for(self, pv: str, deadline: float) -> Any:
         """The backend's alarm state of *pv*, read once within *deadline* seconds."""
-        return await self._read(self.backend.state_for, pv, deadline)
+        return await self._read(partial(self.backend.state_for, pv), deadline)
 
     async def config_for(self, pv: str, deadline: float) -> Any:
         """The backend's live alarm configuration of *pv*, read as :meth:`state_for` reads."""
-        return await self._read(self.backend.config_for, pv, deadline)
+        return await self._read(partial(self.backend.config_for, pv), deadline)
+
+    async def states(self, deadline: float) -> Any:
+        """The backend's list of every channel's state, read as :meth:`state_for` reads."""
+        return await self._read(self.backend.states, deadline)
 
     async def probe(self, deadline: float) -> Any:
         """The backend's probe, once the feed has had up to *deadline* seconds to catch up.
@@ -73,7 +80,7 @@ class AlarmSnapshot:
         """
         loop = asyncio.get_running_loop()
         until = loop.time() + max(deadline, 0.0)
-        await self._read(self.backend.state_for, _ANY_PV, deadline)
+        await self._read(partial(self.backend.state_for, _ANY_PV), deadline)
         return await self.backend.probe(max(until - loop.time(), 0.0))
 
     async def aclose(self) -> None:
@@ -85,16 +92,14 @@ class AlarmSnapshot:
         await asyncio.gather(task, return_exceptions=True)
         await self.backend.aclose()
 
-    async def _read(
-        self, read: Callable[[str, float], Awaitable[_T]], pv: str, deadline: float
-    ) -> _T:
+    async def _read(self, read: Callable[[float], Awaitable[_T]], deadline: float) -> _T:
         loop = asyncio.get_running_loop()
         until = loop.time() + max(deadline, 0.0)
         task = self._started()
         if not task.done():
             # wait, not wait_for: a deadline that runs out leaves the start running.
             await asyncio.wait({task}, timeout=max(until - loop.time(), 0.0))
-        return await read(pv, max(until - loop.time(), 0.0))
+        return await read(max(until - loop.time(), 0.0))
 
     def _started(self) -> asyncio.Task[None]:
         if self._task is None:

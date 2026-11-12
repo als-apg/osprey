@@ -25,6 +25,9 @@ try:
         AlarmConfigRecord,
         AlarmState,
         AlarmStateRecord,
+        AlarmStateRow,
+        AlarmStates,
+        severity_rank,
     )
     from osprey_connectors.archive_targets import APPLIANCE_TARGETS
     from osprey_connectors.directory import (
@@ -61,6 +64,9 @@ except ImportError:
     AlarmLog = None  # type: ignore[assignment,misc]
     AlarmState = None  # type: ignore[assignment,misc]
     AlarmStateRecord = None  # type: ignore[assignment,misc]
+    AlarmStateRow = None  # type: ignore[assignment,misc]
+    AlarmStates = None  # type: ignore[assignment,misc]
+    severity_rank = None  # type: ignore[assignment]
     BackendSpec = None  # type: ignore[assignment,misc]
     ChannelDirectory = None  # type: ignore[assignment,misc]
     ENGINEER = None  # type: ignore[assignment]
@@ -92,6 +98,8 @@ __all__ = [
     "AlarmLog",
     "AlarmState",
     "AlarmStateRecord",
+    "AlarmStateRow",
+    "AlarmStates",
     "BackendSpec",
     "ChannelDirectory",
     "DirectoryPage",
@@ -109,6 +117,7 @@ __all__ = [
     "has_simulator",
     "logbook_source",
     "service_targets",
+    "severity_rank",
     "unavailable_payload",
 ]
 
@@ -123,7 +132,9 @@ NO_SOURCE_REASON = "not available for this target"
 SERVED_FIELD = {"server": "ioc", "channel_type": "record_type", "channel": "pv"}
 
 #: The records whose fields are served under :data:`SERVED_FIELD`.
-_SERVED_RECORDS = tuple(record for record in (DirectoryRow, PutRow) if record is not None)
+_SERVED_RECORDS = tuple(
+    record for record in (DirectoryRow, PutRow, AlarmStateRow) if record is not None
+)
 
 
 def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
@@ -145,7 +156,7 @@ def as_payload(result: Any) -> Any:
 
     A ``Source`` becomes ``{target, service, label, rehearsal}``, its label named
     by :func:`~osprey.services.pv_directory.vocabulary.source_label`; a directory
-    row and a put row name their fields by :data:`SERVED_FIELD`. Other
+    row, a put row and an alarm-state row name their fields by :data:`SERVED_FIELD`. Other
     dataclasses become mappings field by field, enum members their values,
     mappings and sequences their JSON forms; anything else is returned as it is.
     """

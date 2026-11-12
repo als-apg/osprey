@@ -10,7 +10,8 @@
   the ``caveats`` the deployment wrote on its configured source. The answer's
   own ``outcome`` says once whether the PV is known at all, for every reader. :meth:`Facts.alarm_state`,
   :meth:`Facts.alarm_config` and :meth:`Facts.history` answer one of those
-  sections alone, as the PV page shows it.
+  sections alone, as the PV page shows it, and :meth:`Facts.active_alarms`
+  every channel the alarm feed holds in alarm now.
 * :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer and
   the names of its IOC health PVs.
 
@@ -37,13 +38,14 @@ from osprey.services.pv_directory._connectors import (
     SERVED_SIGNAL_PROPERTY,
     Unavailable,
     as_payload,
+    severity_rank,
     unavailable_payload,
 )
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
 from osprey.services.pv_directory.vocabulary import CONFIG_LABELS
 
-__all__ = ["Facts", "panel_link"]
+__all__ = ["ACTIVE_ALARMS_MAX_ROWS", "Facts", "panel_link"]
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,8 @@ _DEFAULT_TIMEOUT_S = 6.0
 _HISTORY_LIMIT = 20
 #: The history kinds :meth:`Facts.history` reads.
 _HISTORY_KINDS = ("alarm_log", "put_log")
+#: The most rows one active-alarms answer serves, to the panel route and the agent tool alike.
+ACTIVE_ALARMS_MAX_ROWS = 1000
 _DEFAULT_ENGINEER_PROPERTY = "Engineer"
 _DEFAULT_HEALTH_SUFFIXES = ("HEARTBEAT", "UPTIME")
 #: The measured RecSync properties holding an IOC's Channel Access and PV Access ports.
@@ -140,6 +144,23 @@ class Facts:
         """The alarm state section of the PV called *name*: ``{outcome, source, record, reason?}``."""
         return await self._finished(await _guarded(self._alarm_state(name, self._timeout())))
 
+    async def active_alarms(
+        self, *, severities: Sequence[str] = (), limit: int | None = None
+    ) -> dict[str, Any]:
+        """Every channel the alarm feed holds in alarm now, with the counts per severity.
+
+        ``counts`` and ``total`` cover every channel the feed holds a state for;
+        ``rows`` are only those whose severity is not ``OK``, most severe first,
+        then newest first.
+
+        Args:
+            severities: Only rows of these severities; empty serves every active row.
+            limit: The most rows served; a cut sets ``truncated`` and never changes
+                the counts. ``None`` serves every row.
+        """
+        read = self._active_alarms(self._timeout(), tuple(severities), limit)
+        return await self._finished(await _guarded(read))
+
     async def alarm_config(self, name: str) -> dict[str, Any]:
         """The alarm configuration section of the PV called *name*, with its ``label``."""
         return await self._finished(await _guarded(self._alarm_config(name, self._timeout())))
@@ -192,6 +213,37 @@ class Facts:
         if _is_unavailable(answer):
             return _section(backend, "unavailable", record=None, reason=answer.reason)
         return _section(backend, "found", record=as_payload(answer))
+
+    async def _active_alarms(
+        self, deadline: float, severities: tuple[str, ...], limit: int | None
+    ) -> Any:
+        backend, _source, reason = await self._service.backend("alarm_state")
+        if backend is None:
+            return _NoSource(reason or NO_SOURCE_REASON)
+        snapshot = await self._service.snapshot()
+        if snapshot is None:
+            return _section(backend, "unavailable", reason="the target moved")
+        answer = await _ask(snapshot.states(deadline), deadline)
+        if _is_unavailable(answer):
+            return _section(backend, "unavailable", reason=answer.reason)
+        active = sorted(
+            (row for row in answer.rows if row.state.severity not in ("OK", None)),
+            key=lambda row: (severity_rank(row.state.severity), row.state.time or ""),
+            reverse=True,
+        )
+        if severities:
+            active = [row for row in active if row.state.severity in severities]
+        served = active if limit is None else active[: max(limit, 0)]
+        return _section(
+            backend,
+            "found",
+            counts=dict(answer.counts),
+            total=len(answer.rows),
+            rows=[_alarm_row(row) for row in served],
+            truncated=len(served) < len(active),
+            stale=answer.stale,
+            last_contact=answer.last_contact,
+        )
 
     async def _alarm_config(self, name: str, deadline: float) -> Any:
         """The live configuration from the feed, else the logger's (D4); one source per page."""
@@ -459,6 +511,13 @@ def _section(backend: Any, outcome: str, **fields: Any) -> dict[str, Any]:
         "caveats": _caveats(backend),
         **fields,
     }
+
+
+def _alarm_row(row: Any) -> dict[str, Any]:
+    """One active alarm as served: ``pv`` and ``path``, then its state's fields."""
+    served = as_payload(row)
+    state = served.pop("state")
+    return {**served, **state}
 
 
 def _page_outcome(sections: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
