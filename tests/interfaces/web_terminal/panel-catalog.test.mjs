@@ -370,6 +370,16 @@ describe('an application panel names its own row', () => {
     expect(describePanel('plain')).toBeNull();
   });
 
+  test('a declared glyph icons.js does not define falls back instead of breaking the row', async () => {
+    const { PANELS, customPanelEntry, panelIconName, FALLBACK_PANEL_ICON } = await freshCatalog();
+
+    PANELS.push(customPanelEntry({ ...DIAL, icon: 'no-such-glyph' }));
+
+    expect(ICON_NAMES).not.toContain('no-such-glyph');
+    expect(panelIconName('dial')).toBe(FALLBACK_PANEL_ICON);
+    expect(ICON_NAMES).toContain(panelIconName('dial'));
+  });
+
   test('built-in and sidecar rows are unchanged by a declared application panel', async () => {
     stampPanelLabels(document);
     const { PANELS, PANEL_ICONS, customPanelEntry, panelIconName, describePanel } =
