@@ -17,9 +17,10 @@ The example deployment name that named a site (``SITE_EXAMPLE_WORD``) is a
 third token, scanned over the core text under ``SITE_SCAN_PATHS``.
 
 The phrase that named two login kinds (``RETIRED_TWO_KIND_PHRASE``) is a fourth
-token, scanned line by line over ``TWO_KIND_SCAN_PATHS``. A file that must keep
-it is a ``RETIRED_TWO_KIND_READERS`` row with its reason; an allowlist row that
-stops matching anything fails, so the list only shrinks.
+token, scanned over the folded text of ``TWO_KIND_SCAN_PATHS``, so a wrapped
+phrase is found as an unwrapped one is. A file that must keep it is a
+``RETIRED_TWO_KIND_READERS`` row with its reason; an allowlist row that stops
+matching anything fails, so the list only shrinks.
 """
 
 from __future__ import annotations
@@ -385,31 +386,41 @@ TWO_KIND_SCAN_PATHS: tuple[str, ...] = ("src", "docs/source", "plugins")
 RETIRED_TWO_KIND_READERS: dict[str, str] = {}
 
 
+def phrase_hits(root: Path, phrase: Phrase, pathspecs: list[str]) -> list[str]:
+    """Every tracked text file's ``path:line`` where *phrase* starts in its folded text.
+
+    ``git grep`` reads one line at a time, so the files are listed by git and
+    each is folded and matched here. A file that is not text is skipped, as
+    ``git grep -I`` skips it; hits starting on one line are one entry.
+    """
+    paths = subprocess.run(
+        ["git", "ls-files", "-z", "--", *pathspecs],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split("\0")
+    hits: set[str] = set()
+    for path in filter(None, paths):
+        file = root / path
+        if not file.is_file():
+            continue
+        data = file.read_bytes()
+        if b"\0" in data[:8000]:
+            continue
+        folded = fold_lines(data.decode("utf-8", errors="replace"))
+        for offset, line in folded.lines():
+            for match in re.finditer(phrase, line):
+                hits.add(f"{path}:{folded.line_at(offset + match.start())}")
+    return sorted(hits)
+
+
 def two_kind_phrase_hits(
     root: Path, allowed: Mapping[str, str] = RETIRED_TWO_KIND_READERS
 ) -> list[str]:
     """Every ``path:line`` under ``TWO_KIND_SCAN_PATHS`` naming the two-kind phrase."""
     excludes = [f":(exclude,glob){glob}" for glob in allowed]
-    result = subprocess.run(
-        [
-            "git",
-            "grep",
-            "-I",
-            "-n",
-            "-P",
-            "-e",
-            RETIRED_TWO_KIND_PHRASE,
-            "--",
-            *TWO_KIND_SCAN_PATHS,
-            *excludes,
-        ],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode in (0, 1), result.stderr
-    return sorted(":".join(line.split(":", 2)[:2]) for line in result.stdout.splitlines() if line)
+    return phrase_hits(root, RETIRED_TWO_KIND_PHRASE, [*TWO_KIND_SCAN_PATHS, *excludes])
 
 
 @pytest.mark.parametrize(
@@ -457,12 +468,32 @@ def test_a_planted_two_kind_phrase_is_flagged(tmp_path: Path) -> None:
             "tests/x.py": line,
             "CHANGELOG.md": line,
             "src/clean.py": "# the login's tier; an app's panel\n",
+            # Wrapped across lines, each reported at the line the phrase starts on.
+            "src/comment.py": "x = 1\n# names the tier\n# or app file\n",
+            "src/docstring.py": 'def f():\n    """Names the tier\n    or app file."""\n',
+            "docs/source/paragraph.rst": "Intro.\n\nEach tier\nor app file is built.\n",
+            "docs/source/directive.rst": ".. note::\n\n   Each tier\n   and app render.\n",
+            "plugins/x/quote.md": "> names the tier\n> or app file\n",
+            "src/block.js": "/**\n * names the tier\n * or app file\n */\n",
+            "src/comment.yaml": "# names the tier\n# or app file\nkey: 1\n",
+            "src/twice.py": "# tier or app; tier\n# or app\n",
+            # Broken by a blank line or a list bullet: stays clean.
+            "docs/source/break.rst": "The tier\n\nAnd app files are built.\n",
+            "plugins/x/list.md": "Kinds:\n\n- a tier\n- and an app\n",
         },
     )
 
     assert two_kind_phrase_hits(root) == [
+        "docs/source/directive.rst:3",
+        "docs/source/paragraph.rst:3",
         "docs/source/x.rst:1",
         "plugins/x/SKILL.md:1",
+        "plugins/x/quote.md:1",
+        "src/block.js:2",
+        "src/comment.py:2",
+        "src/comment.yaml:1",
+        "src/docstring.py:2",
+        "src/twice.py:1",
         "src/x.py:1",
     ]
 
