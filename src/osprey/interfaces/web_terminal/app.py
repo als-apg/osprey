@@ -25,7 +25,8 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 
-from osprey.apps.manifest import launch_token_env
+from osprey.apps.manifest import help_page_refusal, launch_token_env
+from osprey.apps.projection import PANEL_PRESENTATION_KEYS
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.common_middleware import (
@@ -736,9 +737,30 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
             # drops it from each row. Absent: every user of the login.
             if "access" in spec:
                 panel["access"] = _panel_access(panel_id, spec["access"])
+            # The sidebar row's glyph, tooltip and help page, under the names a
+            # sidecar's registry entry uses; carried only when the block writes them.
+            for key in PANEL_PRESENTATION_KEYS:
+                if key in spec:
+                    panel[key] = _panel_presentation(panel_id, key, spec[key])
             custom.append(panel)
 
     return enabled, custom, default_panel
+
+
+def _panel_presentation(panel_id: str, key: str, value: object) -> str:
+    """Validate one of a panel's ``icon``, ``description`` or ``help`` values.
+
+    Raises:
+        ValueError: The value is not a non-empty string, or a ``help`` page
+            outside the docs root that is not an https:// URL. The message names
+            the config key.
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"web.panels.{panel_id}.{key} must be a non-empty string")
+    refusal = help_page_refusal(value) if key == "help" else None
+    if refusal is not None:
+        raise ValueError(f"web.panels.{panel_id}.{key}: {refusal}")
+    return value
 
 
 def _hold_panel_launch_tokens(app: FastAPI, custom_panels: list[dict]) -> None:
