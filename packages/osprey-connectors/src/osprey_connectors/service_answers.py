@@ -21,7 +21,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
+
+#: The row record a :class:`HistoryPage` holds.
+_RowT = TypeVar("_RowT")
 
 __all__ = [
     "BackendSpec",
@@ -79,15 +82,15 @@ class BackendSpec:
 
 
 @dataclass(frozen=True, kw_only=True)
-class HistoryPage:
+class HistoryPage(Generic[_RowT]):
     """Logged rows of one PV. No rows means nothing was logged, not that nothing happened.
 
-    ``rows`` are an alarm log's ``AlarmHistoryRow`` or a put log's ``PutRow``.
+    ``rows`` are the records of the kind that answered.
     """
 
     outcome: Outcome
     source: Source
-    rows: Sequence[Any] = field(default_factory=list)
+    rows: Sequence[_RowT] = field(default_factory=list)
     truncated: bool = False
     retention_known: bool = False
     reason: str | None = None

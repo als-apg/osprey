@@ -37,7 +37,7 @@ class PutLog(_Backend, ABC):
     @abstractmethod
     async def history(
         self, channel: str, since: datetime | None, limit: int, deadline: float
-    ) -> HistoryPage:
+    ) -> HistoryPage[PutRow]:
         """The logged writes of *channel*, ``PutRow`` rows, field puts included, newest first."""
 
     @abstractmethod
