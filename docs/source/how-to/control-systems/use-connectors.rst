@@ -18,18 +18,10 @@ DOOCS, the simulator, the mock) is one class that implements them.
 
 Nothing in OSPREY reaches a control system any other way. There is no shared
 connector service: each caller below holds its own connector instance, built
-from the same ``config.yml`` and pointed at the login's control target::
+from the same ``config.yml`` and pointed at the login's control target.
 
-    operator            agent              agent-written code     panels and apps
-    (target chip,       (controls tools)   notebooks, plans       (CANOPY, app
-     write switch,           |             (osprey.runtime)        backends)
-     approval prompt)        |                    |                    |
-         |                   v                    v                    v
-         |              +-----------------------------------------------------+
-         +-- decides -> | connector: read_channel, write_channel, subscribe   |
-                        +--------------------------+--------------------------+
-                                                   v
-                                control system (EPICS, DOOCS, simulator)
+.. raw:: html
+   :file: ../../_diagrams/connector-callers.html
 
 .. list-table::
    :header-rows: 1
