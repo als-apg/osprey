@@ -537,6 +537,29 @@ def test_host_network_graph_store_renders_the_same_way(tmp_path):
     assert _graph_row(entries).count("(host network)") == 1
 
 
+def test_the_dispatch_bus_port_is_not_shown_as_a_web_address(tmp_path):
+    """On the host network the dispatcher binds its bus port too, and that port
+    speaks ZeroMQ: an ``http://`` link to it would open nothing."""
+    empty = tmp_path / "docker-compose.yml"
+    empty.write_text("services: {}\n", encoding="utf-8")
+    config = {
+        "project_name": "demo",
+        "deployed_services": ["event_dispatcher", "dispatch_worker"],
+        "services": {
+            "event_dispatcher": {"network": "host", "transport": "bus", "port": 10010},
+            "dispatch_worker": {"network": "host"},
+        },
+    }
+
+    entries = deploy_summary.endpoint_entries(config, [str(empty)])
+
+    (row,) = [address for _tier, service, address in entries if service == "event-dispatcher"]
+    assert row.removesuffix("  (host network)").split(" · ") == [
+        "http://127.0.0.1:10010",
+        "tcp://127.0.0.1:10050",
+    ]
+
+
 def test_host_network_and_published_graph_stores_agree_on_moved_ports(tmp_path):
     """The two sources render identically for the same moved ports."""
     published = tmp_path / "docker-compose.published.yml"

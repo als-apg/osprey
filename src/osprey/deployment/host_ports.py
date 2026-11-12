@@ -251,6 +251,10 @@ class HostPortBinding:
     :param remedy: The config key that moves this port, when the deriving code
         knows it better than :func:`_remedy_for_service` can work it out from
         the service name. ``None`` leaves the resolution to that function
+    :param scheme: The scheme an address of this port is shown with, when the
+        deriving code knows the protocol better than the service name does
+        (the dispatcher's bus port speaks ZeroMQ, not its HTTP). ``None``
+        leaves the choice to the endpoint summary
     """
 
     service: str
@@ -260,6 +264,7 @@ class HostPortBinding:
     compose_file: str
     host_network: bool = False
     remedy: str | None = None
+    scheme: str | None = None
 
 
 @dataclass
@@ -658,6 +663,7 @@ def derive_host_network_bindings(config):
                         if bus_port == bus_slot
                         else "services.event_dispatcher.bus_port"
                     ),
+                    scheme="tcp",
                 )
             )
 

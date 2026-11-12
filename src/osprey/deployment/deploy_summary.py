@@ -352,11 +352,14 @@ def _binding_address(binding: HostPortBinding, declared_http: frozenset[str] = f
         declared_http: Service names the deployment declared as speaking HTTP.
 
     Returns:
-        ``host:port``, carrying an ``http://`` scheme when the service speaks
-        HTTP on that container port. A wildcard bind is shown on loopback,
-        where a service bound to every interface always answers.
+        ``host:port``, carrying the binding's own scheme when it names one,
+        else an ``http://`` scheme when the service speaks HTTP on that
+        container port. A wildcard bind is shown on loopback, where a service
+        bound to every interface always answers.
     """
     address = f"{dial_address(binding.host_ip)}:{binding.host_port}"
+    if binding.scheme:
+        return f"{binding.scheme}://{address}"
     if _http_service(binding.service, binding.container_port, declared_http):
         return f"http://{address}"
     return address
