@@ -7,8 +7,9 @@
  *   npx vitest run tests/interfaces/channel_finder/scope-tabs.test.mjs
  *
  * app.js boots on import, so each case re-imports it into a fresh module registry
- * with the view modules replaced by spies, and removes the hashchange listener the
- * boot added, so one case's app never answers the next case's hash.
+ * with the view modules replaced by spies, and removes the hashchange and
+ * visibilitychange listeners the boot added, so one case's app never answers the
+ * next case's events.
  */
 
 import { test, expect, vi, afterEach, describe } from 'vitest';
@@ -32,12 +33,19 @@ const VIEW_MODULES = {
 
 /** @type {EventListener[]} */
 let hashListeners = [];
+/** @type {EventListener[]} */
+let visibilityListeners = [];
 
 afterEach(() => {
   for (const listener of hashListeners) window.removeEventListener('hashchange', listener);
   hashListeners = [];
+  for (const listener of visibilityListeners) {
+    document.removeEventListener('visibilitychange', listener);
+  }
+  visibilityListeners = [];
   for (const [file] of Object.values(VIEW_MODULES)) vi.doUnmock(`${JS}/${file}`);
   vi.doUnmock('/design-system/js/header-contrib.js');
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.innerHTML = '';
@@ -116,6 +124,13 @@ async function boot(info, hash = '', alarms = {}) {
     (/** @type {any} */ type, /** @type {any} */ listener, /** @type {any} */ options) => {
       if (type === 'hashchange') hashListeners.push(listener);
       add(type, listener, options);
+    }
+  );
+  const addToDocument = document.addEventListener.bind(document);
+  vi.spyOn(document, 'addEventListener').mockImplementation(
+    (/** @type {any} */ type, /** @type {any} */ listener, /** @type {any} */ options) => {
+      if (type === 'visibilitychange') visibilityListeners.push(listener);
+      addToDocument(type, listener, options);
     }
   );
 
@@ -445,6 +460,32 @@ describe('the Alarms tab', () => {
     state.emit('directoryLabel', 'Channel Finder');
     expect(pill()?.textContent).toBe('1');
     expect(names()[1]).toBe('allpvs:Channel Finder');
+  });
+
+  test('the counts are not read alone while the Alarms view reads the list', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const { alarmReads } = await boot(ALARM_DIRECTORY, '', counted({ MAJOR: 1 }));
+    await vi.waitFor(() => expect(alarmReads).toHaveLength(1));
+    go('#/alarms');
+    vi.advanceTimersByTime(15000 * 2);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    expect(alarmReads).toHaveLength(1);
+  });
+
+  test('a panel opened on #/alarms does not read the counts alone', async () => {
+    const { views, alarmReads } = await boot(ALARM_DIRECTORY, '#/alarms', counted({ MAJOR: 1 }));
+    expect(views.alarms.mount).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(alarmReads).toEqual([]);
+  });
+
+  test('the counts are read again when the panel is shown on another view', async () => {
+    const { alarmReads } = await boot(ALARM_DIRECTORY, '', counted({ MAJOR: 1 }));
+    await vi.waitFor(() => expect(alarmReads).toHaveLength(1));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(alarmReads).toHaveLength(2));
+    expect(new URLSearchParams(alarmReads[1].split('?')[1]).get('limit')).toBe('0');
   });
 
   test('without an alarm-state service the alarm route is not read', async () => {
