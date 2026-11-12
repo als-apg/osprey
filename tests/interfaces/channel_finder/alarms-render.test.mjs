@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   activeSummary,
+  bandHtml,
   bannerHtml,
   buildTree,
   feedChip,
@@ -138,11 +139,17 @@ describe('times and the feed', () => {
 
   test('a live feed names its last contact, a stale one says so', () => {
     expect(feedChip({ ...ALARMS, last_contact: '2026-11-06T12:39:56.000Z' })).toEqual({
-      html: 'feed live · last contact <span data-since="2026-11-06T12:39:56.000Z"></span> ago',
+      html: 'feed live · last contact <span data-since=""></span> ago',
       tone: 'ok',
     });
     expect(feedChip({ ...ALARMS, last_contact: null })).toEqual({ html: 'feed live', tone: 'ok' });
     expect(feedChip({ ...ALARMS, stale: true })).toEqual({ html: 'feed stale', tone: 'warn' });
+  });
+
+  test('the band does not carry the last contact, which the view writes in place', () => {
+    const at = (/** @type {string} */ time) => bandHtml({ ...ALARMS, last_contact: time }, null);
+    expect(at('2026-11-06T12:39:56.000Z')).toBe(at('2026-11-06T12:40:01.000Z'));
+    expect(at('2026-11-06T12:39:56.000Z')).not.toContain('2026-11-06');
   });
 
   test('the banner names the last contact when known', () => {
