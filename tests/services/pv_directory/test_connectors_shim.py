@@ -41,6 +41,8 @@ _CONTRACT_NAMES = (
     "AlarmLog",
     "AlarmState",
     "AlarmStateRecord",
+    "AlarmStateRow",
+    "AlarmStates",
     "BackendSpec",
     "ChannelDirectory",
     "DirectoryPage",

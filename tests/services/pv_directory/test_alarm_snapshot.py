@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("osprey_connectors.service_answers")
 
-from osprey_connectors.alarm_state import AlarmStateRecord
+from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStates
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 _replay = pytest.importorskip("osprey_connectors.alarm_state._replay")
@@ -68,6 +68,9 @@ class _StillLoading:
     async def config_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
         return await self._read(deadline, LOADING)
 
+    async def states(self, deadline: float):
+        return await self._read(deadline, LOADING)
+
     async def _read(self, deadline: float, answer):
         self.deadlines.append(deadline)
         await asyncio.sleep(max(deadline, 0.0))
@@ -89,6 +92,10 @@ class _Answering(_StillLoading):
         return self._answer
 
     async def config_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+        self.deadlines.append(deadline)
+        return self._answer
+
+    async def states(self, deadline: float):
         self.deadlines.append(deadline)
         return self._answer
 
@@ -264,3 +271,43 @@ async def test_a_probe_of_a_replay_answers_its_messages():
 
     assert answer.startswith("read ")
     assert answer.endswith("from the replay file; the feed stopped")
+
+
+# -- the list of every channel's state ---------------------------------------------
+
+
+async def test_the_list_is_the_backends_answer_read_once_after_the_start():
+    snapshot = AlarmSnapshot(_replay_backend(OLD_FEED), "va")
+    try:
+        states = await snapshot.states(2.0)
+    finally:
+        await snapshot.aclose()
+
+    assert isinstance(states, AlarmStates)
+    assert {row.channel for row in states.rows} == {PV, "DEMO:VAC1:GAUGE:Pres-I"}
+    assert states.counts == {"MAJOR": 1, "MINOR": 1}
+
+
+async def test_a_list_read_waits_for_the_start_then_reads_once_with_the_deadline_left():
+    backend = _StillLoading()
+    snapshot = AlarmSnapshot(backend, "live")
+    try:
+        assert await snapshot.states(0.05) == LOADING
+    finally:
+        await snapshot.aclose()
+
+    assert backend.started == 1
+    assert len(backend.deadlines) == 1
+    assert 0.0 <= backend.deadlines[0] < 0.05
+
+
+async def test_a_list_the_feed_cannot_answer_is_passed_on():
+    answer = Unavailable("alarm broker cannot be reached")
+    backend = _Answering(answer)
+    snapshot = AlarmSnapshot(backend, "live")
+    try:
+        assert await snapshot.states(0.5) is answer
+    finally:
+        await snapshot.aclose()
+
+    assert len(backend.deadlines) == 1
