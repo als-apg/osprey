@@ -148,7 +148,8 @@ def _classify_coverage(
 ) -> dict[str, Any]:
     """One empty channel's entry: a verdict, plus bounds when they are known."""
     md = probe.metadata
-    if probe.available is False or (md is not None and not md.is_archived):
+    # ``None`` from either probe is "this archiver cannot say", never "not archived".
+    if probe.available is False or (md is not None and md.is_archived is False):
         return {"verdict": "never_recorded"}
     a_start = _pin_utc(md.archival_start) if md is not None else None
     a_end = _pin_utc(md.archival_end) if md is not None else None

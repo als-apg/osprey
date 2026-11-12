@@ -1169,8 +1169,12 @@ class TestComposeCoverage:
         block = self._compose({"CH": _probe(is_archived=False)})
         assert block["verdict"] == "never_recorded"
 
+    def test_an_archiver_that_cannot_say_is_unknown_not_never_recorded(self):
+        # The EPICS Archiver Appliance connector answers None for both probes.
+        block = self._compose({"CH": _probe(available=None, is_archived=None)})
+        assert block["verdict"] == "coverage_unknown"
+
     def test_boundless_metadata_is_unknown_not_guessed(self):
-        # The EPICS/DOOCS connectors report is_archived=True with no bounds.
         block = self._compose({"CH": _probe(start=None, end=None)})
         assert block["verdict"] == "coverage_unknown"
         assert "archive_start" not in block["channels"]["CH"]
