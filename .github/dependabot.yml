@@ -42,14 +42,28 @@ updates:
         - "*"
     # One PR, one CI run, one review per week — ten parallel single-package
     # PRs each dragging the full e2e matrix is what this replaces.
+    #
+    # A group covers version updates only unless it says otherwise, so security
+    # updates get a group of their own: without it every alert opens its own
+    # PR, and a batch of alerts arriving together floods the CI queue (twenty
+    # PRs on 2026-11-11, each a full e2e matrix).
     groups:
       python-lockfile:
         patterns:
           - "*"
+      python-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
-  # Dev/CI JS toolchain (tsc + vitest behind the Frontend JS lane).
+  # Two JS toolchains: "/" is the dev/CI one (tsc + vitest behind the Frontend
+  # JS lane); src/osprey/apps/js_check is the one `osprey app check` installs
+  # on users' machines, exact-pinned and tested by its own lane. Groups are
+  # per directory, so each gets its own PR and runs the lane that covers it.
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/src/osprey/apps/js_check"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -75,6 +89,10 @@ updates:
       - dependency-name: "dockview-core"
     groups:
       js-toolchain:
+        patterns:
+          - "*"
+      js-security:
+        applies-to: security-updates
         patterns:
           - "*"
 
