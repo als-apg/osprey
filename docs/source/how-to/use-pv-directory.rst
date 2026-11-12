@@ -45,7 +45,7 @@ Search All PVs
 
 1. Open **Channels** from the **Apps** section of the sidebar.
 2. Click **All PVs** in the view switch at the toolbar's left. The switch reads
-   **Curated**, **All PVs**, **Alarms** and **Feedback**.
+   **Curated**, **All PVs**, **Alarms**, **Archive** and **Feedback**.
 3. Type words into the toolbar's search box and press Enter.
 
 In the ``demo`` preset, search ``cavity temperature``. The rows are the
@@ -68,8 +68,8 @@ A search works the way ChannelFinder searches:
 
 The line above the rows says what was searched, with each filter in force as a
 removable chip. **show request** reveals the literal request that ran. The
-sidebar filters the whole result by **Alarm**, **Origin**, **IOC** and
-**Record type**.
+sidebar filters the whole result by **Alarm**, **Origin**, **IOC**,
+**Record type** and **Archive**.
 
 Each row carries one of two marks:
 
@@ -79,7 +79,8 @@ Each row carries one of two marks:
   and IOC health PVs, such as ``<code>:SIM:<model>:HEARTBEAT``.
 
 A row also shows the description, the current value with its unit, the alarm
-server's severity (when an alarm feed is configured), record type and IOC. An
+server's severity (when an alarm feed is configured), record type, IOC and,
+with an archive, whether the archive records the PV. An
 inactive PV is dimmed and marked Inactive. A value reads ``no answer`` when the
 PV did not answer. Export CSV is the download icon above the rows.
 
@@ -103,6 +104,19 @@ alarm tree and a node filters to its branch. The inspector beside the list
 shows the selected PV's guidance, facts and, with an alarm log, transitions,
 from the PV page's sections. The tab exists only with an ``alarm_state``
 sub-block. Nothing here writes: acknowledge in the alarm server's own client.
+
+
+Archive
+=======
+
+**Archive** says what the control target's archive records now: how many of
+the directory's PVs, per IOC, its newest sample and its configuration as
+deployed. For the deployment's own store it adds retention, cadence and the
+retention window. A value the archiver cannot give reads ``unknown`` with the
+reason: the MongoDB store lists its channels; the EPICS Archiver Appliance, MYA
+and DOOCS archivers do not. The tab exists only when the deployment's archive
+serves a target. Nothing here writes: change the configuration in the profile
+and redeploy.
 
 
 PV and IOC pages
@@ -133,6 +147,9 @@ not configured shows as one dashed line:
    * - Directory
      - The PV's IOC, host, record type and properties as the directory records
        them.
+   * - Archive
+     - Whether the archive records the PV, its first and last sample and the
+       sampling period, from the archiver.
    * - Logbook
      - Logbook entries that mention the PV, from ARIEL.
 
@@ -142,8 +159,8 @@ with a button that searches for it.
 Click an IOC to open its IOC page. Its tiles count the PVs, the curated PVs
 and, with an alarm feed, the PVs in alarm; Uptime and Heartbeat come from the
 IOC health PVs. The cards list the alarms on the IOC, the health PVs with
-their values, and the host and ports. The **Alive** chip reads the
-``HEARTBEAT`` PV twice, 2 s apart; a value that advanced means alive.
+their values, and the host and ports. The **Alive** chip reads the heartbeat
+PV twice, 2 s apart; a value that advanced means alive.
 
 
 The control target decides the source
