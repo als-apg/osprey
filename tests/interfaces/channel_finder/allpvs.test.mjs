@@ -313,9 +313,9 @@ describe('search and filters', () => {
   test('facets list origin, IOC and record type with counts and filter the search', async () => {
     const { searches } = await mount();
     const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
-    await vi.waitFor(() => expect(sidebar.querySelectorAll('.osprey-list-row')).toHaveLength(5));
+    await vi.waitFor(() => expect(sidebar.querySelectorAll('.osprey-list-row')).toHaveLength(7));
     const labels = [...sidebar.querySelectorAll('.osprey-section-label')].map((l) => l.textContent);
-    expect(labels).toEqual(['Origin', 'IOC', 'Record type']);
+    expect(labels).toEqual(['Origin', 'IOC', 'Record type', 'Alarm']);
     const curated = /** @type {HTMLButtonElement} */ (
       sidebar.querySelector('[data-facet="origin"][data-value="curated"]')
     );

@@ -37,6 +37,10 @@ describe('parseRoute', () => {
         params: { q: 'a', ioc: ['I1', 'I2'], origin: ['curated'], record_type: ['ai'] },
       },
     ],
+    [
+      '#/allpvs?alarm=MAJOR&ioc=I1&alarm=none',
+      { view: 'allpvs', params: { ioc: ['I1'], alarm: ['MAJOR', 'none'] } },
+    ],
     ['#/allpvs?other=1&name=x', { view: 'allpvs', params: {} }],
     ['#/allpvs?name=x&page=2', { view: 'allpvs', params: {} }],
     ['#/pv/SR01%3AX', { view: 'pv', params: { name: 'SR01:X' } }],

@@ -69,6 +69,15 @@ describe('formatValue', () => {
     expect(formatValue(found(46.234)).unit).toBe('');
   });
 
+  test('an enum shows its label, with the index on hover', () => {
+    expect(formatValue(found(1, { enum_label: 'On' }))).toEqual({
+      text: 'On',
+      unit: '',
+      title: '1',
+    });
+    expect(formatValue(found(1, { enum_label: null })).text).toBe('1');
+  });
+
   test('a precision that is not a count is ignored', () => {
     expect(formatValue(found(1.23456789, { precision: -1 })).text).toBe('1.23457');
     expect(formatValue(found(1.5, { precision: 'x' })).text).toBe('1.5');

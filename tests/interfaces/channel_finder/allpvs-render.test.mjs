@@ -54,7 +54,12 @@ function parse(html) {
   return box;
 }
 
-const NO_FILTERS = () => ({ origin: new Set(), ioc: new Set(), record_type: new Set() });
+const NO_FILTERS = () => ({
+  origin: new Set(),
+  ioc: new Set(),
+  record_type: new Set(),
+  alarm: new Set(),
+});
 
 describe('allpvs-render', () => {
   test('the count reads PV or PVs, and nothing without a total', () => {
@@ -114,7 +119,7 @@ describe('allpvs-render', () => {
 
   test('one facet group per route filter key, in its order', () => {
     const one = [{ value: 'v', count: 1 }];
-    const facets = { origin: one, ioc: one, record_type: one };
+    const facets = { origin: one, ioc: one, record_type: one, alarm: one };
     const box = parse(facetsHtml(page({ facets }), NO_FILTERS()));
     const groups = [...box.querySelectorAll('.allpvs-facet-group')];
     expect(groups.map((g) => g.querySelector('.allpvs-facet')?.getAttribute('data-facet'))).toEqual(
@@ -124,6 +129,7 @@ describe('allpvs-render', () => {
       'Origin',
       'IOC',
       'Record type',
+      'Alarm',
     ]);
   });
 
