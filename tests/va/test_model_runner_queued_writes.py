@@ -338,3 +338,25 @@ def test_a_put_whose_completion_raises_does_not_keep_the_others_waiting(
     assert model.calls("set") == [{FIRST: 1.0, SECOND: 2.0}]
     assert second == [None]
     assert len(posts) == 1
+
+
+def test_a_tick_posts_a_refused_channel_again_and_nothing_else_unchanged(posts: list[Any]) -> None:
+    # A refused put leaves its channel alarmed, and holding the request when
+    # unconfirmed writes are echoed; the next tick's post is what restates it.
+    _, module = _serving()
+    model = _Model()
+    model.refused = {SECOND}
+    runner = _runner(module, model)
+    _queue_pass(runner, [])
+    _serve_queue(runner)
+    refused = _put(runner, {SECOND: 2.0})
+    _serve_queue(runner)
+    del posts[:]
+
+    runner._tick()
+    _serve_queue(runner)
+    runner._tick()
+    _serve_queue(runner)
+
+    assert refused == [f"{SECOND} refused"]
+    assert posts == [{SECOND: 0.0}, {}]

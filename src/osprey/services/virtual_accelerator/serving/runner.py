@@ -117,7 +117,10 @@ class ModelRunner(Runner):
     (:func:`~osprey.services.virtual_accelerator.serving.runner_config.pass_readback`).
     Of what it reads, a write pass publishes the written channels and those
     whose value or undefined condition changed since they were last
-    published; a pass with no input values reads and publishes them all.
+    published. A tick reads them all and publishes the same way, together
+    with the channels of a write refused since they were last published, so
+    a refused put's alarm lasts until the next tick. Any other pass with no
+    input values -- start-up, a reset -- reads and publishes them all.
     The writes queued when a write's cycle starts share its pass
     (:meth:`_run_cycle`).
     A failed pass rolls the composite back to the state cached before it only
@@ -318,6 +321,7 @@ class ModelRunner(Runner):
         self._values = item["values"]
         self._set_landed = False
         self._pass_started = False
+        item["done"].append(partial(self._forget_refused, tuple(item["values"])))
         if record:
             item["done"].append(self._record_pass)
         super()._run_cycle(item)
@@ -356,6 +360,17 @@ class ModelRunner(Runner):
         variables = self.model.supported_variables
         return [name for name in written if name in variables and not variables[name].read_only]
 
+    def _forget_refused(self, names: Collection[str], error: str | None) -> None:
+        """Drop a refused write's channels from the record of what was posted.
+
+        The put's completion alarms a refused channel, and echoes the request
+        on it when unconfirmed writes are echoed, without a post; a channel
+        with no record is posted by the next tick, which restates it.
+        """
+        if error is not None:
+            for name in names:
+                self._served.pop(name, None)
+
     def _cycle_output_names(self) -> list[str]:
         """The roster read after ``model.set``, narrowed for a write pass.
 
@@ -381,9 +396,10 @@ class ModelRunner(Runner):
         """Post a pass's values; a write pass posts only what a client does not hold yet.
 
         A write pass posts the written channels and those whose value or
-        undefined condition changed since they were last posted; any other
-        pass posts every value but the ``fast`` and ``event`` ones, which it
-        posts only when changed. Either way the names the composite emitted
+        undefined condition changed since they were last posted, and a tick
+        posts the changed ones alone; any other pass posts every value but
+        the ``fast`` and ``event`` ones, which it posts only when changed.
+        Either way the names the composite emitted
         are drained here, read when the pass did not, posted, and forced as a
         Channel Access event, unless a read fault holds them; this pass
         published their step, so no timed pass posts it again. A name is
@@ -398,7 +414,8 @@ class ModelRunner(Runner):
             self._cycle_requested_names = (*self._cycle_requested_names, *missing)
         faulted = self._read_faulted()
         posting = out_values
-        if self._write_pass or self._timed_names or emitted:
+        tick = self._pass_is_tick and not self._write_pass
+        if tick or self._write_pass or self._timed_names or emitted:
             udf_now = self._evaluate_severity(list(out_values))
             posting = untimed_outputs(
                 out_values,
@@ -408,6 +425,7 @@ class ModelRunner(Runner):
                 udf_now,
                 self._udf,
                 written=self._written if self._write_pass else None,
+                tick=tick,
             )
         self._post_forced(posting, ts, forced_names((), emitted, faulted), emitted)
         self._note_deadline()

@@ -226,6 +226,34 @@ def test_an_emitted_array_reaches_the_post_with_a_forced_event(
     assert np.array_equal(runner._served[name], array)
 
 
+@pytest.mark.parametrize("kind", ["tick", "write", "timed"])
+def test_a_shot_at_the_values_last_posted_is_posted_and_forced_by_any_pass(
+    posts: list[Any], serving: tuple[Any, Any], kind: str
+) -> None:
+    # A shot that reproduces the last one still reaches every client: its
+    # arrays and its flag are emitted, and no pass narrows an emitted name away.
+    _, module = serving
+    shot = {**ARRAYS, FLAG: 0}
+    held = {**shot, **OTHERS, FAST: 1.0}
+    model = _Model(held, emitted=tuple(shot))
+    runner = _runner(module, model, fast_due=False)
+    runner._served = {**held, **{name: array.copy() for name, array in ARRAYS.items()}}
+    runner._pass_is_tick = kind == "tick"
+    runner._write_pass = kind == "write"
+    runner._written = frozenset({"ZZ:OTHER0"}) if kind == "write" else frozenset()
+
+    if kind == "timed":
+        runner._run_timed(False)
+    else:
+        module.ModelRunner._post_outputs(runner, dict(held), 0.0)
+
+    posted = {name for values, _ in posts for name in values}
+    forced = {name for _, names in posts for name in names}
+    assert set(shot) <= posted
+    assert set(shot) <= forced
+    assert posted - set(shot) == ({"ZZ:OTHER0"} if kind == "write" else set())
+
+
 def test_an_emitted_array_a_tick_pass_did_not_read_is_read_and_forced(
     posts: list[Any], serving: tuple[Any, Any]
 ) -> None:
