@@ -434,3 +434,10 @@ def test_dashes_never_hide_a_refused_key_whatever_the_line_endings_or_bom(
 ) -> None:
     _agent_bytes(_app(lifecycle_repo, agents=["knob-helper"]), encode(_hidden("---x: 1", "hooks")))
     assert _rules(lifecycle_repo) == [("agents.knob-helper", "agent_frontmatter")]
+
+
+def test_an_opening_a_looser_reader_takes_never_hides_a_refused_key() -> None:
+    text = _hidden("name: knob-helper", "hooks").replace("---\n", "---\u00a0\n", 1)
+    with pytest.raises(AppManifestError) as exc:
+        parse_agent(text, app="knob", name="knob-helper")
+    assert exc.value.rule == "agent_frontmatter"

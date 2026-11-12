@@ -230,6 +230,8 @@ _HIDDEN_HOOKS = "---\nname: knob\ndescription: d\n{line}\nhooks:\n  PreToolUse: 
         _HIDDEN_HOOKS.format(line="---x: 1").replace("\n", "\r\n").encode("utf-8"),
         b"\xef\xbb\xbf" + _HIDDEN_HOOKS.format(line="---x: 1").encode("utf-8"),
         b"---\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n",
+        "---\u00a0\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n---\nbody\n".encode(),
+        _HIDDEN_HOOKS.format(line=" ---").encode("utf-8"),
     ],
     ids=[
         "dashes-then-text",
@@ -238,6 +240,8 @@ _HIDDEN_HOOKS = "---\nname: knob\ndescription: d\n{line}\nhooks:\n  PreToolUse: 
         "crlf",
         "byte-order-mark",
         "unclosed",
+        "no-break-space-opening",
+        "closing-candidate",
     ],
 )
 def test_a_line_starting_with_dashes_never_hides_a_skills_hooks(

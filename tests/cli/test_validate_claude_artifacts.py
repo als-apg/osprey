@@ -267,7 +267,62 @@ def test_a_block_no_exact_line_closes_is_unreadable():
     assert _unreadable_frontmatter(text)
 
 
-@pytest.mark.parametrize("text", ["# title\n\nbody\n", "----\nname: a\n---\n", ""])
+@pytest.mark.parametrize("text", ["# title\n\nbody\n", "body\n---\nname: a\n---\n", ""])
 def test_text_that_opens_no_block_has_none(text):
     assert _parse_frontmatter(text) is None
     assert not _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "first",
+    ["----", "---x: 1", "\ufeff---", "---\u00a0", "---\f", "---\v", "---\r", " ---"],
+    ids=[
+        "four",
+        "dashes-then-text",
+        "byte-order-mark",
+        "no-break-space",
+        "form-feed",
+        "vertical-tab",
+        "carriage-return",
+        "leading-space",
+    ],
+)
+def test_a_first_line_a_looser_reader_opens_on_is_unreadable(first):
+    text = f"{first}\nname: a\nhooks: 1\n---\nbody\n"
+    assert _parse_frontmatter(text) is None
+    assert _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "line", ["---\u00a0", " ---", "---\f", "\u00a0---"], ids=["nbsp", "space", "ff", "nbsp-first"]
+)
+def test_a_closing_candidate_inside_the_block_is_unreadable(line):
+    text = f"---\nname: a\n{line}\nhooks: 1\n---\nbody\n"
+    assert _unreadable_frontmatter(text)
+
+
+def test_an_agent_file_with_a_byte_order_mark_is_audited(tmp_path):
+    """The audit reads the frontmatter the loader reads, byte-order mark or not."""
+    project = _write_project(
+        tmp_path, allow=[], ask=[], agent_tools="mcp__nonexistent__phantom, Read"
+    )
+    agent = project / ".claude" / "agents" / "specialist.md"
+    agent.write_bytes(b"\xef\xbb\xbf" + agent.read_bytes().replace(b"\n", b"\r\n"))
+
+    errors = validate_agent_tools_against_permissions(project)
+
+    assert any("mcp__nonexistent__phantom" in e for e in errors), errors
+    assert agent_file_models(agent.parent) == {"specialist": None}
+
+
+def test_an_agent_file_with_unreadable_frontmatter_is_reported(tmp_path):
+    project = _write_project(tmp_path, allow=[], ask=[], agent_tools="Read")
+    agent = project / ".claude" / "agents" / "specialist.md"
+    agent.write_text(
+        "---\u00a0\nname: specialist\ntools: mcp__nonexistent__phantom\n---\n", encoding="utf-8"
+    )
+
+    errors = validate_agent_tools_against_permissions(project)
+
+    assert len(errors) == 1, errors
+    assert "specialist.md" in errors[0] and "does not parse as a YAML mapping" in errors[0]
