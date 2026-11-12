@@ -203,6 +203,11 @@ DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"  # noqa: S105 -- names an enviro
 #: process spawns inherits it.
 WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
+#: A dispatch worker's (or the dispatcher's) key on the dispatch bus. Only the
+#: dispatch containers are handed one; the web server never holds it, and the
+#: carrier is closed with the others in case a deployment hands it over anyway.
+BUS_SECRET_KEY_ENV = "DISPATCH_BUS_SECRET_KEY"  # noqa: S105 -- names an environment variable, holds no secret
+
 #: How long a browser session stays valid when nothing configures it — the
 #: default behind ``modules.web_terminals.auth.session_lifetime``, which is
 #: honoured in both the single-user and the multi-user shape. Twelve hours
@@ -924,6 +929,7 @@ def _populate() -> WebCredentials:
     _SUPPLIED_PANEL_TOKEN = supplied_panel_token or None
     dispatcher_token = os.environ.pop(DISPATCHER_TOKEN_ENV, "").strip()
     os.environ.pop(WORKER_TOKEN_ENV, None)
+    os.environ.pop(BUS_SECRET_KEY_ENV, None)
     # Popped unconditionally (they must not reach any child process); kept
     # only where the compose environment said so — see ROSTER_ACCEPT_ENV.
     harvested = _pop_roster_secrets()
@@ -1289,6 +1295,7 @@ def close_env_carriers() -> None:
     os.environ.pop(ROSTER_ACCEPT_ENV, None)
     os.environ.pop(DISPATCHER_TOKEN_ENV, None)
     os.environ.pop(WORKER_TOKEN_ENV, None)
+    os.environ.pop(BUS_SECRET_KEY_ENV, None)
     _pop_roster_secrets()
 
 

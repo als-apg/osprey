@@ -25,13 +25,12 @@ that changed recreates its container and nothing else.
 
 from __future__ import annotations
 
-import contextlib
-import os
-import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from osprey_connectors.safety_file import atomic_replace
 
 #: Every file this module owns starts with this.
 FILE_PREFIX = ".env.dispatch-bus."
@@ -118,23 +117,14 @@ def _kept_secret(path: Path) -> str | None:
 def _write(path: Path, content: str) -> bool:
     """Replace ``path`` with ``content`` at mode 0600, unless it already holds it.
 
-    Written beside the destination and renamed into place, so no reader opens
-    a half-written key.
+    Replaced whole, so no reader opens a half-written key.
     """
     try:
         if path.read_text(encoding="utf-8") == content:
             return False
     except OSError:
         pass
-    temporary = path.with_name(f"{path.name}.{secrets.token_hex(6)}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _FILE_MODE)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        os.replace(temporary, path)
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(temporary)
+    atomic_replace(path, content.encode("utf-8"), mode=_FILE_MODE)
     return True
 
 
