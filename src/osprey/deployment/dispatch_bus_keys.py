@@ -25,6 +25,7 @@ that changed recreates its container and nothing else.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -119,11 +120,9 @@ def _write(path: Path, content: str) -> bool:
 
     Replaced whole, so no reader opens a half-written key.
     """
-    try:
+    with contextlib.suppress(OSError):  # missing or unreadable: write it
         if path.read_text(encoding="utf-8") == content:
             return False
-    except OSError:
-        pass
     atomic_replace(path, content.encode("utf-8"), mode=_FILE_MODE)
     return True
 
