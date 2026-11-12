@@ -90,7 +90,7 @@ class FakeDirectory(FakeBackend):
         return [
             record.row
             for record in self.records.values()
-            if (not query.ioc or record.row.ioc in query.ioc)
+            if (not query.server or record.row.server in query.server)
             and (query.status is None or record.row.status == query.status)
             and (query.name is None or fnmatch.fnmatchcase(record.row.name, query.name))
             and query.words in record.row.name
@@ -122,7 +122,7 @@ class FakeHistory(FakeBackend):
         return HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[PutRow(at="t", pv=pv, old="1", new="2")],
+            rows=[PutRow(at="t", channel=pv, old="1", new="2")],
         )
 
     async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
@@ -218,7 +218,7 @@ def start(mock_registry, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
 
 
 def _record_of(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
-    row = DirectoryRow(name=name, ioc=ioc, host="host-a", status="Active")
+    row = DirectoryRow(name=name, server=ioc, host="host-a", status="Active")
     return DirectoryRecord(row=row, properties=properties)
 
 

@@ -26,8 +26,8 @@ SOURCE = Source(kind="directory", target="va", service="simulator_view", rehears
                 "name",
                 "status",
                 "description",
-                "record_type",
-                "ioc",
+                "channel_type",
+                "server",
                 "host",
                 "last_announced",
             ],
@@ -40,8 +40,8 @@ SOURCE = Source(kind="directory", target="va", service="simulator_view", rehears
                 "name",
                 "properties",
                 "status",
-                "ioc",
-                "record_type",
+                "server",
+                "channel_type",
                 "page",
                 "page_size",
             ],
@@ -97,8 +97,8 @@ def test_a_record_converts_to_the_json_shape():
 
 
 def test_equal_queries_hash_alike_whatever_the_filter_spelling():
-    first = DirectoryQuery(words="bpm", ioc=["a", "b"], properties={"x": "1"})
-    second = DirectoryQuery(words="bpm", ioc=("a", "b"), properties={"x": "1"})
+    first = DirectoryQuery(words="bpm", server=["a", "b"], properties={"x": "1"})
+    second = DirectoryQuery(words="bpm", server=("a", "b"), properties={"x": "1"})
 
     assert first == second
     assert hash(first) == hash(second)
@@ -112,7 +112,7 @@ def test_queries_that_differ_only_in_properties_are_different_keys():
     assert len({first, second}) == 2
 
 
-@pytest.mark.parametrize("name", ["ioc", "record_type"])
+@pytest.mark.parametrize("name", ["server", "channel_type"])
 def test_one_filter_value_is_one_value_not_its_letters(name):
     assert getattr(DirectoryQuery(**{name: "abc"}), name) == ("abc",)
     assert getattr(DirectoryQuery(**{name: None}), name) == ()

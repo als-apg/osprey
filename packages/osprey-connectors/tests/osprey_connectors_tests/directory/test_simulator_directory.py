@@ -192,13 +192,13 @@ async def test_each_health_and_status_pv_says_what_it_is_in_plain_words(
     assert rows["UPTIME"].description == "seconds since IOC sim-SR started"
     assert rows["ENGINEER"].description == "responsible engineer of IOC sim-SR"
     assert rows["STATUS"].description == "simulation status of IOC sim-SR"
-    assert {suffix: row.record_type for suffix, row in rows.items()} == {
+    assert {suffix: row.channel_type for suffix, row in rows.items()} == {
         "HEARTBEAT": "longin",
         "UPTIME": "ai",
         "ENGINEER": "stringin",
         "STATUS": "stringin",
     }
-    assert {row.ioc for row in rows.values()} == {"sim-SR"}
+    assert {row.server for row in rows.values()} == {"sim-SR"}
 
 
 async def test_each_status_and_health_row_carries_its_signal(
@@ -217,7 +217,7 @@ async def test_a_search_by_the_signal_mark_finds_only_those_rows(
     directory: SimulatorDirectory,
 ) -> None:
     assert await _names(
-        directory, ioc=("sim-SR",), properties={SERVED_SIGNAL_PROPERTY: ENGINEER}
+        directory, server=("sim-SR",), properties={SERVED_SIGNAL_PROPERTY: ENGINEER}
     ) == ["T:SIM:SR:ENGINEER"]
     assert await _names(directory, properties={SERVED_SIGNAL_PROPERTY: HEARTBEAT}) == [
         "T:SIM:BARE:HEARTBEAT",
@@ -259,12 +259,12 @@ async def test_regex_characters_in_a_pattern_are_literal(directory: SimulatorDir
 @pytest.mark.parametrize(
     ("fields", "expected"),
     [
-        ({"ioc": "sim-SR"}, [READBACK, SETPOINT]),
-        ({"record_type": ("ao", "bi")}, [ORPHAN, SOLO, SETPOINT]),
+        ({"server": "sim-SR"}, [READBACK, SETPOINT]),
+        ({"channel_type": ("ao", "bi")}, [ORPHAN, SOLO, SETPOINT]),
         ({"properties": {"unit": "A"}}, [READBACK, SETPOINT]),
         ({"properties": {"unit": "V"}}, []),
         ({"status": "Inactive"}, []),
-        ({"status": "Active", "ioc": "sim-SR", "words": "setting"}, [SETPOINT]),
+        ({"status": "Active", "server": "sim-SR", "words": "setting"}, [SETPOINT]),
     ],
 )
 async def test_filters_narrow_the_result(
@@ -285,8 +285,8 @@ async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
         "name": SETPOINT,
         "status": "Active",
         "description": "Quadrupole current setting.",
-        "record_type": "ao",
-        "ioc": "sim-SR",
+        "channel_type": "ao",
+        "server": "sim-SR",
         "host": "virtual-accelerator",
         "last_announced": None,
     }
@@ -318,7 +318,7 @@ async def test_the_record_type_comes_from_role_and_value_type(
     record = await directory.describe("T:X", DEADLINE)
 
     assert isinstance(record, DirectoryRecord)
-    assert record.row.record_type == record_type
+    assert record.row.channel_type == record_type
 
 
 @pytest.mark.parametrize(
@@ -377,7 +377,7 @@ async def test_a_search_with_no_rows_is_no_match_never_not_listed(
 async def test_a_served_no_deck_model_lists_status_and_health_rows_and_no_channels(
     directory: SimulatorDirectory,
 ) -> None:
-    names = await _names(directory, ioc="sim-BARE")
+    names = await _names(directory, server="sim-BARE")
 
     assert names == sorted([*_health("BARE"), "T:SIM:BARE:STATUS"])
 
@@ -388,8 +388,8 @@ async def test_a_channel_of_an_unserved_model_is_the_textures_as_the_composite_s
     record = await directory.describe(ORPHAN, DEADLINE)
 
     assert isinstance(record, DirectoryRecord)
-    assert record.row.ioc == "sim-texture"
-    assert await _names(directory, ioc="sim-LN") == []
+    assert record.row.server == "sim-texture"
+    assert await _names(directory, server="sim-LN") == []
 
 
 async def test_a_record_carries_no_ports_and_no_engineer_property(
@@ -411,7 +411,7 @@ async def test_a_view_from_a_build_without_ioc_health_still_answers(tmp_path: Pa
     _write_view(tmp_path)
     directory = SimulatorDirectory(_spec(), project_dir=tmp_path)
 
-    assert await _names(directory, ioc="sim-BARE") == ["T:SIM:BARE:STATUS"]
+    assert await _names(directory, server="sim-BARE") == ["T:SIM:BARE:STATUS"]
     assert await directory.describe("T:SIM:SR:HEARTBEAT", DEADLINE) is Outcome.NOT_LISTED
 
 
@@ -440,8 +440,8 @@ async def test_the_request_names_every_filter(directory: SimulatorDirectory) -> 
     query = DirectoryQuery(
         name="T:SR:*",
         status="Active",
-        ioc=("sim-SR", "sim-BARE"),
-        record_type="ao",
+        server=("sim-SR", "sim-BARE"),
+        channel_type="ao",
         properties={"unit": "A"},
     )
 

@@ -218,8 +218,8 @@ class TestFilters:
             DirectoryQuery(
                 name="DEMO:*",
                 status="Inactive",
-                ioc=("rf1-cav", "rf2-cav"),
-                record_type="ai",
+                server=("rf1-cav", "rf2-cav"),
+                channel_type="ai",
             ),
             DEADLINE,
         )
@@ -235,7 +235,7 @@ class TestFilters:
     async def test_an_or_comes_only_from_a_typed_list(self):
         directory, replay = backend(always())
 
-        await directory.search(DirectoryQuery(ioc=("a,b", "c")), DEADLINE)
+        await directory.search(DirectoryQuery(server=("a,b", "c")), DEADLINE)
 
         assert dict(replay.params_to(CHANNELS)[0])["iocName"] == "a?b|c"
 
@@ -282,7 +282,7 @@ class TestFilters:
         directory, _ = backend(always())
 
         page = await directory.search(
-            DirectoryQuery(words="flow", status="Active", ioc=("a", "b"), record_type="ai"),
+            DirectoryQuery(words="flow", status="Active", server=("a", "b"), channel_type="ai"),
             DEADLINE,
         )
 
@@ -413,8 +413,8 @@ class TestRows:
         row = page.rows[0]
         assert row.status == "Active"
         assert row.description == "Cavity 1 cooling water temperature"
-        assert row.record_type == "ai"
-        assert row.ioc == "rf1-cav"
+        assert row.channel_type == "ai"
+        assert row.server == "rf1-cav"
         assert row.host == "ioc-rf1.demo.lab"
         assert row.last_announced == "2026-10-30 08:12:44.501223"
 
@@ -432,7 +432,12 @@ class TestRows:
         page = await directory.search(DirectoryQuery(name="DEMO*"), DEADLINE)
 
         row = page.rows[0]
-        assert (row.name, row.status, row.ioc, row.description) == ("DEMO:BARE", None, None, None)
+        assert (row.name, row.status, row.server, row.description) == (
+            "DEMO:BARE",
+            None,
+            None,
+            None,
+        )
 
     @pytest.mark.parametrize(
         "body",
@@ -514,8 +519,8 @@ class TestDescribe:
 
         assert dict(default.field_properties) == {
             "status": "pvStatus",
-            "record_type": "recordType",
-            "ioc": "iocName",
+            "channel_type": "recordType",
+            "server": "iocName",
             "host": "hostName",
             "last_announced": "time",
             "description": "recordDesc",

@@ -111,8 +111,8 @@ class FakeDirectory(FakeBackend):
     #: The property map a ChannelFinder directory answers with its default description.
     field_properties = {
         "status": "pvStatus",
-        "record_type": "recordType",
-        "ioc": "iocName",
+        "channel_type": "recordType",
+        "server": "iocName",
         "host": "hostName",
         "last_announced": "time",
         "description": "recordDesc",
@@ -122,7 +122,7 @@ class FakeDirectory(FakeBackend):
         return [
             record.row
             for record in self.records.values()
-            if (not query.ioc or record.row.ioc in query.ioc)
+            if (not query.server or record.row.server in query.server)
             and (query.status is None or record.row.status == query.status)
             and (query.name is None or fnmatch.fnmatchcase(record.row.name, query.name))
             and query.words in record.row.name
@@ -205,7 +205,7 @@ class FakePutLog(FakeBackend):
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[PutRow(at="t2", pv=pv, old="1", new="2", user="operator two")],
+            rows=[PutRow(at="t2", channel=pv, old="1", new="2", user="operator two")],
         )
 
 
@@ -288,7 +288,7 @@ def _facts(config: dict[str, Any], tmp_path: Path) -> Any:
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = DirectoryRow(name=name, ioc=ioc, host="host-a", status=status)
+    row = DirectoryRow(name=name, server=ioc, host="host-a", status=status)
     return DirectoryRecord(row=row, properties=properties)
 
 

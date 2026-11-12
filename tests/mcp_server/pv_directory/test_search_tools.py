@@ -165,7 +165,7 @@ def _row(name: str, **fields: Any) -> Any:
 
 
 async def test_search_rows_carry_their_origin_and_panel_link(tmp_path: Path) -> None:
-    FakeDirectory.rows = [_row("SR:BPM1", ioc="ioc-a"), _row("SR:BPM2", ioc="ioc-b")]
+    FakeDirectory.rows = [_row("SR:BPM1", server="ioc-a"), _row("SR:BPM2", server="ioc-b")]
     _install(tmp_path, FACILITY, "SR:BPM1")
 
     result = json.loads(await search.directory_search(words="SR"))

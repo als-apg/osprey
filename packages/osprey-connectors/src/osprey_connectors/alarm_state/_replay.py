@@ -73,17 +73,19 @@ class ReplayAlarmState(AlarmState):
         self._stopped = False
         self._failed = None
 
-    async def state_for(self, pv: str, deadline: float) -> AlarmStateRecord | Unavailable | None:
+    async def state_for(
+        self, channel: str, deadline: float
+    ) -> AlarmStateRecord | Unavailable | None:
         await self._loading(deadline)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):
             return snapshot
-        return state_record(snapshot, pv, stale=self._stopped)
+        return state_record(snapshot, channel, stale=self._stopped)
 
-    async def config_for(self, pv: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+    async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._loading(deadline)
         snapshot = self._answering()
-        return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, pv)
+        return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, channel)
 
     async def probe(self, deadline: float) -> str | Unavailable:  # noqa: ARG002
         snapshot = self._loaded()

@@ -74,9 +74,9 @@ def fold_message(
     return snapshot
 
 
-def state_record(snapshot: FeedSnapshot, pv: str, *, stale: bool) -> AlarmStateRecord | None:
-    """The alarm state of *pv*, or ``None`` when the feed holds none for it."""
-    paths = snapshot.states.get(pv_name(pv))
+def state_record(snapshot: FeedSnapshot, channel: str, *, stale: bool) -> AlarmStateRecord | None:
+    """The alarm state of *channel*, or ``None`` when the feed holds none for it."""
+    paths = snapshot.states.get(pv_name(channel))
     if not paths:
         return None
     body = list(paths.values())[-1]
@@ -94,13 +94,13 @@ def state_record(snapshot: FeedSnapshot, pv: str, *, stale: bool) -> AlarmStateR
     )
 
 
-def config_record(snapshot: FeedSnapshot, pv: str) -> AlarmConfigRecord:
-    """Where *pv* sits in the alarm tree, as the feed last configured it.
+def config_record(snapshot: FeedSnapshot, channel: str) -> AlarmConfigRecord:
+    """Where *channel* sits in the alarm tree, as the feed last configured it.
 
     A state with no configuration beside it proves the path but not the tree's
     entry, so that answers ``"unknown"``; only no message at all answers ``"no"``.
     """
-    name = pv_name(pv)
+    name = pv_name(channel)
     paths = snapshot.configs.get(name)
     if not paths:
         states = snapshot.states.get(name)

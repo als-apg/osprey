@@ -16,10 +16,14 @@ from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
 
 @dataclass(frozen=True, kw_only=True)
 class PutRow:
-    """One logged write, as the log recorded it; ``field`` is a field put's ``.HIHI``."""
+    """One logged write, as the log recorded it.
+
+    ``channel`` is what was written: an EPICS PV, a Tango attribute, a DOOCS
+    property. ``field`` is an EPICS field put's ``.HIHI``, else ``None``.
+    """
 
     at: str | None = None
-    pv: str | None = None
+    channel: str | None = None
     field: str | None = None
     old: Any = None
     new: Any = None
@@ -32,9 +36,9 @@ class PutLog(_Backend, ABC):
 
     @abstractmethod
     async def history(
-        self, pv: str, since: datetime | None, limit: int, deadline: float
+        self, channel: str, since: datetime | None, limit: int, deadline: float
     ) -> HistoryPage:
-        """The logged writes of *pv*, ``PutRow`` rows, field puts included, newest first."""
+        """The logged writes of *channel*, ``PutRow`` rows, field puts included, newest first."""
 
     @abstractmethod
     async def probe(self, deadline: float) -> str | Unavailable:

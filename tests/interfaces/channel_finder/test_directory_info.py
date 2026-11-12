@@ -323,7 +323,11 @@ def test_the_fixture_names_every_json_panel_route() -> None:
 
 def test_the_fixture_search_is_a_directory_page() -> None:
     page = _routes()["search"]
-    rows = [DirectoryRow(**{k: v for k, v in row.items() if k != "origin"}) for row in page["rows"]]
+    contract = {served: field for field, served in _connectors.SERVED_FIELD.items()}
+    rows = [
+        DirectoryRow(**{contract.get(k, k): v for k, v in row.items() if k != "origin"})
+        for row in page["rows"]
+    ]
     served = page["source"]
     source = Source(
         kind="directory",

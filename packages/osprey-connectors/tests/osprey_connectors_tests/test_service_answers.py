@@ -118,7 +118,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
         (Source, ["kind", "target", "service", "rehearsal"]),
         (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
         (AlarmHistoryRow, ["time", "severity", "status", "message", "user", "kind"]),
-        (PutRow, ["at", "pv", "field", "old", "new", "user", "client"]),
+        (PutRow, ["at", "channel", "field", "old", "new", "user", "client"]),
         (
             HistoryPage,
             ["outcome", "source", "rows", "truncated", "retention_known", "reason"],
@@ -190,6 +190,20 @@ def test_every_method_is_async_and_a_read_takes_a_deadline_last(abc, methods):
         if method in {"start", "aclose"}:
             continue
         assert list(inspect.signature(func).parameters)[-1] == "deadline", method
+
+
+@pytest.mark.parametrize(
+    ("abc", "method"),
+    [
+        (AlarmLog, "history"),
+        (AlarmLog, "config_for"),
+        (AlarmState, "state_for"),
+        (AlarmState, "config_for"),
+        (PutLog, "history"),
+    ],
+)
+def test_a_read_of_one_channel_names_it_channel(abc, method):
+    assert list(inspect.signature(getattr(abc, method)).parameters)[1] == "channel"
 
 
 @pytest.mark.parametrize("abc", ABCS)

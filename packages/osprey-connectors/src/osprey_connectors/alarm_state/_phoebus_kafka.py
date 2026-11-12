@@ -95,17 +95,19 @@ class PhoebusAlarmState(AlarmState):
         self._unreachable = None
         self._settled.clear()
 
-    async def state_for(self, pv: str, deadline: float) -> AlarmStateRecord | Unavailable | None:
+    async def state_for(
+        self, channel: str, deadline: float
+    ) -> AlarmStateRecord | Unavailable | None:
         await self._settling(deadline)
         unanswered = self._unanswered()
         if unanswered is not None:
             return unanswered
-        return state_record(self._snapshot, pv, stale=self._stale())
+        return state_record(self._snapshot, channel, stale=self._stale())
 
-    async def config_for(self, pv: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+    async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._settling(deadline)
         unanswered = self._unanswered()
-        return unanswered if unanswered is not None else config_record(self._snapshot, pv)
+        return unanswered if unanswered is not None else config_record(self._snapshot, channel)
 
     async def probe(self, deadline: float) -> str | Unavailable:  # noqa: ARG002
         before_catch_up = self._before_catch_up()
