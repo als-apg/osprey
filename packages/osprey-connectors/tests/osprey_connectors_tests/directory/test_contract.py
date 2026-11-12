@@ -16,7 +16,7 @@ from osprey_connectors.directory import (
 )
 from osprey_connectors.service_answers import Outcome, Source
 
-SOURCE = Source(target="va", service="simulator_view", label="All PVs", rehearsal=False)
+SOURCE = Source(kind="directory", target="va", service="simulator_view", rehearsal=False)
 
 
 @pytest.mark.parametrize(

@@ -119,12 +119,6 @@ class DirectoryPage:
 class ChannelDirectory(_Backend, ABC):
     """Search the control system's own directory of PVs."""
 
-    #: The display name, a class attribute so that reading it needs no I/O.
-    label: str = "All PVs"
-
-    def _display_name(self) -> str:
-        return self.label
-
     @abstractmethod
     async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
         """One page of the rows *query* matches; no rows is ``NO_MATCH``, not ``NOT_LISTED``."""

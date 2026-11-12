@@ -37,7 +37,7 @@ from osprey_connectors.service_answers import (
 
 PACKAGE = Path(osprey_connectors.__file__).parent
 KINDS = ("directory", "alarm_log", "alarm_state", "put_log")
-SOURCE = Source(target="va", service="simulator_view", label="All PVs", rehearsal=False)
+SOURCE = Source(kind="directory", target="va", service="simulator_view", rehearsal=False)
 ABCS = {
     ChannelDirectory: {"search", "count", "describe", "property_names", "property_values", "probe"},
     AlarmLog: {"history", "config_for", "probe"},
@@ -116,7 +116,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
 @pytest.mark.parametrize(
     ("record", "fields"),
     [
-        (Source, ["target", "service", "label", "rehearsal"]),
+        (Source, ["kind", "target", "service", "rehearsal"]),
         (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
         (AlarmHistoryRow, ["time", "severity", "status", "message", "user", "kind"]),
         (PutRow, ["at", "pv", "field", "old", "new", "user", "client"]),
@@ -130,7 +130,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
         ),
         (
             AlarmConfigRecord,
-            ["in_tree", "path", "guidance", "displays", "enabled", "latching", "label"],
+            ["in_tree", "path", "guidance", "displays", "enabled", "latching"],
         ),
     ],
 )
@@ -216,20 +216,19 @@ def test_constructing_a_backend_keeps_its_arguments_and_ignores_other_seams(tmp_
     assert backend.project_dir == tmp_path
 
 
-def test_a_directory_source_carries_its_class_label():
-    class Named(_Directory):
-        label = "Site directory"
-
-    assert _Directory(_spec()).label == "All PVs"
-    assert Named(_spec()).source == Source(
-        target="standin", service="channelfinder", label="Site directory", rehearsal=True
+def test_a_source_names_the_kind_of_its_backend():
+    assert _Directory(_spec()).source == Source(
+        kind="directory", target="standin", service="channelfinder", rehearsal=True
     )
-
-
-def test_another_kind_labels_its_source_with_the_service_name():
     source = _Log(_spec(kind="put_log", type="caputlog", target="live", rehearsal=False)).source
 
-    assert source == Source(target="live", service="caputlog", label="caputlog", rehearsal=False)
+    assert source == Source(kind="put_log", target="live", service="caputlog", rehearsal=False)
+
+
+@pytest.mark.parametrize("record", [Source, AlarmConfigRecord, DirectoryRow])
+def test_no_answer_carries_a_display_label(record):
+    assert "label" not in {field.name for field in dataclasses.fields(record)}
+    assert not hasattr(ChannelDirectory, "label")
 
 
 # -- The module surface -------------------------------------------------------

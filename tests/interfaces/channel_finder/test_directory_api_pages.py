@@ -65,17 +65,15 @@ ARIEL = {"database": {"url": "postgresql://ariel.example/logbook"}}
 
 
 class FakeBackend:
-    label = "All PVs"
-
     def __init__(self, spec: Any, **seams: Any) -> None:
         self.spec = spec
 
     @property
     def source(self) -> Any:
         return Source(
+            kind=self.spec.kind,
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
@@ -128,7 +126,7 @@ class FakeHistory(FakeBackend):
         )
 
     async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return AlarmConfigRecord(in_tree="yes", path=f"/SR/{pv}", label="last logged configuration")
+        return AlarmConfigRecord(in_tree="yes", path=f"/SR/{pv}")
 
 
 _FAKES = {"pv_directory": FakeDirectory, "alarm_log": FakeHistory, "put_log": FakeHistory}

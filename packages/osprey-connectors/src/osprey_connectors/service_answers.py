@@ -56,11 +56,14 @@ class Unavailable:
 
 @dataclass(frozen=True, kw_only=True)
 class Source:
-    """Which machine and service an answer came from. ``rehearsal`` is true on ``standin``."""
+    """Which kind of service, on which machine, an answer came from.
 
+    ``service`` is the backend's type name; ``rehearsal`` is true on ``standin``.
+    """
+
+    kind: Literal["directory", "alarm_state", "alarm_log", "put_log", "logbook"]
     target: Literal["va", "live", "standin"]
     service: str
-    label: str
     rehearsal: bool
 
 
@@ -103,11 +106,8 @@ class _Backend:
     @property
     def source(self) -> Source:
         return Source(
+            kind=self.spec.kind,
             target=self.spec.target,  # type: ignore[arg-type]
             service=self.spec.type,
-            label=self._display_name(),
             rehearsal=self.spec.rehearsal,
         )
-
-    def _display_name(self) -> str:
-        return self.spec.type

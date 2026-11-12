@@ -86,8 +86,6 @@ LIVE_SOURCE = {"target": "live", "service": "channelfinder", "label": "All PVs",
 class FakeBackend:
     """The construction and source every fake shares, as the contract's base has them."""
 
-    label = "All PVs"
-
     def __init__(self, spec: Any, *, project_dir: Path | None = None, **seams: Any) -> None:
         self.spec = spec
         self.project_dir = project_dir
@@ -95,9 +93,9 @@ class FakeBackend:
     @property
     def source(self) -> Any:
         return Source(
+            kind=self.spec.kind,
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
@@ -299,9 +297,7 @@ def _sections(answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
 async def test_every_configured_section_answers(tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1", recordDesc="beam position"))
     FakeAlarmState.state = AlarmStateRecord(severity="MINOR", stale=True)
-    FakeAlarmState.config = AlarmConfigRecord(
-        in_tree="yes", path="/SR/BPM1", label="live configuration"
-    )
+    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
     page = _facts(_config(tmp_path, LIVE_BUILD, EVERY_SERVICE, "SR:BPM1"), tmp_path)
 
     answer = await page.pv_facts("SR:BPM1")
@@ -441,7 +437,7 @@ async def test_an_unavailable_history_page_keeps_its_reason(tmp_path: Path) -> N
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
     FakePutLog.page = HistoryPage(
         outcome=Outcome.UNAVAILABLE,
-        source=Source(target="live", service="caputlog", label="x", rehearsal=False),
+        source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
         reason="malformed response",
     )
 
@@ -491,7 +487,7 @@ async def test_a_backend_that_cannot_be_built_says_why(
 async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path: Path) -> None:
     FakeAlarmState.state = Unavailable("alarm feed still loading")
     FakeAlarmState.config = Unavailable("alarm feed still loading")
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no", label="last logged configuration")
+    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -509,9 +505,7 @@ async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path
 
 async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Path) -> None:
     FakeAlarmState.config = Unavailable("no message from the feed yet")
-    FakeAlarmLog.config = AlarmConfigRecord(
-        in_tree="yes", path="/SR/BPM1", label="last logged configuration"
-    )
+    FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -580,7 +574,7 @@ async def test_alarm_state_on_va_from_the_replay(
 async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1"))
     FakeAlarmState.state = AlarmStateRecord(severity="MINOR")
-    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", label="live configuration")
+    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes")
     section = {
         **FACILITY,
         "caveats": ["names only, no values"],
@@ -603,7 +597,7 @@ async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_pat
 
 async def test_the_logged_configuration_carries_the_logger_caveats(tmp_path: Path) -> None:
     FakeAlarmState.config = Unavailable("no message from the feed yet")
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes", label="last logged configuration")
+    FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes")
     section = {
         **FACILITY,
         "alarm_state": {**KAFKA, "caveats": ["covers the SR tree only"]},
@@ -657,7 +651,7 @@ async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
     if outcome == "no_match":
         FakePutLog.page = HistoryPage(
             outcome=Outcome.NO_MATCH,
-            source=Source(target="live", service="caputlog", label="caputlog", rehearsal=False),
+            source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
             reason="no logged puts",
         )
     section = {
@@ -682,7 +676,7 @@ async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
 async def test_an_answered_history_names_its_configured_source(tmp_path: Path) -> None:
     FakePutLog.page = HistoryPage(
         outcome=Outcome.FOUND,
-        source=Source(target="live", service="caputlog", label="x", rehearsal=False),
+        source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
     )
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG}), tmp_path)
 
@@ -727,7 +721,7 @@ async def test_an_unlisted_pv_with_logged_puts_is_not_listed(tmp_path: Path) -> 
 async def test_an_unlisted_pv_nothing_else_found_is_unknown(tmp_path: Path) -> None:
     FakePutLog.page = HistoryPage(
         outcome=Outcome.FOUND,
-        source=Source(target="live", service="caputlog", label="x", rehearsal=False),
+        source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
     )
     section = {**FACILITY, "alarm_state": KAFKA, "put_log": PUT_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)

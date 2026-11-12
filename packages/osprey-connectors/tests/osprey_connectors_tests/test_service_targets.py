@@ -239,10 +239,10 @@ class TestLogbook:
         row = _table({})["logbook"]
         assert row[TARGET_VA] is None
         assert row[TARGET_LIVE] == Source(
-            target=TARGET_LIVE, service="ariel", label="ariel", rehearsal=False
+            target=TARGET_LIVE, service="ariel", kind="logbook", rehearsal=False
         )
         assert row[TARGET_STANDIN] == Source(
-            target=TARGET_STANDIN, service="ariel", label="ariel", rehearsal=True
+            target=TARGET_STANDIN, service="ariel", kind="logbook", rehearsal=True
         )
 
     def test_absent_without_ariel(self):

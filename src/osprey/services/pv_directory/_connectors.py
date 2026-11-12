@@ -17,6 +17,8 @@ from collections.abc import Mapping
 from enum import Enum
 from typing import Any
 
+from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, source_label
+
 try:
     from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
     from osprey_connectors.alarm_state import (
@@ -117,8 +119,6 @@ FLOOR_REASON = "installed osprey-connectors has no PV directory support (upgrade
 #: The reason a section with no source on the current target answers.
 NO_SOURCE_REASON = "not available for this target"
 
-_NO_SOURCE_LABEL = "All PVs"
-
 
 def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
     """The JSON form of a section with no source on *target*, giving *reason*."""
@@ -127,7 +127,7 @@ def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
         "source": {
             "target": target,
             "service": "none",
-            "label": _NO_SOURCE_LABEL,
+            "label": DIRECTORY_LABEL,
             "rehearsal": target == "standin",
         },
         "reason": reason,
@@ -137,9 +137,18 @@ def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
 def as_payload(result: Any) -> Any:
     """*result*, a contract dataclass or a container of them, as plain JSON values.
 
-    Dataclasses become mappings field by field, enum members their values,
+    A ``Source`` becomes ``{target, service, label, rehearsal}``, its label named
+    by :func:`~osprey.services.pv_directory.vocabulary.source_label`. Other
+    dataclasses become mappings field by field, enum members their values,
     mappings and sequences their JSON forms; anything else is returned as it is.
     """
+    if Source is not None and isinstance(result, Source):
+        return {
+            "target": result.target,
+            "service": result.service,
+            "label": source_label(result.kind, result.service),
+            "rehearsal": result.rehearsal,
+        }
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
         return {
             field.name: as_payload(getattr(result, field.name))

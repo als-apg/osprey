@@ -20,7 +20,6 @@ from osprey_connectors.alarm_state._contract import AlarmConfigRecord, AlarmStat
 
 FEED_LOADING = "alarm feed still loading"
 FEED_EMPTY = "no message from the feed yet"
-LIVE_CONFIGURATION = "live configuration"
 
 _ACK_SUFFIX = "_ACK"
 _SEVERITY_RANK = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}
@@ -106,10 +105,8 @@ def config_record(snapshot: FeedSnapshot, pv: str) -> AlarmConfigRecord:
     if not paths:
         states = snapshot.states.get(name)
         if states:
-            return AlarmConfigRecord(
-                in_tree="unknown", path=list(states)[-1], label=LIVE_CONFIGURATION
-            )
-        return AlarmConfigRecord(in_tree="no", label=LIVE_CONFIGURATION)
+            return AlarmConfigRecord(in_tree="unknown", path=list(states)[-1])
+        return AlarmConfigRecord(in_tree="no")
     path, body = list(paths.items())[-1]
     return AlarmConfigRecord(
         in_tree="yes",
@@ -118,7 +115,6 @@ def config_record(snapshot: FeedSnapshot, pv: str) -> AlarmConfigRecord:
         displays=body.get("displays"),
         enabled=body.get("enabled"),
         latching=body.get("latching"),
-        label=LIVE_CONFIGURATION,
     )
 
 

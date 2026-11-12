@@ -41,6 +41,7 @@ from osprey.services.pv_directory._connectors import (
 )
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
+from osprey.services.pv_directory.vocabulary import CONFIG_LABELS
 
 __all__ = ["Facts", "panel_link"]
 
@@ -60,8 +61,8 @@ _HEALTH_PAGE_SIZE = 50
 _GRACE_S = 0.5
 _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
 _FEED_LOADING = "alarm feed still loading"
-_LIVE_CONFIGURATION = "live configuration"
-_LOGGED_CONFIGURATION = "last logged configuration"
+_LIVE_CONFIGURATION = CONFIG_LABELS["alarm_state"]
+_LOGGED_CONFIGURATION = CONFIG_LABELS["alarm_log"]
 #: The panel that shows directory results; its deep-link routes are ``#/pv/`` and ``#/ioc/``,
 #: the name one segment encoded as ``encodeURIComponent`` encodes it.
 _PANEL = "/panel/channel-finder/"
@@ -487,8 +488,9 @@ def _caveats(backend: Any) -> list[str]:
 
 
 def _config_section(backend: Any, record: Any) -> dict[str, Any]:
-    payload = as_payload(record)
-    return _section(backend, "found", record=payload, label=payload.get("label"))
+    """The configuration *backend* answered, labelled by the kind of service it is."""
+    label = CONFIG_LABELS[backend.spec.kind]
+    return _section(backend, "found", record={**as_payload(record), "label": label}, label=label)
 
 
 def _unknown_config(label: str) -> dict[str, Any]:

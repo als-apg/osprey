@@ -616,7 +616,7 @@ class TestConstruction:
         directory = ChannelFinderDirectory(spec, project_dir=Path("."), consumer_factory=object())
 
         assert directory.source == Source(
-            target="standin", service="channelfinder", label="All PVs", rehearsal=True
+            kind="directory", target="standin", service="channelfinder", rehearsal=True
         )
 
     def test_it_may_ask_for_reads_only(self):

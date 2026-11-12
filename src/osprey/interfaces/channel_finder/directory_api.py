@@ -23,11 +23,9 @@ from osprey.interfaces.channel_finder import (
 from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.services.pv_directory.resolve import ResolvedSection, predicates
+from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, source_label
 
 __all__ = ["ariel_configured", "directory_descriptor", "router"]
-
-#: The tab label when the current target has no directory source.
-_NO_SOURCE_LABEL = "All PVs"
 
 #: The optional services the descriptor names, in the order it lists them.
 _SERVICES = ("alarm_log", "alarm_state", "put_log")
@@ -62,8 +60,8 @@ async def directory_descriptor(
         service: The lifespan's ``DirectoryService``.
 
     Returns:
-        ``{label, configured_services, canopy, ariel}``; ``label`` is the current
-        target's directory label, ``"All PVs"`` when it has no source.
+        ``{label, configured_services, canopy, ariel}``; ``label`` is the
+        directory's served label, the same with or without a source.
     """
     _backend, source, _reason = await service.backend("pv_directory")
     flags = predicates(resolved)
@@ -72,7 +70,7 @@ async def directory_descriptor(
     if ariel:
         services.append("logbook")
     return {
-        "label": source.label if source is not None else _NO_SOURCE_LABEL,
+        "label": DIRECTORY_LABEL if source is None else source_label(source.kind, source.service),
         "configured_services": services,
         "canopy": panel_spec_enabled(_panels(config).get(CANOPY_PANEL_ID)),
         "ariel": ariel,

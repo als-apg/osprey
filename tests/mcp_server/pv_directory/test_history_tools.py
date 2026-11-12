@@ -66,7 +66,6 @@ TOOLS = {"alarm_state", "alarm_config", "alarm_history", "put_history"}
 
 
 class FakeBackend:
-    label = "All PVs"
     empty_reason = "no logged events"
 
     def __init__(self, spec: Any, *, project_dir: Path | None = None, **seams: Any) -> None:  # noqa: ARG002
@@ -75,9 +74,9 @@ class FakeBackend:
     @property
     def source(self) -> Any:
         return Source(
+            kind=self.spec.kind,
             target=self.spec.target,
             service=self.spec.type,
-            label=self.label if self.spec.kind == "directory" else self.spec.type,
             rehearsal=self.spec.rehearsal,
         )
 
@@ -401,9 +400,7 @@ async def test_alarm_state_takes_one_to_fifty_names(tmp_path: Path) -> None:
 
 
 async def test_alarm_config_from_the_feed_carries_its_label_and_link(tmp_path: Path) -> None:
-    FakeAlarmState.config = AlarmConfigRecord(
-        in_tree="yes", path="/SR/BPM1", label="live configuration"
-    )
+    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
     result = json.loads(await alarm_config.alarm_config("SR:BPM1"))
@@ -415,7 +412,7 @@ async def test_alarm_config_from_the_feed_carries_its_label_and_link(tmp_path: P
 
 
 async def test_alarm_config_with_only_the_logger(tmp_path: Path) -> None:
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no", label="last logged configuration")
+    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no")
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_log": ALARM_LOG})
 
     result = json.loads(await alarm_config.alarm_config("ca://SR:BPM1"))
@@ -430,7 +427,7 @@ async def test_alarm_config_with_only_the_logger(tmp_path: Path) -> None:
 
 async def test_alarm_state_and_alarm_config_carry_the_configured_caveats(tmp_path: Path) -> None:
     FakeAlarmState.states = {"SR:BPM1": AlarmStateRecord(severity="MINOR")}
-    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", label="live configuration")
+    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes")
     caveats = ["covers the SR tree only"]
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": {**KAFKA, "caveats": caveats}})
 

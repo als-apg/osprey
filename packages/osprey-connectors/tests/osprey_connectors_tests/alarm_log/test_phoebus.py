@@ -21,7 +21,6 @@ from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
 DEADLINE = 6.0
 PV = "DEMO:RF1:CAV:Temp-I"
 PATH = f"/Demo/RF/Cavity1/{PV}"
-LABEL = "last logged configuration"
 
 
 def _state(when: str, *, severity: str = "MAJOR", status: str = "NO_ALARM", **extra: Any) -> dict:
@@ -278,7 +277,6 @@ async def test_config_found_reads_the_newest_config_row():
         displays=[{"title": "Cavity", "details": "/opi/cavity.bob"}],
         enabled=True,
         latching=True,
-        label=LABEL,
     )
     assert [request["path"] for request in transport.requests] == ["/search/alarm"]
     assert transport.requests[0]["params"]["pv"] == PV
@@ -310,7 +308,7 @@ async def test_config_path_check_reads_an_escaped_slash_and_a_scheme():
 async def test_config_not_in_tree_when_the_logger_holds_nothing():
     transport = Recording(search=[])
     record = await _logger(transport).config_for(PV, DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="no", label=LABEL)
+    assert record == AlarmConfigRecord(in_tree="no")
     # Nothing names a path to ask the second route about.
     assert len(transport.requests) == 1
 
@@ -327,7 +325,6 @@ async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
     transport = Recording(search=[RECORDED[0]], config=[RECORDED[1]])
     record = await _logger(transport).config_for(PV, DEADLINE)
     assert record.in_tree == "yes"
-    assert record.label == LABEL
     assert transport.requests[1]["path"] == "/search/alarm/config"
     assert transport.requests[1]["params"] == {"config": f"config:{PATH}"}
     assert 0 < transport.requests[1]["deadline"] <= DEADLINE
@@ -342,28 +339,28 @@ async def test_config_lookup_failure_is_unknown(fallback: Any):
     # The state row proves the path; the unmeasured route's failure proves nothing.
     transport = Recording(search=[RECORDED[0]], config=fallback)
     record = await _logger(transport).config_for(PV, DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=PATH, label=LABEL)
+    assert record == AlarmConfigRecord(in_tree="unknown", path=PATH)
 
 
 async def test_config_state_row_without_a_path_is_unknown_with_no_second_request():
     row = {"pv": PV, "severity": "OK", "time": "2026-10-29T03:14:07.120Z"}
     transport = Recording(search=[row])
     record = await _logger(transport).config_for(PV, DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=None, label=LABEL)
+    assert record == AlarmConfigRecord(in_tree="unknown", path=None)
     assert len(transport.requests) == 1
 
 
 async def test_config_deleted_means_removed():
     deleted = _config("2026-10-29T03:13:00.000Z", delete="Deleting", user="opsuser")
     record = await _logger(Recording(search=[deleted, *RECORDED])).config_for(PV, DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="no", path=PATH, label=LABEL)
+    assert record == AlarmConfigRecord(in_tree="no", path=PATH)
 
 
 @pytest.mark.parametrize("config_msg", ["{not json", None, "[1]"], ids=["bad", "absent", "list"])
 async def test_config_row_that_cannot_be_read_is_unknown(config_msg: Any):
     row = {**_config("2026-10-29T03:13:00.000Z"), "config_msg": config_msg}
     record = await _logger(Recording(search=[row])).config_for(PV, DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=PATH, label=LABEL)
+    assert record == AlarmConfigRecord(in_tree="unknown", path=PATH)
 
 
 async def test_config_record_never_carries_the_notification_actions():
