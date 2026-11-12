@@ -633,8 +633,9 @@ class BuildProfile:
         """Return validation errors for the ``apps:`` block, closed against the manifests.
 
         Every listed name must be an application under ``apps/<name>/``, every
-        ``services.<key>`` one of that application's containers, and every axis
-        value well-formed.
+        ``services.<key>`` one of that application's containers, every axis
+        value well-formed, and ``config`` set only for an application with a
+        container, the one part that reads it.
 
         Args:
             profile_dir: The profile root, whose ``apps/`` holds the applications.
@@ -668,10 +669,15 @@ class BuildProfile:
                 continue
             if entry.access is not None:
                 errors.extend(self._app_access_errors(name, entry.access))
+            if entry.config and not manifest.containers:
+                errors.append(
+                    f"apps.{name}.config is read by no part of {name}: its app.yml declares "
+                    "no container, and only a container is handed the config."
+                )
             for key, axes in sorted(entry.services.items()):
                 where = f"apps.{name}.services.{key}"
                 if key not in manifest.containers:
-                    containers = ", ".join(sorted(manifest.containers))
+                    containers = ", ".join(sorted(manifest.containers)) or "none"
                     errors.append(
                         f"{where} names no container of {name}: its app.yml declares {containers}."
                     )
