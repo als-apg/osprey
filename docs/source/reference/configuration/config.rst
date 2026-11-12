@@ -1207,8 +1207,9 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
      - The largest result set fetched whole for facets, the origin filter and
        CSV export. Default ``5000``.
    * - ``pv_directory.display.ioc_health_suffixes``
-     - The record-name suffixes of an IOC's health PVs. Default
-       ``[HEARTBEAT, UPTIME]``.
+     - The record-name suffix of each IOC health role (``heartbeat``,
+       ``uptime``, ``engineer``). Default
+       ``{heartbeat: HEARTBEAT, uptime: UPTIME}``.
    * - ``pv_directory.display.engineer_property``
      - The directory property naming an IOC's engineer. Default ``Engineer``.
    * - ``pv_directory.alarm_log``
@@ -1255,7 +1256,7 @@ A facility with ChannelFinder, the Phoebus alarm services and caPutLog:
      display:
        # Shown first on a PV page.
        detail_properties: [recordDesc, iocName, hostName]
-       ioc_health_suffixes: [HEARTBEAT, UPTIME, STARTTOD]
+       ioc_health_suffixes: {heartbeat: HEARTBEAT, uptime: UPTIME}
      alarm_log:
        type: phoebus_alarm_logger
        settings:

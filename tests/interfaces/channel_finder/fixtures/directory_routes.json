@@ -168,7 +168,7 @@
     "curated_count": 1,
     "engineer": "operator",
     "engineer_source": "directory property",
-    "health_pvs": ["DEMO:BPM01:HEARTBEAT"],
+    "health_pvs": [{"name": "DEMO:BPM01:HEARTBEAT", "role": "heartbeat"}],
     "alarms": {
       "outcome": "found",
       "total": 1,

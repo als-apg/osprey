@@ -361,7 +361,7 @@ def test_the_ioc_page_payload(start, tmp_path: Path) -> None:
     assert ioc["curated_count"] == 1
     assert ioc["engineer"] == "A. Engineer"
     assert ioc["engineer_source"] == "directory property"
-    assert ioc["health_pvs"] == ["SR:IOC-A:HEARTBEAT"]
+    assert ioc["health_pvs"] == [{"name": "SR:IOC-A:HEARTBEAT", "role": "heartbeat"}]
     assert ioc["links"] == {"panel": "/panel/channel-finder/#/ioc/ioc-a"}
 
 
