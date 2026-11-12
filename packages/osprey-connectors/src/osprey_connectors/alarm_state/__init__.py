@@ -10,6 +10,7 @@ from osprey_connectors.alarm_state._contract import (
     AlarmStateRecord,
     AlarmStateRow,
     AlarmStates,
+    severity_rank,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "AlarmStateRecord",
     "AlarmStateRow",
     "AlarmStates",
+    "severity_rank",
 ]

@@ -16,13 +16,17 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from osprey_connectors.alarm_state._contract import AlarmConfigRecord, AlarmStateRecord
+from osprey_connectors.alarm_state._contract import (
+    AlarmConfigRecord,
+    AlarmStateRecord,
+    AlarmStateRow,
+    severity_rank,
+)
 
 FEED_LOADING = "alarm feed still loading"
 FEED_EMPTY = "no message from the feed yet"
 
 _ACK_SUFFIX = "_ACK"
-_SEVERITY_RANK = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}
 _UNESCAPED_SLASH = re.compile(r"(?<!\\)/")
 _PV_SCHEME = re.compile(r"^(?:ca|pva)://")
 
@@ -79,14 +83,35 @@ def state_record(snapshot: FeedSnapshot, channel: str, *, stale: bool) -> AlarmS
     paths = snapshot.states.get(pv_name(channel))
     if not paths:
         return None
-    body = list(paths.values())[-1]
+    return _state_of(list(paths.values())[-1], stale=stale)
+
+
+def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmStateRow, ...]:
+    """One row per channel whose latest state is a leaf's, under the path it was reported on.
+
+    A leaf's state carries ``current_severity``. The alarm server also publishes
+    the state of each tree node, with ``severity`` alone, filed under the node's
+    last path segment: that name is not a channel.
+    """
+    rows = []
+    for channel, paths in snapshot.states.items():
+        path, body = list(paths.items())[-1]
+        if "current_severity" in body:
+            rows.append(
+                AlarmStateRow(channel=channel, path=path, state=_state_of(body, stale=stale))
+            )
+    return tuple(rows)
+
+
+def _state_of(body: Mapping[str, Any], *, stale: bool) -> AlarmStateRecord:
     recorded = body.get("severity")
     severity = recorded.removesuffix(_ACK_SUFFIX) if isinstance(recorded, str) else recorded
     acknowledged = severity != recorded
     return AlarmStateRecord(
         severity=severity,
         status=body.get("current_message"),
-        latched=not acknowledged and _rank(body.get("current_severity")) < _rank(severity),
+        latched=not acknowledged
+        and severity_rank(body.get("current_severity")) < severity_rank(severity),
         acknowledged=acknowledged,
         message=body.get("message"),
         time=_recorded_time(body.get("time")),
@@ -148,11 +173,6 @@ def _parse_value(value: str | bytes | Mapping[str, Any] | None) -> Any:
     except (ValueError, UnicodeDecodeError):
         return _UNPARSEABLE
     return parsed if isinstance(parsed, dict) else _UNPARSEABLE
-
-
-def _rank(severity: Any) -> int:
-    """The severity's rank; an unknown one ranks highest, so it never reads as recovered."""
-    return _SEVERITY_RANK.get(severity, len(_SEVERITY_RANK))
 
 
 def _recorded_time(recorded: Any) -> str | None:
