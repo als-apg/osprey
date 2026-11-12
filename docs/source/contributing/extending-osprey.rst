@@ -341,7 +341,7 @@ What a plug-in is given and asked for:
   optional ``error_text(exc)`` gives, else the exception's own text. The
   rest of the namespace is still served.
 - **The contract in code.** ``osprey.simulation.engines.EnginePlugin`` names
-  the five functions above, and ``isinstance(module, EnginePlugin)`` checks a
+  those five functions, and ``isinstance(module, EnginePlugin)`` checks a
   module states them. ``osprey.simulation.engines.OPTIONAL_NAMES`` lists
   every optional name, and the protocol's docstring says what each gives and
   what a model whose engine lacks it gets.
@@ -361,6 +361,25 @@ What a plug-in is given and asked for:
   ``client_write`` alone. ``build`` receives no clock, so the composite calls
   ``advance`` right after a build, a rebuild or a reset. Only the served
   venue drives the contract; in process the model serves its start values.
+- **Model inputs.** An engine whose models read other models' records states
+  two optional functions. ``describe_input(input_record)`` is called at
+  facility build with one input's ``{address, engine}`` record; raising
+  ``ValueError`` refuses it, and the build stops ``engine-invalid`` with its
+  text, naming the input. ``take_inputs(model, inputs, t_s, *, baseline)``
+  gets one ``(input_record, value)`` pair per declared input whose producer
+  has not failed, the value the producer's current plain value. It only
+  stores, like ``set``; what a new value starts happens in the ``advance``
+  that follows. ``baseline=True`` marks a starting point: compare nothing
+  against what was held. The ``engine`` block travelling with each pair is
+  how a model tells its inputs apart; ``build`` is unchanged. A model that
+  declares inputs over an engine without ``take_inputs`` is refused at build.
+  ``osprey.simulation.engines.pyat`` states both, and the time contract, for
+  a turn-by-turn ring (:ref:`va-turn-by-turn`).
+- **The response kind.** An optional ``response_matrix`` is called with the
+  keyword ``kind``, ``"orbit"`` or ``"trajectory"``, and names each corrector
+  without a column in ``unsolved`` with its text. One whose signature takes
+  no ``kind`` is called without it for ``"orbit"``; any other kind is refused
+  as a request, naming the engine, without calling it.
 
 What the container keeps the same for every engine:
 

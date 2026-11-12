@@ -282,3 +282,172 @@ class TestSinglePass:
         expected = (_tracked(line, step / 2) - _tracked(line, -step / 2)) / step
         np.testing.assert_allclose(matrix[:, 0], expected, rtol=1e-12, atol=1e-15)
         assert abs(matrix[rows.index("BPM_3:X"), 0]) > 0.0
+
+
+# -- the first-turn trajectory response -----------------------------------------
+
+INJECTION = "INJ"
+TRAJECTORY_LAUNCH = {"x": 1.0e-3, "y": -5.0e-4}
+
+
+def _turn_settings(demo: dict[str, Any], **block: Any) -> dict[str, Any]:
+    """The demo SR settings with a turn-by-turn block launching at the injection marker."""
+    settings = copy.deepcopy(demo["settings"]) or {}
+    stated: dict[str, Any] = {"injection_element": INJECTION, "launch": dict(TRAJECTORY_LAUNCH)}
+    stated.update(block)
+    settings.setdefault("pyat", {})["turn_by_turn"] = stated
+    return settings
+
+
+def _trajectory(
+    demo: dict[str, Any], settings: dict[str, Any], steps: dict[str, float]
+) -> engine.ResponseMatrix:
+    return engine.response_matrix(
+        demo["deck"], demo["wiring"], settings, list(steps), steps, kind="trajectory"
+    )
+
+
+def _first_turn(
+    demo: dict[str, Any], settings: dict[str, Any], rows: list[str], kicks: dict[str, float]
+) -> np.ndarray:
+    """One particle tracked one turn from INJ by pyAT, each row in its hardware unit.
+
+    Each corrector in ``kicks`` is moved by that many hardware units from the
+    value the deck holds.
+    """
+    from lume_pyat.simulator import PyATSimulator
+
+    from osprey.simulation.engines.calibration import to_hardware
+    from osprey.simulation.engines.pyat_variables import (
+        EV_PER_GEV,
+        MonitorVariable,
+        variable_from_wiring,
+    )
+
+    lattice = at.load_lattice(str(demo["deck"]))
+    simulator = PyATSimulator(lattice)
+    by_address = {record["address"]: record for record in demo["wiring"]}
+    for address, kick in kicks.items():
+        variable = variable_from_wiring(
+            by_address[address], deck_energy_gev=float(lattice.energy) / EV_PER_GEV
+        )
+        variable._set(simulator, variable._get(simulator) + kick)
+    index = {element.FamName: place for place, element in enumerate(lattice)}
+    start = index[INJECTION]
+    launch = engine.prepare(demo["deck"], settings).turn_by_turn.launch
+    readings = [MonitorVariable.from_wiring(by_address[address]) for address in rows]
+    places = sorted({index[reading.element_name] for reading in readings})
+    rotated = lattice.rotate(start)
+    refpts = np.array(sorted((place - start) % len(lattice) for place in places), np.uint32)
+    r_out = at.lattice_track(rotated, np.array(launch, dtype=float).reshape(6, 1), refpts=refpts)[0]
+    slot = {int(ref): position for position, ref in enumerate(refpts)}
+    values = []
+    for reading in readings:
+        ref = (index[reading.element_name] - start) % len(lattice)
+        metres = r_out[0 if reading.axis == "x" else 2, 0, slot[ref], 0]
+        values.append(to_hardware(reading.calibration, reading.inverse, float(metres)))
+    return np.array(values)
+
+
+class TestTrajectory:
+    def test_the_matrix_times_a_small_kick_predicts_the_tracked_first_turn_difference(self, demo):
+        settings = _turn_settings(demo)
+        result = _trajectory(demo, settings, {CORRECTOR_X: 0.01, CORRECTOR_Y: 0.01})
+        kick = np.array([0.004, -0.003])
+
+        predicted = result.matrix @ kick
+        tracked = _first_turn(
+            demo, settings, result.rows, dict(zip(result.columns, kick, strict=True))
+        ) - _first_turn(demo, settings, result.rows, {})
+
+        assert result.unsolved == {}
+        assert result.columns == [CORRECTOR_X, CORRECTOR_Y]
+        assert np.max(np.abs(tracked)) > 0.0
+        np.testing.assert_allclose(
+            predicted, tracked, rtol=1e-3, atol=1e-6 * np.max(np.abs(tracked))
+        )
+
+    def test_rows_and_units_are_the_orbit_matrix_rows(self, demo):
+        orbit = _matrix(demo, [CORRECTOR_X], 0.5)
+        result = _trajectory(demo, _turn_settings(demo), {CORRECTOR_X: 0.5})
+
+        assert result.rows == orbit.rows
+        assert result.matrix.shape == (SR_MONITORS, 1)
+
+    def test_a_monitor_upstream_of_the_corrector_does_not_respond_until_the_turn_wraps(self, demo):
+        # The first turn runs from INJ to INJ: a monitor read before the
+        # corrector sees no kick, one read after it does.
+        result = _trajectory(demo, _turn_settings(demo), {CORRECTOR_X: 0.5})
+        column = np.abs(result.matrix[:, 0])
+
+        assert np.count_nonzero(column == 0.0) > 0
+        assert np.count_nonzero(column > 0.0) > 0
+
+    def test_a_kicked_particle_lost_names_the_corrector_and_where(self, demo):
+        settings = _turn_settings(demo, aperture={"x": 0.01, "y": 0.01})
+
+        result = _trajectory(demo, settings, {CORRECTOR_X: 1.0e5, CORRECTOR_Y: 0.01})
+
+        assert result.columns == [CORRECTOR_Y]
+        assert list(result.unsolved) == [CORRECTOR_X]
+        text = result.unsolved[CORRECTOR_X]
+        assert "lost on the first turn at element" in text
+        assert "before monitor" in text
+        assert text.endswith(f"(while stepping {CORRECTOR_X})")
+        assert result.matrix.shape == (SR_MONITORS, 1)
+
+    def test_an_unkicked_particle_lost_leaves_every_corrector_unsolved(self, demo):
+        settings = _turn_settings(demo, launch={"x": 0.02}, aperture={"x": 0.005, "y": 0.005})
+
+        result = _trajectory(demo, settings, {CORRECTOR_X: 0.01, CORRECTOR_Y: 0.01})
+
+        assert result.columns == []
+        assert result.matrix.shape == (SR_MONITORS, 0)
+        assert list(result.unsolved) == [CORRECTOR_X, CORRECTOR_Y]
+        texts = {text.split(" (with no corrector")[0] for text in result.unsolved.values()}
+        (text,) = texts
+        assert "lost on the first turn at element" in text
+
+    def test_a_rectangular_aperture_also_loses_the_particle(self, demo):
+        settings = _turn_settings(
+            demo, launch={"x": 0.02}, aperture={"x": 0.005, "y": 0.005, "shape": "rectangular"}
+        )
+
+        result = _trajectory(demo, settings, {CORRECTOR_X: 0.01})
+
+        assert result.columns == []
+        assert list(result.unsolved) == [CORRECTOR_X]
+
+    def test_a_ring_that_is_not_turn_by_turn_refuses_the_trajectory(self, demo):
+        with pytest.raises(engine.RequestRefused, match="turn-by-turn"):
+            _trajectory(demo, copy.deepcopy(demo["settings"]), {CORRECTOR_X: 0.5})
+
+    def test_an_unknown_kind_is_refused(self, demo):
+        with pytest.raises(engine.RequestRefused, match="'dispersion'"):
+            engine.response_matrix(
+                demo["deck"],
+                demo["wiring"],
+                demo["settings"],
+                [CORRECTOR_X],
+                {CORRECTOR_X: 0.5},
+                kind="dispersion",
+            )
+
+    def test_a_bad_request_is_still_refused_when_the_particle_is_lost(self, demo):
+        settings = _turn_settings(demo, launch={"x": 0.02}, aperture={"x": 0.005, "y": 0.005})
+
+        with pytest.raises(engine.RequestRefused, match="SR:NOT:A:SETPOINT"):
+            _trajectory(demo, settings, {"SR:NOT:A:SETPOINT": 0.5})
+
+    def test_the_orbit_kind_is_the_default(self, demo):
+        default = _matrix(demo, [CORRECTOR_X], 0.5)
+        orbit = engine.response_matrix(
+            demo["deck"],
+            demo["wiring"],
+            demo["settings"],
+            [CORRECTOR_X],
+            {CORRECTOR_X: 0.5},
+            kind="orbit",
+        )
+
+        np.testing.assert_array_equal(default.matrix, orbit.matrix)

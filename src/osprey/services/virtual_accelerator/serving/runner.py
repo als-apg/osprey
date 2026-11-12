@@ -26,7 +26,9 @@ over it.
 **Sliced posts.** A pass over a large view takes longer to post than the fast
 period lasts, and the run loop runs one item at a time. So in a view with a
 timed channel a pass posts :data:`POST_SLICE` values at a time, the timed and
-forced names first, and between slices runs a timed pass if one fell due. A
+forced names first, and between slices runs a timed pass if one fell due. The
+names one drain of the composite's emission returned are one step, so they all
+go in the first slice, however many there are. A
 name that timed pass posted is dropped from the slices still to come, whose
 value for it is the older one. The read that precedes the post is not sliced:
 a timed pass waits for it.
@@ -318,35 +320,47 @@ class ModelRunner(Runner):
                 self._udf,
                 written=self._written if self._write_pass else None,
             )
-        self._post_forced(posting, ts, forced_names((), emitted, faulted))
+        self._post_forced(posting, ts, forced_names((), emitted, faulted), emitted)
         self._note_deadline()
 
-    def _post_forced(self, values: dict[str, Any], ts: float, forced: frozenset[str]) -> None:
+    def _post_forced(
+        self,
+        values: dict[str, Any],
+        ts: float,
+        forced: frozenset[str],
+        emitted: frozenset[str] = frozenset(),
+    ) -> None:
         """Post ``values``, forcing ``forced``; in slices when a timed pass could fall due.
 
         A view with no timed channel, and a post of one slice or less, posts
-        whole. Otherwise the timed and forced names go in the first slice, and
-        before each later slice a due timed pass runs; what it posted is left
-        out of the rest, which holds the value read before it.
+        whole. Otherwise the ``emitted`` names, one drain of the composite's
+        emission and so one step, go first and all in the first slice however
+        many there are, so no timed pass posts a later step between two of
+        them; the other timed and forced names follow. Before each later slice
+        a due timed pass runs; what it posted is left out of the rest, which
+        holds the value read before it.
         """
         if not self._needs_timed or self._slicing or len(values) <= POST_SLICE:
             self._post_slice(values, ts, forced)
             return
-        first = [name for name in values if name in self._timed_names or name in forced]
+        together = [name for name in values if name in emitted]
+        first = together + [
+            name
+            for name in values
+            if name not in emitted and (name in self._timed_names or name in forced)
+        ]
         ahead = set(first)
         order = first + [name for name in values if name not in ahead]
+        head = max(POST_SLICE, len(together))
         requested = self._cycle_requested_names
         superseded: set[str] = set()
         self._slicing = True
         try:
-            for start in range(0, len(order), POST_SLICE):
+            for start in (0, *range(head, len(order), POST_SLICE)):
                 if start:
                     superseded |= self._timed_between_slices()
-                part = {
-                    name: values[name]
-                    for name in order[start : start + POST_SLICE]
-                    if name not in superseded
-                }
+                end = head if start == 0 else start + POST_SLICE
+                part = {name: values[name] for name in order[start:end] if name not in superseded}
                 self._cycle_requested_names = tuple(part)
                 self._post_slice(part, ts, forced & part.keys())
         finally:
@@ -455,7 +469,7 @@ class ModelRunner(Runner):
                     if name not in faulted or name in changed
                 }
             self._cycle_requested_names = tuple(values)
-            self._post_forced(values, time.time(), forced_names(fast, emitted, faulted))
+            self._post_forced(values, time.time(), forced_names(fast, emitted, faulted), emitted)
             posted = frozenset(values)
             if fast_due:
                 self._fast_posted_at = time.time()

@@ -1,4 +1,4 @@
-"""A served model's orbit-response request, resolved against the render it runs in.
+"""A served model's response request, resolved against the render it runs in.
 
 The ``model_response_matrix`` tool and the application SDK's
 ``model_response_matrix`` both resolve their call here and run the same child
@@ -24,9 +24,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
-from osprey.simulation.response import CAUSES, RESULT_TAG
+from osprey.simulation.response import CAUSES, DEFAULT_KIND, RESPONSE_KINDS, RESULT_TAG
 
 __all__ = [
+    "DEFAULT_KIND",
+    "RESPONSE_KINDS",
     "RESULT_TAG",
     "STEP_KEY",
     "UNSOLVED_KEY",
@@ -69,7 +71,7 @@ class ModelRequestRefused(ValueError):
 
 @dataclass(frozen=True)
 class ModelRequest:
-    """A resolved orbit-response request.
+    """A resolved response request.
 
     Attributes:
         render_root: The directory holding the rendered ``config.yml``.
@@ -80,6 +82,7 @@ class ModelRequest:
         steps: Each corrector's full step width in its hardware unit.
         devices: Each corrector's device id, ``None`` when it is on none.
         view: The render's simulator view the request was resolved against.
+        kind: The response asked for, one of :data:`RESPONSE_KINDS`.
     """
 
     render_root: Path
@@ -90,6 +93,7 @@ class ModelRequest:
     steps: Mapping[str, float]
     devices: Mapping[str, str | None]
     view: Any = field(default=None, repr=False, compare=False)
+    kind: str = DEFAULT_KIND
 
 
 def _refuse(message: str, suggestion: str) -> NoReturn:
@@ -249,22 +253,38 @@ def _hardware_width(address: str, record: Mapping[str, Any], delta: float) -> fl
     return float(width)
 
 
-def resolve_model_request(model: object, correctors: object, *, render_root: Path) -> ModelRequest:
-    """Resolve an orbit-response request against the render it runs in.
+def _kind(kind: object) -> str:
+    if not isinstance(kind, str) or kind not in RESPONSE_KINDS:
+        kinds = " or ".join(repr(known) for known in RESPONSE_KINDS)
+        _refuse(
+            f"kind {kind!r} is not a response kind; the kinds: {kinds}",
+            f"Pass kind as {kinds}, or omit it for {DEFAULT_KIND!r}.",
+        )
+    return kind
+
+
+def resolve_model_request(
+    model: object, correctors: object, *, render_root: Path, kind: object = DEFAULT_KIND
+) -> ModelRequest:
+    """Resolve a response request against the render it runs in.
 
     Args:
         model: A served deck model, or ``None`` when the render serves exactly one.
         correctors: Corrector setpoint addresses the model wires, or ``None`` for
             every one, horizontal then vertical, in wiring order.
         render_root: The directory holding the rendered ``config.yml``.
+        kind: The response asked for, one of :data:`RESPONSE_KINDS`; any
+            other value is refused before anything is read.
 
     Returns:
         The resolved request.
 
     Raises:
-        ModelRequestRefused: The view is missing or defective, or the argument,
-            the model or the facility file is at fault; the message names which.
+        ModelRequestRefused: The kind is unknown, the view is missing or
+            defective, or the argument, the model or the facility file is at
+            fault; the message names which.
     """
+    chosen_kind = _kind(kind)
     from osprey_connectors.simulation.view import NoSimulatorView, SimulatorView, ViewSchemaError
 
     try:
@@ -286,6 +306,7 @@ def resolve_model_request(model: object, correctors: object, *, render_root: Pat
         steps=steps,
         devices={address: device_of(view, address) for address in records},
         view=view,
+        kind=chosen_kind,
     )
 
 
@@ -297,6 +318,7 @@ def child_payload(request: ModelRequest) -> dict[str, Any]:
         "engine_module": request.engine_module,
         "correctors": list(request.correctors),
         "steps": dict(request.steps),
+        "kind": request.kind,
     }
 
 

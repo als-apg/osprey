@@ -113,6 +113,47 @@ def test_an_engine_without_the_time_contract_still_satisfies_the_contract():
     assert all(getattr(module, name, None) is None for name in TIME_CONTRACT)
 
 
+#: The names by which one model's values reach another model's engine.
+INPUT_NAMES = ("describe_input", "take_inputs")
+
+
+def test_the_input_names_are_optional_names_outside_the_time_contract():
+    assert set(INPUT_NAMES) <= set(OPTIONAL_NAMES)
+    assert not set(INPUT_NAMES) & set(TIME_CONTRACT)
+    assert not set(INPUT_NAMES) & set(REQUIRED_NAMES)
+    assert {"describe_input", "take_inputs"} <= set(_documented_names())
+
+
+def test_an_engine_without_the_input_names_still_satisfies_the_contract():
+    module = types.ModuleType("no_inputs")
+    for name in REQUIRED_NAMES + TIME_CONTRACT:
+        setattr(module, name, _function)
+    assert isinstance(module, EnginePlugin)
+    assert all(getattr(module, name, None) is None for name in INPUT_NAMES)
+    for name in INPUT_NAMES:
+        assert not hasattr(EnginePlugin, name)
+
+
+def test_an_engine_with_the_input_names_satisfies_the_contract():
+    module = types.ModuleType("with_inputs")
+    for name in REQUIRED_NAMES + TIME_CONTRACT + INPUT_NAMES:
+        setattr(module, name, _function)
+    assert isinstance(module, EnginePlugin)
+
+
+def test_the_time_contract_paragraph_states_how_inputs_arrive():
+    text = " ".join((EnginePlugin.__doc__ or "").split())
+    paragraph = text[text.index("The four names of") :]
+    for phrase in (
+        "``take_inputs`` only stores",
+        "``baseline=True`` means",
+        "immediately before its ``advance``",
+        "every built child",
+        "every pass",
+    ):
+        assert phrase in paragraph, phrase
+
+
 def test_a_time_driven_engine_satisfies_the_contract():
     module = types.ModuleType("time_driven")
     for name in REQUIRED_NAMES + TIME_CONTRACT:

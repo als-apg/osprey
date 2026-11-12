@@ -169,7 +169,7 @@ answers ``execution_error`` with the saved measurement named in
 ``model_response_matrix``
 -------------------------
 
-Solves a served model's orbit response on the model's own deck, in a sandbox
+Solves a served model's response on the model's own deck, in a sandbox
 child stopped at the executor's timeout. It writes nothing and asks for no
 approval.
 
@@ -187,6 +187,12 @@ approval.
      - every corrector
      - Corrector setpoint addresses the model wires; omitted, every one,
        horizontal then vertical.
+   * - ``kind``
+     - ``"orbit"``
+     - ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``, the
+       first-turn response of the turn-by-turn readings. Any other value is
+       refused, naming the two; an engine that answers only the orbit
+       response refuses ``"trajectory"`` with its text.
 
 Each corrector steps by the measurement file's ``corrector_delta`` (radians),
 converted to the corrector's hardware unit through its wiring calibration; a

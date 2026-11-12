@@ -1514,14 +1514,18 @@ class Gate(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    inputs: dict[str, Union[str, GateInput]] = Field(default=..., description="""`{<address>: <blocking_label>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Gate'], 'list_elements_ordered': True} })
+    inputs: dict[str, Union[str, GateInput]] = Field(default=..., description="""`{<address>: <blocking_label>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Gate', 'Model'], 'list_elements_ordered': True} })
     gated: Any = Field(default=..., description="""The value while gated, typed by the gated channel: a factor > 0 on a float channel, a label on a bool or enum channel, an integer on an int channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Gate']} })
 
 
 class GateInput(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'ModelInput',
+                       'Wiring',
+                       'LimitRecord']} })
     blocking_label: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput']} })
 
 
@@ -1555,7 +1559,11 @@ class Drift(ConfiguredBaseModel):
 class LinearTerm(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'ModelInput',
+                       'Wiring',
+                       'LimitRecord']} })
     coefficient: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearTerm']} })
 
 
@@ -1586,10 +1594,11 @@ class Model(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'Model', 'Scenario']} })
-    engine: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'Wiring']} })
+    engine: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'ModelInput', 'Wiring']} })
     deck: Optional[str] = Field(default=None, description="""Relative to the facility tree.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
     settings: Optional[Any] = Field(default=None, description="""`{<engine>: {...}}`, the one key equal to `engine`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
     wiring: Optional[list[Wiring]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Model'], 'list_elements_ordered': True} })
+    inputs: Optional[list[ModelInput]] = Field(default=None, description="""Records of other models this model reads as inputs, in declared order; never wiring.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Gate', 'Model'], 'list_elements_ordered': True} })
     measurement: Optional[Measurement] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
 
@@ -1607,6 +1616,20 @@ class Model(ConfiguredBaseModel):
         return v
 
 
+class ModelInput(ConfiguredBaseModel):
+    """
+    One record another model of the facility wires, read by this model as an input.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    address: str = Field(default=..., description="""The address another model wires.""", json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'ModelInput',
+                       'Wiring',
+                       'LimitRecord']} })
+    engine: Optional[Any] = Field(default=None, description="""The consuming engine's own words for the input.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'ModelInput', 'Wiring']} })
+
+
 class Wiring(ConfiguredBaseModel):
     """
     One model variable: a channel's address driven by or read from `element` or `slices`, never both.
@@ -1614,10 +1637,14 @@ class Wiring(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     id: str = Field(default=..., description="""`<model>/<address>`, split at the first `/`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'ModelInput',
+                       'Wiring',
+                       'LimitRecord']} })
     element: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring', 'Slice']} })
     slices: Optional[list[Slice]] = Field(default=None, description="""The first slice is the element read from.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring'], 'list_elements_ordered': True} })
-    engine: Optional[Any] = Field(default=None, description="""The engine's own words for the variable.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'Wiring']} })
+    engine: Optional[Any] = Field(default=None, description="""The engine's own words for the variable.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'ModelInput', 'Wiring']} })
     calibration: Optional[Calibration] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     direction: Optional[str] = Field(default=None, description="""Computed from the channel's role.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     unit: Optional[str] = Field(default=None, description="""Computed from the channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
@@ -1726,7 +1753,11 @@ class LimitRecord(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput', 'LinearTerm', 'Wiring', 'LimitRecord']} })
+    address: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['GateInput',
+                       'LinearTerm',
+                       'ModelInput',
+                       'Wiring',
+                       'LimitRecord']} })
     min_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_step: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
@@ -1828,6 +1859,7 @@ Drift.model_rebuild()
 LinearTerm.model_rebuild()
 Group.model_rebuild()
 Model.model_rebuild()
+ModelInput.model_rebuild()
 Wiring.model_rebuild()
 Slice.model_rebuild()
 Calibration.model_rebuild()
