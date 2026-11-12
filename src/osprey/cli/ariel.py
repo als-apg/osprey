@@ -27,7 +27,14 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from osprey.services.ariel_search.cli_operations import BackfillResult
-    from osprey.services.ariel_search.exceptions import ModuleConfigError
+    from osprey.services.ariel_search.exceptions import ModuleConfigError, StoreSilentError
+
+
+#: Seconds a command gives the ARIEL store to answer when it opens it. The
+#: commands state this one number and hand it down; nothing below them holds
+#: one. It bounds the open only: a sync or an enhance pass runs as long as its
+#: work takes once the store has answered.
+_STORE_DEADLINE_S = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -377,8 +384,33 @@ def _report_coverage(coverage: dict | None) -> None:
         )
 
 
+def _fail_store_silent(e: StoreSilentError) -> NoReturn:
+    """Print a store that did not answer in time as one failure line and exit 1.
+
+    Every command reaches this one report through :class:`_ArielGroup`, so the
+    words are the error's own and the same for each.
+
+    Raises:
+        SystemExit: Always, with code 1 and no chained traceback.
+    """
+    output.fail(
+        str(e),
+        None,
+        "check that the ARIEL database is running and not overloaded; `osprey up` starts it",
+    )
+    raise SystemExit(1) from None
+
+
 def _handle_db_error(e: Exception) -> None:
-    """Raise SystemExit on database connection errors, otherwise return."""
+    """Raise SystemExit on a refused database connection, otherwise return.
+
+    A store that did not answer is not guessed at here: it is a
+    :class:`StoreSilentError`, which passes on to :func:`_fail_store_silent`.
+    """
+    from osprey.services.ariel_search.exceptions import StoreSilentError
+
+    if isinstance(e, StoreSilentError):
+        return
     msg = str(e)
     if "connection" in msg.lower() or "connect" in msg.lower():
         output.fail(
@@ -532,7 +564,11 @@ def _qmd_resync_pre_step(config_dict: dict) -> None:
     from osprey.services.ariel_search.exceptions import ModuleConfigError
 
     try:
-        asyncio.run(resync_qmd_mirror_best_effort(config_dict, progress=output.report))
+        asyncio.run(
+            resync_qmd_mirror_best_effort(
+                config_dict, progress=output.report, store_deadline_s=_STORE_DEADLINE_S
+            )
+        )
     except ModuleConfigError as e:
         _fail_module_config(e)
 
@@ -567,7 +603,20 @@ def _anchor_project_config(ctx: click.Context) -> None:
         ctx.with_resource(config_anchored_at(config_path))
 
 
-@click.group("ariel")
+class _ArielGroup(click.Group):
+    """The ``ariel`` group: one report for a store that did not answer in time."""
+
+    def invoke(self, ctx: click.Context) -> object:
+        """Run the command; a silent store ends it with :func:`_fail_store_silent`."""
+        from osprey.services.ariel_search.exceptions import StoreSilentError
+
+        try:
+            return super().invoke(ctx)
+        except StoreSilentError as e:
+            _fail_store_silent(e)
+
+
+@click.group("ariel", cls=_ArielGroup)
 @click.pass_context
 def ariel_group(ctx: click.Context) -> None:
     """ARIEL search service commands.
@@ -597,7 +646,9 @@ def status_command(output_json: bool) -> None:
     # Under ``--json`` the whole body runs in machine mode, so every renderer
     # line goes to stderr and stdout carries one document for a script to parse.
     with output.machine_mode() if output_json else nullcontext():
-        result = asyncio.run(get_status(config_dict, config_dir=_config_dir()))
+        result = asyncio.run(
+            get_status(config_dict, config_dir=_config_dir(), store_deadline_s=_STORE_DEADLINE_S)
+        )
 
         if output_json:
             _emit_json_document(result)
@@ -665,7 +716,9 @@ def migrate_command() -> None:
 
     config_dict = _load_ariel_config()
     try:
-        busy = asyncio.run(run_migrate(config_dict, progress=output.report))
+        busy = asyncio.run(
+            run_migrate(config_dict, progress=output.report, store_deadline_s=_STORE_DEADLINE_S)
+        )
     except Exception as e:
         _handle_db_error(e)
         raise
@@ -686,7 +739,9 @@ def _sync_watch_forever(config_dict: dict) -> None:
     from osprey.services.ariel_search.ingestion.scheduler import StopReason
 
     try:
-        reason = asyncio.run(run_sync_watch(config_dict, progress=output.report))
+        reason = asyncio.run(
+            run_sync_watch(config_dict, progress=output.report, store_deadline_s=_STORE_DEADLINE_S)
+        )
     except (asyncio.CancelledError, KeyboardInterrupt):
         reason = StopReason.SIGNAL
 
@@ -728,7 +783,11 @@ def sync_command(limit: int | None, watch: bool) -> None:
             _sync_watch_forever(config_dict)
             return
 
-        result = asyncio.run(run_sync(config_dict, limit=limit, progress=output.report))
+        result = asyncio.run(
+            run_sync(
+                config_dict, limit=limit, progress=output.report, store_deadline_s=_STORE_DEADLINE_S
+            )
+        )
         output.report("")
         output.report(
             f"Sync complete: "
@@ -791,7 +850,16 @@ def ingest_command(
     _qmd_resync_pre_step(config_dict)
     try:
         result = asyncio.run(
-            run_ingest(config_dict, source, adapter, since, limit, dry_run, progress=output.report)
+            run_ingest(
+                config_dict,
+                source,
+                adapter,
+                since,
+                limit,
+                dry_run,
+                progress=output.report,
+                store_deadline_s=_STORE_DEADLINE_S,
+            )
         )
         output.report("")
         if result.dry_run:
@@ -918,6 +986,7 @@ def backfill_command(
                 wait=wait,
                 retry_decoder_failed=retry_decoder_failed,
                 progress=output.report,
+                store_deadline_s=_STORE_DEADLINE_S,
             )
         )
     except DatabaseQueryError as e:
@@ -1002,7 +1071,16 @@ def watch_command(
     _qmd_resync_pre_step(config_dict)
     try:
         result = asyncio.run(
-            run_watch(config_dict, source, adapter, once, interval, dry_run, progress=output.report)
+            run_watch(
+                config_dict,
+                source,
+                adapter,
+                once,
+                interval,
+                dry_run,
+                progress=output.report,
+                store_deadline_s=_STORE_DEADLINE_S,
+            )
         )
         if result is not None:
             prefix = "[dry-run] " if result.dry_run else ""
@@ -1129,6 +1207,7 @@ def enhance_command(
                 retry_failed=retry_failed,
                 refresh_stale=refresh_stale,
                 entry_id=entry_id,
+                store_deadline_s=_STORE_DEADLINE_S,
             )
         )
     except ModuleConfigError as e:
@@ -1147,7 +1226,7 @@ def models_command() -> None:
     from osprey.services.ariel_search.cli_operations import list_models
 
     config_dict = _load_ariel_config()
-    tables = asyncio.run(list_models(config_dict))
+    tables = asyncio.run(list_models(config_dict, store_deadline_s=_STORE_DEADLINE_S))
 
     if not tables:
         output.report("No embedding tables found.")
@@ -1185,7 +1264,9 @@ def search_command(query: str, mode: str | None, limit: int, output_json: bool) 
     # Under ``--json`` the whole body runs in machine mode, so every renderer
     # line goes to stderr and stdout carries one document for a script to parse.
     with output.machine_mode() if output_json else nullcontext():
-        result = asyncio.run(run_search(config_dict, query, mode, limit))
+        result = asyncio.run(
+            run_search(config_dict, query, mode, limit, store_deadline_s=_STORE_DEADLINE_S)
+        )
 
         if output_json:
             _emit_json_document(result)
@@ -1246,7 +1327,14 @@ def reembed_command(
     try:
         result = asyncio.run(
             run_reembed(
-                config_dict, model, dimension, batch_size, dry_run, force, progress=output.report
+                config_dict,
+                model,
+                dimension,
+                batch_size,
+                dry_run,
+                force,
+                progress=output.report,
+                store_deadline_s=_STORE_DEADLINE_S,
             )
         )
     except ModuleConfigError as e:
@@ -1293,7 +1381,13 @@ def quickstart_command(source: str | None) -> None:
     config_dict = _load_ariel_config()
     try:
         asyncio.run(
-            run_quickstart(config_dict, source, progress=output.report, project_dir=_config_dir())
+            run_quickstart(
+                config_dict,
+                source,
+                progress=output.report,
+                project_dir=_config_dir(),
+                store_deadline_s=_STORE_DEADLINE_S,
+            )
         )
     except ModuleConfigError as e:
         _fail_module_config(e)
@@ -1324,7 +1418,7 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
     config_dict = _load_ariel_config()
 
     try:
-        info = asyncio.run(get_purge_info(config_dict))
+        info = asyncio.run(get_purge_info(config_dict, store_deadline_s=_STORE_DEADLINE_S))
     except Exception as e:
         _handle_db_error(e)
         raise
@@ -1349,7 +1443,14 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
         return
 
     try:
-        asyncio.run(execute_purge(config_dict, embeddings_only, progress=output.report))
+        asyncio.run(
+            execute_purge(
+                config_dict,
+                embeddings_only,
+                progress=output.report,
+                store_deadline_s=_STORE_DEADLINE_S,
+            )
+        )
     except Exception as e:
         _handle_db_error(e)
         raise
@@ -1389,7 +1490,14 @@ def qmd_resync_command(rebuild: bool) -> None:
 
     config_dict = _load_ariel_config()
     try:
-        result = asyncio.run(run_qmd_resync(config_dict, rebuild=rebuild, progress=output.report))
+        result = asyncio.run(
+            run_qmd_resync(
+                config_dict,
+                rebuild=rebuild,
+                progress=output.report,
+                store_deadline_s=_STORE_DEADLINE_S,
+            )
+        )
     except ModuleConfigError as e:
         _fail_module_config(e)
     except ValueError as e:
