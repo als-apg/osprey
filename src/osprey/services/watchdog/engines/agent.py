@@ -14,11 +14,11 @@ servers it names, so no project hook runs. Read-only holds at four layers:
 * its environment blanks the keys that would tie it to a session: a judge is
   never held, and never holds the panel token.
 
-A run given an application's tool server (``knowledge`` is a base server) reads
-that application's backend through the terminal's panel door on its own read
-credential: one token per run from the terminal's :class:`JudgeCredentials`,
-scoped to the panels those applications serve, handed to their servers only,
-admitted on their safe-method agent routes only, and revoked when the run ends.
+A run given an application's tool server reads that application's backend
+through the terminal's panel door on its own read credential: one token per run
+from the terminal's :class:`JudgeCredentials`, scoped to the panels those
+applications serve, handed to their servers only, admitted on their safe-method
+agent routes only, and revoked when the run ends.
 
 Every tool call refused on the way is reported in ``refused_tool_calls``.
 :meth:`AgentEngine.judge` never raises: a run that times out, hits its budget,
@@ -89,10 +89,10 @@ DEFAULT_VIEW_TOKENS = 60_000
 #: The file tools a judge always has, scoped to its references.
 _FILE_TOOLS = ("Read", "Glob", "Grep")
 
-#: The servers a judge's read tools come from, beside any its ``tools`` name.
-#: ``knowledge`` is the Knowledge application's tool server; its reads reach the
+#: The servers a judge's read tools come from, beside any its ``tools`` name. An
+#: application's tool server joins only when ``tools`` names it; its reads reach the
 #: application's backend on the run's read credential.
-_BASE_SERVERS = ("controls", "osprey_facility_knowledge", "knowledge")
+_BASE_SERVERS = ("controls", "osprey_facility_knowledge")
 
 #: The result subtype of a run stopped at its budget.
 _BUDGET_SUBTYPE = "error_max_budget_usd"
