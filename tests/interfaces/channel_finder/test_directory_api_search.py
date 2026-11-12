@@ -32,6 +32,7 @@ _COLUMNS = [
     "host",
     "last_announced",
     "alarm",
+    "archived",
 ]
 #: The fixture page's row count: a page of this size comes back full.
 _PAGE_ROWS = len(_FIXTURE["search"]["rows"])
@@ -80,6 +81,8 @@ def _cell(row: dict[str, Any], column: str) -> str:
     if column == "alarm":
         severity = (value or {}).get("severity")
         return "" if severity in (None, "OK") else severity
+    if column == "archived":
+        return {True: "yes", False: "no"}.get(value, "")
     return "" if value is None else str(value)
 
 
@@ -107,6 +110,7 @@ class TestSearch:
             ("record_type", "calc"),
             ("alarm", "MAJOR"),
             ("alarm", "none"),
+            ("archived", "no"),
             ("page", "2"),
             ("page_size", "25"),
         ]
@@ -121,6 +125,7 @@ class TestSearch:
                 "ioc": ("demo-ioc-bpm", "demo-ioc-rf"),
                 "record_type": ("ai", "calc"),
                 "alarm": ("MAJOR", "none"),
+                "archived": ("no",),
                 "page": 2,
                 "page_size": 25,
             }
@@ -139,6 +144,7 @@ class TestSearch:
                 "ioc": (),
                 "record_type": (),
                 "alarm": (),
+                "archived": (),
                 "page": 0,
                 "page_size": 50,
             }
@@ -166,7 +172,7 @@ class TestCount:
         resp = _client(service).get("/api/directory/count")
 
         assert resp.json() == _FIXTURE["count"]
-        assert service.counts == [{"words": "", "alarm": ()}]
+        assert service.counts == [{"words": "", "alarm": (), "archived": ()}]
 
     def test_with_q_it_counts_the_words(self):
         service = FakeService()
@@ -174,15 +180,17 @@ class TestCount:
         resp = _client(service).get("/api/directory/count", params={"q": "BPM01"})
 
         assert resp.json() == _FIXTURE["count"]
-        assert service.counts == [{"words": "BPM01", "alarm": ()}]
+        assert service.counts == [{"words": "BPM01", "alarm": (), "archived": ()}]
 
     def test_an_alarm_filter_reaches_the_count(self):
         service = FakeService()
 
-        params = [("q", "BPM01"), ("alarm", "MAJOR"), ("alarm", "MINOR")]
+        params = [("q", "BPM01"), ("alarm", "MAJOR"), ("alarm", "MINOR"), ("archived", "no")]
         _client(service).get("/api/directory/count", params=params)
 
-        assert service.counts == [{"words": "BPM01", "alarm": ("MAJOR", "MINOR")}]
+        assert service.counts == [
+            {"words": "BPM01", "alarm": ("MAJOR", "MINOR"), "archived": ("no",)}
+        ]
 
     def test_an_unavailable_count_carries_its_reason(self):
         resp = _client(FakeService(count=_UNAVAILABLE)).get("/api/directory/count")
@@ -202,15 +210,19 @@ class TestExport:
         assert lines[0] == [_FIXTURE["search"]["searched"]]
         assert lines[1] == _COLUMNS
         assert lines[2:] == _expected_rows()
-        assert [line[-1] for line in lines[2:]] == ["MAJOR", ""]
+        assert [line[-2:] for line in lines[2:]] == [["MAJOR", "yes"], ["", "no"]]
 
     def test_an_alarm_filter_reaches_the_export(self):
         service = FakeService()
 
-        _client(service).get("/api/directory/export.csv", params={"alarm": "none"})
+        _client(service).get(
+            "/api/directory/export.csv", params={"alarm": "none", "archived": "no"}
+        )
 
         assert service.counts[0]["alarm"] == ("none",)
         assert service.searches[0]["alarm"] == ("none",)
+        assert service.counts[0]["archived"] == ("no",)
+        assert service.searches[0]["archived"] == ("no",)
 
     def test_within_the_filter_cap_one_search_fetches_the_whole_set(self):
         service = FakeService(total=120)
@@ -219,7 +231,7 @@ class TestExport:
         _client(service).get("/api/directory/export.csv", params=params)
 
         filters = {"words": "BPM01", "name": None, "origin": (), "ioc": ("demo-ioc-bpm",)}
-        filters.update(record_type=(), alarm=())
+        filters.update(record_type=(), alarm=(), archived=())
         assert service.counts == [filters]
         assert service.searches == [{**filters, "page": 0, "page_size": 120}]
 

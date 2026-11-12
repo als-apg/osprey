@@ -64,7 +64,7 @@ class Source:
     ``service`` is the backend's type name; ``rehearsal`` is true on ``standin``.
     """
 
-    kind: Literal["directory", "alarm_state", "alarm_log", "put_log", "logbook"]
+    kind: Literal["directory", "alarm_state", "alarm_log", "put_log", "logbook", "archive"]
     target: Literal["va", "live", "standin"]
     service: str
     rehearsal: bool
