@@ -26,6 +26,7 @@ from typing import Any, cast
 from osprey.agent_runner.provider_env import load_provider_spec
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
@@ -198,6 +199,8 @@ def _render_image_build_cmd(
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.extend(site_image_build_args(config, context))
+    # Built from the project Dockerfile, so it shares the project image's cache.
+    cmd.extend(build_cache_args(runtime, PROJECT_KEY))
     with_plain_build_progress(cmd)
     cmd.append(context)
     return cmd
