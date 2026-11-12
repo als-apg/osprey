@@ -452,7 +452,6 @@
 <li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -553,7 +552,7 @@ How it is put together is <a class="reference internal" href="../../architecture
 <li><p class="sd-card-text">Pointing a project at the Virtual Accelerator the stack already deploys</p></li>
 <li><p class="sd-card-text">Moving a running deployment between the machines it describes</p></li>
 <li><p class="sd-card-text">The simulator’s two venues, and why plans go browse-only in process</p></li>
-<li><p class="sd-card-text">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> scenarios behave in Virtual Accelerator mode</p></li>
+<li><p class="sd-card-text">Applying, stilling and writing simulator scenarios</p></li>
 <li><p class="sd-card-text">Write limits</p></li>
 <li><p class="sd-card-text">The stored archive the stack deploys, and the one pairing it refuses</p></li>
 </ul>
@@ -863,6 +862,160 @@ default to fall back on — set it in the deployment’s <code class="docutils l
 than zero, rather than being clamped. A typo therefore shows up in
 <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code> instead of quietly changing what the machine looks like.</p>
 </section>
+<section id="scenarios">
+<span id="how-to-run-scenarios"></span><h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
+<p>A scenario is one way the simulated machine departs from its baseline. It can
+set values in the machine’s models, write faults into a physics model, shape
+the history the archive shows, and add logbook entries that narrate it.</p>
+<p>Scenarios give tests, demos and rehearsals a known machine state: a fault for
+the agent to find, with the archive history and logbook entries that go with
+it.</p>
+<p>You write each scenario as one YAML file under <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> serves the scenarios from the simulator view under
+<code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>. The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span></code> commands list, apply and report
+on them; <a class="reference internal" href="../../reference/cli.html#cli-osprey-sim"><span class="std std-ref">osprey sim</span></a> has their options.</p>
+<section id="the-scenarios-the-demo-ships">
+<h3>The scenarios the demo ships<a class="headerlink" href="#the-scenarios-the-demo-ships" title="Link to this heading">#</a></h3>
+<p>The demo preset ships seven scenarios in
+<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Scenario</p></th>
+<th class="head"><p>What it shows</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">nominal</span></code></p></td>
+<td><p>All systems nominal. It carries the background logbook narrative of
+the weeks before the demo.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code></p></td>
+<td><p>Three thermal excursions on cavity 1 in the week before an
+investigation. Each is a temperature rise, a reflected-power spike and
+a forward-power trip; the last one is a beam dump. The archive shows
+the excursions. The logbook narrates the dump, the investigation and
+the cooling repair. Cavity 1 reads 26.5 degC live, and cavity 2 shows
+one minor excursion for contrast.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">rf-thermal-live</span></code></p></td>
+<td><p>Live thermal wander on cavity 1, for correlation plots. One slow
+shared driver moves its temperature, tuner, reflected and forward
+power together, each with its own noise. It adds no archived history.
+It does not compose with <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code>, which writes the same
+channels.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vacuum-burst</span></code></p></td>
+<td><p>A vacuum burst in one sector with a correlated beam-current drop at
+14:32:08 local time, recurring daily in the archive.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bpm-polarity</span></code></p></td>
+<td><p>BPM 17 reports an inverted reading in both planes. No single channel
+is out of range; the fault shows only as an orbit correction that does
+not converge.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">orm-dual-fault</span></code></p></td>
+<td><p>The BPM 17 inversion and corrector HCM01 at half its nominal gain at
+once, both visible only through an orbit-response measurement.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">demo-history</span></code></p></td>
+<td><p>Three past agent sessions (a sector-7 beam loss, an approved corrector
+nudge, an orbit review), with the archive events and logbook entries
+behind them.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The preset starts a fresh deployment in <code class="docutils literal notranslate"><span class="pre">rf-thermal</span></code> and <code class="docutils literal notranslate"><span class="pre">demo-history</span></code>,
+as the profile key <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> names (see
+<a class="reference internal" href="../../reference/configuration/config.html"><span class="doc">Runtime Configuration — config.yml</span></a>).</p>
+<p>A scenario’s sessions are laid down only by a deployment’s first deploy, from
+its default set. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> never adds or removes sessions: a set
+without <code class="docutils literal notranslate"><span class="pre">demo-history</span></code> drops its archive events and logbook entries only.</p>
+</section>
+<section id="apply-a-scenario">
+<h3>Apply a scenario<a class="headerlink" href="#apply-a-scenario" title="Link to this heading">#</a></h3>
+<p>Applying a scenario makes it part of the <em>active set</em>: the scenarios the
+simulated machine shows now. <code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always in the active set.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> deletes every entry in the ARIEL logbook and reseeds
+the logbook from the active scenarios. It also rewrites windows of the
+stored archive. On a virtual-accelerator deployment, those windows can
+hold samples recorded from the running machine. The command asks before
+each of these, unless you pass <code class="docutils literal notranslate"><span class="pre">--yes</span></code>. To leave both stores untouched,
+pass <code class="docutils literal notranslate"><span class="pre">--no-seed</span></code>.</p>
+</div>
+<p>To switch the simulated machine to the <code class="docutils literal notranslate"><span class="pre">vacuum-burst</span></code> scenario, run these
+commands in order:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>sim<span class="w"> </span>list
+osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>vacuum-burst
+osprey<span class="w"> </span>sim<span class="w"> </span>status
+</pre></div>
+</div>
+<ol class="arabic simple">
+<li><p>List the scenarios with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>. The list marks the active set
+with <code class="docutils literal notranslate"><span class="pre">*</span></code> and says which scenarios carry a logbook narrative.</p></li>
+<li><p>Apply the scenario with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">vacuum-burst</span></code>. The command
+replaces the active set with the names you give it, plus <code class="docutils literal notranslate"><span class="pre">nominal</span></code>. It
+then purges and reseeds the logbook and rewrites the affected windows of
+the archive. Live values, history and narrative now tell one story.</p></li>
+<li><p>Check the simulator with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span></code>. It shows each served
+physics model’s status and the log it writes.</p></li>
+</ol>
+<p>Several scenarios apply together only when no two of them write the same
+target, a channel or a model’s fault. A set that breaks this rule is refused
+before anything is written, and the refusal names the target. Archive events
+are not a target: events of several scenarios on one channel combine, so
+<code class="docutils literal notranslate"><span class="pre">[vacuum-burst,</span> <span class="pre">rf-thermal]</span></code> composes.</p>
+</section>
+<section id="what-a-switch-does-to-the-running-simulator">
+<h3>What a switch does to the running simulator<a class="headerlink" href="#what-a-switch-does-to-the-running-simulator" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works the same in both venues (<a class="reference internal" href="#two-venues">Two venues</a>).
+It writes the project’s <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code> file,
+and the simulator re-reads the file on its next pass (<code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code>,
+1 s by default). The machine then starts again at the new set’s start state:
+setpoints written during the session are dropped, served and in process alike.</p>
+<p>The served simulator’s container mounts two directories:</p>
+<ul class="simple">
+<li><p>the render’s data root, <code class="docutils literal notranslate"><span class="pre">build/data</span></code>: read-only, holding the simulator view
+the build writes, rebuilt on every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>;</p></li>
+<li><p>the scenario state directory, <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code>: written by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> while the system runs.</p></li>
+</ul>
+<p>Both mounts are automatic for the deployed service.</p>
+</section>
+<section id="hold-readings-still">
+<h3>Hold readings still<a class="headerlink" href="#hold-readings-still" title="Link to this heading">#</a></h3>
+<p>Every facility has a scenario named <code class="docutils literal notranslate"><span class="pre">still</span></code> that stills every float
+reading: the reading serves without drift, couplings or noise. Run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">still</span></code>. For a deployment that should start still, set
+<code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">[still]</span></code>.</p>
+<p>A scenario file may define its own <code class="docutils literal notranslate"><span class="pre">still</span></code>, which replaces the built-in one.
+<code class="docutils literal notranslate"><span class="pre">still</span></code> composes with overrides and faults. It is refused beside a scenario
+that sets the same reading’s <code class="docutils literal notranslate"><span class="pre">noise</span></code> or <code class="docutils literal notranslate"><span class="pre">couple</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">still</span></code> holds in both venues.</p>
+</section>
+<section id="write-a-scenario">
+<h3>Write a scenario<a class="headerlink" href="#write-a-scenario" title="Link to this heading">#</a></h3>
+<p>To add a scenario to your facility:</p>
+<ol class="arabic simple">
+<li><p>Create <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;.yaml</span></code>. The file name is the
+scenario name.</p></li>
+<li><p>Add the keys the scenario needs, from <a class="reference internal" href="../../reference/configuration/scenario-files.html#reference-scenario-files"><span class="std std-ref">Scenario files</span></a>.
+Every key is optional.</p></li>
+<li><p>If a logbook entry has attachments, put the files in the folder
+<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;/</span></code> beside the scenario file.</p></li>
+<li><p>Check the sources with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>, which writes nothing.
+An address, model or key the facility does not have stops the check, and
+the error names the file.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. The new scenario appears in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>.</p></li>
+</ol>
+</section>
+</section>
 <section id="serving-your-facility-s-own-model">
 <span id="va-serving-your-own-model"></span><h2>Serving your facility’s own model<a class="headerlink" href="#serving-your-facility-s-own-model" title="Link to this heading">#</a></h2>
 <p>To version the model with the other machine facts apart from any one
@@ -954,7 +1107,7 @@ or not a shot runs.</p></li>
 </ul>
 <p>Shots run only in the container: in process the chain serves its start
 values and a request starts nothing. What scenarios and channel faults do to
-a chain is in <a class="reference internal" href="../run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
+a chain is in <a class="reference internal" href="../../reference/configuration/scenario-files.html#scenario-channel-faults"><span class="std std-ref">Channel faults</span></a>.</p>
 </section>
 <section id="turn-by-turn-data-from-an-injection-chain">
 <span id="va-turn-by-turn"></span><h3>Turn-by-turn data from an injection chain<a class="headerlink" href="#turn-by-turn-data-from-an-injection-chain" title="Link to this heading">#</a></h3>
@@ -1321,27 +1474,6 @@ image has to be on the host or pullable where it is named;
 <a class="reference internal" href="../deploy-project/compose-templates.html#deployment-image-builds"><span class="std std-ref">When a deploy builds an image</span></a> says when each start builds.</p>
 </section>
 </section>
-<section id="scenarios">
-<h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works the same in both venues. Applying a
-scenario writes the project’s <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code>
-file; the in-container engine polls it and, within about a second, composed
-channel values reflect the new scenario. There is one behavioral difference
-between the venues. Served, a scenario switch only refreshes the engine-composed
-channels: setpoints you wrote during the session live in the IOC’s own records
-and <strong>survive</strong> the switch. (In process, written values are reset.) <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span>
-<span class="pre">apply</span> <span class="pre">still</span></code> serves every reading without drift, couplings or noise.</p>
-<p>The served simulator’s container mounts two directories:</p>
-<ul class="simple">
-<li><p>the render’s data root, <code class="docutils literal notranslate"><span class="pre">build/data</span></code>: read-only, holding the simulator view
-the build writes, rebuilt on every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>;</p></li>
-<li><p>the scenario state directory, <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code>: written by
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> while the system runs.</p></li>
-</ul>
-<p>Both mounts are automatic for the deployed service.</p>
-<p>What a scenario may contain, how scenarios compose, and what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span>
-<span class="pre">apply</span></code> refuses is in <a class="reference internal" href="../run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
-</section>
 <section id="write-limits">
 <h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>
 <p>Channels with a record in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> carry a min/max range,
@@ -1686,6 +1818,14 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-venues">Two venues</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-ioc-serves-and-how-often">What the IOC serves, and how often</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-scenarios-the-demo-ships">The scenarios the demo ships</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#apply-a-scenario">Apply a scenario</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-switch-does-to-the-running-simulator">What a switch does to the running simulator</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hold-readings-still">Hold readings still</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-a-scenario">Write a scenario</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-your-facility-s-own-model">Serving your facility’s own model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-pyat-lattice">A pyAT lattice</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#an-injection-chain">An injection chain</a></li>
@@ -1693,7 +1833,6 @@ reporting the key as merely unset.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#another-backend">Another backend</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-limits">Write limits</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-to-the-simulator-without-arming-the-machine">Write to the simulator without arming the machine</a></li>
 </ul>

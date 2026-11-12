@@ -388,6 +388,7 @@
 <li class="toctree-l2"><a class="reference internal" href="profile.html">Build Profile — profile.yml</a></li>
 <li class="toctree-l2"><a class="reference internal" href="config.html">Runtime Configuration — config.yml</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="scenario-files.html">Scenario files</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -486,7 +487,8 @@ build profile a facility writes, and the input <code class="docutils literal not
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is what a running project reads – rendered from the profile, so
 it is where you look a setting up; a change that should survive the next build
 belongs in the profile. Anything that must not sit in a committed file, such as
-API keys and per-host values, arrives from the environment instead.</p>
+API keys and per-host values, arrives from the environment instead. Scenario
+files, the fourth page, belong to the simulator.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -520,6 +522,16 @@ Environment Variables</div>
 provider keys live in the deployment repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Scenario Files</div>
+<p class="sd-card-text">Every key a simulator scenario file accepts, the archive event shapes,
+and what each channel fault does.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="scenario-files.html"><span class="doc">Scenario files</span></a></div>
 </div>
 </div>
 </div>

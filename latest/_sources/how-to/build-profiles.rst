@@ -157,7 +157,7 @@ the render, never back into ``data/facility/``:
      data/benchmarks/queries.json         the benchmarks view, when a benchmark dataset is configured
 
 ``osprey facility show`` prints the facility the tree builds and each view's
-path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
+path. What a scenario file holds is in :ref:`reference-scenario-files`.
 
 
 Convention directories
