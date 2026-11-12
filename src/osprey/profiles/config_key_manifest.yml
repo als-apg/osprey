@@ -2442,7 +2442,7 @@ keys:
 
   # ── PV directory ────────────────────────────────────────────────────
   # Read by services/pv_directory/resolve.py (the build's check and the
-  # predicates) and by pv_directory_targets in the connectors, which builds one
+  # predicates) and by service_targets in the connectors, which builds one
   # backend spec per sub-block from its type and settings. A child profile
   # turns the section off with `pv_directory: null`, which builds only over a
   # parent that spells the section as one nested mapping.

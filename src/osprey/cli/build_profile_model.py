@@ -1769,7 +1769,7 @@ class BuildProfile:
 
         The overlay is not a rendered config: the section is rebuilt from the
         dotted or nested ``config:`` keys, and the simulator port is filled from
-        the ``virtual_accelerator:`` block, where ``has_simulator`` reads it.
+        the ``virtual_accelerator:`` block, where ``simulator.has_simulator`` reads it.
         What a valid section cannot serve is printed once per process.
         """
         from osprey.services.pv_directory.resolve import SectionError, resolve_section

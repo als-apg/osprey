@@ -16,7 +16,7 @@ its pages and its agent tools only read.
 
 .. seealso::
 
-   :doc:`/reference/connectors-api/pv-directory`
+   :doc:`/reference/connectors-api/services`
       The record shapes and the per-target source table.
 
 
