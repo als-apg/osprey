@@ -20,7 +20,7 @@ router = APIRouter()
 
 #: The largest page a search answers.
 MAX_PAGE_SIZE = 50
-#: The CSV columns: the ``DirectoryRow`` fields, in Contracts order.
+#: The CSV columns: the ``DirectoryRow`` fields, in Contracts order, then the alarm severity.
 _COLUMNS = (
     "name",
     "origin",
@@ -30,6 +30,7 @@ _COLUMNS = (
     "ioc",
     "host",
     "last_announced",
+    "alarm",
 )
 _CSV = "text/csv"
 #: The leading characters that make a spreadsheet read a cell as a formula.
@@ -47,6 +48,7 @@ def _filters(
     origin: list[str] | None,
     ioc: list[str] | None,
     record_type: list[str] | None,
+    alarm: list[str] | None,
 ) -> dict[str, Any]:
     """The search's filters, as the service's keywords."""
     return {
@@ -55,6 +57,7 @@ def _filters(
         "origin": tuple(origin or ()),
         "ioc": tuple(ioc or ()),
         "record_type": tuple(record_type or ()),
+        "alarm": tuple(alarm or ()),
     }
 
 
@@ -70,11 +73,12 @@ async def search(
     origin: _Many = None,
     ioc: _Many = None,
     record_type: _Many = None,
+    alarm: _Many = None,
     page: _Page = 0,
     page_size: _PageSize = MAX_PAGE_SIZE,
 ) -> dict[str, Any]:
     """One page of the search, as the ``DirectoryPage`` payload."""
-    filters = _filters(q, name, origin, ioc, record_type)
+    filters = _filters(q, name, origin, ioc, record_type, alarm)
     payload: dict[str, Any] = await _service(request).search(
         **filters, page=page, page_size=page_size
     )
@@ -82,9 +86,9 @@ async def search(
 
 
 @router.get("/count")
-async def count(request: Request, q: _Words = "") -> dict[str, Any]:
-    """How many PVs match *q*; without it, the size of the current target's directory."""
-    payload: dict[str, Any] = await _service(request).count(words=q)
+async def count(request: Request, q: _Words = "", alarm: _Many = None) -> dict[str, Any]:
+    """How many PVs match *q* and *alarm*; without them, the size of the target's directory."""
+    payload: dict[str, Any] = await _service(request).count(words=q, alarm=tuple(alarm or ()))
     return payload
 
 
@@ -96,6 +100,7 @@ async def export_csv(
     origin: _Many = None,
     ioc: _Many = None,
     record_type: _Many = None,
+    alarm: _Many = None,
     page: _Page = 0,
     page_size: _PageSize = MAX_PAGE_SIZE,
 ) -> Response:
@@ -105,7 +110,7 @@ async def export_csv(
     first line names what was searched, the second the columns.
     """
     service = _service(request)
-    filters = _filters(q, name, origin, ioc, record_type)
+    filters = _filters(q, name, origin, ioc, record_type, alarm)
     counted = await service.count(**filters)
     total = counted.get("total") if counted.get("outcome") != "unavailable" else None
     cap = service.filter_cap
@@ -131,13 +136,22 @@ async def export_csv(
     writer.writerow([_cell(searched)])
     writer.writerow(_COLUMNS)
     for row in rows:
-        writer.writerow([_cell(row.get(column)) for column in _COLUMNS])
+        writer.writerow([_cell(_column(row, column)) for column in _COLUMNS])
     return Response(content=out.getvalue(), media_type=_CSV, headers=document_headers(_CSV))
 
 
 def _raise_unavailable(answer: dict[str, Any]) -> None:
     if answer.get("outcome") == "unavailable":
         raise HTTPException(status_code=503, detail=answer.get("reason") or "unavailable")
+
+
+def _column(row: dict[str, Any], column: str) -> Any:
+    """*row*'s value in *column*; ``alarm`` is the feed's severity, empty for OK or none."""
+    value = row.get(column)
+    if column != "alarm":
+        return value
+    severity = value.get("severity") if isinstance(value, dict) else None
+    return None if severity == "OK" else severity
 
 
 def _cell(value: Any) -> str:

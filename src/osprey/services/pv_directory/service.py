@@ -10,9 +10,12 @@ current target answers the no-source form.
 
 A search runs the page, the count and the facets concurrently under one deadline
 (``settings.timeout_s``); a part that misses it is listed in ``partial``. Facets and
-the origin filter are computed over the whole result set, fetched when its count
-is within ``display.filter_cap``. Rows carry their origin mark and lose the
-properties ``display.hidden_properties`` names.
+the origin and alarm filters are computed over the whole result set, fetched when
+its count is within ``display.filter_cap``. Rows carry their origin mark and lose
+the properties ``display.hidden_properties`` names. When the target has an alarm
+feed, each row also carries ``alarm``: the feed's state for it, ``None`` when the
+feed holds none; a feed that does not answer marks no row and is listed in
+``partial`` instead.
 
 Backends, the alarm snapshot and the cached sets belong to one (target,
 generation): when either moves, they are dropped, the snapshot closed, and the
@@ -65,6 +68,11 @@ _CACHE_TTL_S = 30.0
 _CACHE_SIZE = 32
 #: How far past its deadline an alarm-feed probe may run before it is cut off.
 _PROBE_GRACE_S = 1.0
+
+#: The alarm filter's values, worst first: the severities, then ``none`` (OK or no state).
+_ALARM_VALUES = ("UNDEFINED", "INVALID", "MAJOR", "MINOR", "none")
+#: The fields of a feed state a row carries.
+_ALARM_FIELDS = ("severity", "status", "latched", "acknowledged", "time")
 
 #: The served names of the row fields the facets count, after ``origin``.
 _ROW_FACETS = ("ioc", "record_type")
@@ -122,38 +130,42 @@ class DirectoryService:
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
             return _no_source_page(reason or NO_SOURCE_REASON, target)
-        origins, server = _split_origin(fields)
+        origins, alarms, server = _split_filters(fields)
+        cut = bool(origins or alarms)
         deadline = self._timeout()
         started = time.monotonic()
 
         count = asyncio.create_task(self._count(at, backend, server, deadline))
         full = asyncio.create_task(self._full_set(at, backend, server, count, started, deadline))
-        page = None if origins else asyncio.create_task(backend.search(server, deadline))
-        tasks = [task for task in (count, full, page) if task is not None]
+        feed = asyncio.create_task(self._alarm_index(deadline))
+        page = None if cut else asyncio.create_task(backend.search(server, deadline))
+        tasks = [task for task in (count, full, feed, page) if task is not None]
         await asyncio.wait(tasks, timeout=deadline)
         late = f"no answer within {deadline:g} s"
-        counted, fetched = _result(count, late), _result(full, late)
+        counted, fetched, index = _result(count, late), _result(full, late), _result(feed, late)
         await _cancel(tasks)
 
         partial: list[Mapping[str, str]] = []
         total = counted if isinstance(counted, int) else None
         if isinstance(counted, Unavailable):
             partial.append({"part": "count", "reason": counted.reason})
+        if isinstance(index, Unavailable):
+            partial.append({"part": "alarm", "reason": index.reason})
 
         facets: dict[str, list[Mapping[str, Any]]] | None = None
         facets_reason: str | None = None
         marked: list[tuple[Any, Origin]] | None = None
         if isinstance(fetched, _FullSet):
             marked = self._marked(backend, fetched.rows)
-            facets = _facets(marked, origins)
+            facets = _facets(marked, origins, alarms, index)
         else:
             facets_reason = fetched.reason
             if not isinstance(fetched, _TooMany):
                 partial.append({"part": "facets", "reason": fetched.reason})
 
         fields_out: dict[str, Any]
-        if origins:
-            fields_out = self._origin_page(server, origins, marked, fetched)
+        if cut:
+            fields_out = self._cut_page(server, origins, alarms, marked, fetched, index)
         else:
             fields_out = self._server_page(backend, _result(page, late), total, partial)
             if fields_out.get("total") is None:
@@ -161,7 +173,7 @@ class DirectoryService:
         rows = fields_out.pop("rows", [])
         payload: dict[str, Any] = as_payload(
             DirectoryPage(
-                searched=_searched(server, origins),
+                searched=_searched(server, origins, alarms),
                 source=source,
                 partial=partial,
                 facets=facets,
@@ -169,7 +181,8 @@ class DirectoryService:
                 **fields_out,
             )
         )
-        payload["rows"] = [_served_row(row, origin) for row, origin in rows]
+        alarm_states = index if isinstance(index, dict) else None
+        payload["rows"] = [_served_row(row, origin, alarm_states) for row, origin in rows]
         return payload
 
     async def count(self, **fields: Any) -> dict[str, Any]:
@@ -179,19 +192,23 @@ class DirectoryService:
         backend, source, reason = await self._resolve("pv_directory")
         if backend is None:
             return _no_source_count(reason or NO_SOURCE_REASON, target)
-        origins, server = _split_origin(fields)
+        origins, alarms, server = _split_filters(fields)
         deadline = self._timeout()
         started = time.monotonic()
         answer: Any
-        if origins:
+        if origins or alarms:
             count = asyncio.create_task(self._count(at, backend, server, deadline))
-            answer = await self._bounded(
-                self._full_set(at, backend, server, count, started, deadline), deadline
+            answer, index = await asyncio.gather(
+                self._bounded(
+                    self._full_set(at, backend, server, count, started, deadline), deadline
+                ),
+                self._bounded(self._alarm_index(deadline), deadline) if alarms else _none(),
             )
             await _cancel([count])
             if isinstance(answer, _FullSet):
-                answer = sum(
-                    origin in origins for _row, origin in self._marked(backend, answer.rows)
+                answer = _unfiltered(alarms, index) or sum(
+                    _kept(origins, alarms, index)(row, origin)
+                    for row, origin in self._marked(backend, answer.rows)
                 )
         else:
             answer = await self._bounded(self._count(at, backend, server, deadline), deadline)
@@ -410,17 +427,40 @@ class DirectoryService:
         self._store(at, key, fetched)
         return fetched
 
-    def _origin_page(
+    async def _alarm_index(self, deadline: float) -> Any:
+        """The feed's state of every channel it holds, by channel.
+
+        ``Unavailable`` when the feed does not answer, ``None`` when the target has
+        no alarm-state source.
+        """
+        backend, _source, reason = await self._resolve("alarm_state")
+        if backend is None:
+            return None if reason is None or reason == NO_SOURCE_REASON else Unavailable(reason)
+        snapshot = await self.snapshot()
+        if snapshot is None:
+            return Unavailable("the target moved")
+        answer = await snapshot.states(deadline)
+        if isinstance(answer, Unavailable):
+            return answer
+        return {row.channel: row.state for row in answer.rows}
+
+    def _cut_page(
         self,
         query: Any,
         origins: tuple[str, ...],
+        alarms: tuple[str, ...],
         marked: list[tuple[Any, Origin]] | None,
         fetched: Any,
+        index: Any,
     ) -> dict[str, Any]:
-        """The page of an origin-filtered search, cut from the whole fetched set."""
+        """The page of an origin- or alarm-filtered search, cut from the whole fetched set."""
         if marked is None:
             return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": fetched.reason}
-        kept = [pair for pair in marked if pair[1] in origins]
+        refused = _unfiltered(alarms, index)
+        if refused is not None:
+            return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": refused.reason}
+        keeps = _kept(origins, alarms, index)
+        kept = [pair for pair in marked if keeps(*pair)]
         size = max(query.page_size, 0)
         start = max(query.page, 0) * size
         rows = kept[start : start + size]
@@ -550,18 +590,70 @@ def _result(task: asyncio.Task[Any] | None, late: str) -> Any:
     return task.result()
 
 
+async def _none() -> None:
+    return None
+
+
+def _alarm_value(index: Mapping[str, Any], name: str) -> str:
+    """The alarm filter's value of the PV *name*: its severity, or ``none`` for OK or no state."""
+    state = index.get(name)
+    severity = None if state is None else state.severity
+    return "none" if severity in (None, "OK") else str(severity)
+
+
+def _unfiltered(alarms: tuple[str, ...], index: Any) -> Unavailable | None:
+    """Why an alarm filter cannot be applied: the feed did not answer, or there is none."""
+    if not alarms or isinstance(index, dict):
+        return None
+    reason = index.reason if isinstance(index, Unavailable) else NO_SOURCE_REASON
+    return Unavailable(f"cannot filter by alarm: {reason}")
+
+
+def _kept(origins: tuple[str, ...], alarms: tuple[str, ...], index: Any) -> Any:
+    """Whether a marked row passes the origin and alarm filters; one without its index passes."""
+    states = index if isinstance(index, dict) else None
+
+    def keeps(row: Any, origin: Origin) -> bool:
+        if origins and origin not in origins:
+            return False
+        return not (alarms and states is not None) or _alarm_value(states, row.name) in alarms
+
+    return keeps
+
+
 def _facets(
-    marked: list[tuple[Any, Origin]], origins: tuple[str, ...]
+    marked: list[tuple[Any, Origin]],
+    origins: tuple[str, ...],
+    alarms: tuple[str, ...],
+    index: Any,
 ) -> dict[str, list[Mapping[str, Any]]]:
-    """Value counts over the fetched set; IOC and record type over the origin-filtered part."""
-    kept = [row for row, origin in marked if not origins or origin in origins]
-    return {
-        "origin": _tally(origin for _row, origin in marked),
+    """Value counts over the fetched set, each group under the other groups' filters.
+
+    The ``alarm`` group is present when the feed answered, its values worst first.
+    """
+    by_alarm = _kept((), alarms, index)
+    by_origin = _kept(origins, (), index)
+    both = _kept(origins, alarms, index)
+    kept = [row for row, origin in marked if both(row, origin)]
+    facets: dict[str, list[Mapping[str, Any]]] = {
+        "origin": _tally(origin for row, origin in marked if by_alarm(row, origin)),
         **{
             name: _tally(getattr(row, _CONTRACT_FIELD[name]) for row in kept)
             for name in _ROW_FACETS
         },
     }
+    if isinstance(index, dict):
+        counted = _tally(
+            _alarm_value(index, row.name) for row, origin in marked if by_origin(row, origin)
+        )
+        facets["alarm"] = sorted(counted, key=_alarm_order)
+    return facets
+
+
+def _alarm_order(entry: Mapping[str, Any]) -> int:
+    """An alarm facet value's place: worst first, a severity outside the list before all."""
+    value = entry["value"]
+    return _ALARM_VALUES.index(value) if value in _ALARM_VALUES else -1
 
 
 def _tally(values: Iterable[Any]) -> list[Mapping[str, Any]]:
@@ -573,24 +665,34 @@ def _tally(values: Iterable[Any]) -> list[Mapping[str, Any]]:
     return [{"value": value, "count": count} for value, count in ordered]
 
 
-def _split_origin(fields: Mapping[str, Any]) -> tuple[tuple[str, ...], Any]:
-    """The origin filter of a search's served keywords, and the query the server answers."""
+def _split_filters(fields: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...], Any]:
+    """The origin and alarm filters of a search's served keywords, and the server's query."""
     rest = {_CONTRACT_FIELD.get(key, key): value for key, value in fields.items()}
-    origin = rest.pop("origin", None)
-    if origin is None:
-        origins: tuple[str, ...] = ()
-    else:
-        origins = (origin,) if isinstance(origin, str) else tuple(origin)
-    return origins, DirectoryQuery(**rest)
+    origins, alarms = (_values(rest.pop(key, None)) for key in ("origin", "alarm"))
+    return origins, alarms, DirectoryQuery(**rest)
 
 
-def _served_row(row: Any, origin: Origin) -> dict[str, Any]:
-    """*row* as served: its name, its origin mark, then the rest of its fields."""
+def _values(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    return (value,) if isinstance(value, str) else tuple(value)
+
+
+def _served_row(
+    row: Any, origin: Origin, alarm_states: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """*row* as served: its name, its origin mark, its alarm when the feed answered, the rest."""
     payload: dict[str, Any] = as_payload(row)
-    return {"name": payload.pop("name"), "origin": origin, **payload}
+    served: dict[str, Any] = {"name": payload.pop("name"), "origin": origin}
+    if alarm_states is not None:
+        state = alarm_states.get(served["name"])
+        served["alarm"] = (
+            None if state is None else {key: getattr(state, key) for key in _ALARM_FIELDS}
+        )
+    return {**served, **payload}
 
 
-def _searched(query: Any, origins: tuple[str, ...]) -> str:
+def _searched(query: Any, origins: tuple[str, ...], alarms: tuple[str, ...] = ()) -> str:
     """The search in plain words."""
     parts = []
     if query.words.strip():
@@ -606,6 +708,8 @@ def _searched(query: Any, origins: tuple[str, ...]) -> str:
     parts.extend(f"{key} {value}" for key, value in query.properties.items())
     if origins:
         parts.append(f"origin {' or '.join(origins)}")
+    if alarms:
+        parts.append(f"alarm {' or '.join(alarms)}")
     return " · ".join(parts) or "every PV"
 
 

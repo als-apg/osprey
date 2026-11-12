@@ -26,7 +26,7 @@ import osprey.channel_roster as channel_roster
 from osprey.services.pv_directory import _connectors, service
 from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey_connectors import control_context
-from osprey_connectors.alarm_state import AlarmStateRecord
+from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
 from osprey_connectors.service_answers import Outcome, Source, Unavailable
 from tests._service_factory import patch_create_service
@@ -137,6 +137,10 @@ class FakeDirectory(FakeBackend):
 
 
 class FakeAlarmState(FakeBackend):
+    """A feed holding ``held``: a state per channel, or ``Unavailable`` for the whole list."""
+
+    held: Any = {}
+
     async def start(self) -> None:
         pass
 
@@ -148,6 +152,15 @@ class FakeAlarmState(FakeBackend):
 
     async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         return Unavailable("no message from the feed yet")
+
+    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        if isinstance(self.held, Unavailable):
+            return self.held
+        rows = tuple(
+            AlarmStateRow(channel=channel, path=f"/Demo/{channel}", state=state)
+            for channel, state in self.held.items()
+        )
+        return AlarmStates(rows=rows, stale=False, last_contact=None)
 
 
 class FakeLog(FakeBackend):
@@ -183,6 +196,7 @@ def built(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     monkeypatch.setattr(FakeDirectory, "records", {})
     monkeypatch.setattr(FakeDirectory, "count_delay", 0.0)
     monkeypatch.setattr(FakeDirectory, "search_delay", 0.0)
+    monkeypatch.setattr(FakeAlarmState, "held", {})
     return made
 
 
@@ -447,6 +461,109 @@ async def test_count_answers_the_whole_directory(tmp_path: Path) -> None:
     assert (await directory.count())["total"] == 2
     assert (await directory.count(origin=["curated"]))["total"] == 1
     assert (await directory.count(words="nothing"))["outcome"] == "no_match"
+    await directory.aclose()
+
+
+# -- the alarm join -------------------------------------------------------------
+
+_FEED = {
+    "type": "phoebus_alarm_server",
+    "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
+}
+_MAJOR = AlarmStateRecord(
+    severity="MAJOR", status="HIHI_ALARM", latched=True, time="2026-03-02T08:12:30Z"
+)
+
+
+def _alarmed_directory(tmp_path: Path, **display: Any) -> Any:
+    """Three rows: PV1 in MAJOR, PV2 held OK, PV3 with no state in the feed."""
+    FakeDirectory.rows = [_row(f"SR:PV{i}", server="ioc-a") for i in (1, 2, 3)]
+    FakeAlarmState.held = {"SR:PV1": _MAJOR, "SR:PV2": AlarmStateRecord(severity="OK")}
+    section = {**FACILITY, "alarm_state": _FEED, "display": display}
+    return _service(_config(tmp_path, LIVE_BUILD, section, "SR:PV1"), tmp_path)
+
+
+async def test_search_marks_each_row_with_the_feed_state(tmp_path: Path) -> None:
+    directory = _alarmed_directory(tmp_path)
+
+    page = await directory.search(words="SR")
+
+    assert [row["alarm"] for row in page["rows"]] == [
+        {
+            "severity": "MAJOR",
+            "status": "HIHI_ALARM",
+            "latched": True,
+            "acknowledged": False,
+            "time": "2026-03-02T08:12:30Z",
+        },
+        {"severity": "OK", "status": None, "latched": False, "acknowledged": False, "time": None},
+        None,
+    ]
+    assert page["partial"] == []
+    assert page["facets"]["alarm"] == [
+        {"value": "MAJOR", "count": 1},
+        {"value": "none", "count": 2},
+    ]
+    await directory.aclose()
+
+
+async def test_a_feed_without_an_answer_marks_no_row_and_says_why(tmp_path: Path) -> None:
+    directory = _alarmed_directory(tmp_path)
+    FakeAlarmState.held = Unavailable("alarm feed still loading")
+
+    page = await directory.search(words="SR")
+
+    assert all("alarm" not in row for row in page["rows"])
+    assert page["partial"] == [{"part": "alarm", "reason": "alarm feed still loading"}]
+    assert "alarm" not in page["facets"]
+    filtered = await directory.search(words="SR", alarm=["MAJOR"])
+    assert filtered["outcome"] == "unavailable"
+    assert filtered["reason"] == "cannot filter by alarm: alarm feed still loading"
+    await directory.aclose()
+
+
+async def test_no_alarm_source_adds_no_alarm_key_and_no_partial(tmp_path: Path) -> None:
+    FakeDirectory.rows = [_row("SR:PV1")]
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    page = await directory.search(words="SR")
+
+    assert "alarm" not in page["rows"][0]
+    assert page["partial"] == []
+    assert "alarm" not in page["facets"]
+    await directory.aclose()
+
+
+async def test_an_alarm_filter_cuts_the_page_from_the_fetched_set(tmp_path: Path) -> None:
+    directory = _alarmed_directory(tmp_path)
+
+    major = await directory.search(words="SR", alarm=["MAJOR"])
+    quiet = await directory.search(words="SR", alarm=["none"], page_size=1)
+
+    assert [row["name"] for row in major["rows"]] == ["SR:PV1"]
+    assert major["total"] == 1
+    assert major["searched"] == "name or description matches SR · alarm MAJOR"
+    assert [row["name"] for row in quiet["rows"]] == ["SR:PV2"]
+    assert (quiet["total"], quiet["truncated"]) == (2, True)
+    assert quiet["facets"]["alarm"] == [
+        {"value": "MAJOR", "count": 1},
+        {"value": "none", "count": 2},
+    ]
+    assert quiet["facets"]["origin"] == [{"value": "directory", "count": 2}]
+    assert (await directory.count(words="SR", alarm=["none"]))["total"] == 2
+    assert (await directory.count(words="SR", alarm=["MINOR"]))["outcome"] == "no_match"
+    await directory.aclose()
+
+
+async def test_an_alarm_filter_above_the_filter_cap_is_unavailable(tmp_path: Path) -> None:
+    directory = _alarmed_directory(tmp_path, filter_cap=2)
+
+    page = await directory.search(words="SR", alarm=["MAJOR"])
+    counted = await directory.count(words="SR", alarm=["MAJOR"])
+
+    reason = "too many results to filter (3); narrow the search"
+    assert (page["outcome"], page["reason"]) == ("unavailable", reason)
+    assert (counted["outcome"], counted["reason"]) == ("unavailable", reason)
     await directory.aclose()
 
 
