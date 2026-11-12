@@ -150,6 +150,7 @@ def _open_chat_page(opener, base_url: str, query: str = "") -> Page:
     page: Page = opener.new_page()
     page.add_init_script(_PROBE_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     # initChat builds the console on DOMContentLoaded; the input row is the
     # last thing appended, so its presence means the console is mounted.
     expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_visible(timeout=10_000)
@@ -163,6 +164,7 @@ def _open_terminal_page(opener, base_url: str, query: str = "") -> Page:
     arm_terminal_tab(page)
     page.add_init_script(_PROBE_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator("#terminal-container .xterm")).to_be_visible(timeout=10_000)
     wait_for_dock_settled(page)
     return page
@@ -1174,6 +1176,7 @@ def test_replayed_turns_show_their_thinking_collapsed(tmp_path, chromium_browser
 
         # A reload binds the console to the same key and replays its conversation.
         page.reload()
+        wait_for_page_ready(page)
         entries = page.locator(f"{_OP} .op-entry.assistant")
         expect(entries).to_have_count(2, timeout=20_000)
         expect(entries.nth(0)).to_contain_text("BPM 3 alone drifted")

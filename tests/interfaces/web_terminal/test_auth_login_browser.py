@@ -47,6 +47,7 @@ from tests.deployment.web_terminals.test_auth_serving import (
     TERMINAL_STAND_IN_MARKER,
     serving_stack,
 )
+from tests.interfaces._browser import wait_for_page_ready
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -140,6 +141,7 @@ def test_landing_card_leads_to_a_password_prompt_for_that_user(stack: Stack, pag
     """
     # Act
     page.goto(f"{stack.base_url}/")
+    wait_for_page_ready(page)
     page.click('a.landing-card[href="/u/alice/"]')
 
     # Assert
@@ -168,6 +170,7 @@ def test_password_unlocks_and_returns_to_the_users_own_terminal(stack: Stack, pa
     """
     # Arrange
     page.goto(f"{stack.base_url}/")
+    wait_for_page_ready(page)
     page.click('a.landing-card[href="/u/alice/"]')
     page.wait_for_selector(".login-card")
 
@@ -184,6 +187,7 @@ def test_password_unlocks_and_returns_to_the_users_own_terminal(stack: Stack, pa
     # Unlocking alice does not open bob: one hop later the same browser is
     # asked for bob's password rather than let through.
     page.goto(f"{stack.base_url}/u/bob/")
+    wait_for_page_ready(page)
     page.wait_for_selector(".login-card")
     assert page.locator("span.login-user").inner_text().strip() == "bob"
     assert page.locator(f"#{TERMINAL_STAND_IN_MARKER}").count() == 0
@@ -198,6 +202,7 @@ def test_a_wrong_password_re_prompts_without_naming_the_reason(stack: Stack, pag
     """
     # Arrange
     page.goto(f"{stack.base_url}/u/carol/")
+    wait_for_page_ready(page)
     page.wait_for_selector(".login-card")
 
     # Act
@@ -223,6 +228,7 @@ def test_an_expired_session_sends_a_reload_back_to_the_prompt(stack: Stack, page
     # Arrange — a real unlock first, so the reload is a genuine "this tab was
     # working a moment ago" and not a browser that never had a session.
     page.goto(f"{stack.base_url}/u/alice/")
+    wait_for_page_ready(page)
     page.wait_for_selector(".login-card")
     _unlock(page, "alice")
     page.wait_for_selector(f"#{TERMINAL_STAND_IN_MARKER}")
@@ -249,6 +255,7 @@ def test_an_expired_session_sends_a_reload_back_to_the_prompt(stack: Stack, page
 
     # Act
     page.reload()
+    wait_for_page_ready(page)
 
     # Assert
     page.wait_for_selector(".login-card")

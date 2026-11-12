@@ -513,6 +513,7 @@ def test_the_terminal_shows_the_held_session_and_a_flag_raised_under_it(
     # that already opted into it does: on a reload.
     arm_terminal_tab(page)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(TERMINAL)).to_be_visible(timeout=TIMEOUT_MS)
     assert _session_key(page) == key
     _wait_terminal_session(served, key)

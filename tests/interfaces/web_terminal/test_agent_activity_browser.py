@@ -59,6 +59,7 @@ import pytest
 import requests
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 from tests.interfaces.conftest import (
     use_process_web_credentials,
@@ -226,6 +227,7 @@ def _open_hub_page(browser: Browser, base_url: str) -> Page:
     page = browser.new_page()
     page.add_init_script(_PROBES_INIT_SCRIPT)
     page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_AGENT_RAIL_READY)).to_be_attached(timeout=10_000)
     expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_be_attached(
         timeout=10_000
@@ -284,6 +286,7 @@ def _reload_hub_page(page: Page) -> None:
     restored dock layout varies with what the page did before reloading.
     """
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_AGENT_RAIL_READY)).to_be_attached(timeout=10_000)
     _wait_for_sse_open(page, "/api/files/events")
 
@@ -472,6 +475,7 @@ def _open_plans_view(browser: Browser, sidecar_url: str) -> tuple[Page, str, str
     page = browser.new_page()
     page.add_init_script(_PROBES_INIT_SCRIPT)
     page.goto(f"{sidecar_url}/bluesky/", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
 
     selected_row = page.locator(".plan-row.selected")
     expect(selected_row).to_have_count(1, timeout=10_000)

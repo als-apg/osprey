@@ -57,6 +57,7 @@ import time
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._launchers import (
     launch_artifacts,
     launch_channel_finder,
@@ -98,6 +99,7 @@ def test_hash_deep_links_to_concept(tmp_path, monkeypatch, chromium_browser):
 
         # Act
         page.goto(f"{base_url}#control-system/channel-finding", wait_until="load")
+        wait_for_page_ready(page)
 
         # Assert -- renderConcept() (app.js) set the reading-pane heading to
         # the concept's frontmatter title.
@@ -134,6 +136,7 @@ def test_postmessage_theme_change_same_origin_only(tmp_path, monkeypatch, chromi
     with launch_channel_finder(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(f"{base_url}?theme=dark&embedded=true", wait_until="load")
+        wait_for_page_ready(page)
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
 
         # Act -- genuine same-origin postMessage.
@@ -181,6 +184,7 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
 
         with page.expect_request(lambda r: "/api/artifacts" in r.url) as initial_info:
             page.goto(base_url, wait_until="load")
+            wait_for_page_ready(page)
         assert "session_id" not in initial_info.value.url
 
         # The foreign message is dispatched synchronously, so were it accepted, its
@@ -244,6 +248,7 @@ def test_postmessage_session_change_session_html_rejects_foreign_origin(
 
         with page.expect_request(lambda r: "/api/session-agents" in r.url) as initial_info:
             page.goto(f"{base_url}/static/session.html", wait_until="load")
+            wait_for_page_ready(page)
         assert "session_id" not in initial_info.value.url
 
         # Act -- synthetic foreign-origin session-change.
@@ -308,6 +313,7 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
         page.on("websocket", _on_websocket)
 
         page.goto(base_url, wait_until="load")
+        wait_for_page_ready(page)
         expect(
             page.locator('button.panel-rail-button[data-panel-id="terminal"]:not(.disabled)')
         ).to_be_visible(timeout=10_000)
@@ -439,6 +445,7 @@ def test_embedded_hides_branding_and_switcher(
 
         # Act
         page.goto(f"{base_url}{path}?embedded=true&theme=dark", wait_until="load")
+        wait_for_page_ready(page)
 
         # Assert -- applyEmbedded() ran.
         expect(page.locator("body.embedded")).to_have_count(1)
@@ -498,6 +505,7 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
         # back to without a stored pick is dark — the opposite of the pick.
         page = chromium_browser.new_page(color_scheme="dark")
         page.goto(f"{base_url}{path}?theme=dark", wait_until="load")
+        wait_for_page_ready(page)
         # Assert -- standalone, the control is visible (the inverse of the
         # embedded case) and the query param applied.
         expect(page.locator(theme_control_selector)).to_be_visible()
@@ -513,6 +521,7 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
 
         # Act -- reload.
         page.reload(wait_until="load")
+        wait_for_page_ready(page)
 
         # Assert -- the stale param can't be resurrected because it was
         # actually stripped (not just visually ignored): reload falls back to
@@ -541,6 +550,7 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
 
         # Act
         page.goto(f"{base_url}?embedded=true", wait_until="load")
+        wait_for_page_ready(page)
 
         # Assert -- the panel toolbar is at the very top of the frame.
         toolbar = page.locator("#cf-toolbar")

@@ -132,7 +132,9 @@ def assert_page_loads_clean(
     if capture_console:
         page.on("console", _on_console)
 
-    page.goto(url, wait_until="load")
+    # The subject is whether the page loads at all: a page whose module 404s never
+    # reaches its ready mark, and waiting for it would hide the 404 behind a timeout.
+    page.goto(url, wait_until="load")  # page-ready: the subject is the load itself
     # best-effort settle only — see module docstring
     with contextlib.suppress(PlaywrightTimeoutError):
         page.wait_for_load_state("networkidle", timeout=_NETWORK_IDLE_TIMEOUT_MS)

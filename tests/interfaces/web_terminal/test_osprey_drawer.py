@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces._browser import rail_entry
+from tests.interfaces._browser import rail_entry, wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -108,6 +108,7 @@ def _goto(page: Page, base_url: str) -> None:
     menu's button answers; a click before then is lost.
     """
     page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
 
 
@@ -249,6 +250,7 @@ def test_resize_persists_width_across_reload(tmp_path, monkeypatch, chromium_bro
         )
 
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         _open_settings_drawer(page)
         restored_width = page.locator(DRAWER_SELECTOR).bounding_box()["width"]
         assert restored_width == pytest.approx(widened_width, abs=2), (
