@@ -102,8 +102,8 @@ def test_pin_fails_when_the_install_leaves_no_provider_on_path(tmp_path: Path) -
 
 
 def test_pin_without_podman_fails_the_lane(tmp_path: Path) -> None:
-    """The lane's pin is unguarded: that is what keeps the Tier 0 skip below from
-    hiding a runner that genuinely lost podman."""
+    """The lane's pin is unguarded: that is what keeps the preset static checks
+    skip below from hiding a runner that genuinely lost podman."""
     code, exported, calls, _ = _pin(tmp_path, tools=("pip",))
     assert code == 1
     assert (exported, calls) == ("", [])

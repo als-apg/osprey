@@ -2278,7 +2278,7 @@ LANES: tuple[Lane, ...] = (
         "agentic-per-preset",
         "test_preset_agentic.py",
         why=SPENDS,
-        prefix="Tier 3 — Agentic flow",
+        prefix="Preset Agentic Flow",
     ),
     _e2e("multi-user-deploy-lifecycle-e2e", "test_deploy_lifecycle.py"),
     _e2e("full-chain-auth-e2e", "test_full_chain_auth.py"),

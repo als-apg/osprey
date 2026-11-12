@@ -73,7 +73,7 @@ env:
 # 10 minutes, and a capped step sits below it; a job with no such data keeps 60.
 jobs:
   test:
-    name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} (${{ matrix.shard }})
+    name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} — ${{ matrix.shard }}
     runs-on: ${{ matrix.os }}
     # Generous on purpose: runtime varies by runner, and a cap at the healthy runtime reds healthy runs.
     timeout-minutes: 75
@@ -558,7 +558,7 @@ jobs:
         retention-days: 7
 
   static-checks:
-    name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
+    name: Preset Static Checks (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -569,7 +569,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Run Tier 0 static checks
+    - name: Run the preset static checks
       timeout-minutes: 15
       run: uv run pytest tests/integration/test_preset_static.py tests/integration/test_preset_build.py -v --tb=short
 
@@ -903,7 +903,7 @@ jobs:
       run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
 
   build-boot-smoke:
-    name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
+    name: Preset Build + MCP Boot — ${{ matrix.preset }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -918,7 +918,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Run Tier 1 boot smoke for preset
+    - name: Run the build + MCP boot smoke for the preset
       env:
         PRESET: ${{ matrix.preset }}
         # Over /tmp's tmpfs quota otherwise; see "Run unit tests".
@@ -926,7 +926,7 @@ jobs:
       run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 
   agentic-per-preset:
-    name: Tier 3 — Agentic flow (${{ matrix.preset }})
+    name: Preset Agentic Flow — ${{ matrix.preset }}
     runs-on: ubuntu-latest
     # Above the 3x-p90 rule: ten runs of data, and the gateway's latency is not ours to bound.
     timeout-minutes: 25
@@ -956,7 +956,7 @@ jobs:
 
     - *install-pinned-cli
 
-    - name: Run Tier 3 agentic test for preset
+    - name: Run the agentic flow test for the preset
       timeout-minutes: 20
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
@@ -1087,7 +1087,8 @@ jobs:
     - *capture-diagnostics
 
   agent-record-e2e:
-    name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
+    # Replays every captured fixture through the real stack.
+    name: Agent Record E2E — ${{ matrix.backend }}
     runs-on: ubuntu-latest
     if: *any-pr-or-secret-revalidation
     # One case per runner: cases share a per-host project name and port block. The wiring test holds the cells.
@@ -1769,7 +1770,7 @@ jobs:
       run: scripts/ci/proxied_build.sh stop
 
   multi-user-deploy-lifecycle-e2e:
-    name: Multi-User Deploy Lifecycle E2E (${{ matrix.runtime }} runtime)
+    name: Multi-User Deploy Lifecycle E2E — ${{ matrix.runtime }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # PRs into main only (not epic phases): it runs real destructive lifecycle verbs.

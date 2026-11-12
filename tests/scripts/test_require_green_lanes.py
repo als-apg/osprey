@@ -53,8 +53,8 @@ def job(name: str, conclusion: str = "success") -> dict:
 
 
 GREEN_JOBS = [
-    job("Test Python 3.11 on ubuntu-latest (rest-a)"),
-    job("Test Python 3.11 on macos-latest (rest-a)"),
+    job("Test Python 3.11 on ubuntu-latest — rest-a"),
+    job("Test Python 3.11 on macos-latest — rest-a"),
     job("Connectors suite without the framework"),
 ]
 
@@ -110,7 +110,7 @@ class TestSameTreeCandidates:
 
 class TestMissingLanes:
     def test_every_matrix_cell_must_succeed(self):
-        jobs = [*GREEN_JOBS[:1], job("Test Python 3.12 on ubuntu-latest (rest-b)", "failure")]
+        jobs = [*GREEN_JOBS[:1], job("Test Python 3.12 on ubuntu-latest — rest-b", "failure")]
         lanes = {"test": "Test Python"}
         assert gate.missing_lanes(jobs, lanes) == {"test": "failure, success"}
 

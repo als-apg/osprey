@@ -148,7 +148,7 @@ TWO_SHAPE_JOB = "two-shape-boot-e2e"
 TWO_SHAPE_TEST_FILE = "tests/e2e/test_two_shape_boot.py"
 TWO_SHAPE_BOOT_STEP = "Run two-shape boot E2E (podman)"
 TWO_SHAPE_PROVIDER_STEP = "Step 0 — assert the compose provider is podman-compose 1.0.6"
-#: The parse-only counterpart runs in a Tier 0 job, not a lane of its own —
+#: The parse-only counterpart runs in the preset static checks job, not a lane of its own —
 #: it needs no container runtime, only a renderer and a YAML parser.
 PARSE_ONLY_JOB = "static-checks"
 PARSE_ONLY_STEP = "Parse the merged podman topology (podman-compose config, no containers)"
@@ -1127,7 +1127,7 @@ def test_unit_test_job_runs_xdist_parallel__mutation_drops_a_flag(
 # ---------------------------------------------------------------------------
 
 BOOT_SMOKE_JOB = "build-boot-smoke"
-BOOT_SMOKE_STEP = "Run Tier 1 boot smoke for preset"
+BOOT_SMOKE_STEP = "Run the build + MCP boot smoke for the preset"
 BOOT_SMOKE_TEST_FILE = "tests/integration/test_build_boot.py"
 #: The module-level list every test in the boot module is parametrised over, and
 #: the source the lane's matrix has to reproduce one value at a time.
@@ -1524,7 +1524,7 @@ PRESET_BUILD_TEST_FILE = "tests/integration/test_preset_build.py"
 def test_the_preset_build_runs_in_the_static_job_and_not_in_the_unit_lane(
     workflow: dict[str, Any],
 ) -> None:
-    """Every preset is built once per event, by the Tier 0 static job, rather
+    """Every preset is built once per event, by the preset static checks job, rather
     than once per cell of the unit lane's matrix."""
     assert PRESET_BUILD_TEST_FILE in _unit_lane_ignored_files(workflow)
     assert _unconditional_hosts(workflow, PRESET_BUILD_TEST_FILE) == [PARSE_ONLY_JOB]
@@ -6008,7 +6008,7 @@ def test_unit_lane_passes_per_test_timeout__mutation_switches_to_the_thread_meth
 # step in `static-checks` is the cheap half: it renders the same kind of
 # deployment and hands podman-compose OSPREY's own argv, so a merged document
 # that no longer parses, or an env chain that stops interpolating, is caught in
-# a Tier 0 job in seconds rather than after a ~20-minute image build.
+# the preset static checks job in seconds rather than after a ~20-minute image build.
 #
 # The provider is the load-bearing fact for both. `podman compose` delegates to
 # whichever external provider it finds, and on a GitHub runner the first one is
@@ -6518,7 +6518,7 @@ def test_parse_only_step_lives_in_a_fast_job__mutation_gates_the_host_job() -> N
 
 def test_parse_only_job_has_a_timeout(workflow: dict[str, Any]) -> None:
     """The job now shells out to `osprey init`, `osprey build` and a compose
-    parse. None can hang in principle, but all are new shapes for a Tier 0 job
+    parse. None can hang in principle, but all are new shapes for the preset static checks job
     that otherwise inherits the 6-hour default."""
     assert "timeout-minutes" in _jobs(workflow)[PARSE_ONLY_JOB], (
         f"'{PARSE_ONLY_JOB}' must bound its runtime"

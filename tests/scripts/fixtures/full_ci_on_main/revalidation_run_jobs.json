@@ -1,6 +1,6 @@
 [
  {
-  "name": "Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)",
+  "name": "Preset Static Checks (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)",
   "status": "completed",
   "conclusion": "success"
  },
@@ -10,7 +10,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.11 on ubuntu-latest (rest)",
+  "name": "Test Python 3.11 on ubuntu-latest — rest",
   "status": "completed",
   "conclusion": "success"
  },
@@ -20,12 +20,12 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.12 on ubuntu-latest (cli)",
+  "name": "Test Python 3.12 on ubuntu-latest — cli",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.11 on ubuntu-latest (cli)",
+  "name": "Test Python 3.11 on ubuntu-latest — cli",
   "status": "completed",
   "conclusion": "success"
  },
@@ -35,22 +35,22 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.12 on ubuntu-latest (rest)",
+  "name": "Test Python 3.12 on ubuntu-latest — rest",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Tier 1 — Build + MCP boot (demo)",
+  "name": "Preset Build + MCP Boot — demo",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.12 on macos-latest (cli)",
+  "name": "Test Python 3.12 on macos-latest — cli",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Tier 3 — Agentic flow (hello-world)",
+  "name": "Preset Agentic Flow — hello-world",
   "status": "completed",
   "conclusion": "success"
  },
@@ -75,7 +75,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.11 on macos-latest (rest)",
+  "name": "Test Python 3.11 on macos-latest — rest",
   "status": "completed",
   "conclusion": "success"
  },
@@ -90,7 +90,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Tier 3 — Agentic flow (demo)",
+  "name": "Preset Agentic Flow — demo",
   "status": "completed",
   "conclusion": "success"
  },
@@ -105,7 +105,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.12 on macos-latest (rest)",
+  "name": "Test Python 3.12 on macos-latest — rest",
   "status": "completed",
   "conclusion": "success"
  },
@@ -115,7 +115,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.11 on macos-latest (cli)",
+  "name": "Test Python 3.11 on macos-latest — cli",
   "status": "completed",
   "conclusion": "success"
  },
@@ -130,7 +130,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Tier 1 — Build + MCP boot (hello-world)",
+  "name": "Preset Build + MCP Boot — hello-world",
   "status": "completed",
   "conclusion": "success"
  },
@@ -220,7 +220,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Multi-User Deploy Lifecycle E2E (podman runtime)",
+  "name": "Multi-User Deploy Lifecycle E2E — podman",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -240,7 +240,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Multi-User Deploy Lifecycle E2E (real container runtime)",
+  "name": "Multi-User Deploy Lifecycle E2E — docker",
   "status": "completed",
   "conclusion": "skipped"
  },
