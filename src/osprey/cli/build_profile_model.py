@@ -632,7 +632,8 @@ class BuildProfile:
     def _validate_apps(self, profile_dir: Path) -> list[str]:
         """Return validation errors for the ``apps:`` block, closed against the manifests.
 
-        Every listed name must be an application under ``apps/<name>/``, every
+        Every listed name must be an application under ``apps/<name>/`` or one an
+        installed package declares (:mod:`osprey.apps.origin`), every
         ``services.<key>`` one of that application's containers, every axis
         value well-formed, and ``config`` set only for an application with a
         container, the one part that reads it.
@@ -648,23 +649,26 @@ class BuildProfile:
         from osprey.apps.errors import AppManifestError
         from osprey.apps.loader import MANIFEST_FILE
         from osprey.apps.loader import load as load_apps
+        from osprey.apps.origin import installed_apps
 
         from .application_material import application_dirs
 
         try:
-            manifests = {m.name: m for m in load_apps(profile_dir, self.apps)}
+            installed = installed_apps()
+            manifests = {m.name: m for m in load_apps(profile_dir, self.apps, installed=installed)}
         except AppManifestError as exc:
             return [f"apps: {exc}"]
 
         errors: list[str] = []
         dirs = application_dirs(profile_dir)
-        known = ", ".join(d.name for d in dirs if (d / MANIFEST_FILE).is_file()) or "none"
+        found = [d.name for d in dirs if (d / MANIFEST_FILE).is_file()]
+        known = ", ".join(sorted({*found, *installed})) or "none"
         for name, entry in sorted(self.apps.items()):
             manifest = manifests.get(name)
             if manifest is None:
                 errors.append(
-                    f"apps.{name} names no application: there is no apps/{name}/app.yml "
-                    f"(applications here: {known})."
+                    f"apps.{name} names no application: there is no apps/{name}/app.yml and "
+                    f"no installed package declares one (applications here: {known})."
                 )
                 continue
             if entry.access is not None:
