@@ -85,6 +85,37 @@ def _backend_path(value: str) -> str:
 BackendPath = Annotated[str, AfterValidator(_backend_path)]
 
 
+def help_page_refusal(value: str) -> str | None:
+    """Say why *value* is not a panel help page, or ``None`` when it is one.
+
+    A help page is either a path relative to the deployment's docs root, as the
+    built-in panels' pages are spelled (``how-to/apps/build-your-own-app.html``),
+    or an absolute ``https://`` URL. A relative path may not leave the docs root
+    (a ``..`` segment), start at the host root (``/``) or carry a scheme.
+    """
+    if value.startswith("https://") and len(value) > len("https://"):
+        return None
+    if not value:
+        return "a help page may not be empty"
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", value):
+        return f"{value!r} is a URL; a help page URL must be https://"
+    if value.startswith("/") or "\\" in value:
+        return f"{value!r} must be a path relative to the docs root, or an https:// URL"
+    if ".." in value.split("#", 1)[0].split("/"):
+        return f"{value!r} leaves the docs root; a help page may not contain '..'"
+    return None
+
+
+def _help_page(value: str) -> str:
+    refusal = help_page_refusal(value)
+    if refusal is not None:
+        raise ValueError(refusal)
+    return value
+
+
+HelpPage = Annotated[str, AfterValidator(_help_page)]
+
+
 def launch_token_env(app_name: str) -> str:
     """Return the environment variable that carries an application's launch token.
 
@@ -178,6 +209,12 @@ class Panel(_Strict):
     entry: BackendPath = "/"
     launch_token: StrictBool = False
     read_timeout_s: Annotated[StrictInt, Field(gt=0)] | None = None
+    #: The sidebar row's icons.js glyph; absent, the row wears the generic one.
+    icon: NonEmpty | None = None
+    #: The sidebar row's tooltip sentence.
+    description: NonEmpty | None = None
+    #: The panel's help page: relative to the docs root, or an https:// URL.
+    help: HelpPage | None = None
     agent_routes: list[AgentRoute] = Field(default_factory=list)
     roster_grant: RosterGrant | None = None
 

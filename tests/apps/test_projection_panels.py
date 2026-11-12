@@ -225,3 +225,53 @@ def test_the_projected_block_is_a_first_party_panel_of_the_terminal(
 
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(custom_panels=custom)))
     assert opaque_panel_kind(request, "dial-demo") is None  # type: ignore[arg-type]
+
+
+#: The three presentation facts a panel declares for its sidebar row.
+PRESENTATION = {
+    "icon": "sliders",
+    "description": "Turn the demo dial and watch it settle",
+    "help": "how-to/apps/build-your-own-app.html",
+}
+
+
+def test_the_panel_presentation_is_projected_when_the_manifest_declares_it() -> None:
+    block = _block(project_login([_manifest(**PRESENTATION)], CONFIG, _login()))
+    assert {key: block[key] for key in PRESENTATION} == PRESENTATION
+
+
+def test_an_undeclared_presentation_key_stays_absent() -> None:
+    block = _block(project_login([_manifest()], CONFIG, _login()))
+    assert not set(PRESENTATION) & set(block)
+    only_icon = _block(project_login([_manifest(icon="sliders")], CONFIG, _login()))
+    assert only_icon["icon"] == "sliders"
+    assert "description" not in only_icon and "help" not in only_icon
+
+
+def test_a_help_page_may_be_an_absolute_https_url() -> None:
+    url = "https://example.org/dial/manual.html#start"
+    assert _block(project_login([_manifest(help=url)], CONFIG, _login()))["help"] == url
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "../secrets.html",
+        "how-to/../../outside.html",
+        "/how-to/apps/index.html",
+        "http://example.org/dial.html",
+        "javascript:alert(1)",
+        "",
+    ],
+)
+def test_a_help_page_outside_the_docs_root_or_not_https_is_refused(page: str) -> None:
+    with pytest.raises(AppManifestError) as excinfo:
+        _manifest(help=page)
+    assert excinfo.value.field == "panel.help"
+
+
+@pytest.mark.parametrize("key", ["icon", "description"])
+def test_an_empty_icon_or_description_is_refused(key: str) -> None:
+    with pytest.raises(AppManifestError) as excinfo:
+        _manifest(**{key: ""})
+    assert excinfo.value.field == f"panel.{key}"
