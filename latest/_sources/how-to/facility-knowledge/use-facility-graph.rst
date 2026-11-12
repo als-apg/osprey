@@ -273,6 +273,36 @@ that instead.
    view from that.
 
 
+.. _graph-view:
+
+Browsing the Graph
+==================
+
+To look at the graph yourself instead of asking the agent, open the KNOWLEDGE
+panel. At startup it reads the graph view ``services.graphdb.ttl_path`` names
+and adds a **Graph** view beside **Knowledge**. It reads the file, not the
+store: it works while the store is down, and does not show what a store the
+facility runs holds. With no ``ttl_path`` there is no **Graph** view.
+
+* **Overview** draws one mark per class, and the places, channels and signals
+  as one group each. Click a mark to list its members.
+* **Neighbourhood** draws what lies within one to three hops of a node, at most
+  120 nodes. A node with more than 12 relations is drawn but not walked
+  through; its badge counts what is left out. Double-click a node to move the
+  focus to it.
+* The search field finds nodes by name or id.
+* The relation checkboxes take a relation out of the drawing and out of the
+  walk.
+* Right-click a node, a relation or the empty drawing for its menu: copy a
+  name, hide a relation or show it alone, reset the view.
+
+``inPlace`` is marked *derived*: the graph view holds each device's place as a
+property, and the panel draws it as a relation.
+
+Clicking a ``facility:`` link in a concept document opens the linked record in
+the **Graph** view, and a picked node lists the concept documents that name it.
+
+
 .. _graph-external-store:
 
 Pointing at a Store the Facility Runs

@@ -952,6 +952,31 @@ a profile ships a facility file of its own, and the build writes the graph
 view from that.</p>
 </div>
 </section>
+<section id="browsing-the-graph">
+<span id="graph-view"></span><h2>Browsing the Graph<a class="headerlink" href="#browsing-the-graph" title="Link to this heading">#</a></h2>
+<p>To look at the graph yourself instead of asking the agent, open the KNOWLEDGE
+panel. At startup it reads the graph view <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names
+and adds a <strong>Graph</strong> view beside <strong>Knowledge</strong>. It reads the file, not the
+store: it works while the store is down, and does not show what a store the
+facility runs holds. With no <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> there is no <strong>Graph</strong> view.</p>
+<ul class="simple">
+<li><p><strong>Overview</strong> draws one mark per class, and the places, channels and signals
+as one group each. Click a mark to list its members.</p></li>
+<li><p><strong>Neighbourhood</strong> draws what lies within one to three hops of a node, at most
+120 nodes. A node with more than 12 relations is drawn but not walked
+through; its badge counts what is left out. Double-click a node to move the
+focus to it.</p></li>
+<li><p>The search field finds nodes by name or id.</p></li>
+<li><p>The relation checkboxes take a relation out of the drawing and out of the
+walk.</p></li>
+<li><p>Right-click a node, a relation or the empty drawing for its menu: copy a
+name, hide a relation or show it alone, reset the view.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">inPlace</span></code> is marked <em>derived</em>: the graph view holds each device’s place as a
+property, and the panel draws it as a relation.</p>
+<p>Clicking a <code class="docutils literal notranslate"><span class="pre">facility:</span></code> link in a concept document opens the linked record in
+the <strong>Graph</strong> view, and a picked node lists the concept documents that name it.</p>
+</section>
 <section id="pointing-at-a-store-the-facility-runs">
 <span id="graph-external-store"></span><h2>Pointing at a Store the Facility Runs<a class="headerlink" href="#pointing-at-a-store-the-facility-runs" title="Link to this heading">#</a></h2>
 <p>The store does not have to be one this deployment brings up. OSPREY starts
@@ -1243,6 +1268,7 @@ graph view.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#leaving-the-graph-tools-out">Leaving the Graph Tools Out</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-graph-comes-from">Where the Graph Comes From</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-preset-seeds">What the Preset Seeds</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#browsing-the-graph">Browsing the Graph</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pointing-at-a-store-the-facility-runs">Pointing at a Store the Facility Runs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-machine-several-views">One Machine, Several Views</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-search-index">The search index</a></li>
