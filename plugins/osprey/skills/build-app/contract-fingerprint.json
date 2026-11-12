@@ -1,10 +1,10 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.9.0b3-7164-gc2e80ab650",
+  "reviewed_against": "2026.9.0b3-7171-g8fa29e8293",
   "files": {
     "apps/manifest.py": "ef16aa1cd6c6dcc392065b818856abd133ec0b9ba2e809d4c3d23c18df435761",
     "apps/rules.py": "0865df8356419ef125c16fa6294eaeeef39987e8d0997fd34b3cc6b82bb669e1",
-    "apps/loader.py": "f29f4fd300fb3dc9fe6cbec623426ad14c290e8b52dc3fce7ecb582c9dd41637",
+    "apps/loader.py": "b2361193e1f6d54a6b24f8c3987aa419b9197b441c79e01d5914b44ecd01e343",
     "apps/agents.py": "ddfc52be35ef3e4052914d2fc3da975d8e40ce8bc5e35b40ecddec17bdcfa9a8",
     "apps/boundary.py": "f20ca7212e6fbf2ae9db5b3ba8e087645bc6ad210cfbf8742abc9285bb1f2307",
     "apps/sdk/__init__.py": "18da3e914fe4859e022ff48f42dd61ab4c9e555a92fbb837aeec6d5d983293f9",
