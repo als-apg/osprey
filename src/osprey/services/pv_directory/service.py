@@ -272,7 +272,7 @@ class DirectoryService:
                 return {}
             return {"pv_directory": unavailable_payload(FLOOR_REASON, target=target)}
         wanted = _KINDS if kinds is None else tuple(kinds)
-        table = service_targets(self._config, ariel_configured=False)
+        table = service_targets(self._config)
         asked = [
             kind
             for kind in _KINDS
@@ -327,7 +327,7 @@ class DirectoryService:
         return built
 
     async def _build(self, kind: str, target: str) -> tuple[Any, Any, str | None]:
-        table = service_targets(self._config, ariel_configured=False)
+        table = service_targets(self._config)
         spec: Any = table[_TARGETS_ROW.get(kind, kind)][target]
         if spec is None:
             return None, None, NO_SOURCE_REASON

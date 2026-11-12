@@ -15,7 +15,6 @@ row              ``va``                           ``live`` and ``standin``
                  ``replay_file`` is set
 ``alarm_log``    ``None``                         the sub-block's ``type``
 ``put_log``      ``None``                         the sub-block's ``type``
-``logbook``      ``None``                         ``ariel``, when configured
 ================ ================================ ==========================
 
 The facility's services belong to the facility's machine and the stand-in
@@ -37,7 +36,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from osprey_connectors.archive_targets import APPLIANCE_TARGETS
-from osprey_connectors.service_answers import BackendSpec, Source
+from osprey_connectors.service_answers import BackendSpec
 from osprey_connectors.simulator import has_simulator
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, TARGET_VA
 
@@ -46,31 +45,27 @@ __all__ = ["service_targets"]
 _SECTION_KEY = "pv_directory"
 _SIMULATOR_VIEW = "simulator_view"
 _ALARM_REPLAY = "alarm_replay"
-_ARIEL = "ariel"
 
 _Kind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
 _KINDS: tuple[_Kind, ...] = ("directory", "alarm_log", "alarm_state", "put_log")
 
 
-def service_targets(
-    config: Mapping[str, Any], *, ariel_configured: bool
-) -> dict[str, dict[str, BackendSpec | Source | None]]:
+def service_targets(config: Mapping[str, Any]) -> dict[str, dict[str, BackendSpec | None]]:
     """The source of every section on every target, per the module table.
 
     Args:
         config: The full config mapping, as loaded from ``config.yml``: not the
             ``pv_directory:`` section, because the ``va`` half turns on whether
             the deployment built a simulator.
-        ariel_configured: Whether the deployment has a logbook to read.
 
     Returns:
-        ``{kind: {target: BackendSpec | None}, "logbook": {target: Source | None}}``
-        with every target of :data:`~osprey_connectors.types.CONTROL_TARGETS` in
-        every row. With no section, every entry is ``None``.
+        ``{kind: {target: BackendSpec | None}}`` with every target of
+        :data:`~osprey_connectors.types.CONTROL_TARGETS` in every row. With no
+        section, every entry is ``None``.
     """
     section = config.get(_SECTION_KEY) if isinstance(config, Mapping) else None
     if not isinstance(section, Mapping):
-        return {row: dict.fromkeys(CONTROL_TARGETS) for row in (*_KINDS, "logbook")}
+        return {row: dict.fromkeys(CONTROL_TARGETS) for row in _KINDS}
 
     display = _mapping(section.get("display"))
     directory_fold = {
@@ -81,12 +76,11 @@ def service_targets(
     alarm_state = _mapping(section.get("alarm_state"))
     replay_file = _text(alarm_state.get("replay_file"))
 
-    table: dict[str, dict[str, BackendSpec | Source | None]] = {
+    table: dict[str, dict[str, BackendSpec | None]] = {
         "directory": _facility_row("directory", section, directory_fold),
         "alarm_log": _facility_row("alarm_log", _mapping(section.get("alarm_log"))),
         "alarm_state": _facility_row("alarm_state", alarm_state),
         "put_log": _facility_row("put_log", _mapping(section.get("put_log"))),
-        "logbook": {target: _logbook(target, ariel_configured) for target in CONTROL_TARGETS},
     }
     if has_simulator(config):
         table["directory"][TARGET_VA] = _spec(
@@ -104,7 +98,7 @@ def service_targets(
 
 def _facility_row(
     kind: _Kind, block: Mapping[str, Any], fold: Mapping[str, Any] | None = None
-) -> dict[str, BackendSpec | Source | None]:
+) -> dict[str, BackendSpec | None]:
     """A row with *block*'s ``type`` on the facility's targets and nothing elsewhere."""
     service = _text(block.get("type"))
     settings = {**_mapping(block.get("settings")), **(_caveats(block) if fold is None else fold)}
@@ -122,17 +116,6 @@ def _spec(kind: _Kind, service: str, target: str, settings: Mapping[str, Any]) -
         type=service,
         target=target,
         settings=_copied(settings),
-        rehearsal=target == TARGET_STANDIN,
-    )
-
-
-def _logbook(target: str, ariel_configured: bool) -> Source | None:
-    if not ariel_configured or target not in APPLIANCE_TARGETS:
-        return None
-    return Source(
-        kind="logbook",
-        target=target,  # type: ignore[arg-type]
-        service=_ARIEL,
         rehearsal=target == TARGET_STANDIN,
     )
 

@@ -15,10 +15,11 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from osprey.services.pv_directory._connectors import (
+    DIRECTORY_CONNECTORS_AVAILABLE,
     FLOOR_REASON,
     NO_SOURCE_REASON,
     as_payload,
-    service_targets,
+    logbook_source,
 )
 from osprey.services.pv_directory.facts import Facts
 
@@ -50,12 +51,12 @@ async def logbook_availability(request: Request) -> dict[str, Any]:
     """
     from osprey.interfaces.channel_finder import directory_api
 
-    if service_targets is None:
+    if not DIRECTORY_CONNECTORS_AVAILABLE:
         return {"available": False, "source": None, "reason": FLOOR_REASON}
     config = request.app.state.config
     ariel = directory_api.ariel_configured(config)
     target = (await request.app.state.directory_service.count())["source"]["target"]
-    source = service_targets(config, ariel_configured=ariel)["logbook"].get(target)
+    source = logbook_source(target, ariel_configured=ariel)
     if source is None:
         return {"available": False, "source": None, "reason": NO_SOURCE_REASON}
     return {"available": True, "source": as_payload(source)}

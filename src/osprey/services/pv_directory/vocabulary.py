@@ -1,13 +1,16 @@
 """The words the PV directory service serves for its sources: one producer of each.
 
 The connectors' answers name only the kind and the type of the service that
-answered; what the panel and the agent read as a source's label, and the label
-of an alarm configuration, are made here.
+answered; what the panel and the agent read as a source's label and the label
+of an alarm configuration are made here.
 """
 
 from __future__ import annotations
 
-__all__ = ["CONFIG_LABELS", "DIRECTORY_LABEL", "source_label"]
+__all__ = ["CONFIG_LABELS", "DIRECTORY_LABEL", "LOGBOOK_SERVICE", "source_label"]
+
+#: The service type of the logbook source.
+LOGBOOK_SERVICE = "ariel"
 
 #: The label of the directory, on every target and whatever answers it.
 DIRECTORY_LABEL = "All PVs"
