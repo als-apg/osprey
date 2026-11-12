@@ -160,38 +160,84 @@ test('the view exports what the router mounts and unmounts', () => {
   expect(unmountPvPage).toBeTypeOf('function');
 });
 
-describe('sections', () => {
-  test('every section the facts carry, in the page order, then logbook and value', async () => {
-    const { container, page } = await mountAt();
-    const order = [...container.querySelectorAll('[data-section]')].map(
-      (el) => /** @type {HTMLElement} */ (el).dataset.section
+describe('layout', () => {
+  /** @param {HTMLElement} container @param {number} column */
+  const cards = (container, column) =>
+    [...container.querySelectorAll(`.pvp-grid > .pvp-col:nth-child(${column}) > *`)].map(
+      (el) =>
+        /** @type {HTMLElement} */ (el).dataset.section ??
+        `off:${/** @type {HTMLElement} */ (el).dataset.off}`
     );
-    expect(order).toEqual([
-      'directory',
-      'alarm_state',
-      'alarm_history',
-      'alarm_config',
-      'put_history',
-      'logbook',
-      'value',
-    ]);
+
+  test('breadcrumb, header, banner, then Value, Alarm, Put history | Directory, Logbook', async () => {
+    const { container, page } = await mountAt();
+    const top = [...container.querySelectorAll('.pv-page > *')].map((el) => el.className);
+    expect(top).toEqual(['pvp-crumb', 'pvp-head', 'pvp-banner pvp-banner--minor', 'pvp-grid']);
+    expect(cards(container, 1)).toEqual(['value', 'alarm', 'put_history']);
+    expect(cards(container, 2)).toEqual(['directory', 'logbook']);
     page.unmountPvPage();
   });
 
-  test('a section the facts do not carry is not shown, nor the logbook without ARIEL', async () => {
+  test('the breadcrumb names All PVs, the IOC and the PV', async () => {
+    const { container } = await mountAt();
+    const crumb = /** @type {HTMLElement} */ (container.querySelector('.pvp-crumb'));
+    expect([...crumb.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/allpvs',
+      '#/ioc/demo-ioc-bpm',
+    ]);
+    expect(crumb.textContent).toBe(`All PVs/demo-ioc-bpm/${NAME}`);
+  });
+
+  test('a card whose service is not configured is one dashed line', async () => {
     const { container, fetchMock } = await mountAt({
-      directory: { ...DESCRIPTOR, ariel: false },
-      answers: { facts: factsWith('put_history', null) },
+      directory: { ...DESCRIPTOR, configured_services: [], ariel: false },
+      answers: {
+        facts: factsWith('put_history', null),
+      },
     });
+    const off = [...container.querySelectorAll('.pvp-off')].map((el) => el.textContent);
+    expect(off).toEqual([
+      'Alarms · not configured',
+      'Put history · not configured',
+      'Logbook · not configured',
+    ]);
+    expect(section(container, 'alarm')).toBeNull();
     expect(section(container, 'put_history')).toBeNull();
     expect(section(container, 'logbook')).toBeNull();
-    expect(section(container, 'alarm_history')).not.toBeNull();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
       '/api/directory/logbook/availability'
     );
   });
 
-  test('the header carries the mark and the listing status', async () => {
+  test('only the unconfigured kinds are dashed', async () => {
+    const { container } = await mountAt({
+      directory: { ...DESCRIPTOR, configured_services: ['alarm_state', 'logbook'] },
+      answers: { facts: factsWith('put_history', null) },
+    });
+    expect([...container.querySelectorAll('.pvp-off')].map((el) => el.textContent)).toEqual([
+      'Put history · not configured',
+    ]);
+    expect(section(container, 'alarm')).not.toBeNull();
+    expect(section(container, 'logbook')).not.toBeNull();
+  });
+
+  test('a configured section with no source on this target stays a card with its one line', async () => {
+    const put = clone(FIXTURE['pv/{name}'].sections[4]);
+    const facts = factsWith('put_history', {
+      ...put,
+      outcome: 'unavailable',
+      source: { target: 'va', service: 'none', label: 'All PVs', rehearsal: false },
+      rows: [],
+      reason: 'not available for this target',
+    });
+    const { container } = await mountAt({ answers: { facts } });
+    const card = /** @type {HTMLElement} */ (section(container, 'put_history'));
+    expect([...card.querySelectorAll('.pvp-note')].map((p) => p.textContent)).toEqual([
+      'Not available for this target',
+    ]);
+  });
+
+  test('the header carries the mark, the listing status and the description', async () => {
     const { container } = await mountAt();
     const head = /** @type {HTMLElement} */ (container.querySelector('.pvp-head'));
     expect(head.querySelector('.pvp-name')?.textContent).toBe(NAME);
@@ -200,56 +246,39 @@ describe('sections', () => {
     expect(chip?.textContent).toBe('Active');
     expect(chip?.classList.contains('osprey-chip--ok')).toBe(true);
     expect(head.querySelector('.pvp-stale')).toBeNull();
-  });
-
-  test('detail properties first, the rest behind All properties', async () => {
-    const { container } = await mountAt();
-    const directory = /** @type {HTMLElement} */ (section(container, 'directory'));
-    const first = [...directory.querySelectorAll(':scope > .pvp-facts dt')].map(
-      (dt) => dt.textContent
-    );
-    expect(first.slice(0, 2)).toEqual(['iocName', 'recordType']);
-    const more = /** @type {HTMLElement} */ (directory.querySelector('details.pvp-more'));
-    expect(more.querySelector('summary')?.textContent).toBe('All properties');
-    const rest = [...more.querySelectorAll('dt')].map((dt) => dt.textContent);
-    expect(rest).toEqual(['hostName', 'pvStatus', 'recordDesc', 'time']);
-  });
-
-  test('a section without an answer says why; one without a source says so', async () => {
-    const noTarget = factsWith('alarm_config', {
-      section: 'alarm_config',
-      outcome: 'unavailable',
-      source: { target: 'va', service: 'none', label: 'All PVs', rehearsal: false },
-      caveats: [],
-      record: null,
-      reason: 'not available for this target',
-    });
-    const { container } = await mountAt({ answers: { facts: noTarget } });
-    expect(section(container, 'alarm_history')?.textContent).toContain(
-      'Unavailable: no answer within 6 s'
-    );
-    expect(section(container, 'alarm_config')?.textContent).toContain(
-      'Not available for this target'
-    );
-  });
-
-  test('alarm configuration with its label', async () => {
-    const { container } = await mountAt();
-    const config = /** @type {HTMLElement} */ (section(container, 'alarm_config'));
-    expect(config.querySelector('h3')?.textContent).toContain('live configuration');
-    expect(config.textContent).toContain('/Demo/BPM/DEMO:BPM01:X');
+    expect(head.querySelector('.pvp-sub')?.textContent).toBe('BPM 01 horizontal position');
   });
 });
 
-describe('alarm state', () => {
-  test('live state beside the record’s own alarm from the value read', async () => {
+describe('alarm', () => {
+  test('one card: server state beside the record’s own alarm, configuration and its label', async () => {
     const { container } = await mountAt();
-    const alarm = /** @type {HTMLElement} */ (section(container, 'alarm_state'));
-    expect(alarm.textContent).toContain('MINOR HIGH');
+    const alarm = /** @type {HTMLElement} */ (section(container, 'alarm'));
+    expect(alarm.querySelector('.cf-sev')?.textContent).toBe('MINOR · HIGH');
     expect(alarm.querySelector('[data-slot="record-alarm"]')?.textContent).toBe('MINOR HIGH');
+    expect(alarm.querySelector('h3')?.textContent).toContain('live configuration');
+    expect(alarm.textContent).toContain('/Demo/BPM/DEMO:BPM01:X');
+    expect(alarm.textContent).toContain('Unavailable: no answer within 6 s');
+    expect(alarm.textContent).not.toContain('[object Object]');
   });
 
-  test('a stale record reads stale, never no alarm, with a warn chip', async () => {
+  test('the banner only when not OK, with the first guidance entry', async () => {
+    const { container } = await mountAt();
+    const banner = /** @type {HTMLElement} */ (container.querySelector('.pvp-banner'));
+    expect(banner.querySelector('.pvp-banner-alarm')?.textContent).toBe('MINOR · HIGH');
+    expect(banner.textContent).toContain('latched (record now MINOR HIGH)');
+    expect(banner.textContent).toContain('not acknowledged');
+    expect(banner.querySelector('.pvp-banner-guidance')?.textContent).toContain('Response.');
+
+    const ok = factsWith('alarm_state', {
+      ...clone(FIXTURE['pv/{name}'].sections[1]),
+      record: { ...FIXTURE['pv/{name}'].sections[1].record, severity: 'OK', status: 'NO_ALARM' },
+    });
+    const clear = await mountAt({ answers: { facts: ok } });
+    expect(clear.container.querySelector('.pvp-banner')).toBeNull();
+  });
+
+  test('a stale feed shows the chip and reads stale, never no alarm', async () => {
     const facts = factsWith('alarm_state', {
       ...clone(FIXTURE['pv/{name}'].sections[1]),
       record: {
@@ -263,7 +292,7 @@ describe('alarm state', () => {
       },
     });
     const { container } = await mountAt({ answers: { facts } });
-    const alarm = /** @type {HTMLElement} */ (section(container, 'alarm_state'));
+    const alarm = /** @type {HTMLElement} */ (section(container, 'alarm'));
     expect(alarm.textContent).toContain('stale (the alarm feed is not updating)');
     expect(alarm.textContent?.toLowerCase()).not.toContain('no alarm');
     const chip = container.querySelector('.pvp-head .pvp-stale');
@@ -271,24 +300,7 @@ describe('alarm state', () => {
     expect(chip?.querySelector('svg')).not.toBeNull();
   });
 
-  test('a feed still loading says so and never reads no alarm', async () => {
-    const facts = factsWith('alarm_state', {
-      section: 'alarm_state',
-      outcome: 'unavailable',
-      source: FIXTURE['pv/{name}'].sections[1].source,
-      caveats: [],
-      record: null,
-      reason: 'alarm feed still loading',
-    });
-    const { container } = await mountAt({ answers: { facts } });
-    const alarm = /** @type {HTMLElement} */ (section(container, 'alarm_state'));
-    expect(alarm.textContent).toContain('alarm feed still loading');
-    expect(alarm.textContent?.toLowerCase()).not.toContain('no alarm');
-  });
-});
-
-describe('histories', () => {
-  test('each row shows the recorded user', async () => {
+  test('History rows only with an alarm-log section', async () => {
     const facts = factsWith('alarm_history', {
       section: 'alarm_history',
       outcome: 'found',
@@ -308,33 +320,34 @@ describe('histories', () => {
       caveats: ['the logger keeps 30 days'],
     });
     const { container } = await mountAt({ answers: { facts } });
-    for (const [id, user] of [
-      ['put_history', 'operator'],
-      ['alarm_history', 'shift-lead'],
-    ]) {
-      const tableEl = /** @type {HTMLTableElement} */ (
-        section(container, id)?.querySelector('table')
-      );
-      const heads = [...tableEl.querySelectorAll('th')].map((th) => th.textContent);
-      const column = heads.indexOf('User');
-      expect(column).toBeGreaterThan(-1);
-      expect(tableEl.querySelectorAll('tbody td')[column].textContent).toBe(user);
-    }
-    expect(section(container, 'alarm_history')?.textContent).toContain('the logger keeps 30 days');
-  });
+    const history = /** @type {HTMLElement} */ (
+      section(container, 'alarm')?.querySelector('[data-part="history"]')
+    );
+    const heads = [...history.querySelectorAll('th')].map((th) => th.textContent);
+    expect(history.querySelectorAll('tbody td')[heads.indexOf('User')].textContent).toBe(
+      'shift-lead'
+    );
+    expect(section(container, 'alarm')?.textContent).toContain('the logger keeps 30 days');
 
-  test('a cut history says only the newest rows are shown', async () => {
+    const without = await mountAt({
+      directory: { ...DESCRIPTOR, configured_services: ['alarm_state', 'put_log', 'logbook'] },
+      answers: { facts: factsWith('alarm_history', null) },
+    });
+    const alarm = /** @type {HTMLElement} */ (section(without.container, 'alarm'));
+    expect(alarm.querySelector('[data-part="history"]')).toBeNull();
+  });
+});
+
+describe('put history', () => {
+  test('rows show the recorded user; a cut history says only the newest are shown', async () => {
     const put = clone(FIXTURE['pv/{name}'].sections[4]);
-    const truncated = await mountAt({
+    const { container } = await mountAt({
       answers: { facts: factsWith('put_history', { ...put, truncated: true }) },
     });
-    expect(section(truncated.container, 'put_history')?.textContent).toContain(
-      'Newest 20 rows shown'
-    );
-    const whole = await mountAt({
-      answers: { facts: factsWith('put_history', { ...put, truncated: false }) },
-    });
-    expect(section(whole.container, 'put_history')?.textContent).not.toContain('rows shown');
+    const card = /** @type {HTMLElement} */ (section(container, 'put_history'));
+    const heads = [...card.querySelectorAll('th')].map((th) => th.textContent);
+    expect(card.querySelectorAll('tbody td')[heads.indexOf('User')].textContent).toBe('operator');
+    expect(card.textContent).toContain('Newest 20 rows shown');
   });
 });
 
@@ -463,12 +476,14 @@ describe('logbook', () => {
 describe('hand-off', () => {
   /** @param {HTMLElement} container */
   const buttons = (container) =>
-    [...container.querySelectorAll('[data-slot="actions"] button')].map((b) => b.textContent);
+    [...container.querySelectorAll('[data-slot="actions"] button')].map(
+      (b) => b.textContent || b.getAttribute('aria-label')
+    );
 
-  test('in the host, Plot and Send to assistant post to it', async () => {
+  test('in the host, Copy name, Send to assistant and Plot; Send and Plot post to it', async () => {
     const { container, parent } = await mountAt();
-    expect(buttons(container)).toEqual(['Plot', 'Send to assistant']);
-    const [plot, send] = /** @type {HTMLButtonElement[]} */ ([
+    expect(buttons(container)).toEqual(['Copy name', 'Send to assistant', 'Plot']);
+    const [, send, plot] = /** @type {HTMLButtonElement[]} */ ([
       ...container.querySelectorAll('[data-slot="actions"] button'),
     ]);
     plot.click();
@@ -487,31 +502,43 @@ describe('hand-off', () => {
     );
   });
 
+  test('Copy name copies the name', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const { container } = await mountAt();
+    /** @type {HTMLButtonElement} */ (
+      container.querySelector('[data-slot="actions"] button[aria-label="Copy name"]')
+    ).click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(NAME));
+  });
+
   test('no Plot without CANOPY or when Trace does not answer', async () => {
     const noCanopy = await mountAt({ directory: { ...DESCRIPTOR, canopy: false } });
-    expect(buttons(noCanopy.container)).toEqual(['Send to assistant']);
+    expect(buttons(noCanopy.container)).toEqual(['Copy name', 'Send to assistant']);
     const noTrace = await mountAt({ answers: { trace: 404 } });
-    expect(buttons(noTrace.container)).toEqual(['Send to assistant']);
+    expect(buttons(noTrace.container)).toEqual(['Copy name', 'Send to assistant']);
   });
 
   test('a pop-out shows no Plot and no Send but still reads the logbook', async () => {
     const { container, fetchMock } = await mountAt({ framed: false });
-    expect(buttons(container)).toEqual([]);
+    expect(buttons(container)).toEqual(['Copy name']);
     expect(arielCalls(fetchMock)).toHaveLength(1);
     expect(container.querySelectorAll('[data-section="logbook"] a')).toHaveLength(2);
   });
 });
 
 describe('current value and states', () => {
-  test('the current value reads on mount and again on Refresh', async () => {
+  test('the current value reads on mount, with its unit, and again on Refresh', async () => {
     const { container, fetchMock } = await mountAt();
     const value = /** @type {HTMLElement} */ (section(container, 'value'));
-    expect(value.textContent).toContain('0.125');
+    expect(value.querySelector('.pvp-bigval')?.textContent).toBe('0.125mm');
+    expect(value.querySelector('.pvp-unit')?.textContent).toBe('mm');
+    expect(value.textContent).toContain('record MINOR HIGH');
     const reads = () =>
       fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/directory/values'))
         .length;
     expect(reads()).toBe(1);
-    /** @type {HTMLButtonElement} */ (value.querySelector('button')).click();
+    /** @type {HTMLButtonElement} */ (value.querySelector('button[aria-label="Refresh"]')).click();
     await vi.waitFor(() => expect(reads()).toBe(2));
   });
 
