@@ -101,6 +101,19 @@
         }
       },
       {
+        "section": "archive",
+        "outcome": "found",
+        "source": {"target": "live", "service": "epics_archiver", "label": "epics_archiver", "rehearsal": false},
+        "caveats": [],
+        "record": {
+          "archived": null,
+          "first_sample": null,
+          "last_sample": null,
+          "sampling_period_s": null,
+          "description": "the EPICS Archiver Appliance connector does not ask the appliance whether this channel is archived"
+        }
+      },
+      {
         "section": "alarm_state",
         "outcome": "found",
         "source": {"target": "live", "service": "phoebus_alarm_server", "label": "phoebus_alarm_server", "rehearsal": false},

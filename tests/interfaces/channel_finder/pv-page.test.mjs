@@ -19,11 +19,19 @@ const FIXTURE = JSON.parse(
   readFileSync(join(import.meta.dirname, 'fixtures/directory_routes.json'), 'utf8')
 );
 const NAME = FIXTURE['pv/{name}'].name;
+
+/**
+ * The fixture's PV facts section `id`.
+ * @param {string} id
+ * @returns {any}
+ */
+const fixtureSection = (id) =>
+  FIXTURE['pv/{name}'].sections.find((/** @type {any} */ s) => s.section === id);
 const MOUNT = '/u/a/panel/channel-finder/';
 const ARIEL_SEARCH = '/u/a/panel/ariel/api/search';
 const DESCRIPTOR = {
   label: 'All PVs',
-  configured_services: ['alarm_log', 'alarm_state', 'put_log', 'logbook'],
+  configured_services: ['alarm_log', 'alarm_state', 'put_log', 'archive', 'logbook'],
   canopy: true,
   ariel: true,
 };
@@ -169,12 +177,12 @@ describe('layout', () => {
         `off:${/** @type {HTMLElement} */ (el).dataset.off}`
     );
 
-  test('breadcrumb, header, banner, then Value, Alarm, Put history | Directory, Logbook', async () => {
+  test('breadcrumb, header, banner, then Value, Alarm, Put history | Directory, Archive, Logbook', async () => {
     const { container, page } = await mountAt();
     const top = [...container.querySelectorAll('.pv-page > *')].map((el) => el.className);
     expect(top).toEqual(['pvp-crumb', 'pvp-head', 'pvp-banner pvp-banner--minor', 'pvp-grid']);
     expect(cards(container, 1)).toEqual(['value', 'alarm', 'put_history']);
-    expect(cards(container, 2)).toEqual(['directory', 'logbook']);
+    expect(cards(container, 2)).toEqual(['directory', 'archive', 'logbook']);
     page.unmountPvPage();
   });
 
@@ -199,8 +207,10 @@ describe('layout', () => {
     expect(off).toEqual([
       'Alarms · not configured',
       'Put history · not configured',
+      'Archive · not configured',
       'Logbook · not configured',
     ]);
+    expect(section(container, 'archive')).toBeNull();
     expect(section(container, 'alarm')).toBeNull();
     expect(section(container, 'put_history')).toBeNull();
     expect(section(container, 'logbook')).toBeNull();
@@ -216,13 +226,14 @@ describe('layout', () => {
     });
     expect([...container.querySelectorAll('.pvp-off')].map((el) => el.textContent)).toEqual([
       'Put history · not configured',
+      'Archive · not configured',
     ]);
     expect(section(container, 'alarm')).not.toBeNull();
     expect(section(container, 'logbook')).not.toBeNull();
   });
 
   test('a configured section with no source on this target stays a card with its one line', async () => {
-    const put = clone(FIXTURE['pv/{name}'].sections[4]);
+    const put = clone(fixtureSection('put_history'));
     const facts = factsWith('put_history', {
       ...put,
       outcome: 'unavailable',
@@ -271,8 +282,8 @@ describe('alarm', () => {
     expect(banner.querySelector('.pvp-banner-guidance')?.textContent).toContain('Response.');
 
     const ok = factsWith('alarm_state', {
-      ...clone(FIXTURE['pv/{name}'].sections[1]),
-      record: { ...FIXTURE['pv/{name}'].sections[1].record, severity: 'OK', status: 'NO_ALARM' },
+      ...clone(fixtureSection('alarm_state')),
+      record: { ...fixtureSection('alarm_state').record, severity: 'OK', status: 'NO_ALARM' },
     });
     const clear = await mountAt({ answers: { facts: ok } });
     expect(clear.container.querySelector('.pvp-banner')).toBeNull();
@@ -280,7 +291,7 @@ describe('alarm', () => {
 
   test('a stale feed shows the chip and reads stale, never no alarm', async () => {
     const facts = factsWith('alarm_state', {
-      ...clone(FIXTURE['pv/{name}'].sections[1]),
+      ...clone(fixtureSection('alarm_state')),
       record: {
         severity: 'OK',
         status: 'OK',
@@ -304,7 +315,7 @@ describe('alarm', () => {
     const facts = factsWith('alarm_history', {
       section: 'alarm_history',
       outcome: 'found',
-      source: FIXTURE['pv/{name}'].sections[3].source,
+      source: fixtureSection('alarm_history').source,
       rows: [
         {
           time: '2026-11-04T10:00:00Z',
@@ -340,7 +351,7 @@ describe('alarm', () => {
 
 describe('put history', () => {
   test('rows show the recorded user; a cut history says only the newest are shown', async () => {
-    const put = clone(FIXTURE['pv/{name}'].sections[4]);
+    const put = clone(fixtureSection('put_history'));
     const { container } = await mountAt({
       answers: { facts: factsWith('put_history', { ...put, truncated: true }) },
     });
@@ -556,13 +567,13 @@ describe('current value and states', () => {
       {
         section: 'directory',
         outcome: 'not_listed',
-        source: FIXTURE['pv/{name}'].sections[0].source,
+        source: fixtureSection('directory').source,
         caveats: [],
         origin: 'unknown',
         detail_properties: [],
         record: null,
       },
-      { ...clone(FIXTURE['pv/{name}'].sections[4]) },
+      { ...clone(fixtureSection('put_history')) },
     ],
   });
 
@@ -581,5 +592,82 @@ describe('current value and states', () => {
     expect(chip?.textContent).toBe('not listed');
     expect(section(container, 'put_history')?.querySelector('tbody td')).not.toBeNull();
     expect(section(container, 'put_history')?.textContent).toContain('operator');
+  });
+});
+
+describe('the Archive card', () => {
+  /** @param {HTMLElement} card */
+  const pairs = (card) =>
+    Object.fromEntries(
+      [...card.querySelectorAll('dt')].map((dt) => [
+        dt.textContent,
+        dt.nextElementSibling?.textContent,
+      ])
+    );
+
+  /** @param {any} record */
+  const withRecord = (record) =>
+    factsWith('archive', { ...clone(fixtureSection('archive')), record });
+
+  test('an archiver that cannot say reads unknown with its reason', async () => {
+    const { container } = await mountAt();
+    const card = /** @type {HTMLElement} */ (section(container, 'archive'));
+    expect(card.querySelector('h3')?.textContent).toBe('Archive');
+    expect(pairs(card)).toEqual({
+      Archived:
+        'unknown (the EPICS Archiver Appliance connector does not ask the appliance whether this channel is archived)',
+    });
+  });
+
+  test('an archived PV shows its first and last sample, the age and the period', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-12T08:00:12Z'));
+    const facts = withRecord({
+      archived: true,
+      first_sample: '2026-10-13T08:00:00+00:00',
+      last_sample: '2026-11-12T08:00:04+00:00',
+      sampling_period_s: 10,
+      description: null,
+    });
+    const { container } = await mountAt({ answers: { facts } });
+    const shown = pairs(/** @type {HTMLElement} */ (section(container, 'archive')));
+    vi.useRealTimers();
+    expect(shown.Archived).toBe('yes');
+    expect(Object.keys(shown)).toEqual([
+      'Archived',
+      'First sample',
+      'Last sample',
+      'Sampling period',
+    ]);
+    expect(shown['Last sample']).toMatch(/ · 8 s ago$/);
+    expect(shown['Sampling period']).toBe('10 s');
+  });
+
+  test('a PV the archive does not record reads no', async () => {
+    const facts = withRecord({
+      archived: false,
+      first_sample: null,
+      last_sample: null,
+      sampling_period_s: null,
+      description: null,
+    });
+    const { container } = await mountAt({ answers: { facts } });
+    expect(pairs(/** @type {HTMLElement} */ (section(container, 'archive')))).toEqual({
+      Archived: 'no',
+    });
+  });
+
+  test('an archive serving another target says so', async () => {
+    const facts = factsWith('archive', {
+      section: 'archive',
+      outcome: 'unavailable',
+      source: { target: 'va', service: 'none', label: 'All PVs', rehearsal: false },
+      caveats: [],
+      record: null,
+      reason: 'not available for this target',
+    });
+    const { container } = await mountAt({ answers: { facts } });
+    const card = /** @type {HTMLElement} */ (section(container, 'archive'));
+    expect(card.querySelector('.pvp-note')?.textContent).toBe('Not available for this target');
   });
 });

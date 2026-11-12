@@ -34,11 +34,14 @@ import { state } from './state.js';
 
 /**
  * `alarm` is present when the target has an alarm feed and it answered: the
- * feed's state, null when it holds none for the PV.
+ * feed's state, null when it holds none for the PV. `archived` is present when
+ * the target has an archive: whether it records the PV now, null when the
+ * archive cannot say (the page's `archived_reason` says why).
  * @typedef {{
  *   name: string,
  *   origin: 'curated'|'directory'|'unknown',
  *   alarm?: RowAlarm|null,
+ *   archived?: boolean|null,
  *   status: 'Active'|'Inactive'|null,
  *   description: string|null,
  *   record_type: string|null,
@@ -67,8 +70,10 @@ import { state } from './state.js';
  *     ioc: FacetCount[],
  *     record_type: FacetCount[],
  *     alarm?: FacetCount[],
+ *     archived?: FacetCount[],
  *   }|null,
  *   facets_reason: string|null,
+ *   archived_reason?: string,
  *   reason?: string,
  * }} DirectoryPage
  */
@@ -125,15 +130,27 @@ import { state } from './state.js';
  */
 
 /**
+ * What the target's archive says of one PV: `archived` is null when the
+ * archiver cannot say (`description` then says why); the samples are ISO times.
+ * @typedef {{
+ *   archived: boolean|null,
+ *   first_sample: string|null,
+ *   last_sample: string|null,
+ *   sampling_period_s: number|null,
+ *   description: string|null,
+ * }} ArchiveRecord
+ */
+
+/**
  * One section of the PV facts; an unconfigured section is absent. `caveats`
  * are the deployment's notes on the section's source. `origin` and
  * `detail_properties` are the directory section's.
  * @typedef {{
- *   section: 'directory'|'alarm_state'|'alarm_history'|'alarm_config'|'put_history',
+ *   section: 'directory'|'archive'|'alarm_state'|'alarm_history'|'alarm_config'|'put_history',
  *   outcome: Outcome,
  *   source: Source,
  *   rows?: (AlarmHistoryRow|PutRow)[],
- *   record?: DirectoryRecord|AlarmStateRecord|AlarmConfigRecord|null,
+ *   record?: DirectoryRecord|ArchiveRecord|AlarmStateRecord|AlarmConfigRecord|null,
  *   truncated?: boolean,
  *   retention_known?: boolean,
  *   caveats: string[],
@@ -274,9 +291,32 @@ import { state } from './state.js';
  */
 
 /**
+ * What the current target's archive holds. `archived.count` is how many of the
+ * directory's `of` PVs the store records now, null with `reason` when it cannot
+ * be counted; `by_ioc` the same per IOC (empty with `by_ioc_reason`). The
+ * samples are ISO times, null when unknown. `freshness_bound_s` is how old the
+ * newest sample of the deployment's own store may be, null for any other
+ * archive. `configuration` is the archive's as rendered; `targets` names, per
+ * configured control target, whether it has an archive.
+ * @typedef {{
+ *   outcome: 'found'|'unavailable',
+ *   source: Source,
+ *   archived?: { count: number|null, of: number|null, reason?: string },
+ *   by_ioc?: { ioc: string, pvs: number, archived: number }[],
+ *   by_ioc_reason?: string,
+ *   newest_sample?: string|null,
+ *   oldest_sample?: string|null,
+ *   freshness_bound_s?: number|null,
+ *   configuration: Record<string, Record<string, string|number>>,
+ *   targets: { target: string, archive: boolean }[],
+ *   reason?: string,
+ * }} ArchiveSummary
+ */
+
+/**
  * The filter parameters of the search and export routes; origin, ioc,
- * record_type and alarm repeat (alarm: a severity, or `none` for OK or no
- * state), and page counts from 0.
+ * record_type, alarm and archived repeat (alarm: a severity, or `none` for OK
+ * or no state; archived: `yes`, `no` or `unknown`), and page counts from 0.
  * @typedef {{
  *   q?: string,
  *   name?: string,
@@ -284,6 +324,7 @@ import { state } from './state.js';
  *   ioc?: string[],
  *   record_type?: string[],
  *   alarm?: string[],
+ *   archived?: string[],
  *   page?: number,
  *   page_size?: number,
  * }} DirectoryFilters
@@ -366,6 +407,15 @@ export function fetchLogbookAvailability() {
  */
 export function fetchActiveAlarms({ severity, limit } = {}, signal) {
   return fetchJSON(`/api/directory/alarms${queryString({ severity, limit })}`, { signal });
+}
+
+/**
+ * What the current target's archive holds. `signal` aborts the read.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<ArchiveSummary>}
+ */
+export function fetchArchiveSummary(signal) {
+  return fetchJSON('/api/directory/archive', { signal });
 }
 
 /**

@@ -12,11 +12,13 @@
 import { icon } from '/design-system/js/icons.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
 import { configEntries } from './alarm-text.js';
+import { sinceText } from './duration.js';
 import { formatRoute } from './route.js';
 import { severityMark, severityOf } from './severity.js';
 
 /** @typedef {import('./directory-api.js').PvFactsSection} PvFactsSection */
 /** @typedef {import('./directory-api.js').DirectoryRecord} DirectoryRecord */
+/** @typedef {import('./directory-api.js').ArchiveRecord} ArchiveRecord */
 /** @typedef {import('./directory-api.js').AlarmStateRecord} AlarmStateRecord */
 /** @typedef {import('./directory-api.js').AlarmConfigRecord} AlarmConfigRecord */
 /** @typedef {import('./directory-api.js').AlarmHistoryRow} AlarmHistoryRow */
@@ -323,6 +325,43 @@ export function directoryCard(section) {
       frame.append(more);
     }
     if (record?.tags?.length) frame.append(facts([['Tags', record.tags.join(', ')]]));
+  }
+  const lines = footer(footerLines(section));
+  if (lines) frame.append(lines);
+  return frame;
+}
+
+/**
+ * The Archive card: whether the target's archive records the PV (`unknown`
+ * with the archiver's reason when it cannot say), its first and last sample
+ * with the age of the last, and its sampling period when known.
+ * @param {PvFactsSection} section
+ * @param {number} [now] - ms since the epoch
+ * @returns {HTMLElement}
+ */
+export function archiveCard(section, now = Date.now()) {
+  const frame = card('archive', 'Archive');
+  const record = /** @type {ArchiveRecord|null|undefined} */ (section.record);
+  if (section.outcome === 'unavailable' || !record) {
+    frame.append(unavailableLine(section.reason));
+  } else {
+    const archived =
+      record.archived === null
+        ? `unknown (${record.description || 'the archiver cannot say'})`
+        : record.archived
+          ? 'yes'
+          : 'no';
+    /** @type {[string, string][]} */
+    const pairs = [['Archived', archived]];
+    if (record.first_sample) pairs.push(['First sample', timeText(record.first_sample)]);
+    if (record.last_sample) {
+      const age = sinceText(record.last_sample, now);
+      pairs.push(['Last sample', `${timeText(record.last_sample)}${age ? ` · ${age} ago` : ''}`]);
+    }
+    if (record.sampling_period_s !== null) {
+      pairs.push(['Sampling period', `${record.sampling_period_s} s`]);
+    }
+    frame.append(facts(pairs));
   }
   const lines = footer(footerLines(section));
   if (lines) frame.append(lines);

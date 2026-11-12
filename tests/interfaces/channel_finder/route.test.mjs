@@ -23,6 +23,7 @@ describe('parseRoute', () => {
     ['#feedback', { view: 'feedback', params: {} }],
     ['#/alarms', { view: 'alarms', params: {} }],
     ['#/alarms?severity=MAJOR', { view: 'alarms', params: {} }],
+    ['#/archive', { view: 'archive', params: {} }],
     ['#allpvs', { view: 'allpvs', params: {} }],
     ['#/allpvs', { view: 'allpvs', params: {} }],
     ['#/allpvs?q=beam%20current', { view: 'allpvs', params: { q: 'beam current' } }],
@@ -40,6 +41,10 @@ describe('parseRoute', () => {
     [
       '#/allpvs?alarm=MAJOR&ioc=I1&alarm=none',
       { view: 'allpvs', params: { ioc: ['I1'], alarm: ['MAJOR', 'none'] } },
+    ],
+    [
+      '#/allpvs?ioc=sim-SR&archived=no',
+      { view: 'allpvs', params: { ioc: ['sim-SR'], archived: ['no'] } },
     ],
     ['#/allpvs?other=1&name=x', { view: 'allpvs', params: {} }],
     ['#/allpvs?name=x&page=2', { view: 'allpvs', params: {} }],
@@ -151,7 +156,7 @@ describe('formatRoute', () => {
     }
   );
 
-  test.each(['explore', 'feedback', 'alarms'])('the view %s round-trips', (view) => {
+  test.each(['explore', 'feedback', 'alarms', 'archive'])('the view %s round-trips', (view) => {
     const route = { view, params: {} };
     expect(parseRoute(formatRoute(route))).toEqual(route);
   });
@@ -176,6 +181,7 @@ describe('familyOf', () => {
     ['explore', 'explore'],
     ['feedback', 'feedback'],
     ['alarms', 'alarms'],
+    ['archive', 'archive'],
   ])('%s belongs to %s', (view, family) => {
     expect(familyOf(view)).toBe(family);
   });

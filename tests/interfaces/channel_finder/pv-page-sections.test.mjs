@@ -10,6 +10,7 @@ import { test, expect, describe } from 'vitest';
 import {
   alarmBanner,
   alarmCard,
+  archiveCard,
   directoryCard,
   logbookCard,
   putHistoryCard,
@@ -197,6 +198,35 @@ describe('alarm card', () => {
     const { state, config } = sections();
     const frame = alarmCard({ state: { ...state, caveats }, config: { ...config, caveats } });
     expect(footer(frame)).toEqual(caveats);
+  });
+});
+
+describe('archive card', () => {
+  test('the age of the last sample is counted from now, the caveats in the footer', () => {
+    const archive = section('archive');
+    archive.caveats = ['The appliance records on change.'];
+    archive.record = {
+      archived: true,
+      first_sample: null,
+      last_sample: '2026-11-12T08:00:00+00:00',
+      sampling_period_s: null,
+      description: null,
+    };
+    const frame = archiveCard(archive, Date.parse('2026-11-12T08:02:00Z'));
+    const dd = [...frame.querySelectorAll('dd')].map((cell) => cell.textContent);
+    expect(dd[0]).toBe('yes');
+    expect(dd[1]).toMatch(/ · 2 min ago$/);
+    expect(footer(frame)).toEqual(['The appliance records on change.']);
+  });
+
+  test('an archive without an answer says why', () => {
+    const frame = archiveCard({
+      ...section('archive'),
+      outcome: 'unavailable',
+      record: null,
+      reason: 'store down',
+    });
+    expect(frame.querySelector('.pvp-note')?.textContent).toBe('Unavailable: store down');
   });
 });
 

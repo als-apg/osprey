@@ -118,6 +118,17 @@ describe('directory-api routes', () => {
     expect(opts.method).toBeUndefined();
   });
 
+  test('the archive summary is one GET that takes an abort signal', async () => {
+    const fetchMock = stubFetch({ outcome: 'found' });
+    const { fetchArchiveSummary } = await import(DIRECTORY_API_MODULE);
+    const { signal } = new AbortController();
+    await fetchArchiveSummary(signal);
+    const { url, opts } = lastCall(fetchMock);
+    expect(url).toBe('/api/directory/archive');
+    expect(opts.method).toBeUndefined();
+    expect(opts.signal).toBe(signal);
+  });
+
   test('the PV facts and the values take an abort signal', async () => {
     const fetchMock = stubFetch([]);
     const { fetchPvFacts, readValues } = await import(DIRECTORY_API_MODULE);

@@ -1,0 +1,212 @@
+/**
+ * OSPREY Channel Finder — Archive view
+ *
+ * The head, the tiles, then two columns of cards: Coverage by IOC and the
+ * Retention window beside Configuration and Targets (archive-render.js).
+ */
+
+.archive {
+  height: 100%;
+  overflow: auto;
+}
+
+.archive-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.archive-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.archive-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+
+.archive-grow {
+  flex: 1;
+}
+
+.archive-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.archive-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+}
+
+.archive-tile-label {
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+
+.archive-tile-value {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.archive-tile-sub {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.archive-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .archive-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.archive-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.archive-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+.archive-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.archive-note {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.archive-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.archive-table th {
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+  text-align: left;
+}
+
+.archive-table th,
+.archive-table td {
+  padding: var(--space-1) var(--space-3) var(--space-1) 0;
+}
+
+.archive-table td {
+  font-family: var(--font-mono);
+}
+
+.archive-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-table a {
+  color: var(--text-accent);
+}
+
+/* The coverage bar: the archived share of an IOC's PVs. */
+.archive-cov {
+  display: block;
+  min-width: 120px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+
+.archive-cov-bar {
+  --archive-coverage: 0%;
+  display: block;
+  width: var(--archive-coverage);
+  height: 100%;
+  background: var(--chart-series-1);
+}
+
+/* The retention window to scale: the coarse span, then the dense one up to now. */
+.archive-window {
+  --archive-dense: 0%;
+  display: flex;
+  height: 14px;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.archive-window-coarse {
+  flex: 1;
+  background: color-mix(in srgb, var(--chart-series-1) 28%, transparent);
+}
+
+.archive-window-dense {
+  flex: none;
+  width: var(--archive-dense);
+  min-width: 4px;
+  background: var(--chart-series-1);
+}
+
+.archive-window-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.archive-config {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-well);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow: auto;
+}
+
+.archive-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+
+.archive-facts dt {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.archive-facts dd {
+  margin: 0;
+}
