@@ -409,7 +409,8 @@ and write ``skills/<name>/SKILL.md`` in the app's directory. The scaffold
 ships one, which ``osprey app new`` renames with the app. The build installs
 it into every login that shows the app, so the agent that has the tools also
 has the instructions. A listed skill without its file, or a skill name two
-apps share, fails the build.
+apps share, fails the build. So does ``hooks`` in a listed skill's
+frontmatter: an app ships no hook code.
 
 **The parity rule.** Everything the operator sees in the panel, the agent can
 read through a tool; everything the operator can press, the agent can do
@@ -615,6 +616,13 @@ Manifest keys
 =============
 
 Every level refuses unknown keys. Defaults in brackets.
+
+An app ships no hook code; it declares facts in ``app.yml`` and OSPREY's
+hooks act on them: ``tools.approval`` for a write, ``tools.deny_in_jobs`` for
+a job-only refusal, ``tools.errors`` for the agent's guidance. ``osprey app
+check`` and the build refuse a ``hooks`` key, a ``hooks/`` directory at the
+app's root and a ``.claude/`` directory anywhere in it, each with rule
+``no_hooks``.
 
 .. list-table::
    :header-rows: 1
