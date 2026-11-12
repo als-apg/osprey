@@ -79,6 +79,16 @@ WATCHED: tuple[tuple[str, str, str], ...] = (
         "the scaffold osprey app new copies",
         "step 2; the file layout and every pattern steps 3-7 build on",
     ),
+    (
+        "interfaces/design_system/panels/validator.py",
+        "the panel stylesheet rule osprey app check applies",
+        "step 6 (panel)",
+    ),
+    (
+        "interfaces/design_system/static/css/primitives.css",
+        "the design-system primitive classes a panel may use",
+        "step 6 (panel)",
+    ),
 )
 
 _SKIP_DIRS = frozenset({"__pycache__", "node_modules", ".pytest_cache"})
