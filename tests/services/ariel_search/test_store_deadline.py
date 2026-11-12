@@ -92,3 +92,25 @@ async def test_a_silent_read_only_login_ends_the_service_open_and_closes_the_oth
             )
         _assert_silent(raised.value, port, started)
     assert closed == [True]
+
+
+@pytest.mark.wallclock
+async def test_the_capability_caches_nothing_on_a_silent_store(monkeypatch):
+    from osprey.services.ariel_search import capability
+
+    capability.reset_ariel_service()
+    monkeypatch.setattr(capability, "_STORE_DEADLINE_S", SHORT_DEADLINE_S)
+    with silent_store() as port:
+        monkeypatch.setattr(
+            capability,
+            "get_config_value",
+            lambda key, default=None: (
+                {"database": {"uri": silent_uri(port)}} if key == "ariel" else default
+            ),
+        )
+        for _ in range(2):  # the second call asks the store again
+            started = time.monotonic()
+            with pytest.raises(StoreSilentError) as raised:
+                await capability.get_ariel_search_service()
+            _assert_silent(raised.value, port, started)
+            assert capability._ariel_service_instance is None

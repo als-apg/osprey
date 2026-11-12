@@ -168,6 +168,7 @@ def apply_scenarios(
     seed_logbook: bool = True,
     seed_archive: bool = True,
     now: datetime | None = None,
+    store_deadline_s: float | None = None,
 ) -> ApplyResult:
     """Compose and activate scenarios for a built project; optionally seed its logbook.
 
@@ -191,6 +192,8 @@ def apply_scenarios(
         now: Apply-time anchor T0 (injectable for tests). Defaults to the
             current time in the facility timezone, so seeded logbook entries
             resolve their time-of-day on the same clock as the telemetry.
+        store_deadline_s: Seconds the caller gives the ARIEL store to answer
+            each time the seeding opens it; ``None`` when the caller states none.
 
     Returns:
         :class:`ApplyResult` with the resolved active set and seed/purge status.
@@ -239,7 +242,11 @@ def apply_scenarios(
         if ariel_config:
             logbook = _view_logbook(scenarios, active, view.path / SCENARIOS_DIR)
             with seed_payload(logbook, t0) as (entries, pictures):
-                seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
+                seeded, purged = _run_coro(
+                    lambda: _seed_logbook(
+                        ariel_config, entries, pictures, store_deadline_s=store_deadline_s
+                    )
+                )
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
         else:
             logger.info("No 'ariel' config in project; skipped logbook seeding")
@@ -352,7 +359,9 @@ def resolve_default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(raw))
 
 
-def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[str, ...]:
+def activate_default_scenarios(
+    config: dict, project_dir: Path | str, *, store_deadline_s: float | None = None
+) -> tuple[str, ...]:
     """Activate ``simulation.default_scenarios`` on a deployment that never chose a set.
 
     A deployment with no scenario state has never been told which world to run,
@@ -366,6 +375,8 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
     Args:
         config: The project's loaded ``config.yml``.
         project_dir: The deployment repo root.
+        store_deadline_s: Seconds the caller gives ARIEL's store to answer,
+            handed to :func:`apply_scenarios` like every other caller's.
 
     Returns:
         The activated set (``nominal`` first), or ``()`` when nothing was
@@ -385,7 +396,13 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
     defaults = resolve_default_scenarios(config)
     if not defaults:
         return ()
-    result = apply_scenarios(project_dir, defaults, seed_logbook=False, seed_archive=False)
+    result = apply_scenarios(
+        project_dir,
+        defaults,
+        seed_logbook=False,
+        seed_archive=False,
+        store_deadline_s=store_deadline_s,
+    )
     _seed_scenario_sessions(config, project_dir, result.active)
     return result.active
 
@@ -684,7 +701,7 @@ def _view_logbook(
     ]
 
 
-async def _export_qmd_mirror(ariel_config: dict) -> None:
+async def _export_qmd_mirror(ariel_config: dict, *, store_deadline_s: float | None = None) -> None:
     """Write the markdown mirror for entries that were just seeded.
 
     Seeding upserts rows straight into the logbook and skips the enhancement
@@ -712,7 +729,7 @@ async def _export_qmd_mirror(ariel_config: dict) -> None:
     from osprey.services.ariel_search.exceptions import ModuleConfigError
 
     try:
-        await run_qmd_resync(ariel_config, rebuild=True)
+        await run_qmd_resync(ariel_config, rebuild=True, store_deadline_s=store_deadline_s)
     except ModuleConfigError as exc:
         logger.warning(
             f"Logbook seeded, but the qmd mirror was not written: {exc}. "
@@ -722,7 +739,11 @@ async def _export_qmd_mirror(ariel_config: dict) -> None:
 
 
 async def seed_narrative_if_empty(
-    ariel_config: dict, logbook: Sequence[ScenarioLogEntry], anchor: datetime
+    ariel_config: dict,
+    logbook: Sequence[ScenarioLogEntry],
+    anchor: datetime,
+    *,
+    store_deadline_s: float | None = None,
 ) -> int:
     """Seed ``logbook``, with its pictures, into a logbook that has no entries yet.
 
@@ -741,15 +762,22 @@ async def seed_narrative_if_empty(
     """
     from osprey.services.ariel_search import cli_operations
 
-    if await cli_operations.logbook_entry_count(ariel_config) > 0:
+    if (
+        await cli_operations.logbook_entry_count(ariel_config, store_deadline_s=store_deadline_s)
+        > 0
+    ):
         return 0
     with seed_payload(logbook, anchor) as (entries, pictures):
-        seeded = await cli_operations.seed_logbook_entries(ariel_config, entries, pictures=pictures)
-    await _export_qmd_mirror(ariel_config)
+        seeded = await cli_operations.seed_logbook_entries(
+            ariel_config, entries, pictures=pictures, store_deadline_s=store_deadline_s
+        )
+    await _export_qmd_mirror(ariel_config, store_deadline_s=store_deadline_s)
     return seeded
 
 
-def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> int:
+def seed_active_logbook(
+    config: dict, project_dir: Path, ariel_config: dict, *, store_deadline_s: float | None = None
+) -> int:
     """Write the deployment's narrative into a logbook that has none. Returns entries seeded.
 
     The counterpart of :func:`seed_archiver` for the other half of a simulated
@@ -769,6 +797,8 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
         config: The project's loaded ``config.yml``.
         project_dir: Root of the built project.
         ariel_config: ARIEL config section with its DSN already resolved.
+        store_deadline_s: Seconds the caller gives the store to answer each
+            time the seed opens it.
 
     Returns:
         The number of entries seeded; ``0`` when the project narrates none, or
@@ -777,7 +807,11 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
     logbook, anchor = _active_narrative(config, project_dir)
     if not logbook:
         return 0
-    return _run_coro(lambda: seed_narrative_if_empty(ariel_config, logbook, anchor))
+    return _run_coro(
+        lambda: seed_narrative_if_empty(
+            ariel_config, logbook, anchor, store_deadline_s=store_deadline_s
+        )
+    )
 
 
 def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
@@ -1936,6 +1970,8 @@ async def _seed_logbook(
     ariel_config: dict,
     entries: list[EnhancedLogbookEntry],
     pictures: Mapping[str, Sequence[Path]],
+    *,
+    store_deadline_s: float | None = None,
 ) -> tuple[int, bool]:
     """Migrate, purge, migrate again, then seed the ARIEL logbook. Returns (seeded, purged).
 
@@ -1952,9 +1988,11 @@ async def _seed_logbook(
         seed_logbook_entries,
     )
 
-    await run_migrate(ariel_config)
-    await execute_purge(ariel_config, embeddings_only=False)
-    await run_migrate(ariel_config)
-    seeded = await seed_logbook_entries(ariel_config, entries, pictures=pictures)
-    await _export_qmd_mirror(ariel_config)
+    await run_migrate(ariel_config, store_deadline_s=store_deadline_s)
+    await execute_purge(ariel_config, embeddings_only=False, store_deadline_s=store_deadline_s)
+    await run_migrate(ariel_config, store_deadline_s=store_deadline_s)
+    seeded = await seed_logbook_entries(
+        ariel_config, entries, pictures=pictures, store_deadline_s=store_deadline_s
+    )
+    await _export_qmd_mirror(ariel_config, store_deadline_s=store_deadline_s)
     return seeded, True

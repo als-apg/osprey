@@ -240,6 +240,7 @@ async def test_the_mcp_context_builds_the_service_that_hosts_the_sql_tool(monkey
     """The MCP server registers ``sql_query``, so its build opens the read-only pool."""
     from unittest.mock import AsyncMock
 
+    from osprey.mcp_server.ariel import server_context
     from osprey.mcp_server.ariel.server_context import ARIELContext
 
     context = ARIELContext()
@@ -249,4 +250,7 @@ async def test_the_mcp_context_builds_the_service_that_hosts_the_sql_tool(monkey
 
     await context.service()
 
-    assert create.await_args.kwargs == {"serves_sql_tool": True}
+    assert create.await_args.kwargs == {
+        "serves_sql_tool": True,
+        "store_deadline_s": server_context._STORE_DEADLINE_S,
+    }
