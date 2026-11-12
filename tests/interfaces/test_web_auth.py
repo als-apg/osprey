@@ -2501,3 +2501,115 @@ class TestWorkerTokenCarrier:
         web_auth.close_env_carriers()
 
         assert _WORKER_TOKEN_ENV not in os.environ
+
+
+# --------------------------------------------------------------------------- #
+# The judge read credential
+# --------------------------------------------------------------------------- #
+
+_JUDGED = PanelRegistry(
+    SIDECAR_PANELS,
+    {
+        "knowledge-panel": ApplicationPanel(
+            "knowledge", (("GET", "/api/search"), ("POST", "/api/draft"))
+        ),
+        "orbit": ApplicationPanel("orbit-bump", (("GET", "/api/state"),)),
+    },
+)
+
+
+def _grants() -> web_auth.JudgeGrants:
+    return web_auth.JudgeGrants(lambda: _JUDGED)
+
+
+def test_judge_grants_mint_scope_and_revoke() -> None:
+    """A token names the panels it was minted for until it is revoked, and no longer."""
+    grants = _grants()
+    token = grants.mint(["knowledge-panel"])
+    other = grants.mint(["orbit"])
+
+    assert token != other
+    assert len(token) >= _MINTED_LENGTH
+    assert grants.panels_of(token) == frozenset({"knowledge-panel"})
+    assert grants.panels_of(other) == frozenset({"orbit"})
+
+    grants.revoke(token)
+    grants.revoke(token)  # revoking twice is harmless
+    assert grants.panels_of(token) is None
+    assert grants.panels_of(other) == frozenset({"orbit"})
+    assert grants.panels_of("never-minted") is None
+    assert grants.panels_of("") is None
+
+
+def test_judge_grants_refuse_a_token_for_no_panel() -> None:
+    with pytest.raises(ValueError):
+        _grants().mint([])
+
+
+def test_judge_grants_resolve_applications_to_their_panels() -> None:
+    """A server is named for its application, not its panel: the registry maps between them."""
+    grants = _grants()
+    assert grants.panels_serving(["knowledge"]) == frozenset({"knowledge-panel"})
+    assert grants.panels_serving(["knowledge", "orbit-bump"]) == frozenset(
+        {"knowledge-panel", "orbit"}
+    )
+    assert grants.panels_serving(["controls", "no-such-app"]) == frozenset()
+
+
+def test_judge_grants_read_the_registry_when_asked_not_when_built() -> None:
+    """The terminal builds its grants before its panel registry exists."""
+    current: list[PanelRegistry] = [web_auth.SIDECAR_REGISTRY]
+    grants = web_auth.JudgeGrants(lambda: current[0])
+    assert grants.panels_serving(["knowledge"]) == frozenset()
+    current[0] = _JUDGED
+    assert grants.panels_serving(["knowledge"]) == frozenset({"knowledge-panel"})
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "expected"),
+    [
+        # granted app, declared safe-method route
+        ("GET", "/panel/knowledge-panel/api/search", "admitted"),
+        ("get", "/panel/knowledge-panel/api/search", "admitted"),
+        # granted app, declared POST route: a judge changes no app state
+        ("POST", "/panel/knowledge-panel/api/draft", "refused"),
+        # granted app, a route it does not declare
+        ("GET", "/panel/knowledge-panel/api/draft", "refused"),
+        ("GET", "/panel/knowledge-panel/", "refused"),
+        # another app's declared GET route
+        ("GET", "/panel/orbit/api/state", "refused"),
+        # panel arrangement and activity: panel-tier, but not under a granted panel
+        ("GET", "/api/panels", "refused"),
+        ("POST", "/api/panel-op/open", "refused"),
+        ("POST", "/api/agent-activity", "refused"),
+        ("GET", "/panel/events/mcp", "refused"),
+        # operator routes
+        ("GET", "/api/config", "refused"),
+        ("GET", "/panel/knowledge-panel/index.html", "refused"),
+        ("", "/panel/knowledge-panel/api/search", "refused"),
+    ],
+)
+def test_judge_admission_table(method: str, path: str, expected: str) -> None:
+    grants = _grants()
+    token = grants.mint(["knowledge-panel"])
+    verdict = web_auth.judge_admission(grants, token, method, path, panels=_JUDGED)
+    assert verdict is web_auth.JudgeAdmission(expected)
+
+
+def test_judge_admission_of_a_revoked_token_is_unknown() -> None:
+    grants = _grants()
+    token = grants.mint(["knowledge-panel"])
+    grants.revoke(token)
+    verdict = web_auth.judge_admission(
+        grants, token, "GET", "/panel/knowledge-panel/api/search", panels=_JUDGED
+    )
+    assert verdict is web_auth.JudgeAdmission.UNKNOWN
+
+
+def test_judge_grants_of_reads_the_app_state() -> None:
+    grants = _grants()
+    assert web_auth.judge_grants_of(
+        SimpleNamespace(state=SimpleNamespace(judge_grants=grants))
+    ) is (grants)
+    assert web_auth.judge_grants_of(SimpleNamespace(state=SimpleNamespace())) is None
+    assert web_auth.judge_grants_of(None) is None
