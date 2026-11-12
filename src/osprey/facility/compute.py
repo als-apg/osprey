@@ -34,7 +34,8 @@ place that contradicts its span, a stated position that contradicts the deck
 or lies outside a single-pass deck (``place-conflict``), a device or address
 wired by two models or a wired element repeated in its deck
 (``wiring-conflict``), a declared ``texture`` model or a channel on a status
-address (``model-conflict``), a nominal outside its limits band
+address (``model-conflict``), a model input that cannot be delivered (see
+``check_model_inputs``), a nominal or a wired start value outside its limits band
 (``seed-invalid``), an unseeded setpoint whose limits band excludes 0
 (``seed-missing``), and a scenario fault keyed by a name that is neither a
 channel nor a variable of the model's engine (``engine-invalid``); a wired
@@ -48,6 +49,7 @@ A span places only devices whose s came from the span's model.
 
 from __future__ import annotations
 
+import copy
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -63,13 +65,22 @@ from osprey.facility.scenarios import (
     check_scenario_engines,
     check_scenario_events,
 )
+from osprey.facility.served import CONFIG_SOURCE, SIMULATION_MODELS_KEY
 from osprey.facility.sources import AUTHORED
-from osprey.facility.validate import Validated, need, paired_nominal_error, stating_files
+from osprey.facility.validate import (
+    Validated,
+    _cycle_from,
+    need,
+    paired_nominal_error,
+    stating_files,
+)
 from osprey.facility.wiring import element_stop
 
 __all__ = [
     "TEXTURE",
     "check_compute",
+    "check_model_inputs",
+    "check_served_inputs",
     "compute_ordinals",
     "resolve_groups",
 ]
@@ -197,6 +208,7 @@ def _compute(run: _Run, validated: Validated) -> list[FacilityBuildError]:
     document = run.document
     _model_conflicts(run)
     twice = _addresses_wired_twice(run)
+    run.errors.extend(check_model_inputs(run.document))
     decks = _prepare_decks(run)
     computed = _positions(run, decks, twice)
     positions = {**_stated_positions(run, decks, computed), **computed}
@@ -271,6 +283,213 @@ def _addresses_wired_twice(run: _Run) -> set[str]:
             "wire the address in one model",
         )
     return {address for address, records in wired.items() if len(records) > 1}
+
+
+def _inputs(model: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [record for record in model.get("inputs") or [] if isinstance(record, Mapping)]
+
+
+def _models_and_owners(
+    document: Mapping[str, Any],
+) -> tuple[list[Mapping[str, Any]], dict[str, set[str]]]:
+    """The document's models, and each wired address's wiring models."""
+    models = [m for m in document.get("models") or [] if isinstance(m, Mapping)]
+    owners: dict[str, set[str]] = defaultdict(set)
+    for model in models:
+        for record in model.get("wiring") or []:
+            if isinstance(record, Mapping):
+                owners[str(record.get("address"))].add(str(model["name"]))
+    return models, owners
+
+
+def _input_stop(
+    kind: str, model: Mapping[str, Any], detail: str, remedy: str
+) -> FacilityBuildError:
+    return FacilityBuildError(
+        kind,
+        str(model["name"]),
+        stating_files(model, None, _MODELS_FILE),
+        remedy,
+        record_kind="model",
+        detail=detail,
+    )
+
+
+def check_model_inputs(document: Mapping[str, Any]) -> list[FacilityBuildError]:
+    """Check every model's ``inputs``: records of other models it reads.
+
+    An input is never wiring, so it takes no part in the wiring-conflict
+    check. Each stop is on the consuming model and names the input's address:
+    an address no model wires (``reference-missing``); an address the model
+    wires itself, or one it lists twice (``value-invalid``); inputs whose
+    producers lead back to the consumer (``value-invalid``, once per cycle);
+    an engine without ``take_inputs``, or one whose ``describe_input`` raises
+    ``ValueError`` on the input (``engine-invalid``, carrying its text). The
+    engine is asked only about inputs no other check stopped. Whether the
+    producer is served is a render's question (``check_served_inputs``).
+
+    Args:
+        document: The combined document.
+
+    Returns:
+        Every stop, in model and declared order.
+    """
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    models, owners = _models_and_owners(document)
+    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    errors: list[FacilityBuildError] = []
+    graph: dict[str, list[str]] = {}
+    via: dict[tuple[str, str], str] = {}
+    for model in models:
+        name = str(model["name"])
+        declared = _inputs(model)
+        if not declared:
+            continue
+        seen: set[str] = set()
+        accepted: list[Mapping[str, Any]] = []
+        for record in declared:
+            address = str(record.get("address"))
+            producers = owners.get(address, set())
+            if address in seen:
+                errors.append(
+                    _input_stop(
+                        "value-invalid",
+                        model,
+                        f"input `{address}` is listed twice",
+                        "list each input address once",
+                    )
+                )
+                continue
+            seen.add(address)
+            if not producers:
+                errors.append(
+                    _input_stop(
+                        "reference-missing",
+                        model,
+                        f"input `{address}` is wired by no model",
+                        "name an address another model of the facility wires",
+                    )
+                )
+                continue
+            if name in producers:
+                errors.append(
+                    _input_stop(
+                        "value-invalid",
+                        model,
+                        f"input `{address}` is the model's own record",
+                        "drop the input; a model reads its own records directly",
+                    )
+                )
+                continue
+            for producer in sorted(producers):
+                graph.setdefault(name, []).append(producer)
+                via.setdefault((name, producer), address)
+            accepted.append(record)
+        errors.extend(_engine_input_stops(model, accepted, engines))
+    errors.extend(_input_cycles(models, graph, via))
+    return errors
+
+
+def _engine_input_stops(
+    model: Mapping[str, Any], accepted: Sequence[Mapping[str, Any]], engines: Any
+) -> list[FacilityBuildError]:
+    if not accepted or model["engine"] not in engines.names:
+        return []
+    engine = engines[model["engine"]].load()
+    if not callable(getattr(engine, "take_inputs", None)):
+        addresses = ", ".join(f"`{record.get('address')}`" for record in accepted)
+        return [
+            _input_stop(
+                "engine-invalid",
+                model,
+                f"input {addresses}: engine {model['engine']} has no take_inputs",
+                "drop the inputs, or use an engine that takes inputs",
+            )
+        ]
+    describe = getattr(engine, "describe_input", None)
+    if not callable(describe):
+        return []
+    errors = []
+    for record in accepted:
+        try:
+            describe(copy.deepcopy(dict(record)))
+        except ValueError as refusal:
+            errors.append(
+                _input_stop(
+                    "engine-invalid",
+                    model,
+                    f"input `{record.get('address')}`: {refusal}",
+                    f"correct the input's engine block in words engine {model['engine']} accepts",
+                )
+            )
+    return errors
+
+
+def _input_cycles(
+    models: Sequence[Mapping[str, Any]],
+    graph: Mapping[str, list[str]],
+    via: Mapping[tuple[str, str], str],
+) -> list[FacilityBuildError]:
+    by_name = {str(model["name"]): model for model in models}
+    errors = []
+    reported: set[frozenset[str]] = set()
+    for start in sorted(graph):
+        cycle = _cycle_from(graph, start)
+        if cycle is None or frozenset(cycle) in reported or min(cycle) != start:
+            continue
+        reported.add(frozenset(cycle))
+        steps = [*cycle, start]
+        reads = "; ".join(
+            f"{consumer} reads `{via[(consumer, producer)]}` of {producer}"
+            for consumer, producer in zip(steps, steps[1:], strict=False)
+        )
+        errors.append(
+            _input_stop(
+                "value-invalid",
+                by_name[start],
+                f"inputs form a cycle: {reads}",
+                "drop one input of the cycle",
+            )
+        )
+    return errors
+
+
+def check_served_inputs(
+    document: Mapping[str, Any], served: Sequence[str]
+) -> list[FacilityBuildError]:
+    """Check that every served model's inputs come from served models.
+
+    A render serves the models its ``simulation.models`` names; a served
+    consumer whose input's producer is not served would read nothing.
+
+    Args:
+        document: The facility file.
+        served: The models the render serves.
+
+    Returns:
+        One ``profile-invalid`` stop per such input, in model and declared order.
+    """
+    models, owners = _models_and_owners(document)
+    errors: list[FacilityBuildError] = []
+    for model in models:
+        if model["name"] not in served:
+            continue
+        for record in _inputs(model):
+            address = str(record.get("address"))
+            unserved = sorted(owners.get(address, set()) - set(served))
+            errors.extend(
+                FacilityBuildError(
+                    "profile-invalid",
+                    str(model["name"]),
+                    [CONFIG_SOURCE, *stating_files(model, None, _MODELS_FILE)],
+                    f"serve model {producer} in `{SIMULATION_MODELS_KEY}`, or drop the input",
+                    record_kind="model",
+                    detail=f"input `{address}` is model {producer}'s, which is not served",
+                )
+                for producer in unserved
+            )
+    return errors
 
 
 def _prepare_decks(run: _Run) -> dict[str, _Deck]:

@@ -89,7 +89,7 @@ from osprey_connectors.config import ConfigBuilder, load_project_config
 from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_DIR_MODE, atomic_replace
 
 logger = get_logger("deployment.compose")
 
@@ -3124,10 +3124,12 @@ def _inject_project_metadata(config):
     # in-process simulator and the build's profile check call, so every surface
     # serving the composite ticks at the period the config states. Rendered as
     # a value rather than a ``${...}`` passthrough: the config is the only
-    # source of the tick.
-    from osprey_connectors.simulation import resolve_tick_s
+    # source of the tick. The fast period of the composite's timed passes
+    # travels the same way.
+    from osprey_connectors.simulation import resolve_fast_tick_s, resolve_tick_s
 
     config_with_labels["va_tick_s"] = resolve_tick_s(config)
+    config_with_labels["va_fast_tick_s"] = resolve_fast_tick_s(config)
 
     # Where each Virtual Accelerator instance appends its model logs on the
     # host, keyed by instance. Instance 1 writes the deployment's simulator log
@@ -4123,8 +4125,10 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
 #: wrote, which is what "shared corpus" has to mean for a multi-user roster.
 #: Nothing is granted to ``other``: the qmd sidecar reads as root and the web
 #: terminals come in through their group, so a world-readable corpus would widen
-#: access to a facility's knowledge for no consumer that needs it.
-SHARED_CORPUS_DIR_MODE = 0o2770
+#: access to a facility's knowledge for no consumer that needs it. It is the
+#: mode of every group-shared location (``safety_file.SHARED_DIR_MODE``), set
+#: here at deploy time on directories that already exist as well.
+SHARED_CORPUS_DIR_MODE = SHARED_DIR_MODE
 
 
 def resolve_facility_bundle_dir(
@@ -5250,19 +5254,36 @@ def _ensure_control_target_identity_dir(target, *, relative_to, label, noun, con
 def _control_tree_build_account(config, repo_root):
     """The build account's identity, or ``None`` when it cannot name a directory.
 
-    The build account is the one rung of the control tree that no roster and no
-    lint governs: the shared ladder that produces it rejects only values that
-    break path semantics, on the grounds that a stricter allowlist would turn a
-    legitimate account name into ``UNKNOWN_IDENTITY``. The tree's own seam is
-    stricter — an identity is a directory name here — so an account name the
-    ladder accepts and the seam refuses is reachable, and it reaches the seam
-    with no roster message behind it that could explain itself.
+    On a single-user deployment (no per-user web terminals,
+    :func:`~osprey.deployment.web_terminals.roster.has_web_terminal_roster`) the
+    account is the one operator: who the host launches sign in as, the render's
+    ``deployment.host_identity``, which the build stamps and ``osprey web``
+    exports (:func:`osprey.agent_record.credentials.export_built_host_identity`).
+    Every reader of this answer — the directory provisioned here, the login-tiers
+    entry, a panel's single-user alias — must name that same account, or a write
+    the terminal's login started is filed under a name its chip does not list.
+    A multi-user deployment, and a render that states no host identity (a config
+    no build has stamped), keep the account running the build, by the shared
+    identity ladder: there the roster names the people, and this entry is only
+    the build account's own.
+
+    That account is the one rung of the control tree that no roster and no lint
+    governs: the shared ladder rejects only values that break path semantics, on
+    the grounds that a stricter allowlist would turn a legitimate account name
+    into ``UNKNOWN_IDENTITY``. The tree's own seam is stricter — an identity is a
+    directory name here — so a name the ladder accepts and the seam refuses is
+    reachable, and it reaches the seam with no roster message behind it that
+    could explain itself.
 
     Refusing it here rather than at the seam is what lets the warning name a
     remedy the operator can act on: the record that account's own process writes
     then lands in a directory the writer creates under whatever umask it has,
     which a reader in another container may be unable to read — and an owned
     write whose control-context record cannot be read refuses.
+
+    ``UNKNOWN_IDENTITY`` is never answered: it is the ladder's word for "no
+    account could be named", and a directory, a tier or a panel login under it
+    would file a stranger's work under a name every unnamed process shares.
 
     :param config: The deployment configuration
     :type config: dict
@@ -5271,21 +5292,35 @@ def _control_tree_build_account(config, repo_root):
     :return: The identity to provision a directory for, or ``None``
     :rtype: str | None
     """
-    from osprey_connectors.identity import acting_identity
+    from osprey.agent_record.identities import host_identity
+    from osprey.deployment.web_terminals.roster import has_web_terminal_roster
+    from osprey_connectors.identity import UNKNOWN_IDENTITY, acting_identity
 
-    identity = acting_identity()
+    single_user = not has_web_terminal_roster(config)
+    identity = (host_identity(config) if single_user else None) or acting_identity()
+    remedy = (
+        "Set deployment.host_identity in profile.yml"
+        if single_user
+        else "Set OSPREY_AUDIT_IDENTITY before running `osprey build`"
+    )
+    shape = "a roster-shaped name (lowercase letters and digits, then any of them plus '_' and '-')"
+    if identity == UNKNOWN_IDENTITY:
+        logger.warning(
+            f"No control-context directory is provisioned for the build account: no "
+            f"account name could be found for the account running this build. {remedy} "
+            f"to {shape} and rebuild."
+        )
+        return None
     try:
         control_target_identity_dir(config, repo_root, identity)
     except ValueError:
         logger.warning(
-            f"No control-context directory is provisioned for the account running "
-            f"this build ({identity!r}): the name cannot be a directory under the "
-            f"control-context tree. Its own record will be written into a directory "
-            f"created under this account's umask, which the lanes and the dispatch "
-            f"worker may be unable to read — in which case every write that account "
-            f"owns refuses. Set OSPREY_AUDIT_IDENTITY to a roster-shaped name "
-            f"(lowercase letters and digits, then any of them plus '_' and '-') "
-            f"before running `osprey build` to have it provisioned."
+            f"No control-context directory is provisioned for the build account "
+            f"({identity!r}): the name cannot be a directory under the control-context "
+            f"tree. Its own record will be written into a directory created under this "
+            f"account's umask, which the lanes and the dispatch worker may be unable to "
+            f"read — in which case every write that account owns refuses. {remedy} to "
+            f"{shape} and rebuild."
         )
         return None
     return identity

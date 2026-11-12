@@ -34,6 +34,7 @@ from osprey.agent_record.config import HISTORY_SERVICE, history_origin_port, his
 from osprey.agent_record.identities import (
     BRIDGE_IDENTITIES,
     OPERATOR_IDENTITY,
+    derived_host_identity,
     host_identity,
     reader_entries,
 )
@@ -4698,9 +4699,10 @@ def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> l
 def _check_landing_group_types(web_terminals: dict[str, Any]) -> list[Finding]:
     """A ``type: apps`` landing section is the retired spelling of ``type: shared``.
 
-    Read as ``type: shared`` for one release, with one warning naming the
-    rewrite; ``osprey init --revalidate`` makes it.
+    Read as ``type: shared`` until the roster window closes, with one warning
+    naming the rewrite; ``osprey init --revalidate`` makes it.
     """
+    from osprey.cli.build_profile_load import RETIRED_ROSTER_KEYS_REFUSED_FROM
     from osprey.deployment.web_terminals.render import RETIRED_SHARED_GROUP_TYPE
 
     groups = as_dict(web_terminals.get("landing")).get("groups")
@@ -4713,8 +4715,9 @@ def _check_landing_group_types(web_terminals: dict[str, Any]) -> list[Finding]:
             message=(
                 f"modules.web_terminals.landing.groups[{i}] spells `type: "
                 f"{RETIRED_SHARED_GROUP_TYPE}`, which is read as `type: shared` (the shared "
-                "logins section); `type: apps` is deprecated and will be refused in the next "
-                "release. To rewrite it, run `osprey init --revalidate`"
+                "logins section); `type: apps` is deprecated and refused from OSPREY "
+                f"{RETIRED_ROSTER_KEYS_REFUSED_FROM}. To rewrite it, run "
+                "`osprey init --revalidate`"
             ),
         )
         for i, entry in enumerate(groups)
@@ -5371,12 +5374,13 @@ def host_identity_advisories(config: Any, runtime_user: str | None) -> list[str]
     another account is said once. About the invoking account rather than the
     config, so it is asked where something is launched and nowhere else. Empty
     when no account name is known, when the config records no identity, and
-    when the account is the one the build recorded.
+    when the account is the one the build recorded, under its own name or the
+    identity a build derives from it.
     """
     if runtime_user is None:
         return []
     identity = host_identity(as_dict(config))
-    if identity is None or identity == runtime_user:
+    if identity is None or identity in (runtime_user, derived_host_identity(runtime_user)):
         return []
     return [
         f"deployment.host_identity is {identity!r} and this command runs as "

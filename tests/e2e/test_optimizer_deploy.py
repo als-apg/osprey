@@ -23,7 +23,7 @@ image. Teardown goes through ``osprey down``, then exact-named removal of this
 project's own volumes (``tests/e2e/_volumes.py``).
 
 Gating: needs Docker; skipped entirely without it. Runs in its own
-``optimizer-deploy-e2e`` CI job, never in the fast lane.
+``optimizer-deploy-e2e`` cell of the ``stack-e2e`` CI job, never in the fast lane.
 """
 
 from __future__ import annotations

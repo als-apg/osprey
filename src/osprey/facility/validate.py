@@ -1308,7 +1308,18 @@ class _Records:
     def _topoff(
         self, address: str, seed: Mapping[str, Any], files: list[str]
     ) -> Iterator[FacilityBuildError]:
-        """A ``topoff`` decays and refills a float channel; it holds its level, not ``nominal``."""
+        """A ``topoff`` decays and refills an unwired float channel; it holds its level."""
+        wired = self.index.wired.get(address)
+        if wired:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                address,
+                files,
+                f"a `topoff` on a channel model {', '.join(sorted(wired))} wires",
+                "remove `topoff`; the model computes the channel's value",
+            )
+            return
         value_type = self._type(address)
         if value_type != "float":
             yield self._error(
@@ -1681,13 +1692,9 @@ class _Records:
     # --- wiring --------------------------------------------------------------------
 
     def _wiring(self) -> Iterator[FacilityBuildError]:
-        from osprey.simulation.engines.pyat import OPTICS_ATTRIBUTES
-
         for model, entry in self.index.wiring:
             wid = str(entry.get("id"))
-            if _single_pass(self.index.models[model]) and _reads_plane_optics(
-                entry, OPTICS_ATTRIBUTES
-            ):
+            if _single_pass_optics(self.index.models[model], entry):
                 yield self._error(
                     "engine-invalid",
                     "wiring",
@@ -2107,7 +2114,7 @@ class _Records:
             return
         if isinstance(value, dict):
             roster = self._roster(model)
-            if roster is not None:
+            if roster is not None and roster.refusal is None:
                 yield from map_fault_errors(name, files, model, address, value, roster)
             return
         refused = list(self._value("scenario", name, files, slot, address, value))
@@ -2331,6 +2338,19 @@ def _single_pass(model: Mapping[str, Any]) -> bool:
     settings = model.get("settings")
     block = settings.get("pyat") if isinstance(settings, dict) else None
     return isinstance(block, dict) and block.get("solve") == "single_pass"
+
+
+def _single_pass_optics(model: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
+    """True when a single-pass ``pyat`` model's wiring entry reads tunes or chromaticity.
+
+    Only a ``pyat`` model has optics attributes; any other engine's entry is
+    never read for them, and the lattice engine is not imported for it.
+    """
+    if model.get("engine") != "pyat" or not _single_pass(model):
+        return False
+    from osprey.simulation.engines.pyat import OPTICS_ATTRIBUTES
+
+    return _reads_plane_optics(entry, OPTICS_ATTRIBUTES)
 
 
 def _reads_plane_optics(entry: Mapping[str, Any], attributes: Iterable[str]) -> bool:

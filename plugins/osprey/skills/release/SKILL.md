@@ -229,15 +229,15 @@ rm -rf .venv-release-test
 
 The e2e half is the bulk lane, run exactly as CI runs it — same parallelism,
 same exclusions. Copy the invocation out of the `e2e-tests` job rather than
-retyping thirty-three `--ignore` flags:
+retyping the `--ignore` list:
 
 ```bash
 sed -n '/^  e2e-tests:/,/^  benchmarks:/p' .github/workflows/ci.yml \
   | grep -e 'pytest tests/e2e/' -e '--ignore='
 ```
 
-It runs `pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile` with that
-ignore list.
+It runs `pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile`
+with that ignore list.
 
 **The ignored modules are not untested.** Each has a dedicated CI lane of its
 own, because each binds a fixed host port, leaves a fixed-name container
@@ -523,10 +523,11 @@ Verify the latest commit on `main` is the release-notes merge.
 ## Step 6: Tag and push
 
 Before the first tag whose tree contains a new lockstep workspace member (one
-that rides the framework's v-tag, as `pyaml-cs-osprey` does): register a PyPI
-pending trusted publisher for it (this repository, workflow `release.yml`,
-environment `pypi`) and add its `uv build --package` line to `release.yml` —
-without the publisher PyPI refuses that wheel and the tag lands half-published.
+that rides the framework's v-tag, as `pyaml-cs-osprey` and `osprey-optimizer`
+do): register a PyPI pending trusted publisher for it (this repository,
+workflow `release.yml`, environment `pypi`) and add its `uv build --package`
+line to `release.yml` — without the publisher PyPI refuses that wheel and the
+tag lands half-published.
 `osprey-connectors` is not one: a framework tag never builds it (see
 "Releasing osprey-connectors" below).
 
@@ -720,7 +721,8 @@ satisfies:
 ```bash
 git checkout vYYYY.M.P && rm -rf dist/
 uv build                                  # the framework
-uv build --package pyaml-cs-osprey        # every lockstep member, as release.yml builds them
+uv build --package osprey-optimizer       # every lockstep member, as release.yml builds them
+uv build --package pyaml-cs-osprey
 ls dist/                                  # every file must carry YYYY.M.P exactly
 uvx twine check dist/*
 uvx twine upload $(ls dist/* | grep -v osprey_framework-)   # every member first

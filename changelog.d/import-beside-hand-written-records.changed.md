@@ -1,0 +1,1 @@
+`osprey facility import` no longer refuses hand-written channel, device, group or model records once the facility holds an imported layer. The refusal guards the first import; records written by hand beside a layer, such as a model no export states, stay through a re-import and the build combines them with the layers.

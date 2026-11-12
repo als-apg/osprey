@@ -946,3 +946,17 @@ def test_a_missing_service_file_names_the_build_and_the_run_time_mount(tmp_path,
         f"{service_path} is missing or incomplete, so agent-record cannot start: run "
         f"`osprey build`, or, in a container, mount the build's service file at {service_path}"
     )
+
+
+@pytest.mark.parametrize(
+    "config",
+    [{"project_name": "p"}, {"project_name": "p", "deployment": {"host_identity": "GMartino"}}],
+    ids=["unstamped", "outside-the-charset"],
+)
+def test_a_host_state_dir_refusal_names_the_profile_fix(tmp_path, config):
+    with pytest.raises(hr.HostRecordRefused) as refused:
+        hr.host_state_dir(tmp_path, config)
+    message = str(refused.value)
+    assert "deployment.host_identity" in message
+    assert "profile.yml" in message
+    assert "osprey build" in message

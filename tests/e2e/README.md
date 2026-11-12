@@ -192,9 +192,9 @@ required (the seed has to land somewhere); only the seeding is automatic.
 
 These deploy a real stack — virtual accelerator, bluesky bridge, Tiled — and
 drive it. They are heavy (Docker builds, minutes each), so each gets its own CI
-lane (a `stack-e2e` matrix cell, or a job of its own) rather than riding the bulk `e2e-tests` job, which `--ignore`s every one of
-them. The map below records which lane **runs** which file; `ci.yml` is the
-source of truth.
+lane (a `stack-e2e` matrix cell, or a job of its own) rather than riding the bulk `e2e-tests` job,
+which leaves out every module a lane in `LANES` (`scripts/repo_checks.py`) claims. The map below
+records which lane **runs** which file; `LANES` and `ci.yml` are the source of truth.
 
 | Module | CI lane |
 | --- | --- |
@@ -206,7 +206,7 @@ source of truth.
 | `test_tiled_roundtrip.py` | `stack-e2e` (`tiled-roundtrip-e2e` cell) |
 | `test_bluesky_catalog_e2e.py` | `stack-e2e` (`bluesky-catalog-e2e` cell) |
 | `test_bluesky_sandbox_escape_e2e.py` | `stack-e2e` (`bluesky-sandbox-escape-e2e` cell) |
-| `test_plan_stack_agentic.py` | `scan-agentic-e2e` |
+| `test_plan_stack_agentic.py` | `dispatch-stack-e2e` (`scan-agentic-e2e` cell) |
 
 Two entries are worth reading twice. `test_grid_scan_roundtrip.py` and
 `test_bump_roundtrip.py` are **adopted into** `orm-roundtrip-e2e` rather than
@@ -337,8 +337,9 @@ deploys a whole stack and waits out a stopped source (hello-world on the
 embedded record, demo on ClickHouse; one matrix cell, and one
 runner, per case). A wiring test in
 `tests/deployment/test_ci_workflow_wiring.py` holds the two sets equal. Adding
-a model-free module therefore means marking it and naming it in one of those
-lanes in one change.
+a model-free module therefore means marking it and adding it to the
+`e2e-no-model` lane's `modules` in `LANES` (`scripts/repo_checks.py`), which
+the job reads at run time, in one change.
 
 ### Scripted gate tests
 
@@ -454,8 +455,8 @@ async def test_my_workflow(e2e_project_factory):
    when it builds with `e2e_provider()` and therefore follows the run, the
    gateway-specific marker (`requires_als_apg`, `requires_cborg`, …) when the test
    pins a provider itself. A test that reaches no model carries `model_free`, and
-   its module is named in a model-free lane (`e2e-no-model`, or
-   `agent-record-e2e` for the record's replay) in the same change.
+   its module joins a model-free lane (the `e2e-no-model` lane's `modules` in
+   `LANES`, or `agent-record-e2e` for the record's replay) in the same change.
 4. **Clean validation** - verify actual outputs (files, code content) not just LLM responses
 
 ## CI/CD Integration

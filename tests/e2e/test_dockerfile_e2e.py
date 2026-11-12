@@ -1,8 +1,8 @@
-"""E2E: build, boot, and serve an agent from the generated reference Dockerfile.
+"""E2E: build and boot the generated reference Dockerfile, without a model.
 
 Initializes a deployment repo, builds it, runs a real ``docker build`` on the
-Dockerfile that ``osprey build`` generated, then exercises the image at two
-depths.
+Dockerfile that ``osprey build`` generated (``_dockerfile_image``), then
+inspects the image.
 
 What the image has to be is the whole premise here: **a deployment repo at
 ``/app/<project>``**. The framework inside a container resolves paths exactly
@@ -23,16 +23,13 @@ no MCP server may name a file the image does not have.
   permission-traversal chain the native installer requires),
 - ``.dockerignore`` kept ``.env`` out of the image.
 
-``test_generated_image_serves_agent_over_http`` — full functional proof:
-boots the image's actual ``CMD`` (``osprey web``), waits for ``/health``, and
-drives one real agent turn through ``POST /api/chat`` with a live LLM call via
-the als-apg provider. This is the only test that proves the *shipped*
-entrypoint actually serves an agent — ``claude --version`` proves the binary
-launches, not that the assembled image answers a prompt.
+The one test that drives an agent turn through the image's ``CMD`` spends
+model tokens, so it lives in ``test_dockerfile_agent_e2e.py`` (its own
+model-spending CI lane); this module calls no model.
 
 ``test_node_runtime_satisfies_the_cli_engine_floor`` — the Node runtime the
-image installs from its own Debian release clears the CLI's engines floor
-(node >= 18, never an exact major), npm is present for the ``npx`` launch path,
+image copies from the official Node image clears the CLI's engines floor
+(node >= 22, never an exact major), npm is present for the ``npx`` launch path,
 and the image's size is reported so a provenance change's size delta is on the
 record.
 
@@ -55,227 +52,83 @@ Three further tests cover the fast-dev-rebuild layer split:
   toolchain is purged from the final image and the ``com.osprey.project``
   label is stamped.
 
-The smoke/HTTP/cache/hygiene tests share one image build (the module-scoped
-``built_image`` fixture); the sentinel test builds its own. The image is built
-with ``--set provider=als-apg`` so the in-image ``config.yml`` resolves to the
-provider CI can reach; LLM credentials are injected at ``docker run`` time
-(never baked into the image).
-
-Set ``OSPREY_E2E_PIP_SPEC`` to override which OSPREY gets installed inside the
-image. The image default is the PyPI release; CI pins the PR head SHA instead so
-the image tests the branch under review.
-
-The HTTP test additionally needs ``ALS_APG_API_KEY`` (``requires_als_apg``);
-it auto-skips without it. The build/boot test has no such requirement.
+The smoke/cache/hygiene tests share one image build (the module-scoped
+``built_image`` fixture); the sentinel test builds its own. How the image is
+built, and ``OSPREY_E2E_PIP_SPEC``, are described in ``_dockerfile_image``.
 
 Skipped entirely when docker is unavailable. Excluded from the main e2e-tests
-CI job (runs in its own dockerfile-e2e job).
+CI job (runs in its own dockerfile-e2e job, which holds no model key).
 """
 
-import http.cookiejar
 import json
 import os
-import platform
 import re
 import shutil
 import subprocess
 import sys
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
-from osprey.cli.main import cli
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
-from osprey.port_layout import default_port
-from osprey.utils.workspace import container_image_context
-from tests._container_support import docker_cli_unavailable_reason_once
-from tests.e2e._image_record import record_credential_mounts
-
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
-
-
-#: The port the project image serves on INSIDE the container: the ``web`` slot
-#: of the layout, which ``Dockerfile.j2`` renders into its ``EXPOSE`` line. The
-#: image is built from a config that never moves ``deployment.port_base``, so
-#: the layout's default base is the right one to derive it at.
-_WEB_SLOT = default_port("web")
-
-pytestmark = [
-    pytest.mark.dockerbuild,
-    pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
-]
-
-BUILD_TIMEOUT = 1800  # cold image build downloads base layers + pip deps
-RUN_TIMEOUT = 300
-HEALTH_TIMEOUT = 120  # server process up + first port bind
-CHAT_TIMEOUT = 240  # one real LLM round-trip (haiku, single turn)
-PROJECT_NAME = "dockere2e"
-
-# A distinctive token the model is unlikely to emit by chance — proves the
-# prompt reached a live model and came back, not that *some* text returned.
-CHAT_MARKER = "OSPREY-E2E-OK"
-CHAT_PROMPT = f"Respond with exactly this token and nothing else: {CHAT_MARKER}"
-
-# OSPREY's dependency chain (accelerator-toolbox) ships linux/amd64 wheels
-# only; on arm64 hosts (Apple Silicon) a native build would need a compiler
-# the slim base lacks. Build/run amd64 under emulation instead — it matches
-# the real deployment targets.
-_PLATFORM_ARGS = (
-    ["--platform", "linux/amd64"] if platform.machine().lower() in ("arm64", "aarch64") else []
+from tests.e2e import _dockerfile_image as image
+from tests.e2e._dockerfile_image import (
+    PLATFORM_ARGS,
+    PROJECT_NAME,
+    RUN_TIMEOUT,
+    build_image,
+    docker_run,
+    image_context,
+    init_and_build_repo,
 )
 
-
-def _docker_run(tag: str, *cmd: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["docker", "run", "--rm", *_PLATFORM_ARGS, tag, *cmd],
-        capture_output=True,
-        text=True,
-        timeout=RUN_TIMEOUT,
-    )
-
-
-def _init_and_build_repo(out_dir: Path) -> Path:
-    """Init a hello-world deployment repo pinned to als-apg, and build it.
-
-    ``--no-git`` because nothing here reads history and the tmp tree may sit
-    inside another repository; ``--skip-deps`` because the image installs its
-    own dependencies from ``OSPREY_PIP_SPEC`` and the host venv would only slow
-    the render down. Returns the repo root.
-    """
-    repo = out_dir / PROJECT_NAME
-    runner = CliRunner()
-    init = runner.invoke(
-        cli,
-        [
-            "init",
-            str(repo),
-            "--preset",
-            "hello-world",
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=claude-haiku-5-5",
-            "--no-git",
-        ],
-    )
-    assert init.exit_code == 0, init.output
-    build = runner.invoke(cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-    assert build.exit_code == 0, build.output
-    return repo
-
-
-def _image_context(repo: Path) -> Path:
-    """The directory ``docker build`` runs against for this repo's image.
-
-    Resolved through the production helper, not spelled here: the context is
-    what lands in the image, so it is what decides the container's layout, and a
-    test that picked its own would prove the layout of something the deploy path
-    never builds. It is a deployment repo the build rendered against the
-    ``/app/<project>`` path a container sees, so its ``Dockerfile`` is one level
-    down, in the render.
-    """
-    context = container_image_context(repo, PROJECT_NAME)
-    assert (context / "build" / "Dockerfile").is_file(), f"no rendered Dockerfile under {context}"
-    return context
-
-
-def _build_image(context, tag: str, *, progress_plain: bool = False) -> subprocess.CompletedProcess:
-    """Run ``docker build`` on the generated Dockerfile; return the completed process.
-
-    Passes the same ``com.osprey.project`` label ``osprey up`` stamps via
-    ``_project_image_build_cmd``, so label assertions here cover the shape the
-    real build path produces. ``DOCKER_BUILDKIT=1`` pins the BuildKit builder
-    for every build so layer-cache semantics (and ``--progress=plain`` output,
-    used by the cache-hit test) are uniform across docker versions.
-    """
-    build_cmd = [
-        "docker",
-        "build",
-        *_PLATFORM_ARGS,
-        "-f",
-        str(Path(context) / "build" / "Dockerfile"),
-        "-t",
-        tag,
-        "--label",
-        f"com.osprey.project={PROJECT_NAME}",
-    ]
-    if progress_plain:
-        build_cmd += ["--progress=plain"]
-    pip_spec = os.environ.get("OSPREY_E2E_PIP_SPEC")
-    if pip_spec:
-        build_cmd += ["--build-arg", f"OSPREY_PIP_SPEC={pip_spec}"]
-    build_cmd.append(".")
-    build = subprocess.run(
-        build_cmd,
-        cwd=context,
-        capture_output=True,
-        text=True,
-        timeout=BUILD_TIMEOUT,
-        env={**os.environ, "DOCKER_BUILDKIT": "1"},
-    )
-    assert build.returncode == 0, (
-        f"docker build failed:\n--- stdout ---\n{build.stdout[-4000:]}"
-        f"\n--- stderr ---\n{build.stderr[-4000:]}"
-    )
-    return build
+pytestmark = image.MODULE_MARKS
 
 
 @pytest.fixture(scope="module")
 def built_image(tmp_path_factory):
     """Build the repo + its reference image once for the whole module."""
-    out_dir = tmp_path_factory.mktemp("dockerfile-e2e")
-    repo = _init_and_build_repo(out_dir)
-    tag = f"osprey-dockerfile-e2e:{uuid.uuid4().hex[:8]}"
-    try:
-        _build_image(_image_context(repo), tag)
-        yield tag, repo, PROJECT_NAME, out_dir
-    finally:
-        subprocess.run(["docker", "rmi", "-f", tag], capture_output=True, timeout=120)
+    yield from image.built_image(tmp_path_factory)
 
 
 def test_generated_dockerfile_builds_and_boots(built_image):
     tag, _repo, project_name, _out_dir = built_image
 
     # OSPREY installed and importable
-    version = _docker_run(tag, "osprey", "--version")
+    version = docker_run(tag, "osprey", "--version")
     assert version.returncode == 0, version.stderr
 
     # The command runs as uid 1000, whose name is one of two answers: `osprey`
     # when OSPREY_CONTROL_IDENTITY is unset (this run), or the name that
     # variable carries once the entrypoint has applied it (the test_whoami_*
     # tests below). Never root either way.
-    whoami = _docker_run(tag, "whoami")
+    whoami = docker_run(tag, "whoami")
     assert whoami.stdout.strip() == "osprey"
 
     # Claude Code callable as the non-root user (permission-chain canary)
-    claude = _docker_run(tag, "claude", "--version")
+    claude = docker_run(tag, "claude", "--version")
     assert claude.returncode == 0, (
         f"claude --version failed as non-root user — the /root/.local "
         f"traversal chain is broken:\n{claude.stderr}"
     )
 
     # .dockerignore did its job: no secrets/host state in the image
-    env_check = _docker_run(tag, "sh", "-c", f"find /app/{project_name} -name '.env' | head -1")
+    env_check = docker_run(tag, "sh", "-c", f"find /app/{project_name} -name '.env' | head -1")
     assert not env_check.stdout.strip(), (
         f".env must never enter the image, found: {env_check.stdout.strip()}"
     )
 
 
 def _docker_run_with(tag: str, docker_args: list[str], *cmd: str) -> subprocess.CompletedProcess:
-    """``_docker_run`` with ``docker run`` options (``-e``, ``-v``, ``--user``) before the tag."""
+    """``docker_run`` with ``docker run`` options (``-e``, ``-v``, ``--user``) before the tag."""
     return subprocess.run(
-        ["docker", "run", "--rm", *_PLATFORM_ARGS, *docker_args, tag, *cmd],
+        ["docker", "run", "--rm", *PLATFORM_ARGS, *docker_args, tag, *cmd],
         capture_output=True,
         text=True,
         timeout=RUN_TIMEOUT,
@@ -425,11 +278,10 @@ def _report_image_size(tag: str) -> int:
 def test_node_runtime_satisfies_the_cli_engine_floor(built_image):
     """Node and npm work in the image, and Node clears the CLI's engines floor.
 
-    The floor is the contract — ``@anthropic-ai/claude-code`` requires node >=
-    18 — and the version above it is whatever the base image's Debian release
-    ships. Asserting an exact major would be asserting a pin this image
-    deliberately does not have: it would fail the day the base image moves,
-    for a change that is not a regression.
+    The floor is the contract — the pinned ``@anthropic-ai/claude-code``
+    declares node >= 22 — and the version above it is whatever the Node image
+    the recipe copies from ships. Asserting an exact major would fail the day
+    that image moves, for a change that is not a regression.
 
     npm is checked separately because it is a *runtime* dependency here: the
     agent is launched via ``npx``, so an image with node but no npm boots and
@@ -437,16 +289,16 @@ def test_node_runtime_satisfies_the_cli_engine_floor(built_image):
     """
     tag, _repo, _project_name, _out_dir = built_image
 
-    node = _docker_run(tag, "node", "-v")
+    node = docker_run(tag, "node", "-v")
     assert node.returncode == 0, f"node is not runnable in the image:\n{node.stderr}"
     raw = node.stdout.strip()
     match = re.match(r"v?(\d+)\.", raw)
     assert match, f"unparseable `node -v` output: {raw!r}"
-    assert int(match.group(1)) >= 18, (
-        f"node {raw} is below the Claude Code CLI's engines floor (node >= 18)"
+    assert int(match.group(1)) >= 22, (
+        f"node {raw} is below the Claude Code CLI's engines floor (node >= 22)"
     )
 
-    npm = _docker_run(tag, "npm", "--version")
+    npm = docker_run(tag, "npm", "--version")
     assert npm.returncode == 0, (
         f"npm is not runnable in the image — the agent is launched via `npx`, "
         f"so this fails at the first turn, not at build time:\n{npm.stderr}"
@@ -471,7 +323,7 @@ def test_every_config_path_in_the_image_resolves(built_image):
     tag, _repo, project_name, _out_dir = built_image
     project_root = f"/app/{project_name}"
 
-    mcp = _docker_run(tag, "cat", f"{project_root}/build/.mcp.json")
+    mcp = docker_run(tag, "cat", f"{project_root}/build/.mcp.json")
     assert mcp.returncode == 0, (
         f"no .mcp.json under {project_root}/build — the render is not where "
         f"registry/mcp.py says it is:\n{mcp.stderr}"
@@ -489,7 +341,7 @@ def test_every_config_path_in_the_image_resolves(built_image):
     missing = {
         where: path
         for where, path in named.items()
-        if _docker_run(tag, "test", "-f", path).returncode != 0
+        if docker_run(tag, "test", "-f", path).returncode != 0
     }
     assert not missing, f"config paths named in .mcp.json but absent from the image: {missing}"
 
@@ -504,199 +356,16 @@ def test_image_project_root_is_a_deployment_repo(built_image):
     tag, _repo, project_name, out_dir = built_image
     project_root = f"/app/{project_name}"
 
-    marker = _docker_run(tag, "test", "-f", f"{project_root}/profile.yml")
+    marker = docker_run(tag, "test", "-f", f"{project_root}/profile.yml")
     assert marker.returncode == 0, (
         f"no profile.yml at {project_root} — `osprey web` cannot resolve the "
         "deployment this image ships"
     )
 
-    config = _docker_run(tag, "cat", f"{project_root}/build/config.yml")
+    config = docker_run(tag, "cat", f"{project_root}/build/config.yml")
     assert config.returncode == 0, config.stderr
     assert f"project_root: {project_root}" in config.stdout
     assert str(out_dir) not in config.stdout, "host build path leaked into the image config"
-
-
-# ── Functional: the shipped CMD actually serves an agent ─────────────────────
-
-
-def _host_port(cid: str) -> int:
-    """Resolve the ephemeral host port docker mapped to the image's web slot."""
-    out = subprocess.run(
-        ["docker", "port", cid, f"{_WEB_SLOT}/tcp"],
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    assert out.returncode == 0, f"docker port failed: {out.stderr}"
-    # Output like "127.0.0.1:54321" (possibly multiple lines for v4/v6).
-    return int(out.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
-
-
-def _container_logs(cid: str) -> str:
-    logs = subprocess.run(
-        ["docker", "logs", "--tail", "60", cid], capture_output=True, text=True, timeout=60
-    )
-    return (logs.stdout + logs.stderr)[-4000:]
-
-
-def _is_running(cid: str) -> bool:
-    out = subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", cid],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    return out.stdout.strip() == "true"
-
-
-def _wait_for_health(base_url: str, cid: str, timeout: float) -> None:
-    """Poll ``GET /health`` until healthy, failing fast if the container dies."""
-    deadline = time.monotonic() + timeout
-    last_err = "no response"
-    while time.monotonic() < deadline:
-        if not _is_running(cid):
-            pytest.fail(f"container exited before becoming healthy:\n{_container_logs(cid)}")
-        try:
-            with urllib.request.urlopen(f"{base_url}/health", timeout=5) as resp:
-                if resp.status == 200 and json.loads(resp.read()).get("status") == "healthy":
-                    return
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    pytest.fail(f"server never became healthy ({last_err}):\n{_container_logs(cid)}")
-
-
-# The launcher prints its one-time login URL as `Open: http://<host>:<port>/?token=<secret>`
-# (mint_and_announce). The container mints its OWN operator secret, so the token
-# can only be recovered from its logs — the whole reason this parses the printed
-# URL rather than assuming a bare, credential-less base URL.
-_OPEN_URL_RE = re.compile(r"Open:\s*(http://\S+\?token=\S+)")
-
-
-def _login_opener(base_url: str, cid: str) -> urllib.request.OpenerDirector:
-    """Exchange the container's printed ``?token=`` login URL for a session cookie.
-
-    Every ``/api/*`` route on the deployed image is now behind the web-auth gate,
-    so an unauthenticated ``POST /api/chat`` is refused ``401``. A browser gets in
-    by following the ``Open: …?token=…`` URL the launcher prints, which
-    ``GET``s to a ``303`` that sets an ``HttpOnly`` session cookie; this does the
-    same, returning a cookie-jar-backed opener that carries that session on every
-    subsequent request.
-
-    The token is read from the container's FULL logs (not the tailed view), since
-    the ``Open:`` line is printed once at startup and would scroll out of a short
-    tail by the time the agent turn runs.
-    """
-    logs = subprocess.run(["docker", "logs", cid], capture_output=True, text=True, timeout=15)
-    match = _OPEN_URL_RE.search(logs.stdout + logs.stderr)
-    assert match, f"container never printed an 'Open: …?token=…' login URL:\n{_container_logs(cid)}"
-    login_url = match.group(1)
-    # The token identifies the container's secret; the exchange itself must be
-    # driven at the host-mapped base_url, so swap the authority the container
-    # announced (its internal web slot) for the reachable one.
-    token_query = urllib.parse.urlparse(login_url).query
-    opener = urllib.request.build_opener(
-        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
-    )
-    with opener.open(f"{base_url}/?{token_query}", timeout=15) as resp:
-        assert resp.status == 200, f"token exchange did not resolve to 200 (got {resp.status})"
-    return opener
-
-
-def _post_chat(
-    base_url: str, opener: urllib.request.OpenerDirector, prompt: str, timeout: float
-) -> dict:
-    """POST a prompt to the buffered chat endpoint, return the JSON body.
-
-    Sent through the cookie-bearing *opener* from :func:`_login_opener` with a
-    same-origin ``Origin`` header: ``/api/chat`` is a mutating cookie-authenticated
-    route, so the web-auth gate refuses it ``403`` without an ``Origin`` matching
-    the app's external origin (derived from the request ``Host`` = *base_url*).
-    """
-    # chat_id is a required field — it keys the server-side ChatSessionPool.
-    # A single fixed id is enough for this one-turn smoke test.
-    req = urllib.request.Request(
-        f"{base_url}/api/chat?stream=false",
-        data=json.dumps({"prompt": prompt, "chat_id": "e2e"}).encode(),
-        headers={"Content-Type": "application/json", "Origin": base_url},
-        method="POST",
-    )
-    with opener.open(req, timeout=timeout) as resp:
-        assert resp.status == 200, f"chat returned HTTP {resp.status}"
-        return json.loads(resp.read())
-
-
-@pytest.mark.requires_als_apg
-def test_generated_image_serves_agent_over_http(built_image):
-    """Boot the image's CMD and drive one real LLM turn through osprey web."""
-    tag, repo, project_name, out_dir = built_image
-
-    # Mirror the production run contract (`docker run --env-file .env`): pass
-    # the raw provider secret, never a pre-resolved token. The full osprey web stack resolves
-    # ${ALS_APG_API_KEY} from config at runtime and stands up an internal proxy
-    # that authenticates upstream with it — injecting a pre-resolved
-    # ANTHROPIC_AUTH_TOKEN would bypass that and leave config resolution (and
-    # the proxy) without the key.
-    api_key = os.environ["ALS_APG_API_KEY"]  # guaranteed present by requires_als_apg
-    env_args = ["-e", f"ALS_APG_API_KEY={api_key}"]
-
-    # The endpoint override rides the same contract. It is deliberately absent
-    # from the image (build-time rendering never bakes the builder's
-    # environment), so a run pointed at a non-default gateway must pass it in
-    # here exactly as a deployment passes it via env_file — otherwise the
-    # container dials the provider's built-in default instead.
-    base_url = os.environ.get("ALS_APG_BASE_URL")
-    if base_url:
-        env_args += ["-e", f"ALS_APG_BASE_URL={base_url}"]
-
-    run = subprocess.run(
-        [
-            "docker",
-            "run",
-            "-d",
-            *_PLATFORM_ARGS,
-            "-p",
-            f"127.0.0.1:0:{_WEB_SLOT}",
-            *env_args,
-            # The terminal holds the agent record: its login and service file
-            # come in at run time, as the provider key does.
-            *record_credential_mounts(repo, project_name, out_dir),
-            tag,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert run.returncode == 0, f"docker run failed: {run.stderr}"
-    cid = run.stdout.strip()
-
-    try:
-        base_url = f"http://127.0.0.1:{_host_port(cid)}"
-        _wait_for_health(base_url, cid, HEALTH_TIMEOUT)
-
-        try:
-            opener = _login_opener(base_url, cid)
-            data = _post_chat(base_url, opener, CHAT_PROMPT, CHAT_TIMEOUT)
-        except urllib.error.HTTPError as exc:
-            pytest.fail(f"chat HTTP {exc.code}: {exc.read()[:2000]!r}\n{_container_logs(cid)}")
-
-        assert data.get("is_error") is False, (
-            f"agent returned an error: {data.get('error')}\n{_container_logs(cid)}"
-        )
-        text = (data.get("text") or "").strip()
-        assert text, f"agent returned empty text\n{_container_logs(cid)}"
-        assert CHAT_MARKER in text, (
-            f"expected marker {CHAT_MARKER!r} in agent reply, got: {text[:500]!r}"
-        )
-        # The buffered chat payload is reduced to {text, events, is_error} —
-        # turn counts are deliberately withheld from the chat client — so a
-        # completed turn is evidenced by its terminal result event.
-        events = data.get("events") or []
-        assert any(e.get("type") == "result" for e in events), (
-            f"expected a completed agent turn, got events: {events}"
-        )
-    finally:
-        subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=60)
 
 
 # ── Layer cache, dev-wheel sentinel, and image hygiene ───────────────────────
@@ -726,7 +395,7 @@ def test_rebuild_without_changes_is_fully_cached(built_image):
     _tag, repo, _project_name, _out_dir = built_image
     rebuild_tag = f"osprey-dockerfile-e2e-cachehit:{uuid.uuid4().hex[:8]}"
     try:
-        build = _build_image(_image_context(repo), rebuild_tag, progress_plain=True)
+        build = build_image(image_context(repo), rebuild_tag, progress_plain=True)
         progress = build.stdout + build.stderr
 
         steps = {
@@ -811,7 +480,7 @@ def test_equal_version_dev_wheel_lands_local_code(tmp_path):
     EXACT version plus a sentinel module, rebuild, and assert the sentinel is
     importable in the final image.
     """
-    context = _image_context(_init_and_build_repo(tmp_path))
+    context = image_context(init_and_build_repo(tmp_path))
     suffix = uuid.uuid4().hex[:8]
     base_tag = f"osprey-dockerfile-e2e-sentinel-base:{suffix}"
     dev_tag = f"osprey-dockerfile-e2e-sentinel-dev:{suffix}"
@@ -820,8 +489,8 @@ def test_equal_version_dev_wheel_lands_local_code(tmp_path):
         #    the deps layer resolved from OSPREY_PIP_SPEC. Note: the dist name
         #    is osprey-framework, so read osprey.__version__, not importlib
         #    metadata for "osprey".
-        _build_image(context, base_tag)
-        primed = _docker_run(base_tag, "python", "-c", "import osprey; print(osprey.__version__)")
+        build_image(context, base_tag)
+        primed = docker_run(base_tag, "python", "-c", "import osprey; print(osprey.__version__)")
         assert primed.returncode == 0, primed.stderr
         primed_version = primed.stdout.strip()
         assert primed_version, "could not read the deps-layer osprey version"
@@ -830,10 +499,10 @@ def test_equal_version_dev_wheel_lands_local_code(tmp_path):
         #    rebuild — exactly what `osprey up --dev` does.
         wheel = _build_sentinel_wheel(primed_version, tmp_path)
         shutil.copy2(wheel, context / wheel.name)
-        _build_image(context, dev_tag)
+        build_image(context, dev_tag)
 
         # 3. Local code landed despite the equal version.
-        probe = _docker_run(
+        probe = docker_run(
             dev_tag,
             "python",
             "-c",
@@ -846,7 +515,7 @@ def test_equal_version_dev_wheel_lands_local_code(tmp_path):
         assert SENTINEL_MARKER in probe.stdout
 
         # The version really was equal — i.e. plain pip WOULD have skipped it.
-        version_after = _docker_run(
+        version_after = docker_run(
             dev_tag, "python", "-c", "import osprey; print(osprey.__version__)"
         )
         assert version_after.stdout.strip() == primed_version
@@ -863,7 +532,7 @@ def test_final_image_has_no_toolchain_and_carries_project_label(built_image):
     tag, _repo, _project_name, _out_dir = built_image
 
     for pkg in ("build-essential", "python3-dev"):
-        check = _docker_run(tag, "sh", "-c", f"dpkg -s {pkg}")
+        check = docker_run(tag, "sh", "-c", f"dpkg -s {pkg}")
         assert check.returncode != 0, (
             f"{pkg} is installed in the final image — the deps layer must purge "
             f"the toolchain inside the same RUN:\n{check.stdout[-1000:]}"

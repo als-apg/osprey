@@ -49,9 +49,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0  # the tree comparison below walks the tag's parents
+        persist-credentials: false
 
     - name: Require the tagged commit on main
       # Releases are cut from main (the release skill). The lane gate
@@ -82,19 +83,24 @@ jobs:
         REPO: ${{ github.repository }}
         TAG_SHA: ${{ github.sha }}
         TAG_NAME: ${{ github.ref_name }}
-        # The model-spending lanes, one per line: <ci.yml job id>=<rendered
-        # job-name prefix>. A prefix, because a matrix job (`agentic-per-preset`,
-        # `dispatch-stack-e2e`) renders one job per cell, and every cell must pass. tests/deployment/
-        # test_ci_workflow_wiring.py pins this list against ci.yml, so a renamed
-        # lane fails a unit test, not a release.
+        # The model-spending lanes, one per line: <lane id>=<rendered job-name
+        # prefix>. A lane id is its ci.yml job id, or the cell's `lane:` where a
+        # matrix job hosts several lanes (`dispatch-stack-e2e`), each then named by
+        # its own cell's prefix. A prefix, because a matrix job (`agentic-per-preset`)
+        # renders one job per cell, and every cell must pass. tests/deployment/
+        # test_ci_workflow_wiring.py pins this list to the spending lanes of LANES,
+        # so a renamed lane fails a unit test, not a release.
         REQUIRED_LANES: |
           agentic-per-preset=Tier 3 — Agentic flow
           e2e-tests=E2E Tests
-          dispatch-stack-e2e=Dispatch Stack E2E
-          host-record-e2e=Host Record E2E
-          scan-agentic-e2e=Scan Stack Agentic E2E
+          dispatch-deploy-e2e=Dispatch Stack E2E — Deploy
+          single-user-narrowing-e2e=Dispatch Stack E2E — Single-User Narrowing
+          dispatch-overlay-e2e=Dispatch Stack E2E — Overlay Visibility
+          host-record-e2e=Dispatch Stack E2E — Host Record
+          scan-agentic-e2e=Dispatch Stack E2E — Scan Stack Agentic
           nextcloud-talk-bridge-e2e=Nextcloud Talk Bridge E2E
           gchat-bridge-e2e=Google Chat Bridge E2E
+          dockerfile-agent-e2e=Dockerfile Agent E2E
           target-switch-agentic-e2e=Control-Target Switch Agentic E2E
       run: |
         python3 scripts/ci/require_green_lanes.py --lanes "$REQUIRED_LANES" \
@@ -109,12 +115,13 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0  # Fetch all history for version detection
+        persist-credentials: false
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
 
     - name: Set up Python
       run: uv python install 3.11
@@ -167,7 +174,7 @@ jobs:
         ls -lh dist/
 
     - name: Upload distribution artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: python-package-distributions
         path: dist/
@@ -200,13 +207,13 @@ jobs:
     # first tag.
     steps:
     - name: Download distribution artifacts
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
         name: python-package-distributions
         path: dist/
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
 
     - name: Install framework wheel with deps from PyPI plus the lockstep member wheels
       # `--prerelease if-necessary`, spelled out rather than left to whatever
@@ -258,7 +265,7 @@ jobs:
 
     steps:
     - name: Download distribution artifacts
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
         name: python-package-distributions
         path: dist/
@@ -285,14 +292,14 @@ jobs:
         fi
 
     - name: Publish workspace members to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+      uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
       with:
         packages-dir: dist-members/
         skip-existing: true
         verbose: true
 
     - name: Publish framework to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+      uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
       with:
         packages-dir: dist/
         skip-existing: true
@@ -308,9 +315,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
+        persist-credentials: false
 
     - name: Extract version from tag
       id: get_version
@@ -340,7 +348,7 @@ jobs:
         cat release_notes.md
 
     - name: Create Release
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3  # v3.0.4
       with:
         name: Release v${{ steps.get_version.outputs.version }}
         body_path: release_notes.md

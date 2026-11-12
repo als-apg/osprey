@@ -287,7 +287,9 @@ always runs the shipped ``osprey.services.virtual_accelerator.entrypoint``; a
 different physics backend is a different plug-in, never a different
 entrypoint. A different pyAT deck needs no code at all (see "Bringing your own
 model" on :doc:`/architecture/virtual-accelerator`). The shipped pyat plug-in,
-``osprey.simulation.engines.pyat``, is the reference implementation.
+``osprey.simulation.engines.pyat``, is the reference implementation; the
+shipped injection plug-in, ``osprey.simulation.engines.injection``, is the
+reference for one that reads no deck and is time-driven.
 
 What a plug-in is given and asked for:
 
@@ -302,7 +304,8 @@ What a plug-in is given and asked for:
   - ``locate`` gives an element's place along the deck.
   - ``prepare`` checks the deck against the model's settings.
   - ``start_values`` derives each wired channel's operating point from the
-    deck.
+    deck. A plug-in setting ``deckless_start_values = True`` is called with
+    ``deck`` ``None`` for a model that names no deck.
   - ``describe(record)`` says what one wiring record is.
 
   ``describe`` returns ``{engine_role, plane, refresh}``:
@@ -310,8 +313,10 @@ What a plug-in is given and asked for:
   - ``engine_role`` is ``setpoint``, ``readback``, ``monitor`` or ``output``.
   - ``plane`` is ``x`` or ``y`` for a record that steers or reads one
     transverse plane, else ``None``.
-  - ``refresh`` is ``pass`` for a value each write's solve updates, or
-    ``periodic`` for one only the periodic solve publishes.
+  - ``refresh`` is ``pass`` for a value each write's solve updates,
+    ``periodic`` for one only the periodic solve publishes, ``fast`` for one
+    read at the fast period, or ``event`` for one that changes with each
+    event the engine raises.
 
   It may add ``marks``, a list: ``command`` marks a write record whose write
   is a command. The words are the facility schema's, and a word it does not
@@ -336,17 +341,56 @@ What a plug-in is given and asked for:
   optional ``error_text(exc)`` gives, else the exception's own text. The
   rest of the namespace is still served.
 - **The contract in code.** ``osprey.simulation.engines.EnginePlugin`` names
-  the five functions above, and ``isinstance(module, EnginePlugin)`` checks a
-  module states them. Its docstring lists the optional functions ---
-  ``error_text``, ``fault_variables``, ``polynomial_kicks``,
-  ``response_matrix``, ``scenario_stops`` --- and what a model whose engine
-  lacks each gets.
+  those five functions, and ``isinstance(module, EnginePlugin)`` checks a
+  module states them. ``osprey.simulation.engines.OPTIONAL_NAMES`` lists
+  every optional name, and the protocol's docstring says what each gives and
+  what a model whose engine lacks it gets.
+  ``fault_variables`` is called as ``fault_variables(wiring, settings)``,
+  with the model's ``settings`` second.
+- **The time contract.** A model that changes between solves, as an
+  injection chain does during a shot, is *time-driven*: its engine states the
+  four optional functions ``osprey.simulation.engines.TIME_CONTRACT`` names.
+  ``advance(model, t_s)`` applies every step due by epoch second ``t_s``;
+  ``next_deadline(model)`` gives the next due step's epoch second, or
+  ``None``; ``emitted(model)`` gives the ``event`` addresses fired since the
+  last call, cleared; ``client_write(model, values, t_s)`` tells the engine a
+  client wrote these setpoints. The model has no thread or clock of its own,
+  and the same calls with the same clock readings always yield the same
+  values. Its ``set`` only stores values, because restores and scenario
+  writes reach it too; what a client write triggers lives behind
+  ``client_write`` alone. ``build`` receives no clock, so the composite calls
+  ``advance`` right after a build, a rebuild or a reset. Only the served
+  venue drives the contract; in process the model serves its start values.
+- **Model inputs.** An engine whose models read other models' records states
+  two optional functions. ``describe_input(input_record)`` is called at
+  facility build with one input's ``{address, engine}`` record; raising
+  ``ValueError`` refuses it, and the build stops ``engine-invalid`` with its
+  text, naming the input. ``take_inputs(model, inputs, t_s, *, baseline)``
+  gets one ``(input_record, value)`` pair per declared input whose producer
+  has not failed, the value the producer's current plain value. It only
+  stores, like ``set``; what a new value starts happens in the ``advance``
+  that follows. ``baseline=True`` marks a starting point: compare nothing
+  against what was held. The ``engine`` block travelling with each pair is
+  how a model tells its inputs apart; ``build`` is unchanged. A model that
+  declares inputs over an engine without ``take_inputs`` is refused at build.
+  ``osprey.simulation.engines.pyat`` states both, and the time contract, for
+  a turn-by-turn ring (:ref:`va-turn-by-turn`).
+- **The response kind.** An optional ``response_matrix`` is called with the
+  keyword ``kind``, ``"orbit"`` or ``"trajectory"``, and names each corrector
+  without a column in ``unsolved`` with its text. One whose signature takes
+  no ``kind`` is called without it for ``"orbit"``; any other kind is refused
+  as a request, naming the engine, without calling it. Its answer may state
+  ``row_positions`` and ``column_positions``, one lattice element index per
+  row and per column, counted for ``"trajectory"`` from the injection
+  element. An answer without them is served with every ``position`` ``null``;
+  positions that do not line up with the rows or columns fail the solve.
 
 What the container keeps the same for every engine:
 
 - **The environment.** ``VA_INSTANCE`` is required; ``VA_DATA_DIR`` (default
   ``/data``) is the data root the simulator view sits under; ``VA_STATE_DIR``,
-  ``VA_POLL_INTERVAL_S`` and ``VA_MODEL_WRITE_TOKEN`` are read as the
+  ``VA_POLL_INTERVAL_S``, ``VA_FAST_INTERVAL_S`` and
+  ``VA_MODEL_WRITE_TOKEN`` are read as the
   entrypoint describes them. Channel Access is served on
   ``EPICS_CAS_SERVER_PORT``, which the image's command exports from
   ``EPICS_CA_SERVER_PORT``.

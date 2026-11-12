@@ -116,9 +116,8 @@ What ``osprey init`` writes
 ``demo`` deployment has all of them except ``mcp_servers/``; a
 ``hello-world`` deployment has only ``mcp_servers/``.
 
-No bundled preset lists an application, so ``apps/`` appears only when you list
-one: ``osprey init --preset demo --set 'apps.orbit-bump={}'`` writes
-``apps/orbit-bump/``. A preset's applications come with ``osprey init``, never
+No bundled preset lists an application, so ``apps/`` appears only when you add
+one (:doc:`apps/index`). A preset's applications come with ``osprey init``, never
 through ``extends:``: a profile runs the applications it lists and holds.
 
 ``git init`` and an initial commit run at the end. There is no CI pipeline yet:

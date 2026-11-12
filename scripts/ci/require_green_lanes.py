@@ -16,9 +16,13 @@ an equally good place to find the run. Every successful run on such a commit is
 checked, not only the newest: a later re-run without the label is green and
 empty, and it must not hide the labeled run that actually did the work.
 
-Lanes are given one per line as ``<ci.yml job id>=<rendered job-name prefix>``.
-The gate matches a prefix because a matrix job (``test``,
+Lanes are given one per line as ``<lane id>=<rendered job-name prefix>``. A
+lane id is a ci.yml job id, or a matrix cell's ``lane:`` where one matrix job
+hosts several lanes (``dispatch-stack-e2e``), each named by its own cell's
+prefix. The gate matches a prefix because a matrix job (``test``,
 ``agentic-per-preset``) renders one job per cell, each named after its cell.
+A skipped matrix job renders its name template unexpanded, so a cell's prefix
+finds no job and the lane is missing, never passed.
 tests/deployment/test_ci_workflow_wiring.py pins every workflow's lane list
 against ci.yml, so a renamed lane fails a unit test, not a release.
 
@@ -61,9 +65,9 @@ class GateError(RuntimeError):
 
 
 def parse_lanes(text: str) -> dict[str, str]:
-    """``"<job id>=<prefix>"`` lines -> ``{job id: prefix}``.
+    """``"<lane id>=<prefix>"`` lines -> ``{lane id: prefix}``.
 
-    Blank lines are skipped; a line without ``=``, an empty side, or a job id
+    Blank lines are skipped; a line without ``=``, an empty side, or a lane id
     given twice is refused, because each is a lane list that would gate on
     something other than what it says.
     """
@@ -74,7 +78,7 @@ def parse_lanes(text: str) -> dict[str, str]:
             continue
         lane, sep, prefix = (part.strip() for part in line.partition("="))
         if not sep or not lane or not prefix:
-            raise GateError(f"lane line {raw!r} is not <ci.yml job id>=<job-name prefix>")
+            raise GateError(f"lane line {raw!r} is not <lane id>=<job-name prefix>")
         if lane in lanes:
             raise GateError(f"lane {lane!r} is listed twice")
         lanes[lane] = prefix
@@ -152,7 +156,7 @@ def _api(path: str, paginate: bool) -> Any:
 
 def main(argv: Sequence[str] | None = None, *, git: Git = _git, api: Api = _api) -> int:
     parser = argparse.ArgumentParser(prog="require_green_lanes.py", description=__doc__)
-    parser.add_argument("--lanes", required=True, help="one <ci.yml job id>=<prefix> per line")
+    parser.add_argument("--lanes", required=True, help="one <lane id>=<prefix> per line")
     parser.add_argument("--repo", default=os.environ.get("REPO", ""))
     parser.add_argument("--sha", default=os.environ.get("TAG_SHA", ""))
     parser.add_argument("--tag", default=os.environ.get("TAG_NAME", ""))

@@ -141,7 +141,7 @@ def malformed(checks: tuple[Any, ...]) -> list[str]:
 
 def unhosted(unit: Any, checks: tuple[Any, ...], lanes: tuple[Any, ...]) -> list[str]:
     """The paths the sweep ignores that no check or lane has in its scope."""
-    scopes = {c.id: c.scope for c in checks} | {lane.job: lane.scope for lane in lanes}
+    scopes = {c.id: c.scope for c in checks} | {lane.id: lane.scope for lane in lanes}
     return [
         path
         for path, host in unit.ignores
@@ -815,17 +815,233 @@ def test_an_ignore_outside_its_hosts_scope_is_reported() -> None:
     assert unhosted(moved, check.CHECKS, check.LANES) == ["tests/cli/test_main.py"]
 
 
+def test_an_ignore_is_hosted_by_a_lane_id_not_by_the_job_its_cell_shares() -> None:
+    """Five lanes share ``dispatch-stack-e2e``; each hosts only its own module."""
+    ignores = (
+        ("tests/e2e/test_dispatch_deploy.py", "dispatch-deploy-e2e"),
+        ("tests/e2e/test_host_record_e2e.py", "dispatch-deploy-e2e"),
+        ("tests/e2e/test_plan_stack_agentic.py", "dispatch-stack-e2e"),
+    )
+    shared = dataclasses.replace(fw.UNIT_SELECTION, ignores=ignores)
+    assert unhosted(shared, check.CHECKS, check.LANES) == [
+        "tests/e2e/test_host_record_e2e.py",
+        "tests/e2e/test_plan_stack_agentic.py",
+    ]
+
+
 def workflow() -> dict[str, Any]:
     return yaml.safe_load(CI_YML.read_text(encoding="utf-8"))
 
 
+# ---------------------------------------------------------------------------
+# Every tests/e2e test module runs in exactly one place
+# ---------------------------------------------------------------------------
+
+#: A job that runs part of a module another lane hosts, by marker, with the reason.
+E2E_MARKER_SPLITS = {
+    ("qmd-sidecar-e2e", "tests/e2e/test_deploy_lifecycle.py"): "runs the `-m qmd` half",
+}
+#: The shared lane's run step, and what it holds when it splices the derived list in.
+SHARED_E2E_STEP = "Run E2E tests"
+SHARED_E2E_SPLICE = ("scripts/ci/e2e_shared_lane.py ignores", '"${ignores[@]}"')
+#: A lane's run step that derives its pytest paths from the lane, and what it holds
+#: when it splices them in.
+LANE_MODULES_SPLICE = (
+    re.compile(r"scripts/ci/e2e_shared_lane\.py modules ([\w-]+)"),
+    '"${modules[@]}"',
+)
+
+_E2E_PATH = re.compile(r"tests/e2e/[\w./-]*")
+_IGNORE_ARG = re.compile(r"--ignore=(\S+)")
+
+
+def _under(module: str, path: str) -> bool:
+    path = path.partition("::")[0].rstrip("/")
+    return module == path or module.startswith(f"{path}/")
+
+
+def _e2e_run_units(wf: dict[str, Any], lanes: Sequence[Any]) -> list[tuple[str, Any]]:
+    """Each job as ``(job id, job)``; a job hosting several lanes splits into its
+    body under the job id and each matrix cell under the cell's ``lane:``, so a
+    module a cell names is run by that cell's lane, not by its siblings'."""
+    cell_lanes = {lane.id for lane in lanes if lane.id != lane.job}
+    units: list[tuple[str, Any]] = []
+    for job_id, job in wf["jobs"].items():
+        matrix = (job.get("strategy") or {}).get("matrix")
+        include = matrix.get("include") if isinstance(matrix, dict) else None
+        if not isinstance(include, list) or not any(
+            cell.get("lane") in cell_lanes for cell in include
+        ):
+            units.append((job_id, job))
+            continue
+        units.append((job_id, {k: v for k, v in job.items() if k != "strategy"}))
+        units += [(str(cell.get("lane", job_id)), cell) for cell in include]
+    return units
+
+
+def _spliced_modules(unit: Any, lanes: Sequence[Any]) -> list[str]:
+    """The modules *unit*'s run steps derive from a lane and splice into pytest."""
+    by_id = {lane.id: lane for lane in lanes}
+    runs = [str(step.get("run", "")) for step in unit.get("steps") or []]
+    return [
+        module
+        for run in runs
+        if LANE_MODULES_SPLICE[1] in run
+        for lane_id in LANE_MODULES_SPLICE[0].findall(run)
+        for module in by_id[lane_id].modules or ()
+    ]
+
+
+def e2e_runners(
+    wf: dict[str, Any], lanes: Sequence[Any], files: Sequence[str]
+) -> dict[str, set[str]]:
+    """Each tests/e2e test module to what runs it, read off ci.yml: every job (or,
+    in a job hosting several lanes, every cell's lane) other than the shared lane
+    that names it (or a directory above it) outside an
+    ``--ignore=``, or splices in a lane's derived module list that holds it,
+    ``off-ci`` for the modules no job runs, and the shared lane for
+    each module its run step does not leave out. That step leaves out the derived
+    list only while it splices it in; otherwise it runs all of ``tests/e2e``."""
+    modules = [path for path in files if fw.is_e2e_module(path)]
+    runners: dict[str, set[str]] = {module: set() for module in modules}
+    for runner, unit in _e2e_run_units(wf, lanes):
+        if runner == fw.SHARED_E2E_LANE:
+            continue
+        text = json.dumps(unit)
+        dropped = _IGNORE_ARG.findall(text)
+        named = [*_E2E_PATH.findall(_IGNORE_ARG.sub("", text)), *_spliced_modules(unit, lanes)]
+        for module in modules:
+            if (runner, module) in E2E_MARKER_SPLITS:
+                continue
+            if any(_under(module, n) for n in named) and not any(
+                _under(module, d) for d in dropped
+            ):
+                runners[module].add(runner)
+    steps = wf["jobs"][fw.SHARED_E2E_LANE]["steps"]
+    run = next(str(s.get("run", "")) for s in steps if s.get("name") == SHARED_E2E_STEP)
+    spliced = all(part in run for part in SHARED_E2E_SPLICE)
+    left = set(fw.e2e_shared_ignores(lanes, files)) if spliced else set()
+    for module in modules:
+        if module in fw.E2E_OFF_CI:
+            runners[module].add(fw.OFF_CI)
+        if module not in left:
+            runners[module].add(fw.SHARED_E2E_LANE)
+    return runners
+
+
+def e2e_hosting_problems(wf: dict[str, Any], lanes: Sequence[Any]) -> dict[str, str]:
+    """Each tests/e2e test module not run in exactly the one place the lanes say:
+    claimed by two hosts, run by a job that does not claim it beside the one that
+    does, or claimed by a job that does not run it."""
+    files = check.repository_files()
+    runners = e2e_runners(wf, lanes, files)
+    problems = {}
+    for module, claimed in fw.e2e_hosts(lanes, files).items():
+        ran = sorted(runners[module])
+        if len(claimed) != 1:
+            problems[module] = f"claimed by {list(claimed)}"
+        elif ran != list(claimed):
+            problems[module] = f"hosted by {claimed[0]}, run by {ran}"
+    return problems
+
+
+def test_every_e2e_module_runs_in_exactly_one_place() -> None:
+    assert e2e_hosting_problems(workflow(), check.LANES) == {}
+    named = [p for lane in check.LANES for p in lane.modules or () if "*" not in p]
+    assert [p for p in named if not (REPO_ROOT / p).is_file()] == []
+    assert [p for p in fw.E2E_OFF_CI if not (REPO_ROOT / p).is_file()] == []
+
+
+def test_a_module_two_lanes_claim_is_reported() -> None:
+    twin = kit.Lane("twin-e2e", "containers", ("tests/e2e/test_two_shape_boot.py",))
+    assert e2e_hosting_problems(workflow(), (*check.LANES, twin)) == {
+        "tests/e2e/test_two_shape_boot.py": "claimed by ['two-shape-boot-e2e', 'twin-e2e']"
+    }
+
+
+def test_a_lane_module_the_shared_lane_still_runs_is_reported() -> None:
+    wf = workflow()
+    steps = wf["jobs"][fw.SHARED_E2E_LANE]["steps"]
+    step = next(s for s in steps if s.get("name") == SHARED_E2E_STEP)
+    assert SHARED_E2E_SPLICE[1] in step["run"], "the shared lane splices no list; stale"
+    step["run"] = step["run"].replace(SHARED_E2E_SPLICE[1], "")
+    problems = e2e_hosting_problems(wf, check.LANES)
+    assert problems["tests/e2e/test_two_shape_boot.py"] == (
+        "hosted by two-shape-boot-e2e, run by ['e2e-tests', 'two-shape-boot-e2e']"
+    )
+    assert len(problems) == len(fw.e2e_shared_ignores(check.LANES, check.repository_files()))
+
+
+def test_a_lane_module_its_step_no_longer_splices_is_reported() -> None:
+    wf = workflow()
+    step = next(
+        s for s in wf["jobs"]["e2e-no-model"]["steps"] if LANE_MODULES_SPLICE[1] in s.get("run", "")
+    )
+    step["run"] = step["run"].replace(LANE_MODULES_SPLICE[1], "")
+    (lane,) = [lane for lane in check.LANES if lane.id == "e2e-no-model"]
+    assert e2e_hosting_problems(wf, check.LANES) == dict.fromkeys(
+        lane.modules or (), "hosted by e2e-no-model, run by []"
+    )
+
+
+def test_a_job_running_a_module_no_lane_gives_it_is_reported() -> None:
+    wf = workflow()
+    wf["jobs"]["e2e-no-model"]["steps"].append(
+        {"name": "stray", "run": "uv run pytest tests/e2e/test_ariel_search.py"}
+    )
+    assert e2e_hosting_problems(wf, check.LANES) == {
+        "tests/e2e/test_ariel_search.py": (
+            "hosted by e2e-tests, run by ['e2e-no-model', 'e2e-tests']"
+        )
+    }
+
+
+def test_a_lane_module_its_job_no_longer_runs_is_reported() -> None:
+    wf = workflow()
+    include = wf["jobs"]["stack-e2e"]["strategy"]["matrix"]["include"]
+    kept = [c for c in include if c.get("module") != "tests/e2e/test_tiled_roundtrip.py"]
+    assert len(kept) == len(include) - 1, "no tiled-roundtrip cell; stale"
+    include[:] = kept
+    assert e2e_hosting_problems(wf, check.LANES) == {
+        "tests/e2e/test_tiled_roundtrip.py": "hosted by stack-e2e, run by []"
+    }
+
+
+def test_a_cell_running_its_sibling_lanes_module_is_reported() -> None:
+    """In a job hosting several lanes, each cell runs its own lane's module only."""
+    wf = workflow()
+    include = wf["jobs"]["dispatch-stack-e2e"]["strategy"]["matrix"]["include"]
+    scan = next(c for c in include if c.get("lane") == "scan-agentic-e2e")
+    scan["module"] = "tests/e2e/test_host_record_e2e.py"
+    assert e2e_hosting_problems(wf, check.LANES) == {
+        "tests/e2e/test_host_record_e2e.py": (
+            "hosted by host-record-e2e, run by ['host-record-e2e', 'scan-agentic-e2e']"
+        ),
+        "tests/e2e/test_plan_stack_agentic.py": "hosted by scan-agentic-e2e, run by []",
+    }
+
+
+def test_a_marker_split_is_the_one_second_runner_allowed() -> None:
+    ((job, module),) = E2E_MARKER_SPLITS
+    assert f"pytest {module} -m qmd" in json.dumps(workflow()["jobs"][job])
+    assert fw.e2e_hosts(check.LANES, [module]) == {module: ("multi-user-deploy-lifecycle-e2e",)}
+
+
+#: Required jobs that are neither a caller nor a lane. The baseline push checks nothing, so
+#: no range should be told to run it; the gate needs it only so a failed push is not green.
+GATED_NON_LANES = ("visual-baselines-push",)
+
+
 def test_every_required_ci_job_is_a_caller_or_a_lane() -> None:
     jobs = workflow()["jobs"]
-    lanes = [lane.job for lane in check.LANES]
-    assert len(lanes) == len(set(lanes))
-    assert [job for job in (*lanes, *check.CALLER_JOBS) if job not in jobs] == []
+    ids = [lane.id for lane in check.LANES]
+    assert len(ids) == len(set(ids))
+    lanes = list(dict.fromkeys(lane.job for lane in check.LANES))
+    assert [job for job in (*lanes, *check.CALLER_JOBS, *GATED_NON_LANES) if job not in jobs] == []
+    assert not set(GATED_NON_LANES) & set(lanes)
     required = jobs["all-checks-passed"]["needs"]
-    assert sorted(set(required) - set(lanes) - set(check.CALLER_JOBS)) == []
+    exempt = set(check.CALLER_JOBS) | set(GATED_NON_LANES)
+    assert sorted(set(required) - set(lanes) - exempt) == []
     # The warm-up runs on main pushes only, so a revalidation dispatch would read it as a skipped lane.
     assert set(lanes) - set(required) == {"benchmarks", "qmd-cache-warmup"}
 
@@ -865,6 +1081,9 @@ SWEEP_IGNORES = [
     "--ignore=tests/e2e",
     "--ignore=tests/va/test_apply_fault.py",
     "--ignore=tests/va/test_lume_pva_seam.py",
+    "--ignore=tests/va/test_timed_passes_live.py",
+    "--ignore=tests/va/test_injection_live.py",
+    "--ignore=tests/va/test_turn_by_turn_live.py",
     "--ignore=tests/integration/test_build_boot.py",
     "--ignore=tests/integration/test_preset_static.py",
     "--ignore=tests/integration/test_preset_build.py",
@@ -1539,7 +1758,7 @@ def test_without_a_range_the_tier_runs_whole() -> None:
     assert set(plan.selections) == {c.id for c in check.CHECKS if "quick" in c.tiers}
     assert {s.state for s in plan.selections.values()} == {check.WHOLE}
     assert plan.lanes == ()
-    assert check.select("full", None).lanes == tuple(lane.job for lane in check.LANES)
+    assert check.select("full", None).lanes == tuple(lane.id for lane in check.LANES)
 
 
 @needs_mapping
@@ -2146,6 +2365,26 @@ def test_a_node_id_names_the_hosts_of_its_file() -> None:
     assert check._hosts_over(["tests/integration/test_build_boot.py::test_x"]) == hosts
 
 
+def test_a_lane_naming_modules_hosts_only_those() -> None:
+    # orm-roundtrip-e2e's scope reaches stack-e2e's tiled module through SCAN_STACK.
+    hosts = check._hosts_over(["tests/e2e/test_tiled_roundtrip.py"])
+    assert "stack-e2e" in hosts
+    assert "orm-roundtrip-e2e" not in hosts
+    assert "benchmarks" in check._hosts_over(["tests/e2e/tier2/test_ariel_picture_run_id.py"])
+
+
+def test_the_shared_e2e_lane_hosts_only_the_modules_no_lane_claims() -> None:
+    """``e2e-tests`` leaves every claimed module to its lane, so it is named for
+    an unclaimed one and not for a claimed or off-CI one."""
+    claimed, unclaimed = "tests/e2e/test_tiled_roundtrip.py", "tests/e2e/test_ariel_search.py"
+    hosts = fw.e2e_hosts(check.LANES, [claimed, unclaimed])
+    assert hosts == {claimed: ("stack-e2e",), unclaimed: (fw.SHARED_E2E_LANE,)}
+    assert check._hosts_over([claimed]) == ["stack-e2e"]
+    assert check._hosts_over([unclaimed]) == [fw.SHARED_E2E_LANE]
+    assert fw.SHARED_E2E_LANE not in check._hosts_over([next(iter(fw.E2E_OFF_CI))])
+    assert {fw.SHARED_E2E_LANE, "stack-e2e"} <= set(check._hosts_over(["tests/e2e"]))
+
+
 def test_the_pytest_line_carries_a_named_node_id() -> None:
     pytest_check = BY_ID["pytest"]
     selection = check.Selection(check.PATHS, ("tests/cli/test_main.py::test_x",))
@@ -2359,7 +2598,7 @@ def test_a_clean_full_run_names_what_it_did_not_run(
         "not run, no base given: changelog, plugin-version, gitleaks; "
         "run on CI, never run here: dependency-floor, "
     )
-    assert all(lane.job in verdict for lane in check.LANES)
+    assert all(lane.id in verdict for lane in check.LANES)
 
 
 def test_every_check_runs_after_a_failure_and_the_verdict_names_them(
@@ -3986,7 +4225,15 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
     assert tuple(rebuilt(item) for item in declared) == check.CHECKS
     assert "touched" not in data
     lanes = tuple(
-        check.Lane(i["job"], i["why"], tuple(i["scope"]), i["prefix"]) for i in data["lanes"]
+        check.Lane(
+            i["job"],
+            i["why"],
+            tuple(i["scope"]),
+            i["prefix"],
+            None if i["modules"] is None else tuple(i["modules"]),
+            i["id"],
+        )
+        for i in data["lanes"]
     )
     assert lanes == check.LANES
     assert data["tiers"] == ["quick", "full"]

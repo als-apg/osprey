@@ -293,9 +293,10 @@ default_panel: canopy
 # These three blocks give you a working plan setup with no real hardware: a
 # Bluesky bridge with a Tiled data catalog, a simulated accelerator that speaks
 # EPICS, and the web panels for both. To drop it, delete this section, the
-# bluesky panel above, AND the `claude_code.servers.bluesky.enabled: true`
-# line under `config:` below — the block deploys the bridge, the line switches
-# on the server that dials it, and the build refuses the line left on alone.
+# `bluesky` entry under `web_panels:` in tiers/readwrite.yml and
+# tiers/admin.yml, AND the `claude_code.servers.bluesky.enabled: true` line
+# under `config:` below — the block deploys the bridge, the line switches on
+# the server that dials it, and the build refuses the line left on alone.
 bluesky:
   # The bridge and its Tiled catalog publish inside this deployment's port
   # block, so neither needs a number here. Add `port:` or `tiled_port:` only to
@@ -412,8 +413,8 @@ watchdogs:
 # `provider:` / `model:` above), the channel-finder pipeline block (from
 # `channel_finder_mode:`), the panel selection (from `web_panels:`), every
 # host port, and everything the `bluesky:`, `virtual_accelerator:`,
-# `va_archiver:`, `agent_record:`, `dispatch:` and `mcp_servers:` sections
-# above stand for.
+# `va_archiver:` and `agent_record:` sections above and the `dispatch:`
+# section below stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
   # Your facility's own registry module — the file that registers its
@@ -958,16 +959,17 @@ config:
   # claude_code.aliases.haiku: claude-haiku-4-5
   # claude_code.agent_models.logbook-search: claude-sonnet-5
   # Switch a framework server or subagent off, or add an MCP server of your
-  # own (the `mcp_servers:` field above is the usual home for one).
+  # own (a top-level `mcp_servers:` field is the usual home for one; the
+  # hello-world preset shows its shape).
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
-  # The `bluesky:`, `virtual_accelerator:`, `va_archiver:` and `dispatch:`
-  # sections above add their own services at build time. No host ports are
-  # written here: each service publishes on its fixed slot above
+  # The `bluesky:`, `virtual_accelerator:` and `va_archiver:` sections above
+  # and the `dispatch:` section below add their own services at build time. No
+  # host ports are written here: each service publishes on its fixed slot above
   # `deployment.port_base` (set that key to move the whole block). Add
   # `services.<name>.port` (`port_host` for the stores) only to pin one
   # outside it.
@@ -1168,8 +1170,9 @@ config:
   # memory (256 MB).
   web.panels.canopy.vole_bytes_max: 268435456
   # A colour theme for CANOPY, as a path relative to the project root
-  # (absolute accepted). Unset keeps CANOPY's own theme.
-  # web.panels.canopy.theme_file: data/canopy/theme/colors.json
+  # (absolute accepted). Unset keeps CANOPY's own theme. This one gives the
+  # screens OSPREY's light and dark colours.
+  web.panels.canopy.theme_file: data/canopy/theme/osprey.json
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1215,7 +1218,8 @@ config:
     # at base + 800. User number i gets its family's first port + i, so
     # removing a user never shifts anyone else's ports. Give a second
     # deployment its own `port_base` and its whole block moves with it; the
-    # virtual accelerator's Channel Access port (5064) is the one exception.
+    # virtual accelerator's Channel Access port (5064) and pvAccess port
+    # (5075) are the exceptions.
     # The reference guide's ports page prints the table.
     # Browsers reach the landing page's nginx directly here, so the address
     # they open is deploy.fqdn plus that port — and that is the address every
@@ -2267,9 +2271,6 @@ ENV_EXAMPLE = """\
 OSPREY_AUTH_PW_ALICE=alice
 OSPREY_AUTH_PW_BOB=bob
 OSPREY_AUTH_PW_CAROL=carol
-
-# Runtime overrides (optional - for advanced use cases)
-#LOCAL_PYTHON_VENV=/path/to/your/venv/bin/python
 
 # Proxy settings (NO_PROXY, HTTP_PROXY, HTTPS_PROXY) live in `.env.shared`:
 # a site behind a corporate firewall is behind it on every host, so they are a
