@@ -40,9 +40,14 @@ A connector is built by `ConnectorFactory` from its registered type name, after
 | archiver | `mya_archiver` | JLab's MYA, over the myquery HTTP service (needs `jlab-archiver-client`) |
 | archiver | `mock_archiver` | The simulated machine's history (needs a facility built by `osprey build`) |
 | directory | `channelfinder` | A ChannelFinder directory service |
-| alarm_state | `phoebus_alarm_server` | A Phoebus alarm server's Kafka topic (needs `aiokafka`) |
+| alarm_state | `phoebus_alarm_server` | A Phoebus alarm server's Kafka topic (needs `osprey-connectors[alarm-state]`) |
 | alarm_log | `phoebus_alarm_logger` | A Phoebus alarm logger |
 | put_log | `caputlog` | A caPutLog put-history service |
+
+The directory, alarm and put-log kinds are built from a `BackendSpec` by
+`ConnectorFactory.create_service`; `service_targets` makes the specs of a
+deployment's `pv_directory` section, per control target. A backend of your own
+registers with `register_service(kind, name, cls)` or is named by dotted path.
 
 A type name that holds a dot, such as `my_site.connectors.MyConnector`, is
 imported as a module path and class name, so a connector of your own needs no

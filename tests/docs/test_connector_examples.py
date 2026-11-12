@@ -15,6 +15,7 @@ here, with the test server's address; nothing else in the script is touched.
 from __future__ import annotations
 
 import copy
+import fnmatch
 import importlib.util
 import json
 import os
@@ -190,6 +191,86 @@ def appliance() -> Iterator[str]:
     server.server_close()
 
 
+def _cf_channel(name: str, ioc: str, description: str) -> dict[str, Any]:
+    """A channel as RecSync records it in ChannelFinder."""
+    properties = {
+        "iocName": ioc,
+        "hostName": f"{ioc}.facility.edu",
+        "pvStatus": "Active",
+        "recordType": "ai",
+        "recordDesc": description,
+    }
+    return {
+        "name": name,
+        "owner": "recceiver",
+        "properties": [{"name": key, "value": value} for key, value in properties.items()],
+        "tags": [],
+    }
+
+
+#: The channels the stub ChannelFinder lists.
+CF_CHANNELS = [
+    _cf_channel("SR:BPM1:X", "sr-bpm", "BPM 1 horizontal position"),
+    _cf_channel("SR:BPM1:Y", "sr-bpm", "BPM 1 vertical position"),
+    _cf_channel("SR:BPM2:X", "sr-bpm", "BPM 2 horizontal position"),
+    _cf_channel("SR:RF:FWD", "sr-rf", "RF forward power"),
+]
+
+
+class _ChannelFinder(BaseHTTPRequestHandler):
+    """ChannelFinder's channel and count routes, matching ``~name`` and properties as globs."""
+
+    def do_GET(self) -> None:
+        url = urlparse(self.path)
+        query = parse_qs(url.query)
+        prefix = "/ChannelFinder/resources/channels"
+        if url.path not in (prefix, f"{prefix}/count"):
+            self.send_error(404)
+            return
+        matched = [channel for channel in CF_CHANNELS if self._matches(channel, query)]
+        if url.path.endswith("/count"):
+            answer: Any = len(matched)
+        else:
+            start = int(query.get("~from", ["0"])[0])
+            answer = matched[start : start + int(query.get("~size", ["100"])[0])]
+        body = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    @staticmethod
+    def _matches(channel: Mapping[str, Any], query: Mapping[str, list[str]]) -> bool:
+        properties = {entry["name"]: entry["value"] for entry in channel["properties"]}
+        for key, (pattern, *_) in query.items():
+            if key == "~name":
+                value = channel["name"]
+            elif key.startswith("~"):
+                continue
+            else:
+                value = properties.get(key, "")
+            if not fnmatch.fnmatchcase(value, pattern):
+                return False
+        return True
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Quiet: the suite's output is no place for an access log."""
+
+
+@pytest.fixture
+def channelfinder() -> Iterator[str]:
+    """The stub ChannelFinder's service URL."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _ChannelFinder)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}/ChannelFinder"
+    server.shutdown()
+    server.server_close()
+
+
 # -- use-connectors-standalone ----------------------------------------------
 
 
@@ -265,6 +346,14 @@ def test_read_history_prints_the_page_output(appliance, tmp_path):
     archiver["settings"]["url"] = appliance
     result = _run("read_history", tmp_path, _clean_env(tmp_path), {"ARCHIVER": archiver})
     assert _ok(result) == _expected("read_history")
+
+
+def test_read_directory_prints_the_page_output(channelfinder, tmp_path):
+    pytest.importorskip("osprey_connectors.directory")
+    module = _load("read_directory")
+    directory = {**module.DIRECTORY, "url": channelfinder}
+    result = _run("read_directory", tmp_path, _clean_env(tmp_path), {"DIRECTORY": directory})
+    assert _ok(result) == _expected("read_directory")
 
 
 def test_a_scripts_write_is_refused_as_the_page_shows(quickstart_ioc, tmp_path):
