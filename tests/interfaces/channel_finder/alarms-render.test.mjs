@@ -15,6 +15,7 @@ import {
   feedChip,
   filterRows,
   listHtml,
+  sinceHtml,
   sinceText,
   tileCounts,
   treeHtml,
@@ -127,15 +128,21 @@ describe('times and the feed', () => {
     expect(sinceText(time, now)).toBe(text);
   });
 
+  test('a time becomes a placeholder the view ticks, never a clock reading', () => {
+    expect(sinceHtml('2026-11-06T12:39:56.000Z')).toBe(
+      '<span data-since="2026-11-06T12:39:56.000Z"></span>'
+    );
+    expect(sinceHtml(null)).toBe('');
+    expect(sinceHtml('not a time')).toBe('');
+  });
+
   test('a live feed names its last contact, a stale one says so', () => {
-    expect(feedChip({ ...ALARMS, last_contact: '2026-11-06T12:39:56.000Z' }, now)).toEqual({
-      label: 'feed live · last contact 4 s ago',
+    expect(feedChip({ ...ALARMS, last_contact: '2026-11-06T12:39:56.000Z' })).toEqual({
+      html: 'feed live · last contact <span data-since="2026-11-06T12:39:56.000Z"></span> ago',
       tone: 'ok',
     });
-    expect(feedChip({ ...ALARMS, stale: true }, now)).toEqual({
-      label: 'feed stale',
-      tone: 'warn',
-    });
+    expect(feedChip({ ...ALARMS, last_contact: null })).toEqual({ html: 'feed live', tone: 'ok' });
+    expect(feedChip({ ...ALARMS, stale: true })).toEqual({ html: 'feed stale', tone: 'warn' });
   });
 
   test('the banner names the last contact when known', () => {
@@ -151,12 +158,24 @@ describe('listHtml', () => {
       { ...MAJOR_ROW, pv: '<b>A</b>', severity: 'MINOR' },
     ];
     const host = document.createElement('div');
-    host.innerHTML = listHtml(rows, { selected: 'B', values: null, stale: false, now: 0 });
+    host.innerHTML = listHtml(rows, { selected: 'B', values: null, stale: false });
     const shown = [...host.querySelectorAll('tbody tr')].map(
       (tr) => /** @type {HTMLElement} */ (tr).dataset.name
     );
     expect(shown).toEqual(['B', '<b>A</b>']);
     expect(host.querySelector('tbody b')).toBeNull();
     expect(host.querySelector('tr[aria-selected="true"]')?.getAttribute('data-name')).toBe('B');
+  });
+
+  test('the For cell holds the start time to tick, or a dash without one', () => {
+    const rows = [
+      { ...MAJOR_ROW, pv: 'A' },
+      { ...MAJOR_ROW, pv: 'B', time: null },
+    ];
+    const host = document.createElement('div');
+    host.innerHTML = listHtml(rows, { selected: null, values: null, stale: false });
+    const [a, b] = [...host.querySelectorAll('.alarms-for')];
+    expect(a.querySelector('[data-since]')?.getAttribute('data-since')).toBe(MAJOR_ROW.time);
+    expect(b.textContent).toBe('—');
   });
 });

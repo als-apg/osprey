@@ -195,6 +195,18 @@ async function loaded(root) {
   await vi.waitFor(() => expect(rows(root).length).toBeGreaterThan(0));
 }
 
+/** The first row's value and the inspector's facts have answered. @param {HTMLElement} root */
+async function settled(root) {
+  await loaded(root);
+  await vi.waitFor(() => expect(inspector(root).textContent).toContain('Response'));
+  await vi.waitFor(() =>
+    expect(rows(root)[0].querySelector('.alarms-value')?.textContent).toContain('46.2')
+  );
+}
+
+/** @returns {HTMLElement|null} the page's info popover */
+const popover = () => document.querySelector('.osprey-info-popover');
+
 test('the view exports what the router mounts and unmounts', async () => {
   const view = await import(`${JS}/alarms.js`);
   expect(view.mountAlarms).toBeTypeOf('function');
@@ -268,7 +280,7 @@ describe('the summary band', () => {
     await loaded(container);
     const chip = /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="feed"]'));
     expect(chip.classList.contains('osprey-chip--ok')).toBe(true);
-    expect(chip.textContent).toMatch(/^feed live/);
+    expect(chip.textContent).toMatch(/^feed live · last contact \d+ [a-z]+.* ago$/);
     chip.click();
     const pop = /** @type {HTMLElement} */ (document.querySelector('.osprey-info-popover'));
     expect(pop.textContent).toContain('alarm_replay');
@@ -594,6 +606,82 @@ describe('the poll', () => {
     await Promise.resolve();
     expect(reads).toHaveLength(2);
     expect(document.getElementById('cf-result-count')?.textContent).toBe('');
+  });
+
+  test('an identical answer leaves every part, and the focus, as it was', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const { container, view, counts } = await mount();
+    await settled(container);
+    const major = /** @type {HTMLButtonElement} */ (tile(container, 'MAJOR'));
+    major.focus();
+    const firstRow = rows(container)[0];
+    const inspectorChild = inspector(container).firstElementChild;
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(2));
+    expect(tile(container, 'MAJOR')).toBe(major);
+    expect(rows(container)[0]).toBe(firstRow);
+    expect(inspector(container).firstElementChild).toBe(inspectorChild);
+    expect(document.activeElement).toBe(major);
+  });
+
+  test('an answer with other counts keeps the focus on the same tile', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    let calls = 0;
+    const changed = { ...ALARMS, counts: { ...ALARMS.counts, MINOR: 2 } };
+    const { container, view, counts } = await mount({
+      alarms: () => (calls++ === 0 ? ALARMS : changed),
+    });
+    await settled(container);
+    const major = /** @type {HTMLButtonElement} */ (tile(container, 'MAJOR'));
+    major.focus();
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(2));
+    expect(tileCount(container, 'MINOR')).toBe('2');
+    expect(tile(container, 'MAJOR')).not.toBe(major);
+    expect(document.activeElement).toBe(tile(container, 'MAJOR'));
+  });
+
+  test('the For cell ticks across a poll in the same row', async () => {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'Date'],
+      now: Date.parse(MAJOR_ROW.time) + 30_000,
+    });
+    const { container, view, counts } = await mount();
+    await settled(container);
+    const firstRow = rows(container)[0];
+    const forCell = () => firstRow.querySelector('.alarms-for')?.textContent;
+    expect(forCell()).toBe('30 s');
+    expect(inspector(container).textContent).toContain('(30 s ago)');
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(2));
+    expect(rows(container)[0]).toBe(firstRow);
+    expect(forCell()).toBe('35 s');
+    expect(inspector(container).textContent).toContain('(35 s ago)');
+  });
+
+  test('the feed popover stays open across an identical poll, and closes when the band changes', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    let calls = 0;
+    const stale = { ...ALARMS, stale: true };
+    const { container, view, counts } = await mount({
+      alarms: () => (calls++ < 2 ? ALARMS : stale),
+    });
+    await settled(container);
+    const chip = () =>
+      /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="feed"]'));
+    chip().click();
+    expect(popover()?.hidden).toBe(false);
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(2));
+    expect(popover()?.hidden).toBe(false);
+    chip().click();
+    expect(popover()?.hidden).toBe(true);
+    chip().click();
+    expect(popover()?.hidden).toBe(false);
+    vi.advanceTimersByTime(view.POLL_MS);
+    await vi.waitFor(() => expect(counts).toHaveBeenCalledTimes(3));
+    expect(chip().textContent).toBe('feed stale');
+    expect(popover()?.hidden).toBe(true);
   });
 
   test('a late answer for a view that is gone is dropped', async () => {
