@@ -63,16 +63,17 @@ export function argSummary(input) {
 /**
  * A time of day on the facility clock, 24-hour with seconds.
  * @param {string | number | Date | null | undefined} value
- * @param {{ ms?: boolean }} [options] `ms` adds the milliseconds
+ * @param {{ ms?: boolean, seconds?: boolean }} [options] `ms` adds the
+ *   milliseconds; `seconds: false` leaves the hour and the minute
  * @returns {string} `''` for empty or unparsable input
  */
-export function clock(value, { ms = false } = {}) {
+export function clock(value, { ms = false, seconds = true } = {}) {
   return formatFacilityTime(value, {
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
     hourCycle: 'h23',
-    ...(ms ? { fractionalSecondDigits: 3 } : {}),
+    ...(seconds ? { second: '2-digit' } : {}),
+    ...(seconds && ms ? { fractionalSecondDigits: 3 } : {}),
   });
 }
 

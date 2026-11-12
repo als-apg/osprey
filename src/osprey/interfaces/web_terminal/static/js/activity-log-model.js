@@ -149,7 +149,7 @@ export function callKey(node) {
  * @param {ActivityNode[]} nodes
  * @param {(node: ActivityNode) => void} visit
  */
-function walk(nodes, visit) {
+export function walk(nodes, visit) {
   for (const node of nodes) {
     visit(node);
     if (node.t === 'tool' && node.sub) walk(node.sub.children, visit);

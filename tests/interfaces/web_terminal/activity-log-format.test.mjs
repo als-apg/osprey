@@ -105,6 +105,13 @@ describe('clock', () => {
     expect(text).toMatch(/^\d{2}:04:05.678$/);
   });
 
+  test('seconds: false leaves the hour and the minute', () => {
+    stampFacilityZone(FACILITY_ZONE);
+    const text = clock('2026-01-15T20:04:05.678Z', { seconds: false });
+    expect(text).toBe(expected({ second: undefined }));
+    expect(text).toMatch(/^\d{2}:04$/);
+  });
+
   test('empty and unparseable input render nothing', () => {
     stampFacilityZone(FACILITY_ZONE);
     expect(clock('')).toBe('');
