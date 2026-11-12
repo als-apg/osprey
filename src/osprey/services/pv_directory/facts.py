@@ -12,8 +12,9 @@
   :meth:`Facts.alarm_config` and :meth:`Facts.history` answer one of those
   sections alone, as the PV page shows it, and :meth:`Facts.active_alarms`
   every channel the alarm feed holds in alarm now.
-* :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer and
-  the names of its IOC health PVs.
+* :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer, the
+  names of its IOC health PVs and, with an alarm feed configured, its PVs in
+  alarm now.
 
 Both return plain dicts on every connectors release. Names are carried, never
 values: the IOC page reads the health PVs (and, on the virtual accelerator, the
@@ -61,6 +62,12 @@ _DEFAULT_HEALTH_SUFFIXES = ("HEARTBEAT", "UPTIME")
 #: The measured RecSync properties holding an IOC's Channel Access and PV Access ports.
 _PORT_PROPERTIES = ("caPort", "pvaPort")
 _HEALTH_PAGE_SIZE = 50
+#: The severities an IOC's alarms list: every one but OK and no state.
+_ACTIVE_SEVERITIES = ("MAJOR", "INVALID", "UNDEFINED", "MINOR")
+#: The most PVs in alarm one IOC answer lists; ``total`` counts them all.
+_IOC_ALARMS_PAGE_SIZE = 50
+#: The alarm fields an IOC's alarm row carries beside its PV name.
+_IOC_ALARM_FIELDS = ("severity", "status", "latched", "acknowledged", "time")
 #: How long past its deadline a backend call may run before the section gives up on it.
 _GRACE_S = 0.5
 _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
@@ -350,11 +357,13 @@ class Facts:
             }
 
         on_va = source.get("target") == "va"
-        inactive, curated, sample, health = await asyncio.gather(
+        with_alarms = "alarm_state" in (self._configured() or [])
+        inactive, curated, sample, health, alarms = await asyncio.gather(
             self._service.count(ioc=[ioc], status="Inactive"),
             self._curated_count(ioc),
             self._service.search(ioc=[ioc], page_size=1),
             self._health_pvs(ioc, on_va),
+            self._ioc_alarms(ioc) if with_alarms else _absent(),
         )
         row = (sample.get("rows") or [None])[0]
         properties: Mapping[str, Any] = {}
@@ -373,6 +382,7 @@ class Facts:
             **curated,
             "health_pvs": health_pvs,
             **({"health_pvs_reason": health_reason} if not health_pvs else {}),
+            **({"alarms": alarms} if alarms is not None else {}),
         }
         if on_va:
             if engineer is not None:
@@ -384,6 +394,31 @@ class Facts:
         all_inactive = facts["inactive_count"] == total["total"]
         facts["outcome"] = "inactive" if all_inactive else "found"
         return facts
+
+    async def _ioc_alarms(self, ioc: str) -> dict[str, Any]:
+        """The IOC's PVs in alarm now: ``{outcome, total, rows}``, or ``unavailable`` with the reason.
+
+        One alarm-filtered search, so the panel and the agent read the answer the
+        All PVs alarm filter gives; ``total`` counts the whole filtered set.
+        """
+        page = await self._service.search(
+            ioc=[ioc], alarm=_ACTIVE_SEVERITIES, page_size=_IOC_ALARMS_PAGE_SIZE
+        )
+        if page["outcome"] == "unavailable":
+            return {"outcome": "unavailable", "reason": page.get("reason")}
+        feed = next(
+            (entry for entry in page.get("partial") or () if entry["part"] == "alarm"), None
+        )
+        if feed is not None:
+            return {"outcome": "unavailable", "reason": feed["reason"]}
+        rows = [
+            {
+                "pv": row["name"],
+                **{key: (row.get("alarm") or {}).get(key) for key in _IOC_ALARM_FIELDS},
+            }
+            for row in page.get("rows") or ()
+        ]
+        return {"outcome": page["outcome"], "total": page.get("total"), "rows": rows}
 
     async def _curated_count(self, ioc: str) -> dict[str, Any]:
         """How many roster addresses this IOC's records carry, or why it cannot be counted."""
@@ -485,6 +520,10 @@ async def _ask(call: Awaitable[Any], deadline: float) -> Any:
     except Exception as failure:
         logger.warning("PV facts backend failed", exc_info=True)
         return _Reason(f"the service failed: {failure}")
+
+
+async def _absent() -> None:
+    """The answer of a read the deployment did not configure."""
 
 
 async def _guarded(call: Awaitable[Any]) -> Any:

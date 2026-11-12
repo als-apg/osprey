@@ -158,6 +158,30 @@ import { state } from './state.js';
  */
 
 /**
+ * One PV of an IOC in alarm now.
+ * @typedef {{
+ *   pv: string,
+ *   severity: string|null,
+ *   status: string|null,
+ *   latched: boolean|null,
+ *   acknowledged: boolean|null,
+ *   time: string|null,
+ * }} IocAlarmRow
+ */
+
+/**
+ * The IOC's PVs in alarm now, present when an alarm feed is configured:
+ * `total` counts them all, `rows` the first page; `unavailable` with `reason`
+ * when the feed did not answer.
+ * @typedef {{
+ *   outcome: 'found'|'no_match'|'unavailable',
+ *   total?: number|null,
+ *   rows?: IocAlarmRow[],
+ *   reason?: string,
+ * }} IocAlarms
+ */
+
+/**
  * @typedef {{
  *   ioc: string,
  *   outcome: Outcome,
@@ -172,6 +196,7 @@ import { state } from './state.js';
  *   engineer_source: 'directory property'|'ENGINEER PV'|null,
  *   health_pvs: string[],
  *   health_pvs_reason?: string,
+ *   alarms?: IocAlarms,
  *   links: Record<string, string>,
  *   reason?: string,
  * }} IocFacts

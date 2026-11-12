@@ -30,7 +30,12 @@ import osprey.channel_roster as channel_roster
 from osprey.interfaces.channel_finder import directory_pages_api
 from osprey.services.pv_directory import _connectors, service
 from osprey_connectors import control_context
-from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.alarm_state import (
+    AlarmConfigRecord,
+    AlarmStateRecord,
+    AlarmStateRow,
+    AlarmStates,
+)
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
 from osprey_connectors.put_log import PutRow
 from osprey_connectors.service_answers import HistoryPage, Outcome, Source
@@ -58,6 +63,10 @@ LIVE_BUILD = {"type": "epics"}
 FACILITY = {"type": "channelfinder", "settings": {"url": "http://cf.example"}}
 ALARM_LOG = {"type": "phoebus_alarm_logger", "settings": {"url": "http://al.example"}}
 PUT_LOG = {"type": "caputlog", "settings": {"url": "http://pl.example"}}
+KAFKA = {
+    "type": "phoebus_alarm_server",
+    "settings": {"bootstrap_servers": "kafka:9092", "topic": "Accelerator"},
+}
 ARIEL = {"database": {"url": "postgresql://ariel.example/logbook"}}
 
 
@@ -129,7 +138,29 @@ class FakeHistory(FakeBackend):
         return AlarmConfigRecord(in_tree="yes", path=f"/SR/{pv}")
 
 
-_FAKES = {"pv_directory": FakeDirectory, "alarm_log": FakeHistory, "put_log": FakeHistory}
+class FakeAlarmState(FakeBackend):
+    """A caught-up feed holding SR:BPM1 in a latched MAJOR alarm."""
+
+    async def start(self) -> None:
+        pass
+
+    async def aclose(self) -> None:
+        pass
+
+    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        state = AlarmStateRecord(
+            severity="MAJOR", status="NO_ALARM", latched=True, time="2026-11-11T06:00:00.000Z"
+        )
+        row = AlarmStateRow(channel="SR:BPM1", path="/SR/SR:BPM1", state=state)
+        return AlarmStates(rows=(row,), stale=False, last_contact=None)
+
+
+_FAKES = {
+    "pv_directory": FakeDirectory,
+    "alarm_log": FakeHistory,
+    "alarm_state": FakeAlarmState,
+    "put_log": FakeHistory,
+}
 
 
 @pytest.fixture(autouse=True)
@@ -336,10 +367,23 @@ def test_the_ioc_page_payload(start, tmp_path: Path) -> None:
 
 def test_the_ioc_page_matches_the_shared_fixture(start, tmp_path: Path) -> None:
     FakeDirectory.records = _live_ioc_records()
+    section = {**FACILITY, "alarm_state": KAFKA}
+    with start(_config(tmp_path, LIVE_BUILD, section, "SR:BPM1")) as (_app, client):
+        ioc = _get(client, "ioc", "ioc-a")
+
+    shared = _routes()["ioc/{name}"]
+    assert set(ioc) == set(shared)
+    assert set(ioc["alarms"]) == set(shared["alarms"])
+    assert [row["pv"] for row in ioc["alarms"]["rows"]] == ["SR:BPM1"]
+    assert set(ioc["alarms"]["rows"][0]) == set(shared["alarms"]["rows"][0])
+
+
+def test_the_ioc_page_without_an_alarm_feed_carries_no_alarms(start, tmp_path: Path) -> None:
+    FakeDirectory.records = _live_ioc_records()
     with start(_config(tmp_path, LIVE_BUILD, FACILITY, "SR:BPM1")) as (_app, client):
         ioc = _get(client, "ioc", "ioc-a")
 
-    assert set(ioc) == set(_routes()["ioc/{name}"])
+    assert "alarms" not in ioc
 
 
 def test_an_ioc_name_is_one_percent_encoded_segment(start, tmp_path: Path) -> None:

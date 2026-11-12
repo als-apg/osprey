@@ -1103,6 +1103,96 @@ async def test_on_va_the_engineer_is_the_row_marked_engineer(
     assert ioc["engineer_source"] == "ENGINEER PV"
 
 
+# -- the IOC's alarms ------------------------------------------------------------
+
+
+async def test_an_ioc_with_a_configured_feed_carries_its_active_alarms(tmp_path: Path) -> None:
+    FakeDirectory.records = _records(
+        _record("SR:BPM1"),
+        _record("SR:BPM2"),
+        _record("SR:BPM3"),
+        _record("SR:OTHER", ioc="ioc-b"),
+    )
+    FakeAlarmState.listed = _listed(
+        _row("SR:BPM1", "MAJOR", "2026-11-11T06:00:00.000Z", status="NO_ALARM", latched=True),
+        _row("SR:BPM2", "OK", "2026-11-11T07:00:00.000Z"),
+        _row("SR:BPM3", "MINOR", "2026-11-11T07:30:00.000Z", acknowledged=True),
+        _row("SR:OTHER", "MAJOR", "2026-11-11T07:40:00.000Z"),
+    )
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
+
+    alarms = (await page.ioc_facts("ioc-a"))["alarms"]
+
+    assert alarms["outcome"] == "found"
+    assert alarms["total"] == 2
+    assert "reason" not in alarms
+    assert alarms["rows"] == [
+        {
+            "pv": "SR:BPM1",
+            "severity": "MAJOR",
+            "status": "NO_ALARM",
+            "latched": True,
+            "acknowledged": False,
+            "time": "2026-11-11T06:00:00.000Z",
+        },
+        {
+            "pv": "SR:BPM3",
+            "severity": "MINOR",
+            "status": None,
+            "latched": False,
+            "acknowledged": True,
+            "time": "2026-11-11T07:30:00.000Z",
+        },
+    ]
+
+
+async def test_an_ioc_with_nothing_in_alarm_counts_zero(tmp_path: Path) -> None:
+    FakeDirectory.records = _records(_record("SR:BPM1"))
+    FakeAlarmState.listed = _listed(_row("SR:BPM1", "OK", "2026-11-11T06:00:00.000Z"))
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
+
+    alarms = (await page.ioc_facts("ioc-a"))["alarms"]
+
+    assert alarms == {"outcome": "no_match", "total": 0, "rows": []}
+
+
+async def test_a_feed_still_loading_leaves_the_ioc_alarms_unavailable_never_zero(
+    tmp_path: Path,
+) -> None:
+    FakeDirectory.records = _records(_record("SR:BPM1"))
+    FakeAlarmState.listed = Unavailable("alarm feed still loading")
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
+
+    alarms = (await page.ioc_facts("ioc-a"))["alarms"]
+
+    assert alarms == {
+        "outcome": "unavailable",
+        "reason": "cannot filter by alarm: alarm feed still loading",
+    }
+
+
+async def test_an_ioc_on_a_target_with_no_alarm_source_says_so(
+    tmp_path: Path, record: _Record
+) -> None:
+    record.move("va", 1)
+    FakeDirectory.records = _records(_record("SR:BPM1:X", ioc="sim-SR"))
+    page = _facts(_config(tmp_path, VA_BUILD, {"alarm_state": KAFKA}), tmp_path)
+
+    alarms = (await page.ioc_facts("sim-SR"))["alarms"]
+
+    assert alarms == {
+        "outcome": "unavailable",
+        "reason": "cannot filter by alarm: not available for this target",
+    }
+
+
+async def test_an_ioc_without_a_configured_feed_carries_no_alarms(tmp_path: Path) -> None:
+    FakeDirectory.records = _records(_record("SR:BPM1"))
+    page = _facts(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    assert "alarms" not in await page.ioc_facts("ioc-a")
+
+
 # -- connectors without the PV directory modules -------------------------------
 
 

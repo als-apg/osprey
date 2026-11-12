@@ -33,6 +33,9 @@ async def ioc_record(ioc: str) -> str:
     IOC is alive, read its health channels with channel_read; a HEARTBEAT
     that advances between two reads means alive. On the simulator the engineer
     is the address of a channel; read it with channel_read for the name.
+    With an alarm feed configured, ``alarms`` lists the IOC's channels in alarm
+    now (``outcome``, ``total``, ``rows`` of pv, severity, status, latched,
+    acknowledged and time), or ``unavailable`` with the feed's ``reason``.
     ``links.panel`` is the panel page showing this IOC. ``not_listed`` means
     the directory lists no channel served by that IOC name.
 
@@ -42,8 +45,9 @@ async def ioc_record(ioc: str) -> str:
     Returns:
         JSON object: ``ioc``, ``outcome``, ``source``, ``host``, ``ports``,
         ``pv_count``, ``inactive_count``, ``curated_count``, ``engineer``,
-        ``engineer_source``, ``health_pvs``, ``links``, and the reasons
-        ``curated_reason`` and ``health_pvs_reason`` where they apply.
+        ``engineer_source``, ``health_pvs``, ``links``, ``alarms`` with an alarm
+        feed configured, and the reasons ``curated_reason`` and
+        ``health_pvs_reason`` where they apply.
     """
     name = ioc.strip()
     if not name:
