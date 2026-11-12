@@ -78,6 +78,7 @@ INVARIANT_TESTS = (
     "tests/scripts/test_check.py",
     "tests/scripts/test_changelog_fragments.py",
     "tests/apps/test_no_trajectory_service.py",
+    "tests/services/ariel_search/test_store_deadline_guard.py",
     "tests/interfaces/test_js_module_tests.py",
     "tests/interfaces/test_page_ready_guard.py",
     "tests/interfaces/test_page_ready_pages.py",
