@@ -167,10 +167,10 @@ See :doc:`/reference/cli` for both.
 Read a session
 ==============
 
-In the web terminal, **☰ More** › **Activity log** opens the Activity page on
-the session in the terminal; its sidebar lists your other sessions. The page
-reads the record, so a past session reads the same as the live one. It has
-four views:
+The Activity page shows what the agent did in one session and what was decided
+about each call. It reads the record, so a past session reads the same as the
+live one. In the web terminal, **☰ More** › **Activity log** opens it on the
+session in the terminal; its sidebar lists your sessions. It has four views:
 
 - **Timeline** — prompts, answers and tool calls in order, a subagent's calls
   under the call that started it. Open a call for its arguments, its result
