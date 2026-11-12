@@ -593,7 +593,8 @@ _ALREADY_A_REPO = (
     "{target} is already an OSPREY deployment repo (it has a profile.yml).\n\n"
     "Re-run with --force to re-materialize its source zone from the preset — "
     "which replaces profile.yml, data/, tiers/, apps/, triggers.yml, "
-    "web-terminal-context/, watchdogs/, and .env.example, losing any edit to them. In "
+    "web-terminal-context/, watchdogs/, .env.example and .osprey/, losing any edit to "
+    "them. In "
     "providers.yml the entries OSPREY ships are reset to the packaged values "
     "(your edits to them are lost) and the ones you added are kept. To start "
     "over on this name entirely, re-run with --reset: that re-materializes the "
@@ -1257,7 +1258,8 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     is_flag=True,
     help="Re-materialize the source zone of an existing deployment repo, "
     "discarding edits to profile.yml, data/, tiers/, apps/, triggers.yml, "
-    "web-terminal-context/, watchdogs/, and .env.example. In providers.yml the entries "
+    "web-terminal-context/, watchdogs/, and .env.example, and rewriting .osprey/. In "
+    "providers.yml the entries "
     "OSPREY ships are reset to the packaged values (your edits to them are "
     f"lost) and the ones you added are kept. Never touches: {_PRESERVED_PROSE}.",
 )
@@ -1283,11 +1285,13 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     "--revalidate",
     is_flag=True,
     help="Bring an existing deployment repo to this OSPREY in place — the current "
-    "profile vocabulary, every config key the profile leaves to its preset, the "
-    "provider entries OSPREY ships that providers.yml lacks (its values are kept), its "
+    "profile vocabulary, what its presets changed since the repo last took them "
+    "(applied only where you kept the preset's value; your edits are left alone), "
+    "the provider entries OSPREY added since (your values are kept), its "
     "own skills/agents/rules/output styles/hooks "
     "named where they render today — and print the diff. Only on a repo that holds "
-    "profile.yml; with --preset, fills from that preset; not with --force or --reset.",
+    "profile.yml; with --preset, switches to that preset and fills from it; not with "
+    "--force or --reset.",
 )
 @click.option("--up", "start", is_flag=True, help="Build the deployment and start it.")
 @click.option("-d", "--detach", "detached", is_flag=True, help="With --up: run in the background.")
@@ -1578,27 +1582,34 @@ def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[s
         output.report(
             f"Rewrote {len(result.changed)} file(s) in {target}. Review the diff and commit."
         )
-    if result.filled:
-        output.report(f"Filled {len(result.filled)} key(s) from preset '{result.preset}':")
-        for key in result.filled:
-            output.note(key)
+    if result.switched_from:
+        output.note(
+            f"profile.yml was made from the {result.switched_from} preset and now follows "
+            f"{result.preset}: every `config:` key {result.preset} has and it lacks was filled in."
+        )
+    for rel in result.filled_once:
+        output.note(
+            f"{rel} predates preset tracking and its preset has changed since it was "
+            f"written, so every `config:` key the preset has and it lacks was filled in, "
+            f"this once."
+        )
+    if result.applied:
+        output.report(f"Applied {len(result.applied)} change(s) the presets made:")
+        for line in result.applied:
+            output.note(line)
     for key, reason in result.skipped.items():
         output.note(f"Left for you: {key}: {reason}")
+    if result.left_for_you:
+        output.report("Preset changes left for you (not applied; not shown again):")
+        for line in result.left_for_you:
+            output.note(line)
     if result.providers_kept:
         output.note(f"Kept your own provider entries: {', '.join(result.providers_kept)}")
-    if result.drift_refusals:
-        output.report(
-            f"⚠ profile.yml names preset '{result.preset}', so `osprey validate` compares "
-            f"the two: it differs in {result.drift_refusals} place(s) no marker claims."
-        )
+    if result.saved_copy:
         output.note(
-            f"Claim one with a `# {result.deviation_marker}: <why>` comment above its line, "
-            f"or in the key's name. `osprey validate --drift=warn` reports them without refusing."
+            "Recorded what the presets produce today in .osprey/preset-base/; commit it "
+            "with the rest. A change you drop from the diff is not offered again."
         )
-    if result.app_drift:
-        output.report("Applications that differ from what `osprey init` copied (left as they are):")
-        for line in result.app_drift:
-            output.note(line)
     if result.manual_steps:
         output.report("Left for you to do by hand:")
         for step in result.manual_steps:

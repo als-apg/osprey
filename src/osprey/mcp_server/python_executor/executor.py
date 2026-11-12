@@ -57,7 +57,7 @@ from osprey.stores.artifact_manifest import (
     is_collectable_file,
 )
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES, PRESET_TRACKING_DIRNAME
 from osprey_connectors import posture_store
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.posture_env import POSTURE_ENV_VAR
@@ -120,6 +120,10 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     "profiles",
     "scripts",
     "watchdogs",
+    # The saved copy of what the presets produced (`.osprey/preset-base/`):
+    # `osprey init --revalidate` rewrites a source file that still holds its
+    # saved value, so a run that could edit the copy could aim that rewrite.
+    PRESET_TRACKING_DIRNAME,
     # Convention directories, in CONVENTION_DIRS order.
     "rules",
     "skills",

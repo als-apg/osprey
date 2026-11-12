@@ -103,6 +103,8 @@ What ``osprey init`` writes
                      your own words
      watchdogs/      one directory per watchdog the profile declares
      mcp_servers/    the MCP server packages the preset ships
+     .osprey/        what the presets produced, so --revalidate can tell their
+                     changes from yours; commit it, never edit it
      ci-extra.yml    the facility's own CI jobs; never regenerated
      .gitignore      keeps build/, var/, the .env files and apps/*/panel/vendor/
                      out of version control
@@ -1097,27 +1099,29 @@ Resolves the profile and runs the full consistency check — convention
 directories, the data tree, service templates, lifecycle steps, environment
 variables — reporting every problem found, not just the first.
 
-It also compares the profile with the preset it was materialized from, so a
-line the preset gained after ``osprey init`` (a panel, a hook, a permission)
-does not go missing silently. Only *structural* differences are refused — a
-key or list member one document has and the other has not. One you mean is
-claimed once, with a comment above the line:
+The profile is yours to edit. No difference from the preset it was
+materialized from is refused or listed. When the preset bundled with your
+OSPREY has changed since the repository last took it, ``validate`` and
+``osprey build`` print one line saying so.
 
-.. code-block:: yaml
+.. _upgrading-osprey:
 
-   config:
-     # DEVIATION: this deployment reads the facility's own knowledge graph
-     services.graphdb.uri: bolt://graph.facility.example:7687
+Upgrading OSPREY
+----------------
 
-Unclaimed structural differences fail the check (``--drift=warn`` only reports
-them); a stale marker is reported too. The tag defaults to ``DEVIATION`` and is
-set by ``provenance.deviation_marker``.
+.. code-block:: bash
 
-A key both documents carry with *different values* — ``web.theme: dark`` where
-the preset says ``light`` — is only reported, never refused. The profile is the
-source of truth for what this deployment runs, so an edited setting needs no
-marker, and a preset that changes a value in a later release does not fail a
-build that was fine yesterday.
+   pip install -U osprey-framework
+   osprey init --revalidate      # applies the presets' changes, prints the diff
+   # review the diff; drop any change you do not want; commit
+   osprey validate
+   osprey build
+
+``osprey init --revalidate`` applies only what the presets changed since the
+repository last took them, and only where you kept the preset's old value. Your
+own edits are left alone, and anything you deleted stays deleted. A change you
+drop from the diff before committing is not offered again; to take it later,
+copy it from the preset by hand.
 
 
 What the build does
@@ -1185,12 +1189,15 @@ repository it runs in, and found none at or above the working directory. Run it
 from inside the repository, point at one with ``--repo PATH``, or create one with
 ``osprey init <name> --preset <NAME>``.
 
-**"profile.yml was materialized from preset … at …; the preset bundled with
-OSPREY … is … — it has moved on since"** — a note, not an error. The preset your
-profile came from has changed in the OSPREY release you run. Your deployment
-does not change with it, because the profile inherits nothing. To see what
-moved, diff a fresh ``osprey init`` against your profile, as shown under
-*Preset → Profile → Build* above.
+**"The … preset has changed since this repo last took it"** — a note, not an
+error. The preset your profile came from has changed in the OSPREY release you
+run. Your deployment does not change with it, because the profile inherits
+nothing. Run ``osprey init --revalidate`` to take the changes (see
+:ref:`upgrading-osprey`).
+
+**"This repo predates preset tracking"** — a note, not an error. The repository
+was made by an OSPREY release that kept no copy of what its preset produced.
+Run ``osprey init --revalidate`` once, and commit what it writes.
 
 **"Profile convention directories are invalid"** — a convention directory has
 the wrong shape: a ``.md`` directory holding something else, or a skill that is

@@ -802,12 +802,6 @@ class TestValidateHonorsTheVariant:
         text = text.replace(
             marker, marker + "        access: any\n        oidc_subject: alice@example.org\n"
         )
-        # The roster now differs from the preset's; claimed as a facility fact so
-        # the preset-drift lint has nothing to refuse and the run stays about the
-        # variant.
-        roster = "    users:\n"
-        assert text.count(roster) == 1
-        text = text.replace(roster, "    # DEVIATION: the roster is this facility's\n" + roster)
         profile.write_text(text, encoding="utf-8")
         _write_variant(
             lifecycle_repo,

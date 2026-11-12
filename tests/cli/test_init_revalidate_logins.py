@@ -94,7 +94,8 @@ def test_an_edited_login_is_moved_as_written_with_lists_own_and_never(tmp_path: 
     assert data["config"]["control_system.writes"] == "never"
     steps = " ".join(result.output.split("Left for you to do by hand", 1)[1].split())
     assert "apps/logbook.yml has been edited, so it moved to tiers/logbook.yml" in steps
-    assert "`# DEVIATION:`" in steps
+    assert "osprey scaffold tiers --force" in steps
+    assert "DEVIATION" not in steps
 
 
 def test_a_moved_login_that_spelled_no_tier_key_is_given_never(tmp_path: Path) -> None:

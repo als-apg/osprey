@@ -4142,26 +4142,15 @@ def _build_repo(
         for web_warning in web_warnings:
             output.note(f"⚠ {web_warning}")
 
-        # The comparison the `provenance:` stamp promises: a note whenever the
-        # preset has moved on since this profile was materialized, and — under
-        # `-v`, since a build is not the verb that refuses — every place the
-        # profile differs from it that no marker comment claims. Both kinds are
-        # printed together: a build reports what it sees, and the split between
-        # what refuses and what only reports belongs to `osprey validate`.
+        # One line when the presets this repo took have changed since it last
+        # took them, pointing at `osprey init --revalidate`. Never a refusal,
+        # and the same line `osprey validate` prints.
         if build_profile.provenance is not None:
-            from .build_profile_drift import preset_drift_report
-            from .phase_reporter import is_verbose
+            from .build_profile_updates import preset_update_note
 
-            drift = preset_drift_report(profile_path, build_profile.provenance)
-            if drift.note:
-                output.note(drift.note)
-            if is_verbose() and drift.unmarked:
-                output.warn(
-                    f"preset drift: {PROFILE_FILENAME} differs from preset {drift.preset} in "
-                    f"{len(drift.unmarked)} place(s) no marker claims, "
-                    f"{len(drift.refusals)} of which osprey validate refuses",
-                    "\n".join(finding.render() for finding in drift.unmarked),
-                )
+            update_note = preset_update_note(profile_path)
+            if update_note:
+                output.note(update_note)
 
         # A fresh staging tree, and the output zone it will replace. Both are
         # created now: the venv below is written into `build/` directly, at the
