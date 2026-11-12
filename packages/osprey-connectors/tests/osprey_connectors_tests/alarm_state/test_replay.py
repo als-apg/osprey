@@ -454,3 +454,55 @@ def test_importing_it_loads_neither_aiokafka_nor_the_kafka_backend():
         "assert 'osprey_connectors.alarm_state._phoebus_kafka' not in sys.modules\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=120)
+
+
+# -- the list of every channel's state ----------------------------------------------
+
+
+async def test_the_list_before_start_is_still_loading():
+    assert await _backend().states(1.0) == LOADING
+
+
+async def test_the_list_of_an_empty_replay_is_no_message(tmp_path):
+    backend = _backend(_write(tmp_path / "feed.ndjson"))
+    await backend.start()
+    assert await backend.states(1.0) == EMPTY
+
+
+@pytest.mark.usefixtures("load_moment")
+async def test_the_list_holds_every_channel_its_counts_and_the_load_moment():
+    backend = _backend()
+    await backend.start()
+
+    states = await backend.states(1.0)
+
+    assert {row.channel: row.path for row in states.rows} == {
+        PV: f"/Demo/RF/{PV}",
+        ACKED_PV: f"/Demo/Vac/{ACKED_PV}",
+    }
+    for row in states.rows:
+        assert row.state == await backend.state_for(row.channel, 1.0)
+    assert dict(states.counts) == {"MAJOR": 1, "MINOR": 1}
+    assert states.stale is False
+    assert states.last_contact == "2026-11-06T12:00:00.000Z"
+
+
+async def test_the_list_of_a_stopped_feed_is_stale():
+    backend = _backend(STOPPED_FEED)
+    await backend.start()
+
+    states = await backend.states(1.0)
+    assert states.stale is True
+    assert all(row.state.stale for row in states.rows)
+
+
+async def test_a_list_read_during_the_load_waits_for_it(held_load):
+    entered, release = held_load
+    backend = _backend()
+    starting = asyncio.create_task(backend.start())
+    await asyncio.to_thread(entered.wait, 5.0)
+    assert await backend.states(0.05) == LOADING
+
+    release.set()
+    await starting
+    assert len((await backend.states(1.0)).rows) == 2

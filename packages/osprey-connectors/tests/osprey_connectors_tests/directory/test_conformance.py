@@ -30,7 +30,12 @@ from urllib.parse import urlsplit
 import pytest
 
 from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
-from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord, _phoebus_kafka
+from osprey_connectors.alarm_state import (
+    AlarmConfigRecord,
+    AlarmStateRecord,
+    AlarmStates,
+    _phoebus_kafka,
+)
 from osprey_connectors.directory import (
     ChannelDirectory,
     DirectoryPage,
@@ -468,6 +473,7 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
         return [
             ("state_for", await backend.state_for(pv, deadline)),
             ("state_for", await backend.state_for(ABSENT_PV, deadline)),
+            ("states", await backend.states(deadline)),
             ("config_for", await backend.config_for(pv, deadline)),
             ("probe", await backend.probe(deadline)),
         ]
@@ -486,6 +492,7 @@ _RETURNS: dict[str, tuple[type, ...]] = {
     "history": (HistoryPage,),
     "config_for": (AlarmConfigRecord, Unavailable),
     "state_for": (AlarmStateRecord, Unavailable, type(None)),
+    "states": (AlarmStates, Unavailable),
 }
 
 
@@ -623,6 +630,24 @@ async def test_a_read_before_catch_up_waits_and_answers_a_record(case, tmp_path,
         await built.backend.aclose()
 
     assert isinstance(state, AlarmStateRecord), state
+
+
+@pytest.mark.parametrize("case", ALARM_STATE_CASES, ids=_ids(ALARM_STATE_CASES))
+async def test_the_list_after_catch_up_holds_the_channel_and_counts_its_rows(
+    case, tmp_path, monkeypatch
+):
+    built = await _build(case, case.modes[0], tmp_path, monkeypatch)
+    starting = asyncio.create_task(built.backend.start())
+    await asyncio.sleep(0)
+    try:
+        states = await built.backend.states(DEADLINE)
+    finally:
+        await starting
+        await built.backend.aclose()
+
+    assert isinstance(states, AlarmStates), states
+    assert case.pv in {row.channel for row in states.rows}
+    assert sum(states.counts.values()) == len(states.rows)
 
 
 # --- every request is a read or a search ------------------------------------------

@@ -16,7 +16,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors.alarm_state._contract import AlarmConfigRecord, AlarmState, AlarmStateRecord
+from osprey_connectors.alarm_state._contract import (
+    AlarmConfigRecord,
+    AlarmState,
+    AlarmStateRecord,
+    AlarmStates,
+)
 from osprey_connectors.alarm_state._fold import (
     FEED_EMPTY,
     FEED_LOADING,
@@ -24,6 +29,7 @@ from osprey_connectors.alarm_state._fold import (
     config_record,
     fold_message,
     state_record,
+    state_rows,
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.service_answers import BackendSpec, Unavailable
@@ -52,6 +58,7 @@ class ReplayAlarmState(AlarmState):
         self._task: asyncio.Task[None] | None = None
         self._snapshot: FeedSnapshot | None = None
         self._stopped = False
+        self._loaded_at: str | None = None
         self._failed: Unavailable | None = None
 
     async def start(self) -> None:
@@ -71,6 +78,7 @@ class ReplayAlarmState(AlarmState):
             await asyncio.gather(task, return_exceptions=True)
         self._snapshot = None
         self._stopped = False
+        self._loaded_at = None
         self._failed = None
 
     async def state_for(
@@ -81,6 +89,15 @@ class ReplayAlarmState(AlarmState):
         if isinstance(snapshot, Unavailable):
             return snapshot
         return state_record(snapshot, channel, stale=self._stopped)
+
+    async def states(self, deadline: float) -> AlarmStates | Unavailable:
+        """Every channel's state; ``last_contact`` is the load moment, the newest rebased time."""
+        await self._loading(deadline)
+        snapshot = self._answering()
+        if isinstance(snapshot, Unavailable):
+            return snapshot
+        rows = state_rows(snapshot, stale=self._stopped)
+        return AlarmStates(rows=rows, stale=self._stopped, last_contact=self._loaded_at)
 
     async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._loading(deadline)
@@ -131,7 +148,8 @@ class ReplayAlarmState(AlarmState):
 
     async def _load(self, path: Path) -> None:
         try:
-            self._snapshot, self._stopped = await asyncio.to_thread(_read_replay, path)
+            loaded = await asyncio.to_thread(_read_replay, path)
+            self._snapshot, self._stopped, self._loaded_at = loaded
         except Exception as exc:
             reason = str(exc) or type(exc).__name__
             logger.warning("alarm replay not loaded: %s", reason)
@@ -145,8 +163,12 @@ class _Message:
     time: datetime | None
 
 
-def _read_replay(path: Path) -> tuple[FeedSnapshot, bool]:
-    """Fold the file at *path*; the second answer is whether it ends with the stopped marker."""
+def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
+    """Fold the file at *path*.
+
+    The second answer is whether it ends with the stopped marker, the third the
+    load moment, which the newest message time is rebased to.
+    """
     messages: list[_Message] = []
     stopped = False
     with path.open(encoding="utf-8") as lines:
@@ -162,14 +184,15 @@ def _read_replay(path: Path) -> tuple[FeedSnapshot, bool]:
                 raise ValueError(f"{path} line {number}: {exc}") from exc
 
     snapshot = FeedSnapshot()
+    loaded_at = _now()
     times = [message.time for message in messages if message.time is not None]
-    shift = _now() - max(times) if times else None
+    shift = loaded_at - max(times) if times else None
     for message in messages:
         rebased = None
         if message.time is not None and shift is not None:
             rebased = _iso(message.time + shift)
         fold_message(snapshot, message.key, message.value, time=rebased)
-    return snapshot, stopped
+    return snapshot, stopped, _iso(loaded_at)
 
 
 def _message(parsed: Any) -> _Message:

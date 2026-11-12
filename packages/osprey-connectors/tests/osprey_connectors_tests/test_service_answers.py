@@ -42,7 +42,7 @@ SOURCE = Source(kind="directory", target="va", service="simulator_view", rehears
 ABCS = {
     ChannelDirectory: {"search", "count", "describe", "property_names", "property_values", "probe"},
     AlarmLog: {"history", "config_for", "probe"},
-    AlarmState: {"start", "aclose", "state_for", "config_for", "probe"},
+    AlarmState: {"start", "aclose", "state_for", "states", "config_for", "probe"},
     PutLog: {"history", "probe"},
 }
 RECORDS = (
