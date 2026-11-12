@@ -50,6 +50,7 @@ from uuid import uuid4
 
 import click
 
+from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, refusal_lines
 from osprey.apps.loader import ROOT_LOGIN, DeploymentApps, check_deployment
 from osprey.deployment.compose_generator import TEMPLATE_FILENAME
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
@@ -132,6 +133,14 @@ if TYPE_CHECKING:
     from .profile_root import ProfileKind
 
 logger = get_logger("build")
+
+
+def _log_app_refusal(violations: Sequence[Violation]) -> None:
+    """Log every application violation as ``osprey app check`` prints it, then the count."""
+    *lines, count = refusal_lines(violations)
+    for line in lines:
+        logger.error("%s", line)
+    logger.error("✗ %s", count)
 
 
 def _report_fact(message: str) -> None:
@@ -4361,6 +4370,14 @@ def _build_repo(
     except click.UsageError as e:
         logger.error("✗ %s", e)
         raise
+    except AppsRefusedError as e:
+        for error in e.errors:
+            logger.error("✗ Build error: %s", error)
+        _log_app_refusal(e.violations)
+        raise click.Abort() from e
+    except AppManifestError as e:
+        _log_app_refusal(e.violations)
+        raise click.Abort() from e
     except BuildProfileError as e:
         logger.error("✗ Build error: %s", e)
         raise click.Abort() from e

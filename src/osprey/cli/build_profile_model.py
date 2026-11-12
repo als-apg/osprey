@@ -643,21 +643,22 @@ class BuildProfile:
 
         Returns:
             Human-readable error messages; empty when the block is valid.
+
+        Raises:
+            AppManifestError: A listed application's manifest is refused; :meth:`validate`
+                keeps its violations whole, so each is printed with its rule as
+                ``osprey app check`` prints it, never folded into a profile error.
         """
         if not self.apps:
             return []
-        from osprey.apps.errors import AppManifestError
         from osprey.apps.loader import MANIFEST_FILE
         from osprey.apps.loader import load as load_apps
         from osprey.apps.origin import installed_apps
 
         from .application_material import application_dirs
 
-        try:
-            installed = installed_apps()
-            manifests = {m.name: m for m in load_apps(profile_dir, self.apps, installed=installed)}
-        except AppManifestError as exc:
-            return [f"apps: {exc}"]
+        installed = installed_apps()
+        manifests = {m.name: m for m in load_apps(profile_dir, self.apps, installed=installed)}
 
         errors: list[str] = []
         dirs = application_dirs(profile_dir)
@@ -1899,7 +1900,13 @@ class BuildProfile:
         # The one conditionally derived key, judged here where the condition
         # (whether this deployment serves web terminals) is known.
         errors.extend(health_url_key_errors(self.config))
-        errors.extend(self._validate_apps(profile_dir))
+        from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation
+
+        refused: tuple[Violation, ...] = ()
+        try:
+            errors.extend(self._validate_apps(profile_dir))
+        except AppManifestError as manifest_refusal:
+            refused = manifest_refusal.violations
 
         if (
             self.channel_finder_mode is not None
@@ -2469,6 +2476,8 @@ class BuildProfile:
                 )
             )
 
+        if refused:
+            raise AppsRefusedError(refused, errors)
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
