@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 [project]
 name = "osprey-connectors"
 dynamic = ["version"]
-description = "Control-system and archiver connectors for OSPREY"
+description = "Lean connectors to a control system and the read-only services beside it"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "BSD-3-Clause"}
