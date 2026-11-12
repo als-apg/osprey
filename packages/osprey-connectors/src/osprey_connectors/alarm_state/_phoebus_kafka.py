@@ -33,10 +33,7 @@ from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 logger = get_logger("phoebus_alarm_state")
 
-KAFKA_CLIENT_MISSING = (
-    "Kafka client not installed (install osprey-framework[alarm-state]; "
-    "for an image, through OSPREY_PIP_SPEC)"
-)
+KAFKA_CLIENT_MISSING = "Kafka client not installed (install osprey-connectors[alarm-state])"
 SETTINGS_MISSING = "alarm_state.settings needs bootstrap_servers and topic"
 
 #: Seconds after which a feed that has been silent reads as stale.

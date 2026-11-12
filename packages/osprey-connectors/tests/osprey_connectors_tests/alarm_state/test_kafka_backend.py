@@ -469,8 +469,7 @@ async def test_a_missing_client_answers_the_install_reason_on_every_read(monkeyp
         await backend.probe(deadline=1.0),
     ):
         assert answer == Unavailable(
-            "Kafka client not installed (install osprey-framework[alarm-state]; "
-            "for an image, through OSPREY_PIP_SPEC)"
+            "Kafka client not installed (install osprey-connectors[alarm-state])"
         )
     assert backend._task is None
     await backend.aclose()

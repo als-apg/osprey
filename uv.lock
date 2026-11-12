@@ -5340,6 +5340,11 @@ dependencies = [
     { name = "rich" },
 ]
 
+[package.optional-dependencies]
+alarm-state = [
+    { name = "aiokafka" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "cryptography" },
@@ -5352,6 +5357,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aioca", specifier = ">=2.1" },
+    { name = "aiokafka", marker = "extra == 'alarm-state'", specifier = ">=0.12" },
     { name = "lume-base", specifier = "==0.5.0" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "p4p", specifier = ">=4.3" },
@@ -5362,6 +5368,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=14.0.0" },
 ]
+provides-extras = ["alarm-state"]
 
 [package.metadata.requires-dev]
 dev = [
