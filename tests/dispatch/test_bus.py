@@ -14,7 +14,10 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+import zmq
+import zmq.asyncio
 
+from osprey.dispatch.bus import broker as bus_broker
 from osprey.dispatch.bus import keys as bus_keys
 from osprey.dispatch.bus import protocol
 from osprey.dispatch.bus.broker import WorkerBus, is_local_endpoint
@@ -388,6 +391,165 @@ async def test_a_stream_of_an_unknown_run_is_unavailable(harness):
         await _collect(client, "nope")
 
 
+async def test_a_quiet_stream_yields_a_keepalive(harness):
+    bus, client, (w1,) = await joined(harness, "w1")
+    run_id = (await client.dispatch(prompt="p", allowed_tools=[]))["run_id"]
+    events = bus.stream(run_id, idle=0.05)
+    assert await anext(events) is None
+
+    assert w1.link is not None
+    w1.link.emit(run_id, {"type": "done"})
+    assert [event async for event in events if event is not None] == [{"type": "done"}]
+
+
+async def test_a_finished_runs_stream_is_let_go_but_its_owner_is_kept(harness, monkeypatch):
+    monkeypatch.setattr(bus_broker, "STREAM_TTL_SEC", 0.0)
+    bus, client, (w1,) = await joined(harness, "w1")
+    run_id = (await client.dispatch(prompt="p", allowed_tools=[]))["run_id"]
+    # Off the heartbeat, or the next one would bring the stream back.
+    w1.in_flight.clear()
+    assert w1.link is not None
+    w1.link.emit(run_id, {"type": "done"})
+
+    await until(lambda: run_id not in bus._streams)
+    with pytest.raises(WorkerUnavailableError, match="no longer streams"):
+        await _collect(client, run_id)
+    # Only the owner can serve the run's artifacts, so it is remembered.
+    assert bus.owner_of(run_id) == "w1"
+
+
+# -- misbehaving peers ------------------------------------------------------------
+
+
+class RawPeer:
+    """A bare ``DEALER`` that sends the broker whatever a case hands it.
+
+    It joins full (capacity 1, one run in flight), so no dispatch is ever sent
+    its way, and after each message it sends a heartbeat naming a fresh run:
+    once the broker owns that run, it has handled everything sent before it.
+    """
+
+    def __init__(self, bus: WorkerBus, name: str) -> None:
+        self._bus = bus
+        self.name = name
+        self._marks = 0
+        self._ctx = zmq.asyncio.Context()
+        self._sock = self._ctx.socket(zmq.DEALER)
+        self._sock.setsockopt(zmq.LINGER, 0)
+        self._sock.setsockopt(zmq.ROUTING_ID, name.encode())
+        self._sock.connect(bus.endpoint)
+
+    async def __aenter__(self) -> RawPeer:
+        await self._mark()
+        return self
+
+    async def __aexit__(self, *_exc: Any) -> None:
+        self._sock.close(linger=0)
+        self._ctx.term()
+
+    async def send(self, *messages: list[bytes]) -> None:
+        for frames in messages:
+            await self._sock.send_multipart(frames)
+            await self._mark()
+
+    async def _mark(self) -> None:
+        self._marks += 1
+        run_id = f"{self.name}-mark-{self._marks}"
+        hello = {"capacity": 1, "in_flight": [run_id]}
+        await self._sock.send_multipart(protocol.encode(protocol.HELLO, hello))
+        await until(lambda: self._bus.owner_of(run_id) == self.name)
+
+
+async def test_garbage_from_a_peer_is_dropped_and_the_broker_keeps_serving(harness):
+    _, client, _ = await joined(harness, "w1")
+    async with RawPeer(harness.buses[0], "noisy") as peer:
+        await peer.send(
+            [b"OK"],
+            [b"OK", b"not json"],
+            protocol.encode(protocol.PING, {}),
+            protocol.ok("0" * 32, {"answers": "no request"}),
+            protocol.encode(protocol.EVENT, {"run_id": 7, "event": "not an event"}),
+        )
+        answer = await client.dispatch(prompt="p", allowed_tools=[])
+    assert answer["run_id"] == "w1-run-1"
+
+
+async def test_a_worker_cannot_answer_a_request_sent_to_another(harness):
+    bus, client, (w1,) = await joined(harness, "w1")
+    run_id = (await client.dispatch(prompt="p", allowed_tools=[]))["run_id"]
+    w1.statuses[run_id] = {"run_id": run_id, "status": "completed"}
+    w1.hold = asyncio.Event()
+    asked = asyncio.create_task(client.status(run_id))
+    await until(lambda: w1.asked(protocol.STATUS))
+    rid = w1.calls[-1][1]["rid"]
+
+    async with RawPeer(bus, "w2") as impostor:
+        await impostor.send(protocol.ok(rid, {"run_id": run_id, "status": "forged"}))
+        assert not asked.done()
+        w1.hold.set()
+        assert await asyncio.wait_for(asked, 2) == {"run_id": run_id, "status": "completed"}
+
+
+async def test_a_dispatch_answer_without_a_run_id_starts_no_run(harness):
+    _, client, (w1,) = await joined(harness, "w1")
+
+    async def no_run_id(_body):
+        return {"status": "accepted"}, None
+
+    w1.dispatch = no_run_id
+    with pytest.raises(WorkerUnavailableError):
+        await client.dispatch(prompt="p", allowed_tools=[])
+
+
+async def test_a_call_the_worker_does_not_serve_is_unavailable_not_rejected(harness):
+    # A worker older than the call answers 501: a fault of the deployment, not of the request.
+    bus = await harness.bus()
+    worker = FakeWorker("w1")
+    serves = worker.handlers()
+    del serves[protocol.ARTIFACT]
+    worker.handlers = lambda: serves  # type: ignore[method-assign]
+    harness.join(bus.endpoint, worker)
+    await until(lambda: bus.live() == ["w1"])
+    with pytest.raises(WorkerUnavailableError) as caught:
+        await BusWorkerClient(bus).artifact("r", "a1")
+    assert type(caught.value) is WorkerUnavailableError
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda client: client.runs(),
+        lambda client: client.status("r"),
+        lambda client: client.cancel("r"),
+        lambda client: client.artifacts("r"),
+    ],
+    ids=["runs", "status", "cancel", "artifacts"],
+)
+async def test_a_call_with_no_worker_connected_is_unreachable_and_retryable(harness, call):
+    bus = await harness.bus()
+    with pytest.raises(WorkerUnreachableError) as caught:
+        await call(BusWorkerClient(bus))
+    assert caught.value.retryable
+
+
+async def test_a_worker_whose_state_cannot_be_read_still_joins(harness):
+    bus = await harness.bus()
+    worker = FakeWorker("w1")
+
+    def unreadable() -> dict[str, Any]:
+        raise RuntimeError("state unreadable")
+
+    worker.hello = unreadable  # type: ignore[method-assign]
+    harness.join(bus.endpoint, worker)
+    await until(lambda: bus.live() == ["w1"])
+
+
+def test_an_event_emitted_before_the_link_connects_is_counted_as_dropped():
+    link = WorkerLink("tcp://127.0.0.1:1", "w1", {}, hello=dict, keys=None)
+    link.emit("r", {"type": "text", "content": "lost"})
+    assert link.dropped_events == 1
+
+
 # -- CURVE ----------------------------------------------------------------------
 
 
@@ -456,6 +618,7 @@ def test_the_worker_key_list_round_trips():
     text = bus_keys.format_worker_keys(workers)
     assert text.startswith("dispatch-worker-1=")
     assert bus_keys.parse_worker_keys(text) == workers
+    assert bus_keys.parse_worker_keys(f"{text},") == workers
 
 
 @pytest.mark.parametrize("text", ["w1", "w1=", "=ab", "w1=ab,w1=cd"])

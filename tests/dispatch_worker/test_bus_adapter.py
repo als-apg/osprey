@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 
 from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
+from osprey.dispatch.bus import protocol
 from osprey.dispatch.bus.broker import WorkerBus
 from osprey.dispatch.bus.client import BusWorkerClient
 from osprey.dispatch.bus.settings import WorkerSettings
@@ -109,6 +110,42 @@ async def test_a_run_dispatched_over_the_bus_streams_and_reads_back_from_the_rec
     body = await until(terminal)
     assert body["status"] == "completed"
     assert body["text_output"] == "ok"
+
+
+async def test_the_run_list_and_a_runs_artifacts_read_back_over_the_bus(on_bus):
+    client, _ = on_bus
+    run_id = (await client.dispatch(prompt="do it", allowed_tools=["Read"]))["run_id"]
+    await asyncio.wait_for(_events(client, run_id), 5)
+
+    rows = await until(client.runs)
+    assert run_id in [row["run_id"] for row in rows]
+    assert await client.artifacts(run_id) == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "body"),
+    [
+        (protocol.STATUS, {}),
+        (protocol.CANCEL, {"run_id": ""}),
+        (protocol.ARTIFACTS, {"run_id": 7}),
+        (protocol.ARTIFACT, {"run_id": "r1"}),
+    ],
+    ids=["status", "cancel", "artifacts", "artifact"],
+)
+async def test_a_request_without_its_ids_is_a_bad_request(kind, body):
+    with pytest.raises(protocol.BusError) as caught:
+        await bus_adapter.HANDLERS[kind](body, None)
+    assert caught.value.status == 400
+
+
+def test_a_failing_event_tap_loses_no_event(monkeypatch):
+    def unreachable(_run_id: str, _event: dict[str, Any]) -> None:
+        raise RuntimeError("bus down")
+
+    monkeypatch.setattr(dispatch_api, "event_tap", unreachable)
+    queue = dispatch_api._RunEventQueue("r1")
+    queue.put_nowait({"type": "text", "content": "kept"})
+    assert queue.get_nowait() == {"type": "text", "content": "kept"}
 
 
 async def test_a_denied_tool_is_refused_and_starts_no_run(on_bus):

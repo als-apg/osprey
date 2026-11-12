@@ -28,6 +28,11 @@ from tests.dispatch._fakes import FakeEntryPoint
 
 _AUTH = {"Authorization": "Bearer secret"}
 _WORKER_AUTH = {"Authorization": "Bearer worker-secret"}
+_FACADE_PATHS = [
+    "/worker/dispatch/r1",
+    "/worker/dispatch/r1/artifacts",
+    "/worker/dispatch/r1/artifacts/a1",
+]
 
 
 class LinkThread:
@@ -71,8 +76,8 @@ def _reset_mcp_routes():
 
 
 @pytest.fixture
-def bus_app(tmp_path, monkeypatch):
-    """The dispatcher on a loopback bus, with one webhook trigger."""
+def bus_env(tmp_path, monkeypatch):
+    """The environment of a dispatcher on a loopback bus, with one webhook trigger."""
     triggers = tmp_path / "triggers.yml"
     triggers.write_text(
         "dispatcher:\n"
@@ -97,6 +102,11 @@ def bus_app(tmp_path, monkeypatch):
         "osprey.dispatch.source_registry.entry_points",
         lambda *, group: [FakeEntryPoint("webhook", WebhookSource)],
     )
+
+
+@pytest.fixture
+def bus_app(bus_env):  # noqa: ARG001 - create_server reads the environment it sets
+    """The dispatcher on a loopback bus, with one webhook trigger."""
     return server.create_server().http_app()
 
 
@@ -155,14 +165,51 @@ def test_the_facade_answers_for_the_worker_that_owns_the_run(bus_app):
             assert listed.json() == [{"artifact_id": "a1"}]
 
 
-@pytest.mark.parametrize(
-    "path",
-    ["/worker/dispatch/r1", "/worker/dispatch/r1/artifacts", "/worker/dispatch/r1/artifacts/a1"],
-)
+@pytest.mark.parametrize("path", _FACADE_PATHS)
 @pytest.mark.parametrize("headers", [{}, _AUTH], ids=["no-token", "dispatcher-token"])
 def test_the_facade_takes_the_worker_token_only(bus_app, path, headers):
     with TestClient(bus_app) as client:
         assert client.get(path, headers=headers).status_code == 401
+
+
+@pytest.mark.usefixtures("bus_env")
+@pytest.mark.parametrize("path", _FACADE_PATHS)
+def test_the_facade_refuses_every_call_while_the_worker_token_is_unset(monkeypatch, path):
+    monkeypatch.delenv("DISPATCH_WORKER_TOKEN")
+    with TestClient(server.create_server().http_app()) as client:
+        assert client.get(path, headers=_WORKER_AUTH).status_code == 503
+
+
+@pytest.mark.parametrize("path", _FACADE_PATHS)
+def test_the_facade_is_a_bad_gateway_while_no_worker_is_connected(bus_app, path):
+    with TestClient(bus_app) as client:
+        assert client.get(path, headers=_WORKER_AUTH).status_code == 502
+
+
+def test_the_facade_is_unavailable_when_the_worker_fails(bus_app):
+    worker = FakeWorker("dispatch-worker-1")
+    worker.reject = RuntimeError("boom")
+    with TestClient(bus_app) as client, LinkThread(_endpoint(), worker):
+        wait_until(
+            lambda: client.get("/worker/health").status_code == 200, what="the worker to join"
+        )
+        for path in _FACADE_PATHS:
+            answer = client.get(path, headers=_WORKER_AUTH)
+            assert answer.status_code == 503
+            assert "boom" not in answer.text
+
+
+@pytest.mark.parametrize(
+    ("filename", "header"),
+    [
+        (None, None),
+        ("", None),
+        ("plot.png", 'attachment; filename="plot.png"'),
+        ("run résumé.pdf", "attachment; filename*=utf-8''run%20r%C3%A9sum%C3%A9.pdf"),
+    ],
+)
+def test_an_artifact_is_named_as_starlette_names_a_file(filename, header):
+    assert server._attachment(filename).get("Content-Disposition") == header
 
 
 def test_a_dispatcher_off_the_bus_serves_no_facade(tmp_path, monkeypatch):

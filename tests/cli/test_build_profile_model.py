@@ -431,6 +431,12 @@ def test_an_unknown_transport_is_refused_by_name(tmp_path: Path) -> None:
     assert reported == ["dispatch.transport must be one of http, bus (got 'grpc')"]
 
 
+@pytest.mark.parametrize("port", [0, 65536])
+def test_a_bus_port_out_of_range_is_refused(tmp_path: Path, port: int) -> None:
+    reported = validation_errors(_dispatch_profile(transport="bus", bus_port=port), tmp_path)
+    assert reported == [f"dispatch.bus_port must be in 1..65535 (got {port})"]
+
+
 def test_the_bus_may_not_share_the_dispatchers_http_port(tmp_path: Path) -> None:
     port = default_port("dispatcher")
     reported = validation_errors(_dispatch_profile(transport="bus", bus_port=port), tmp_path)
