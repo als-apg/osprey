@@ -345,7 +345,7 @@ class AppManifest(_Strict):
     name: Slug
     summary: NonEmpty | None = None
     #: The application's containers, by compose service name; none for an application
-    #: of a tool server, skills or both. A backend-less application keeps no state and
+    #: of a tool server, skills, subagents or any of them. A backend-less application keeps no state and
     #: opens no deployment data store: its tool server runs beside the agent, and
     #: keeping to that is the tool server author's duty, since no check can see it.
     containers: dict[NonEmpty, Container] = Field(default_factory=dict)
@@ -356,6 +356,8 @@ class AppManifest(_Strict):
     vendor: list[VendorEntry] = Field(default_factory=list)
     #: The agent skills the application carries, each ``skills/<name>/SKILL.md`` in its directory.
     skills: list[Slug] = Field(default_factory=list)
+    #: The subagents the application carries, each ``agents/<name>.md`` in its directory.
+    agents: list[Slug] = Field(default_factory=list)
     _audit_identity_spelled: bool = PrivateAttr(default=False)
 
     @property
@@ -397,10 +399,11 @@ class AppManifest(_Strict):
 
     @model_validator(mode="after")
     def _has_a_part(self) -> AppManifest:
-        if not (self.containers or self.panel or self.tools or self.skills):
+        if not (self.containers or self.panel or self.tools or self.skills or self.agents):
             raise PydanticCustomError(
                 "app_has_part",
-                "an application declares at least one of containers, panel, tools or skills",
+                "an application declares at least one of containers, panel, tools, skills "
+                "or agents",
                 {"at": ""},
             )
         self._audit_identity_spelled = "audit_identity" in self.model_fields_set

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from osprey.apps.agents import AGENTS_DIR, DELEGATED_TOOLS, AppAgent, parse_agent
 from osprey.apps.errors import AppManifestError, Violation
 from osprey.apps.manifest import NO_HOOKS_MESSAGE, AppManifest, parse_manifest
 from osprey.apps.origin import (
@@ -52,11 +53,14 @@ class DeploymentApps:
             file's stem for a login.
         unnamed: The ``apps/<name>/`` directories the block does not name: reported,
             neither built nor installed, and read only for a package's name.
+        agents: Each application's checked subagents, by application name, in the
+            order its manifest lists them.
     """
 
     manifests: tuple[AppManifest, ...] = ()
     logins: Mapping[str, LoginSelection] = field(default_factory=dict)
     unnamed: tuple[str, ...] = ()
+    agents: Mapping[str, tuple[AppAgent, ...]] = field(default_factory=dict)
 
 
 def load(
@@ -217,6 +221,9 @@ def check_deployment(root: Path) -> DeploymentApps:
         _refuse_unbuildable_services(root, manifests, host)
         _refuse_missing_skills(root, manifests)
         _refuse_hooks(root, manifests)
+        agents = _check_agents(root, manifests)
+    else:
+        agents = {}
     dependencies = list(host.dependencies or [])
     check_pins(deployment_packages(root, dependencies, apps=host.apps), framework_pins())
     refuse_shadowed_packages(
@@ -228,6 +235,7 @@ def check_deployment(root: Path) -> DeploymentApps:
     return DeploymentApps(
         manifests=manifests,
         logins=logins,
+        agents=agents,
         unnamed=tuple(d.name for d in application_dirs(root) if d.name not in host.apps),
     )
 
@@ -414,14 +422,29 @@ def _refuse_projected_keys(
     (:class:`~osprey.apps.rules.Reserved`).
     """
     owners = {"apps": "", "dispatch.denied_app_tools": ""}
+    agent_owners: dict[str, str] = {}
     for m in manifests:
         owners.update({f"services.{key}": m.name for key in m.containers})
         if m.tools is not None:
             owners[f"claude_code.servers.{m.name}"] = m.name
+        agent_owners.update({f"claude_code.agents.{agent}": m.name for agent in m.agents})
     found: dict[str, Violation] = {}
     for login, profile in profiles.items():
         source = login if login == ROOT_LOGIN else f"tiers/{login}.yml"
         for path in _config_leaves(profile.config):
+            for namespace, app in agent_owners.items():
+                if path == namespace or path.startswith(f"{namespace}."):
+                    found.setdefault(
+                        path,
+                        Violation(
+                            app,
+                            f"config.{path}",
+                            "app_agent_override",
+                            "an app's agent is on where the app is shown; set "
+                            f"`apps.{app}.shown: false` instead of this key",
+                            source=source,
+                        ),
+                    )
             for namespace, app in owners.items():
                 if path == namespace or path.startswith(f"{namespace}."):
                     found.setdefault(
@@ -549,3 +572,157 @@ def _refuse_missing_skills(root: Path, manifests: tuple[AppManifest, ...]) -> No
             owners.setdefault(skill, manifest.name)
     if found:
         raise AppManifestError.from_violations(found)
+
+
+def _check_agents(root: Path, manifests: Iterable[AppManifest]) -> dict[str, tuple[AppAgent, ...]]:
+    """Read and check every listed agent file; return each application's agents.
+
+    Refused, every violation at once: a listed agent with no file
+    (``agent_missing``), a name two applications list (``agent_collision``), a
+    name of one of OSPREY's own agents whether or not that agent is on
+    (``agent_reserved``), the file's own refusals (:func:`parse_agent`), a tool
+    ``mcp__<app>__<tool>`` the application does not declare
+    (``agent_tool_unknown``), a delegated tool the agent does not hold
+    (``delegate_not_held``), delegated tools the note never names
+    (``delegates_unused``) and a note naming delegated tools there are none of
+    (``delegates_missing``). An agent may share a name with a skill of its own
+    application: the two live in different directories.
+    """
+    from osprey.registry.mcp import FRAMEWORK_AGENTS
+
+    found: list[Violation] = []
+    owners: dict[str, str] = {}
+    agents: dict[str, tuple[AppAgent, ...]] = {}
+    for manifest in manifests:
+        origin = origin_of(manifest, root)
+        parsed: list[AppAgent] = []
+        for name in manifest.agents:
+            relative = f"{AGENTS_DIR}/{name}.md"
+            path = origin.directory / relative
+            source = (
+                origin.manifest_source
+                if origin.installed
+                else f"{APPS_DIRNAME}/{manifest.name}/{relative}"
+            )
+            listed_at = f"agents.{name}"
+            if name in owners:
+                found.append(
+                    Violation(
+                        manifest.name,
+                        listed_at,
+                        "agent_collision",
+                        f"{owners[name]} already carries an agent named {name!r}",
+                        source=origin.manifest_source,
+                    )
+                )
+            owners.setdefault(name, manifest.name)
+            if name in FRAMEWORK_AGENTS:
+                found.append(
+                    Violation(
+                        manifest.name,
+                        listed_at,
+                        "agent_reserved",
+                        f"{name!r} is the name of one of OSPREY's own agents; rename the agent",
+                        source=origin.manifest_source,
+                    )
+                )
+                continue
+            if not path.is_file():
+                where = f"{path} (installed by {origin.installer})" if origin.installed else source
+                found.append(
+                    Violation(
+                        manifest.name,
+                        listed_at,
+                        "agent_missing",
+                        f"{where} does not exist",
+                        source=origin.manifest_source,
+                    )
+                )
+                continue
+            try:
+                agent = parse_agent(
+                    path.read_text(encoding="utf-8"), app=manifest.name, name=name, source=source
+                )
+            except AppManifestError as exc:
+                found.extend(exc.violations)
+                continue
+            found.extend(_agent_tool_violations(manifest, agent, source))
+            parsed.append(agent)
+        if parsed:
+            agents[manifest.name] = tuple(parsed)
+    if found:
+        raise AppManifestError.from_violations(found)
+    return agents
+
+
+def _agent_tool_violations(
+    manifest: AppManifest, agent: AppAgent, source: str | None
+) -> list[Violation]:
+    """The tool rules of one agent against its application's declared tools."""
+    tools = manifest.tools
+    declared = (
+        {*tools.read, *(entry.tool for entry in tools.approval)} if tools is not None else set()
+    )
+    prefix = f"mcp__{manifest.name}__"
+    at = f"agents.{agent.name}"
+    found: list[Violation] = []
+    unknown = [
+        t for t in agent.tools if t.startswith(prefix) and t.removeprefix(prefix) not in declared
+    ]
+    if unknown:
+        found.append(
+            Violation(
+                manifest.name,
+                f"{at}.tools",
+                "agent_tool_unknown",
+                f"{', '.join(unknown)} is not in the application's tools.read or tools.approval",
+                source=source,
+            )
+        )
+    not_tools = [d for d in agent.delegates if d not in declared]
+    if not_tools:
+        found.append(
+            Violation(
+                manifest.name,
+                f"{at}.delegates",
+                "agent_tool_unknown",
+                f"{', '.join(not_tools)} is not in the application's tools.read or "
+                "tools.approval; delegates names the application's own tools",
+                source=source,
+            )
+        )
+    not_held = [d for d in agent.delegates if d in declared and f"{prefix}{d}" not in agent.tools]
+    if not_held:
+        found.append(
+            Violation(
+                manifest.name,
+                f"{at}.delegates",
+                "delegate_not_held",
+                f"delegates names {', '.join(not_held)}, which the agent does not hold; "
+                "add " + ", ".join(f"{prefix}{d}" for d in not_held) + " to its tools",
+                source=source,
+            )
+        )
+    if agent.delegates and DELEGATED_TOOLS not in agent.delegation:
+        found.append(
+            Violation(
+                manifest.name,
+                f"{at}.delegation",
+                "delegates_unused",
+                f"the note never names the delegated tools; write {DELEGATED_TOOLS} where "
+                "the brief says which tools to leave to the agent",
+                source=source,
+            )
+        )
+    if not agent.delegates and DELEGATED_TOOLS in agent.delegation:
+        found.append(
+            Violation(
+                manifest.name,
+                f"{at}.delegates",
+                "delegates_missing",
+                f"the note names {DELEGATED_TOOLS} but delegates lists no tool; list the "
+                "tools to leave to the agent, or write the note without it",
+                source=source,
+            )
+        )
+    return found
