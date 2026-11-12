@@ -119,6 +119,8 @@ agent's brief gets one note per subagent saying when to delegate, and the work
 runs in the subagent's context instead of filling the main one — the right
 shape for a task that reads a lot to answer a little, such as a search.
 
+An app carries no hook: it declares what OSPREY's own hooks act on.
+
 The build installs skills and subagents into every login that shows the app.
 
 Where the app has a backend, the agent's tools reach it only at the routes the manifest declares, through
