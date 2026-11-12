@@ -92,19 +92,21 @@ async function init() {
   renderViewSwitch();
   state.on('directoryLabel', renderViewSwitch);
 
-  // The Alarms tab's pill: read every 15 s while the panel is visible, and
-  // whenever the Alarms view reads the list.
+  // The Alarms tab's pill: read every 15 s and when the panel is shown, while
+  // it is visible on another view; the Alarms view emits the counts itself.
   state.on('alarmCounts', (answer) => {
     alarmCounts = answer;
     renderAlarmPill();
   });
-  void readAlarmCounts();
   window.setInterval(() => void readAlarmCounts(), BADGE_POLL_MS);
+  document.addEventListener('visibilitychange', () => void readAlarmCounts());
 
   // Route to initial view; a view states its route from its first mount on.
   state.on('replaceRoute', replaceRoute);
   routeFromHash();
   window.addEventListener('hashchange', routeFromHash);
+  // After routing: a panel opened on #/alarms reads the counts through the view.
+  void readAlarmCounts();
 }
 
 // ---- Routing ----
@@ -236,9 +238,12 @@ function renderViewSwitch() {
 
 // ---- Alarms pill ----
 
-/** Read the alarm counts alone, while the panel is visible and Alarms exists. */
+/**
+ * Read the alarm counts alone, while the panel is visible, Alarms exists and
+ * the Alarms view is not the one shown (it emits `alarmCounts` every 5 s).
+ */
 async function readAlarmCounts() {
-  if (document.hidden || !alarmsConfigured()) return;
+  if (document.hidden || currentView === 'alarms' || !alarmsConfigured()) return;
   try {
     state.emit('alarmCounts', await fetchActiveAlarms({ limit: 0 }));
   } catch {
