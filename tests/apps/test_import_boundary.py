@@ -166,3 +166,73 @@ def test_a_file_that_cannot_be_read_fails_instead_of_passing(tmp_path: Path) -> 
 def test_a_missing_package_is_refused_not_passed(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="not a package directory"):
         check_package(tmp_path / "absent")
+
+
+# --- an installed application's own package ---------------------------------------
+
+FIRST_PARTY = "osprey.apps.first_party.fixture"
+
+
+def _installed_package(tmp_path: Path, source: str) -> Path:
+    """A package placed at ``osprey/apps/first_party/fixture`` of a site directory."""
+    package = tmp_path / "osprey" / "apps" / "first_party" / "fixture"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "helpers.py").write_text("")
+    (package / "tools.py").write_text(source + "\n")
+    return package
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        f"from {FIRST_PARTY}.helpers import x",
+        f"import {FIRST_PARTY}.helpers",
+        f"import {FIRST_PARTY}",
+        "from osprey.apps.sdk import serve_tools",
+    ],
+)
+def test_an_installed_app_imports_its_own_package(tmp_path: Path, source: str) -> None:
+    package = _installed_package(tmp_path, source)
+
+    assert check_package(package, app="fixture", own=FIRST_PARTY) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "imported"),
+    [
+        ("from osprey.registry import mcp", "osprey.registry.mcp"),
+        ("import osprey.apps.first_party", "osprey.apps.first_party"),
+        ("from osprey.apps.first_party.fixturex import y", "osprey.apps.first_party.fixturex.y"),
+    ],
+)
+def test_an_installed_app_is_still_refused_framework_internals(
+    tmp_path: Path, source: str, imported: str
+) -> None:
+    package = _installed_package(tmp_path, source)
+
+    [violation] = check_package(package, app="fixture", own=FIRST_PARTY)
+
+    assert violation.rule == "import_boundary"
+    assert violation.field == imported
+    assert violation.app == "fixture"
+
+
+def test_without_own_a_first_party_package_importing_itself_is_refused(tmp_path: Path) -> None:
+    package = _installed_package(tmp_path, f"from {FIRST_PARTY}.helpers import x")
+
+    [violation] = check_package(package)
+
+    assert violation.rule == "import_boundary"
+
+
+def test_an_installed_apps_relative_escape_is_measured_from_its_directory(
+    tmp_path: Path,
+) -> None:
+    package = _installed_package(tmp_path, "from . import helpers\nfrom .. import loader")
+
+    [violation] = check_package(package, own=FIRST_PARTY)
+
+    assert violation.rule == "relative_import_escape"
+    assert violation.field == ".."
+    assert violation.source == "fixture/tools.py:2"
