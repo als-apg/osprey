@@ -515,6 +515,26 @@ JupyterLab is not a design-system page; its theme follower
 (`web_terminal/static/js/lab-theme-follow.js`) reads `embedded=true` and
 follows the hub's theme in a tile and in the pane's window.
 
+### The page-ready mark
+
+Every page OSPREY serves sets `data-page-ready="true"` on its `<html>` once it
+can be driven, and never before; a browser test, a docs recording or a
+facility's own script waits for that attribute. `js/page-ready.js` is its one
+writer (`markPageReady(doc = document)`, idempotent). A page takes one route:
+
+| Page | Markup | Who marks it |
+|---|---|---|
+| Plain (draws on parse) | nothing | `initTheme()`, once the `DOMContentLoaded` handlers have run |
+| Late (fetches, draws a first state) | `<html data-page-ready="pending">` | the page, `markPageReady()` at the end of its start-up, on the failure path too |
+| No script at all | `<html data-page-ready="true">` | the markup |
+
+`pending` is markup, never a call: only the markup is early enough to stop the
+shared start-up marking the page first. Ready means "can be driven", not "has
+data". The hub marks itself once its rail, direct visit and dock grid are up;
+a pane's own window is marked by the hub once dressed, and never copies the
+hub's mark. An app panel imports `markPageReady` and calls it after its first
+refresh; `osprey app check` refuses one that never does.
+
 ## 11. CANOPY host contract
 
 `static/css/canopy-host.css` maps OSPREY tokens onto the names CANOPY's front
