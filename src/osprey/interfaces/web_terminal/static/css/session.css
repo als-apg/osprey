@@ -223,6 +223,19 @@ button.act-row:focus-visible,
   color: var(--color-warning);
 }
 
+.act-banner[data-tone='err'] {
+  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+}
+
+.act-banner[data-tone='err'] .osprey-ic {
+  color: var(--color-error);
+}
+
+.act-banner .osprey-btn {
+  margin-left: auto;
+}
+
 /* ---- A view and its bar ---------------------------------------------------- */
 
 /* Safety and Artifacts open on cards, which bring no margin of their own. */

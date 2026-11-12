@@ -303,6 +303,24 @@ describe('renderTimeline', () => {
     expect(idle.querySelector('.act-running')).toBeNull();
   });
 
+  test('a subagent still at work is running while the session is live', () => {
+    const child = call('c1', { agent: 'explorer' });
+    const atWork = call('a1', {
+      tool: 'Agent',
+      result: null,
+      running: true,
+      sub: { id: 'agent-1', type: 'explorer', description: '', ms: 4000, children: [child] },
+    });
+    const live = view(renderTimeline, sessionOf([atWork], { state: 'live' }));
+    const head = qs(live, '.act-group-head');
+    expect(qs(head, '.act-running').textContent).toBe('running');
+    expect(head.hasAttribute('title')).toBe(false);
+    expect(rowKeys(live)).toContain('c1');
+    const idle = view(renderTimeline, sessionOf([atWork]));
+    expect(idle.querySelector('.act-group-head .act-running')).toBeNull();
+    expect(qs(idle, '.act-group-head .act-dur:not(.soft)').textContent).toBe('4.0 s');
+  });
+
   test('no inline styles', () => {
     const p = sessionOf([
       call('t1', { name: 'TaskCreate', tool: 'TaskCreate' }),

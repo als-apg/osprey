@@ -47,8 +47,8 @@ const RECORD_CHIPS = {
 /** What each record state means for the reader. @type {Record<RecordState, string>} */
 const RECORD_TEXT = {
   complete: 'Everything this session wrote has reached the agent record.',
-  incomplete: 'The record is behind this session. Some entries have not arrived yet.',
-  unavailable: 'The record service did not answer.',
+  incomplete: 'The record did not return the whole session.',
+  unavailable: 'The agent record could not be read.',
 };
 
 /**
@@ -61,8 +61,8 @@ export function recordChip(record) {
 }
 
 /**
- * What the record chip opens: what the record holds of the session, and until
- * when.
+ * What the record chip opens: why a read is not whole, what the record holds
+ * of the session, and until when.
  * @param {ActivityPayload} payload
  * @returns {InfoContent}
  */
@@ -70,6 +70,7 @@ export function recordPopover(payload) {
   const session = payload.session;
   /** @type {InfoRow[]} */
   const rows = [];
+  if (payload.record_reason) rows.push({ label: 'Reason', value: payload.record_reason });
   if (session) {
     rows.push({ label: 'Entries', value: session.entries });
     const kinds = Object.entries(session.kinds)
@@ -77,7 +78,7 @@ export function recordPopover(payload) {
       .map(([kind, count]) => `${count} ${kind.replace(/_/g, ' ')}`);
     if (kinds.length) rows.push({ label: 'Holds', value: kinds.join(', ') });
     const start = Date.parse(session.start ?? '');
-    if (!Number.isNaN(start)) {
+    if (!Number.isNaN(start) && typeof session.retention_days === 'number') {
       const until = facilityDayKey(start + session.retention_days * MS_PER_DAY);
       rows.push({ label: 'Kept until', value: `${until}, then in the archive` });
     }
@@ -91,16 +92,24 @@ export function recordPopover(payload) {
 }
 
 /**
- * The warning above the views while the record is behind the session.
+ * The notice above the views of a reading the record does not vouch for whole:
+ * an incomplete read, or (`unavailable`) a reading kept on the page through a
+ * read that failed.
  * @param {RecordState} record
- * @returns {string} `''` unless the record is incomplete
+ * @returns {string} `''` for a complete record
  */
 export function recordBanner(record) {
-  if (record !== 'incomplete') return '';
+  if (record === 'complete') return '';
+  if (record === 'incomplete') {
+    return (
+      `<div class="act-banner" data-tone="warn" role="status">${iconHtml('triangle-alert')}` +
+      `<span>Entries may be missing. The record did not return the whole session.</span></div>`
+    );
+  }
   return (
-    `<div class="act-banner" role="status">${iconHtml('triangle-alert')}` +
-    `<span>Entries may be missing. The record has not yet received everything this ` +
-    `session wrote; the page fills in as it arrives.</span></div>`
+    `<div class="act-banner" data-tone="err" role="status">${iconHtml('triangle-alert')}` +
+    `<span>This session could not be read just now. What is shown is the last reading.</span>` +
+    `<button class="osprey-btn" type="button" data-act="refresh">Try again</button></div>`
   );
 }
 

@@ -111,14 +111,15 @@ export function verdictChip(n, long) {
 
 /**
  * How a call ended: failed, completed, still running, or no result on record.
- * A call without a result is running only while its session is live.
+ * A call without a result is running only while its session is live; a
+ * subagent call is completed once its subagent returned.
  * @param {ToolNode} n
  * @param {boolean} [live]
  * @returns {string}
  */
 export function statusCell(n, live = false) {
   if (n.error) return `<span class="act-bad" title="Failed">${iconHtml('circle-x')}</span>`;
-  if (n.result || n.sub) {
+  if (n.result || (n.sub && !n.running)) {
     return `<span class="act-ok" title="Completed">${iconHtml('check')}</span>`;
   }
   if (n.running && live) return '<span class="act-running">running</span>';

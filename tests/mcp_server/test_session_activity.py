@@ -437,16 +437,80 @@ def test_subagent_nests_children_and_brief():
     assert node["elapsed_ms"] == 8000
 
 
-def test_orphan_subagent_group_is_kept():
-    child = _call("t9", "mcp__controls__channel_read", 20, agent_id="a9")
-    orphan = {
+def _stream(agent_id: str, *children: dict[str, Any]) -> dict[str, Any]:
+    """A subagent's stream as the record serves it while no result names the agent."""
+    return {
         "kind": "subagent",
-        "agent_id": "a9",
+        "agent_id": agent_id,
         "orphan": True,
         "decision": None,
         "result": None,
-        "subagent": {"agent_id": "a9", "timeline": [child]},
+        "subagent": {"agent_id": agent_id, "timeline": list(children)},
     }
+
+
+def test_subagent_at_work_is_under_the_call_waiting_on_it():
+    waiting = _call(
+        "t1",
+        "Agent",
+        4,
+        args={"subagent_type": "plan-runner", "description": "Run the scan"},
+        decision=_decision(4.1, "t1"),
+    )
+    child = _call("t2", "Read", 6, agent_id="a1")
+    reading = session_activity([waiting, _stream("a1", child)])
+    (node,) = reading["nodes"]
+    assert (node["id"], node["name"], node["ts"]) == ("t1", "Agent", _at(4))
+    assert node["orphan"] is False and node["running"] is True
+    assert node["verdict"] == "allowed"
+    sub = node["sub"]
+    assert (sub["id"], sub["type"], sub["description"]) == ("a1", "plan-runner", "Run the scan")
+    assert [(c["id"], c["agent"]) for c in sub["children"]] == [("t2", "plan-runner")]
+    assert reading["entries"] == 3
+    assert reading["kinds"] == {"tool_call": 2, "decision": 1}
+
+
+def test_subagents_at_work_take_the_waiting_calls_in_order():
+    first = _call("t1", "Agent", 4, args={"subagent_type": "one"})
+    second = _call("t2", "Task", 5, args={"subagent_type": "two"})
+    nodes = session_activity(
+        [
+            first,
+            second,
+            _stream("a1", _call("c1", "Read", 6, agent_id="a1")),
+            _stream("a2", _call("c2", "Read", 7, agent_id="a2")),
+        ]
+    )["nodes"]
+    assert [(n["id"], n["sub"]["id"], n["sub"]["type"]) for n in nodes] == [
+        ("t1", "a1", "one"),
+        ("t2", "a2", "two"),
+    ]
+
+
+def test_subagent_stream_with_no_call_waiting_stays_an_orphan():
+    early = _stream("a0", _call("c0", "Read", 1, agent_id="a0"))
+    done = _call(
+        "t1",
+        "Agent",
+        4,
+        result=_item("subagent", 12, {"agent_id": "a1", "content": "done"}, tool_use_id="t1"),
+        subagent={"agent_id": "a1", "timeline": [_call("c1", "Read", 5, agent_id="a1")]},
+    )
+    plain = _call("t2", "Read", 13)
+    late = _stream("a9", _call("c9", "Read", 14, agent_id="a9"))
+    nodes = session_activity([early, done, plain, late])["nodes"]
+    assert [(n["id"], n["orphan"], n["running"]) for n in nodes] == [
+        ("", True, False),
+        ("t1", False, False),
+        ("t2", False, True),
+        ("", True, False),
+    ]
+    assert [n["sub"]["id"] for n in nodes if "sub" in n] == ["a0", "a1", "a9"]
+
+
+def test_orphan_subagent_group_is_kept():
+    child = _call("t9", "mcp__controls__channel_read", 20, agent_id="a9")
+    orphan = _stream("a9", child)
     reading = session_activity([orphan])
     (node,) = reading["nodes"]
     assert (node["t"], node["name"], node["verdict"]) == ("tool", "Agent", "none")

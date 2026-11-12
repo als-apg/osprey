@@ -30,7 +30,7 @@ from datetime import datetime
 from typing import Any
 
 from osprey.agent_record.reader import ACTIVITY_KINDS, INTERRUPT_MARKER
-from osprey.mcp_server.session import _body, _mapping, _ts
+from osprey.mcp_server.session import _SUBAGENT_TOOLS, _body, _mapping, _ts
 from osprey.mcp_server.workspace.transcript_reader import _extract_text, _split_mcp_tool_name
 
 #: A result's, a prompt's or a note's text is cut to this many characters; the
@@ -185,13 +185,43 @@ def session_activity(nodes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     span.sort(key=lambda pair: pair[0])
     named: dict[str, str | None] = {"target": None, "posture": None}
     return {
-        "nodes": _convert(nodes, audits, _MAIN, named),
+        "nodes": _convert(_streams_joined(nodes), audits, _MAIN, named),
         "entries": sum(kinds.values()),
         "kinds": dict(kinds),
         "start": span[0][1] if span else None,
         "end": span[-1][1] if span else None,
         **named,
     }
+
+
+def _streams_joined(nodes: Sequence[Any]) -> list[Any]:
+    """*nodes* with each subagent still at work under the call that waits on it.
+
+    The record nests a subagent's stream under its call once the call's result
+    names the agent. Until then it serves the stream as a group of its own:
+    that group is the stream of the earliest subagent call before it that has
+    no result and no stream yet. A group no call waits on stays as it is.
+    """
+    out: list[Any] = []
+    waiting: list[int] = []
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            continue
+        if node.get("orphan"):
+            if waiting and _children(node):
+                at = waiting.pop(0)
+                out[at] = {**out[at], "subagent": node.get("subagent")}
+                continue
+        elif (
+            node.get("kind") == "tool_call"
+            and not node.get("agent_id")
+            and _body(node).get("name") in _SUBAGENT_TOOLS
+            and not _children(node)
+            and not isinstance(node.get("result"), Mapping)
+        ):
+            waiting.append(len(out))
+        out.append(node)
+    return out
 
 
 def _convert(
@@ -421,7 +451,7 @@ def _tool(
         "incomplete": any(
             bool(part.get("incomplete")) for part in (node, decision, result) if part
         ),
-        "running": not result and not is_sub,
+        "running": not result and not orphan,
         "orphan": orphan,
     }
     if asked is not None or approval:

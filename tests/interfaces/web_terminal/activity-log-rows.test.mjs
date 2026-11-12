@@ -11,6 +11,7 @@ import {
   iconHtml,
   serverIcon,
   stateBlock,
+  statusCell,
   toolDetail,
   toolRow,
   trailList,
@@ -255,6 +256,18 @@ describe('toolRow', () => {
     expect(row.querySelector('.act-running')).toBeNull();
     expect(row.querySelector('.act-bad')).toBeNull();
     expect(qs(row, '[title="No result in the record"]').textContent).toBe('–');
+  });
+
+  test('a subagent call is completed once it returned, running until then', () => {
+    const sub = { id: 'agent-1', type: 'explorer', description: '', ms: 4000, children: [] };
+    const done = call('a1', { tool: 'Agent', result: null, sub });
+    expect(dom(statusCell(done, true)).querySelector('.act-ok')).not.toBeNull();
+    const atWork = call('a1', { tool: 'Agent', result: null, running: true, sub });
+    expect(qs(dom(statusCell(atWork, true)), '.act-running').textContent).toBe('running');
+    expect(dom(statusCell(atWork, true)).querySelector('.act-ok')).toBeNull();
+    const left = dom(statusCell(atWork, false));
+    expect(left.querySelector('.act-ok')).toBeNull();
+    expect(qs(left, '[title="No result in the record"]').textContent).toBe('–');
   });
 
   test('a call the record holds only part of is marked incomplete', () => {

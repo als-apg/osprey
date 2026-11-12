@@ -160,6 +160,10 @@ function subGroup(n, ui) {
   const lost = n.orphan
     ? ' title="The record does not hold the call that started this subagent"'
     : '';
+  const took =
+    n.running && ui.live
+      ? '<span class="act-running">running</span>'
+      : `<span class="act-dur">${formatDuration(sub.ms)}</span>`;
   return (
     `<div class="act-group" id="row-${escapeHtml(key)}">` +
     `<button class="act-row act-group-head" type="button" data-kind="tool"${lost}` +
@@ -169,8 +173,7 @@ function subGroup(n, ui) {
     `<span class="act-tool">${escapeHtml(sub.type)}</span>${description}</span>` +
     `<span class="act-r">${failed ? chip('err', `${failed} failed`) : ''}` +
     `<span class="act-dur soft">${count(calls, 'call')}</span>` +
-    `<span class="act-dur">${formatDuration(sub.ms)}</span>` +
-    `<span class="act-chev">${iconHtml('chevron-right')}</span></span></button>` +
+    `${took}<span class="act-chev">${iconHtml('chevron-right')}</span></span></button>` +
     `${open ? `<div class="act-steps">${steps(sub.children, key, ui)}</div>` : ''}</div>`
   );
 }

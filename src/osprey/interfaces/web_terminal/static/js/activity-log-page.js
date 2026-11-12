@@ -8,11 +8,13 @@
  * in the session list or by a shared link), else the session key the page was
  * opened on, else whatever the terminal is on now.
  *
- * When again: every ten seconds while the session shown is live, or has no
- * entry yet, and the page is visible; at once on Refresh and when the page
+ * When again: every ten seconds while the page is visible and either follows
+ * the terminal (no transcript picked), or shows a picked session that is live,
+ * or got no answer to its last read; at once on Refresh and when the page
  * becomes visible. An answer equal to the one shown changes nothing on the
  * page; a changed one keeps what the operator opened, where they scrolled and
- * what holds the keyboard focus.
+ * what holds the keyboard focus. A read that gets no answer keeps the last
+ * reading of the same session on the page, marked as such.
  *
  * @module activity-log-page
  */
@@ -48,7 +50,7 @@ import { renderMarkdownInto } from './chat-markdown.js';
 /** @typedef {import('./activity-log-model.js').ActivitySummary} ActivitySummary */
 /** @typedef {import('./activity-log-rows.js').UiState} UiState */
 
-/** How often a live session is read again. */
+/** How often a session is read again. */
 const POLL_MS = 10_000;
 
 /** How long typing rests before the search runs. */
@@ -146,6 +148,14 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
   let signature = '';
   /** Whether the last answer the record gave calls for reading again. */
   let watching = false;
+  /** The last answer the record gave. @type {ActivityPayload | null} */
+  let good = null;
+  /** The read `good` answered. */
+  let goodFor = '';
+  /** Who gave no answer to the last read; `''` when it was answered. @type {'' | 'terminal' | 'record'} */
+  let lost = '';
+  /** Whether the page shows `good`, kept through a read that got no answer. */
+  let stale = false;
   let turn = 0;
   let stopped = false;
   /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -206,13 +216,22 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
    * @returns {string}
    */
   function body(shown, counts) {
-    if (shown.record === 'unavailable') {
+    if (shown.record === 'unavailable' && !stale) {
+      const again = { label: 'Try again', act: 'refresh' };
+      if (lost === 'terminal') {
+        return stateBlock(
+          'triangle-alert',
+          'The session cannot be read',
+          'The web terminal did not answer.',
+          again
+        );
+      }
       return stateBlock(
         'database',
         'The agent record cannot be read',
         'The record service did not answer. Nothing is lost: entries are spooled and appear ' +
           'once it is back.',
-        { label: 'Try again', act: 'refresh' }
+        again
       );
     }
     if (!shown.session) {
@@ -303,7 +322,7 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
 
   function schedule() {
     clearTimeout(timer);
-    if (stopped || !watching || document.visibilityState !== 'visible') return;
+    if (stopped || document.visibilityState !== 'visible' || !(watching || lost)) return;
     timer = setTimeout(load, POLL_MS);
   }
 
@@ -311,23 +330,42 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
     turn += 1;
     const mine = turn;
     clearTimeout(timer);
+    const asked = readUrl();
     /** @type {ActivityPayload} */
     let next;
+    /** @type {'' | 'terminal' | 'record'} */
+    let failed = '';
     try {
-      next = await fetchJSON(readUrl());
+      next = await fetchJSON(asked);
+      if (next.record === 'unavailable') failed = 'record';
     } catch {
-      next = { session: payload?.session ?? null, nodes: [], artifacts: [], record: 'unavailable' };
+      failed = 'terminal';
+      next = {
+        session: null,
+        nodes: [],
+        artifacts: [],
+        record: 'unavailable',
+        record_reason: 'the web terminal did not answer',
+      };
     }
     // An answer for a question the page no longer asks.
     if (stopped || mine !== turn) return;
-    if (next.record !== 'unavailable') {
-      watching = next.session ? next.session.state === 'live' : !selected;
+    lost = failed;
+    if (!lost) {
+      good = next;
+      goodFor = asked;
+      // The terminal's own session can go on at any time; a picked one only while live.
+      watching = !selected || next.session?.state === 'live';
     }
-    const nextSignature = payloadSignature(next);
+    stale = Boolean(lost) && goodFor === asked && Boolean(good?.session);
+    /** @type {ActivityPayload} */
+    const shown =
+      stale && good ? { ...good, record: 'unavailable', record_reason: next.record_reason } : next;
+    const nextSignature = payloadSignature(shown);
     if (nextSignature !== signature) {
       signature = nextSignature;
-      payload = next;
-      model = summarize(next);
+      payload = shown;
+      model = summarize(shown);
       draw();
     }
     schedule();

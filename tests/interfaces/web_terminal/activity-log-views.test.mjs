@@ -151,19 +151,61 @@ describe('renderSafety', () => {
     expect(safety.querySelector('.act-cards')).toBeNull();
   });
 
-  test('three counts: allowed by configuration, asked, denied', () => {
+  test('three counts: allowed without asking, asked, denied without asking', () => {
     const safety = view(renderSafety);
-    expect(texts(safety, '.act-card h3')).toEqual([
-      'Allowed by configuration',
-      'Asked the operator',
-      'Denied',
-    ]);
+    expect(texts(safety, '.act-card h3')).toEqual(['Allowed', 'Asked the operator', 'Denied']);
     expect(texts(safety, '.act-card .act-card-n')).toEqual(['2', '1', '0']);
     expect(texts(safety, '.act-card p')).toEqual([
-      "Calls the deployment's rules permit without asking.",
+      '2 by configuration.',
       '1 approved, 0 declined.',
       'No call was refused.',
     ]);
+  });
+
+  test('an allowed call is counted under what allowed it', () => {
+    const safety = view(
+      renderSafety,
+      sessionOf([
+        call('c1'),
+        call('h1', { source: 'hook' }),
+        call('u1', { source: 'user_permanent' }),
+        call('u2', { source: 'user_temporary' }),
+        call('x1', { source: null }),
+      ])
+    );
+    expect(texts(safety, '.act-card .act-card-n')).toEqual(['5', '0', '0']);
+    expect(texts(safety, '.act-card p')[0]).toBe(
+      "1 by configuration, 1 by a hook, 2 by the operator's answer, 1 with no source in the record."
+    );
+  });
+
+  test('a call the operator declined counts under Asked, not under Denied', () => {
+    const safety = view(
+      renderSafety,
+      sessionOf([
+        call('d1', { verdict: 'denied', approval: { ...APPROVAL, outcome: 'denied' } }),
+        call('r1', { verdict: 'denied' }),
+      ])
+    );
+    expect(texts(safety, '.act-card .act-card-n')).toEqual(['0', '1', '1']);
+    expect(texts(safety, '.act-card p')).toEqual([
+      'No call was allowed without asking.',
+      '0 approved, 1 declined.',
+      'Refused without asking the operator.',
+    ]);
+  });
+
+  test('a call only the approval hook filed for is no gate call', () => {
+    const asked = call('h1', {
+      verdict: 'approved',
+      approval: APPROVAL,
+      trail: [
+        { ts: '2026-11-12T10:00:10+00:00', surface: 'hook_approval', decision: 'ask', reason: '' },
+      ],
+    });
+    const safety = view(renderSafety, sessionOf([asked]));
+    expect(safety.querySelector('.act-approval')).not.toBeNull();
+    expect(safety.querySelector('table.act-table')).toBeNull();
   });
 
   test('an approval: what was asked, how long the operator took, and the way to it', () => {

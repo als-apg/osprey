@@ -133,12 +133,21 @@ def record(monkeypatch):
 
 
 @contextmanager
-def _activity_page(tmp_path, monkeypatch, browser, *, live: bool = False, **page_kw: Any):
+def _activity_page(
+    tmp_path,
+    monkeypatch,
+    browser,
+    *,
+    live: bool = False,
+    by_key: bool = False,
+    **page_kw: Any,
+):
     """Yield ``(page, url)``: a page and the Activity URL of the test session.
 
-    The session is named by its transcript in the hash; a *live* one is named
-    by its session key, which the app maps to the transcript and holds a
-    terminal for.
+    The session is named by its transcript in the hash, as a pick in the
+    sidebar names it. *by_key* names it by its session key instead, as the
+    panel beside the terminal does; the app maps the key to the transcript. A
+    *live* one is named by its key too, and the app holds a terminal for it.
     """
     monkeypatch.chdir(tmp_path)
     with hub_server(tmp_path) as (base_url, app):
@@ -148,7 +157,7 @@ def _activity_page(tmp_path, monkeypatch, browser, *, live: bool = False, **page
             app.state.pty_registry._sessions[KEY] = FakePtySession()
         page = browser.new_page(**page_kw)
         page.set_default_timeout(15000)
-        where = f"?session_id={KEY}" if live else f"#{TRANSCRIPT}"
+        where = f"?session_id={KEY}" if live or by_key else f"#{TRANSCRIPT}"
         try:
             yield page, f"{base_url}/static/session.html{where}"
         finally:
@@ -275,7 +284,7 @@ def test_open_row_and_scroll_survive_the_poll(tmp_path, monkeypatch, chromium_br
 
 
 @pytest.mark.usefixtures("record")
-def test_idle_session_is_not_read_again(tmp_path, monkeypatch, chromium_browser):
+def test_picked_session_at_rest_is_not_read_again(tmp_path, monkeypatch, chromium_browser):
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.clock.install()
         page.goto(url, wait_until="load")
@@ -299,6 +308,22 @@ def test_fresh_session_says_no_activity_yet(tmp_path, monkeypatch, chromium_brow
         expect(page.locator("#inner")).to_contain_text("No activity in this session yet")
         # The key's own transcript was read, and no other session's.
         assert {c["session_id"] for c in record.calls_to("timeline")} == {TRANSCRIPT}
+
+
+def test_terminal_session_at_rest_is_read_again(tmp_path, monkeypatch, chromium_browser, record):
+    record.answers["timeline"] = [
+        ClientAnswer(data=[], complete=True),
+        ClientAnswer(data=_nodes(), complete=True),
+    ]
+    with _activity_page(tmp_path, monkeypatch, chromium_browser, by_key=True) as (page, url):
+        page.clock.install()
+        page.goto(url, wait_until="load")
+        expect(page.locator("#inner")).to_contain_text("No activity in this session yet")
+
+        with page.expect_request(lambda r: "/api/session-activity?" in r.url):
+            page.clock.fast_forward(10_000)
+
+        expect(page.locator("button.act-row").first).to_be_visible()
 
 
 _CELL_OVERLAP_JS = """
@@ -374,11 +399,13 @@ _NAME_GAP_JS = """
 """
 
 
-@pytest.mark.usefixtures("record")
 @pytest.mark.parametrize("view", ["tools", "safety"])
 def test_table_sets_the_server_apart_from_the_tool_name(
-    tmp_path, monkeypatch, chromium_browser, view
+    tmp_path, monkeypatch, chromium_browser, record, view
 ):
+    # Safety lists the calls a server gate filed an entry for.
+    gate = _audit(4.2, "t2", surface="controls", decision="allowed", reason="")
+    record.answers["timeline"] = ClientAnswer(data=[*_nodes(), gate], complete=True)
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.goto(f"{url}/{view}", wait_until="load")
         expect(page.locator("table.act-table td.act-name .act-srv").first).to_be_visible()
@@ -404,3 +431,33 @@ def test_unavailable_record_offers_try_again(tmp_path, monkeypatch, chromium_bro
 
         expect(page.locator("#record-chip")).to_have_text("Record complete")
         expect(page.locator("button.act-row").first).to_be_visible()
+
+
+def test_reading_is_kept_while_the_record_does_not_answer(
+    tmp_path, monkeypatch, chromium_browser, record
+):
+    with _activity_page(tmp_path, monkeypatch, chromium_browser, live=True) as (page, url):
+        page.clock.install()
+        page.goto(url, wait_until="load")
+        rows = page.locator("button.act-row")
+        expect(rows.first).to_be_visible()
+        shown = rows.count()
+
+        record.unavailable = "record service down"
+        with page.expect_request(lambda r: "/api/session-activity?" in r.url):
+            page.clock.fast_forward(10_000)
+
+        expect(page.locator("#record-chip")).to_have_text("Record unavailable")
+        banner = page.locator(".act-banner")
+        expect(banner).to_contain_text("What is shown is the last reading.")
+        expect(rows).to_have_count(shown)
+        page.locator("#record-chip").click()
+        expect(page.locator(".osprey-info-popover")).to_contain_text("record service down")
+        page.keyboard.press("Escape")
+
+        record.unavailable = None
+        banner.get_by_role("button", name="Try again").click()
+
+        expect(page.locator("#record-chip")).to_have_text("Record complete")
+        expect(banner).to_have_count(0)
+        expect(rows).to_have_count(shown)

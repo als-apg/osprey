@@ -70,13 +70,32 @@ describe('recordPopover', () => {
     expect(content.rows?.[1]).toEqual({ label: 'Holds', value: '1 prompt, 3 audit' });
   });
 
-  test('a record that is behind, or does not answer', () => {
+  test('a read that is not whole, or failed', () => {
     expect(recordPopover(payload({}, { record: 'incomplete' })).text).toBe(
-      'The record is behind this session. Some entries have not arrived yet.'
+      'The record did not return the whole session.'
     );
     expect(recordPopover(payload({}, { record: 'unavailable' })).text).toBe(
-      'The record service did not answer.'
+      'The agent record could not be read.'
     );
+  });
+
+  test('the reason the record gave comes first', () => {
+    const reason = 'the session has more than 100 timeline pages';
+    const content = recordPopover(payload({}, { record: 'incomplete', record_reason: reason }));
+    expect(content.rows?.[0]).toEqual({ label: 'Reason', value: reason });
+    expect(content.rows?.[1]).toEqual({ label: 'Entries', value: 31 });
+    const lost = recordPopover(
+      payload({}, { session: null, record: 'unavailable', record_reason: 'down' })
+    );
+    expect(lost.rows).toEqual([{ label: 'Reason', value: 'down' }]);
+    expect(recordPopover(payload()).rows?.[0]?.label).toBe('Entries');
+  });
+
+  test('no day is given when the deployment names no retention', () => {
+    const labels = (recordPopover(payload({ retention_days: null })).rows ?? []).map(
+      (row) => row.label
+    );
+    expect(labels).toEqual(['Entries', 'Holds', 'Session']);
   });
 
   test('no session, or one with no entries yet, has no rows it cannot fill', () => {
@@ -90,12 +109,27 @@ describe('recordPopover', () => {
 });
 
 describe('recordBanner', () => {
-  test('only an incomplete record has one', () => {
+  test('a complete record has none', () => {
     expect(recordBanner('complete')).toBe('');
-    expect(recordBanner('unavailable')).toBe('');
+  });
+
+  test('an incomplete read says entries may be missing, and promises nothing', () => {
     const banner = qs(dom(recordBanner('incomplete')), '.act-banner');
-    expect(banner.textContent).toContain('Entries may be missing.');
+    expect(banner.textContent).toBe(
+      'Entries may be missing. The record did not return the whole session.'
+    );
+    expect(banner.dataset.tone).toBe('warn');
     expect(banner.querySelector('svg')).not.toBeNull();
+    expect(banner.querySelector('button')).toBeNull();
+  });
+
+  test('a reading kept through a failed read says so, with a way to try again', () => {
+    const banner = qs(dom(recordBanner('unavailable')), '.act-banner');
+    expect(banner.textContent).toContain(
+      'This session could not be read just now. What is shown is the last reading.'
+    );
+    expect(banner.dataset.tone).toBe('err');
+    expect(qs(banner, 'button[data-act="refresh"]').textContent).toBe('Try again');
   });
 });
 

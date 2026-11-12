@@ -36,6 +36,12 @@ const ARTIFACT = {
   size: 50381,
 };
 
+/** What the route answers for a session key whose transcript the record holds nothing of yet. */
+const FRESH = payload(
+  { state: 'idle', start: null, end: null, entries: 0, kinds: {} },
+  { nodes: [] }
+);
+
 /** @type {ReturnType<typeof stubActivityFetch>} */
 let api;
 /** @type {ReturnType<typeof mountActivityPage> | null} */
@@ -161,11 +167,18 @@ describe('what the page shows', () => {
     expect(qs(document, '.act-md').textContent).toBe('The beam current is **401.2 mA**.');
   });
 
-  test('an incomplete record as a banner over the views', async () => {
-    api.answers.activity = payload({}, { record: 'incomplete' });
+  test('an incomplete record as a banner over the views, with why from the chip', async () => {
+    api.answers.activity = payload(
+      {},
+      { record: 'incomplete', record_reason: 'the session has more than 100 timeline pages' }
+    );
     await mount();
     expect(qs(document, '.act-banner').textContent).toContain('Entries may be missing');
     expect(byId('record-chip').textContent).toBe('Record incomplete');
+    await press('#record-chip');
+    expect(qs(document, '.osprey-info-popover').textContent).toContain(
+      'the session has more than 100 timeline pages'
+    );
   });
 
   test('what the record holds, from the record chip', async () => {
@@ -177,12 +190,12 @@ describe('what the page shows', () => {
   });
 
   test('a session with no entry yet, without falling back to another', async () => {
-    api.answers.activity = { session: null, nodes: [], artifacts: [], record: 'complete' };
+    api.answers.activity = FRESH;
     await mount({ sessionKey: KEY });
     expect(qs(document, '#inner .osprey-state').textContent).toContain(
       'No activity in this session yet'
     );
-    expect(document.querySelector('.act-head')).toBeNull();
+    expect(document.getElementById('row-r1')).toBeNull();
     await vi.advanceTimersByTimeAsync(POLL_MS);
     expect(api.reads()).toEqual([
       `/api/session-activity?session_id=${KEY}`,
@@ -191,9 +204,22 @@ describe('what the page shows', () => {
   });
 
   test('the first entries of that session when they arrive', async () => {
-    api.answers.activity = { session: null, nodes: [], artifacts: [], record: 'complete' };
+    api.answers.activity = FRESH;
     await mount({ sessionKey: KEY });
-    api.answers.activity = payload({ state: 'live' });
+    api.answers.activity = payload();
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(qs(document, '.act-head h1').textContent).toBe('Read the beam current');
+    expect(document.getElementById('row-r1')).not.toBeNull();
+  });
+
+  test('no session at all, until the terminal has one', async () => {
+    api.answers.activity = { session: null, nodes: [], artifacts: [], record: 'complete' };
+    await mount();
+    expect(qs(document, '#inner .osprey-state').textContent).toContain(
+      'No activity in this session yet'
+    );
+    expect(document.querySelector('.act-head')).toBeNull();
+    api.answers.activity = payload();
     await vi.advanceTimersByTimeAsync(POLL_MS);
     expect(qs(document, '.act-head h1').textContent).toBe('Read the beam current');
   });
@@ -216,24 +242,78 @@ describe('an unreadable record', () => {
     expect(qs(document, '.act-head h1').textContent).toBe('Read the beam current');
   });
 
-  test('is what a read that fails shows', async () => {
+  test('a first read that fails says the web terminal did not answer', async () => {
     api.answers.activity = new Error('HTTP 502');
     await mount();
-    expect(qs(document, '#inner .osprey-state').textContent).toContain(
-      'The agent record cannot be read'
-    );
+    const state = qs(document, '#inner .osprey-state');
+    expect(state.textContent).toContain('The session cannot be read');
+    expect(state.textContent).toContain('The web terminal did not answer.');
     expect(qs(document, '#inner [data-act="refresh"]').textContent).toBe('Try again');
+    expect(byId('record-chip').textContent).toBe('Record unavailable');
   });
 
-  test('keeps a live session polling until the record answers again', async () => {
+  test('is tried again every ten seconds, whatever the session', async () => {
+    api.answers.activity = UNAVAILABLE;
+    await mount({ url: `${PAGE}#${ID}` });
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(api.reads()).toHaveLength(2);
+    api.answers.activity = payload();
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(qs(document, '.act-head h1').textContent).toBe('Read the beam current');
+    await vi.advanceTimersByTimeAsync(3 * POLL_MS);
+    expect(api.reads()).toHaveLength(3);
+  });
+
+  test('a reading already shown stays, marked, through a read that fails', async () => {
     api.answers.activity = payload({ state: 'live' });
     await mount();
+    await press('#row-r1');
     api.answers.activity = new Error('HTTP 503');
     await vi.advanceTimersByTimeAsync(POLL_MS);
-    expect(document.querySelector('#inner .osprey-state')).not.toBeNull();
+    expect(byId('row-r1').getAttribute('aria-expanded')).toBe('true');
+    expect(document.querySelector('#inner .osprey-state')).toBeNull();
+    expect(qs(document, '.act-head h1').textContent).toBe('Read the beam current');
+    expect(byId('record-chip').textContent).toBe('Record unavailable');
+    const banner = qs(document, '.act-banner');
+    expect(banner.textContent).toContain('What is shown is the last reading.');
+    expect(qs(banner, '[data-act="refresh"]').textContent).toBe('Try again');
+
     api.answers.activity = payload({ state: 'live' });
     await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(document.querySelector('.act-banner')).toBeNull();
+    expect(byId('record-chip').textContent).toBe('Record complete');
+    expect(byId('row-r1').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('a reading already shown stays through an unavailable record, with why', async () => {
+    await mount({ url: `${PAGE}#${ID}` });
+    api.answers.activity = { ...UNAVAILABLE, record_reason: 'the record read failed' };
+    await press('#refresh');
     expect(document.getElementById('row-r1')).not.toBeNull();
+    expect(qs(document, '.act-banner [data-act="refresh"]').textContent).toBe('Try again');
+    await press('#record-chip');
+    const popover = qs(document, '.osprey-info-popover');
+    expect(popover.textContent).toContain('the record read failed');
+    expect(popover.textContent).toContain('31');
+
+    api.answers.activity = payload();
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(api.reads()).toHaveLength(3);
+    expect(document.querySelector('.act-banner')).toBeNull();
+  });
+
+  test('another session whose read fails is not shown as the one before', async () => {
+    api.answers.sessions = {
+      sessions: [sessionRow(ID, 'Read the beam current'), sessionRow(OTHER, 'Orbit bump')],
+    };
+    await mount();
+    api.answers.activity = new Error('HTTP 503');
+    await press(`#sb [data-session="${OTHER}"]`);
+    expect(document.querySelector('.act-head')).toBeNull();
+    expect(document.getElementById('row-r1')).toBeNull();
+    expect(qs(document, '#inner .osprey-state').textContent).toContain(
+      'The session cannot be read'
+    );
   });
 
   test('keeps the session list', async () => {
@@ -245,10 +325,28 @@ describe('an unreadable record', () => {
 });
 
 describe('polling', () => {
-  test('a session at rest is read once', async () => {
-    await mount();
+  test('a picked session at rest is read once', async () => {
+    await mount({ url: `${PAGE}#${ID}` });
     await vi.advanceTimersByTimeAsync(3 * POLL_MS);
     expect(api.reads()).toHaveLength(1);
+  });
+
+  test('a picked session that is live is read every ten seconds', async () => {
+    api.answers.activity = payload({ state: 'live' });
+    await mount({ url: `${PAGE}#${ID}` });
+    await vi.advanceTimersByTimeAsync(2 * POLL_MS);
+    expect(api.reads()).toHaveLength(3);
+  });
+
+  test("the terminal's session is read again at rest too, and shows what it does next", async () => {
+    await mount({ sessionKey: KEY });
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(api.reads()).toHaveLength(2);
+    const resumed = payload({ state: 'live', entries: 32 });
+    resumed.nodes.push(call('n9', { tool: 'Grep', name: 'Grep' }));
+    api.answers.activity = resumed;
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(document.getElementById('row-n9')).not.toBeNull();
   });
 
   test('a live session is read every ten seconds', async () => {

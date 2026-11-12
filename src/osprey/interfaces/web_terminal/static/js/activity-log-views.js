@@ -209,9 +209,37 @@ function gateRow(n) {
   );
 }
 
+/** What allowed a call nobody was asked about, by the decision's origin, in reading order. */
+const ALLOWED_BY = [
+  ['config', 'by configuration'],
+  ['hook', 'by a hook'],
+  ['user', "by the operator's answer"],
+  ['', 'with no source in the record'],
+];
+
 /**
- * The Safety view: how many calls the rules let through, how many the operator
- * was asked about, and what each server gate filed.
+ * @param {ToolNode[]} allowed  calls allowed without asking
+ * @returns {string} how many of them each origin allowed
+ */
+function allowedBy(allowed) {
+  if (!allowed.length) return 'No call was allowed without asking.';
+  /** @type {Record<string, number>} */
+  const counts = {};
+  for (const n of allowed) {
+    const origin = n.source?.startsWith('user_') ? 'user' : (n.source ?? '');
+    const known = ALLOWED_BY.some(([name]) => name === origin) ? origin : '';
+    counts[known] = (counts[known] ?? 0) + 1;
+  }
+  const parts = ALLOWED_BY.filter(([name]) => counts[name]).map(
+    ([name, words]) => `${counts[name]} ${words}`
+  );
+  return `${parts.join(', ')}.`;
+}
+
+/**
+ * The Safety view: how many calls were allowed without asking and by what,
+ * how many the operator was asked about, how many were refused without
+ * asking, and what each server gate filed.
  * @param {ActivityPayload} payload
  * @param {ActivitySummary} model
  * @returns {string}
@@ -231,8 +259,9 @@ export function renderSafety(payload, model) {
     [...calls].sort((a, b) => (Date.parse(a.ts) || 0) - (Date.parse(b.ts) || 0));
   const approvalCards = byTime(model.approvals).map((n) => approvalCard(n, identity));
   const gateRows = byTime(model.gated).map(gateRow);
-  const allowed = model.tools.filter((n) => n.verdict === 'allowed').length;
-  const denied = model.tools.filter((n) => n.verdict === 'denied').length;
+  const allowed = model.tools.filter((n) => n.verdict === 'allowed');
+  // A call the operator declined is under Asked.
+  const denied = model.tools.filter((n) => n.verdict === 'denied' && !n.approval).length;
   const approved = model.approvals.filter((n) => n.verdict === 'approved').length;
   const declined = model.approvals.filter((n) => n.verdict === 'denied').length;
   const asked = model.approvals.length
@@ -240,13 +269,14 @@ export function renderSafety(payload, model) {
     : 'No call needed an approval.';
   const cards =
     `<div class="act-cards">` +
-    card(
-      'Allowed by configuration',
-      allowed,
-      "Calls the deployment's rules permit without asking."
-    ) +
+    card('Allowed', allowed.length, allowedBy(allowed)) +
     card('Asked the operator', model.approvals.length, asked, 'warn') +
-    card('Denied', denied, denied ? 'Calls the rules refused.' : 'No call was refused.', 'err') +
+    card(
+      'Denied',
+      denied,
+      denied ? 'Refused without asking the operator.' : 'No call was refused.',
+      'err'
+    ) +
     `</div>`;
   const approvals = model.approvals.length
     ? heading('user', 'Approvals', model.approvals.length) + approvalCards.join('')

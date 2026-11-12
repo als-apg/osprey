@@ -92,7 +92,7 @@
  * @property {Record<string, number>} kinds
  * @property {string | null} target
  * @property {string | null} posture
- * @property {number} retention_days
+ * @property {number | null} retention_days  `null` when the deployment names none
  */
 
 /**
@@ -185,7 +185,9 @@ export function summarize(payload) {
     subs,
     approvals: tools.filter((n) => n.approval),
     errors: tools.filter((n) => n.error),
-    gated: tools.filter((n) => n.trail.length > 0),
+    gated: tools.filter((n) =>
+      n.trail.some((entry) => entry.surface && entry.surface !== 'hook_approval')
+    ),
     decided: tools.filter((n) => n.verdict !== 'none').length,
     prompts: payload.nodes.filter((n) => n.t === 'prompt').length,
     cost,

@@ -177,20 +177,24 @@ four views:
   and the safety decisions on it.
 - **Tool calls** — every call as a table, built-in tools included. Sort it, or
   narrow it to **Control system and services** or to **Built in**.
-- **Safety** — how many calls the configuration allowed, how many asked the
-  operator and how many were denied; each approval with what was asked and how
-  long the answer took; and the calls a server gate filed an entry for.
+- **Safety** — how many calls were allowed without asking and by what, how
+  many asked the operator, and how many were refused without asking; each
+  approval with what was asked and how long the answer took; and the calls a
+  server gate filed an entry for.
 - **Artifacts** — what the session saved, each with the call that saved it.
 
-The chip in the toolbar says how much of this the record vouches for:
+The chip in the toolbar says how much of this the record vouches for. Click it
+for the reason:
 
-- **Record complete** — the record holds the whole session.
-- **Record incomplete** — the record is behind the session: some entries have
-  not arrived yet. What is shown is correct, and more will follow.
-- **Record unavailable** — the record service did not answer. The page shows
-  no activity then, and offers **Try again**.
+- **Record complete** — the record returned the whole session.
+- **Record incomplete** — the read did not return the whole session. What is
+  shown is correct, but entries may be missing.
+- **Record unavailable** — the session could not be read. The page keeps the
+  last reading it has of that session and says so, offers **Try again**, and
+  tries again by itself every 10 seconds.
 
-A live session is read again every 10 seconds.
+The session in the terminal is read again every 10 seconds. A session picked
+from the sidebar is read again only while it is live.
 
 Permissions
 ===========
