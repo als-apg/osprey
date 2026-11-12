@@ -55,6 +55,15 @@ function callName(n) {
 }
 
 /**
+ * A table's cell for a call's name: cut to its column, whole in the tooltip.
+ * @param {ToolNode} n
+ * @returns {string}
+ */
+function nameCell(n) {
+  return `<td class="act-name" title="${escapeHtml(n.name)}">${callName(n)}</td>`;
+}
+
+/**
  * A section heading with its count.
  * @param {string} iconName
  * @param {string} label
@@ -123,7 +132,7 @@ export function renderTools(payload, model, state) {
     const agent = n.agent === 'main' ? '<span class="act-muted">main</span>' : escapeHtml(n.agent);
     return (
       `<tr class="row" tabindex="0" data-toggle="${id}" aria-expanded="${open}">` +
-      `<td class="act-t">${clock(n.ts)}</td><td>${callName(n)}</td>` +
+      `<td class="act-t">${clock(n.ts)}</td>${nameCell(n)}` +
       `<td class="wide act-args">${escapeHtml(args)}</td><td>${agent}</td>` +
       `<td>${verdictChip(n, true)}</td><td class="num">${durationCell(n)}</td>` +
       `<td class="num">${n.result ? formatBytes(n.result.size) : ''}</td>` +
@@ -193,7 +202,7 @@ function gateRow(n) {
   const writes = n.posture === 'writes' ? 'enabled' : (n.posture ?? '');
   return (
     `<tr class="row" tabindex="0" data-jump="${escapeHtml(callKey(n))}">` +
-    `<td class="act-t">${clock(n.ts)}</td><td>${callName(n)}</td>` +
+    `<td class="act-t">${clock(n.ts)}</td>${nameCell(n)}` +
     `<td class="wide act-args">${escapeHtml(argSummary(n.input))}</td>` +
     `<td>${escapeHtml([...gates].join(', '))}</td><td>${escapeHtml(writes)}</td>` +
     `<td>${escapeHtml(n.target)}</td><td>${verdictChip(n, true)}</td></tr>`

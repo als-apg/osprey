@@ -76,6 +76,9 @@ describe('renderTools', () => {
       'logbook-search',
       'Approved by operator · 17.4 s',
     ]);
+    // The name keeps to its column; the tooltip carries a long one whole.
+    const name = /** @type {HTMLElement} */ (qs(tools, 'tr.row[data-toggle="w1"] td.act-name'));
+    expect(name.title).toBe('mcp__controls__channel_write');
     expect(texts(qs(tools, 'tr.row[data-toggle="r1"]'), 'td').slice(3, 7)).toEqual([
       'main',
       'Allowed',

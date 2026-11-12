@@ -828,6 +828,13 @@ pre.act-result {
   text-overflow: ellipsis;
 }
 
+/* A long tool name is cut to its column so the table keeps to the page. */
+.act-table td.act-name {
+  max-width: 36ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .act-table tr.row {
   cursor: pointer;
 }
