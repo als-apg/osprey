@@ -9,6 +9,72 @@ agent, the plans, the safety layers — is written against those two interfaces,
 so moving from the simulator to real hardware is a change of
 ``control_system.type`` and its connector block, not of code.
 
+What a connector is, and who talks to it
+----------------------------------------
+
+A connector is a Python object with a fixed set of methods: connect, read a
+channel, write a channel, subscribe, get metadata. Each control system (EPICS,
+DOOCS, the simulator, the mock) is one class that implements them. The archiver
+connector is a second, smaller interface that only returns history.
+
+Nothing in OSPREY reaches a control system any other way. There is no shared
+connector service: each caller below holds its own connector instance, built
+from the same ``config.yml`` and pointed at the user's control target::
+
+    operator            agent              agent-written code     panels and apps
+    (target chip,       (controls tools)   notebooks, plans       (CANOPY, app
+     write switch,           |             (osprey.runtime)        backends)
+     approval prompt)        |                    |                    |
+         |                   v                    v                    v
+         |              +-----------------------------------------------------+
+         +-- decides -> | connector: read_channel, write_channel, subscribe   |
+                        +--------------------------+--------------------------+
+                                                   v
+                                control system (EPICS, DOOCS, simulator)
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Who
+     - How it reaches the connector
+   * - Operator
+     - Never directly. The operator picks the control target, sets the write
+       switch (off, asked, allowed) and answers approval prompts; every
+       connector reads those decisions. Each signed-in user has their own
+       target and switch. See :ref:`web-terminal-session-posture` and
+       :ref:`how-to-switch-control-target`.
+   * - Agent
+     - Through the ``controls`` tools: ``channel_read``, ``channel_write`` and
+       ``archiver_read``. With two or more targets configured, the connector
+       runs in a child process, one per target, and a switch replaces that
+       process: an EPICS client reads its gateway settings once per process,
+       so a new target needs a new process. With one target it runs inside
+       the tool server.
+   * - Agent-written Python
+     - Through ``osprey.runtime`` (``read_channel``, ``write_channel``). Each
+       run builds its own connector for the user's target. A write is refused
+       if the target changed after the run started. See
+       :ref:`how-to-write-from-a-program`.
+   * - Notebooks
+     - The same ``osprey.runtime`` calls. The kernel re-reads the target
+       before each cell. See :ref:`Notebooks <notebooks-write-channel>`.
+   * - Bluesky plans
+     - Every plan read and write goes through a connector the queue worker
+       builds for its own target, which can differ from the user's.
+   * - Panels and apps
+     - CANOPY serves every PV from one connector and is restarted when the
+       target moves. An app backend builds its own connector; it reads on its
+       user's target and writes on the approved one. See :ref:`how-to-apps`.
+
+Because every path ends in the same class, the last write check is the same
+everywhere: the connector re-checks the write switch on each write, whoever
+called it. The checks before that point differ by path and are listed in order
+in :ref:`architecture-safety-chain-order`.
+
+The package also works with no deployment: reads work and every write is
+refused (:doc:`use-connectors-standalone`).
+
 One API, whatever the machine
 -----------------------------
 

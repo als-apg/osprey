@@ -720,5 +720,10 @@ not_testable:
     contains: "name: trim-history"
     reason: illustration
     why: a hypothetical agent file for the example app; no app in the repository has an agents/ directory to compare it with
+  - pages: [how-to/control-systems/use-connectors.rst]
+    languages: [literal]
+    contains: "+-- decides ->"
+    reason: illustration
+    why: a box diagram of which callers hold a connector; it has no syntax a test could load or run
 
 pending: []
