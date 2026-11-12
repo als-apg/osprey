@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from osprey.services.ariel_search.exceptions import ConfigurationError
+    from osprey.services.ariel_search.exceptions import ARIELException
     from osprey.services.ariel_search.service import ARIELSearchService
 
 logger = logging.getLogger("osprey.mcp_server.ariel.server_context")
@@ -170,27 +170,30 @@ class ARIELContext:
         )
 
     @staticmethod
-    def _refuse(error: ConfigurationError, *, refused: str = "start") -> ConfigurationError:
+    def _refuse(
+        error: ARIELException, *, refused: str = "start", remedy: str | None = None
+    ) -> ARIELException:
         """Log a refusal and hand the exception back to be raised.
 
         Args:
-            error: The ``ConfigurationError`` (or subclass) about to be raised.
+            error: The ARIEL exception about to be raised: a
+                ``ConfigurationError`` (or subclass), or a ``StoreSilentError``.
             refused: What the server refuses to do, completing "refusing to …".
+            remedy: The remedy to log when the exception carries none.
 
         Returns:
             The same exception, so the caller can ``raise`` it.
         """
         # Every validate() message already leads with its own dotted key, so the
         # key is not repeated here.
-        if error.remedy:
+        message = getattr(error, "message", str(error))
+        remedy = remedy or getattr(error, "remedy", None)
+        if remedy:
             logger.error(
-                "ARIEL MCP server refusing to %s: %s. Remedy: %s",
-                refused,
-                error.message,
-                error.remedy,
+                "ARIEL MCP server refusing to %s: %s. Remedy: %s", refused, message, remedy
             )
         else:
-            logger.error("ARIEL MCP server refusing to %s: %s", refused, error.message)
+            logger.error("ARIEL MCP server refusing to %s: %s", refused, message)
         return error
 
     @property
@@ -246,7 +249,9 @@ class ARIELContext:
                 )
             except StoreSilentError as silent:
                 # No service exists yet, so there is nothing to close.
-                logger.error("ARIEL MCP server refusing to open the ARIEL service: %s", silent)
+                ARIELContext._refuse(
+                    silent, refused="open the ARIEL service", remedy=_STORE_SILENT_REMEDY
+                )
                 make_error("service_unavailable", str(silent), [_STORE_SILENT_REMEDY])
             try:
                 await service.verify_search_model_table()

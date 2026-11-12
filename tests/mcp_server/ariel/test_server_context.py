@@ -8,6 +8,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.ariel.server_context import (
+    _STORE_SILENT_REMEDY,
     ARIELContext,
     get_ariel_context,
     initialize_ariel_context,
@@ -415,7 +416,7 @@ async def test_search_tool_answers_with_the_refusal(tmp_path, monkeypatch):
 
 @pytest.mark.wallclock
 async def test_a_silent_store_is_a_service_unavailable_refusal_and_caches_nothing(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, caplog
 ):
     """The first tool call gives the store the server's stated deadline; a
     store that does not answer is refused with its name and the deadline."""
@@ -446,3 +447,14 @@ async def test_a_silent_store_is_a_service_unavailable_refusal_and_caches_nothin
         f"the ARIEL store at 127.0.0.1:{port}/ariel did not answer within {SHORT_DEADLINE_S:g} s"
     )
     assert ctx._service is None
+    # Logged in the one refusal form a configuration refusal also takes.
+    refusals = [
+        r.getMessage()
+        for r in caplog.records
+        if "refusing to open the ARIEL service" in r.getMessage()
+    ]
+    assert refusals == [
+        "ARIEL MCP server refusing to open the ARIEL service: the ARIEL store at "
+        f"127.0.0.1:{port}/ariel did not answer within {SHORT_DEADLINE_S:g} s. "
+        f"Remedy: {_STORE_SILENT_REMEDY}"
+    ]
