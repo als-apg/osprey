@@ -1,7 +1,7 @@
 """The landing-page demo: its storyboard and the probes only it needs.
 
 The storyboard asks for a 3D plot, rotates it, asks for a correlation plot and
-posts it to the logbook through the one approval prompt the take answers. The
+posts it to the logbook through the one approval card the take allows. The
 generic beats come from :mod:`~docs.screenshots.video_beats`; the rest are
 custom beats on :class:`Landing`, one per take, which carries what an earlier
 beat found (the plot ids, the cards already opened, the approved call) to the
@@ -19,6 +19,7 @@ from typing import Any
 
 from docs.screenshots import (
     capture,
+    video_chat,
     video_check_approval,
     video_check_plot,
     video_check_stall,
@@ -26,7 +27,7 @@ from docs.screenshots import (
     video_probes,
     video_take,
 )
-from docs.screenshots.video_beats import Beat, focus, hold, prompt
+from docs.screenshots.video_beats import Beat, click, focus, hold, prompt, shown
 from docs.screenshots.video_probes import ProbeFailed
 from docs.screenshots.video_take import Take
 
@@ -46,9 +47,10 @@ APPROVED_TOOL = "entry_create"
 
 PLOT_BUDGET_MS = 600_000
 APPROVAL_BUDGET_MS = 180_000
-# Without a draft this long after the approving Enter, the keypress may have
-# been swallowed; a single guarded retry Enter follows.
-DRAFT_RETRY_AFTER_MS = 15_000
+# How long the chat may take to show the approval card once the ask is logged.
+ALLOW_BUDGET_MS = 15_000
+# The label of the approval card's button that lets the call run.
+ALLOW_TEXT = "Allow"
 DRAFT_BUDGET_MS = 90_000
 OPEN_PLOT_BUDGET_MS = 30_000
 # Each card that lands while the agent works is opened in real time: its row
@@ -87,41 +89,6 @@ def _fetch_html(artifact_port: int, path: str, secret: str | None = None) -> str
     request = capture.artifact_request(artifact_port, path, secret)
     with urllib.request.urlopen(request, timeout=ARTIFACT_FETCH_TIMEOUT_S) as resp:
         return resp.read().decode("utf-8", "replace")
-
-
-def _has_tool_result(transcript: Path | None, tool_use_id: str) -> bool:
-    """Whether the transcript holds a ``tool_result`` for ``tool_use_id``.
-
-    Results are either top-level ``tool_result`` entries or blocks inside a
-    user message's ``content`` list. An unreadable transcript counts as having
-    one, so the guarded retry never fires on missing evidence.
-    """
-    if transcript is None:
-        return True
-    try:
-        lines = Path(transcript).read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return True
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("type") == "tool_result" and entry.get("tool_use_id") == tool_use_id:
-            return True
-        message = entry.get("message")
-        content = message.get("content") if isinstance(message, dict) else None
-        if isinstance(content, list):
-            for block in content:
-                if (
-                    isinstance(block, dict)
-                    and block.get("type") == "tool_result"
-                    and block.get("tool_use_id") == tool_use_id
-                ):
-                    return True
-    return False
 
 
 def _tool_input(transcript: Path | None, tool_use_id: str | None) -> dict | None:
@@ -207,9 +174,6 @@ class Landing:
     def click(self, locator: Any) -> None:
         self.take.click(locator)
 
-    def press_enter(self, step_name: str) -> None:
-        self.take.press_enter(step_name)
-
     def step(self, name: str, caption: str, fast_forward: bool = False) -> Any:
         return self.take.step(name, caption, fast_forward)
 
@@ -290,8 +254,7 @@ class Landing:
         missing = "end of the turn" if self.found.get(step_name) else f"new {what}"
         raise ProbeFailed(
             step_name,
-            f"no {missing} within {PLOT_BUDGET_MS} ms; last lines:\n"
-            f"{video_probes.terminal_tail(self.page)}",
+            f"no {missing} within {PLOT_BUDGET_MS} ms; last lines:\n{self.take.tail()}",
         )
 
     def refuse_empty_plot(self, step_name: str, artifact: dict) -> None:
@@ -416,7 +379,7 @@ class Landing:
                 "open-artifact",
                 f"{what} for {title!r} ({artifact_id}) within {budget_ms} ms; "
                 f"{video_probes.preview_state(self.page)}; last lines:\n"
-                f"{video_probes.terminal_tail(self.page)}",
+                f"{self.take.tail()}",
             )
 
         wait(lambda: video_probes.card_shown(self.page, artifact_id), CARD_BUDGET_MS, "no row")
@@ -542,30 +505,27 @@ class Landing:
             self.page.wait_for_timeout(video_probes.POLL_MS)
         raise ProbeFailed("post", f"no {APPROVED_TOOL} approval within {APPROVAL_BUDGET_MS} ms")
 
-    def wait_for_draft(self, ask_mark: datetime, approved: video_check_approval.Ask) -> None:
-        """Wait for the saved draft, pressing Enter once more only when it is safe.
+    def wait_for_allow(self) -> None:
+        """Wait until the chat shows the approval card's Allow button."""
+        if not video_take.poll(
+            self.page, lambda: shown(self.page, video_chat.ALLOW, ALLOW_TEXT), ALLOW_BUDGET_MS
+        ):
+            raise ProbeFailed(
+                "post",
+                f"no approval card to allow within {ALLOW_BUDGET_MS} ms; last lines:\n"
+                f"{self.take.tail()}",
+            )
 
-        The retry fires once, after :data:`DRAFT_RETRY_AFTER_MS` without a
-        draft, and only when the approved call has no ``tool_result`` yet and
-        no other approval prompt was logged: then the first Enter cannot have
-        reached the approval box, and the second cannot approve anything else.
-        """
+    def wait_for_draft(self, ask_mark: datetime) -> None:
+        """Wait for the saved draft the allowed call produces."""
         watch = self.watch("draft", video_check_stall.NOTICE_DIALOGS)
-        retry_tick = -(-DRAFT_RETRY_AFTER_MS // video_probes.POLL_MS)
         ticks = max(1, -(-DRAFT_BUDGET_MS // video_probes.POLL_MS))
-        for tick in range(ticks):
-            asks = self.asks(ask_mark)
+        for _ in range(ticks):
+            self.asks(ask_mark)
             if video_probes.draft_ready(self.page):
                 return
             if self.turn() == "errored":
                 raise ProbeFailed("post", "the agent's turn ended in an API error")
-            if (
-                tick == retry_tick
-                and approved.tool_use_id is not None
-                and asks == [approved]
-                and not _has_tool_result(self.transcript, approved.tool_use_id)
-            ):
-                self.press_enter("draft")
             watch()
             self.page.wait_for_timeout(video_probes.POLL_MS)
         raise ProbeFailed("draft", f"no logbook draft within {DRAFT_BUDGET_MS} ms")
@@ -616,16 +576,12 @@ def _post(take: Take) -> None:
     state = Landing.of(take)
     state.approved = state.wait_for_approval(state.marks["post"])
     state.check_attachment(state.approved, state.found["correlate"])
-
-
-def _approve(take: Take) -> None:
-    take.press_enter("approve")
+    state.wait_for_allow()
 
 
 def _draft(take: Take) -> None:
     state = Landing.of(take)
-    assert state.approved is not None
-    state.wait_for_draft(state.marks["post"], state.approved)
+    state.wait_for_draft(state.marks["post"])
 
 
 def _close(take: Take) -> None:
@@ -661,7 +617,7 @@ LANDING = (
     prompt("prompt-3", POST, PROMPT_POST),
     Beat("post", "The agent drafts the entry", _post, fast_forward=True),
     hold("approval-hold", APPROVE, APPROVAL_HOLD_MS),
-    Beat("approve", APPROVE, _approve),
+    click("approve", APPROVE, video_chat.ALLOW, text=ALLOW_TEXT),
     Beat("draft", "Saving the draft", _draft, fast_forward=True),
     Beat("close", "Draft saved with the plot attached", _close),
 )

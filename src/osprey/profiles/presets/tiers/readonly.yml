@@ -13,8 +13,8 @@
 # at every write surface: channel-write tools land in the rendered
 # settings.json deny list, the writes-check hook refuses with a clean "writes
 # disabled" message, and the connector's reference monitor blocks any write
-# that somehow reaches it. Reads, the channel finder, the archiver, logbook
-# search and the bluesky panels all work unchanged.
+# that somehow reaches it. Reads, the channel finder, the archiver and logbook
+# search all work unchanged.
 #
 # This is the bottom of the ceiling's three words, `never`, `asked` and
 # `allowed`. The write-capable counterparts are the `readwrite` tier at `asked`

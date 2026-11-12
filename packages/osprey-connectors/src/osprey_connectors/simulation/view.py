@@ -69,7 +69,7 @@ SERVED_MODELS_SCHEMA = "osprey.facility.served_models/1"
 ADDRESSES_FILE = "addresses.json"
 ADDRESSES_SCHEMA = "osprey.facility.addresses/1"
 VARIABLES_FILE = "variables.json"
-VARIABLES_SCHEMA = "osprey.facility.simulator/3"
+VARIABLES_SCHEMA = "osprey.facility.simulator/4"
 SEEDS_FILE = "seeds.json"
 SEEDS_SCHEMA = "osprey.facility.seeds/2"
 SCENARIOS_FILE = "scenarios.json"
@@ -89,6 +89,12 @@ SCHEMAS: Mapping[str, str] = MappingProxyType(
         SEEDS_FILE: SEEDS_SCHEMA,
         SCENARIOS_FILE: SCENARIOS_SCHEMA,
     }
+)
+
+#: The schemas this OSPREY reads besides the one it writes, per file: a released
+#: ``/3`` facility file reads as one whose models declare no inputs.
+_ALSO_READ: Mapping[str, frozenset[str]] = MappingProxyType(
+    {VARIABLES_FILE: frozenset({"osprey.facility.simulator/3"})}
 )
 
 #: The engine of the model that serves every channel no physics model wires.
@@ -286,6 +292,10 @@ class Model:
         deck: The path of the view's copy of the model's deck, or ``None``.
         bindings: The model's wiring records, in wiring order; empty for a
             ``texture`` model or one without wiring.
+        inputs: The model's inputs, in declared order, each a read-only
+            ``{address, engine}`` record: the producer channel's address and
+            the engine block the consuming engine reads; empty when the model
+            declares none.
     """
 
     name: str
@@ -294,6 +304,7 @@ class Model:
     settings: Mapping[str, Any]
     deck: Path | None
     bindings: tuple[Binding, ...]
+    inputs: tuple[Mapping[str, Any], ...] = ()
 
 
 class SimulatorView:
@@ -377,8 +388,8 @@ class SimulatorView:
             name: The file's name, one of :data:`SCHEMAS`.
 
         Raises:
-            ViewSchemaError: the file's ``schema`` is absent or not
-                ``SCHEMAS[name]``.
+            ViewSchemaError: the file's ``schema`` is absent or neither
+                ``SCHEMAS[name]`` nor an older one this OSPREY still reads.
         """
         if name not in self._documents:
             self._documents[name] = _freeze(self._parsed(name))
@@ -390,7 +401,7 @@ class SimulatorView:
             parsed = json.loads(path.read_text(encoding="utf-8"))
             expected = SCHEMAS[name]
             found = parsed.get("schema") if isinstance(parsed, dict) else None
-            if found != expected:
+            if found != expected and found not in _ALSO_READ.get(name, ()):
                 raise _schema_error(path, found, expected)
             self._raw[name] = parsed
         return self._raw[name]
@@ -422,6 +433,7 @@ class SimulatorView:
             bindings=()
             if engine == _TEXTURE
             else tuple(Binding.from_record(name, record) for record in wiring),
+            inputs=tuple(_freeze(copy.deepcopy(record)) for record in entry.get("inputs") or ()),
         )
 
     def model(self, name: str) -> Model:

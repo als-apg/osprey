@@ -50,10 +50,11 @@ QUOTED_MESSAGES = {
     "No OSPREY deployment repo found: no profile.yml in … or any parent directory.": [
         "No OSPREY deployment repo found: no {} in {} or any parent directory.",
     ],
-    "profile.yml was materialized from preset … at …; the preset bundled with OSPREY … "
-    "is … — it has moved on since": [
-        "{} was materialized from preset {} at {}{}; the preset bundled with OSPREY {} "
-        "is {} — it has moved on since",
+    "The … preset has changed since this repo last took it": [
+        "The {} preset has changed since this repo last took it",
+    ],
+    "This repo predates preset tracking": [
+        "This repo predates preset tracking",
     ],
     "Profile convention directories are invalid": [
         "Profile convention directories are invalid ({} problem(s)):",

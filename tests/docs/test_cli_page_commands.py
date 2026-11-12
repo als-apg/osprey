@@ -419,7 +419,7 @@ def test_shell_lines_split_into_commands() -> None:
         ("``osprey up [-d|--detached]``", []),
         ("``osprey --verbose build --repo x``", []),
         ("``osprey chat --effort high``", []),
-        ("``osprey validate --drift error|warn``", []),
+        ("``osprey chat --effort low|high``", []),
         ("``osprey chat --effort EFFORT``", []),
         ("``osprey deploy``", [(1, "osprey has no verb deploy")]),
         ("``osprey up --bogus``", [(1, "osprey up: no option --bogus")]),
@@ -429,8 +429,8 @@ def test_shell_lines_split_into_commands() -> None:
             [(1, "osprey chat: --effort extreme is not one of ")],
         ),
         (
-            "``osprey validate --drift error|ignore``",
-            [(1, "osprey validate: --drift ignore is not one of ")],
+            "``osprey chat --effort low|extreme``",
+            [(1, "osprey chat: --effort extreme is not one of ")],
         ),
     ],
 )

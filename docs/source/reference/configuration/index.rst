@@ -8,7 +8,8 @@ build profile a facility writes, and the input ``osprey build`` renders from.
 ``config.yml`` is what a running project reads -- rendered from the profile, so
 it is where you look a setting up; a change that should survive the next build
 belongs in the profile. Anything that must not sit in a committed file, such as
-API keys and per-host values, arrives from the environment instead.
+API keys and per-host values, arrives from the environment instead. Scenario
+files, the fourth page, belong to the simulator.
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -39,9 +40,18 @@ API keys and per-host values, arrives from the environment instead.
       The environment variables the OSPREY CLI reads and where each belongs --
       provider keys live in the deployment repository's ``.env``.
 
+   .. grid-item-card:: Scenario Files
+      :link: scenario-files
+      :link-type: doc
+      :shadow: md
+
+      Every key a simulator scenario file accepts, the archive event shapes,
+      and what each channel fault does.
+
 .. toctree::
    :hidden:
 
    profile
    config
    environment-variables
+   scenario-files

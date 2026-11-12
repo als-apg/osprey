@@ -365,7 +365,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/panels-context",
             template_path="claude/hooks/osprey_panels_context.py",
             output_path=".claude/hooks/osprey_panels_context.py",
-            description="SessionStart hook that injects the web surface (simple/expert) and panel inventory into agent context",
+            description="SessionStart hook that injects the web surface (chat/terminal), panel inventory and open tiles into agent context",
             requires=("hooks/safety-file",),
         ),
         BuildArtifact(

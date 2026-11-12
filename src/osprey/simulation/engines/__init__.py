@@ -28,6 +28,7 @@ OPTIONAL_NAMES = (
     *TIME_CONTRACT,
     "deck_length",
     "deckless_start_values",
+    "describe_input",
     "element_index",
     "error_text",
     "fault_variables",
@@ -35,6 +36,7 @@ OPTIONAL_NAMES = (
     "readout",
     "response_matrix",
     "scenario_stops",
+    "take_inputs",
     "REFUSAL_ERRORS",
     "SOLVE_ERRORS",
 )
@@ -64,6 +66,10 @@ class EnginePlugin(Protocol):
                                             (a ring's circumference)
     ``deckless_start_values``               ``True``: ``start_values`` may be called      ``start_values`` is not called without a
                                             with no deck                                  deck
+    ``describe_input(input_record)``        checks one model input's ``{address,          every input's ``engine`` block is
+                                            engine}`` record at facility build;           accepted as given
+                                            raising ``ValueError`` refuses it and the
+                                            build stops naming the input
     ``element_index(deck, element,``        the element's lattice index: ring order,      the SDK's ``model_members`` raises
     ``*, model=None)``                      which tells co-located elements apart
     ``emitted(model)``                      the addresses of ``event`` channels fired     the model emits nothing
@@ -82,10 +88,21 @@ class EnginePlugin(Protocol):
     ``readout(model, values, t_ms)``        what each monitor reads of ``values``, its    a monitor reads its beam truth as given
                                             beam truth at epoch millisecond ``t_ms``
     ``response_matrix(...)``                called with ``(deck, wiring, settings,        ``model_response_matrix`` ends without a
-                                            correctors, step)``: the orbit response of    result; the response check stops
-                                            the wired monitors, ``rows``, ``columns``,
-                                            ``matrix`` and the ``unsolved`` correctors
-                                            with their texts. Raising one of
+                                            correctors, step)`` and the keyword           result; the response check stops
+                                            ``kind``, ``"orbit"`` or ``"trajectory"``:
+                                            the response of the wired monitors,
+                                            ``rows``, ``columns``, ``matrix`` and the
+                                            ``unsolved`` correctors with their texts.
+                                            ``row_positions`` and ``column_positions``
+                                            place each row and column by lattice element
+                                            index, counted for ``"trajectory"`` from the
+                                            injection element; an answer without them,
+                                            or with ``None``, states no positions and
+                                            callers get none. For ``"trajectory"`` the
+                                            rows are the monitors' turn-buffer records.
+                                            One that takes no ``kind`` is called without
+                                            it for ``"orbit"``, and any other kind is
+                                            refused naming the engine. Raising one of
                                             ``REFUSAL_ERRORS`` refuses the request with
                                             its text; a ``FacilityBuildError`` refuses
                                             it as a facility-file defect; a return with
@@ -96,6 +113,11 @@ class EnginePlugin(Protocol):
                                             keyed ones included, without a deck load;
                                             each stops the build ``engine-invalid``
                                             with the plug-in's remedy
+    ``take_inputs(model, inputs, t_s,``     stores ``inputs``: one ``(input_record,       the build refuses a model that declares
+    ``*, baseline)``                        value)`` pair per declared input, the         inputs
+                                            record its ``{address, engine}`` and the
+                                            value the producer's current plain value;
+                                            ``baseline=True`` marks a starting point
     ``REFUSAL_ERRORS``                      the exceptions meaning "the request is not    no exception is a request refusal
                                             one this engine answers"; stand-in until
                                             lume-base states it
@@ -110,8 +132,16 @@ class EnginePlugin(Protocol):
     never starts time-driven behaviour, since restore, rollback, journal replay
     and scenario writes all reach it; what a client write triggers lives behind
     ``client_write`` alone. ``build`` receives no clock, so the caller calls
-    ``advance`` right after a build, a rebuild or a reset.
-    :data:`OPTIONAL_NAMES` lists every name of this table.
+    ``advance`` right after a build, a rebuild or a reset. The caller advances
+    every built child on every pass, whether or not it has a step due. A model
+    that declares inputs gets ``take_inputs`` immediately before its
+    ``advance``, with the values its producers hold on that same pass.
+    ``take_inputs`` only stores, like ``set``; what a new value starts happens
+    in the ``advance`` that follows. ``baseline=True`` means the delivery is a
+    starting point: compare nothing against what was held before. The
+    ``engine`` block travelling with every delivery is how a model tells its
+    inputs apart; ``build`` is unchanged. :data:`OPTIONAL_NAMES` lists every
+    name of this table.
     """
 
     def locate(self, deck: Any, element: str, *, model: str | None = None) -> tuple[float, float]:

@@ -91,7 +91,7 @@ jobs:
         # test_ci_workflow_wiring.py pins this list to the spending lanes of LANES,
         # so a renamed lane fails a unit test, not a release.
         REQUIRED_LANES: |
-          agentic-per-preset=Tier 3 — Agentic flow
+          agentic-per-preset=Preset Agentic Flow
           e2e-tests=E2E Tests
           dispatch-deploy-e2e=Dispatch Stack E2E — Deploy
           single-user-narrowing-e2e=Dispatch Stack E2E — Single-User Narrowing

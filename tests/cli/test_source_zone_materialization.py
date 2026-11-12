@@ -1408,7 +1408,6 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     from osprey.cli.build_profile_emit import emits_layer_profiles
     from osprey.cli.build_profile_merge import compute_preset_hash
     from osprey.cli.build_profile_presets import preset_apps
-    from osprey.cli.build_profile_schema import DEFAULT_DEVIATION_MARKER
 
     target = tmp_path / "facility"
     assert _new(runner, target, preset).exit_code == 0
@@ -1427,7 +1426,6 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
         # reason: it is the second file the build reads, and a later run has to
         # be able to say whether it still matches the one OSPREY ships.
         "providers_hash": compute_providers_hash(target / PROVIDERS_FILENAME),
-        "deviation_marker": DEFAULT_DEVIATION_MARKER,
     }
     # The applications are init material: the preset's resolution consumes them, and
     # the profile lists what init copied beside it.

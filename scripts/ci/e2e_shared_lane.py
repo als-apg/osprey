@@ -11,13 +11,21 @@ Subcommands:
 
     ignores   prints one ``--ignore=<module>`` per line on stdout, the
               argument list the shared pytest takes, and the module -> host
-              table on stderr, so a CI log shows what the lane left out
+              table on stderr, so a CI log shows what the lane left out.
+              An empty list is refused: the shared lane would run every
+              other host's modules too.
     stacks    prints the compose project (``PROJECT_NAME``) of each module the
               run selected: the ``E2E_FILTER`` paths on a dispatch that sets
               one, the shared sweep otherwise. The cleanup step removes those.
     modules LANE
               prints the test modules lane LANE names, one per line, as
               declared: a module that is gone reaches pytest and exits it 4.
+              A lane that names none is refused: pytest handed no path
+              collects the whole tree.
+
+``ignores`` and ``modules`` exit 2 rather than print nothing, so under ``bash -e``
+the step stops at the redirecting command, before ``mapfile`` reads an empty file.
+``stacks`` may print nothing: a run that selected no stack removes none.
 
 Standard library and the repository's own ``scripts/`` modules only, so it runs
 under the runner's ``python3``.
@@ -61,7 +69,7 @@ def modules(lane_id: str, lanes: Sequence[Lane] = check.LANES) -> list[str]:
     if len(named) != 1:
         raise ValueError(f"{len(named)} lanes have the id {lane_id!r}")
     paths = named[0].modules
-    if paths is None or any(c in path for path in paths for c in "*?["):
+    if not paths or any(c in path for path in paths for c in "*?["):
         raise ValueError(f"lane {lane_id!r} names no module list of plain paths")
     return list(paths)
 
@@ -118,13 +126,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("modules takes a lane id, and only modules does")
     if args.command == "modules":
         try:
-            lines = modules(args.lane)
+            lines = modules(args.lane, check.LANES)
         except ValueError as refusal:
             parser.error(str(refusal))
     elif args.command == "ignores":
         files = check.repository_files()
         hosts = FW.e2e_hosts(check.LANES, files)
         left = ignores(files)
+        if not left:
+            parser.error("derived no --ignore list: the shared lane would run every module")
         print(f"{FW.SHARED_E2E_LANE} leaves {len(left)} modules to their hosts:", file=sys.stderr)
         for arg in left:
             path = arg.removeprefix("--ignore=")

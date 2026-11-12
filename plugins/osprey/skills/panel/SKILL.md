@@ -35,14 +35,16 @@ Create a new directory for the panel (e.g. `my-panel/`) with two files:
 `index.html` and `manifest.json`.
 
 Start `index.html` from the exact head below. The **order is load-bearing** and
-the validator checks two of these lines:
+the validator checks three of these lines:
 
 1. `theme-boot.js` **FIRST** in `<head>` — a plain (non-module) script that
    resolves and applies `data-theme` before first paint, so the panel never
    flashes the wrong theme. It reads the `?theme=` query param for free.
 2. The `tokens.css` stylesheet — the `var(--…)` custom properties everything
    styles against.
-3. A `type="module"` script that calls `initTheme({ role: 'follower' })` (this
+3. The `fonts.css` stylesheet — the shared web fonts; without it the panel
+   falls back to system fonts.
+4. A `type="module"` script that calls `initTheme({ role: 'follower' })` (this
    surface is a follower, never the theme hub — the web terminal is the hub) and
    `applyEmbedded()` (reads `?embedded=true` and hides standalone chrome).
 
@@ -58,6 +60,7 @@ module:
      paint (reads ?theme=), so the panel never flashes the wrong theme. -->
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>My Panel</title>
 <script type="module">
@@ -185,6 +188,7 @@ If it raises, fix each reported `PanelRule` and re-run until it is silent:
 | `ENTRY_MISSING` | the `entry` file doesn't exist on disk | create it, or fix the `entry` value |
 | `MISSING_DESIGN_SYSTEM_LINK` | entry HTML doesn't link `tokens.css` | add the `<link>` (Step 1) |
 | `MISSING_THEME_BOOT` | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
+| `MISSING_FONT_LINK` | entry HTML doesn't link `/static/fonts/fonts.css` | add the `<link>` (Step 1) |
 | `RAW_HEX_COLOR` | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
 
 Note the `RAW_HEX_COLOR` scan is a raw text scan: a URL fragment whose name is

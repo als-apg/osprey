@@ -26,10 +26,21 @@ over it.
 **Sliced posts.** A pass over a large view takes longer to post than the fast
 period lasts, and the run loop runs one item at a time. So in a view with a
 timed channel a pass posts :data:`POST_SLICE` values at a time, the timed and
-forced names first, and between slices runs a timed pass if one fell due. A
+forced names first, and between slices runs a timed pass if one fell due. The
+names one drain of the composite's emission returned are one step, so they all
+go in the first slice, however many there are. A
 name that timed pass posted is dropped from the slices still to come, whose
 value for it is the older one. The read that precedes the post is not sliced:
 a timed pass waits for it.
+
+**Queued writes.** The runner opens no batching window, so a write that
+arrives alone is served at once. The plain writes already queued behind it
+when its cycle starts, each to a channel the pass does not hold yet, are
+served by that same pass: one ``model.set``, one readback, one post, and
+every put completed by it. Merging stops at the first queued item that is
+anything else, which is served next as it was queued, so nothing is served
+out of its arrival order. A merged pass that fails is rolled back and its
+writes are served one cycle each, so every put gets its own verdict.
 
 Every model access happens on the run loop's thread. The composite is not
 thread-safe, so a model RPC call taken on a p4p worker thread is answered by
@@ -46,6 +57,7 @@ import time
 from collections.abc import Collection
 from functools import partial
 from pathlib import Path
+from queue import Empty
 from typing import TYPE_CHECKING, Any
 
 from lume_pva_apg.runner import Runner
@@ -105,7 +117,12 @@ class ModelRunner(Runner):
     (:func:`~osprey.services.virtual_accelerator.serving.runner_config.pass_readback`).
     Of what it reads, a write pass publishes the written channels and those
     whose value or undefined condition changed since they were last
-    published; a pass with no input values reads and publishes them all.
+    published. A tick reads them all and publishes the same way, together
+    with the channels of a write refused since they were last published, so
+    a refused put's alarm lasts until the next tick. Any other pass with no
+    input values -- start-up, a reset -- reads and publishes them all.
+    The writes queued when a write's cycle starts share its pass
+    (:meth:`_run_cycle`).
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
     composite as it was, and a model with ``restore`` takes the cached state
@@ -224,11 +241,89 @@ class ModelRunner(Runner):
         return self._first_pass_error
 
     def _run_cycle(self, item: dict[str, Any]) -> None:
-        """Note the input values this pass writes, then run it and record its outcome."""
+        """Serve ``item``, a write together with the plain writes queued behind it.
+
+        A plain write carries values and nothing else: no reset, no job, no
+        tick. When ``item`` is one, the plain writes already in the queue are
+        taken into its pass, up to the first item that is not one or that
+        writes a channel the pass already holds. That item is served next,
+        unchanged, by the same rule, so arrival order holds and a channel
+        written twice gets a pass per value. Nothing is waited for: an empty
+        queue leaves ``item`` a pass of its own.
+
+        A merged pass that succeeds completes every put it served. One that
+        fails is rolled back as any failed pass is, records no outcome, and
+        its writes are then served one cycle each in arrival order, so a put
+        is refused only when its own write is.
+        """
+        following: dict[str, Any] | None = item
+        while following is not None:
+            item = following
+            merged, following = self._queued_writes(item)
+            if not merged:
+                self._serve(item)
+                continue
+            writes = [item, *merged]
+            outcome: list[str | None] = []
+            self._serve(
+                {
+                    "values": {
+                        name: value for write in writes for name, value in write["values"].items()
+                    },
+                    "done": [outcome.append],
+                    "reset": False,
+                    "jobs": [],
+                    "tick": False,
+                },
+                record=False,
+            )
+            if outcome != [None]:
+                for write in writes:
+                    self._serve(write)
+                continue
+            # The outcome is recorded as a single write's cycle records it:
+            # after the puts, and a record that cannot be written is logged.
+            for done in (*(done for write in writes for done in write["done"]), self._record_pass):
+                try:
+                    done(None)
+                except Exception as exc:
+                    LOG.error("Error signalling put-completion: %s", exc)
+
+    def _queued_writes(
+        self, item: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        """The queued plain writes ``item``'s pass takes, and the item taken off after them.
+
+        The queue cannot be looked into, so the item that ends the merge is
+        taken off it and returned for the caller to serve next; ``None`` when
+        the queue ran empty first. An ``item`` that is not a plain write takes
+        nothing.
+        """
+        merged: list[dict[str, Any]] = []
+        if not _is_plain_write(item):
+            return merged, None
+        held = set(item["values"])
+        while True:
+            try:
+                queued = self.queue.get_nowait()
+            except Empty:
+                return merged, None
+            if not _is_plain_write(queued) or not held.isdisjoint(queued["values"]):
+                return merged, queued
+            held.update(queued["values"])
+            merged.append(queued)
+
+    def _serve(self, item: dict[str, Any], *, record: bool = True) -> None:
+        """Note the input values this pass writes, then run it and record its outcome.
+
+        ``record`` false leaves the outcome to the caller.
+        """
         self._values = item["values"]
         self._set_landed = False
         self._pass_started = False
-        item["done"].append(self._record_pass)
+        item["done"].append(partial(self._forget_refused, tuple(item["values"])))
+        if record:
+            item["done"].append(self._record_pass)
         super()._run_cycle(item)
 
     def _set_cached_state(self, state: dict[str, Any]) -> None:
@@ -265,6 +360,17 @@ class ModelRunner(Runner):
         variables = self.model.supported_variables
         return [name for name in written if name in variables and not variables[name].read_only]
 
+    def _forget_refused(self, names: Collection[str], error: str | None) -> None:
+        """Drop a refused write's channels from the record of what was posted.
+
+        The put's completion alarms a refused channel, and echoes the request
+        on it when unconfirmed writes are echoed, without a post; a channel
+        with no record is posted by the next tick, which restates it.
+        """
+        if error is not None:
+            for name in names:
+                self._served.pop(name, None)
+
     def _cycle_output_names(self) -> list[str]:
         """The roster read after ``model.set``, narrowed for a write pass.
 
@@ -290,9 +396,10 @@ class ModelRunner(Runner):
         """Post a pass's values; a write pass posts only what a client does not hold yet.
 
         A write pass posts the written channels and those whose value or
-        undefined condition changed since they were last posted; any other
-        pass posts every value but the ``fast`` and ``event`` ones, which it
-        posts only when changed. Either way the names the composite emitted
+        undefined condition changed since they were last posted, and a tick
+        posts the changed ones alone; any other pass posts every value but
+        the ``fast`` and ``event`` ones, which it posts only when changed.
+        Either way the names the composite emitted
         are drained here, read when the pass did not, posted, and forced as a
         Channel Access event, unless a read fault holds them; this pass
         published their step, so no timed pass posts it again. A name is
@@ -307,7 +414,8 @@ class ModelRunner(Runner):
             self._cycle_requested_names = (*self._cycle_requested_names, *missing)
         faulted = self._read_faulted()
         posting = out_values
-        if self._write_pass or self._timed_names or emitted:
+        tick = self._pass_is_tick and not self._write_pass
+        if tick or self._write_pass or self._timed_names or emitted:
             udf_now = self._evaluate_severity(list(out_values))
             posting = untimed_outputs(
                 out_values,
@@ -317,36 +425,49 @@ class ModelRunner(Runner):
                 udf_now,
                 self._udf,
                 written=self._written if self._write_pass else None,
+                tick=tick,
             )
-        self._post_forced(posting, ts, forced_names((), emitted, faulted))
+        self._post_forced(posting, ts, forced_names((), emitted, faulted), emitted)
         self._note_deadline()
 
-    def _post_forced(self, values: dict[str, Any], ts: float, forced: frozenset[str]) -> None:
+    def _post_forced(
+        self,
+        values: dict[str, Any],
+        ts: float,
+        forced: frozenset[str],
+        emitted: frozenset[str] = frozenset(),
+    ) -> None:
         """Post ``values``, forcing ``forced``; in slices when a timed pass could fall due.
 
         A view with no timed channel, and a post of one slice or less, posts
-        whole. Otherwise the timed and forced names go in the first slice, and
-        before each later slice a due timed pass runs; what it posted is left
-        out of the rest, which holds the value read before it.
+        whole. Otherwise the ``emitted`` names, one drain of the composite's
+        emission and so one step, go first and all in the first slice however
+        many there are, so no timed pass posts a later step between two of
+        them; the other timed and forced names follow. Before each later slice
+        a due timed pass runs; what it posted is left out of the rest, which
+        holds the value read before it.
         """
         if not self._needs_timed or self._slicing or len(values) <= POST_SLICE:
             self._post_slice(values, ts, forced)
             return
-        first = [name for name in values if name in self._timed_names or name in forced]
+        together = [name for name in values if name in emitted]
+        first = together + [
+            name
+            for name in values
+            if name not in emitted and (name in self._timed_names or name in forced)
+        ]
         ahead = set(first)
         order = first + [name for name in values if name not in ahead]
+        head = max(POST_SLICE, len(together))
         requested = self._cycle_requested_names
         superseded: set[str] = set()
         self._slicing = True
         try:
-            for start in range(0, len(order), POST_SLICE):
+            for start in (0, *range(head, len(order), POST_SLICE)):
                 if start:
                     superseded |= self._timed_between_slices()
-                part = {
-                    name: values[name]
-                    for name in order[start : start + POST_SLICE]
-                    if name not in superseded
-                }
+                end = head if start == 0 else start + POST_SLICE
+                part = {name: values[name] for name in order[start:end] if name not in superseded}
                 self._cycle_requested_names = tuple(part)
                 self._post_slice(part, ts, forced & part.keys())
         finally:
@@ -455,7 +576,7 @@ class ModelRunner(Runner):
                     if name not in faulted or name in changed
                 }
             self._cycle_requested_names = tuple(values)
-            self._post_forced(values, time.time(), forced_names(fast, emitted, faulted))
+            self._post_forced(values, time.time(), forced_names(fast, emitted, faulted), emitted)
             posted = frozenset(values)
             if fast_due:
                 self._fast_posted_at = time.time()
@@ -576,6 +697,11 @@ class ModelRunner(Runner):
             )
         )
         self.providers[f"{self.config['prefix']}{RPC_PV}"] = channel
+
+
+def _is_plain_write(item: dict[str, Any]) -> bool:
+    """Whether a queue item carries values and nothing else: no reset, no job, no tick."""
+    return bool(item["values"]) and not (item.get("reset") or item.get("jobs") or item.get("tick"))
 
 
 __all__ = ["ModelRunner"]

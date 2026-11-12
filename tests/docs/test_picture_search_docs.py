@@ -204,9 +204,8 @@ def test_llama_cpp_stanza_equals_the_packaged_entry() -> None:
 def test_revalidate_named_only_with_its_side_effects() -> None:
     flat = _flat(_text(_GUIDE))
     assert (
-        "``osprey init --revalidate`` also writes it, with side effects: it fills in every "
-        "key the profile leaves to its preset and stamps provenance, which turns on the "
-        "strict preset-drift check"
+        "``osprey init --revalidate`` also writes it, with a side effect: it fills in every "
+        "key the profile leaves to its preset and stamps provenance."
     ) in flat
 
 
@@ -220,8 +219,8 @@ def _upgrade_notes() -> str:
 def test_upgrade_note_profile_keys_sentence() -> None:
     assert (
         "An existing deployment's ``profile.yml`` is explicit and does not gain the new "
-        "keys; ``osprey validate`` lists them as drift. Add the lines shown below, or run "
-        "``osprey init --revalidate`` (it writes every lacking leaf, with the side effects "
+        "keys. Add the lines shown below, or run "
+        "``osprey init --revalidate`` (it writes every lacking leaf, with the side effect "
         "named below); until then ``image_caption`` and "
         "``image_embedding`` keep their code defaults (off) and the view tool its default (on)."
     ) in _upgrade_notes()

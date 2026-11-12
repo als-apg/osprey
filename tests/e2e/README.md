@@ -81,8 +81,7 @@ it); not every Tier 2 test lives there. A miss there says something about the
 model, not the PR: the PR `e2e-tests` lane ignores the directory, and its tests
 run on demand in the `benchmarks` job
 (`gh workflow run ci.yml -f run_benchmarks=true`) and on the board. They carry no
-rerun marker. CI's job names ("Tier 0" to "Tier 3") number a separate scheme, the
-cost of a proof about a preset, and are due to be renamed.
+rerun marker.
 
 Tier 2 tests may deploy the real stack when the task needs it. `tier2/test_chart_value_reading.py`
 measures reading a value off a chart: it brings up the virtual accelerator, the MongoDB

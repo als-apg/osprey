@@ -165,14 +165,17 @@ def _warn_layer_file(path: Path, root_dir: Path) -> None:
     if path in _WARNED_LAYER_FILES:
         return
     _WARNED_LAYER_FILES.add(path)
+    # Imported here: build_profile_load imports this module.
+    from osprey.cli.build_profile_load import RETIRED_ROSTER_KEYS_REFUSED_FROM
+
     successor = RETIRED_LAYER_DIRS[path.parent.name]
     _LOGGER.warning(
-        "%s is read as the tier %s; the '%s/' directory is deprecated and will be "
-        "refused in the next release. To move every file into '%s/', run "
-        "`osprey init --revalidate`",
+        "%s is read as the tier %s; the '%s/' directory is deprecated and refused "
+        "from OSPREY %s. To move every file into '%s/', run `osprey init --revalidate`",
         path,
         root_dir / successor / path.name,
         path.parent.name,
+        RETIRED_ROSTER_KEYS_REFUSED_FROM,
         successor,
     )
 
