@@ -9,15 +9,16 @@
  *   PVs · Curated · In alarm · Uptime · Heartbeat              (tiles)
  *   Alarms on this IOC                  | IOC health PVs · Network
  *
- * The facts carry names only; every value comes from `readValues`. On the VA
- * the engineer is the ENGINEER PV, one of the health PVs, so its line shows
- * that PV's value. In alarm and the alarms card read `facts.alarms`, present
+ * The facts carry names only; every value comes from `readValues`. Each health
+ * PV carries its role (heartbeat, uptime, engineer); the page reads the role,
+ * never the end of the name. On the VA the engineer is the engineer PV, one of
+ * the health PVs, so its line shows that PV's value. In alarm and the alarms card read `facts.alarms`, present
  * only when an alarm feed is configured.
  *
- * Aliveness: the HEARTBEAT PV is read with the other health PVs when the page
+ * Aliveness: the heartbeat PV is read with the other health PVs when the page
  * is shown (or on Refresh) and read again 2 s later; a value that advanced is
  * `yes`, an equal value or a read without an answer is `no`, and a page with
- * no second read yet or no HEARTBEAT PV is `unknown`.
+ * no second read yet or no heartbeat PV is `unknown`.
  *
  * The page is part of All PVs: the toolbar search opens All PVs
  * (panel-toolbar.js).
@@ -37,13 +38,13 @@ import { severityMark, severityOf } from './severity.js';
 /** @typedef {import('./directory-api.js').IocAlarms} IocAlarms */
 /** @typedef {'yes'|'no'|'unknown'} Alive */
 
-/** The time between the two HEARTBEAT reads. */
+/** The time between the two heartbeat reads. */
 export const HEARTBEAT_INTERVAL_MS = 2000;
 
-/** The suffix of the health PV whose advance means alive. */
-const HEARTBEAT = 'HEARTBEAT';
-/** The suffix of the health PV that counts the IOC's uptime. */
-const UPTIME = 'UPTIME';
+/** The role of the health PV whose advance means alive. */
+const HEARTBEAT = 'heartbeat';
+/** The role of the health PV that counts the IOC's uptime. */
+const UPTIME = 'uptime';
 
 /** The Heartbeat tile's words for each aliveness answer. */
 const HEARTBEAT_WORDS = Object.freeze({
@@ -91,8 +92,8 @@ function valueText(row) {
 }
 
 /**
- * The aliveness answer from the two HEARTBEAT reads of `name`.
- * @param {string|null} name - the HEARTBEAT PV, or null when none is listed
+ * The aliveness answer from the two reads of the heartbeat PV `name`.
+ * @param {string|null} name - the heartbeat PV, or null when none is listed
  * @param {ValueRow|undefined} first
  * @param {ValueRow|undefined} second
  * @returns {{ alive: Alive, reason: string }}
@@ -293,7 +294,7 @@ function renderPage(container, facts, mounted) {
   }
   tiles.append(pvs.tile, curated.tile);
   if (facts.alarms) tiles.append(inAlarmTile(facts.alarms));
-  const uptimePv = facts.health_pvs.find((name) => name.endsWith(UPTIME)) ?? null;
+  const uptimePv = facts.health_pvs.find((pv) => pv.role === UPTIME)?.name ?? null;
   const uptime = uptimePv ? tile('uptime', 'Uptime') : null;
   if (uptime) {
     uptime.value.textContent = READING;
@@ -314,7 +315,7 @@ function renderPage(container, facts, mounted) {
   if (facts.health_pvs.length) {
     const table = el('table', 'cf-ioc-health-table');
     const body = el('tbody');
-    for (const name of facts.health_pvs) {
+    for (const { name } of facts.health_pvs) {
       const tr = el('tr');
       const value = el('td', 'cf-ioc-value', READING);
       tr.append(el('td', 'cf-ioc-pv', name), value);
@@ -345,13 +346,13 @@ function renderPage(container, facts, mounted) {
 
   container.replaceChildren(page);
 
-  const heartbeat = facts.health_pvs.find((name) => name.endsWith(HEARTBEAT)) ?? null;
-  const names = [...facts.health_pvs];
+  const heartbeat = facts.health_pvs.find((pv) => pv.role === HEARTBEAT)?.name ?? null;
+  const names = facts.health_pvs.map((pv) => pv.name);
   if (engineerPv && !names.includes(engineerPv)) names.push(engineerPv);
 
   /**
    * @param {{ alive: Alive, reason: string }} answer
-   * @param {(ValueRow|undefined)[]} [reads] - the two HEARTBEAT reads
+   * @param {(ValueRow|undefined)[]} [reads] - the two heartbeat reads
    */
   const showAlive = ({ alive, reason }, reads = []) => {
     chip.className = `osprey-chip osprey-chip--${ALIVE_TONE[alive]}`;

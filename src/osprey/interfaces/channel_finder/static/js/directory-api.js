@@ -194,12 +194,17 @@ import { state } from './state.js';
  *   curated_reason?: string,
  *   engineer: string|null,
  *   engineer_source: 'directory property'|'ENGINEER PV'|null,
- *   health_pvs: string[],
+ *   health_pvs: HealthPv[],
  *   health_pvs_reason?: string,
  *   alarms?: IocAlarms,
  *   links: Record<string, string>,
  *   reason?: string,
  * }} IocFacts
+ */
+
+/**
+ * One IOC health PV: its name and its role.
+ * @typedef {{ name: string, role: 'heartbeat'|'uptime'|'engineer' }} HealthPv
  */
 
 /**

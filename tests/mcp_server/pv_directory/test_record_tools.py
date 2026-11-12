@@ -349,7 +349,10 @@ async def test_a_live_ioc_returns_its_facts_and_health_channel_names(tmp_path: P
     assert facts["curated_count"] == 1
     assert facts["engineer"] == "A. Engineer"
     assert facts["engineer_source"] == "directory property"
-    assert facts["health_pvs"] == ["SR:IOC-A:HEARTBEAT", "SR:IOC-A:UPTIME"]
+    assert facts["health_pvs"] == [
+        {"name": "SR:IOC-A:HEARTBEAT", "role": "heartbeat"},
+        {"name": "SR:IOC-A:UPTIME", "role": "uptime"},
+    ]
     assert facts["links"] == {"panel": f"{PANEL}ioc/ioc-a"}
 
 
@@ -379,9 +382,9 @@ async def test_the_va_ioc_names_its_engineer_channel(tmp_path: Path, record: _Re
     assert facts["engineer_source"] == "ENGINEER PV"
     assert facts["engineer"] == "ca:SIM:SR:ENGINEER"
     assert facts["health_pvs"] == [
-        "ca:SIM:SR:ENGINEER",
-        "ca:SIM:SR:HEARTBEAT",
-        "ca:SIM:SR:UPTIME",
+        {"name": "ca:SIM:SR:ENGINEER", "role": "engineer"},
+        {"name": "ca:SIM:SR:HEARTBEAT", "role": "heartbeat"},
+        {"name": "ca:SIM:SR:UPTIME", "role": "uptime"},
     ]
 
 
@@ -445,4 +448,4 @@ def test_the_record_tools_register_read_only_with_a_title() -> None:
         assert tools[name].title
         assert tools[name].annotations.readOnlyHint is True
     assert "channel_read" in tools["ioc_record"].description
-    assert "HEARTBEAT" in tools["ioc_record"].description
+    assert "``role`` (``heartbeat``" in tools["ioc_record"].description

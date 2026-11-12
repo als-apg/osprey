@@ -12,9 +12,9 @@
   :meth:`Facts.alarm_config` and :meth:`Facts.history` answer one of those
   sections alone, as the PV page shows it, and :meth:`Facts.active_alarms`
   every channel the alarm feed holds in alarm now.
-* :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer, the
-  names of its IOC health PVs and, with an alarm feed configured, its PVs in
-  alarm now.
+* :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer, its
+  IOC health PVs (each a name and its role: heartbeat, uptime or engineer) and,
+  with an alarm feed configured, its PVs in alarm now.
 
 Both return plain dicts on every connectors release. Names are carried, never
 values: the IOC page reads the health PVs (and, on the virtual accelerator, the
@@ -58,7 +58,6 @@ _HISTORY_KINDS = ("alarm_log", "put_log")
 #: The most rows one active-alarms answer serves, to the panel route and the agent tool alike.
 ACTIVE_ALARMS_MAX_ROWS = 1000
 _DEFAULT_ENGINEER_PROPERTY = "Engineer"
-_DEFAULT_HEALTH_SUFFIXES = ("HEARTBEAT", "UPTIME")
 #: The measured RecSync properties holding an IOC's Channel Access and PV Access ports.
 _PORT_PROPERTIES = ("caPort", "pvaPort")
 _HEALTH_PAGE_SIZE = 50
@@ -430,49 +429,72 @@ class Facts:
             return {"curated_count": None, "curated_reason": counted["reason"]}
         return {"curated_count": counted["total"]}
 
-    async def _health_pvs(self, ioc: str, on_va: bool) -> tuple[list[str], str, str | None]:
-        """The IOC's health PV names by the rule of its target, the reason when none, its engineer.
+    async def _health_pvs(
+        self, ioc: str, on_va: bool
+    ) -> tuple[list[dict[str, str]], str, str | None]:
+        """The IOC's health PVs (name and role), the reason when none, its engineer.
 
-        On ``va`` the health PVs are the rows the simulator marks with an IOC
-        health signal, and the engineer is the row marked ``ENGINEER``; on any
-        other target they are the names ending in a configured suffix.
+        On ``va`` a health PV's role is the IOC health signal the simulator
+        marks its row with, and the engineer is the row in the ``engineer``
+        role; on any other target the role is the one whose configured suffix
+        ends the name.
         """
         if on_va:
+            asked = {
+                _role(signal): {SERVED_SIGNAL_PROPERTY: signal} for signal in IOC_HEALTH_SIGNALS
+            }
             pages = await asyncio.gather(
                 *(
-                    self._service.search(
-                        ioc=[ioc],
-                        properties={SERVED_SIGNAL_PROPERTY: signal},
-                        page_size=_HEALTH_PAGE_SIZE,
-                    )
-                    for signal in IOC_HEALTH_SIGNALS
+                    self._service.search(ioc=[ioc], properties=match, page_size=_HEALTH_PAGE_SIZE)
+                    for match in asked.values()
                 )
             )
             found = {
-                signal: [row["name"] for row in page.get("rows") or ()]
-                for signal, page in zip(IOC_HEALTH_SIGNALS, pages, strict=True)
+                (row["name"], role)
+                for role, page in zip(asked, pages, strict=True)
+                for row in page.get("rows") or ()
             }
-            names = sorted({name for listed in found.values() for name in listed})
-            engineer = next(iter(found[ENGINEER]), None)
         else:
-            suffixes = _suffixes(self._display.get("ioc_health_suffixes"))
+            suffixes = self._health_suffixes()
             pages = await asyncio.gather(
                 *(
                     self._service.search(ioc=[ioc], name=f"*{suffix}", page_size=_HEALTH_PAGE_SIZE)
-                    for suffix in suffixes
+                    for suffix in suffixes.values()
                 )
             )
-            names = sorted(
-                {
-                    row["name"]
-                    for page in pages
-                    for row in page.get("rows") or ()
-                    if row["name"].endswith(suffixes)
-                }
-            )
-            engineer = None
+            found = {
+                (row["name"], role)
+                for (role, suffix), page in zip(suffixes.items(), pages, strict=True)
+                for row in page.get("rows") or ()
+                if row["name"].endswith(suffix)
+            }
+        health = [{"name": name, "role": role} for name, role in sorted(found)]
+        engineer = (
+            next((pv["name"] for pv in health if pv["role"] == _role(ENGINEER)), None)
+            if on_va
+            else None
+        )
         failed = [page["reason"] for page in pages if page["outcome"] == "unavailable"]
-        return names, failed[0] if failed and not names else _NO_HEALTH_PVS, engineer
+        return health, failed[0] if failed and not health else _NO_HEALTH_PVS, engineer
+
+    def _health_suffixes(self) -> dict[str, str]:
+        """The record-name suffix of each IOC health role: ``display.ioc_health_suffixes``.
+
+        A mapping of role to suffix; anything else, or a mapping naming no
+        known role, answers the default: each role but the engineer's, ended
+        by its signal's own word.
+        """
+        value = self._display.get("ioc_health_suffixes")
+        signals = {_role(signal): signal for signal in IOC_HEALTH_SIGNALS}
+        if isinstance(value, Mapping):
+            listed = {
+                role: suffix
+                for role, suffix in value.items()
+                if role in signals and isinstance(suffix, str) and suffix
+            }
+            if listed:
+                return listed
+        return {role: signal for role, signal in signals.items() if signal != ENGINEER}
 
     # -- small helpers ---------------------------------------------------
 
@@ -630,9 +652,6 @@ def _ports(properties: Mapping[str, Any]) -> list[int] | None:
     return ports or None
 
 
-def _suffixes(value: Any) -> tuple[str, ...]:
-    if isinstance(value, Sequence) and not isinstance(value, str):
-        listed = tuple(item for item in value if isinstance(item, str) and item)
-        if listed:
-            return listed
-    return _DEFAULT_HEALTH_SUFFIXES
+def _role(signal: str) -> str:
+    """The IOC health role a simulator health signal serves: its word, lower case."""
+    return signal.lower()

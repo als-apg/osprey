@@ -28,11 +28,12 @@ async def ioc_record(ioc: str) -> str:
     Answers the IOC's host, its ports, how many channels it serves (and how
     many are inactive, and how many the curated channel list declares, with
     ``curated_reason`` when that cannot be counted), its engineer and where
-    that came from (``engineer_source``), and ``health_pvs``: the addresses of
-    the IOC's health channels. Names only, never values: to tell whether the
-    IOC is alive, read its health channels with channel_read; a HEARTBEAT
-    that advances between two reads means alive. On the simulator the engineer
-    is the address of a channel; read it with channel_read for the name.
+    that came from (``engineer_source``), and ``health_pvs``: the IOC's health
+    channels, each its ``name`` (address) and ``role`` (``heartbeat``,
+    ``uptime`` or ``engineer``). Names only, never values: to tell whether the
+    IOC is alive, read its health channels with channel_read; a ``heartbeat``
+    channel that advances between two reads means alive. On the simulator the
+    engineer is the address of a channel; read it with channel_read for the name.
     With an alarm feed configured, ``alarms`` lists the IOC's channels in alarm
     now (``outcome``, ``total``, ``rows`` of pv, severity, status, latched,
     acknowledged and time), or ``unavailable`` with the feed's ``reason``.

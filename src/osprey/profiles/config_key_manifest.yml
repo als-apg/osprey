@@ -2494,7 +2494,10 @@ keys:
   pv_directory.display.hidden_properties: {rendered: false, evidence: 'self\._display\.get\("hidden_properties"\)', default: []}
   pv_directory.display.exact_properties: {rendered: false, evidence: 'display\.get\("exact_properties"\)', default: [pvStatus, recordType]}
   pv_directory.display.filter_cap: {rendered: false, evidence: 'self\._display\.get\("filter_cap"\)', default: 5000}
-  pv_directory.display.ioc_health_suffixes: {rendered: false, evidence: 'self\._display\.get\("ioc_health_suffixes"\)', default: [HEARTBEAT, UPTIME]}
+  pv_directory.display.ioc_health_suffixes: {rendered: false, evidence: 'self\._display\.get\("ioc_health_suffixes"\)', default: {heartbeat: HEARTBEAT, uptime: UPTIME}}
+  pv_directory.display.ioc_health_suffixes.heartbeat: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: HEARTBEAT}
+  pv_directory.display.ioc_health_suffixes.uptime: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: UPTIME}
+  pv_directory.display.ioc_health_suffixes.engineer: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: null}
   pv_directory.display.engineer_property: {rendered: false, evidence: 'self\._display\.get\("engineer_property"\)', default: Engineer}
   pv_directory.alarm_log:
     rendered: false

@@ -935,7 +935,10 @@ async def test_a_live_ioc_by_suffix(tmp_path: Path) -> None:
     assert "curated_reason" not in ioc
     assert ioc["engineer"] == "A. Engineer"
     assert ioc["engineer_source"] == "directory property"
-    assert ioc["health_pvs"] == ["SR:IOC-A:HEARTBEAT", "SR:IOC-A:UPTIME"]
+    assert ioc["health_pvs"] == [
+        {"name": "SR:IOC-A:HEARTBEAT", "role": "heartbeat"},
+        {"name": "SR:IOC-A:UPTIME", "role": "uptime"},
+    ]
     assert "health_pvs_reason" not in ioc
     assert ioc["links"] == {"panel": "/panel/channel-finder/#/ioc/ioc-a"}
 
@@ -959,7 +962,7 @@ async def test_configured_health_suffixes_and_engineer_property(tmp_path: Path) 
         _record("SR:IOC-A:HEARTBEAT"),
         _record("SR:IOC-A:ALIVE"),
     )
-    display = {"engineer_property": "Owner", "ioc_health_suffixes": ["ALIVE"]}
+    display = {"engineer_property": "Owner", "ioc_health_suffixes": {"heartbeat": "ALIVE"}}
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "display": display}), tmp_path)
 
     ioc = await page.ioc_facts("ioc-a/1")
@@ -968,8 +971,20 @@ async def test_configured_health_suffixes_and_engineer_property(tmp_path: Path) 
     assert ioc["links"] == {"panel": "/panel/channel-finder/#/ioc/ioc-a%2F1"}
     ioc = await page.ioc_facts("ioc-a")
     assert ioc["engineer"] == "B. Owner"
-    assert ioc["health_pvs"] == ["SR:IOC-A:ALIVE"]
+    assert ioc["health_pvs"] == [{"name": "SR:IOC-A:ALIVE", "role": "heartbeat"}]
     assert ioc["ports"] is None
+
+
+async def test_a_suffix_list_assigns_no_role_and_the_default_roles_apply(tmp_path: Path) -> None:
+    FakeDirectory.records = _records(
+        _record("SR:BPM1"), _record("SR:IOC-A:HEARTBEAT"), _record("SR:IOC-A:ALIVE")
+    )
+    display = {"ioc_health_suffixes": ["ALIVE"]}
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "display": display}), tmp_path)
+
+    ioc = await page.ioc_facts("ioc-a")
+
+    assert ioc["health_pvs"] == [{"name": "SR:IOC-A:HEARTBEAT", "role": "heartbeat"}]
 
 
 async def test_a_hidden_engineer_property_is_not_shown(tmp_path: Path) -> None:
@@ -1069,7 +1084,11 @@ async def test_the_va_ioc(tmp_path: Path, record: _Record) -> None:
     assert ioc["pv_count"] == 5
     assert ioc["engineer_source"] == "ENGINEER PV"
     assert ioc["engineer"] == "ca:SIM:SR:ENGINEER"
-    assert ioc["health_pvs"] == ["ca:SIM:SR:ENGINEER", "ca:SIM:SR:HEARTBEAT", "ca:SIM:SR:UPTIME"]
+    assert ioc["health_pvs"] == [
+        {"name": "ca:SIM:SR:ENGINEER", "role": "engineer"},
+        {"name": "ca:SIM:SR:HEARTBEAT", "role": "heartbeat"},
+        {"name": "ca:SIM:SR:UPTIME", "role": "uptime"},
+    ]
 
 
 async def test_on_va_a_health_name_without_the_mark_is_not_a_health_pv(
@@ -1084,7 +1103,7 @@ async def test_on_va_a_health_name_without_the_mark_is_not_a_health_pv(
 
     ioc = await page.ioc_facts("sim-SR")
 
-    assert ioc["health_pvs"] == ["ca:SIM:SR:ALIVE_COUNTER"]
+    assert ioc["health_pvs"] == [{"name": "ca:SIM:SR:ALIVE_COUNTER", "role": "heartbeat"}]
 
 
 async def test_on_va_the_engineer_is_the_row_marked_engineer(

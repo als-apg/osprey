@@ -30,7 +30,11 @@ const VA = {
   ports: null,
   engineer: 'ca:SIM:SR:ENGINEER',
   engineer_source: 'ENGINEER PV',
-  health_pvs: ['ca:SIM:SR:ENGINEER', 'ca:SIM:SR:HEARTBEAT', 'ca:SIM:SR:UPTIME'],
+  health_pvs: [
+    { name: 'ca:SIM:SR:ENGINEER', role: 'engineer' },
+    { name: 'ca:SIM:SR:HEARTBEAT', role: 'heartbeat' },
+    { name: 'ca:SIM:SR:UPTIME', role: 'uptime' },
+  ],
 };
 
 /**
@@ -251,7 +255,7 @@ test('on the VA the engineer line shows the ENGINEER PV value from the one value
   await mount(VA, [rows, [found('ca:SIM:SR:HEARTBEAT', 43)]]);
 
   expect(readValues).toHaveBeenCalledTimes(1);
-  expect(readValues).toHaveBeenCalledWith(VA.health_pvs);
+  expect(readValues).toHaveBeenCalledWith(VA.health_pvs.map((/** @type {any} */ pv) => pv.name));
   expect(factList()).toMatchObject({ Ports: 'not recorded' });
   expect(engineer()).toBe('operator on shift');
   expect(healthTable()).toEqual({
@@ -361,8 +365,14 @@ describe('alive', () => {
     expect(chip().dataset.alive).toBe('unknown');
   });
 
-  test('health PVs without a HEARTBEAT are unknown', async () => {
-    await mount({ ...VA, health_pvs: ['ca:SIM:SR:UPTIME'] }, [[found('ca:SIM:SR:UPTIME', 5)]]);
+  test('health PVs without a heartbeat role are unknown, whatever their names end in', async () => {
+    const pvs = [
+      { name: 'ca:SIM:SR:UPTIME', role: 'uptime' },
+      { name: 'ca:SIM:SR:X:HEARTBEAT', role: 'uptime' },
+    ];
+    await mount({ ...VA, health_pvs: pvs }, [
+      [found('ca:SIM:SR:UPTIME', 5), found('ca:SIM:SR:X:HEARTBEAT', 7)],
+    ]);
     await vi.advanceTimersByTimeAsync(2000);
     expect(readValues).toHaveBeenCalledTimes(1);
     expect(chip().dataset.alive).toBe('unknown');
