@@ -81,9 +81,10 @@ start-up, the periodic passes, and the timed passes of a view holding a
 - **What a write's pass posts.** Of what it reads, it posts the written
   channels and those whose value or undefined condition changed. An unchanged
   channel keeps the timestamp of its last post.
-- **What the periodic pass does.** The start-up pass and every periodic pass
-  post every channel but the ``fast`` and ``event`` ones, which they post
-  only when changed.
+- **What the periodic pass does.** The start-up pass posts every channel. A
+  periodic pass reads every channel and posts those whose value or undefined
+  condition changed since their last post, and the channels of a write
+  refused since, which clears the alarm that write raised.
 - **What a timed pass does.** A timed pass runs at the earlier of the next
   fast period and the composite's next deadline, such as a shot's next step.
   It advances the composite and posts the ``event`` channels that fired and,
