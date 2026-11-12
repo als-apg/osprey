@@ -327,6 +327,15 @@ def _check_app(
         refuse("name", "reserved_name", f"{m.name!r} is a name OSPREY keeps for itself")
     if not installed:
         out.extend(shadows_installed([m.name], reserved.installed))
+    elif m.origin is not None and m.origin.module is not None:
+        package = m.origin.module.split(".")[0]
+        if taken_package(package):
+            refuse(
+                "",
+                "taken_package",
+                f"the entry point's package {package!r} would be a keyword or shadow a "
+                "standard-library or OSPREY module",
+            )
 
     if not m.containers and m.audit_identity_spelled:
         refuse(

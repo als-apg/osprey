@@ -273,8 +273,7 @@ def _boundary_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
     """The import boundary over each importable package of each application.
 
     A deployment application's packages are its top-level directories holding an
-    ``__init__.py``; an installed application's directory is itself its package, and
-    its imports under its own module are its own.
+    ``__init__.py``; an installed application's directory is itself its package.
     """
     found: list[Violation] = []
     for checked in apps:
@@ -285,9 +284,7 @@ def _boundary_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
                     violation,
                     source=origin.display(_below(violation.source, checked.directory.name)),
                 )
-                for violation in check_package(
-                    checked.directory, app=checked.name, own=origin.module
-                )
+                for violation in check_package(checked.directory, app=checked.name)
             ]
             continue
         packages = _packages(checked.directory)

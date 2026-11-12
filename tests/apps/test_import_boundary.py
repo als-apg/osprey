@@ -168,14 +168,12 @@ def test_a_missing_package_is_refused_not_passed(tmp_path: Path) -> None:
         check_package(tmp_path / "absent")
 
 
-# --- an installed application's own package ---------------------------------------
-
-FIRST_PARTY = "osprey.apps.first_party.fixture"
+# --- no application package lives under a framework root ---------------------------
 
 
-def _installed_package(tmp_path: Path, source: str) -> Path:
-    """A package placed at ``osprey/apps/first_party/fixture`` of a site directory."""
-    package = tmp_path / "osprey" / "apps" / "first_party" / "fixture"
+def _nested_package(tmp_path: Path, parent: str, source: str) -> Path:
+    """A package placed at ``<parent>/fixture`` of a site directory."""
+    package = tmp_path.joinpath(*parent.split("."), "fixture")
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("")
     (package / "helpers.py").write_text("")
@@ -183,55 +181,28 @@ def _installed_package(tmp_path: Path, source: str) -> Path:
     return package
 
 
-@pytest.mark.parametrize(
-    "source",
-    [
-        f"from {FIRST_PARTY}.helpers import x",
-        f"import {FIRST_PARTY}.helpers",
-        f"import {FIRST_PARTY}",
-        "from osprey.apps.sdk import serve_tools",
-    ],
-)
-def test_an_installed_app_imports_its_own_package(tmp_path: Path, source: str) -> None:
-    package = _installed_package(tmp_path, source)
+def test_a_nested_package_imports_itself_by_its_dotted_name(tmp_path: Path) -> None:
+    package = _nested_package(tmp_path, "knob_dist", "from knob_dist.fixture.helpers import x")
 
-    assert check_package(package, app="fixture", own=FIRST_PARTY) == []
+    assert check_package(package, app="fixture") == []
 
 
-@pytest.mark.parametrize(
-    ("source", "imported"),
-    [
-        ("from osprey.registry import mcp", "osprey.registry.mcp"),
-        ("import osprey.apps.first_party", "osprey.apps.first_party"),
-        ("from osprey.apps.first_party.fixturex import y", "osprey.apps.first_party.fixturex.y"),
-    ],
-)
-def test_an_installed_app_is_still_refused_framework_internals(
-    tmp_path: Path, source: str, imported: str
-) -> None:
-    package = _installed_package(tmp_path, source)
+def test_a_package_under_a_framework_root_has_no_imports_of_its_own(tmp_path: Path) -> None:
+    """One rule for every origin: an import under ``osprey`` is OSPREY's, never the app's."""
+    package = _nested_package(tmp_path, "osprey.apps", "from osprey.apps.fixture import helpers")
 
-    [violation] = check_package(package, app="fixture", own=FIRST_PARTY)
+    [violation] = check_package(package, app="fixture")
 
     assert violation.rule == "import_boundary"
-    assert violation.field == imported
-    assert violation.app == "fixture"
+    assert violation.field == "osprey.apps.fixture.helpers"
 
 
-def test_without_own_a_first_party_package_importing_itself_is_refused(tmp_path: Path) -> None:
-    package = _installed_package(tmp_path, f"from {FIRST_PARTY}.helpers import x")
-
-    [violation] = check_package(package)
-
-    assert violation.rule == "import_boundary"
-
-
-def test_an_installed_apps_relative_escape_is_measured_from_its_directory(
+def test_a_nested_packages_relative_escape_is_measured_from_its_directory(
     tmp_path: Path,
 ) -> None:
-    package = _installed_package(tmp_path, "from . import helpers\nfrom .. import loader")
+    package = _nested_package(tmp_path, "knob_dist", "from . import helpers\nfrom .. import loader")
 
-    [violation] = check_package(package, own=FIRST_PARTY)
+    [violation] = check_package(package)
 
     assert violation.rule == "relative_import_escape"
     assert violation.field == ".."
