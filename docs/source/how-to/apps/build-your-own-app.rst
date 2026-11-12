@@ -415,7 +415,8 @@ ships one, which ``osprey app new`` renames with the app. The build installs
 it into every login that shows the app, so the agent that has the tools also
 has the instructions. A listed skill without its file, or a skill name two
 apps share, fails the build. So does ``hooks`` in a listed skill's
-frontmatter: an app ships no hook code.
+frontmatter, or a frontmatter that does not close on a line that is exactly
+``---``: an app ships no hook code.
 
 **The parity rule.** Everything the operator sees in the panel, the agent can
 read through a tool; everything the operator can press, the agent can do

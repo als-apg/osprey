@@ -32,18 +32,69 @@ import yaml
 
 from osprey.utils.tool_rules import matches_denylist
 
-_FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
+#: A frontmatter delimiter: a line that is exactly ``---``, trailing spaces or tabs allowed.
+_DELIMITER_RE = re.compile(r"---[ \t]*")
+
+
+def _normalised_text(path: Path) -> str:
+    """The file's text with a leading byte-order mark dropped and every line ending ``\\n``."""
+    text = path.read_bytes().decode("utf-8").removeprefix("\ufeff")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _frontmatter_lines(md_text: str) -> tuple[list[str], bool] | None:
+    """The lines inside the frontmatter block, and whether a delimiter line closes it.
+
+    The block opens on a first line that is a delimiter and closes on the next line
+    that is one (the close may end the file), as Claude Code reads it. ``None`` when
+    the text opens no block.
+    """
+    lines = md_text.split("\n")
+    if not _DELIMITER_RE.fullmatch(lines[0]):
+        return None
+    for index, line in enumerate(lines[1:], start=1):
+        if _DELIMITER_RE.fullmatch(line):
+            return lines[1:index], True
+    return lines[1:], False
+
+
+def _frontmatter_head_length(md_text: str) -> int | None:
+    """Where the closing delimiter line starts, or ``None`` when no block is closed.
+
+    ``md_text[:n]`` is the opening line and the block, each line ending ``\\n``.
+    """
+    block = _frontmatter_lines(md_text)
+    if block is None or not block[1]:
+        return None
+    opening = md_text.split("\n", 1)[0]
+    return len(opening) + 1 + sum(len(line) + 1 for line in block[0])
 
 
 def _parse_frontmatter(md_text: str) -> dict[str, Any] | None:
-    m = _FRONTMATTER_RE.match(md_text)
-    if not m:
+    block = _frontmatter_lines(md_text)
+    if block is None or not block[1]:
         return None
     try:
-        data = yaml.safe_load(m.group(1))
+        data = yaml.safe_load("\n".join(block[0]))
     except yaml.YAMLError:
         return None
     return data if isinstance(data, dict) else None
+
+
+def _unreadable_frontmatter(md_text: str) -> bool:
+    """Whether the text opens a frontmatter block a reader could take differently.
+
+    True when no delimiter line closes the block, when a line inside it starts with
+    ``---`` (a looser reader closes there and misses the keys after it), or when the
+    block is not a YAML mapping. A caller that copies the file on refuses it.
+    """
+    block = _frontmatter_lines(md_text)
+    if block is None:
+        return False
+    lines, closed = block
+    if not closed or any(line.startswith("---") for line in lines):
+        return True
+    return _parse_frontmatter(md_text) is None
 
 
 def _split_tools(value: Any) -> list[str]:

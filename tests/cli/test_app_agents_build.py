@@ -196,3 +196,31 @@ def test_a_profile_agent_of_the_same_name_refuses_the_build(
 
     assert result.exit_code != 0
     assert "this render already has an agent by that name" in caplog.text
+
+
+class _Spec:
+    def agent_model(self, _name: str) -> str:
+        return PINNED
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [AGENT_MD.encode("utf-8"), b"\xef\xbb\xbf" + AGENT_MD.replace("\n", "\r\n").encode("utf-8")],
+    ids=["plain", "bom-and-crlf"],
+)
+def test_the_model_line_goes_inside_the_frontmatter_the_loader_read(
+    tmp_path: Path, raw: bytes
+) -> None:
+    from osprey.cli.templates.claude_code import stamp_app_agent_models
+
+    agent_file = tmp_path / ".claude" / "agents" / "knob-helper.md"
+    agent_file.parent.mkdir(parents=True)
+    agent_file.write_bytes(raw + b"\n---\n\nmodel: body text\n")
+    ctx = {"agents": [{"name": "knob-helper", "app": "knob"}], "claude_code_model_spec": _Spec()}
+
+    stamp_app_agent_models(tmp_path, ctx)
+
+    text = agent_file.read_text(encoding="utf-8")
+    assert text.startswith(f"---\nname: knob-helper\nmodel: {PINNED}\n")
+    assert text.endswith("\n---\n\nmodel: body text\n")
+    assert parse_agent(text.replace(f"model: {PINNED}\n", ""), app="knob", name="knob-helper")

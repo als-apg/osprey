@@ -108,7 +108,8 @@ today and what is left to you.
    a `hooks/` directory at the app root, a `.claude/` directory anywhere under
    the app, and `hooks` in a listed skill's or agent's frontmatter, each with rule
    `no_hooks`; a listed skill whose frontmatter does not parse as a YAML
-   mapping is refused with rule `skill_frontmatter`. Approval is declared, and
+   mapping, or does not close on a line that is exactly `---`, is refused with
+   rule `skill_frontmatter`. Approval is declared, and
    OSPREY's own hook reads the rendered declaration; it never runs app code.
 
 ## Workflow

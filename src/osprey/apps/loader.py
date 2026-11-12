@@ -495,12 +495,6 @@ SKILL_FRONTMATTER_MESSAGE = (
 )
 
 
-def _normalised_text(path: Path) -> str:
-    """The file's text with a leading byte-order mark dropped and every line ending ``\\n``."""
-    text = path.read_bytes().decode("utf-8").removeprefix("\ufeff")
-    return text.replace("\r\n", "\n").replace("\r", "\n")
-
-
 def _refuse_hooks(root: Path, manifests: tuple[AppManifest, ...]) -> None:
     """Refuse every place an application could bring hook code into the operator session.
 
@@ -511,7 +505,11 @@ def _refuse_hooks(root: Path, manifests: tuple[AppManifest, ...]) -> None:
     skill is never installed, so it is not read. The directory is the one the manifest
     came from.
     """
-    from osprey.cli.validate_claude_artifacts import _parse_frontmatter
+    from osprey.cli.validate_claude_artifacts import (
+        _normalised_text,
+        _parse_frontmatter,
+        _unreadable_frontmatter,
+    )
 
     found: list[Violation] = []
     for manifest in manifests:
@@ -534,7 +532,7 @@ def _refuse_hooks(root: Path, manifests: tuple[AppManifest, ...]) -> None:
             text = _normalised_text(skill_file)
             frontmatter = _parse_frontmatter(text)
             source = origin.manifest_source if origin.installed else f"{home}/{relative}"
-            if frontmatter is None and text.split("\n", 1)[0].rstrip() == "---":
+            if _unreadable_frontmatter(text):
                 found.append(
                     Violation(
                         manifest.name,
@@ -613,6 +611,7 @@ def _check_agents(root: Path, manifests: Iterable[AppManifest]) -> dict[str, tup
     (``delegates_missing``). An agent may share a name with a skill of its own
     application: the two live in different directories.
     """
+    from osprey.cli.validate_claude_artifacts import _normalised_text
     from osprey.registry.mcp import FRAMEWORK_AGENTS
 
     found: list[Violation] = []
@@ -666,7 +665,7 @@ def _check_agents(root: Path, manifests: Iterable[AppManifest]) -> dict[str, tup
                 continue
             try:
                 agent = parse_agent(
-                    path.read_text(encoding="utf-8"), app=manifest.name, name=name, source=source
+                    _normalised_text(path), app=manifest.name, name=name, source=source
                 )
             except AppManifestError as exc:
                 found.extend(exc.violations)
