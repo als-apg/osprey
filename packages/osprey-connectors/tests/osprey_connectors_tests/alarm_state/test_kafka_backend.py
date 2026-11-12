@@ -7,6 +7,7 @@ import json
 import sys
 import types
 from collections import namedtuple
+from datetime import UTC, datetime
 
 import pytest
 
@@ -537,3 +538,84 @@ def test_the_constructor_does_no_io_and_takes_seams_it_ignores():
 
 def test_the_stale_window_is_a_minute():
     assert _phoebus_kafka._STALE_WINDOW_S == 60
+
+
+# -- the list of every channel's state ----------------------------------------------
+
+
+@pytest.fixture
+def wall(monkeypatch, clock: FakeClock) -> FakeClock:
+    """The wall clock follows the fake monotonic one, as seconds since the epoch."""
+    monkeypatch.setattr(_phoebus_kafka, "_wall_now", lambda: datetime.fromtimestamp(clock.now, UTC))
+    return clock
+
+
+def _iso(seconds: float) -> str:
+    moment = datetime.fromtimestamp(seconds, UTC).isoformat(timespec="milliseconds")
+    return moment.replace("+00:00", "Z")
+
+
+async def test_the_list_before_start_is_still_loading_at_once():
+    backend = _backend(FakeConsumer([Record(STATE_KEY, _major())]))
+    began = asyncio.get_running_loop().time()
+    assert await backend.states(deadline=5.0) == LOADING
+    assert _elapsed(began) < 1.0
+
+
+async def test_an_unbuildable_or_unreachable_feed_lists_its_reason_at_once(monkeypatch):
+    monkeypatch.setitem(sys.modules, "aiokafka", types.ModuleType("aiokafka"))
+    unbuildable = PhoebusAlarmState(_spec(topic="Demo"))
+    unreachable = _backend(FakeConsumer(start_error=ConnectionError("broker down")))
+    await unbuildable.start()
+    await unreachable.start()
+
+    began = asyncio.get_running_loop().time()
+    no_settings = await unbuildable.states(deadline=5.0)
+    no_broker = await unreachable.states(deadline=5.0)
+
+    assert _elapsed(began) < 1.0
+    assert "bootstrap_servers" in no_settings.reason
+    assert "cannot be reached" in no_broker.reason
+    await unreachable.aclose()
+
+
+async def test_an_empty_topic_lists_no_message_never_an_empty_list():
+    backend = _backend(FakeConsumer())
+    await backend.start()
+    await _caught_up(backend)
+    assert await backend.states(deadline=1.0) == EMPTY
+    await backend.aclose()
+
+
+async def test_a_caught_up_feed_lists_its_rows_and_last_contact(wall):
+    node = Record(b"state:/Demo/RF", b'{"severity": "MAJOR"}')
+    backend = _backend(FakeConsumer([node, Record(STATE_KEY, _major())]))
+    await backend.start()
+    await _caught_up(backend)
+
+    states = await backend.states(deadline=1.0)
+
+    assert [(row.channel, row.path) for row in states.rows] == [(PV, f"/Demo/RF/{PV}")]
+    assert states.rows[0].state == await _answer(backend)
+    assert dict(states.counts) == {"MAJOR": 1}
+    assert states.stale is False
+    assert states.last_contact == _iso(wall.now)
+    await backend.aclose()
+
+
+async def test_the_last_contact_moves_on_an_offset_check(wall):
+    consumer = FakeConsumer([Record(STATE_KEY, _major())])
+    backend = _backend(consumer)
+    await backend.start()
+    await _caught_up(backend)
+    first = (await backend.states(deadline=1.0)).last_contact
+
+    calls = consumer.end_offset_calls
+    wall.now += _phoebus_kafka._STALE_WINDOW_S + 1
+    await _until(lambda: consumer.end_offset_calls > calls)
+    await _until(lambda: backend._last_contact == wall.now)
+
+    states = await backend.states(deadline=1.0)
+    assert states.last_contact == _iso(wall.now) != first
+    assert states.stale is False
+    await backend.aclose()

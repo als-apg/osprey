@@ -12,6 +12,7 @@ import importlib
 import time
 from collections.abc import Callable, Mapping
 from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
     AlarmState,
     AlarmStateRecord,
+    AlarmStates,
 )
 from osprey_connectors.alarm_state._fold import (
     FEED_EMPTY,
@@ -27,6 +29,7 @@ from osprey_connectors.alarm_state._fold import (
     config_record,
     fold_message,
     state_record,
+    state_rows,
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.service_answers import BackendSpec, Unavailable
@@ -45,6 +48,10 @@ _RETRY_S = 5.0
 #: retries a lost connection inside ``getmany`` and ``position``, so neither raises.
 _LOAD_DEADLINE_S = _STALE_WINDOW_S
 _now = time.monotonic
+
+
+def _wall_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class PhoebusAlarmState(AlarmState):
@@ -76,6 +83,8 @@ class PhoebusAlarmState(AlarmState):
         #: Set once a read has its answer: caught up, or the broker found unreachable.
         self._settled = asyncio.Event()
         self._last_contact = 0.0
+        #: The wall-clock time of ``_last_contact``, as ISO-8601 UTC; ``None`` before any.
+        self._last_contact_at: str | None = None
         self._cannot_start: Unavailable | None = None
 
     async def start(self) -> None:
@@ -100,6 +109,15 @@ class PhoebusAlarmState(AlarmState):
         if unanswered is not None:
             return unanswered
         return state_record(self._snapshot, channel, stale=self._stale())
+
+    async def states(self, deadline: float) -> AlarmStates | Unavailable:
+        await self._settling(deadline)
+        unanswered = self._unanswered()
+        if unanswered is not None:
+            return unanswered
+        stale = self._stale()
+        rows = state_rows(self._snapshot, stale=stale)
+        return AlarmStates(rows=rows, stale=stale, last_contact=self._last_contact_at)
 
     async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._settling(deadline)
@@ -151,6 +169,13 @@ class PhoebusAlarmState(AlarmState):
     def _stale(self) -> bool:
         return _now() - self._last_contact > _STALE_WINDOW_S
 
+    def _contact(self) -> float:
+        """Record contact with the feed now, on both clocks; returns the monotonic time."""
+        self._last_contact = _now()
+        moment = _wall_now().isoformat(timespec="milliseconds")
+        self._last_contact_at = moment.replace("+00:00", "Z")
+        return self._last_contact
+
     async def _run(self) -> None:
         while True:
             try:
@@ -188,11 +213,11 @@ class PhoebusAlarmState(AlarmState):
                         self._caught_up = True
                         self._unreachable = None
                         self._settled.set()
-                        self._last_contact = last_check = _now()
+                        last_check = self._contact()
                     elif _now() - last_check >= _LOAD_DEADLINE_S:
                         raise ConnectionError(f"no message in {_LOAD_DEADLINE_S:g} s of loading")
                 elif received:
-                    self._last_contact = last_check = _now()
+                    last_check = self._contact()
                 elif _now() - last_check >= _OFFSET_CHECK_S:
                     last_check = _now()
                     try:
@@ -200,7 +225,7 @@ class PhoebusAlarmState(AlarmState):
                     except Exception as exc:
                         logger.debug("alarm feed end-offset check failed: %s", exc)
                     else:
-                        self._last_contact = _now()
+                        self._contact()
         finally:
             with suppress(Exception):
                 await consumer.stop()

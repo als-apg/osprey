@@ -115,6 +115,13 @@ class AlarmState(_Backend, ABC):
         """
 
     @abstractmethod
+    async def states(self, deadline: float) -> AlarmStates | Unavailable:
+        """Every channel's alarm state, waiting up to *deadline* seconds for catch-up.
+
+        Before catch-up it answers as :meth:`state_for` does, never an empty list.
+        """
+
+    @abstractmethod
     async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         """The live alarm configuration of *channel*, waiting up to *deadline* seconds for catch-up."""
 
