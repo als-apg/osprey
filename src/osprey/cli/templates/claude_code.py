@@ -616,6 +616,18 @@ def _app_blocks(config: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]
     return [(str(name), block) for name, block in apps.items() if isinstance(block, Mapping)]
 
 
+def _app_agents(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Every ``apps.<name>.agents`` block of the render, by application name."""
+    found: dict[str, Mapping[str, Any]] = {}
+    for name, block in _app_blocks(config):
+        agents = block.get("agents")
+        if isinstance(agents, Mapping) and agents:
+            found[name] = {
+                agent: entry for agent, entry in agents.items() if isinstance(entry, Mapping)
+            }
+    return found
+
+
 def _app_approvals(config: Mapping[str, Any]) -> dict[str, Any]:
     """Every ``apps.<name>.approval.<tool>`` entry, keyed ``mcp__<name>__<tool>``.
 
@@ -1160,7 +1172,9 @@ def build_claude_code_context(
     )
 
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
-    ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
+    ctx["agents"] = resolve_agents(
+        claude_code_config, ctx, project_dir, ctx["servers"], app_agents=_app_agents(config)
+    )
 
     ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
     ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
@@ -2706,6 +2720,47 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
         )
 
 
+def _app_agent_files(ctx: Mapping[str, Any]) -> set[str]:
+    """The render-relative files of the application agents in *ctx*."""
+    return {f".claude/agents/{a['name']}.md" for a in ctx.get("agents") or () if a.get("app")}
+
+
+_MODEL_LINE = re.compile(r"^model:.*\n", re.MULTILINE)
+_NAME_LINE = re.compile(r"^name:.*\n", re.MULTILINE)
+
+
+def stamp_app_agent_models(project_dir: Path, ctx: Mapping[str, Any]) -> None:
+    """Write the ``model:`` line of each application agent file the render carries.
+
+    The model is the deployment's choice (``claude_code.agent_models``, else the
+    main model), never the application's, which may not spell one. The line goes
+    after ``name:`` and replaces one an earlier regeneration wrote; a render
+    with no resolved model gets none.
+    """
+    from osprey.cli.validate_claude_artifacts import _FRONTMATTER_RE
+
+    spec = ctx.get("claude_code_model_spec")
+    for rel in sorted(_app_agent_files(ctx)):
+        path = project_dir / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        # The frontmatter the loader checked: split where it was read.
+        frontmatter = _FRONTMATTER_RE.match(text)
+        if frontmatter is None:
+            continue
+        end = frontmatter.end(1) + 1
+        head, rest = text[:end], text[end:]
+        head = _MODEL_LINE.sub("", head)
+        if spec:
+            name = Path(rel).stem
+            line = f"model: {spec.agent_model(name)}\n"
+            match = _NAME_LINE.search(head)
+            at = match.end() if match else len("---\n")
+            head = head[:at] + line + head[at:]
+        path.write_text(head + rest, encoding="utf-8")
+
+
 def create_claude_code_integration(
     template_root: Path,
     jinja_env,
@@ -3061,10 +3116,13 @@ def regenerate_claude_code(
         manifest_mod.resolve_manifest_outputs(regen_manifest) if regen_manifest else None
     )
 
-    # Filter agents to allowed outputs
+    # Filter agents to allowed outputs. An application's agent is no template
+    # output: the build copied its file, so it stays wherever the render carries it.
     if allowed_outputs is not None:
         ctx["agents"] = [
-            a for a in ctx["agents"] if f".claude/agents/{a['name']}.md" in allowed_outputs
+            a
+            for a in ctx["agents"]
+            if f".claude/agents/{a['name']}.md" in allowed_outputs or a.get("app")
         ]
 
     # Collect checksums of existing Claude Code files before regeneration.
@@ -3105,11 +3163,16 @@ def regenerate_claude_code(
                 src = project_dir / rel_path
                 if not src.exists():
                     continue
-                if rel_path == ".claude/rules/facility.md" or is_user_owned(rel_path, ctx):
+                if (
+                    rel_path == ".claude/rules/facility.md"
+                    or is_user_owned(rel_path, ctx)
+                    or rel_path in _app_agent_files(ctx)
+                ):
                     dst = tmp_dir / rel_path
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
             create_claude_code_integration(template_root, jinja_env, tmp_dir, ctx, allowed_outputs)
+            stamp_app_agent_models(tmp_dir, ctx)
 
             changed = []
             unchanged = []
@@ -3147,6 +3210,7 @@ def regenerate_claude_code(
 
     # Regenerate
     create_claude_code_integration(template_root, jinja_env, project_dir, ctx, allowed_outputs)
+    stamp_app_agent_models(project_dir, ctx)
 
     # Compare checksums
     changed = []

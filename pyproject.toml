@@ -946,6 +946,9 @@ allowed_importers = [
     "osprey.cli.build_cmd",
     "osprey.cli.build_injectors",
     "osprey.cli.build_profile_model",
+    # `osprey set` refuses an agent pin before writing it exactly as the build
+    # would, so it reads the application agents the build accepts.
+    "osprey.cli.set_cmd",
 ]
 
 [[tool.importlinter.contracts]]
