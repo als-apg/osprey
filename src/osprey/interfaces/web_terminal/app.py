@@ -1210,6 +1210,7 @@ def _start_watchdogs(app: FastAPI, view: TerminalConfigView) -> None:
         config=config,
         build_dir=build_dir,
         may_hold=lambda: feature_is_on(app, WATCHDOG_SWITCH),
+        judge_grants=app.state.judge_grants,
     )
 
 

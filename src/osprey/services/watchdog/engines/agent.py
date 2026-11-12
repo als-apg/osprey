@@ -12,7 +12,13 @@ servers it names, so no project hook runs. Read-only holds at four layers:
 * its MCP servers run with ``OSPREY_EXECUTION_MODE=readonly``, under which the
   servers refuse a write themselves;
 * its environment blanks the keys that would tie it to a session: a judge is
-  never held, and never reaches a panel.
+  never held, and never holds the panel token.
+
+A run given an application's tool server (``knowledge`` is a base server) reads
+that application's backend through the terminal's panel door on its own read
+credential: one token per run from the terminal's :class:`JudgeCredentials`,
+scoped to the panels those applications serve, handed to their servers only,
+admitted on their safe-method agent routes only, and revoked when the run ends.
 
 Every tool call refused on the way is reported in ``refused_tool_calls``.
 :meth:`AgentEngine.judge` never raises: a run that times out, hits its budget,
@@ -33,7 +39,7 @@ import uuid
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
@@ -46,6 +52,7 @@ from osprey.agent_runner import (
     read_only_disallowed_tools,
     stream_query,
 )
+from osprey.agent_runner.clean_env import add_panel_token
 from osprey.agent_runner.launcher import RENDERED_MCP_CONFIG
 from osprey.agent_runner.runner import WATCHDOG_SKIP_ENV_VAR
 from osprey.agent_runner.tool_policy import (
@@ -53,6 +60,7 @@ from osprey.agent_runner.tool_policy import (
     make_backstop,
     make_pretooluse_hook,
 )
+from osprey.apps.projection import APP_NAME_ENV
 from osprey.build.claude_code_telemetry import TERMINAL_SESSION_ENV, WATCHDOG_SESSION_PREFIX
 from osprey.services.watchdog.config import WatchdogDefinition
 from osprey.services.watchdog.history import (
@@ -73,7 +81,7 @@ from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DEFAULT_VIEW_TOKENS", "AgentEngine"]
+__all__ = ["DEFAULT_VIEW_TOKENS", "AgentEngine", "JudgeCredentials"]
 
 #: The size of the session view a judge reads, by :func:`rough_tokens`.
 DEFAULT_VIEW_TOKENS = 60_000
@@ -82,7 +90,9 @@ DEFAULT_VIEW_TOKENS = 60_000
 _FILE_TOOLS = ("Read", "Glob", "Grep")
 
 #: The servers a judge's read tools come from, beside any its ``tools`` name.
-_BASE_SERVERS = ("controls", "osprey_facility_knowledge")
+#: ``knowledge`` is the Knowledge application's tool server; its reads reach the
+#: application's backend on the run's read credential.
+_BASE_SERVERS = ("controls", "osprey_facility_knowledge", "knowledge")
 
 #: The result subtype of a run stopped at its budget.
 _BUDGET_SUBTYPE = "error_max_budget_usd"
@@ -113,6 +123,22 @@ _RUN_ENV_OVERLAY: Mapping[str, str] = {
 _REFUSED_DISALLOWED = "disallowed"
 _REFUSED_NOT_ALLOWED = "not_allowed"
 _REFUSED_OUTSIDE_REFERENCES = "outside_references"
+
+
+class JudgeCredentials(Protocol):
+    """The terminal's judge read tokens (``osprey.interfaces.web_auth.JudgeGrants``)."""
+
+    def panels_serving(self, apps: Iterable[str]) -> frozenset[str]:
+        """The ids of the application panels *apps* serve."""
+        ...
+
+    def mint(self, panel_ids: Iterable[str]) -> str:
+        """A fresh token admitted on the read routes of *panel_ids*."""
+        ...
+
+    def revoke(self, token: str) -> None:
+        """End *token*."""
+        ...
 
 
 class _Answer(BaseModel):
@@ -205,6 +231,8 @@ class _RunState:
     tool_names: dict[str, str] = field(default_factory=dict)
     text: list[str] = field(default_factory=list)
     result: ResultEvent | None = None
+    #: The run's read token while it is live.
+    grant: str | None = None
 
     def refuse(self, tool: str, reason: str, tool_use_id: str | None) -> None:
         """Note one refused call, once however many layers report it."""
@@ -372,11 +400,54 @@ def _prompt(defn: WatchdogDefinition, view: SessionView) -> str:
 
 
 class AgentEngine:
-    """Judges prompts with a read-only agent run in one built project."""
+    """Judges prompts with a read-only agent run in one built project.
 
-    def __init__(self, build_dir: Path, *, view_tokens: int = DEFAULT_VIEW_TOKENS) -> None:
+    Args:
+        build_dir: The built project.
+        view_tokens: The size of the session view a judge reads.
+        judge_grants: The terminal's judge read tokens. Without them a run's
+            application tool servers get no credential and cannot reach their
+            backends.
+    """
+
+    def __init__(
+        self,
+        build_dir: Path,
+        *,
+        view_tokens: int = DEFAULT_VIEW_TOKENS,
+        judge_grants: JudgeCredentials | None = None,
+    ) -> None:
         self._build_dir = Path(build_dir)
         self._view_tokens = view_tokens
+        self._grants = judge_grants
+
+    def _grant(self, servers: Mapping[str, Any], state: _RunState) -> None:
+        """Mint the run's read token for the panels its application servers serve.
+
+        An application's tool server carries its application's name in its
+        environment; the token goes into those servers' environments only. A
+        run with no application server, or whose applications serve no panel,
+        mints nothing and keeps every panel token blank.
+        """
+        if self._grants is None:
+            return
+        app_servers = {
+            name: config["env"][APP_NAME_ENV]
+            for name, config in servers.items()
+            if config["env"].get(APP_NAME_ENV)
+        }
+        panels = self._grants.panels_serving(set(app_servers.values()))
+        if not panels:
+            return
+        state.grant = self._grants.mint(panels)
+        for name in app_servers:
+            add_panel_token(servers[name]["env"], state.grant)
+
+    def _revoke(self, state: _RunState) -> None:
+        """End the run's read token, once."""
+        token, state.grant = state.grant, None
+        if token is not None and self._grants is not None:
+            self._grants.revoke(token)
 
     def _run_options(
         self, defn: WatchdogDefinition, gate_state: _RunState
@@ -412,6 +483,15 @@ class AgentEngine:
     async def _run(self, defn: WatchdogDefinition, prompt: str, state: _RunState) -> None:
         """Drive one run to its end, folding its events into *state*."""
         gate, options = await asyncio.to_thread(self._run_options, defn, state)
+        self._grant(options["mcp_servers"], state)
+        try:
+            await self._stream(gate, prompt, options, state)
+        finally:
+            self._revoke(state)
+
+    async def _stream(
+        self, gate: _ToolGate, prompt: str, options: dict[str, Any], state: _RunState
+    ) -> None:
         async with contextlib.aclosing(stream_query(self._build_dir, prompt, **options)) as events:
             async for event in events:
                 if isinstance(event, TextEvent):
@@ -536,6 +616,9 @@ class AgentEngine:
         except Exception as exc:
             logger.warning("Watchdog %r agent run failed: %s", defn.name, type(exc).__name__)
             return verdict(error="run_error")
+        finally:
+            # A run left behind past its grace has not reached its own finally.
+            self._revoke(state)
 
 
 def _at_budget(state: _RunState) -> bool:
