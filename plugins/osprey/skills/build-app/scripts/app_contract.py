@@ -51,8 +51,13 @@ WATCHED: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "apps/loader.py",
-        "what build and check read of a deployment: skills, config keys, services",
+        "what build and check read of a deployment: skills, agents, config keys, services",
         "Product rules (the app's skill); step 2; step 7",
+    ),
+    (
+        "apps/agents.py",
+        "an app's subagent file: frontmatter keys, refused keys, the delegation note",
+        "Product rules (the app's skill); step 7",
     ),
     (
         "apps/boundary.py",
