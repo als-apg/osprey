@@ -423,9 +423,9 @@ class _Connection:
 
 
 class TestCreateConnectionPoolOpen:
-    """The open keeps no clock of its own; a refused store fails at once."""
+    """The open holds to the caller's deadline; a refused store fails at once."""
 
-    async def test_a_store_slower_to_accept_than_five_seconds_still_opens(
+    async def test_a_store_slower_to_accept_than_its_first_reply_opens_under_the_deadline(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import asyncio
@@ -437,21 +437,70 @@ class TestCreateConnectionPoolOpen:
         made: list[_Connection] = []
 
         async def connect(conninfo: str, **_kwargs: object) -> _Connection:  # noqa: ARG001
-            # The store accepts its first connection only after the five
-            # seconds the open used to give it.
+            # The store accepts its first connection only after a while, well
+            # inside the deadline the caller states.
             if not made:
-                await asyncio.sleep(5.5)
+                await asyncio.sleep(0.3)
             made.append(_Connection())
             return made[-1]
 
         monkeypatch.setattr(psycopg.AsyncConnection, "connect", connect)
-        pool = await create_connection_pool(DatabaseConfig(uri="postgresql://slow/ariel"))
+        pool = await create_connection_pool(
+            DatabaseConfig(uri="postgresql://slow/ariel"), deadline_s=2.0
+        )
         try:
             # Returned with its first connection in it, ready for the first client.
             assert pool.get_stats().get("pool_available") == 1
             assert len(made) == 1
         finally:
             await pool.close()
+
+    @pytest.mark.wallclock
+    async def test_a_store_that_never_answers_ends_the_open_at_its_deadline(self) -> None:
+        import time
+
+        from osprey.services.ariel_search.database.connection import create_connection_pool
+        from osprey.services.ariel_search.exceptions import StoreSilentError
+
+        from ._silent_store import MARGIN_S, SHORT_DEADLINE_S, silent_store, silent_uri
+
+        with silent_store() as port:
+            started = time.monotonic()
+            with pytest.raises(StoreSilentError) as raised:
+                await create_connection_pool(
+                    DatabaseConfig(uri=silent_uri(port)), deadline_s=SHORT_DEADLINE_S
+                )
+            elapsed = time.monotonic() - started
+
+        assert SHORT_DEADLINE_S <= elapsed < SHORT_DEADLINE_S + MARGIN_S
+        assert str(raised.value) == (
+            f"the ARIEL store at 127.0.0.1:{port}/ariel did not answer within "
+            f"{SHORT_DEADLINE_S:g} s"
+        )
+        assert "owner-secret" not in str(raised.value)
+        assert (raised.value.host, raised.value.port, raised.value.database) == (
+            "127.0.0.1",
+            str(port),
+            "ariel",
+        )
+        assert raised.value.deadline_s == SHORT_DEADLINE_S
+
+    @pytest.mark.wallclock
+    async def test_a_silent_store_named_without_a_database_keeps_the_login_out(self) -> None:
+        from osprey.services.ariel_search.database.connection import create_connection_pool
+        from osprey.services.ariel_search.exceptions import StoreSilentError
+
+        from ._silent_store import SHORT_DEADLINE_S, silent_store
+
+        # A DSN that names no database: the server would take the login's name
+        # for it, but the login stays out of the words all the same.
+        with silent_store() as port:
+            uri = f"postgresql://operator-login:owner-secret@127.0.0.1:{port}"
+            with pytest.raises(StoreSilentError) as raised:
+                await create_connection_pool(DatabaseConfig(uri=uri), deadline_s=SHORT_DEADLINE_S)
+
+        assert "operator-login" not in str(raised.value)
+        assert raised.value.database == "(default)"
 
     async def test_a_refused_connection_raises_its_own_error_at_once(self) -> None:
         import psycopg
@@ -463,7 +512,28 @@ class TestCreateConnectionPoolOpen:
         with reserved_port() as port:
             uri = f"postgresql://ariel@127.0.0.1:{port}/ariel"
             with pytest.raises(psycopg.OperationalError, match="refused"):
-                await create_connection_pool(DatabaseConfig(uri=uri))
+                await create_connection_pool(DatabaseConfig(uri=uri), deadline_s=30.0)
+
+    async def test_a_refused_open_raises_the_first_connects_error_itself(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import psycopg
+
+        from osprey.services.ariel_search.database.connection import create_connection_pool
+
+        refusals: list[psycopg.OperationalError] = []
+
+        async def connect(conninfo: str, **_kwargs: object) -> _Connection:  # noqa: ARG001
+            # Every connect is refused with its own error; the caller is handed
+            # the first, as the pool recorded it, not one connected for again.
+            refusals.append(psycopg.OperationalError(f"refusal {len(refusals) + 1}"))
+            raise refusals[-1]
+
+        monkeypatch.setattr(psycopg.AsyncConnection, "connect", connect)
+        with pytest.raises(psycopg.OperationalError) as raised:
+            await create_connection_pool(DatabaseConfig(uri="postgresql://refusing/ariel"))
+
+        assert raised.value is refusals[0]
 
 
 class TestDatabaseExports:
