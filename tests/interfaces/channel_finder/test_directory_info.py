@@ -250,6 +250,19 @@ def test_configured_services_follow_the_section(start, tmp_path: Path) -> None:
     assert info["directory"]["configured_services"] == ["alarm_log", "alarm_state", "put_log"]
 
 
+def test_an_archive_serving_a_target_is_a_configured_service(start) -> None:
+    appliance = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
+    no_address = {"type": "epics_archiver", "settings": {}}
+
+    served = _info(start, _config(LIVE_BUILD, {}, archiver=appliance))["directory"]
+    unserved = _info(start, _config(LIVE_BUILD, {}, archiver=no_address))["directory"]
+    mock = _info(start, _config(VA_BUILD, {}, archiver={"type": "mock_archiver"}))["directory"]
+
+    assert served["configured_services"] == ["archive"]
+    assert unserved["configured_services"] == []
+    assert mock["configured_services"] == []
+
+
 def test_a_missing_replay_file_still_serves_the_directory(start) -> None:
     section = {"alarm_state": {"replay_file": "replays/not-there.ndjson"}}
     with start(_config(VA_BUILD, section)) as (app, client):
@@ -321,6 +334,7 @@ def test_the_fixture_names_every_json_panel_route() -> None:
         "ioc/{name}",
         "logbook/availability",
         "alarms",
+        "archive",
         "values",
     }
 
