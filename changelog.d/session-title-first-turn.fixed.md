@@ -1,0 +1,1 @@
+A new session no longer shows "Untitled session" while its first turn runs. The sidebar shows the sent prompt, shortened, at once. The page then lists the sessions again 3, 10 and 30 seconds after the send, so the automatic name arrives during the turn and not only when the turn ends.

@@ -24,6 +24,10 @@
  * cleared on every key change, set by {@link switchTo} (`artifactId`, else the
  * row's `last_artifact_id`) and by the sidebar.
  *
+ * A new session's title during its first turn comes from
+ * session-title-chase.js: the sent prompt stands in, and the model re-lists
+ * until the listing titles the session.
+ *
  * Every way to start a new session (the Agent bar's `+` on either surface, the
  * chat's ⋯ New session, the switcher's "+ New session", the sidebar's
  * Sessions `+` and its Agent row menu) is `switchTo({new: true})`, which tells
@@ -38,6 +42,7 @@ import { isStreaming, newConversation, stopTurn } from './chat.js';
 import { onChat } from './chat-events.js';
 import { resumeSession, startNewSession } from './sessions.js';
 import { isTerminalSurface } from './agent-surface.js';
+import { createTitleChase } from './session-title-chase.js';
 
 /** The hub's session listing. */
 export const SESSIONS_PATH = '/api/sessions';
@@ -61,6 +66,7 @@ export const NEW_SESSION_TITLE = 'New session';
  * @property {boolean} [current_for_key]
  * @property {string} [title]
  * @property {string} [naming]
+ * @property {string|null} [title_source] - null until the listing has a title
  * @property {string|null} [last_artifact_id]
  * @property {string|null} [pinned]
  * @property {string} [state]
@@ -104,6 +110,14 @@ let lastRefreshAt = -Infinity;
 /** @type {Promise<void> | null} */
 let inFlight = null;
 let generation = 0;
+
+const titles = createTitleChase({
+  pointer: getPointer,
+  activeRow: () => activeRow(),
+  held: () => [...loaded, ...pinnedListed],
+  refresh: () => refresh(),
+  changed: () => notify('rows'),
+});
 
 /** @param {string} reason */
 function notify(reason) {
@@ -170,6 +184,7 @@ export function initSessionModel() {
   active = true;
   unsubscribers.push(subscribeToPointer(onPointer));
   unsubscribers.push(onChat('turn-end', () => refresh()));
+  unsubscribers.push(onChat('user-message', titles.sent));
   unsubscribers.push(createEventSource(pageEventsUrl(), { onMessage: onHubFrame }).stop);
   return loadFirst();
 }
@@ -179,8 +194,8 @@ export function resetSessionModel() {
   for (const off of unsubscribers.splice(0)) off();
   if (lastActiveTimer) clearTimeout(lastActiveTimer);
   if (refreshTimer) clearTimeout(refreshTimer);
+  titles.reset();
   lastActiveTimer = refreshTimer = null;
-  listeners.clear();
   loaded = [];
   pinnedListed = [];
   pinOverrides.clear();
@@ -199,6 +214,7 @@ export function resetSessionModel() {
 /** @param {string|null} key */
 function onPointer(key) {
   pickId = pendingPick && pendingPick.key === key ? pendingPick.id : null;
+  titles.pointed(key);
   pendingPick = null;
   if (key) {
     if (lastActiveTimer) clearTimeout(lastActiveTimer);
@@ -237,6 +253,7 @@ function onHubFrame(data) {
   if (data?.type === 'session_transcript') {
     if (loaded.some((r) => r.session_key === data.session_key) || data.session_key === getPointer())
       refresh();
+    if (data.session_key === getPointer()) titles.moved();
     relayToPanels(data.session_key);
   } else if (data?.type === 'session_deleted') {
     forgetSession(data.transcript_id);
@@ -302,7 +319,7 @@ export function activeRow() {
       transcript_id: null,
       session_key: key,
       current_for_key: true,
-      title: NEW_SESSION_TITLE,
+      title: titles.standInFor(key) ?? NEW_SESSION_TITLE,
       last_artifact_id: null,
       synthesized: true,
     }
@@ -474,6 +491,7 @@ function loadFirst() {
       more = Boolean(body?.more);
       record = body?.record ?? 'complete';
       firstLoaded = true;
+      titles.listed();
       notify('rows');
     })
     .catch((err) => {
@@ -561,6 +579,7 @@ async function runRefresh() {
   }
   record = body?.record ?? record;
   firstLoaded = true;
+  titles.listed();
   notify('rows');
 }
 

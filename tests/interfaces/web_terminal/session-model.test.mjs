@@ -11,6 +11,11 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+import {
+  PROMPT_TITLE_CHARS,
+  TITLE_CHASE_MS,
+  shortenedPrompt,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/session-title-chase.js';
 
 const mocks = vi.hoisted(() => ({
   streaming: false,
@@ -79,6 +84,7 @@ const row = (tid, extra = {}) => ({
   session_key: null,
   current_for_key: false,
   title: `Session ${tid.slice(0, 4)}`,
+  title_source: 'auto',
   last_artifact_id: null,
   ...extra,
 });
@@ -475,6 +481,91 @@ describe('listing and refresh', () => {
     expect(model.sessionOfArtifact({ owner: T2 })?.transcript_id).toBe(T2);
     expect(model.sessionOfArtifact({ owner: null })).toBeNull();
     expect(model.sessionOfArtifact({ owner: 'gone' })).toBeNull();
+  });
+});
+
+describe('a new session’s title during its first turn', () => {
+  const PROMPT =
+    'The beam lifetime seemed to drop a few times during the night shift. Pull the beam current.';
+  /** @param {string} text @param {boolean} [replay] */
+  const send = (text, replay = false) => {
+    for (const fn of mocks.chatHandlers['user-message'] ?? []) fn({ text, replay });
+  };
+  const titled = (/** @type {Partial<any>} */ extra) =>
+    row(T3, { session_key: KNEW, current_for_key: true, title_source: 'prompt', ...extra });
+
+  test('the sent prompt stands in at once, and re-listings stop once the listing titles it', async () => {
+    await boot();
+    pointer.setPointer(KNEW);
+    await vi.advanceTimersByTimeAsync(model.REFRESH_THROTTLE_MS + 10);
+    send(PROMPT);
+    expect(model.activeRow()).toMatchObject({
+      title: 'The beam lifetime seemed to drop a few times during the…',
+      synthesized: true,
+    });
+    calls.length = 0;
+    await vi.advanceTimersByTimeAsync(TITLE_CHASE_MS[0] + model.REFRESH_THROTTLE_MS);
+    expect(listings()).toHaveLength(1);
+    // The record has the prompt now: the listing titles the session and the hub names it.
+    pages.first = {
+      ...pages.first,
+      sessions: [titled({ title: 'From the hub' }), ...pages.first.sessions],
+    };
+    await vi.advanceTimersByTimeAsync(TITLE_CHASE_MS[1] + model.REFRESH_THROTTLE_MS);
+    expect(listings()).toHaveLength(2);
+    expect(model.activeRow()?.title).toBe('From the hub');
+    await vi.advanceTimersByTimeAsync(TITLE_CHASE_MS[2] * 2);
+    expect(listings()).toHaveLength(2);
+  });
+
+  test('a listed row without a title shows the sent prompt until the listing has one', async () => {
+    pages.first = {
+      ...pages.first,
+      sessions: [
+        titled({ title: 'Untitled session', title_source: null }),
+        ...pages.first.sessions,
+      ],
+    };
+    await boot(KNEW);
+    send('anything weird overnight?');
+    expect(model.rows()[0].title).toBe('anything weird overnight?');
+    // A re-listing that still has no title keeps the stand-in on the fresh row.
+    await vi.advanceTimersByTimeAsync(TITLE_CHASE_MS[0] + model.REFRESH_THROTTLE_MS);
+    expect(model.rows()[0].title).toBe('anything weird overnight?');
+  });
+
+  test('a titled session, a replayed prompt and a slash command change nothing', async () => {
+    await boot();
+    send(PROMPT);
+    expect(model.activeRow()?.title).toBe('Session aaaa');
+    pointer.setPointer(KNEW);
+    send(PROMPT, true);
+    send('/clear');
+    expect(model.activeRow()?.title).toBe('New session');
+    await vi.advanceTimersByTimeAsync(model.REFRESH_THROTTLE_MS + 10);
+    calls.length = 0;
+    await vi.advanceTimersByTimeAsync(TITLE_CHASE_MS.reduce((a, b) => a + b, 0) + 5000);
+    expect(listings()).toHaveLength(0);
+  });
+
+  test('moving to another session drops the stand-in and the re-listings', async () => {
+    await boot();
+    pointer.setPointer(KNEW);
+    send(PROMPT);
+    pointer.setPointer(K1);
+    await vi.advanceTimersByTimeAsync(model.REFRESH_THROTTLE_MS + 10);
+    calls.length = 0;
+    await vi.advanceTimersByTimeAsync(TITLE_CHASE_MS.reduce((a, b) => a + b, 0) + 5000);
+    expect(listings()).toHaveLength(0);
+    pointer.setPointer(KNEW);
+    expect(model.activeRow()?.title).toBe('New session');
+  });
+
+  test('the shortened prompt matches the hub’s rule', () => {
+    expect(shortenedPrompt('  short\n prompt ')).toBe('short prompt');
+    const long = shortenedPrompt('word '.repeat(30));
+    expect(long.length).toBeLessThanOrEqual(PROMPT_TITLE_CHARS);
+    expect(long.endsWith('word…')).toBe(true);
   });
 });
 
