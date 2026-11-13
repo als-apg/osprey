@@ -58,7 +58,7 @@ KINDS: tuple[str, ...] = (
 )
 
 #: Every warning kind, each ``<thing>-<problem>``.
-WARNING_KINDS: tuple[str, ...] = ("place-wrapped", "link-dangling")
+WARNING_KINDS: tuple[str, ...] = ("place-wrapped", "link-dangling", "kind-deferred")
 
 
 def exact_number(number: float) -> str:

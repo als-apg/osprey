@@ -15,8 +15,9 @@ Four environments cover every real case:
   a figure element out of it. Zero app, zero container; also on by default.
 * ``hermetic_hub`` — boot the real web terminal through
   :func:`docs.screenshots.contact_sheet.hermetic_hub`: a seeded workspace and a
-  canned terminal transcript, with zero containers and no provider. On by
-  default.
+  canned terminal transcript, with zero containers and no provider. A recipe
+  is a stage of the operator chat, or (``hub``) a page of a hub seeded for it.
+  On by default.
 * ``tutorial_stack`` — build the ``demo`` tutorial project, bring up
   Postgres, and seed ARIEL via the product's own commands. Opt-in (``--stack``);
   agentic recipes (the web-terminal hero) additionally need ``--agentic``.
@@ -37,6 +38,10 @@ _ALLOWED_THEMES = frozenset({"light", "dark"})
 
 # The seeded session the ``agent_record`` recipe opens (docs/screenshots/pages.py).
 HISTORY_SESSION = "3f8a1c02-0000-4000-8000-000000000001"
+
+# The recorded session the ``activity_safety`` recipe opens
+# (docs/screenshots/activity_session.json).
+ACTIVITY_SESSION = "42f96113-629c-46fb-b02a-dce13f29b727"
 
 
 @dataclass(frozen=True)
@@ -103,6 +108,13 @@ class DocShot:
     stage: str | None = None
     """A key of :data:`docs.screenshots.contact_sheet.STAGES`: the UI state the
     page is driven into before the shot (``hermetic_hub`` environment only)."""
+
+    hub: str | None = None
+    """Dotted path to a context manager yielding a
+    :class:`~docs.screenshots.contact_sheet.HermeticHub` (``hermetic_hub``
+    environment only). The recipe is then a page of that hub -- ``path``,
+    sub-views and waits as for a standalone interface -- instead of a stage of
+    the operator chat."""
 
     # env → many files
     subviews: tuple[SubView, ...] = ()
@@ -215,6 +227,28 @@ REGISTRY: list[DocShot] = [
         themes=("light", "dark"),
         viewport=(1280, 420),
     ),
+    # The Activity page's Safety view of one recorded session: who allowed each
+    # call, the one approval the operator gave, and the calls a server gate checked.
+    DocShot(
+        name="activity_safety",
+        environment="hermetic_hub",
+        kind="static",
+        hub="docs.screenshots.pages:activity_hub",
+        path="/static/session.html",
+        subviews=(
+            SubView(
+                anchor=f"#{ACTIVITY_SESSION}/safety",
+                out="activity_safety",
+                wait_selector="#inner table",
+            ),
+        ),
+        themes=("light", "dark"),
+        # The session alone, whole: the session list beside it names days
+        # relative to today, and the viewport is tall enough that nothing scrolls.
+        capture_mode="element",
+        element_selector="#inner",
+        viewport=(1280, 1700),
+    ),
     # ARIEL (opt-in ``--stack``), in the live web terminal. One tutorial stack →
     # one PNG of the one screen: rail, list and the seeded logbook's newest
     # entry, clicked into the reader. Single-theme (light) → no theme suffix;
@@ -288,6 +322,9 @@ def validate_registry(registry: list[DocShot] | None = None) -> None:
         and every ``init_sets`` value is ``KEY=VALUE``;
       * a ``stage`` requires the ``hermetic_hub`` environment and must be a key
         of :data:`docs.screenshots.contact_sheet.STAGES`;
+      * a ``hub`` requires the ``hermetic_hub`` environment, excludes a
+        ``stage`` and names a ``path`` other than ``/``; without one, a ``hermetic_hub`` recipe is the operator chat
+        at ``/`` with no sub-views;
       * ``themes`` is a non-empty subset of ``{light, dark}``.
     """
     from docs.screenshots.contact_sheet import STAGES
@@ -335,6 +372,18 @@ def validate_registry(registry: list[DocShot] | None = None) -> None:
 
         if shot.environment == "static_page" and not shot.source_file:
             raise ValueError(f"{shot.name!r}: static_page recipes require a source_file")
+
+        if shot.hub is not None:
+            if shot.environment != "hermetic_hub":
+                raise ValueError(f"{shot.name!r}: a hub requires the hermetic_hub environment")
+            if shot.stage is not None:
+                raise ValueError(f"{shot.name!r}: a hub recipe is a page, not a chat stage")
+            if shot.path == "/":
+                raise ValueError(f"{shot.name!r}: a hub recipe names a page other than '/'")
+        elif shot.environment == "hermetic_hub" and (shot.path != "/" or shot.subviews):
+            raise ValueError(
+                f"{shot.name!r}: a hermetic_hub recipe with a path or sub-views requires a hub"
+            )
 
         if shot.stage is not None:
             if shot.environment != "hermetic_hub":

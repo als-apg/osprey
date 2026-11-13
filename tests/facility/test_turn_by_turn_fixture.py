@@ -38,6 +38,7 @@ from tests.facility._turn_by_turn_fixture import (  # noqa: E402
     INPUTS,
     MONITORS,
     PILOT_TONE,
+    REQUEST,
     RF_SWITCH,
     RING,
     SAMPLES,
@@ -179,6 +180,11 @@ def test_the_ring_carries_every_turn_by_turn_record(view: SimulatorView) -> None
         assert tuple(table) == MONITORS
         for element, address in table.items():
             assert signals[address] == (signal, element, direction)
+
+
+def test_the_request_and_every_arm_are_commands_and_nothing_else_is(view: SimulatorView) -> None:
+    marked = {b.address for model in (CHAIN, RING) for b in view.bindings(model=model) if b.marks}
+    assert marked == {REQUEST, *ARMS.values()}
 
 
 def test_every_monitor_of_the_deck_has_its_records(ring: Any) -> None:

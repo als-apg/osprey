@@ -410,13 +410,13 @@ class _Observed:
         self.lock = threading.Lock()
         self.passes_started = 0
         self.passes_done = 0
-        self.serves_started = 0
-        self.last_tick_serve = 0
         self.solves = 0
         self.chromatic_solves = 0
         self.put_lags: list[int] = []
         self.max_depth = 0
         self.sampling = False
+        self.hold_put_cycle = False
+        self.tick_queued = threading.Event()
 
 
 class _PassFault:
@@ -498,33 +498,25 @@ def _inject_undeliverable_reply(fault: _ReplyFault) -> None:
 def _instrument(runner: Any, observed: _Observed) -> None:
     """Count the run loop's passes and how many each value-carrying item waited.
 
-    Every served item is numbered as it starts, and the number of the latest
-    one that ran a periodic pass and nothing else is kept, so a client can tell
-    a periodic pass that started after its own last step from any other cycle.
+    A put's cycle can be held open once its put has completed, until a tick is
+    queued: the place a cycle is in while it records its outcome.
     """
     run_cycle = runner._run_cycle
-    serve = runner._serve
     put = runner.queue.put
-
-    def numbered_serve(item: dict[str, Any], **kwargs: Any) -> None:
-        with observed.lock:
-            observed.serves_started += 1
-            number = observed.serves_started
-        try:
-            serve(item, **kwargs)
-        finally:
-            if runner._pass_is_tick:
-                with observed.lock:
-                    observed.last_tick_serve = number
 
     def counted_cycle(item: dict[str, Any]) -> None:
         with observed.lock:
             observed.passes_started += 1
             if item.get("values") and "_enqueued_at" in item:
                 observed.put_lags.append(observed.passes_started - item["_enqueued_at"])
+            held = observed.hold_put_cycle and bool(item.get("values"))
+            if held:
+                observed.hold_put_cycle = False
         try:
             run_cycle(item)
         finally:
+            if held:
+                observed.tick_queued.wait(COMMAND_TIMEOUT_S)
             with observed.lock:
                 observed.passes_done += 1
 
@@ -532,6 +524,8 @@ def _instrument(runner: Any, observed: _Observed) -> None:
         if item.get("values"):
             with observed.lock:
                 item["_enqueued_at"] = observed.passes_started
+        if item.get("tick"):
+            observed.tick_queued.set()
         put(item, *args, **kwargs)
 
     def sample() -> None:
@@ -543,7 +537,6 @@ def _instrument(runner: Any, observed: _Observed) -> None:
             time.sleep(0.005)
 
     runner._run_cycle = counted_cycle
-    runner._serve = numbered_serve
     runner.queue.put = marked_put
     threading.Thread(target=sample, daemon=True, name="queue-depth-sampler").start()
 
@@ -639,8 +632,6 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
         with observed.lock:
             return {
                 "passes": observed.passes_done,
-                "serves_started": observed.serves_started,
-                "last_tick_serve": observed.last_tick_serve,
                 "solves": observed.solves,
                 "chromatic_solves": observed.chromatic_solves,
             }
@@ -664,15 +655,28 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
     def undeliverable_next_reply(armed: bool) -> None:
         reply_fault.armed = armed
 
+    def tick_and_wait() -> None:
+        # The queue is served in order, so a job queued behind the tick runs
+        # only once the tick's whole cycle is over, its recorded outcome too.
+        runner._tick()
+        _on_loop(runner, lambda: None)
+
+    def hold_next_put_cycle() -> None:
+        observed.tick_queued.clear()
+        with observed.lock:
+            observed.hold_put_cycle = True
+
     commands: dict[str, Callable[..., Any]] = {
         "config": lambda: json.loads(json.dumps(runner.config)),
         "tick": runner._tick,
+        "tick_and_wait": tick_and_wait,
         "counts": counts,
         "held": lambda names: _on_loop(runner, lambda: composite.held(names)),
         "start_sampling": start_sampling,
         "stop_sampling": stop_sampling,
         "fail_next_pass": fail_next_pass,
         "undeliverable_next_reply": undeliverable_next_reply,
+        "hold_next_put_cycle": hold_next_put_cycle,
     }
     while True:
         try:
@@ -1187,18 +1191,12 @@ def _tick_and_wait(server: _Server) -> None:
 
     A CA read is answered from the server's own copy of each value, which a
     pass sets one channel at a time, so a read made during a pass can see one
-    channel moved and the next not yet.
-
-    The pass waited for is a periodic one that started after this call. A
-    put's completion reaches its client before the put's own cycle has ended,
-    and a timed pass is a cycle too, so the count of cycles finished can move
-    before the periodic pass has run.
+    channel moved and the next not yet. The pass waited for is the one queued
+    here: a put completes before its own cycle ends, so a count of finished
+    cycles taken after a put can still be one short, and the next cycle to
+    finish would then be the put's.
     """
-    started = server.ask("counts")["serves_started"]
-    server.ask("tick")
-    assert _wait_until(lambda: server.ask("counts")["last_tick_serve"] > started), (
-        "the pass never finished"
-    )
+    server.ask("tick_and_wait")
 
 
 class TestDemoComposite:
@@ -1341,6 +1339,22 @@ class TestDemoComposite:
         restated = _ca(CORRECTOR)
 
         assert (refused["severity"], refused["status"]) == CA_WRITE
+        assert restated["value"] == held
+        assert (restated["severity"], restated["status"]) == NO_ALARM
+
+    def test_a_tick_waited_for_behind_a_put_still_ending_its_cycle_restates_the_setpoint(
+        self, demo_server: _Server
+    ) -> None:
+        held = _ca(CORRECTOR)["value"]
+        target = 0.75 if abs(held - 0.75) > 0.1 else -0.75
+        demo_server.ask("fail_next_pass", "the pass failed on purpose", False)
+        # The put completes before its cycle ends: the outcome is recorded after it.
+        demo_server.ask("hold_next_put_cycle")
+
+        _caput(CORRECTOR, target)
+        _tick_and_wait(demo_server)
+        restated = _ca(CORRECTOR)
+
         assert restated["value"] == held
         assert (restated["severity"], restated["status"]) == NO_ALARM
 

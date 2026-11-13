@@ -1203,6 +1203,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``facility:`` link in the body that names no channel or device, prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
+   A measurement kind no installed package registers, in a tree that mounts no
+   machine root and lists no application and no dependency, prints one
+   ``facility: kind-deferred: measurement <model> — …; fix: …`` warning, in
+   ``osprey build`` and in this command; the exit code is unchanged.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and

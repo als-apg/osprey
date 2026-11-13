@@ -183,6 +183,24 @@ session in the terminal; its sidebar lists your sessions. It has four views:
   server gate filed an entry for.
 - **Artifacts** — what the session saved, each with the call that saved it.
 
+.. figure:: /_static/screenshots/activity_safety_light.png
+   :class: only-light
+   :figclass: only-light
+   :alt: The Safety view of one session: 33 calls allowed, one approved by the operator after 31.1 s, none denied, and the 18 calls through a server gate.
+   :width: 100%
+
+   The **Safety** view of a Bluesky grid scan on the virtual accelerator. Of 34
+   calls, one asked the operator. Captured with OSPREY |captured_activity_safety|.
+
+.. figure:: /_static/screenshots/activity_safety_dark.png
+   :class: only-dark
+   :figclass: only-dark
+   :alt: The Safety view of one session: 33 calls allowed, one approved by the operator after 31.1 s, none denied, and the 18 calls through a server gate.
+   :width: 100%
+
+   The **Safety** view of a Bluesky grid scan on the virtual accelerator. Of 34
+   calls, one asked the operator. Captured with OSPREY |captured_activity_safety|.
+
 The chip in the toolbar says how much of this the record vouches for. Click it
 for the reason:
 

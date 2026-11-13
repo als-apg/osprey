@@ -356,7 +356,8 @@ def describe_signal(record: Any) -> Mapping[str, Any]:
     ``setpoint`` refreshing ``pass``; the rest (``armed``, the turn arrays,
     ``turns_tracked``) are ``output`` refreshing ``event``. No signal has a
     plane, so none is taken for an orbit monitor or corrector. The ``kind`` is
-    the signal.
+    the signal. ``arm`` carries the ``command`` mark: a write to it starts one
+    acquisition and holds no value.
 
     Raises:
         ValueError: naming the address for an unknown signal; any other key
@@ -387,7 +388,8 @@ def describe_signal(record: Any) -> Mapping[str, Any]:
     if signal in RING_SIGNALS and (element is not None or field(record, "slices")):
         raise ValueError(f"{address}: signal {signal} is the ring's and names an element")
     if signal in SETTING_SIGNALS:
-        return {"engine_role": "setpoint", "plane": None, "refresh": "pass", "kind": signal}
+        setting = {"engine_role": "setpoint", "plane": None, "refresh": "pass", "kind": signal}
+        return {**setting, "marks": ["command"]} if signal == "arm" else setting
     return {"engine_role": "output", "plane": None, "refresh": "event", "kind": signal}
 
 

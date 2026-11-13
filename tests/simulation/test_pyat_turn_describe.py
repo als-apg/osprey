@@ -60,6 +60,10 @@ def _record(signal: str, address: str, *, element: str | None = None, write: boo
     return record
 
 
+def kind_of(record: dict[str, Any]) -> str:
+    return str(record["engine"]["signal"])
+
+
 # --- The settings block ---------------------------------------------------------------
 
 
@@ -216,12 +220,19 @@ class TestDescribe:
     )
     def test_signal(self, record: dict[str, Any], expected: tuple[str, str, str]) -> None:
         described = engine.describe(record)
-        assert set(described) == {"engine_role", "plane", "refresh", "kind"}
+        marks = {"marks"} if kind_of(record) == "arm" else set()
+        assert set(described) == {"engine_role", "plane", "refresh", "kind"} | marks
         role, refresh, kind = expected
         assert described["engine_role"] == role
         assert described["plane"] is None
         assert described["refresh"] == refresh
         assert described["kind"] == kind
+
+    def test_arm_alone_carries_the_command_mark(self) -> None:
+        arm = engine.describe(_record("arm", "B1:ARM", element="BPM1", write=True))
+        assert arm["marks"] == ["command"]
+        for signal in ("rf_switch", "pilot_tone", "stored"):
+            assert "marks" not in engine.describe(_record(signal, "SR:SET", write=True))
 
     def test_every_signal_is_described(self) -> None:
         assert set(turn.SIGNALS) == {
