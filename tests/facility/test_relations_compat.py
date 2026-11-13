@@ -21,21 +21,40 @@ and ``facility.json`` included, and raises no warning: its authored
 ``Unidentified`` device is no stub. The new-class devices are ordinary devices of the build and
 of the facts view, placed only where a claim projects a place, and a facility that declares its own
 ``PowerSupply`` class still builds.
+
+The second half of the module runs the same questions on the packaged example facility, built as
+shipped, as ``unrelated`` (shipped without ``documents.yaml`` and ``records/relations.yaml``, each
+device a claim projects a place for given that place as authored) and as ``pre`` (the example
+without the records Appendix A adds). Every render is configured so that the pyAML, Bluesky and
+benchmark views are written, and runs in every channel-finder mode. Shipped against unrelated:
+everything under ``data/`` except the graph view is identical, the facts included. Shipped against
+pre: the simulator, limits, pyAML, Bluesky, benchmark, in-context and hierarchical files are
+identical; the middle-layer index differs by the ``-`` and ``HALL`` systems and the ``VS03``
+family only (its DuckDB database is derived from the same index and is not compared); the facts
+only gain what Appendix A adds. Each view of ``views.VIEWS`` is compared or listed in
+``EXCLUDED_VIEWS`` with its reason; ``facility.json`` is excluded because it carries the claims
+and documents themselves, and the graph view because it writes them out as triples.
 """
 
 from __future__ import annotations
 
 import copy
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
+from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey.facility.build import LATER_STAGES, build_facility, build_facility_with_warnings
 from osprey.facility.render import facility_bytes, render_facility_outputs
 from osprey.facility.validate import run_stages
+from osprey.facility.views import VIEWS
 from osprey.facility.views.facts import FACTS_FILE
+from tests._preset_data import packaged_facility_dir
+from tests.facility._appendix_a import example_without_appendix_a
 from tests.facility._synthetic_trees import deck_tree, write_tree
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
@@ -48,6 +67,9 @@ NEW_CLASS_DEVICES = {"SR/PS1": "PowerSupply", "SR/HOST1": "Host", "SR/U1": "Unid
 
 #: The places the ``located_in`` claims of :func:`_with_relations` project, by device id.
 PROJECTED = {"SR/PS1": "SR", "SR/HOST1": "SR"}
+
+#: The benchmark query file a render names so that the benchmarks view is written.
+BENCHMARK_DATASET = "data/benchmarks/queries.json"
 
 _CITATION = {"document": "spec-1", "version": "B", "locator": "p. 4"}
 
@@ -117,9 +139,19 @@ def _build(root: Path, tree: dict[str, Any]) -> tuple[dict[str, Any], Path]:
     return build_facility(facility_dir, project_name="compat"), facility_dir
 
 
-def _render(root: Path, document: dict[str, Any], facility_dir: Path, mode: str) -> Path:
+def _render(
+    root: Path,
+    document: dict[str, Any],
+    facility_dir: Path,
+    mode: str,
+    *,
+    all_views: bool = False,
+) -> Path:
     config = copy.deepcopy(dict(IN_PROCESS_RENDER_CONFIG))
     config["channel_finder"] = {"pipeline_mode": mode}
+    if all_views:
+        config["channel_finder"]["benchmark"] = {"dataset_path": BENCHMARK_DATASET}
+        config["services"] = {LANE_KEYS[0]: {}}
     render_dir = root / f"render-{mode}"
     render_dir.mkdir(parents=True)
     render_facility_outputs(render_dir, document, config, facility_dir, omitted_reported=set())
@@ -312,3 +344,220 @@ def test_a_facility_declaring_its_own_power_supply_builds(tmp_path: Path) -> Non
     [ps] = [d for d in document["devices"] if d["id"] == "SR/PS1"]
     assert ps["class"] == "PowerSupply"
     assert [c["class"] for c in document["classes"]] == ["PowerSupply"]
+
+
+# ---------------------------------------------------------------------------
+# The packaged example facility
+# ---------------------------------------------------------------------------
+
+#: Every view of ``views.VIEWS`` this module does not compare, with the reason.
+EXCLUDED_VIEWS = {
+    "graph": "it writes the relation claims out as triples, so claims change it by design",
+}
+
+#: The views compared, each written by a render configured as ``_render(all_views=True)``.
+COMPARED_VIEWS = frozenset(
+    {
+        "simulator",
+        "limits",
+        "pyaml",
+        "facts",
+        "bluesky",
+        "in_context",
+        "hierarchical",
+        "middle_layer",
+        "benchmarks",
+    }
+)
+
+#: Files directly under ``data/`` that views with path ``.`` write.
+_ROOT_FILES = {
+    "limits": ("channel_limits.json",),
+    "facts": ("facility_facts.json", "facility_facts.md"),
+    "bluesky": ("bluesky_devices.yml",),
+}
+
+_MIDDLE_LAYER = "data/channel_finder/middle_layer"
+
+
+def test_every_view_is_compared_or_excluded_with_a_reason() -> None:
+    names = [view.name for view in VIEWS]
+    assert sorted(names) == sorted(COMPARED_VIEWS | set(EXCLUDED_VIEWS))
+    assert not COMPARED_VIEWS & set(EXCLUDED_VIEWS)
+    assert all(EXCLUDED_VIEWS.values())
+
+
+def _view_files(files: dict[str, bytes]) -> dict[str, bytes]:
+    """The files of a render under ``data/``, less the excluded views' directories."""
+    excluded = tuple(
+        f"data/{view.path}/" for view in VIEWS if view.name in EXCLUDED_VIEWS and view.path != "."
+    )
+    return {
+        path: content
+        for path, content in files.items()
+        if path.startswith("data/") and not path.startswith(excluded)
+    }
+
+
+def _unrelated(source: Path, document: dict[str, Any], root: Path) -> Path:
+    """The shipped example minus its documents and claims, projected places authored."""
+    shutil.copytree(source, root)
+    (root / "documents.yaml").unlink()
+    (root / "records" / "relations.yaml").unlink()
+    projected = {
+        d["id"]: d["place"]
+        for d in document["devices"]
+        if d.get("provenance", {}).get("place_from") == "relation"
+    }
+    assert projected, "the example projects no place: the comparison would be vacuous"
+    path = root / "records" / "devices.yaml"
+    devices = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for device in devices:
+        if device["id"] in projected:
+            device["place"] = projected[device["id"]]
+    path.write_text(yaml.safe_dump(devices, sort_keys=False), encoding="utf-8")
+    return root
+
+
+@pytest.fixture(scope="module")
+def example_renders(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[tuple[str, str], dict[str, bytes]]:
+    """Every file of every render of the shipped, unrelated and pre example, by variant and mode."""
+    root = tmp_path_factory.mktemp("example")
+    shipped_dir = root / "shipped" / "facility"
+    shutil.copytree(packaged_facility_dir(), shipped_dir)
+    shipped = build_facility(shipped_dir, project_name="compat")
+    assert shipped["relations"] and shipped["documents"]
+    unrelated_dir = _unrelated(shipped_dir, shipped, root / "unrelated" / "facility")
+    pre_dir = example_without_appendix_a(root / "pre" / "facility")
+    variants = {}
+    for name, facility_dir in (
+        ("shipped", shipped_dir),
+        ("unrelated", unrelated_dir),
+        ("pre", pre_dir),
+    ):
+        variants[name] = (build_facility(facility_dir, project_name="compat"), facility_dir)
+    assert "relations" not in variants["unrelated"][0]
+    assert "relations" not in variants["pre"][0]
+
+    renders = {}
+    for name, (document, facility_dir) in variants.items():
+        for mode in MODES:
+            render_dir = _render(root / name / mode, document, facility_dir, mode, all_views=True)
+            renders[name, mode] = _every_file(render_dir)
+    return renders
+
+
+def _differing(left: dict[str, bytes], right: dict[str, bytes]) -> list[str]:
+    return [p for p in sorted(set(left) | set(right)) if left.get(p) != right.get(p)]
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_every_configured_view_is_written(
+    example_renders: dict[Any, dict[str, bytes]], mode: str
+) -> None:
+    files = _view_files(example_renders["shipped", mode])
+    for prefix in ("simulator", "pyaml", "benchmarks", "channel_finder"):
+        assert any(path.startswith(f"data/{prefix}/") for path in files), prefix
+    for names in _ROOT_FILES.values():
+        for name in names:
+            assert f"data/{name}" in files, name
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_example_claims_change_no_machine_view(
+    example_renders: dict[Any, dict[str, bytes]], mode: str
+) -> None:
+    shipped = _view_files(example_renders["shipped", mode])
+    unrelated = _view_files(example_renders["unrelated", mode])
+    assert _differing(shipped, unrelated) == []
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_example_additions_leave_the_other_views_unmoved(
+    example_renders: dict[Any, dict[str, bytes]], mode: str
+) -> None:
+    shipped = _view_files(example_renders["shipped", mode])
+    pre = _view_files(example_renders["pre", mode])
+    differing = _differing(shipped, pre)
+    allowed = {f"data/{name}" for name in _ROOT_FILES["facts"]}
+    if mode == "middle_layer":
+        allowed |= {f"{_MIDDLE_LAYER}.json", f"{_MIDDLE_LAYER}.duckdb"}
+    assert set(differing) == allowed, differing
+
+
+def test_middle_layer_gains_only_the_example_additions(
+    example_renders: dict[Any, dict[str, bytes]],
+) -> None:
+    shipped = json.loads(example_renders["shipped", "middle_layer"][f"{_MIDDLE_LAYER}.json"])
+    pre = json.loads(example_renders["pre", "middle_layer"][f"{_MIDDLE_LAYER}.json"])
+    assert sorted(set(shipped) - set(pre)) == ["-", "HALL"]
+    assert set(pre) <= set(shipped)
+    for system, families in pre.items():
+        if not isinstance(families, dict):  # a top-level scalar, not a system
+            assert shipped[system] == families, system
+            continue
+        extra = set(shipped[system]) - set(families)
+        assert extra == ({"VS03"} if system == "SR" else set()), system
+        for family, body in families.items():
+            assert shipped[system][family] == body, (system, family)
+
+
+def _additions(pre: Any, shipped: Any, path: str = "") -> dict[str, Any]:
+    """What *shipped* adds to *pre*, by path; anything removed or changed otherwise fails."""
+    if isinstance(pre, dict) and isinstance(shipped, dict):
+        assert set(pre) <= set(shipped), f"{path}: removed {sorted(set(pre) - set(shipped))}"
+        added = {}
+        for key, value in shipped.items():
+            if key not in pre:
+                added[f"{path}/{key}"] = value
+            else:
+                added.update(_additions(pre[key], value, f"{path}/{key}"))
+        return added
+    if isinstance(pre, list) and isinstance(shipped, list):
+        missing = [item for item in pre if item not in shipped]
+        assert not missing, f"{path}: removed {missing}"
+        grown = [item for item in shipped if item not in pre]
+        return {path: grown} if grown else {}
+    if isinstance(pre, int) and isinstance(shipped, int) and not isinstance(pre, bool):
+        assert shipped >= pre, f"{path}: {pre} fell to {shipped}"
+        return {path: shipped - pre} if shipped > pre else {}
+    assert pre == shipped, f"{path}: {pre!r} became {shipped!r}"
+    return {}
+
+
+def test_facts_gain_only_the_example_additions(
+    example_renders: dict[Any, dict[str, bytes]],
+) -> None:
+    def facts(variant: str) -> dict[str, Any]:
+        return json.loads(example_renders[variant, "in_context"][f"data/{FACTS_FILE}"])
+
+    added = _additions(facts("pre"), facts("shipped"))
+
+    assert {key.split("/")[1] for key in added} <= {
+        "device_classes",
+        "places",
+        "place_levels",
+        "unplaced_devices",
+    }
+    new_classes = {
+        "Circuit",
+        "ControlApplication",
+        "ElectronicsChassis",
+        "Host",
+        "NetworkSwitch",
+        "PowerSupply",
+        "TimingChannel",
+        "UtilityLoop",
+    }
+    gained = {key.split("/")[2] for key in added if key.startswith("/device_classes/")}
+    assert new_classes <= gained
+    assert added["/device_classes/Quadrupole/count"] == 1
+    assert {"HALL", "SR/SECT3/G2"} <= {place["id"] for place in added["/places"]}
+    assert "/place_levels" in added
+    assert new_classes <= {k.split("/")[2] for k in added if k.startswith("/unplaced_devices/")}
+    # The VS03 group is the only group the example adds.
+    groups = {key: value for key, value in added.items() if key.endswith("/groups")}
+    assert groups
+    assert all(value == ["SR/VS03"] for value in groups.values())
