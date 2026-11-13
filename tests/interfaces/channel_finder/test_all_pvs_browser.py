@@ -472,7 +472,8 @@ def test_every_column_is_reachable_at_1600_px_with_the_agent_pane_open(
         "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth"
     ), "the selection bar widens the panel"
     names = [header["name"] for header in headers]
-    assert names == ["Name", "Description", "Value", "Alarm", "Record", "IOC"], names
+    # Arch. is on: the demo's own store is the ``va`` target's archive, reachable or not.
+    assert names == ["Name", "Description", "Value", "Alarm", "Record", "IOC", "Arch."], names
     for header in headers:
         assert header["inside"], header
         assert header["scrolled"] == [] and header["pageX"] == 0, header
