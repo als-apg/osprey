@@ -83,9 +83,10 @@ start-up, the periodic passes, and the timed passes of a view holding a
 - **What a write's pass posts.** Of what it reads, it posts the written
   channels and those whose value or undefined condition changed. An unchanged
   channel keeps the timestamp of its last post.
-- **What the periodic pass does.** The start-up pass and every periodic pass
-  post every channel but the ``fast`` and ``event`` ones, which they post
-  only when changed.
+- **What the periodic pass does.** The start-up pass posts every channel. A
+  periodic pass reads every channel and posts those whose value or undefined
+  condition changed since their last post, and the channels of a write
+  refused since, which clears the alarm that write raised.
 - **What a timed pass does.** A timed pass runs at the earlier of the next
   fast period and the composite's next deadline, such as a shot's next step.
   It advances the composite and posts the ``event`` channels that fired and,
@@ -98,10 +99,13 @@ Timed passes take their turn with the others, so one waits while a write's or
 a periodic pass's solve runs: the fast period and a shot's step offsets hold
 between solves, not through one. A long post holds them back less: a pass
 posting more than 2000 channels posts them in slices and runs a due timed
-pass between two.
+pass between two. The ``event`` channels one advance fired go together in the
+first slice, however many, so no timed pass posts a later step between two of
+them.
 
 A view an older OSPREY wrote is refused before the ready line, with a message
-asking for ``osprey build``.
+asking for ``osprey build``. The one exception is a view of the previous
+schema, ``osprey.facility.simulator/3``, which loads with no model inputs.
 
 Two transports, one write path
 ==============================
@@ -152,12 +156,53 @@ a model had pending. In process nothing advances the model: it serves its
 start values and a write starts nothing.
 
 The shipped ``injection`` engine (``osprey.simulation.engines.injection``) is
-the one time-driven engine. A model naming it names no deck: its wiring
+time-driven. A model naming it names no deck: its wiring
 records and settings are the whole chain. A client write of its request
 starts a shot, which steps each reading at its own offset; those readings and
 the free-running cycle signal refresh ``event``, the fast copy of the stored
 current refreshes ``fast``, and the setpoints and the stored current refresh
-``pass``. Declaring a chain is in :ref:`va-injection-chain`.
+``pass``. It is the only source of shots. Declaring a chain is in
+:ref:`va-injection-chain`.
+
+A ``pyat`` ring whose settings state a ``turn_by_turn`` block is time-driven
+too. It reads a chain's shot counter, charge and stored current as model
+inputs; a rise of the counter outside a baseline is a shot, which the next
+advance tracks through the deck for the monitors a client write armed. The
+arrays and turns tracked are emitted in one advance and ``armed`` drops in a
+later one, so a client sees the arrays before ``armed`` reads ``0``. Its
+outputs refresh ``event`` and its settings ``pass``. Tracking runs inside the
+advance and holds the serving loop for its length, a read answering from the
+last post meanwhile. Such a ring without a closed orbit, as with its RF
+off, keeps serving with its orbit readings NaN, where any other periodic ring
+refuses the write. Wiring a ring is in :ref:`va-turn-by-turn`.
+
+Model inputs
+============
+
+A model may read records another model wires: its *inputs*, declared on the
+model record (see :ref:`architecture-simulation-models`). An input is a value
+handed over, not a shared channel: the producer serves the address, and the
+consumer's engine receives the producer's plain value through
+``take_inputs``.
+
+- **Order.** The composite orders its models so every producer comes before
+  its consumers, the rest in name order. A facility without inputs keeps name
+  order and makes no delivery.
+- **Delivery.** Served, a consumer gets its inputs immediately before each
+  advance of it, so it sees what its producers reached on that same pass. A
+  client write to a producer reaches its consumers on the next pass; there is
+  no separate delivery after a write.
+- **Baseline.** A delivery is a *baseline* when it is the first after the
+  consumer or one of its producers was built, rebuilt or reset; a scenario
+  change rebuilds every model, so it is one too. A baseline says "start from
+  here": the engine compares nothing against what it held, so a step in an
+  input across a rebuild triggers nothing.
+- **A failed producer.** Its inputs are left out of the delivery; when none
+  remain, no call is made. A ``take_inputs`` that raises fails the consumer.
+
+Only the served Virtual Accelerator advances time. In process the composite
+does not evolve: it delivers at build, at reset and after every write, each
+delivery a baseline, so an input never starts anything there.
 
 The LUME stack and its pins
 ===========================

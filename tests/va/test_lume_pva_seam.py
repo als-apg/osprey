@@ -166,6 +166,8 @@ CA_UDF = (3, 17)
 PVA_UDF = (3, 6)
 #: (severity, status) of a float outside its range on PVAccess.
 PVA_RANGE = (2, 2)
+#: (severity, status) of a setpoint whose last put was refused, on Channel Access.
+CA_WRITE = (3, 2)
 NO_ALARM = (0, 0)
 
 # -- the names tree: two separator conventions, no physics model ---------------
@@ -1213,7 +1215,7 @@ class TestDemoComposite:
         after_tick = demo_server.ask("counts")
         assert after_tick["chromatic_solves"] - after_put["chromatic_solves"] == 1
 
-    def test_a_corrector_put_posts_nothing_on_an_unrelated_setpoint(
+    def test_neither_a_corrector_put_nor_the_periodic_pass_posts_on_an_unrelated_setpoint(
         self, demo_server: _Server
     ) -> None:
         corrector = demo_server.channels[CORRECTOR]
@@ -1240,17 +1242,22 @@ class TestDemoComposite:
             after_put = events.counts()
             stamps_after_put = (_pva_stamp(demo_server.pva_get(unrelated)), _ca(unrelated))
 
-            tick_at = time.time()
             _tick_and_wait(demo_server)
-            heartbeat = _wait_until(lambda: events.counts()["pva"] > connected["pva"])
+            after_tick = events.counts()
+            stamps_after_tick = (_pva_stamp(demo_server.pva_get(unrelated)), _ca(unrelated))
+
+            # The monitor was live throughout: a put of the held value is posted.
+            assert _caput(unrelated, _ca(unrelated)["value"])
+            posted = _wait_until(lambda: events.counts()["pva"] > connected["pva"])
 
         assert after_put == connected
         assert stamps_after_put[0] < put_at
         assert stamps_after_put[1]["timestamp"] < put_at
-        # Channel Access sends no event for a scalar that kept its value, so the
-        # periodic pass shows there as the restamp alone.
-        assert heartbeat, f"{unrelated}: the periodic pass posted nothing on PVAccess"
-        assert _ca(unrelated)["timestamp"] >= tick_at
+        # The periodic pass read the setpoint and found it as the clients hold it.
+        assert after_tick == connected
+        assert stamps_after_tick[0] < put_at
+        assert stamps_after_tick[1]["timestamp"] < put_at
+        assert posted, f"{unrelated}: its own put posted nothing on PVAccess"
 
     def test_a_put_of_the_held_value_still_publishes_the_setpoint(
         self, demo_server: _Server
@@ -1291,6 +1298,22 @@ class TestDemoComposite:
 
         assert "the pass failed on purpose" in status["last_refused_write"]
         assert "the pass failed on purpose" in status["last_failed_pass"]["error"]
+
+    def test_a_refused_put_alarms_its_setpoint_until_the_next_periodic_pass(
+        self, demo_server: _Server
+    ) -> None:
+        held = _ca(CORRECTOR)["value"]
+        target = 0.75 if abs(held - 0.75) > 0.1 else -0.75
+        demo_server.ask("fail_next_pass", "the pass failed on purpose", False)
+
+        _caput(CORRECTOR, target)
+        refused = _ca(CORRECTOR)
+        _tick_and_wait(demo_server)
+        restated = _ca(CORRECTOR)
+
+        assert (refused["severity"], refused["status"]) == CA_WRITE
+        assert restated["value"] == held
+        assert (restated["severity"], restated["status"]) == NO_ALARM
 
     def test_a_failed_tick_pass_is_reported_by_status(self, demo_server: _Server) -> None:
         demo_server.ask("fail_next_pass", "the tick failed on purpose", False)

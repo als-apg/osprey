@@ -520,6 +520,10 @@ specific first:
        path cannot diverge.
    * - The local account
      - The single-user laptop case, where the process account *is* the person.
+       ``osprey web``, ``chat`` and ``query`` file under the name the build
+       recorded for it, ``deployment.host_identity``: the login in lowercase,
+       so ``GMartino`` files as ``gmartino``. State a name in ``profile.yml``
+       to choose another.
    * - ``unknown``
      - An honest floor. A slim image often has no account entry for its uid;
        that is routine, and an unresolvable identity must never cost the

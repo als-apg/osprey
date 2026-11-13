@@ -110,6 +110,7 @@ redirects: dict[str, str] = {
     "how-to/add-connector": "control-systems/use-connectors.html",
     "how-to/use-virtual-accelerator": "control-systems/use-virtual-accelerator.html",
     "how-to/switch-control-target": "control-systems/switch-control-target.html",
+    "how-to/run-scenarios": "control-systems/use-virtual-accelerator.html",
     "how-to/protected-set": "../reference/configuration/config.html",
     # Facility services
     "how-to/use-facility-knowledge": "facility-knowledge/index.html",
@@ -121,7 +122,7 @@ redirects: dict[str, str] = {
     # Developer material
     "how-to/use-python-executor": "../architecture/python-executor.html",
     # Contract reference pages
-    "reference/contracts/simulation-bundle": "../../how-to/run-scenarios.html",
+    "reference/contracts/simulation-bundle": "../configuration/scenario-files.html",
 }
 
 templates_path = ["_templates"]

@@ -282,7 +282,7 @@ web:
       enabled: true
     bluesky:
       enabled: true
-      label: BLUESKY
+      label: Bluesky
       path: /bluesky/
       url: ${BLUESKY_WEB_URL:-http://localhost:10071}
     canopy:
@@ -294,7 +294,7 @@ web:
     events:
       enabled: true
       health_endpoint: /health
-      label: EVENTS
+      label: Events
       path: /dashboard
       url: http://localhost:10010
     jupyter:

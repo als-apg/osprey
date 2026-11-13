@@ -25,6 +25,7 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
     mark_long_lived_session,
     raise_for_write_result,
+    raise_for_write_results,
     values_match,
 )
 
@@ -55,6 +56,7 @@ __all__ = [
     "mapping_config_lookup",
     "mark_long_lived_session",
     "raise_for_write_result",
+    "raise_for_write_results",
     "step_read_timeout_seconds",
     "values_match",
 ]

@@ -156,11 +156,13 @@ class TestSupportsNativeStructuredOutput:
         [
             # anthropic declares the flag as None, so the decision defers to litellm.
             #
-            # litellm does not recognize the bare "claude-sonnet-4" model string, so
+            # litellm has no entry for a made-up Claude model, so
             # ``supports_response_schema`` reports False — i.e. OSPREY uses its
-            # prompt-based fallback. Asserting the concrete decision (not just that a
-            # bool came back) catches an inverted or short-circuited routing bug.
-            pytest.param("anthropic/claude-sonnet-4", "anthropic", id="litellm-string"),
+            # prompt-based fallback. A real model name would tie the test to
+            # litellm's model table, which learns new aliases (1.95 added
+            # "anthropic/claude-sonnet-4"). Asserting the concrete decision (not just
+            # that a bool came back) catches an inverted or short-circuited routing bug.
+            pytest.param("anthropic/claude-not-a-real-model", "anthropic", id="litellm-string"),
             # Unknown models should return False (use prompt-based fallback)
             # instead of raising.
             pytest.param("unknown/nonexistent-model-xyz", "unknown", id="unknown-model"),

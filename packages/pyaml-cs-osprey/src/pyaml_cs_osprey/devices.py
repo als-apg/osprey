@@ -56,11 +56,10 @@ from pyaml_cs_osprey.units import UnitError, factor, si_unit
 
 __all__ = ["OspreyDeviceList"]
 
-#: ``ChannelWriteBlockedError`` reasons that refuse every channel of a batch alike,
-#: so a batch refused for one of them wrote nothing. Any other refusal of a
-#: multi-channel batch (the control system's, a per-channel validation) comes back
-#: after the connector sent the batch's other channels.
-_WHOLE_BATCH_REFUSALS = frozenset({"WRITES_DISABLED", "LIMITS"})
+#: ``ChannelWriteBlockedError`` reasons that refuse every channel of a batch alike.
+#: A batch refused for one of them sent no channel whose outcome the runtime did
+#: not report; under any other reason such a channel is taken as sent.
+_WHOLE_BATCH_REFUSALS = frozenset({"WRITES_DISABLED", "LIMITS", "BATCH_REFUSED"})
 
 
 class OspreyDeviceList(DeviceAccessList):
@@ -213,24 +212,41 @@ class OspreyDeviceList(DeviceAccessList):
         return batch
 
     def _write(self, batch: dict[str, float], *, confirm: bool | None) -> None:
-        """Write ``batch`` as one runtime call inside the process's run."""
+        """Write ``batch`` as one runtime call inside the process's run.
+
+        A refusal stays a refusal while no other channel of the batch went
+        out: a batch stopped at its checks wrote nothing. A refusal after other
+        channels were sent, like a failed write, names them. The runtime's
+        write records say which went out; a channel with no reported outcome
+        counts as sent unless the refusal is one of :data:`_WHOLE_BATCH_REFUSALS`.
+        """
+        records: list[tuple[str, str]] = []
+
+        def write(**kwargs: Any) -> None:
+            with osprey.runtime.record_writes() as recorded:
+                try:
+                    osprey.runtime.write_channels(batch, **kwargs)
+                finally:
+                    records.extend(recorded)
 
         def map_error(exc: Exception) -> OspreyWriteRefused | OspreyWriteFailed:
-            if isinstance(exc, ChannelWriteFailedError) or (
-                isinstance(exc, ChannelWriteBlockedError)
-                and len(batch) > 1
-                and exc.reason not in _WHOLE_BATCH_REFUSALS
-            ):
+            if isinstance(exc, ChannelWriteFailedError):
                 return _batch_failure(exc, list(batch))
+            if isinstance(exc, ChannelWriteBlockedError):
+                known = {"sent", "landed", "refused"}
+                if exc.reason in _WHOLE_BATCH_REFUSALS:
+                    reported = {a for a, phase in records if phase in known}
+                    others = [a for a in batch if a in reported]
+                else:
+                    others = list(batch)
+                sent = [
+                    a for a in others if a != exc.channel_address and _run._moved(a, records, exc)
+                ]
+                if sent:
+                    return _batch_failure(exc, [*sent, exc.channel_address])
             return map_write_error(exc)
 
-        _run.write(
-            list(batch),
-            lambda **kwargs: osprey.runtime.write_channels(batch, **kwargs),
-            map_error,
-            map_read=map_read_error,
-            confirm=confirm,
-        )
+        _run.write(list(batch), write, map_error, map_read=map_read_error, confirm=confirm)
 
     # --- metadata --------------------------------------------------------------
 
@@ -367,7 +383,7 @@ def _si_word(device: DeviceAccess) -> str:
 def _batch_failure(
     exc: ChannelWriteFailedError | ChannelWriteBlockedError, addresses: list[str]
 ) -> OspreyWriteFailed:
-    """Map a mid-batch failure or refusal, naming every other address as sent."""
+    """Map a mid-batch failure or refusal, naming every other of ``addresses`` as sent."""
     failing = exc.channel_address
     others = [a for a in addresses if a != failing]
     reason = _write_reason(exc)

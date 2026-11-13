@@ -16,10 +16,17 @@ to open — never raises out of the factory (that exception would be swallowed b
 the daemon-thread launcher, leaving a silent dead tab). Instead the app is built
 with ``app.state.bundle = None``: ``/health`` still returns 200 and every data
 endpoint returns a clear JSON "not configured" error.
+
+The Graph view is a second, optional surface over the same panel: when the
+deployment configures a facility graph (``services.graphdb.ttl_path``) the
+Turtle file ``osprey build`` wrote is read once at ``create_app`` time and
+served flattened at ``/api/graph``. Without one the page never shows the view
+switch, and a graph that cannot be read degrades the same way.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -56,6 +63,9 @@ templates.env.globals["vendor_url"] = vendor_url
 # unopenable path). HTTP 503 = the service is up but cannot serve data yet.
 _NOT_CONFIGURED = {"error": "facility_knowledge.bundle_path not configured"}
 _NOT_CONFIGURED_STATUS = 503
+
+# Returned by ``/api/graph`` when the deployment has no facility graph.
+_NO_GRAPH = {"error": "services.graphdb.ttl_path not configured"}
 
 
 def _ranked_backend_kwargs():
@@ -162,6 +172,76 @@ def _load_facility_records():
         return None
 
 
+def _configured_graph_path():
+    """Where the deployment's facility graph sits, or ``None`` when it has none.
+
+    Returns:
+        The absolute path ``services.graphdb.ttl_path`` names, resolved against
+        the render as the graph store's seeder resolves it. ``None`` when the
+        config names no graph or cannot be read.
+    """
+    from osprey.deployment.graphdb_service import (
+        graph_corpus_configured,
+        resolve_graphdb_service_config,
+    )
+    from osprey.utils.config_paths import resolve_render_relative_path
+    from osprey_connectors.workspace import load_osprey_config
+
+    try:
+        config = load_osprey_config()
+        if not graph_corpus_configured(config):
+            return None
+        resolved = resolve_graphdb_service_config(config)
+        if resolved is None or not resolved.ttl_path:
+            return None
+        return resolve_render_relative_path(resolved.ttl_path)
+    except Exception:  # degrade to no Graph view, never kill the panel.
+        logger.warning(
+            "okf panel: services.graphdb is misconfigured; serving no graph view.",
+            exc_info=True,
+        )
+        return None
+
+
+def _load_graph(graph_path, bundle, records):
+    """Read the facility graph as the Graph view's response body, or ``None``.
+
+    Args:
+        graph_path: A Turtle file to read, or a falsy value to take the one the
+            project config names.
+        bundle: The served bundle, or ``None``; with ``records`` it tells which
+            knowledge pages name which node.
+        records: The facility records, or ``None``.
+
+    Returns:
+        The ``/api/graph`` body as JSON bytes, serialised once since the graph
+        does not change while the panel runs. ``None`` when the deployment has
+        no graph, or its file is absent, unreadable or empty: the page then
+        shows no Graph view.
+    """
+    path = Path(graph_path) if graph_path else _configured_graph_path()
+    if path is None:
+        return None
+
+    from osprey.interfaces.okf_panel.graph import attach_pages, page_references, read_graph
+
+    try:
+        payload = read_graph(path)
+        if bundle is not None and records is not None:
+            attach_pages(payload, page_references(bundle, records))
+    except Exception:  # degrade to no Graph view, never kill the panel.
+        logger.warning(
+            "okf panel: the facility graph at %s cannot be read; serving no graph view.",
+            path,
+            exc_info=True,
+        )
+        return None
+    if not payload["nodes"]:
+        logger.warning("okf panel: the facility graph at %s is empty.", path)
+        return None
+    return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+
 def _facility_references(body, records):
     """The ``facility_references`` and ``unresolved`` fields of a concept response.
 
@@ -185,17 +265,21 @@ def _facility_references(body, records):
     }
 
 
-def create_app(bundle_path=None) -> FastAPI:
+def create_app(bundle_path=None, graph_path=None) -> FastAPI:
     """Create the OKF Knowledge Panel FastAPI application.
 
     Args:
         bundle_path: Filesystem path to the OKF bundle directory, resolved from
             ``facility_knowledge.bundle_path`` by the registry's
             ``factory_config_kwargs``. Falsy or unopenable → guarded app.
+        graph_path: A facility-graph Turtle file to serve in the Graph view.
+            Omitted, the one ``services.graphdb.ttl_path`` names is served, and
+            a deployment that names none has no Graph view.
 
     Returns:
         Configured FastAPI application with the bundle cached on
-        ``app.state.bundle`` (or ``None`` in guarded mode).
+        ``app.state.bundle`` (or ``None`` in guarded mode) and the Graph view's
+        response body on ``app.state.graph`` (or ``None`` without a graph).
     """
     app = FastAPI(
         title="OSPREY OKF Knowledge Panel",
@@ -205,6 +289,7 @@ def create_app(bundle_path=None) -> FastAPI:
 
     app.state.bundle = _load_bundle(bundle_path)
     app.state.facility_records = _load_facility_records()
+    app.state.graph = _load_graph(graph_path, app.state.bundle, app.state.facility_records)
 
     def _bundle_or_error():
         """Return ``(bundle, None)`` when configured, else ``(None, JSONResponse)``."""
@@ -227,7 +312,9 @@ def create_app(bundle_path=None) -> FastAPI:
         """Serve the SPA shell, or a placeholder when it is not installed."""
         index_html = STATIC_DIR / "index.html"
         if index_html.exists():
-            return templates.TemplateResponse(request, "index.html", {})
+            return templates.TemplateResponse(
+                request, "index.html", {"graph": app.state.graph is not None}
+            )
         return JSONResponse(
             {
                 "service": "okf-panel",
@@ -286,7 +373,7 @@ def create_app(bundle_path=None) -> FastAPI:
     # ``rerank: true`` even when the sidecar is healthy). Awaited on the event
     # loop that work would stall every other request in the process, including
     # the reading pane. A sync route runs in Starlette's threadpool instead, so
-    # a slow or hung sidecar costs the search and nothing else. The other four
+    # a slow or hung sidecar costs the search and nothing else. The other
     # handlers are in-memory and stay `async`.
     @app.get("/api/search")
     def api_search(q: str = ""):
@@ -335,6 +422,18 @@ def create_app(bundle_path=None) -> FastAPI:
         if err:
             return err
         return bundle_health(validate_bundle(bundle))
+
+    @app.get("/api/graph")
+    async def api_graph() -> Response:
+        """The facility graph as ``{"nodes", "edges", "derived"}``.
+
+        The shape is :func:`osprey.interfaces.okf_panel.graph.graph_payload`'s.
+        404 when the deployment has no facility graph: unlike the bundle, a
+        graph is optional, so its absence is not a service fault.
+        """
+        if app.state.graph is None:
+            return JSONResponse(_NO_GRAPH, status_code=404)
+        return Response(app.state.graph, media_type="application/json")
 
     # Shared CORS + middleware + static mounts (/design-system, /static/fonts,
     # /static) applied last so they wrap the fully-assembled app and never

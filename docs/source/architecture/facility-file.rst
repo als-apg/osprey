@@ -22,7 +22,7 @@ The facility file
 
 ``build/facility.json`` is every record of the facility in one document,
 under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
-``channels``, ``groups``, ``models`` with their wiring, ``limits`` and
+``channels``, ``groups``, ``models`` with their wiring and inputs, ``limits`` and
 ``scenarios``. A model's *deck* is the lattice file its simulation engine
 loads, and its *wiring* is the set of records that tie channel addresses to
 elements of that deck.
@@ -412,6 +412,47 @@ the texture's.
 Every served model, ``texture`` included, also has read-only IOC health
 channels, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``, which
 the IOC pages of All PVs read (:doc:`/how-to/use-pv-directory`).
+
+**A model may read another model's records.** A model record's ``inputs``
+lists records other models of the facility wire, each an ``address`` and an
+``engine`` block in the consuming engine's own words:
+
+.. code-block:: yaml
+
+   - name: down
+     engine: <an engine that takes inputs>
+     inputs:
+     - address: UP:CHARGE
+       engine: <the consuming engine's words for this input>
+
+An input is never wiring: the producer alone wires the address, and the
+consumer reads its value. The view carries each model's ``inputs`` only when
+it declares some. The build stops on the consuming model, naming the input,
+when:
+
+- the address is wired by no model (``reference-missing``);
+- the address is one the model wires itself (``value-invalid``);
+- the model lists the address twice (``value-invalid``);
+- the inputs form a cycle, a model reading, through other models, a record of
+  its own; the stop names every step of it (``value-invalid``);
+- the engine has no ``take_inputs`` (``engine-invalid``);
+- the engine's ``describe_input`` refuses the ``engine`` block
+  (``engine-invalid``, with the engine's text).
+
+A model without ``inputs`` builds and serves as before.
+
+**A pyat ring may serve turn-by-turn data.** Its ``pyat`` settings state a
+``turn_by_turn`` block naming at least the ``injection_element``; its inputs
+are an injection chain's records with ``engine: {signal: shot}``,
+``{signal: charge}`` and ``{signal: stored_current}``; and its wiring adds
+records with the signals ``arm``, ``armed``, ``turn_x``, ``turn_y`` and
+``turn_sum``, each naming a monitor ``element``, and ``turns_tracked``,
+``rf_switch``, ``pilot_tone`` and ``stored``. Each array channel is declared
+``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. The build
+stops ``engine-invalid`` on a malformed block, a turn record on a ring
+without one, a record of the wrong value type or shape, and a monitor record
+whose element is not a monitor. The settings, their defaults and what a shot
+does are in :ref:`va-turn-by-turn`.
 
 How the composite serves the models over Channel Access and PVAccess is in
 :doc:`virtual-accelerator`.

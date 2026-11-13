@@ -165,7 +165,8 @@ shell, the same way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
    * - ``OSPREY_BASE_REGISTRY``
      - ``docker.io``
      - Registry standing in for ``docker.io``: the base image is
-       ``${OSPREY_BASE_REGISTRY}/library/<image>``. The mirror must keep Docker
+       ``${OSPREY_BASE_REGISTRY}/library/<image>``, and Node is copied out of
+       ``${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim``. The mirror must keep Docker
        Hub's paths; pull-through caches such as a Harbor proxy project, an
        Artifactory remote and a Nexus docker proxy do.
    * - ``OSPREY_OFFLINE``

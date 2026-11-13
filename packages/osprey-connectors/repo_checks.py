@@ -42,6 +42,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.control_system.raise_for_write_result": (
+        "a caller holding one write result raises for a write that did not go through"
+    ),
     "osprey_connectors.directory.ChannelDirectory": (
         "an out-of-tree directory backend subclasses it"
     ),

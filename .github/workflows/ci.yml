@@ -73,7 +73,7 @@ env:
 # 10 minutes, and a capped step sits below it; a job with no such data keeps 60.
 jobs:
   test:
-    name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} (${{ matrix.shard }})
+    name: Test Python — ${{ matrix.python-version }} on ${{ matrix.os }}, ${{ matrix.shard }}
     runs-on: ${{ matrix.os }}
     # Generous on purpose: runtime varies by runner, and a cap at the healthy runtime reds healthy runs.
     timeout-minutes: 75
@@ -101,7 +101,7 @@ jobs:
 
     - &install-uv-matrix-python
       name: Install uv
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       with:
         enable-cache: true
         python-version: ${{ matrix.python-version }}
@@ -176,7 +176,7 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   serial-suites:
-    name: Serial suites Python ${{ matrix.python-version }} on ubuntu-latest
+    name: Serial Test Suites — Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     # Suites that must not share a runner (they time the box or need their own process). The job cap is
     # the step caps plus setup; test_ci_workflow_wiring.py holds the sum.
@@ -212,7 +212,8 @@ jobs:
       run: uv run python scripts/check.py run live-ca
 
   dependency-floor:
-    name: Archiver suite at the declared dependency floor
+    # The archiver suite against the lowest dependency versions the package declares.
+    name: Archiver Dependency Floor Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -225,7 +226,7 @@ jobs:
     # `python-version` sets UV_PYTHON for every later step of the job.
     - &install-uv
       name: Install uv
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       with:
         enable-cache: true
         python-version: '3.11'
@@ -257,7 +258,8 @@ jobs:
           -v --tb=short
 
   optimizer:
-    name: Optimizer service (engine + real Redis)
+    # The optimizer engine against a real Redis.
+    name: Optimizer Service Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The `service` extra is installed only here, so the `test` lanes skip its engine suite.
@@ -296,7 +298,8 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   connectors-standalone:
-    name: Connectors suite without the framework
+    # The connectors suite with no framework installed.
+    name: Connectors Standalone Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -340,7 +343,8 @@ jobs:
       run: python3 scripts/ci/connectors_compat_matrix.py github-output
 
   connectors-compat:
-    name: Connectors HEAD under framework ${{ matrix.framework || '(none listed)' }}
+    # Connectors HEAD under each listed framework release.
+    name: Connectors Compat — framework ${{ matrix.framework || 'none listed' }}
     needs: connectors-compat-plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -368,7 +372,7 @@ jobs:
 
     - name: Install uv
       if: matrix.framework != ''
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       with:
         enable-cache: true
         python-version: '3.11'
@@ -390,7 +394,8 @@ jobs:
         --venv "$COMPAT_VENV" --workdir "$RUNNER_TEMP/contracts"
 
   framework-at-connectors-floor:
-    name: Framework HEAD at its declared connectors floor
+    # Framework HEAD against its declared connectors floor.
+    name: Framework at Connectors Floor Tests
     needs: connectors-compat-plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -414,7 +419,7 @@ jobs:
 
     - name: Install uv
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       with:
         enable-cache: true
         python-version: '3.11'
@@ -500,7 +505,8 @@ jobs:
       run: python3 scripts/check.py run gitleaks --base "$BASE"
 
   docs:
-    name: Documentation Build (Check Only)
+    # Check only: the deploy lives in docs.yml.
+    name: Documentation Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -538,7 +544,8 @@ jobs:
       run: python3 scripts/check.py run linkcheck
 
   package:
-    name: Package Build (framework + lean connectors wheel)
+    # The framework and lean connectors wheels.
+    name: Package Build
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -558,7 +565,8 @@ jobs:
         retention-days: 7
 
   static-checks:
-    name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
+    # Preset YAML and builds, skill ↔ MCP-tool consistency, podman-compose parse.
+    name: Preset Static Checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -569,7 +577,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Run Tier 0 static checks
+    - name: Run the preset static checks
       timeout-minutes: 15
       run: uv run pytest tests/integration/test_preset_static.py tests/integration/test_preset_build.py -v --tb=short
 
@@ -607,7 +615,8 @@ jobs:
         engine: podman
 
   visual-theming:
-    name: Behavioral + Visual Theming (Playwright, design system)
+    # Playwright over the design system.
+    name: Behavioral + Visual Theming Tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # No `if:`: nothing else runs the browser suites, and UI changes come from outside `interfaces/`.
@@ -691,7 +700,8 @@ jobs:
           -v --tb=short
 
   visual-theming-agent:
-    name: Watchdog Browser + Visual Regression (Playwright)
+    # Playwright.
+    name: Watchdog Browser + Visual Regression Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -828,7 +838,8 @@ jobs:
         commit_user_email: "github-actions[bot]@users.noreply.github.com"
 
   frontend-js:
-    name: Frontend JS (typecheck + lint + vitest)
+    # Typecheck, lint and vitest.
+    name: Frontend JS Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -853,7 +864,8 @@ jobs:
       run: python3 scripts/check.py run tsc eslint prettier vitest app-check-js
 
   plugin-smoke:
-    name: Plugin marketplace smoke (install the osprey plugin)
+    # Installs the osprey plugin from the marketplace.
+    name: Plugin Marketplace Smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # No `if:`: changes outside `plugins/` can break the install.
@@ -903,7 +915,7 @@ jobs:
       run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
 
   build-boot-smoke:
-    name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
+    name: Preset Build + MCP Boot — ${{ matrix.preset }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -918,7 +930,7 @@ jobs:
 
     - *sync-dev-deps
 
-    - name: Run Tier 1 boot smoke for preset
+    - name: Run the build + MCP boot smoke for the preset
       env:
         PRESET: ${{ matrix.preset }}
         # Over /tmp's tmpfs quota otherwise; see "Run unit tests".
@@ -926,7 +938,7 @@ jobs:
       run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 
   agentic-per-preset:
-    name: Tier 3 — Agentic flow (${{ matrix.preset }})
+    name: Preset Agentic Flow — ${{ matrix.preset }}
     runs-on: ubuntu-latest
     # Above the 3x-p90 rule: ten runs of data, and the gateway's latency is not ours to bound.
     timeout-minutes: 25
@@ -956,7 +968,7 @@ jobs:
 
     - *install-pinned-cli
 
-    - name: Run Tier 3 agentic test for preset
+    - name: Run the agentic flow test for the preset
       timeout-minutes: 20
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
@@ -992,6 +1004,14 @@ jobs:
 
     - *sync-dev-deps
 
+    - &read-deploy-layer-cache
+      name: Read the deploy image layers from main's cache
+      # deploy-cache-warmup writes, on each push to main, the layers of every image `osprey up --dev`
+      # builds, one registry tag per recipe; a lane only reads them (src/osprey/deployment/build_cache.py).
+      # A tag not written yet is a BuildKit warning, never a failure. The package is public: no login,
+      # so fork and Dependabot runs read it too.
+      run: echo "OSPREY_BUILD_CACHE_FROM=type=registry,ref=ghcr.io/${GITHUB_REPOSITORY,,}-build-cache:{key}" >> "$GITHUB_ENV"
+
     - *llm-preflight-probe
 
     - *install-pinned-cli
@@ -1016,9 +1036,8 @@ jobs:
           # Every module another lane hosts (or no CI job runs) is left out; the LANES tables
           # in scripts/repo_checks.py are the one list, and the step prints what it derived.
           python3 scripts/ci/e2e_shared_lane.py ignores > "$RUNNER_TEMP/e2e-ignores"
+          # The script refuses an empty list, and bash -e ends the step on its exit.
           mapfile -t ignores < "$RUNNER_TEMP/e2e-ignores"
-          # No list would run every dedicated lane's modules here too.
-          [ "${#ignores[@]}" -gt 0 ] || { echo "::error::derived no --ignore list"; exit 1; }
           # -n 4 --dist loadfile: real-LLM round-trips at near-zero CPU.
           uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
             -p no_skips --no-skips-message "✅ the E2E suite ran" --no-skips-allow-partial \
@@ -1039,7 +1058,8 @@ jobs:
         [ -z "$projects" ] || scripts/ci/cleanup_stacks.sh $projects
 
   e2e-no-model:
-    name: Model-Free E2E (the tests/e2e files that reach no gateway)
+    # The tests/e2e files that reach no model gateway.
+    name: Model-Free E2E
     runs-on: ubuntu-latest
     # Any PR, forks included: no secret, no image push.
     if: &any-pr-or-secret-revalidation >-
@@ -1054,6 +1074,8 @@ jobs:
 
     - *sync-dev-deps
 
+    - *read-deploy-layer-cache
+
     - &assert-container-runtime
       name: Assert a container runtime is present
       run: |
@@ -1067,30 +1089,19 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}/scripts/ci/pytest_plugins  # for -p no_skips
       run: |
-        # Named by path, not marker: a vanished path reds (exit 4), a marker matching nothing greens.
-        # The wiring test holds this list equal to the model_free tests.
-        uv run pytest \
-          tests/e2e/test_scripted_model.py \
-          tests/e2e/claude_code/test_safety_gates_scripted.py \
-          tests/e2e/test_dispatch_deploy_render.py \
-          tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
-          tests/e2e/web_terminals/test_skills_overlay_discovery.py \
-          tests/e2e/web_terminals/test_loopback_chokepoint.py \
-          tests/e2e/web_terminals/test_session_restart_e2e.py \
-          tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-          tests/e2e/web_terminals/test_render_permissions_scripted.py \
-          tests/e2e/claude_code/test_chat_approval_gates_scripted.py \
-          tests/e2e/claude_code/test_chat_plan_mode_scripted.py \
-          tests/e2e/claude_code/test_chat_attachment_read_scripted.py \
-          tests/e2e/test_watchdog_agent_scripted.py \
-          tests/e2e/test_watchdog_hold_scripted.py \
+        # By path, not marker: a vanished path reds (exit 4). The list is e2e-no-model's
+        # modules in the LANES table of scripts/repo_checks.py.
+        python3 scripts/ci/e2e_shared_lane.py modules e2e-no-model > "$RUNNER_TEMP/e2e-modules"
+        mapfile -t modules < "$RUNNER_TEMP/e2e-modules"
+        uv run pytest "${modules[@]}" \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           -p no_skips --no-skips-message "✅ every model-free E2E test ran; none skipped"
 
     - *capture-diagnostics
 
   agent-record-e2e:
-    name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
+    # Replays every captured fixture through the real stack.
+    name: Agent Record E2E — ${{ matrix.backend }}
     runs-on: ubuntu-latest
     if: *any-pr-or-secret-revalidation
     # One case per runner: cases share a per-host project name and port block. The wiring test holds the cells.
@@ -1109,6 +1120,8 @@ jobs:
     - *install-uv
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     - *assert-container-runtime
 
@@ -1136,7 +1149,8 @@ jobs:
       run: scripts/ci/cleanup_stacks.sh osprey-e2e-agent-record
 
   benchmarks:
-    name: On-Demand Benchmarks (channel-finder MCP + Tier 2 model)
+    # Channel-finder MCP benchmarks and the agentic tier-2 tests.
+    name: Model Benchmarks
     runs-on: ubuntu-latest
     # Dispatch-only: they measure the model, not the change, so all-checks-passed does not need them.
     if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
@@ -1176,7 +1190,8 @@ jobs:
           -v --tb=short
 
   deploy-e2e:
-    name: Deploy E2E Test (build + deploy pipeline)
+    # The build + deploy pipeline.
+    name: Deploy E2E
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Same-repo only even without secrets: house policy for every image build-and-deploy job. No base
@@ -1197,6 +1212,8 @@ jobs:
     - *install-uv
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     - name: Create hello_world deployment repo
       run: |
@@ -1291,6 +1308,8 @@ jobs:
     - *install-uv
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     - *llm-preflight-probe
 
@@ -1445,6 +1464,8 @@ jobs:
 
     - *sync-dev-deps
 
+    - *read-deploy-layer-cache
+
     - name: Fetch the pinned neosemantics (n10s) jar
       # As in the benchmarks job: a fixture download failure would skip.
       if: matrix.n10s
@@ -1473,32 +1494,21 @@ jobs:
         scripts/ci/cleanup_stacks.sh $CLEANUP
 
   orm-roundtrip-e2e:
-    name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
+    # VA + bluesky bridge + Tiled, full Docker stack.
+    name: ORM + Grid Scan Roundtrip E2E
     runs-on: ubuntu-latest
     # Sequential steps: two modules bind CA port 5064, and a runner fits one stack at a time.
     if: *same-repo-pr-or-secret-revalidation
     timeout-minutes: 100
 
     steps:
-    # Docker 29's containerd image store unpacks shared layers per image and ran this lane out of
-    # disk. Drop this once the lane builds less per stack.
-    - name: Use the overlay2 image store
-      run: |
-        sudo mkdir -p /etc/docker
-        [ -s /etc/docker/daemon.json ] || echo '{}' | sudo tee /etc/docker/daemon.json >/dev/null
-        sudo jq '.features["containerd-snapshotter"] = false' /etc/docker/daemon.json \
-          | sudo tee /etc/docker/daemon.json.new >/dev/null
-        sudo mv /etc/docker/daemon.json.new /etc/docker/daemon.json
-        sudo systemctl restart docker
-        driver=$(docker info --format '{{.Driver}}')
-        echo "storage driver: $driver"
-        [ "$driver" = overlay2 ]
-
     - *checkout-full-history
 
     - *install-uv
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     - name: Run ORM roundtrip E2E
       timeout-minutes: 45
@@ -1526,7 +1536,8 @@ jobs:
           preflight-probe
 
   nextcloud-talk-bridge-e2e:
-    name: Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)
+    # Real Talk server + dispatch stack.
+    name: Nextcloud Talk Bridge E2E
     runs-on: ubuntu-latest
     if: *full-ci-pr-or-secret-revalidation
     # A job `permissions:` replaces the defaults; `packages: read` for the PRIVATE ghcr Talk fixture.
@@ -1548,6 +1559,8 @@ jobs:
     - *install-uv
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     - *install-pinned-cli
 
@@ -1571,7 +1584,8 @@ jobs:
     - *capture-diagnostics
 
   gchat-bridge-e2e:
-    name: Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)
+    # Pub/Sub emulator + dispatch stack.
+    name: Google Chat Bridge E2E
     runs-on: ubuntu-latest
     if: *full-ci-pr-or-secret-revalidation
     timeout-minutes: 45
@@ -1587,6 +1601,8 @@ jobs:
       run: uv sync --locked --extra dev --extra gchat
 
     - *install-pinned-cli
+
+    - *read-deploy-layer-cache
 
     - name: Pull the Pub/Sub emulator image
       run: |
@@ -1616,7 +1632,8 @@ jobs:
     - *capture-diagnostics
 
   teams-slack-bridge-e2e:
-    name: Microsoft Teams + Slack Bridge E2E (loopback fakes, no container)
+    # Microsoft Teams and Slack over loopback fakes, no container.
+    name: Teams + Slack Bridge E2E
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -1647,7 +1664,8 @@ jobs:
     - *capture-diagnostics
 
   privilege-split-e2e:
-    name: Privilege Split E2E (built images, stat-level ownership proof)
+    # Built images, stat-level ownership proof.
+    name: Privilege Split E2E
     runs-on: ubuntu-latest
     # The job `name:` names only the first module: branch protection matches on it.
     timeout-minutes: 120
@@ -1659,6 +1677,8 @@ jobs:
     - *install-uv
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     # --no-skips-allow-partial: the audit module has documented per-test guards, so only a module-wide skip reds.
     - name: Run privilege split E2E
@@ -1693,7 +1713,8 @@ jobs:
 
   # The one Dockerfile test that spends model tokens, apart from dockerfile-e2e below, which holds no key.
   dockerfile-agent-e2e:
-    name: Dockerfile Agent E2E (one agent turn through the generated image)
+    # One agent turn through the generated image.
+    name: Dockerfile Agent E2E
     runs-on: ubuntu-latest
     # No runs to measure yet: dockerfile-e2e's caps, which cover the same image build.
     timeout-minutes: 40
@@ -1721,7 +1742,8 @@ jobs:
     - *capture-diagnostics
 
   dockerfile-e2e:
-    name: Dockerfile E2E (generated container image)
+    # The generated container image.
+    name: Dockerfile E2E
     runs-on: ubuntu-latest
     # Above the 25 + 15 of the step caps, with room for setup and the proxy steps.
     timeout-minutes: 50
@@ -1772,7 +1794,7 @@ jobs:
       run: scripts/ci/proxied_build.sh stop
 
   multi-user-deploy-lifecycle-e2e:
-    name: Multi-User Deploy Lifecycle E2E (${{ matrix.runtime }} runtime)
+    name: Multi-User Deploy Lifecycle E2E — ${{ matrix.runtime }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # PRs into main only (not epic phases): it runs real destructive lifecycle verbs.
@@ -1806,6 +1828,8 @@ jobs:
         EOF
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     - name: Run multi-user deploy lifecycle E2E
       if: matrix.runtime == 'docker'
@@ -1843,7 +1867,8 @@ jobs:
       run: ENGINE="$RUNTIME" scripts/ci/cleanup_stacks.sh --sweep osprey-e2e-mus-p3
 
   full-chain-auth-e2e:
-    name: Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)
+    # Real sidecar + role-resolved tier render + audit ledgers.
+    name: Full-Chain Auth E2E
     runs-on: ubuntu-latest
     # Above the single-build auth lanes: test_full_chain_auth_lane_outbudgets_the_single_build_lanes
     # pins the relation and test_full_chain_auth_lane_caps_are_the_measured_ones the numbers.
@@ -1856,6 +1881,8 @@ jobs:
     - *install-uv
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     - *playwright-cache-key
 
@@ -1886,7 +1913,8 @@ jobs:
           osprey-e2e-full-chain-auth
 
   two-shape-boot-e2e:
-    name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
+    # Bridge + host network axis, podman-compose.
+    name: Two-Shape Boot E2E
     runs-on: ubuntu-latest
     timeout-minutes: 75
     if: *same-repo-pr-or-secret-revalidation
@@ -1934,7 +1962,8 @@ jobs:
         podman rmi -f osprey-e2e-two-shape-dispatch:local || true
 
   qmd-sidecar-e2e:
-    name: qmd Sidecar E2E (image build + live daemon over a fixture corpus)
+    # Image build + live daemon over a fixture corpus.
+    name: qmd Sidecar E2E
     runs-on: ubuntu-latest
     if: *same-repo-pr-or-secret-revalidation
     # Covers the step caps plus the image build; tests/integration/test_qmd_sidecar_time_budget.py checks it.
@@ -1948,6 +1977,8 @@ jobs:
     - *install-uv
 
     - *sync-dev-deps
+
+    - *read-deploy-layer-cache
 
     - name: Build the sidecar image
       # Restore only: a PR-saved cache would be readable by that PR alone.
@@ -2002,7 +2033,7 @@ jobs:
         docker rmi -f osprey-qmd:ci-mounted || true
 
   qmd-cache-warmup:
-    name: qmd Layer Cache Warm-up (pushes to main)
+    name: qmd Layer Cache Warm-up
     runs-on: ubuntu-latest
     # Main pushes only: a PR can restore caches from main but not from other PRs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -2016,8 +2047,92 @@ jobs:
       with:
         warm: "true"
 
+  deploy-cache-warmup:
+    name: Deploy Layer Cache Warm-up
+    runs-on: ubuntu-latest
+    # Main pushes only: every PR lane reads what this writes, so only reviewed code may write it.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # A cold build of every demo image, the qmd models among them, one stack start, then a cold
+    # build of the two target images.
+    timeout-minutes: 85
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # Not a secret: `osprey up`'s .env preflight refuses an empty provider key, and nothing here
+      # calls a model.
+      ALS_APG_API_KEY: placeholder-deploy-cache-warmup-calls-no-model
+
+    steps:
+    - *checkout-full-history
+
+    - *install-uv
+
+    - *sync-dev-deps
+
+    - *read-deploy-layer-cache
+
+    - name: Log in to GHCR
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+    - name: Write this job's image layers to the cache
+      # The sink of every build below, one registry tag per recipe beside the source the step
+      # above names. mode=max keeps every layer, not only the final image's, which is what a lane
+      # with a different tail reuses. With nothing changed, every layer is a hit and the export
+      # uploads nothing new.
+      run: echo "OSPREY_BUILD_CACHE_TO=type=registry,ref=ghcr.io/${GITHUB_REPOSITORY,,}-build-cache:{key},mode=max" >> "$GITHUB_ENV"
+
+    - name: Write the demo deployment's image layers to the cache
+      # The demo preset as shipped builds every recipe the lanes build through `osprey up`: the
+      # project image and its web-terminal render images, the dispatcher, the VA, the bluesky
+      # bridge and web UI, and qmd. `--dev` because the lanes deploy the checkout.
+      timeout-minutes: 60
+      run: |
+        set -euo pipefail
+        uv run osprey init deploy-cache-warmup --preset demo \
+          --set provider=als-apg --set model="$OSPREY_E2E_FORCE_MODEL"
+        cd deploy-cache-warmup
+        # As deploy-e2e renders: the host venv and lifecycle hooks are not in any image. The render is
+        # `--dev` too: `up --dev` refuses a build/ whose service images would install the release.
+        uv run osprey build --dev --skip-deps --skip-lifecycle
+        uv run osprey up -d --dev
+
+    # The two images the virtual accelerator lanes build outside `osprey up`, written under their
+    # own keys (`va-full`, `bench-ioc`) by the actions those lanes call. After the demo build: the
+    # first action leaves its Buildx builder as the job's default, and the demo images are written
+    # from the builder the deploy lanes read them on.
+    - &build-va-image
+      name: Build the virtual accelerator image
+      uses: ./.github/actions/build-virtual-accelerator-image
+
+    - &build-bench-ioc-image
+      name: Build the bench IOC image
+      # After the VA image: it reuses that action's Buildx builder.
+      uses: ./.github/actions/build-bench-ioc-image
+
+    - *capture-diagnostics
+
+    - name: osprey down
+      if: always()
+      run: |
+        [ ! -d deploy-cache-warmup ] || (cd deploy-cache-warmup && uv run osprey down)
+
+    - name: Clean up any stranded warm-up resources
+      if: always()
+      run: scripts/ci/cleanup_stacks.sh deploy-cache-warmup
+
+    - &remove-target-images
+      name: Clean up the target images
+      if: always()
+      uses: ./.github/actions/remove-virtual-accelerator-images
+      with:
+        extra-tags: bench-ioc:latest
+
   target-switch-agentic-e2e:
-    name: Control-Target Switch Agentic E2E (a real agent moving between the virtual accelerator and the bench IOC)
+    # A real agent moving between the virtual accelerator and the bench IOC.
+    name: Control-Target Switch Agentic E2E
     runs-on: ubuntu-latest
     if: *full-ci-pr-or-secret-revalidation
     timeout-minutes: 45
@@ -2029,17 +2144,15 @@ jobs:
 
     - *sync-dev-deps
 
+    - *read-deploy-layer-cache
+
     - *llm-preflight-probe
 
     - *assert-container-runtime
 
-    - &build-va-image
-      name: Build the virtual accelerator image
-      uses: ./.github/actions/build-virtual-accelerator-image
+    - *build-va-image
 
-    - name: Build the bench IOC image
-      # After the VA image: it reuses that action's Buildx builder.
-      uses: ./.github/actions/build-bench-ioc-image
+    - *build-bench-ioc-image
 
     - *install-pinned-cli
 
@@ -2054,11 +2167,7 @@ jobs:
 
     - *capture-diagnostics
 
-    - name: Clean up the target images
-      if: always()
-      uses: ./.github/actions/remove-virtual-accelerator-images
-      with:
-        extra-tags: bench-ioc:latest
+    - *remove-target-images
 
   va-live-e2e:
     name: Live VA E2E — ${{ matrix.group }}
@@ -2120,6 +2229,8 @@ jobs:
 
     - *sync-dev-deps
 
+    - *read-deploy-layer-cache
+
     - *assert-container-runtime
 
     - *build-va-image
@@ -2175,7 +2286,7 @@ jobs:
   # The credential never shares a step with code the change controls, and nothing the job builds
   # reaches the shared Actions cache.
   canopy-contract:
-    name: CANOPY contract
+    name: CANOPY Contract
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -2187,7 +2298,7 @@ jobs:
         persist-credentials: false
 
     - name: Install uv
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       with:
         enable-cache: false
 

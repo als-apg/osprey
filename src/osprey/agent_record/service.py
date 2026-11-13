@@ -49,7 +49,9 @@ runs. It hosts:
     ``lag_days`` (closed arrival days from the oldest through yesterday, by
     the jobs' clock, that the archive holds no mark for; 0 on an empty
     record) and ``last_error`` (the jobs' last export failure); and
-    ``jobs_clock``, the jobs' clock override or ``null``. Every source says
+    ``jobs_clock``, the jobs' clock override or ``null``; and
+    ``stopped_after_s``, the :data:`STOPPED_AFTER_ENV` override in seconds
+    or ``null``. Every source says
     whether it is ``live`` (a spool source: an ``.open`` segment not
     abandoned; a transcript root: a transcript modified within
     :data:`STOPPED_AFTER`), ``stopped`` (live or holding a backlog, with no
@@ -126,6 +128,13 @@ a default under the deployment repo root (``project_root`` of the config):
   every job run read that date's UTC midnight as ``now`` (a test hook that
   lets a replay close a day). The service warns at start while it is set,
   and a value that is not an ISO date stops the app from being built.
+- :data:`STOPPED_AFTER_ENV`: unset in every deployment; a number of seconds
+  here replaces :data:`STOPPED_AFTER` in ``/health/sources``, both as how
+  long a source may go without a commit and as how recently a transcript
+  must have been modified to be live (a test hook that lets a replay see a
+  stopped source without waiting five minutes). Nothing else reads it. The
+  service warns at start while it is set, and a value that is not a finite
+  number above zero stops the app from being built.
 - :data:`TRANSCRIPTS_DIR_ENV`: the directory holding one transcript root per
   :func:`~osprey.agent_record.identities.transcript_roots` name, each mounted
   at ``<dir>/<root name>``; default :data:`DEFAULT_TRANSCRIPTS_DIR`.
@@ -155,11 +164,12 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -227,6 +237,7 @@ __all__ = [
     "SPOOL_INTERVAL_S",
     "SPOOL_ROOT_ENV",
     "STOPPED_AFTER",
+    "STOPPED_AFTER_ENV",
     "TRANSCRIPTS_DIR_ENV",
     "WRITTEN_BY_SELF",
     "create_app",
@@ -243,6 +254,8 @@ RECORD_DIR_ENV = "OSPREY_AGENT_RECORD_DIR"
 ARCHIVE_DIR_ENV = "OSPREY_AGENT_RECORD_ARCHIVE_DIR"
 #: An ISO date the jobs read as ``now`` (its UTC midnight); a test hook, unset in deployments.
 JOBS_CLOCK_ENV = "OSPREY_AGENT_RECORD_JOBS_CLOCK"
+#: Seconds health reads in place of :data:`STOPPED_AFTER`; a test hook, unset in deployments.
+STOPPED_AFTER_ENV = "OSPREY_AGENT_RECORD_STOPPED_AFTER_S"
 #: The directory each transcript root is mounted under, as ``<dir>/<root name>``.
 TRANSCRIPTS_DIR_ENV = "OSPREY_AGENT_RECORD_TRANSCRIPTS_DIR"
 #: The ClickHouse HTTP endpoint, with ``backend: clickhouse``.
@@ -326,6 +339,9 @@ class _Settings:
     host_projects: Path | None = None
     #: The jobs' fixed ``now`` from :data:`JOBS_CLOCK_ENV`; ``None`` for the wall clock.
     jobs_clock: datetime | None = None
+    #: Health's stopped threshold from :data:`STOPPED_AFTER_ENV`; ``None`` for
+    #: :data:`STOPPED_AFTER`.
+    stopped_after: timedelta | None = None
 
 
 def _jobs_clock(env: Mapping[str, str]) -> datetime | None:
@@ -342,6 +358,25 @@ def _jobs_clock(env: Mapping[str, str]) -> datetime | None:
     except ValueError:
         raise ValueError(f"{JOBS_CLOCK_ENV}={raw!r} is not an ISO date (YYYY-MM-DD)") from None
     return datetime(day.year, day.month, day.day, tzinfo=UTC)
+
+
+def _stopped_after(env: Mapping[str, str]) -> timedelta | None:
+    """Health's stopped threshold override from *env*.
+
+    Raises:
+        ValueError: If :data:`STOPPED_AFTER_ENV` is set to something not a
+            finite number of seconds above zero.
+    """
+    raw = env.get(STOPPED_AFTER_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        seconds = math.nan
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError(f"{STOPPED_AFTER_ENV}={raw!r} is not a number of seconds above zero")
+    return timedelta(seconds=seconds)
 
 
 def _settings(config: Mapping[str, Any], env: Mapping[str, str]) -> _Settings:
@@ -382,6 +417,7 @@ def _settings(config: Mapping[str, Any], env: Mapping[str, str]) -> _Settings:
         grants=ids.credential_table(config),
         host_projects=Path(env[HOST_PROJECTS_ENV]) if env.get(HOST_PROJECTS_ENV) else None,
         jobs_clock=_jobs_clock(env),
+        stopped_after=_stopped_after(env),
     )
 
 
@@ -710,7 +746,12 @@ def _backend_health(backend: RecordBackend) -> BackendHealth:
 
 
 def _activity(
-    live: bool, backlog: int, last_commit: datetime | None, started: datetime, now: datetime
+    live: bool,
+    backlog: int,
+    last_commit: datetime | None,
+    started: datetime,
+    now: datetime,
+    stopped_after: timedelta,
 ) -> dict[str, bool]:
     """``live``, ``stopped`` and ``idle`` of one source.
 
@@ -721,7 +762,7 @@ def _activity(
     since = last_commit if last_commit is not None else started
     return {
         "live": live,
-        "stopped": pending and now - since > STOPPED_AFTER,
+        "stopped": pending and now - since > stopped_after,
         "idle": not pending,
     }
 
@@ -740,7 +781,11 @@ def _refusals(backend: RecordBackend, identities: set[str], now: datetime) -> di
 
 
 def _spool_json(
-    health: SpoolHealth, refusals: Mapping[str, int | None], started: datetime, now: datetime
+    health: SpoolHealth,
+    refusals: Mapping[str, int | None],
+    started: datetime,
+    now: datetime,
+    stopped_after: timedelta,
 ) -> dict[str, Any]:
     sources = {}
     for path, source in health.sources.items():
@@ -752,7 +797,11 @@ def _spool_json(
         row["refusals"] = refusals.get(source.identity)
         row["last_seen"] = _iso(source.last_seen)
         row["last_commit"] = _iso(source.last_commit)
-        row.update(_activity(source.live, source.backlog_lines, source.last_commit, started, now))
+        row.update(
+            _activity(
+                source.live, source.backlog_lines, source.last_commit, started, now, stopped_after
+            )
+        )
         sources[path] = row
     return {
         "backend_error": health.backend_error,
@@ -765,14 +814,14 @@ def _spool_json(
 
 
 def _transcripts_json(
-    tailer: TranscriptTailer | None, started: datetime, now: datetime
+    tailer: TranscriptTailer | None, started: datetime, now: datetime, stopped_after: timedelta
 ) -> dict[str, Any]:
     if tailer is None:
         return {}
     rows = {}
     for name, source in tailer.health.items():
         modified = source.last_modified
-        live = modified is not None and now - modified <= STOPPED_AFTER
+        live = modified is not None and now - modified <= stopped_after
         rows[name] = {
             "identity": source.identity,
             "ok": source.ok,
@@ -785,7 +834,7 @@ def _transcripts_json(
             "appended": source.appended,
             "duplicates": source.duplicates,
             "skipped_retention": source.skipped_retention,
-            **_activity(live, 0, source.last_seen, started, now),
+            **_activity(live, 0, source.last_seen, started, now, stopped_after),
         }
     return rows
 
@@ -818,20 +867,25 @@ def _health_sources(
     jobs_now: datetime,
     jobs_clock: datetime | None,
     started: datetime,
+    stopped_after: timedelta | None,
 ) -> dict[str, Any]:
     """The body of ``GET /health/sources``; blocking, run in a worker thread."""
     now = datetime.now(UTC)
+    threshold = STOPPED_AFTER if stopped_after is None else stopped_after
     backend_health = _backend_health(runtime.backend)
     spool = runtime.consumer.health()
     identities = {source.identity for source in spool.sources.values()}
     return {
         "backend": _backend_json(backend_health),
-        "spool": _spool_json(spool, _refusals(runtime.backend, identities, now), started, now),
-        "transcripts": _transcripts_json(runtime.tailer, started, now),
+        "spool": _spool_json(
+            spool, _refusals(runtime.backend, identities, now), started, now, threshold
+        ),
+        "transcripts": _transcripts_json(runtime.tailer, started, now, threshold),
         "export": _export_json(
             backend_health, archive_root, jobs_now.astimezone(UTC).date(), jobs.last_error
         ),
         "jobs_clock": _iso(jobs_clock),
+        "stopped_after_s": None if stopped_after is None else stopped_after.total_seconds(),
     }
 
 
@@ -974,7 +1028,9 @@ def create_app(
     Raises:
         BuildProfileError: If the config's ``agent_record`` block is invalid.
         ValueError: If the credential table cannot be built from the config,
-            or :data:`JOBS_CLOCK_ENV` is set but not an ISO date.
+            :data:`JOBS_CLOCK_ENV` is set but not an ISO date, or
+            :data:`STOPPED_AFTER_ENV` is set but not a number of seconds
+            above zero.
     """
     if config is None:
         from osprey_connectors.workspace import load_osprey_config
@@ -1000,6 +1056,13 @@ def create_app(
                 "%s is set: the record's jobs read %s as now, not the wall clock",
                 JOBS_CLOCK_ENV,
                 settings.jobs_clock.isoformat(),
+            )
+        if settings.stopped_after is not None:
+            logger.warning(
+                "%s is set: health calls a source stopped after %g s, not %g s",
+                STOPPED_AFTER_ENV,
+                settings.stopped_after.total_seconds(),
+                STOPPED_AFTER.total_seconds(),
             )
         if settings.verifier is None:
             logger.error(
@@ -1150,6 +1213,7 @@ def create_app(
             jobs_clock(),
             settings.jobs_clock,
             runtime.started,
+            settings.stopped_after,
         )
         return JSONResponse(body)
 

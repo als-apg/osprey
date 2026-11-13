@@ -1,49 +1,28 @@
 name: Build the virtual accelerator image
 description: >-
   Build `osprey-va-full:latest` from the checked-out source into the calling
-  job's local image store, through a layer cache every lane that needs the
-  image shares. Sets up the Buildx builder it needs, which stays the job's
-  default builder afterwards, so a later `docker buildx build` in the same
-  job builds on it too. Requires a synced project venv, which the caller
+  job's local image store, through the registry layer cache the job's
+  environment names (OSPREY_BUILD_CACHE_FROM, and OSPREY_BUILD_CACHE_TO where
+  the job writes it). Sets up the Buildx builder it needs, which stays the
+  job's default builder afterwards, so a later `docker buildx build` in the
+  same job builds on it too. Requires a synced project venv, which the caller
   sets up.
 
 runs:
   using: composite
   steps:
     - name: Set up Docker Buildx
-      # `type=local` layer caching is what needs this: the plain docker
-      # builder cannot import or export one, and `--cache-to type=local`
-      # against it errors rather than skipping the export quietly.
+      # A `docker-container` builder imports and exports a registry layer
+      # cache whatever image store the runner's Docker is on; the classic
+      # overlay2 store's own builder refuses the export.
       #
       # The builder is the job's default from here on, not this action's
       # alone: the setup switches to it in the runner's buildx state, which
-      # every later step of the job reads. That is the guarantee the switch
-      # lanes' `bench-ioc:latest` build rests on — it runs after this action
-      # and caches through the same driver with no setup step of its own. A
+      # every later step of the job reads. That is the guarantee the
+      # `bench-ioc:latest` build rests on: it runs after this action and
+      # caches through the same driver with no setup step of its own. A
       # build that has to precede this action still needs one.
-      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
-
-    - name: Cache the virtual accelerator image layers
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-      with:
-        path: /tmp/va-buildx-cache
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'uv.lock', 'packages/*/pyproject.toml') }}
-        # One key for every lane, because it is the same image from the same
-        # inputs: whichever lane runs first saves it, the others restore it,
-        # and a concurrent second save is a non-fatal "cache already exists"
-        # warning. Per-lane prefixes would only buy several copies of
-        # identical layers against the repo's cache quota. (The qmd lane's
-        # two builds share one key for the same reason, within a single job.)
-        #
-        # What this buys is decided by the Containerfile's layer order: the
-        # expensive RUN (pip install of the third-party closure) is keyed on a
-        # requirements file exported from uv.lock alone and sits BEFORE
-        # `COPY src/`, so a source change restores it and reruns only the
-        # from-source builds of osprey and its members. A change to uv.lock
-        # (or to a manifest that changes the export) reinstalls the closure; a
-        # re-run of a red lane restores the whole build.
-        restore-keys: |
-          va-full-buildx-${{ runner.os }}-
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
     - name: Build the virtual accelerator image (staged context)
       shell: bash
@@ -77,6 +56,34 @@ runs:
       # default of tests/va/e2e/_image.py, the one place the image under
       # test is read. `OSPREY_VA_E2E_IMAGE` overrides it there, and nothing
       # in CI sets it.
+      #
+      # The layer cache is the registry one the deploy lanes use, under its own
+      # key `va-full`: osprey.deployment.build_cache turns
+      # OSPREY_BUILD_CACHE_FROM / OSPREY_BUILD_CACHE_TO into the flags, so this
+      # build reads and writes exactly what the job's environment names. A lane
+      # sets only the source (ci.yml's "Read the deploy image layers from
+      # main's cache"), so it reads main's layers and writes nothing;
+      # deploy-cache-warmup, on pushes to main, sets the sink as well. With
+      # neither set the build gets no cache flag, and a source tag that does
+      # not exist yet or cannot be reached is a BuildKit warning: both are a
+      # cold build, never a failure.
+      #
+      # An Actions cache entry held these layers before and almost never hit: a
+      # pull request can restore only its own entries and main's, and no run on
+      # main ever saved one.
+      #
+      # What the cache buys is decided by the Containerfile's layer order: the
+      # expensive RUN (pip install of the third-party closure) is keyed on a
+      # requirements file exported from uv.lock alone and sits BEFORE
+      # `COPY src/`, so a source change reuses it and reruns only the
+      # from-source builds of osprey and its members, which carry the commit's
+      # version and never hit. A pull request that changes uv.lock (or a
+      # manifest that changes the export) reinstalls the closure.
+      #
+      # The flags are read into a variable first, not straight into the array:
+      # a failed command substitution in an assignment stops the script, where
+      # one inside `< <(...)` would leave the array empty and build uncached
+      # without a word.
       run: |
         set -euo pipefail
         staging=/tmp/osprey-va-full-build
@@ -89,23 +96,14 @@ runs:
         find "$staging" -depth -type d -name __pycache__ -exec rm -rf {} +
         version="$(uv run python -c 'import osprey; print(osprey.__version__)')"
         connectors_version="$(uv run python scripts/va/connectors_version.py --fallback "$version")"
-        echo "Building osprey-va-full:latest from osprey $version, osprey-connectors $connectors_version"
+        flags="$(uv run python -c 'from osprey.deployment.build_cache import build_cache_args; print("\n".join(build_cache_args("docker", "va-full")))')"
+        cache_flags=()
+        [[ -z "$flags" ]] || mapfile -t cache_flags <<< "$flags"
+        echo "Building osprey-va-full:latest from osprey $version, osprey-connectors $connectors_version (layer cache: ${cache_flags[*]:-none})"
         docker buildx build \
           --build-arg "OSPREY_VERSION=$version" \
           --build-arg "OSPREY_CONNECTORS_VERSION=$connectors_version" \
           --tag osprey-va-full:latest \
           --load \
-          --cache-from type=local,src=/tmp/va-buildx-cache \
-          --cache-to type=local,dest=/tmp/va-buildx-cache-new,mode=max \
+          "${cache_flags[@]}" \
           -f "$staging/docker/virtual-accelerator/Containerfile" "$staging"
-
-    - name: Rotate the virtual accelerator layer cache
-      shell: bash
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to a sibling and is swapped in here.
-      # Without the swap the cache would grow every run until it evicted
-      # itself.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/va-buildx-cache
-        mv /tmp/va-buildx-cache-new /tmp/va-buildx-cache

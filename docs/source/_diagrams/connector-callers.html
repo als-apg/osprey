@@ -1,0 +1,89 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 428" role="img" aria-labelledby="connector-callers-title connector-callers-desc">
+  <title id="connector-callers-title">Who talks to a connector</title>
+  <desc id="connector-callers-desc">The agent, agent-written Python, notebooks, Bluesky plans, and panels and apps each hold their own connector instance, and every instance reaches the control system through the same interface. The operator sets the control target and the write switches in the login's control-context record, which every connector reads.</desc>
+  <defs>
+    <marker id="connector-callers-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <!-- arrows first -->
+  <line class="e" x1="192" y1="52" x2="384" y2="52" marker-end="url(#connector-callers-arr)"/>
+  <polyline class="e-warn e-dash" points="704,52 936,52 936,266 912,266" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="112" y1="176" x2="112" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="288" y1="176" x2="288" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="464" y1="176" x2="464" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="640" y1="176" x2="640" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e" x1="816" y1="176" x2="816" y2="240" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="112" y1="292" x2="112" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="288" y1="292" x2="288" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="464" y1="292" x2="464" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="640" y1="292" x2="640" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <line class="e-acc" x1="816" y1="292" x2="816" y2="352" marker-end="url(#connector-callers-arr)"/>
+  <!-- arrow labels -->
+  <text class="ta" x="288" y="44" text-anchor="middle">SETS</text>
+  <text class="ta ta-warn" x="820" y="44" text-anchor="middle">READ BY EVERY CONNECTOR</text>
+  <rect class="mask" x="476" y="322" width="140" height="12" rx="2"/>
+  <text class="ta ta-acc" x="480" y="331">READ · WRITE · SUBSCRIBE</text>
+  <!-- zone: one instance per caller -->
+  <rect class="zone" x="16" y="208" width="896" height="104" rx="6"/>
+  <rect class="mask" x="128" y="216" width="144" height="12" rx="2"/>
+  <text class="te" x="132" y="225">ONE INSTANCE PER CALLER</text>
+  <!-- operator and the login's record -->
+  <rect class="mask" x="32" y="24" width="160" height="56" rx="6"/>
+  <rect class="nb-in" x="32" y="24" width="160" height="56" rx="6"/>
+  <text class="tn" x="112" y="48" text-anchor="middle">Operator</text>
+  <text class="ts" x="112" y="64" text-anchor="middle">chip · approval prompt</text>
+  <rect class="mask" x="384" y="24" width="320" height="56" rx="6"/>
+  <rect class="nb-warn" x="384" y="24" width="320" height="56" rx="6"/>
+  <text class="tn" x="544" y="48" text-anchor="middle">Control-context record</text>
+  <text class="ts" x="544" y="64" text-anchor="middle">one per login · control target · write switches</text>
+  <!-- callers -->
+  <rect class="mask" x="32" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="32" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="112" y="144" text-anchor="middle">Agent</text>
+  <text class="ts" x="112" y="160" text-anchor="middle">controls tools</text>
+  <rect class="mask" x="208" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="208" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="288" y="144" text-anchor="middle">Agent-written Python</text>
+  <text class="ts" x="288" y="160" text-anchor="middle">osprey.runtime</text>
+  <rect class="mask" x="384" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="384" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="464" y="144" text-anchor="middle">Notebooks</text>
+  <text class="ts" x="464" y="160" text-anchor="middle">osprey.runtime</text>
+  <rect class="mask" x="560" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="560" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="640" y="144" text-anchor="middle">Bluesky plans</text>
+  <text class="ts" x="640" y="160" text-anchor="middle">queue worker</text>
+  <rect class="mask" x="736" y="120" width="160" height="56" rx="6"/>
+  <rect class="nb" x="736" y="120" width="160" height="56" rx="6"/>
+  <text class="tn" x="816" y="144" text-anchor="middle">Panels and apps</text>
+  <text class="ts" x="816" y="160" text-anchor="middle">CANOPY · app backends</text>
+  <!-- connectors (focal) -->
+  <rect class="mask" x="32" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="32" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="112" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="112" y="278" text-anchor="middle">controls server or its child</text>
+  <rect class="mask" x="208" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="208" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="288" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="288" y="278" text-anchor="middle">one per run</text>
+  <rect class="mask" x="384" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="384" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="464" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="464" y="278" text-anchor="middle">target read per cell</text>
+  <rect class="mask" x="560" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="560" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="640" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="640" y="278" text-anchor="middle">the worker's own target</text>
+  <rect class="mask" x="736" y="240" width="160" height="52" rx="6"/>
+  <rect class="nb-foc" x="736" y="240" width="160" height="52" rx="6"/>
+  <text class="tn t-acc" x="816" y="262" text-anchor="middle">connector</text>
+  <text class="ts" x="816" y="278" text-anchor="middle">one per backend</text>
+  <!-- control system -->
+  <rect class="mask" x="32" y="352" width="864" height="52" rx="6"/>
+  <rect class="nb-ext" x="32" y="352" width="864" height="52" rx="6"/>
+  <text class="tn" x="464" y="374" text-anchor="middle">Control system</text>
+  <text class="ts" x="464" y="390" text-anchor="middle">EPICS · DOOCS · simulator</text>
+</svg>
+</div>

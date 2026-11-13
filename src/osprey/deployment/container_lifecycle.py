@@ -29,6 +29,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_TEMPLATE_DIR,
@@ -1187,7 +1188,7 @@ def _adopt_original_credentials(
     if absent:
         _append_env_block(
             env_path,
-            "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
+            "Credentials adopted from pre-existing data volumes (osprey up --reuse-stores)",
             absent,
         )
 
@@ -1303,8 +1304,9 @@ def _refuse_invented_history(config: dict) -> None:
     raise RuntimeError(
         f"This deployment's control_system.type is {control_system_type!r} and its "
         f"archiver.type is {pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY}\n"
-        f"Fix config.yml before deploying: under its `archiver:` section set `type:` "
-        f"to a connector reading a store this stack writes, or serve the simulator in "
+        f"Fix profile.yml before deploying: set `archiver.type` under `config:` "
+        f"(`osprey set config.archiver.type=<type>`) to a connector reading a store "
+        f"this stack writes, or serve the simulator in "
         f"process (`control_system.connector.virtual_accelerator.serving: in_process`), "
         f"whose synthesized archive claims nothing it cannot back up. To have "
         f"the stack deploy its own store, rebuild from a profile carrying a "
@@ -2666,6 +2668,7 @@ def _project_image_build_cmd(
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.extend(site_image_build_args(config, project_root))
+    cmd.extend(build_cache_args(runtime, PROJECT_KEY))
     with_plain_build_progress(cmd)
     cmd.append(project_root)
     return cmd
@@ -7559,10 +7562,10 @@ def _start_as_built(
     The whole start runs with this repo's render anchored as the process config.
     A start is not only a sequence of ``compose`` invocations — it synthesizes
     and seeds an archive in THIS process, and that work reads the config through
-    unqualified lookups. Compose hands every container ``CONFIG_FILE``; without
-    the anchor the host is the one participant in that contract left resolving
-    against a working directory that holds no ``config.yml`` at all, and its
-    lookups degrade to defaults without failing. See
+    unqualified lookups. A container is handed its config or starts in its
+    project directory; a start pointed at another repo stands in neither, and
+    without the anchor its lookups would resolve against the working directory
+    and degrade to defaults without failing. See
     :func:`~osprey_connectors.config.config_anchored_at`.
     """
     with config_anchored_at(as_built_config_path(repo_root)):

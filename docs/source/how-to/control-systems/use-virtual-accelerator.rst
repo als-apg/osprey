@@ -20,7 +20,7 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
    - Pointing a project at the Virtual Accelerator the stack already deploys
    - Moving a running deployment between the machines it describes
    - The simulator's two venues, and why plans go browse-only in process
-   - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
+   - Applying, stilling and writing simulator scenarios
    - Write limits
    - The stored archive the stack deploys, and the one pairing it refuses
 
@@ -347,6 +347,162 @@ Either interval is refused at boot if it is not a number, or not greater
 than zero, rather than being clamped. A typo therefore shows up in
 ``docker logs`` instead of quietly changing what the machine looks like.
 
+.. _how-to-run-scenarios:
+
+Scenarios
+=========
+
+A scenario is one way the simulated machine departs from its baseline. It can
+set values in the machine's models, write faults into a physics model, shape
+the history the archive shows, and add logbook entries that narrate it.
+
+Scenarios give tests, demos and rehearsals a known machine state: a fault for
+the agent to find, with the archive history and logbook entries that go with
+it.
+
+You write each scenario as one YAML file under ``data/facility/scenarios/``.
+``osprey build`` serves the scenarios from the simulator view under
+``build/data/simulator/``. The ``osprey sim`` commands list, apply and report
+on them; :ref:`cli-osprey-sim` has their options.
+
+The scenarios the demo ships
+----------------------------
+
+The demo preset ships seven scenarios in
+``data/facility/scenarios/``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Scenario
+     - What it shows
+   * - ``nominal``
+     - All systems nominal. It carries the background logbook narrative of
+       the weeks before the demo.
+   * - ``rf-thermal``
+     - Three thermal excursions on cavity 1 in the week before an
+       investigation. Each is a temperature rise, a reflected-power spike and
+       a forward-power trip; the last one is a beam dump. The archive shows
+       the excursions. The logbook narrates the dump, the investigation and
+       the cooling repair. Cavity 1 reads 26.5 degC live, and cavity 2 shows
+       one minor excursion for contrast.
+   * - ``rf-thermal-live``
+     - Live thermal wander on cavity 1, for correlation plots. One slow
+       shared driver moves its temperature, tuner, reflected and forward
+       power together, each with its own noise. It adds no archived history.
+       It does not compose with ``rf-thermal``, which writes the same
+       channels.
+   * - ``vacuum-burst``
+     - A vacuum burst in one sector with a correlated beam-current drop at
+       14:32:08 local time, recurring daily in the archive.
+   * - ``bpm-polarity``
+     - BPM 17 reports an inverted reading in both planes. No single channel
+       is out of range; the fault shows only as an orbit correction that does
+       not converge.
+   * - ``orm-dual-fault``
+     - The BPM 17 inversion and corrector HCM01 at half its nominal gain at
+       once, both visible only through an orbit-response measurement.
+   * - ``demo-history``
+     - Three past agent sessions (a sector-7 beam loss, an approved corrector
+       nudge, an orbit review), with the archive events and logbook entries
+       behind them.
+
+The preset starts a fresh deployment in ``rf-thermal`` and ``demo-history``,
+as the profile key ``simulation.default_scenarios`` names (see
+:doc:`/reference/configuration/config`).
+
+A scenario's sessions are laid down only by a deployment's first deploy, from
+its default set. ``osprey sim apply`` never adds or removes sessions: a set
+without ``demo-history`` drops its archive events and logbook entries only.
+
+Apply a scenario
+----------------
+
+Applying a scenario makes it part of the *active set*: the scenarios the
+simulated machine shows now. ``nominal`` is always in the active set.
+
+.. warning::
+
+   ``osprey sim apply`` deletes every entry in the ARIEL logbook and reseeds
+   the logbook from the active scenarios. It also rewrites windows of the
+   stored archive. On a virtual-accelerator deployment, those windows can
+   hold samples recorded from the running machine. The command asks before
+   each of these, unless you pass ``--yes``. To leave both stores untouched,
+   pass ``--no-seed``.
+
+To switch the simulated machine to the ``vacuum-burst`` scenario, run these
+commands in order:
+
+.. code-block:: bash
+
+   osprey sim list
+   osprey sim apply vacuum-burst
+   osprey sim status
+
+#. List the scenarios with ``osprey sim list``. The list marks the active set
+   with ``*`` and says which scenarios carry a logbook narrative.
+#. Apply the scenario with ``osprey sim apply vacuum-burst``. The command
+   replaces the active set with the names you give it, plus ``nominal``. It
+   then purges and reseeds the logbook and rewrites the affected windows of
+   the archive. Live values, history and narrative now tell one story.
+#. Check the simulator with ``osprey sim status``. It shows each served
+   physics model's status and the log it writes.
+
+Several scenarios apply together only when no two of them write the same
+target, a channel or a model's fault. A set that breaks this rule is refused
+before anything is written, and the refusal names the target. Archive events
+are not a target: events of several scenarios on one channel combine, so
+``[vacuum-burst, rf-thermal]`` composes.
+
+What a switch does to the running simulator
+-------------------------------------------
+
+``osprey sim apply <scenario>`` works the same in both venues (`Two venues`_).
+It writes the project's ``var/agent_data/simulation/active_scenarios`` file,
+and the simulator re-reads the file on its next pass (``simulation.tick_s``,
+1 s by default). The machine then starts again at the new set's start state:
+setpoints written during the session are dropped, served and in process alike.
+
+The served simulator's container mounts two directories:
+
+- the render's data root, ``build/data``: read-only, holding the simulator view
+  the build writes, rebuilt on every ``osprey build``;
+- the scenario state directory, ``var/agent_data/simulation``: written by
+  ``osprey sim apply`` while the system runs.
+
+Both mounts are automatic for the deployed service.
+
+Hold readings still
+-------------------
+
+Every facility has a scenario named ``still`` that stills every float
+reading: the reading serves without drift, couplings or noise. Run
+``osprey sim apply still``. For a deployment that should start still, set
+``simulation.default_scenarios: [still]``.
+
+A scenario file may define its own ``still``, which replaces the built-in one.
+``still`` composes with overrides and faults. It is refused beside a scenario
+that sets the same reading's ``noise`` or ``couple``.
+
+``still`` holds in both venues.
+
+Write a scenario
+----------------
+
+To add a scenario to your facility:
+
+#. Create ``data/facility/scenarios/<name>.yaml``. The file name is the
+   scenario name.
+#. Add the keys the scenario needs, from :ref:`reference-scenario-files`.
+   Every key is optional.
+#. If a logbook entry has attachments, put the files in the folder
+   ``data/facility/scenarios/<name>/`` beside the scenario file.
+#. Check the sources with ``osprey facility validate``, which writes nothing.
+   An address, model or key the facility does not have stops the check, and
+   the error names the file.
+#. Run ``osprey build``. The new scenario appears in ``osprey sim list``.
+
 .. _va-serving-your-own-model:
 
 Serving your facility's own model
@@ -450,7 +606,264 @@ its channel:
 
 Shots run only in the container: in process the chain serves its start
 values and a request starts nothing. What scenarios and channel faults do to
-a chain is in :doc:`/how-to/run-scenarios`.
+a chain is in :ref:`scenario-channel-faults`.
+
+.. _va-turn-by-turn:
+
+Turn-by-turn data from an injection chain
+-----------------------------------------
+
+A first-turn steering or injection-tuning tool arms a ring's monitors, waits
+for a shot, and reads each monitor's turn-by-turn arrays. A ``pyat`` ring
+serves those arrays when its settings state a ``turn_by_turn`` block and it
+reads the shot from an injection chain through model inputs. The chain stays
+the only source of shots: the ring tracks a bunch through its deck each time
+the chain's shot counter rises.
+
+.. raw:: html
+   :file: ../../_diagrams/va-turn-by-turn.html
+
+**The chain.** Wire a charge after the last stage and a shot counter that
+steps after it, so each shot's delivery carries that shot's charge. To the
+chain of :ref:`va-injection-chain`, add:
+
+.. code-block:: yaml
+
+   - address: INJ:STORE:Q
+     engine: {signal: charge, offset_s: 0.05, stage: 1}
+   - address: INJ:STORE:SHOTS
+     engine: {signal: counter, offset_s: 0.06}
+
+A counter whose ``offset_s`` is not larger than the charge's makes each shot
+carry the previous shot's charge. To fill from an empty ring, start the
+chain's ``current`` parameter at ``0`` and give its channel a limits band that
+holds ``0``.
+
+**The ring.** With invented addresses, and one monitor shown:
+
+.. code-block:: yaml
+
+   - name: RING
+     engine: pyat
+     deck: decks/RING.json
+     settings:
+       pyat:
+         solve: periodic
+         turn_by_turn:
+           injection_element: INJ_POINT
+           turns: 250
+           trigger_sample: 10
+           particles: 16
+           launch: {x: 0.001, y: -0.0005}
+           aperture: {x: 0.004, y: 0.004}
+     inputs:
+       - {address: INJ:STORE:SHOTS, engine: {signal: shot}}
+       - {address: INJ:STORE:Q, engine: {signal: charge}}
+       - {address: INJ:STORE:I, engine: {signal: stored_current}}
+     wiring:
+       - address: RING:RF:ON
+         engine: {signal: rf_switch}
+       - address: RING:TBT:PILOT
+         engine: {signal: pilot_tone}
+       - address: RING:TBT:ATTEN
+         engine: {signal: stored}
+       - address: RING:TBT:TURNS
+         engine: {signal: turns_tracked}
+       - address: RING:BPM1:ARM
+         element: BPM1
+         engine: {signal: arm}
+       - address: RING:BPM1:ARMED
+         element: BPM1
+         engine: {signal: armed}
+       - address: RING:BPM1:TBT:X
+         element: BPM1
+         engine: {signal: turn_x}
+       - address: RING:BPM1:TBT:Y
+         element: BPM1
+         engine: {signal: turn_y}
+       - address: RING:BPM1:TBT:SUM
+         element: BPM1
+         engine: {signal: turn_sum}
+
+Each input's ``signal`` says what the ring reads from the chain: ``shot``,
+the counter whose rise is a shot; ``charge``, the shot's charge; and
+``stored_current``, the current already stored. Declare all three: without
+``shot`` no shot is taken, without ``charge`` every shot carries zero charge,
+and without ``stored_current`` there is no stored beam. Each wiring record's
+``signal``:
+
+- ``arm``: a monitor's arm setting. Wire one per monitor, naming its
+  monitor ``element``.
+- ``armed``: whether that monitor waits for a shot.
+- ``turn_x``, ``turn_y``, ``turn_sum``: the monitor's arrays, positions in
+  metres and the sum signal.
+- ``turns_tracked``: the turns the last shot tracked, the ring's; it names no
+  element.
+- ``rf_switch``: ``0`` sets every cavity's voltage to zero, anything else
+  restores the deck's voltages. It starts at ``1`` and names no element.
+- ``pilot_tone``: non-zero turns the pilot tone on. It starts at ``0`` and
+  names no element.
+- ``stored``: a setting that holds what is written and drives no physics,
+  for an attenuation or a mode the software sets; it may name an element.
+
+Declare ``arm``, ``rf_switch``, ``pilot_tone`` and ``stored`` channels
+``role: setpoint``, and each array ``value_type: waveform`` with
+``shape: [<trigger_sample + turns>]``, here ``[260]``; every other record is a
+plain float.
+
+**The settings.** Only ``injection_element`` is required:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 20 55
+
+   * - Key
+     - Default
+     - What it sets
+   * - ``injection_element``
+     - required
+     - The deck element a shot starts at; the deck holds it exactly once.
+   * - ``turns``
+     - ``250``
+     - Turns tracked per shot, a whole number of at least 1.
+   * - ``trigger_sample``
+     - ``10``
+     - Samples before injected turn 1, a whole number of at least 0.
+   * - ``particles``
+     - ``16``
+     - Particles tracked per shot.
+   * - ``launch``
+     - all ``0``
+     - The bunch centroid at injection: ``x``, ``px``, ``y``, ``py``,
+       ``delta``, ``ct``, each signed.
+   * - ``emittance_x``, ``emittance_y``, ``sigma_delta``, ``sigma_z``
+     - ``0``
+     - The bunch's size, matched to the optics at injection. All zero, every
+       particle starts at ``launch``.
+   * - ``jitter``
+     - ``{x: 5.0e-5, y: 3.0e-5}``
+     - The shot-to-shot centroid jitter's sigma, metres.
+   * - ``aperture``
+     - none
+     - ``{x, y, shape}``: positive half-axes in metres, both required, and
+       ``elliptical`` (the default) or ``rectangular``; set on every element
+       with a length.
+   * - ``sum_per_charge``
+     - ``1.0``
+     - Sum per unit of the shot's charge.
+   * - ``sum_per_stored``
+     - ``1.0``
+     - Sum per unit of stored current.
+   * - ``sum_floor``
+     - ``0.0``
+     - The lowest sum a sample reads.
+   * - ``position_noise``
+     - ``1.0e-5``
+     - Position noise sigma, metres.
+   * - ``sum_noise``
+     - ``0.0``
+     - Sum noise sigma.
+   * - ``floor_noise``
+     - ``1.0e-3``
+     - Position noise sigma where the sum is at the floor, metres.
+   * - ``tone_period``
+     - ``10``
+     - Samples between pilot-tone spikes, a whole number of at least 1.
+   * - ``tone_amplitude``
+     - ``1.0``
+     - Pilot-tone spike size.
+
+Every number but ``launch`` is finite and not negative; an unknown key, also
+inside ``launch``, ``jitter`` or ``aperture``, stops the build. The apertures
+decide when an RF-off bunch is lost; they are the facility's to calibrate.
+
+**The arrays.** Each array holds ``trigger_sample + turns`` samples. The
+samples before ``trigger_sample`` see the stored beam only, and injected
+turn 1 sits at index ``trigger_sample``. The tracking starts at the injection
+element, so a monitor upstream of it reads the end of each turn. The sum is
+the shot's charge times the share of the bunch still alive times
+``sum_per_charge``, plus, with the RF on, the stored current held before the
+shot times ``sum_per_stored``, plus noise, floored at ``sum_floor``. Positions
+are the sum-weighted mix of the stored beam, at zero, and the bunch's
+centroid, plus ``position_noise``; where the sum is at the floor they are
+``floor_noise``. With the pilot tone on, every sample whose index is a
+multiple of ``tone_period`` carries a spike in all three arrays. The noise is
+keyed on the record's address, the shot and the sample, so a shot reads the
+same in every run.
+
+**Arming.**
+
+- Arming is per monitor. A client write of a non-zero ``arm`` arms it, ``0``
+  disarms it, and arming an armed monitor changes nothing. ``arm`` reads back
+  what was written; ``armed`` is the state.
+- A restore, a scenario's start state and a write a ``stuck`` or
+  ``disconnected`` fault holds never arm.
+- A shot reaches the armed monitors only. Their arrays and ``turns_tracked``
+  are posted, then their ``armed`` drops to ``0``; every other monitor keeps
+  its arrays. A shot with no monitor armed changes nothing.
+- ``armed`` at ``0`` guarantees the shot's arrays are already served, on
+  Channel Access and PVAccess both, so a client may time a shot on ``armed``
+  alone. A shot that arrives before the drop finds those monitors unarmed.
+- A reset or a scenario change returns every monitor to unarmed, every array
+  to zeros and ``turns_tracked`` to ``0``, and is not mistaken for a shot.
+
+**Shots.**
+
+- One pass sees one delivery and tracks at most once. A counter that rose by
+  more than one between two passes tracks once, with the latest charge. A
+  counter that falls is not a shot.
+- A zero-charge shot is still a shot: the arrays read the floor, the noise
+  and any stored beam, and ``armed`` drops.
+- A tracking that fails leaves the armed monitors' arrays at zeros and
+  ``turns_tracked`` at ``0``; ``armed`` still drops and the ring keeps
+  serving.
+- With the RF off the ring has no closed orbit: its orbit readings read NaN
+  and its settings stay writable. The stored beam adds nothing to the sum, so
+  the samples before the trigger read the floor, and a bunch with declared
+  apertures is lost within some hundred turns.
+
+**Cost.** Tracking runs on the serving loop, about 0.5 s for 16 particles
+over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
+0.13 ms per particle and turn, growing with the deck. During it a read
+answers at once with the last posted value; a write, a model RPC call and a
+response-matrix request wait until it ends and are then served, never
+refused. A client timeout shorter than the tracking is the client's.
+
+**Refusals.** ``osprey build`` stops the ring when the block or a record is
+malformed: a missing or repeated ``injection_element``, a value out of range,
+an unknown key, a turn record on a ring without the block, a monitor record
+without a monitor ``element``, a ring record naming one, a setting not wired
+for write, an array that is not a waveform of ``trigger_sample + turns``
+samples, any other turn record that is not a float, and an input whose
+``engine`` is not one ``{signal: ...}`` the ring reads. The model fails to
+build, with the text in its status channel, when an ``rf_switch`` is wired
+over a deck with no RF cavity. The container refuses to start when an array
+is larger than the configuration's ``max_array_bytes`` at 8 bytes a sample,
+naming the channel and both sizes.
+
+**The response matrix.** ``model_response_matrix`` takes ``kind``, in the
+Python executor tool (:doc:`/reference/contracts/python-executor`) and in
+``osprey.apps.sdk``: ``orbit`` (the default) or ``trajectory``. The
+trajectory response is the first-turn response of one particle, without
+jitter, from ``launch`` through the declared apertures. Its rows are the
+monitors' ``turn_x`` and ``turn_y`` records, in the arrays' metres and in the
+order the bunch meets them; every row and column carries its position, the
+lattice element index counted from ``injection_element``. A monitor wiring
+neither record has no row. It is computed from the deck and settings, not
+from served state, and only a ring with the block that wires such a record
+answers it. A corrector whose kicked particle
+is lost before a monitor has no column; the tool's ``missing`` and the SDK's
+``unsolved`` name it with where the particle was lost. When the particle is
+lost with no corrector stepped, every corrector is named and the matrix has
+no column. An engine whose ``response_matrix`` takes no ``kind`` answers the
+orbit response alone and refuses any other kind.
+
+**What is not modelled.** The ring's capture or loss does not feed back into
+the chain's stored current; the stored current neither decays nor
+saturates; there is one bunch, no fill pattern; no bunch cleaning, tune scan,
+beam-based alignment or RF frequency correction. Shots run only in the
+container: in process every delivery is a baseline, so no shot is taken and
+the arrays stay zeros.
 
 Another backend
 ---------------
@@ -486,30 +899,6 @@ without a build, so no deploy rebuilds it from OSPREY's recipe.
 ``OSPREY_VA_IMAGE`` keeps it out of every build a start makes. Either way the
 image has to be on the host or pullable where it is named;
 :ref:`deployment-image-builds` says when each start builds.
-
-Scenarios
-=========
-
-``osprey sim apply <scenario>`` works the same in both venues. Applying a
-scenario writes the project's ``var/agent_data/simulation/active_scenarios``
-file; the in-container engine polls it and, within about a second, composed
-channel values reflect the new scenario. There is one behavioral difference
-between the venues. Served, a scenario switch only refreshes the engine-composed
-channels: setpoints you wrote during the session live in the IOC's own records
-and **survive** the switch. (In process, written values are reset.) ``osprey sim
-apply still`` serves every reading without drift, couplings or noise.
-
-The served simulator's container mounts two directories:
-
-- the render's data root, ``build/data``: read-only, holding the simulator view
-  the build writes, rebuilt on every ``osprey build``;
-- the scenario state directory, ``var/agent_data/simulation``: written by
-  ``osprey sim apply`` while the system runs.
-
-Both mounts are automatic for the deployed service.
-
-What a scenario may contain, how scenarios compose, and what ``osprey sim
-apply`` refuses is in :doc:`/how-to/run-scenarios`.
 
 Write limits
 ============

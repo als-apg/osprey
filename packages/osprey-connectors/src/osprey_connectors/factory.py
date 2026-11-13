@@ -146,8 +146,10 @@ class ConnectorFactory:
         Build a control system connector and its type config, without connecting.
 
         Args:
-            config: Control system configuration dict, or None to load it
-                from the global config. Its keys:
+            config: Control system configuration dict, or None to read the
+                ``control_system`` section of the config this process loads
+                (see :func:`osprey_connectors.config.get_config_value`). Its
+                keys:
 
                 - type: Connector type (e.g., 'epics', 'virtual_accelerator').
                   Defaults to the simulator served in process, with a warning,
@@ -171,20 +173,20 @@ class ConnectorFactory:
 
         Raises:
             ValueError: If connector type is unknown or config is invalid
+            FileNotFoundError: If ``config`` is None and no config is found.
+                The error names where it looked; nothing is built in its place.
 
         Example:
             >>> connector, type_config = ConnectorFactory.build_control_system_connector(config)
             >>> await connector.connect(type_config)
         """
-        # Load config if not provided
+        # Load config if not provided. A config that cannot be loaded is the
+        # caller's answer, not an empty section: the unset-type fallback below is
+        # for a config that was read and names no type.
         if config is None:
-            try:
-                from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
-                config = get_config_value("control_system", {})
-            except Exception as e:
-                logger.warning(f"Could not load config: {e}, using defaults")
-                config = {}
+            config = get_config_value("control_system", {})
 
         # Fail closed: an under-specified config must never bring up a live
         # control system. A blank value is treated as absent for the same
@@ -300,8 +302,9 @@ class ConnectorFactory:
         Create and configure an archiver connector.
 
         Args:
-            config: Archiver configuration dict, or None to load it from the
-                global config. Its keys:
+            config: Archiver configuration dict, or None to read the
+                ``archiver`` section of the config this process loads (see
+                :func:`osprey_connectors.config.get_config_value`). Its keys:
 
                 - type: Connector type (e.g., 'epics_archiver', 'mock_archiver').
                   Defaults to 'mock_archiver' with a warning when unset, so a
@@ -315,6 +318,8 @@ class ConnectorFactory:
 
         Raises:
             ValueError: If connector type is unknown or config is invalid
+            FileNotFoundError: If ``config`` is None and no config is found.
+                The error names where it looked; nothing is built in its place.
             ConnectionError: If connection fails
 
         Example:
@@ -327,15 +332,13 @@ class ConnectorFactory:
             >>> }
             >>> connector = await ConnectorFactory.create_archiver_connector(config)
         """
-        # Load config if not provided
+        # Load config if not provided. A config that cannot be loaded is the
+        # caller's answer, not an empty section: the mock would refuse to
+        # connect for want of a simulator view, and say nothing of the config.
         if config is None:
-            try:
-                from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
-                config = get_config_value("archiver", {})
-            except Exception as e:
-                logger.warning(f"Could not load config: {e}, using defaults")
-                config = {}
+            config = get_config_value("archiver", {})
 
         # Fail closed: a config with no `archiver:` section is under-specified,
         # not a declaration that a facility archiver exists. A blank value is

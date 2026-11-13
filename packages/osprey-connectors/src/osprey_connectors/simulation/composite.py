@@ -32,8 +32,8 @@ waveform as an array of the variable's dtype and shape.
 :meth:`Composite.held` reads every channel without motion or readout.
 
 **Writes.** :meth:`Composite.set` coerces each value to its channel's
-``value_type``, then sets the physics children in name order and the texture
-last. When any child refuses, every earlier child gets its previous inputs back
+``value_type``, then sets the physics children in their order (see
+**Inputs**) and the texture last. When any child refuses, every earlier child gets its previous inputs back
 and the refusal is raised as a ``WriteRefusedError`` (a ``ValueError``) carrying
 the child's text and, when one channel was refused, its address. A
 setpoint the active scenarios hold (``stuck`` or ``disconnected`` in
@@ -86,6 +86,20 @@ t)``; :meth:`Composite.restore`, the start state and the scenario writes are
 not, and neither is a write a ``stuck`` or ``disconnected`` setpoint holds. A
 rebuild discards what a child had pending. Built without it, the default, the
 composite calls none of the four names.
+
+**Inputs.** A model may declare inputs, each an ``{address, engine}`` record
+naming a channel another model produces. The children are ordered so every
+producer precedes its consumers, ties in name order, so a view without inputs
+keeps name order and makes no delivery call. A consumer whose engine exports
+``take_inputs(model, inputs, t_s, *, baseline)`` gets one ``(record, value)``
+pair per declared input, the value its producer's plain read: when evolving,
+immediately before each ``advance`` of it, so it reads what its producers
+reached in the same pass; when not evolving, right after it is built or reset
+and after every :meth:`Composite.set` or :meth:`Composite.restore`. A delivery
+is a baseline when it is the first after the consumer or any of its producers
+was built, rebuilt or reset, and always when the composite does not evolve. A
+failed producer's inputs are left out; with none left no call is made. A raise
+in ``take_inputs`` fails the consumer as any time-contract call does.
 
 **The model log.** Each physics child appends JSON lines ``{instance, pid,
 ...}`` to ``var/simulator/<model>.log`` under the repo root of the loaded
@@ -248,6 +262,30 @@ def _ioc_health_variable(address: str, signal: str) -> Variable:
     raise ViewSchemaError(f"{address} is not an IOC health address: rebuild with osprey build")
 
 
+def _producers_first(children: Mapping[str, _Child]) -> list[str]:
+    """The children's names, every producer before its consumers, ties in name order.
+
+    A cycle, which the facility build refuses, leaves its members in name
+    order after every child that can be placed.
+    """
+    waiting = {
+        name: {producer for _, producer in child.takes if producer in children} - {name}
+        for name, child in children.items()
+    }
+    order: list[str] = []
+    while waiting:
+        ready = [name for name, producers in sorted(waiting.items()) if not producers]
+        if not ready:
+            order.extend(sorted(waiting))
+            break
+        name = ready[0]
+        order.append(name)
+        del waiting[name]
+        for producers in waiting.values():
+            producers.discard(name)
+    return order
+
+
 class WriteRefusedError(ValueError):
     """A write the composite refused; ``address`` is the one channel refused, else ``None``."""
 
@@ -276,6 +314,15 @@ class _Child:
     #: The active scenarios that fault this child or override one of its
     #: setpoints, in activation order.
     scenarios: tuple[str, ...] = ()
+    #: The model inputs: each declared ``{address, engine}`` record with the
+    #: child that produces its address, in declared order. Not ``inputs``,
+    #: which holds the setpoint values written to the child.
+    takes: tuple[tuple[Mapping[str, Any], str], ...] = ()
+    #: The children that take an input from this one.
+    consumers: tuple[str, ...] = ()
+    #: The next delivery is a baseline: nothing was delivered since this child
+    #: or one of its producers was built, rebuilt or reset.
+    baseline: bool = True
 
 
 class Composite(LUMEModel):
@@ -350,7 +397,17 @@ class Composite(LUMEModel):
             address: (owner if (owner := str(record.get("owner"))) in physics else TEXTURE_OWNER)
             for address, record in self._channels.items()
         }
-        self._children: dict[str, _Child] = {name: self._child(models[name]) for name in physics}
+        children = {name: self._child(models[name]) for name in physics}
+        for child in children.values():
+            for _, producer in child.takes:
+                if producer in children and producer != child.name:
+                    source = children[producer]
+                    if child.name not in source.consumers:
+                        source.consumers = (*source.consumers, child.name)
+        #: The physics children, every producer before its consumers.
+        self._children: dict[str, _Child] = {
+            name: children[name] for name in _producers_first(children)
+        }
         self._status: dict[str, str] = {
             address: name for name, address in view.status_addresses().items()
         }
@@ -400,6 +457,10 @@ class Composite(LUMEModel):
             if binding.engine_role == MONITOR and binding.element is not None:
                 groups.setdefault(str(binding.element), []).append(binding.address)
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
+        takes = tuple(
+            (record, self._owner.get(str(record["address"]), TEXTURE_OWNER))
+            for record in source.inputs
+        )
         return _Child(
             name=name,
             source=source,
@@ -407,6 +468,7 @@ class Composite(LUMEModel):
             defaults=defaults,
             setpoints=setpoints,
             partners=partners,
+            takes=takes,
         )
 
     def _start_value(self, child: _Child, address: str) -> Any:
@@ -445,6 +507,7 @@ class Composite(LUMEModel):
         the ``no deck`` status.
         """
         source = child.source
+        self._mark_baseline(child)
         child.model = None
         child.engine = None
         child.starts = {}
@@ -473,7 +536,7 @@ class Composite(LUMEModel):
             return
         child.status = STATUS_OK
         self._log(child.name, {"event": "built", "status": STATUS_OK})
-        self._advance_child(child, float(self._clock()))
+        self._advance_child(child, float(self._clock()), start=True)
 
     def _fail(self, child: _Child, exc: BaseException) -> None:
         """Mark a child failed with the text its engine gives for ``exc``.
@@ -516,9 +579,61 @@ class Composite(LUMEModel):
             self._fail(child, exc)
             return None
 
-    def _advance_child(self, child: _Child, t_s: float) -> None:
-        """Apply every step of ``child`` due by ``t_s``; a raise fails the child."""
+    def _advance_child(self, child: _Child, t_s: float, *, start: bool = False) -> None:
+        """Deliver ``child``'s inputs, then apply every step due by ``t_s``; a raise fails it.
+
+        Args:
+            child: A physics child.
+            t_s: The clock's reading.
+            start: The child was just built or reset: a composite that does not
+                evolve delivers its inputs too.
+        """
+        if self._evolve or start:
+            self._deliver(child, t_s)
         self._call_time(child, "advance", t_s)
+
+    # -- model inputs --------------------------------------------------------
+
+    def _mark_baseline(self, child: _Child) -> None:
+        """Make the next delivery to ``child`` and to each of its consumers a baseline."""
+        child.baseline = True
+        for name in child.consumers:
+            self._children[name].baseline = True
+
+    def _input_value(self, producer: str, address: str) -> tuple[bool, Any]:
+        """A producer's plain value of ``address``: ``(False, None)`` when it failed."""
+        if producer == TEXTURE_OWNER:
+            return True, _plain(self._texture.get([address])[address])
+        read = self._plain_get(self._children[producer], [address])
+        if read is None:
+            return False, None
+        return True, read[address]
+
+    def _deliver(self, child: _Child, t_s: float) -> None:
+        """Hand a built child its producers' values through ``take_inputs``.
+
+        Not a time-contract call: a composite that does not evolve delivers
+        too, always as a baseline. A failed producer's inputs are left out and
+        no call is made when none remain; a raise fails the child.
+        """
+        if not child.takes or child.model is None:
+            return
+        take = getattr(child.engine, "take_inputs", None)
+        if not callable(take):
+            return
+        pairs: list[tuple[Mapping[str, Any], Any]] = []
+        for record, producer in child.takes:
+            ok, value = self._input_value(producer, str(record["address"]))
+            if ok:
+                pairs.append((record, value))
+        if not pairs:
+            return
+        try:
+            take(child.model, pairs, t_s, baseline=child.baseline or not self._evolve)
+        except Exception as exc:
+            self._fail(child, exc)
+            return
+        child.baseline = False
 
     def _advance(self, t_s: float) -> None:
         for child in self._children.values():
@@ -736,7 +851,7 @@ class Composite(LUMEModel):
     @property
     def models(self) -> list[str]:
         """The served physics models, sorted by name."""
-        return list(self._children)
+        return sorted(self._children)
 
     @property
     def active(self) -> list[str]:
@@ -1085,7 +1200,7 @@ class Composite(LUMEModel):
         return self._children[model].status
 
     def set(self, values_by_name: dict[str, Any]) -> None:
-        """Write channels: physics children first, in name order, the texture last.
+        """Write channels: physics children first, producers before consumers, the texture last.
 
         Args:
             values_by_name: Values by channel address; a waveform as a flat or
@@ -1139,6 +1254,9 @@ class Composite(LUMEModel):
         t_s = float(self._clock())
         self._advance(t_s)
         forwarded = self._set(coerced)
+        if not self._evolve:
+            for child in self._children.values():
+                self._deliver(child, t_s)
         if client:
             self._client_write(forwarded, t_s)
 
@@ -1234,7 +1352,8 @@ class Composite(LUMEModel):
                 self._fail(child, exc)
                 continue
             child.inputs = self._start_inputs(child)
-            self._advance_child(child, float(self._clock()))
+            self._mark_baseline(child)
+            self._advance_child(child, float(self._clock()), start=True)
         self._texture.reset()
         self._texture_demands = {}
 

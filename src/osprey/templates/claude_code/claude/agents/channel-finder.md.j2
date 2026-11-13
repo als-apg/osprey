@@ -124,7 +124,9 @@ when the question names none.
 
 ### Verification
 
-`build_channels()` automatically validates all constructed channel names and reports valid/invalid counts.
+`build_channels()` returns only the addresses that exist in the database, each once.
+`invalid_count` and `invalid_examples` are selection combinations that hold no channel,
+not addresses missing from the database.
 
 {% include "claude_code/claude/agents/_terminology/hierarchical.md.j2" %}
 {% elif channel_finder_mode == "in_context" %}

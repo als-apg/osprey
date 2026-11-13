@@ -287,3 +287,37 @@ def test_a_reader_with_an_unknown_kind_is_refused():
 )
 def test_host_identity_is_the_stamped_name_or_none(config, expected):
     assert ids.host_identity(config) == expected
+
+
+@pytest.mark.parametrize(
+    ("account", "expected"),
+    [
+        ("GMartino", "gmartino"),
+        ("first.last", "first-last"),
+        ("First.Last", "first-last"),
+        ("user@corp", "user-corp"),
+        ("DOMAIN\\user", "domain-user"),
+        ("_svc", "svc"),
+        ("9lives", "9lives"),
+        ("g martino", "g-martino"),
+        ("user.", "user"),
+        ("___", None),
+        ("用户", None),
+        # The Kelvin sign lowercases to an ASCII ``k``; only ASCII is folded.
+        ("K", None),
+    ],
+)
+def test_a_login_derives_its_host_identity(account, expected):
+    assert ids.derived_host_identity(account) == expected
+
+
+@pytest.mark.parametrize("account", ["builder", "gmartino", "first-last", "a_b", "9lives"])
+def test_a_login_that_is_an_identity_is_its_own(account):
+    assert ids.derived_host_identity(account) == account
+
+
+@pytest.mark.parametrize("account", ["GMartino", "First.Last", "DOMAIN\\user", "_svc"])
+def test_deriving_twice_changes_nothing(account):
+    once = ids.derived_host_identity(account)
+    assert once is not None
+    assert ids.derived_host_identity(once) == once

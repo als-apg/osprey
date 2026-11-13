@@ -224,6 +224,10 @@ class JobResponse(OptimizationState):
     job_type: JobType = JobType.OPTIMIZATION
     created_at: str | None = None
     result_summary: ResultSummary | None = None
+    # Set on a draft whose algorithm may not move from the current setpoints, so
+    # the run would only measure its start again; a warning, never a gate. A
+    # job that has left CREATED never carries it.
+    start_notice: str | None = None
 
 
 class CurrentJobResponse(BaseModel):

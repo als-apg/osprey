@@ -9,8 +9,8 @@ here without an install.
 A demo render that selects the middle-layer pipeline answers
 ``run_sql`` from the DuckDB index the build writes.
 
-The unit lane ignores this module by name and the Tier 0 static job runs it by
-name: real builds are worth one reading per run, not one per matrix cell.
+The unit lane ignores this module by name and the preset static checks job runs
+it by name: real builds are worth one reading per run, not one per matrix cell.
 """
 
 from __future__ import annotations

@@ -9,9 +9,12 @@ import { test, expect, describe, beforeEach } from 'vitest';
 import { marked } from 'marked';
 
 import {
+  GRAPH_MARKER,
   STRUCTURE_MARKER,
   el,
   facilityLinkView,
+  graphHash,
+  graphTarget,
   hashChangeTarget,
   isFallback,
   readPanelParams,
@@ -130,6 +133,33 @@ describe('readPanelParams', () => {
     const params = readPanelParams();
     expect(params.concept).toBe(malformed);
     expect(params.raw).toBe(malformed);
+  });
+});
+
+describe('the Graph view fragment', () => {
+  test('graphHash names the overview or one node', () => {
+    expect(graphHash(null)).toBe('#__graph');
+    expect(graphHash('d:M/BPM 1')).toBe('#__graph/d%3AM%2FBPM%201');
+  });
+
+  test('graphTarget reads back what graphHash wrote', () => {
+    expect(graphTarget(GRAPH_MARKER)).toEqual({ node: null });
+    expect(graphTarget(graphHash('d:M/BPM 1').slice(1))).toEqual({ node: 'd:M/BPM 1' });
+    expect(graphTarget('__graph/')).toEqual({ node: null });
+  });
+
+  test('anything else is not a graph fragment', () => {
+    expect(graphTarget('')).toBeNull();
+    expect(graphTarget('devices/bpm')).toBeNull();
+    expect(graphTarget('__graphs')).toBeNull();
+  });
+
+  test('a graph fragment names no concept', () => {
+    location.hash = graphHash('d:M/Q1');
+    const params = readPanelParams();
+    expect(params.concept).toBe(null);
+    expect(params.structure).toBe(false);
+    location.hash = '';
   });
 });
 

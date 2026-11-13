@@ -59,7 +59,7 @@ _MANIFEST_PATH = "src/osprey/profiles/config_key_manifest.yml"
 #: The pages this sweep reads beside the configuration reference, relative to
 #: the repo root. The CLI reference, the ports page and the contract pages
 #: name config keys as inline literals too (``deployment.port_base``,
-#: ``provenance.deviation_marker``), and a reader copies them just the same.
+#: for one), and a reader copies them just the same.
 _EXTRA_PAGES = ("docs/source/reference/cli.rst", "docs/source/reference/ports.rst")
 _EXTRA_GLOBS = ("docs/source/reference/contracts/*.rst",)
 
@@ -103,10 +103,6 @@ _KEY_PATTERN = re.compile(r"^(?:" + "|".join(_SECTIONS) + r")\.[a-z0-9_.-]+$")
 _EXEMPTIONS: dict[str, str] = {
     "api.js": "a file of the ARIEL frontend, named in the contract's module table",
     "facility.json": "a file name on the channel-finder contract page, not a key",
-    "provenance.deviation_marker": (
-        "a key of the build profile's top-level provenance: block, read by the "
-        "profile loader (cli/build_profile_load.py), never a config.yml key"
-    ),
     "ariel.database.uri": (
         "recorded as deleted so no preset renders it live, but an explicit uri "
         "is still read and wins (services/ariel_search/config.py); the "

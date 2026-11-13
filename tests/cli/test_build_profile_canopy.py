@@ -289,7 +289,7 @@ def _build(repo: Path):
 
 
 def _validate(*args: str):
-    return CliRunner().invoke(validate, [*args, "--drift", "warn"])
+    return CliRunner().invoke(validate, [*args])
 
 
 def test_validate_passes_a_home_screen_the_library_holds(repo: Path):

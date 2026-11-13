@@ -12,7 +12,11 @@
  * rendered the approval surface; a different revision, or a different draft
  * replacing one already on screen, re-renders the surface and holds Start
  * until the operator has looked again. It also warns, without holding, when
- * the session names no account (`relay/session`): an owner-less start falls
+ * the session names no account (`relay/session`). A single-user deployment
+ * names its operator here (the sidecar's single-user alias), so this is the
+ * fallback for what that cannot cover: a roster deployment reached from a host
+ * `osprey web`, a sidecar published off loopback, a build with no usable
+ * account name. An owner-less start falls
  * back to the service's own account, unless the service is bound to a
  * control-context tree (then it is refused `owner_unknown`); even the
  * fallback is refused when a `login_tiers` map exists that does not list that
@@ -279,7 +283,9 @@ export const CONFLICT_NOTICE =
 export const REVIEWED_NOTICE = 'Reviewed. Start runs exactly what is shown below.';
 export const OWNER_UNKNOWN_NOTICE =
   "This session names no account, so the run's writes may be refused (owner_unknown). " +
-  'Open the panel from a roster login.';
+  'On a multi-user deployment, open the panel from your own web terminal. ' +
+  'On a single-user one, keep deployment.bind_address on loopback, give ' +
+  'deployment.host_identity a lowercase name, and rebuild.';
 
 /** Statuses a job never leaves (the service's `JobStatus.is_terminal`). */
 export const TERMINAL_STATUSES = Object.freeze(['completed', 'error', 'cancelled']);
@@ -338,7 +344,7 @@ function notADraftReason(status) {
 }
 
 /**
- * @typedef {{ enabled: boolean, reason: string|null, warning: string|null }} StartGate
+ * @typedef {{ enabled: boolean, reason: string|null, warnings: string[] }} StartGate
  */
 
 /**
@@ -355,8 +361,11 @@ function notADraftReason(status) {
  * write. A readonly run writes nothing, so it is not warned. The service
  * stays the authority.
  *
+ * A draft's `start_notice` (its algorithm may not move from the current
+ * setpoints) warns the same way: the operator may still start it.
+ *
  * @param {ApprovalState} state
- * @param {{ job_id: string, status: string }|null} job
+ * @param {{ job_id: string, status: string, start_notice?: string|null }|null} job
  * @param {{ starting?: boolean, envLoaded?: boolean, ownerKnown?: boolean|null }} [flags]
  * @returns {StartGate}
  */
@@ -365,12 +374,16 @@ export function startGate(
   job,
   { starting = false, envLoaded = false, ownerKnown = null } = {}
 ) {
-  const warning =
-    job?.status === 'created' && ownerKnown === false && state.config?.execution_mode !== 'readonly'
-      ? OWNER_UNKNOWN_NOTICE
-      : null;
+  /** @type {string[]} */
+  const warnings = [];
+  if (job?.status === 'created') {
+    if (ownerKnown === false && state.config?.execution_mode !== 'readonly') {
+      warnings.push(OWNER_UNKNOWN_NOTICE);
+    }
+    if (job.start_notice) warnings.push(job.start_notice);
+  }
   /** @param {string|null} reason */
-  const held = (reason) => ({ enabled: false, reason, warning });
+  const held = (reason) => ({ enabled: false, reason, warnings });
   if (!job) return held('No draft to start.');
   if (job.status !== 'created') return held(notADraftReason(job.status));
   if (state.jobId !== job.job_id || !state.config) return held('The draft is still loading.');
@@ -378,7 +391,7 @@ export function startGate(
   if (state.needsReview) return held('Review the changed draft first.');
   if (!envLoaded) return held("Direction unverified: the draft's environment is loading.");
   if (starting) return held('Starting…');
-  return { enabled: true, reason: null, warning };
+  return { enabled: true, reason: null, warnings };
 }
 
 /**

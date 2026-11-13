@@ -4,7 +4,9 @@
 refused for that user's narrowing; if the dispatch worker's staged map does not
 name the user, the owner rung answers ``unknown`` and the write is refused
 ``owner_unknown`` before the narrowing is read. ``test_single_user_narrowing_e2e``
-judges the build account's own write the same way, with no roster at all.
+judges the operator's own write the same way, with no roster at all — and there
+the operator is the stamped ``deployment.host_identity`` the host terminal signs
+in as, not the build account, whose name would leave the request unapprovable.
 
 Each stack is rendered here from its own module's ``INIT_PRESET_ARGS`` through
 one real in-process ``osprey init`` and ``osprey build``, so a preset or
@@ -32,6 +34,12 @@ pytestmark = pytest.mark.slow
 #: The pinned build account: roster-shaped, and no preset roster card's name.
 BUILD_ACCOUNT = "builder"
 
+#: The pinned host login the build stamps as ``deployment.host_identity`` (no
+#: profile states one): roster-shaped, no card's or agent-record login's name, and
+#: not the build account, so a single-user map that followed
+#: ``OSPREY_AUDIT_IDENTITY`` would show.
+HOST_LOGIN = "shiftlead"
+
 #: The shared-container configs that carry the map, under ``build/``.
 _STAGED = (
     Path("services/bluesky/config.yml"),
@@ -43,6 +51,9 @@ _STAGED = (
 def _pinned_env() -> Iterator[None]:
     with preserved_environ():
         os.environ["OSPREY_AUDIT_IDENTITY"] = BUILD_ACCOUNT
+        # ``getpass.getuser`` reads these first, in this order.
+        for name in ("LOGNAME", "USER", "LNAME", "USERNAME"):
+            os.environ[name] = HOST_LOGIN
         os.environ.pop("OSPREY_TERMINAL_USER", None)
         os.environ.pop("OSPREY_CONTROL_CONTEXT_TREE", None)
         yield
@@ -123,19 +134,29 @@ def test_dispatch_worker_runs_the_tier_the_e2e_expects(dispatch_repo: Path) -> N
     )
 
 
-def test_single_user_maps_the_build_account_at_the_root_tier(single_user_repo: Path) -> None:
+def test_single_user_maps_the_host_identity_at_the_root_tier(single_user_repo: Path) -> None:
     from osprey_connectors.posture_store import owner_tier_term
     from osprey_connectors.types import tier_writes
 
-    root = _load(single_user_repo / "build" / "config.yml")["control_system"]
+    rendered = _load(single_user_repo / "build" / "config.yml")
+    assert rendered["deployment"]["host_identity"] == HOST_LOGIN, (
+        "the build did not stamp the host login as deployment.host_identity"
+    )
+    root = rendered["control_system"]
     assert tier_writes(root) == "asked"
     for rel, section in _staged_sections(single_user_repo).items():
         login_tiers = section.get("login_tiers")
         assert isinstance(login_tiers, dict), f"{rel} carries no control_system.login_tiers"
-        assert login_tiers.get(BUILD_ACCOUNT) == tier_writes(root), (
-            f"{rel} does not map the build account {BUILD_ACCOUNT!r} at the root tier; "
-            f"a single-user job it owns would be refused owner_unknown. Map: {login_tiers}"
+        assert login_tiers.get(HOST_LOGIN) == tier_writes(root), (
+            f"{rel} does not map the host identity {HOST_LOGIN!r} at the root tier; "
+            f"a single-user job the operator owns would be refused owner_unknown. "
+            f"Map: {login_tiers}"
+        )
+        assert BUILD_ACCOUNT not in login_tiers, (
+            f"{rel} maps the build account {BUILD_ACCOUNT!r} on a single-user deployment; "
+            f"the operator signs in as {HOST_LOGIN!r}, so a request filed under the build "
+            f"account is one no login can approve. Map: {login_tiers}"
         )
         assert "unknown" not in login_tiers
         with _pinned_env():
-            assert owner_tier_term(section, BUILD_ACCOUNT) == "asked"
+            assert owner_tier_term(section, HOST_LOGIN) == "asked"

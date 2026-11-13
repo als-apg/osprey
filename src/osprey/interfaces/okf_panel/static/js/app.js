@@ -37,11 +37,16 @@ import {
   el,
   FACILITY_SCHEME,
   facilityLinkView,
+  GRAPH_MARKER,
+  graphHash,
+  graphTarget,
   hashChangeTarget,
   isFallback,
   readPanelParams,
   STRUCTURE_MARKER,
 } from './helpers.js';
+import { createGraphView } from './graph-view.js';
+import { currentView, graphAvailable, initViews, showView } from './views.js';
 import {
   initTree,
   renderTree,
@@ -71,12 +76,18 @@ initTheme({ role: 'follower' });
 
 /**
  * The panel's menu, in the tile ⋯ under "This panel". Its one entry resets the
- * contents list's width.
+ * width of the open view's sidebar: the contents list, or the graph controls.
  */
 const PANEL_MENU = {
   id: 'knowledge',
   items: [{ id: 'reset-width', label: 'Reset contents width' }],
 };
+
+/**
+ * Resets the Graph view's sidebar width; set once the view is wired.
+ * @type {(() => void) | null}
+ */
+let resetGraphWidth = null;
 
 /**
  * Run an entry of the panel's menu: it comes back as the menu's id and the
@@ -85,7 +96,9 @@ const PANEL_MENU = {
  * @param {string} [entry]
  */
 function onPanelMenu(id, entry) {
-  if (id === PANEL_MENU.id && entry === 'reset-width') resetContentsWidth();
+  if (id !== PANEL_MENU.id || entry !== 'reset-width') return;
+  if (currentView() === 'graph' && resetGraphWidth) resetGraphWidth();
+  else resetContentsWidth();
 }
 
 applyEmbedded();
@@ -195,6 +208,83 @@ function requireEl(id) {
   initSearchResults({ containerEl: searchResultsEl, onSelect: selectConcept });
   initToolbar({ onBrowse: (group) => loadStructure({ section: group }) });
 
+  // -- the two views ---------------------------------------------------------
+  //
+  // The Knowledge view (the contents list and the reader) and, when the panel
+  // serves a facility graph, the Graph view. Each keeps its place while the
+  // other is shown; the history holds one entry per switch.
+
+  /**
+   * What the Knowledge view shows: a concept's id or STRUCTURE_MARKER; null
+   * until it has loaded something.
+   * @type {string | null}
+   */
+  let knowledgeLoc = null;
+
+  const graph = graphAvailable()
+    ? createGraphView({
+        onPage(id) {
+          loadConcept(id);
+          history.pushState({ id: id }, '', '#' + id);
+        },
+        // The Graph view's entry follows what it draws, so a reload and a
+        // shared link reopen the same neighbourhood.
+        onLocation(node) {
+          if (currentView() !== 'graph') return;
+          history.replaceState({ id: GRAPH_MARKER, node: node }, '', graphHash(node));
+        },
+      })
+    : null;
+  if (graph) resetGraphWidth = graph.resetWidth;
+
+  /**
+   * Show a view. The search field is the open view's, so a switch empties it.
+   * @param {import('./views.js').PanelView} view
+   */
+  function enterView(view) {
+    if (!showView(view)) return;
+    searchInput.value = '';
+    clearSearchResults();
+    setContentsSearching(false);
+    if (graph) graph.search('');
+  }
+
+  /**
+   * Show the Graph view on a node's neighbourhood, or on its overview.
+   * @param {string | null} node
+   */
+  function openGraph(node) {
+    if (!graph) return;
+    enterView('graph');
+    graph.show(node);
+  }
+
+  /**
+   * Show the Graph view on the node that stands for a facility record.
+   * @param {{kind: string, id: string}} record
+   */
+  function showInGraph(record) {
+    if (!graph) return;
+    enterView('graph');
+    history.pushState({ id: GRAPH_MARKER, node: null }, '', graphHash(null));
+    graph.showRecord(record.kind, record.id);
+  }
+
+  initViews({
+    onSwitch(view) {
+      if (view === 'graph' && graph) {
+        const node = graph.location();
+        history.pushState({ id: GRAPH_MARKER, node: node }, '', graphHash(node));
+        openGraph(node);
+      } else if (knowledgeLoc === null) {
+        loadStructure();
+      } else {
+        enterView('knowledge');
+        history.pushState({ id: knowledgeLoc }, '', '#' + knowledgeLoc);
+      }
+    },
+  });
+
   /**
    * A row of the contents list (the tree or a search result) was picked.
    * @param {string} id
@@ -241,7 +331,8 @@ function requireEl(id) {
     // rendered container. Four classes of href:
     //   1. in-bundle cross-links  (/^\/.+\.md$/) → intercept, loadConcept + pushState
     //   2. external links         (http:// or https://) → target=_blank rel=noopener
-    //   3. facility links         (facility:) → the linked record on hover, no navigation
+    //   3. facility links         (facility:) → the linked record on hover; a click
+    //                             shows the record in the Graph view when there is one
     //   4. everything else        (#anchors, /dir/ directory links) → untouched
     //
     // loadConcept re-renders, which re-invokes afterRender, so links inside the
@@ -275,9 +366,13 @@ function requireEl(id) {
         const view = facilityLinkView(href, currentFacilityReferences);
         a.dataset.okfWired = '1';
         a.classList.add(view.dangling ? 'okf-facility-link--dangling' : 'okf-facility-link');
-        a.setAttribute('title', view.title);
+        const span = (currentFacilityReferences || []).find((entry) => entry.target === view.text);
+        const record = graph && span && span.records ? span.records[0] : undefined;
+        if (record) a.classList.add('okf-facility-link--graph');
+        a.setAttribute('title', record ? view.title + '\nClick: show in the graph' : view.title);
         a.addEventListener('click', function (ev) {
           ev.preventDefault();
+          if (record) showInGraph(record);
         });
       }
       // else: in-page #anchors or /dir/ directory links — leave default behavior.
@@ -287,20 +382,37 @@ function requireEl(id) {
   // Back/forward navigation between cross-linked concepts. Guard the initial
   // (null) state so popping to the entry point doesn't throw or re-load.
   window.addEventListener('popstate', function (ev) {
-    if (ev.state && ev.state.id === STRUCTURE_MARKER) {
+    if (ev.state && ev.state.id === GRAPH_MARKER) {
+      openGraph(ev.state.node ?? null);
+    } else if (ev.state && ev.state.id === STRUCTURE_MARKER) {
       // Pop back to the structure overview WITHOUT pushing a new entry.
       loadStructure({ push: false });
     } else if (ev.state && ev.state.id) {
       // Re-render the target concept WITHOUT pushing a new history entry.
       // (renderConcept re-applies the sidebar highlight + scroll-into-view.)
       loadConcept(ev.state.id);
+    } else if (currentView() === 'graph') {
+      // The entry the panel opened on holds no state: it is the knowledge
+      // page that was showing before the Graph view.
+      if (knowledgeLoc === null) loadStructure({ push: false });
+      else enterView('knowledge');
     }
   });
 
   // The hub opens this panel on a concept by changing its fragment; an
   // in-page anchor changes it too, and names no concept.
   window.addEventListener('hashchange', function () {
-    const target = hashChangeTarget(readPanelParams(), history.state, knownConceptIds);
+    const params = readPanelParams();
+    const inGraph = graph ? graphTarget(params.raw) : null;
+    if (inGraph) {
+      const state = history.state;
+      const held = state && state.id === GRAPH_MARKER && (state.node ?? null) === inGraph.node;
+      if (held) return;
+      history.replaceState({ id: GRAPH_MARKER, node: inGraph.node }, '');
+      openGraph(inGraph.node);
+      return;
+    }
+    const target = hashChangeTarget(params, history.state, knownConceptIds);
     if (target === null) return;
     history.replaceState({ id: target }, '');
     if (target === STRUCTURE_MARKER) loadStructure({ push: false });
@@ -364,6 +476,8 @@ function requireEl(id) {
    * @param {string} id
    */
   async function loadConcept(id) {
+    enterView('knowledge');
+    knowledgeLoc = id;
     showContentsFor('page');
     showOpenPage({ id, title: conceptTitles.get(id) ?? id });
     showReaderState({ icon: 'refresh', message: 'Loading the page' });
@@ -465,6 +579,8 @@ function requireEl(id) {
    */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
+    enterView('knowledge');
+    knowledgeLoc = STRUCTURE_MARKER;
     showContentsFor('browse');
     highlightStructure();
     showOpenPage(null);
@@ -510,6 +626,11 @@ function requireEl(id) {
    */
   async function runSearch(query) {
     const q = (query || '').trim();
+    // In the Graph view the field searches the graph's nodes.
+    if (currentView() === 'graph') {
+      if (graph) graph.search(q);
+      return;
+    }
     // The results are drawn in the contents list, so a search shows it.
     setContentsSearching(q !== '');
     if (!q) {
@@ -583,7 +704,11 @@ function requireEl(id) {
   // the default reader content (instead of an empty pane).
   function bootFromParams() {
     const params = readPanelParams();
-    if (params.concept) {
+    const inGraph = graph ? graphTarget(params.raw) : null;
+    if (inGraph) {
+      history.replaceState({ id: GRAPH_MARKER, node: inGraph.node }, '', graphHash(inGraph.node));
+      openGraph(inGraph.node);
+    } else if (params.concept) {
       // Seed a history entry with the target id so browser back/forward returns
       // to the deep-linked concept (popstate reads ev.state.id).
       history.replaceState({ id: params.concept }, '', '#' + params.concept);

@@ -17,6 +17,11 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
   channel settable by -- and ``ro`` for everything else, the status addresses
   included.
 
+It also refuses a view with a waveform channel whose array -- its declared
+length times :data:`ARRAY_ELEMENT_BYTES` -- exceeds the configuration's
+``max_array_bytes``: such a channel would be served truncated, so the runner
+fails at start instead.
+
 :func:`periodic_addresses` names the channels the view says refresh
 ``periodic`` and the IOC health addresses that move with time alone, which a
 write pass leaves for the next periodic pass.
@@ -47,6 +52,7 @@ tested in process.
 from __future__ import annotations
 
 import copy
+import math
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -63,6 +69,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
 __all__ = [
+    "ARRAY_ELEMENT_BYTES",
     "FLOAT_PRECISION",
     "HEALTH_KEYS",
     "SAFETY_KEYS",
@@ -95,7 +102,11 @@ HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 #: corrector kick in mrad below a microradian, where none would show either as 0.
 FLOAT_PRECISION = 4
 
+#: The bytes of one element of a served waveform: arrays are served as doubles.
+ARRAY_ELEMENT_BYTES = 8
+
 _FLOAT = "float"
+_WAVEFORM = "waveform"
 # The refresh words of the view's vocabulary, taken from it, never restated.
 _, _, _FAST, _EVENT = REFRESH
 
@@ -115,6 +126,10 @@ def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, An
         variable's ``mode`` stated, each setpoint's ``value_range`` set to
         the view's, and each float channel's ``precision`` set: the view's
         where it states one, else :data:`FLOAT_PRECISION`.
+
+    Raises:
+        ValueError: a waveform channel's array, its declared length times
+            :data:`ARRAY_ELEMENT_BYTES`, exceeds ``max_array_bytes``.
     """
     safe: dict[str, Any] = copy.deepcopy(dict(config))
     safe.update(SAFETY_KEYS)
@@ -135,7 +150,20 @@ def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, An
             entry["precision"] = (
                 channel.precision if channel.precision is not None else FLOAT_PRECISION
             )
+        elif channel.value_type == _WAVEFORM and channel.shape is not None:
+            _check_array_size(address, channel.shape, safe["max_array_bytes"])
     return safe
+
+
+def _check_array_size(address: str, shape: Iterable[int], limit: int | str) -> None:
+    """Refuse the waveform at ``address`` when its array exceeds ``limit`` bytes."""
+    size = math.prod(shape) * ARRAY_ELEMENT_BYTES
+    if size > int(limit):
+        raise ValueError(
+            f"channel {address} is an array of {size} bytes, over the configuration's "
+            f"array byte limit of {int(limit)} (max_array_bytes): it would be served "
+            "truncated"
+        )
 
 
 def periodic_addresses(view: SimulatorView) -> frozenset[str]:

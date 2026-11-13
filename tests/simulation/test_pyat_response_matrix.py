@@ -97,6 +97,47 @@ class TestRows:
         assert np.max(np.abs(result.matrix[horizontal, 0])) > 0.0
 
 
+def _lattice_index(deck: Path) -> dict[str, int]:
+    return {element.FamName: place for place, element in enumerate(at.load_lattice(str(deck)))}
+
+
+def _lattice_length(deck: Path) -> int:
+    """The deck's element count, repeated names included."""
+    return len(at.load_lattice(str(deck)))
+
+
+class TestPositions:
+    def test_every_orbit_row_carries_its_monitor_elements_lattice_index(self, demo):
+        result = _matrix(demo, [CORRECTOR_X], 0.5)
+        index = _lattice_index(demo["deck"])
+        element = {record["address"]: record.get("element") for record in demo["wiring"]}
+
+        assert result.row_positions == [index[element[row]] for row in result.rows]
+        assert result.row_positions == sorted(result.row_positions)
+
+    def test_every_orbit_column_carries_its_corrector_elements_lattice_index(self, demo):
+        result = _matrix(demo, [CORRECTOR_Y, CORRECTOR_X], 0.5)
+        index = _lattice_index(demo["deck"])
+        element = {record["address"]: record.get("element") for record in demo["wiring"]}
+
+        assert result.column_positions == [index[element[column]] for column in result.columns]
+
+    def test_an_unsolved_corrector_has_no_position(self, demo, monkeypatch):
+        clean = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+        _refuse_solve(monkeypatch, call=1)
+
+        result = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+
+        assert result.columns == [CORRECTOR_Y]
+        assert result.column_positions == [clean.column_positions[1]]
+
+    def test_positions_are_whole_numbers(self, demo):
+        result = _matrix(demo, [CORRECTOR_X], 0.5)
+
+        assert all(type(place) is int for place in result.row_positions)
+        assert all(type(place) is int for place in result.column_positions)
+
+
 class TestCalibration:
     def test_a_linear_calibration_scales_the_physics_matrix_by_the_two_gains(self, demo):
         corrector_gain, monitor_gain = 4.0, 1024.0
@@ -282,3 +323,334 @@ class TestSinglePass:
         expected = (_tracked(line, step / 2) - _tracked(line, -step / 2)) / step
         np.testing.assert_allclose(matrix[:, 0], expected, rtol=1e-12, atol=1e-15)
         assert abs(matrix[rows.index("BPM_3:X"), 0]) > 0.0
+
+
+# -- the first-turn trajectory response -----------------------------------------
+
+INJECTION = "INJ"
+TRAJECTORY_LAUNCH = {"x": 1.0e-3, "y": -5.0e-4}
+
+
+def _turn_settings(demo: dict[str, Any], **block: Any) -> dict[str, Any]:
+    """The demo SR settings with a turn-by-turn block launching at the injection marker."""
+    settings = copy.deepcopy(demo["settings"]) or {}
+    stated: dict[str, Any] = {"injection_element": INJECTION, "launch": dict(TRAJECTORY_LAUNCH)}
+    stated.update(block)
+    settings.setdefault("pyat", {})["turn_by_turn"] = stated
+    return settings
+
+
+def _turn_record(element: str, plane: str) -> dict[str, Any]:
+    """A monitor's turn-buffer record, as a turn-by-turn ring wires it."""
+    return {
+        "id": f"{element}:TBT:{plane.upper()}",
+        "address": f"{element}:TBT:{plane.upper()}",
+        "element": element,
+        "direction": "read",
+        "engine": {"signal": f"turn_{plane}"},
+    }
+
+
+def _monitor_elements(demo: dict[str, Any]) -> list[str]:
+    """The demo's monitor elements, in deck order."""
+    index = _lattice_index(demo["deck"])
+    elements = {record["element"] for record in demo["wiring"] if _is_monitor(record)}
+    return sorted(elements, key=index.__getitem__)
+
+
+def _turn_wiring(demo: dict[str, Any], leave_out: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    """The demo SR wiring with both turn-buffer records on every monitor element."""
+    records = [
+        _turn_record(element, plane) for element in _monitor_elements(demo) for plane in ("y", "x")
+    ]
+    return [*demo["wiring"], *(record for record in records if record["address"] not in leave_out)]
+
+
+def _trajectory(
+    demo: dict[str, Any],
+    settings: dict[str, Any],
+    steps: dict[str, float],
+    wiring: list[dict[str, Any]] | None = None,
+) -> engine.ResponseMatrix:
+    return engine.response_matrix(
+        demo["deck"],
+        _turn_wiring(demo) if wiring is None else wiring,
+        settings,
+        list(steps),
+        steps,
+        kind="trajectory",
+    )
+
+
+def _first_turn_order(demo: dict[str, Any], start: str = INJECTION) -> list[tuple[int, str]]:
+    """Each turn-buffer row's (place counted from ``start``, address), as the bunch meets them."""
+    index = _lattice_index(demo["deck"])
+    rows = [
+        (
+            (index[element] - index[start]) % _lattice_length(demo["deck"]),
+            plane,
+            f"{element}:TBT:{plane.upper()}",
+        )
+        for element in _monitor_elements(demo)
+        for plane in ("x", "y")
+    ]
+    return [(place, address) for place, _, address in sorted(rows)]
+
+
+def _first_turn(
+    demo: dict[str, Any], settings: dict[str, Any], rows: list[str], kicks: dict[str, float]
+) -> np.ndarray:
+    """One particle tracked one turn from INJ by pyAT, each turn-buffer row in metres.
+
+    Each corrector in ``kicks`` is moved by that many hardware units from the
+    value the deck holds.
+    """
+    from lume_pyat.simulator import PyATSimulator
+
+    from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring
+
+    lattice = at.load_lattice(str(demo["deck"]))
+    simulator = PyATSimulator(lattice)
+    by_address = {record["address"]: record for record in demo["wiring"]}
+    for address, kick in kicks.items():
+        variable = variable_from_wiring(
+            by_address[address], deck_energy_gev=float(lattice.energy) / EV_PER_GEV
+        )
+        variable._set(simulator, variable._get(simulator) + kick)
+    index = {element.FamName: place for place, element in enumerate(lattice)}
+    start = index[INJECTION]
+    launch = engine.prepare(demo["deck"], settings).turn_by_turn.launch
+    readings = [tuple(address.split(":TBT:")) for address in rows]
+    places = sorted({index[element] for element, _ in readings})
+    rotated = lattice.rotate(start)
+    refpts = np.array(sorted((place - start) % len(lattice) for place in places), np.uint32)
+    r_out = at.lattice_track(rotated, np.array(launch, dtype=float).reshape(6, 1), refpts=refpts)[0]
+    slot = {int(ref): position for position, ref in enumerate(refpts)}
+    values = []
+    for element, plane in readings:
+        ref = (index[element] - start) % len(lattice)
+        values.append(float(r_out[0 if plane == "X" else 2, 0, slot[ref], 0]))
+    return np.array(values)
+
+
+class TestTrajectory:
+    def test_the_matrix_times_a_small_kick_predicts_the_tracked_first_turn_difference(self, demo):
+        settings = _turn_settings(demo)
+        result = _trajectory(demo, settings, {CORRECTOR_X: 0.01, CORRECTOR_Y: 0.01})
+        kick = np.array([0.004, -0.003])
+
+        predicted = result.matrix @ kick
+        tracked = _first_turn(
+            demo, settings, result.rows, dict(zip(result.columns, kick, strict=True))
+        ) - _first_turn(demo, settings, result.rows, {})
+
+        assert result.unsolved == {}
+        assert result.columns == [CORRECTOR_X, CORRECTOR_Y]
+        assert np.max(np.abs(tracked)) > 0.0
+        np.testing.assert_allclose(
+            predicted, tracked, rtol=1e-3, atol=1e-6 * np.max(np.abs(tracked))
+        )
+
+    def test_rows_are_the_turn_buffer_records_in_the_order_the_bunch_meets_them(self, demo):
+        result = _trajectory(demo, _turn_settings(demo), {CORRECTOR_X: 0.5})
+        expected = _first_turn_order(demo)
+
+        assert result.rows == [address for _, address in expected]
+        assert result.row_positions == [place for place, _ in expected]
+        assert result.matrix.shape == (SR_MONITORS, 1)
+
+    def test_no_row_is_an_orbit_readback(self, demo):
+        orbit = _matrix(demo, [CORRECTOR_X], 0.5)
+        result = _trajectory(demo, _turn_settings(demo), {CORRECTOR_X: 0.5})
+
+        assert not set(result.rows) & set(orbit.rows)
+
+    def test_row_positions_count_from_the_injection_element_and_rise_within_a_plane(self, demo):
+        result = _trajectory(demo, _turn_settings(demo), {CORRECTOR_X: 0.5})
+        length = _lattice_length(demo["deck"])
+
+        assert all(0 <= place < length for place in result.row_positions)
+        for plane in ("X", "Y"):
+            places = [
+                place
+                for row, place in zip(result.rows, result.row_positions, strict=True)
+                if row.endswith(f":TBT:{plane}")
+            ]
+            assert len(places) == SR_MONITORS // 2
+            assert all(later > earlier for earlier, later in zip(places, places[1:], strict=False))
+
+    def test_an_injection_element_mid_ring_wraps_the_monitors_before_it_to_the_end(self, demo):
+        # Launching at a monitor: it is met first, the monitor before it last.
+        monitors = _monitor_elements(demo)
+        start = monitors[len(monitors) // 2]
+        before = monitors[len(monitors) // 2 - 1]
+        index = _lattice_index(demo["deck"])
+        settings = _turn_settings(demo, injection_element=start)
+
+        result = _trajectory(demo, settings, {CORRECTOR_X: 0.5})
+
+        expected = _first_turn_order(demo, start)
+        assert result.rows == [address for _, address in expected]
+        assert result.row_positions == [place for place, _ in expected]
+        assert result.rows[:2] == [f"{start}:TBT:X", f"{start}:TBT:Y"]
+        assert result.row_positions[:2] == [0, 0]
+        assert result.rows[-2:] == [f"{before}:TBT:X", f"{before}:TBT:Y"]
+        assert result.row_positions[-1] == (index[before] - index[start]) % _lattice_length(
+            demo["deck"]
+        )
+        assert result.row_positions == sorted(result.row_positions)
+
+    def test_column_positions_count_from_the_injection_element(self, demo):
+        index = _lattice_index(demo["deck"])
+        element = {record["address"]: record.get("element") for record in demo["wiring"]}
+        monitors = _monitor_elements(demo)
+        start = monitors[len(monitors) // 2]
+
+        result = _trajectory(
+            demo,
+            _turn_settings(demo, injection_element=start),
+            {CORRECTOR_Y: 0.5, CORRECTOR_X: 0.5},
+        )
+
+        assert result.columns == [CORRECTOR_Y, CORRECTOR_X]
+        assert result.column_positions == [
+            (index[element[column]] - index[start]) % _lattice_length(demo["deck"])
+            for column in result.columns
+        ]
+
+    def test_a_corrector_moves_only_the_rows_placed_after_it(self, demo):
+        result = _trajectory(demo, _turn_settings(demo), {CORRECTOR_X: 0.5})
+        (corrector,) = result.column_positions
+        horizontal = [
+            (place, abs(float(value)))
+            for row, place, value in zip(
+                result.rows, result.row_positions, result.matrix[:, 0], strict=True
+            )
+            if row.endswith(":TBT:X")
+        ]
+
+        assert all(value == 0.0 for place, value in horizontal if place < corrector)
+        assert any(value > 0.0 for place, value in horizontal if place > corrector)
+
+    def test_a_monitor_without_a_turn_buffer_record_has_no_row_for_it(self, demo):
+        first, second = _monitor_elements(demo)[:2]
+        gone = (f"{first}:TBT:X", f"{first}:TBT:Y", f"{second}:TBT:Y")
+
+        result = _trajectory(
+            demo, _turn_settings(demo), {CORRECTOR_X: 0.5}, _turn_wiring(demo, leave_out=gone)
+        )
+
+        assert not set(gone) & set(result.rows)
+        assert f"{second}:TBT:X" in result.rows
+        assert len(result.rows) == len(result.row_positions) == SR_MONITORS - 3
+        assert result.matrix.shape == (SR_MONITORS - 3, 1)
+
+    def test_a_ring_wiring_no_turn_buffer_record_refuses_the_trajectory(self, demo):
+        with pytest.raises(engine.RequestRefused, match="turn_x") as refused:
+            _trajectory(demo, _turn_settings(demo), {CORRECTOR_X: 0.5}, demo["wiring"])
+
+        assert "turn_y" in str(refused.value)
+
+    def test_the_lost_particle_answer_still_places_its_rows(self, demo):
+        settings = _turn_settings(demo, launch={"x": 0.02}, aperture={"x": 0.005, "y": 0.005})
+
+        result = _trajectory(demo, settings, {CORRECTOR_X: 0.01})
+
+        assert result.columns == [] and result.column_positions == []
+        assert result.row_positions == [place for place, _ in _first_turn_order(demo)]
+
+    def test_a_monitor_upstream_of_the_corrector_does_not_respond_until_the_turn_wraps(self, demo):
+        # The first turn runs from INJ to INJ: a monitor read before the
+        # corrector sees no kick, one read after it does.
+        result = _trajectory(demo, _turn_settings(demo), {CORRECTOR_X: 0.5})
+        column = np.abs(result.matrix[:, 0])
+
+        assert np.count_nonzero(column == 0.0) > 0
+        assert np.count_nonzero(column > 0.0) > 0
+
+    def test_a_kicked_particle_lost_names_the_corrector_and_where(self, demo):
+        settings = _turn_settings(demo, aperture={"x": 0.01, "y": 0.01})
+
+        result = _trajectory(demo, settings, {CORRECTOR_X: 1.0e5, CORRECTOR_Y: 0.01})
+
+        assert result.columns == [CORRECTOR_Y]
+        assert list(result.unsolved) == [CORRECTOR_X]
+        text = result.unsolved[CORRECTOR_X]
+        assert "lost on the first turn at element" in text
+        assert "before monitor" in text
+        assert text.endswith(f"(while stepping {CORRECTOR_X})")
+        assert result.matrix.shape == (SR_MONITORS, 1)
+
+    def test_an_unkicked_particle_lost_leaves_every_corrector_unsolved(self, demo):
+        settings = _turn_settings(demo, launch={"x": 0.02}, aperture={"x": 0.005, "y": 0.005})
+
+        result = _trajectory(demo, settings, {CORRECTOR_X: 0.01, CORRECTOR_Y: 0.01})
+
+        assert result.columns == []
+        assert result.matrix.shape == (SR_MONITORS, 0)
+        assert list(result.unsolved) == [CORRECTOR_X, CORRECTOR_Y]
+        texts = {text.split(" (with no corrector")[0] for text in result.unsolved.values()}
+        (text,) = texts
+        assert "lost on the first turn at element" in text
+
+    def test_a_rectangular_aperture_also_loses_the_particle(self, demo):
+        settings = _turn_settings(
+            demo, launch={"x": 0.02}, aperture={"x": 0.005, "y": 0.005, "shape": "rectangular"}
+        )
+
+        result = _trajectory(demo, settings, {CORRECTOR_X: 0.01})
+
+        assert result.columns == []
+        assert list(result.unsolved) == [CORRECTOR_X]
+
+    def test_a_ring_that_is_not_turn_by_turn_refuses_the_trajectory(self, demo):
+        with pytest.raises(engine.RequestRefused, match="turn-by-turn"):
+            _trajectory(demo, copy.deepcopy(demo["settings"]), {CORRECTOR_X: 0.5})
+
+    def test_an_unknown_kind_is_refused(self, demo):
+        with pytest.raises(engine.RequestRefused, match="'dispersion'"):
+            engine.response_matrix(
+                demo["deck"],
+                demo["wiring"],
+                demo["settings"],
+                [CORRECTOR_X],
+                {CORRECTOR_X: 0.5},
+                kind="dispersion",
+            )
+
+    def test_a_bad_request_is_still_refused_when_the_particle_is_lost(self, demo):
+        settings = _turn_settings(demo, launch={"x": 0.02}, aperture={"x": 0.005, "y": 0.005})
+
+        with pytest.raises(engine.RequestRefused, match="SR:NOT:A:SETPOINT"):
+            _trajectory(demo, settings, {"SR:NOT:A:SETPOINT": 0.5})
+
+    def test_the_orbit_answer_of_a_turn_by_turn_ring_keeps_its_rows_and_lattice_positions(
+        self, demo
+    ):
+        plain = _matrix(demo, [CORRECTOR_X], 0.5)
+
+        result = engine.response_matrix(
+            demo["deck"],
+            _turn_wiring(demo),
+            _turn_settings(demo),
+            [CORRECTOR_X],
+            {CORRECTOR_X: 0.5},
+        )
+
+        assert result.rows == plain.rows
+        assert result.row_positions == plain.row_positions
+        assert result.column_positions == plain.column_positions
+        np.testing.assert_array_equal(result.matrix, plain.matrix)
+
+    def test_the_orbit_kind_is_the_default(self, demo):
+        default = _matrix(demo, [CORRECTOR_X], 0.5)
+        orbit = engine.response_matrix(
+            demo["deck"],
+            demo["wiring"],
+            demo["settings"],
+            [CORRECTOR_X],
+            {CORRECTOR_X: 0.5},
+            kind="orbit",
+        )
+
+        np.testing.assert_array_equal(default.matrix, orbit.matrix)

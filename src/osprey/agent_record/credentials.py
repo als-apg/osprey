@@ -515,12 +515,16 @@ def ensure_agent_record_credentials(
         report.purged.append(HISTORY_GATE_FILE)
 
     logins = {g.login: g for g in grants if not g.identity.startswith(ids.READER_IDENTITY_PREFIX)}
-    for login in logins:
-        if _create(root / login_file(login), _env_lines([(LOGIN_ENV, f"{login}:{_token()}")])):
-            report.minted.append(login_file(login))
+    # Removed before any is minted: on a filesystem that ignores case, a stale
+    # file whose name differs from a current login's only in case IS that
+    # login's file, so minting first would find it there, write nothing, and
+    # the purge would then remove the one file the login has.
     for login in _suffixes(root, LOGIN_FILE_PREFIX):
         if login not in logins and _remove(root / login_file(login)):
             report.purged.append(login_file(login))
+    for login in logins:
+        if _create(root / login_file(login), _env_lines([(LOGIN_ENV, f"{login}:{_token()}")])):
+            report.minted.append(login_file(login))
 
     if reader_keys:
         configured = {

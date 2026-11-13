@@ -17,9 +17,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.cli.build_profile import list_presets
-from osprey.cli.build_profile_drift import app_tree_digest
 from osprey.cli.build_profile_merge import _hash_resolved_profile, compute_preset_hash
 from osprey.cli.build_profile_presets import list_tiers
+from osprey.cli.build_profile_updates import app_tree_digest
 from osprey.profiles import presets
 
 PRESET_APPS_DIR = Path(presets.__file__).parent / "apps"
@@ -37,7 +37,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # A digest moves whenever its preset's resolved content does, and the commit
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
-    "demo": ("sha256:1a9da6b85db318ba563f5e2b7f8ed039fd3853e55043e21f6e2b84c82f7fff5a"),
+    "demo": ("sha256:e322c477cd42221e9649b3f3b2ab4177701be22142e6fb6b984ac1cc1c31fe02"),
     "hello-world": ("sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"),
     "tiers/admin": ("sha256:197ef2a65251887b0af8a2a03dac1494b366d2bb3fdabe42c5f8227fdc729736"),
     "tiers/readonly": ("sha256:8d24dbff3b01876824e3fc10ac61595d9e841feddf632064894ceef7e5031a81"),

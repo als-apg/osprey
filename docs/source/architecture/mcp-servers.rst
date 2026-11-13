@@ -44,6 +44,8 @@ safety-limits enforcement on all write operations.
   goes through the writes check and the limits check. The write switch's position then
   decides: at *off* the write is refused, at *asked* the operator approves it at a prompt,
   and at *allowed* it runs unprompted (see :ref:`architecture-safety-chain-order`).
+  A call is checked whole before any of its writes is sent: a write refused by the
+  checks stops the whole call.
 - ``archiver_read`` -- Retrieve historical archived data for one or more channels over a
   time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
   ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
@@ -56,12 +58,12 @@ safety-limits enforcement on all write operations.
   write-gated and under what constraints (lookup, pattern match, summary). Not a channel
   roster -- an unlisted channel may still exist; use channel-finder to discover what channels
   exist.
-- ``control_target`` -- Report which control system the deployment points at (``live``,
+- ``control_target`` -- Report which control system the login's sessions point at (``live``,
   ``va`` or ``standin``), each target's endpoints and reachability, and whether the session
   may move to it now. Read-only: it connects to nothing.
-- ``control_target_set`` -- Point the deployment's control-system tools at another target.
-  The target belongs to the deployment, so every session on it moves too (requires human
-  approval).
+- ``control_target_set`` -- Point the login's control-system tools at another target.
+  The target belongs to the login, not to one session, so every session of that
+  login moves too (requires human approval).
 
 An application's write tools take the same path: they enter the gate as their server's
 ``writes:`` list, the switch's position decides each call, and no per-tool approval policy exists

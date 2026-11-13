@@ -6,7 +6,7 @@ Written into ``<render>/data/simulator/``::
     addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...],
                           ioc_health: [...]}
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
-    variables.json       {schema: osprey.facility.simulator/3, code, models: [...], channels: [...]}
+    variables.json       {schema: osprey.facility.simulator/4, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
     scenarios.json       {schema: osprey.facility.scenarios/3, scenarios: [...]}
     scenarios/<name>/    a byte copy of each file a scenario's logbook entries attach
@@ -19,9 +19,12 @@ no other view. A deck is copied for every model that names one, served or not,
 so a render's deck set does not depend on ``simulation.models``.
 
 ``variables.json`` lists every model record of the facility file, sorted by
-name, as ``{name, engine, served, settings, deck, wiring}``: ``deck`` is the
+name, as ``{name, engine, served, settings, deck, wiring, inputs?}``: ``deck`` is the
 copy's path under ``data/simulator/`` or null, ``wiring`` is
-``simulator_wiring`` of the model (empty for a model without wiring). Its
+``simulator_wiring`` of the model (empty for a model without wiring) and
+``inputs`` is the model's ``inputs`` verbatim, in declared order, present only
+when the model declares one, so a model without inputs is written as under
+``/3``. Its
 ``channels`` are every channel, sorted by address, as ``{address, role, pair,
 value_type, options?, shape?, unit, description, writable, value_range,
 owner, on}``: ``role`` defaults to ``readback`` and ``value_type`` to ``float``
@@ -316,19 +319,23 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     return {
         "schema": VARIABLES_SCHEMA,
         "code": str(doc["identity"]["code"]),
-        "models": [
-            {
-                "name": model["name"],
-                "engine": model.get("engine"),
-                "served": model["name"] in inputs.served,
-                "settings": copy.deepcopy(model.get("settings") or {}),
-                "deck": served_deck_path(model),
-                "wiring": simulator_wiring(inputs.records, str(model["name"])),
-            }
-            for model in models
-        ],
+        "models": [_model_entry(inputs, model) for model in models],
         "channels": channels,
     }
+
+
+def _model_entry(inputs: ViewInputs, model: Mapping[str, Any]) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "name": model["name"],
+        "engine": model.get("engine"),
+        "served": model["name"] in inputs.served,
+        "settings": copy.deepcopy(model.get("settings") or {}),
+        "deck": served_deck_path(model),
+        "wiring": simulator_wiring(inputs.records, str(model["name"])),
+    }
+    if model.get("inputs"):
+        entry["inputs"] = copy.deepcopy(list(model["inputs"]))
+    return entry
 
 
 def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:

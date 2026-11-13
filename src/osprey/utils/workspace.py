@@ -75,6 +75,11 @@ TIERS_DIRNAME: Final = "tiers"
 #: login.
 APPS_DIRNAME: Final = "apps"
 
+#: Directory beside ``profile.yml`` holding what OSPREY records about the repo
+#: for itself: the saved copy of what the presets produced, under
+#: ``preset-base/`` (:mod:`osprey.cli.build_profile_updates`). Tracked in git.
+PRESET_TRACKING_DIRNAME: Final = ".osprey"
+
 #: Each live layer directory -> the kind word its files are read as. The
 #: listing order is the order every layer listing follows. Spelled here, below
 #: ``cli``, because the hook library and the runtime read the layout too.

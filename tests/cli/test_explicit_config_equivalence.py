@@ -247,6 +247,26 @@ def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _canopy_theme_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The CANOPY theme setting the demo preset states, which each of *documents* gains.
+
+    Args:
+        documents: The rendered documents the cell emits.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="web.panels.canopy.theme_file",
+            fixture=ABSENT,
+            live="data/canopy/theme/osprey.json",
+        )
+        for document in documents
+    )
+
+
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
 #: mapping must equal its fixture exactly. See the module docstring for how to
@@ -255,7 +275,10 @@ def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     "hello-world/unset": _catalog_addition_deltas("root"),
     **{
-        f"demo/{mode}": _catalog_addition_deltas(*_DEMO_RENDERS)
+        f"demo/{mode}": (
+            *_catalog_addition_deltas(*_DEMO_RENDERS),
+            *_canopy_theme_deltas(*_DEMO_RENDERS),
+        )
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
 }

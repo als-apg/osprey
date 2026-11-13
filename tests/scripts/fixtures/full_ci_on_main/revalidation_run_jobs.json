@@ -1,31 +1,31 @@
 [
  {
-  "name": "Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)",
+  "name": "Preset Static Checks",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Plugin marketplace smoke (install the osprey plugin)",
+  "name": "Plugin Marketplace Smoke",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.11 on ubuntu-latest (rest)",
+  "name": "Test Python — 3.11 on ubuntu-latest, rest",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)",
+  "name": "Google Chat Bridge E2E",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.12 on ubuntu-latest (cli)",
+  "name": "Test Python — 3.12 on ubuntu-latest, cli",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.11 on ubuntu-latest (cli)",
+  "name": "Test Python — 3.11 on ubuntu-latest, cli",
   "status": "completed",
   "conclusion": "success"
  },
@@ -35,22 +35,22 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.12 on ubuntu-latest (rest)",
+  "name": "Test Python — 3.12 on ubuntu-latest, rest",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Tier 1 — Build + MCP boot (demo)",
+  "name": "Preset Build + MCP Boot — demo",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.12 on macos-latest (cli)",
+  "name": "Test Python — 3.12 on macos-latest, cli",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Tier 3 — Agentic flow (hello-world)",
+  "name": "Preset Agentic Flow — hello-world",
   "status": "completed",
   "conclusion": "success"
  },
@@ -75,12 +75,12 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.11 on macos-latest (rest)",
+  "name": "Test Python — 3.11 on macos-latest, rest",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)",
+  "name": "Nextcloud Talk Bridge E2E",
   "status": "completed",
   "conclusion": "success"
  },
@@ -90,22 +90,22 @@
   "conclusion": "success"
  },
  {
-  "name": "Tier 3 — Agentic flow (demo)",
+  "name": "Preset Agentic Flow — demo",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Deploy E2E Test (build + deploy pipeline)",
+  "name": "Deploy E2E",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Frontend JS (typecheck + lint + vitest)",
+  "name": "Frontend JS Checks",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.12 on macos-latest (rest)",
+  "name": "Test Python — 3.12 on macos-latest, rest",
   "status": "completed",
   "conclusion": "success"
  },
@@ -115,7 +115,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Test Python 3.11 on macos-latest (cli)",
+  "name": "Test Python — 3.11 on macos-latest, cli",
   "status": "completed",
   "conclusion": "success"
  },
@@ -130,32 +130,32 @@
   "conclusion": "success"
  },
  {
-  "name": "Tier 1 — Build + MCP boot (hello-world)",
+  "name": "Preset Build + MCP Boot — hello-world",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Package Build (framework + lean connectors wheel)",
+  "name": "Package Build",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Archiver suite at the declared dependency floor",
+  "name": "Archiver Dependency Floor Tests",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Behavioral + Visual Theming (Playwright, design system)",
+  "name": "Behavioral + Visual Theming Tests",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Documentation Build (Check Only)",
+  "name": "Documentation Build",
   "status": "completed",
   "conclusion": "success"
  },
  {
-  "name": "Privilege Split E2E (built images, stat-level ownership proof)",
+  "name": "Privilege Split E2E",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -190,12 +190,12 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Two-Shape Boot E2E (bridge + host network axis, podman-compose)",
+  "name": "Two-Shape Boot E2E",
   "status": "completed",
   "conclusion": "skipped"
  },
  {
-  "name": "Model-Free E2E (the tests/e2e files that reach no gateway)",
+  "name": "Model-Free E2E",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -210,17 +210,17 @@
   "conclusion": "skipped"
  },
  {
-  "name": "qmd Sidecar E2E (image build + live daemon over a fixture corpus)",
+  "name": "qmd Sidecar E2E",
   "status": "completed",
   "conclusion": "skipped"
  },
  {
-  "name": "ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)",
+  "name": "ORM + Grid Scan Roundtrip E2E",
   "status": "completed",
   "conclusion": "skipped"
  },
  {
-  "name": "Multi-User Deploy Lifecycle E2E (podman runtime)",
+  "name": "Multi-User Deploy Lifecycle E2E — podman",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -230,7 +230,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)",
+  "name": "Full-Chain Auth E2E",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -240,7 +240,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Multi-User Deploy Lifecycle E2E (real container runtime)",
+  "name": "Multi-User Deploy Lifecycle E2E — docker",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -265,12 +265,12 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Dockerfile E2E (generated container image)",
+  "name": "Dockerfile E2E",
   "status": "completed",
   "conclusion": "skipped"
  },
  {
-  "name": "Dockerfile Agent E2E (one agent turn through the generated image)",
+  "name": "Dockerfile Agent E2E",
   "status": "completed",
   "conclusion": "success"
  },
