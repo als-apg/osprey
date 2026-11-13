@@ -27,7 +27,7 @@ def build_channels(selections: dict) -> str:
         selections: Dict mapping level names to selected values.
             Values can be strings or lists of strings for multi-select.
             Example: {"machine": "SR", "sector": "SECT1", "class": "Gauge", "device": "SR/GAUGESR01", "leaf": "vacuum_readback"}
-            All levels from the hierarchy must be included — omitting a required level returns no channels.
+            All levels from the hierarchy must be included — omitting a required level returns a validation error naming it.
 
     Returns:
         JSON with:
