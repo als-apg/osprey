@@ -136,7 +136,10 @@ class _FakeImageProvider:
 
 
 @pytest.fixture
-def fake_provider(monkeypatch):
+def fake_provider(monkeypatch, search_calls):  # noqa: ARG001 - orders the teardowns
+    # Requesting ``search_calls`` sets the pool up first, so it closes after
+    # this teardown frees a call still blocked in ``release.wait``; otherwise
+    # the close waits out its whole budget for that worker.
     provider = _FakeImageProvider()
     calls: list[Any] = []
 
