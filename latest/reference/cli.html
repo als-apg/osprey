@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/watchdog.html">Watchdog Contract</a></li>
@@ -556,7 +557,7 @@ forge is filled in.</p>
 <p>The directory’s name is proposed as the deployment’s name: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
 normalizes it to a valid compose project name and records it in
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>, beside the display <code class="docutils literal notranslate"><span class="pre">name:</span></code>. That
-tracked value names the compose project, volumes, images and tier and app renders
+tracked value names the compose project, volumes, images and login renders
 on every host from then on; the folder a later clone sits in plays no part. Change
 it in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, or with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">project_name=NAME</span></code>, before the
 first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> if the folder name is not the name you want
@@ -610,7 +611,7 @@ since the repository last took them, the provider entries and keys OSPREY
 added since (every value already in <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> is kept), and, while the
 profile’s lists name nothing by path, the repo’s own
 skills, agents, rules, output styles and hooks named by path in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
-and each app (a bare entry the repo ships a file for becomes its path), so
+and each <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code> login (a bare entry the repo ships a file for becomes its path), so
 every render keeps what it carried.
 A preset change is applied only where your file still holds the preset’s old
 value: an added key, panel or step you lack is added, and a removed or changed
@@ -623,7 +624,13 @@ it has and the profile lacks. A repository made before this tracking existed
 starts it on its first <code class="docutils literal notranslate"><span class="pre">--revalidate</span></code>: nothing records what its presets said,
 so that run fills in the <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys the profile lacks and lists whatever
 else differs from the presets under “left for you”, applying none of it.
-Your deployment’s own selections — the roster, the shared apps, the default
+A login file left in <code class="docutils literal notranslate"><span class="pre">apps/</span></code> moves to <code class="docutils literal notranslate"><span class="pre">tiers/&lt;name&gt;.yml</span></code>: one never edited
+is re-emitted from the bundled login, an edited one keeps its lines and gains
+<code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code> and, unless it states its writes, <code class="docutils literal notranslate"><span class="pre">control_system.writes:</span>
+<span class="pre">never</span></code>; where the <code class="docutils literal notranslate"><span class="pre">tiers/</span></code> file already exists, the output says to merge the
+two by hand. A <code class="docutils literal notranslate"><span class="pre">landing.groups</span></code> entry <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">apps</span></code> becomes
+<code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">shared</span></code>; until then it reads as <code class="docutils literal notranslate"><span class="pre">shared</span></code> for one release.
+Your deployment’s own selections — the roster, the shared logins, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key
 <code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> in every layer (<a class="reference internal" href="contracts/connectors.html#write-safety-upgrade"><span class="std std-ref">Upgrading from a deployment-wide write flag</span></a>), and
@@ -689,16 +696,15 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 </pre></div>
 </div>
 <p>With no argument, validates the deployment repository enclosing the working
-directory. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> names a different profile to check instead — a tier
-file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, an app file under <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, or a directory holding a
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>.</p>
+directory. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> names a different profile to check instead — a login
+file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, or a directory holding a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>.</p>
 <p>Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains and runs the full consistency check — convention
 directories, the <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree, service templates, lifecycle steps, env vars —
 then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.</p>
 <p>The profile is yours to edit, so no difference from the preset <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
-wrote it from is refused or listed, in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, a tier or app file, or
+wrote it from is refused or listed, in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, a login file, or
 <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>. When the bundled preset has changed since, <code class="docutils literal notranslate"><span class="pre">validate</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> print one line saying so.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
@@ -794,7 +800,7 @@ each. The same menu appears as commented entries in an emitted profile.</p>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">card</span> <span class="pre">[--json]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Print the composition card <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> prints, for a repo that already
 exists: who can sign in and with what rights, what the agent runs on, what
 machine it talks to, and what runs beside it. It reads <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and
-the tier and app files beside it; nothing is built, started or probed.
+the login files beside it; nothing is built, started or probed.
 <code class="docutils literal notranslate"><span class="pre">--json</span></code> prints the rows as one JSON array of <code class="docutils literal notranslate"><span class="pre">{group,</span> <span class="pre">label,</span> <span class="pre">value}</span></code>
 objects on stdout and every warning on stderr.</p>
 </dd>
@@ -857,7 +863,7 @@ on disk. It reads <code class="docutils literal notranslate"><span class="pre">p
 has changed since the build, <code class="docutils literal notranslate"><span class="pre">up</span></code> refuses and says what moved, because
 starting would deploy something other than what the profile now describes.</p>
 <p>One exception, by design: a deployment with web terminals re-renders that stack
-at every start — its compose file, nginx config, landing page, and any tier or app
+at every start — its compose file, nginx config, landing page, and any login
 whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.</p>
 <p>Before it touches a container, <code class="docutils literal notranslate"><span class="pre">up</span></code> checks who created the ones already
@@ -1499,7 +1505,9 @@ packages, that <code class="docutils literal notranslate"><span class="pre">pane
 rule, ESLint over <code class="docutils literal notranslate"><span class="pre">panel/</span></code> when it holds JS, and Vitest over
 <code class="docutils literal notranslate"><span class="pre">tests/**/*.test.{js,mjs}</span></code> when that matches a file. Prints every violation
 with its application, field and rule, and exits 1. An <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> the block
-does not name is reported and not checked. The JS checks execute the
+does not name is reported and not checked. An application an installed package
+ships is checked too; its violations name the
+distribution (<code class="docutils literal notranslate"><span class="pre">&lt;dist&gt;:&lt;module</span> <span class="pre">path&gt;/&lt;file&gt;</span></code>). The JS checks execute the
 application’s JS tests, with none of the shell’s secrets; they need Node and
 install a pinned toolchain into the user’s cache once; an application with no
 JS needs neither.</p>
@@ -1549,7 +1557,7 @@ prints the identity, the record count per kind (places, devices, channels,
 groups) and the wiring record count per model, each model with its engine,
 whether the main render serves it and its solve setting, and each view with
 its path under the render and whether it is written. The views are those of
-the main render, <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a tier’s or app’s selection does not change
+the main render, <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a login’s selection does not change
 them. A view that is not written names the config key or model fact that
 left it out. With <code class="docutils literal notranslate"><span class="pre">ID</span></code> it prints every place, device, channel, group or
 model of that id, each under its kind, with its provenance (the layer and
@@ -1688,6 +1696,11 @@ osprey<span class="w"> </span>sim<span class="w"> </span>status
 <h2>osprey ariel<a class="headerlink" href="#osprey-ariel" title="Link to this heading">#</a></h2>
 <p>Manage the ARIEL logbook search service. Run from anywhere inside a deployment
 repo: the commands read its <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>.</p>
+<p>Every command gives the database 30 s to answer when it opens it; the limit
+covers the open, not the work after it. A database that does not answer ends
+the command with exit code 1 and
+<code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">ARIEL</span> <span class="pre">store</span> <span class="pre">at</span> <span class="pre">&lt;host&gt;:&lt;port&gt;/&lt;database&gt;</span> <span class="pre">did</span> <span class="pre">not</span> <span class="pre">answer</span> <span class="pre">within</span> <span class="pre">30</span> <span class="pre">s</span></code>. A
+database that refuses the connection fails at once.</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span> <span class="pre">[-s,</span> <span class="pre">--source</span> <span class="pre">PATH]</span></code></dt><dd><p>Full setup: migrate, then ingest <code class="docutils literal notranslate"><span class="pre">--source</span></code> or the configured ingestion
 source; with neither, enhance what the logbook already holds (a deploy
@@ -1947,7 +1960,7 @@ directory.</p>
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Validate the deployment’s <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza (port-family
-allocation, reserved service names, duplicate users, tier and app references).
+allocation, reserved service names, duplicate users, login references).
 Exits non-zero on error-severity findings; warnings do not fail the check,
 so it is safe to wire into a CI gate. The retired <code class="docutils literal notranslate"><span class="pre">--config</span></code> is refused,
 as under <code class="docutils literal notranslate"><span class="pre">render</span></code> below.</p>
@@ -1988,7 +2001,11 @@ switch the interfaces over to local bundles.</p>
 is optional.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-q,</span> <span class="pre">--quiet</span></code> — Suppress per-file output.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-t,</span> <span class="pre">--target</span> <span class="pre">DIR</span></code> — Fetch only the assets for this manifest target
-directory, e.g. <code class="docutils literal notranslate"><span class="pre">tuning/static/vendor/</span></code> (repeatable). Default: every target.</p>
+directory, e.g. <code class="docutils literal notranslate"><span class="pre">tuning/static/vendor/</span></code> (repeatable). Default: every target.
+A target the manifest marks <code class="docutils literal notranslate"><span class="pre">&quot;base&quot;:</span> <span class="pre">&quot;package&quot;</span></code> is named relative to the
+<code class="docutils literal notranslate"><span class="pre">osprey</span></code> package rather than its <code class="docutils literal notranslate"><span class="pre">interfaces</span></code> package; an unknown target is
+refused with the list of known ones. An application’s own <code class="docutils literal notranslate"><span class="pre">vendor:</span></code> entries
+are fetched by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, not by this command.</p>
 <p>Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
 fails cert verification until it is pointed at the site’s CA bundle.
 That is the first remedy to reach for — verification stays on:</p>

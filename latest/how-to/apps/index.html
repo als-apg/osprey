@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="build-your-own-app.html">Build Your Own App</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../register-a-measurement-kind.html">Register a measurement kind</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
@@ -829,6 +830,27 @@ so a plan that changed after approval is refused.</p></li>
 <p><a class="reference internal" href="build-your-own-app.html#how-to-apps-writes"><span class="std std-ref">Writes and approvals</span></a> on the build page says how to
 declare a write tool and what each key does.</p>
 </section>
+<section id="where-an-app-comes-from">
+<h2>Where an app comes from<a class="headerlink" href="#where-an-app-comes-from" title="Link to this heading">#</a></h2>
+<p>An app is found in one of two places:</p>
+<ul>
+<li><p><strong>your deployment</strong> — a directory <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> in the repository, as
+above;</p></li>
+<li><p><strong>an installed package</strong> — for an app several deployments share: a Python
+distribution that declares the app as an entry point, its package directory
+laid out like <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;osprey.apps&quot;</span><span class="k">]</span>
+<span class="n">corrector-trim</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;corrector_trim&quot;</span>
+</pre></div>
+</div>
+</li>
+</ul>
+<p>Either way an app runs only when the profile’s <code class="docutils literal notranslate"><span class="pre">apps:</span></code> block lists it. An
+installed app’s package must be one the project image installs, so its
+distribution goes in the profile’s <code class="docutils literal notranslate"><span class="pre">dependencies</span></code>. A directory under
+<code class="docutils literal notranslate"><span class="pre">apps/</span></code> may not take the name of an installed app, listed or not: the build
+refuses it and names the package that installs the app.</p>
+</section>
 <section id="where-to-go-next">
 <h2>Where to go next<a class="headerlink" href="#where-to-go-next" title="Link to this heading">#</a></h2>
 <ul class="simple">
@@ -894,6 +916,7 @@ panel, writes and approvals, logins, skills and subagents.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-to-build-an-app">When to build an app</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-write">What you write</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-writes-stay-safe">How writes stay safe</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-an-app-comes-from">Where an app comes from</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-to-go-next">Where to go next</a></li>
 </ul>
   </nav></div>

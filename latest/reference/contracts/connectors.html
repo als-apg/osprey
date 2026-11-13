@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
@@ -726,8 +727,8 @@ points to.</p>
 <span class="w">  </span><span class="nt">writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">asked</span><span class="w">            </span><span class="c1"># never | asked | allowed; silence is never</span>
 </pre></div>
 </div>
-<p>It is spelled in <code class="docutils literal notranslate"><span class="pre">tiers/*.yml</span></code>, in the deployment root for the root or
-single-user render, and in <code class="docutils literal notranslate"><span class="pre">apps/*.yml</span></code>, where it is always <code class="docutils literal notranslate"><span class="pre">never</span></code>. A tier
+<p>It is spelled in <code class="docutils literal notranslate"><span class="pre">tiers/*.yml</span></code> and, for the root or single-user render, in
+the deployment root; a shared login is always <code class="docutils literal notranslate"><span class="pre">never</span></code>. A tier
 overrides the root. Only <code class="docutils literal notranslate"><span class="pre">asked</span></code> and <code class="docutils literal notranslate"><span class="pre">allowed</span></code> arm; any other value, and no
 key at all, reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. The tier is a ceiling, not a selection: an armed
 tier may write to every machine the deployment configures, and the switch picks
@@ -1005,7 +1006,7 @@ key in place.</p></li>
 <li><p><strong>Until you do</strong>, each retired key builds with one warning naming the new
 key. A layer with a literal <code class="docutils literal notranslate"><span class="pre">true</span></code> in its flat or any per-type key reads
 <code class="docutils literal notranslate"><span class="pre">writes:</span> <span class="pre">allowed</span></code> — for every machine, not only the type it named; any
-other value reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. An app always reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. A file that
+other value reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. A shared login always reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. A file that
 spells both the retired and the new key is refused. The retired keys are
 refused from 2026.12.0.</p></li>
 <li><p><strong>A render built before this release</strong> is not reread with the old rule: at

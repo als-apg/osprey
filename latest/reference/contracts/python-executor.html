@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
@@ -591,9 +592,9 @@ is refused without asking.</p>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kind</span></code></p></td>
 <td><p><em>(required)</em></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">orm</span></code>, <code class="docutils literal notranslate"><span class="pre">dispersion</span></code>, <code class="docutils literal notranslate"><span class="pre">trm</span></code>, <code class="docutils literal notranslate"><span class="pre">crm</span></code> or <code class="docutils literal notranslate"><span class="pre">chromaticity_monitor</span></code>.
-A kind the model’s measurement file does not list is refused, naming
-the group or instrument the model lacks, or the kinds the file lists.</p></td>
+<td><p>A kind the model’s rendered measurement block lists
+(<a class="reference internal" href="facility-kinds.html"><span class="doc">Facility Kinds Contract</span></a>). Any other kind is refused, naming the group or
+instrument the model lacks, or the kinds the file lists.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
 <td><p>the one model</p></td>
@@ -602,7 +603,8 @@ pyAML view.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">correctors</span></code></p></td>
 <td><p>every corrector</p></td>
-<td><p>Corrector setpoint addresses, for <code class="docutils literal notranslate"><span class="pre">orm</span></code> only.</p></td>
+<td><p>Corrector setpoint addresses, for a kind that takes them; of the
+shipped ones, <code class="docutils literal notranslate"><span class="pre">orm</span></code> alone.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">modulation</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;bipolar&quot;</span></code>; <code class="docutils literal notranslate"><span class="pre">&quot;unipolar&quot;</span></code> with <code class="docutils literal notranslate"><span class="pre">by</span></code> <code class="docutils literal notranslate"><span class="pre">&quot;group&quot;</span></code></p></td>

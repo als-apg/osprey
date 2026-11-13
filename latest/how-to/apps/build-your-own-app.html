@@ -61,7 +61,7 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Web Terminal" href="../web-terminal/index.html" />
+    <link rel="next" title="Register a measurement kind" href="../register-a-measurement-kind.html" />
     <link rel="prev" title="Build Your Own OSPREY Apps" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -401,6 +401,7 @@
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Build Your Own App</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../register-a-measurement-kind.html">Register a measurement kind</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
@@ -609,6 +610,8 @@ and its JavaScript tests under <code class="docutils literal notranslate"><span 
 violation with the app and the field it is in. The scaffold passes as copied.
 The first run installs a pinned JavaScript toolchain into your user cache,
 which needs <code class="docutils literal notranslate"><span class="pre">npm</span></code> and network access once.</p>
+<p>An app an installed package ships (<a class="reference internal" href="index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>) is checked the same way, and
+its violations name the distribution (<code class="docutils literal notranslate"><span class="pre">&lt;dist&gt;:&lt;module</span> <span class="pre">path&gt;/&lt;file&gt;</span></code>).</p>
 </section>
 <section id="build-and-start">
 <h3>4. Build and start<a class="headerlink" href="#build-and-start" title="Link to this heading">#</a></h3>
@@ -720,9 +723,11 @@ two sentences the agent sees when the backend does not answer or refuses.</p>
 <p>Each block is optional, and so are <code class="docutils literal notranslate"><span class="pre">skills</span></code> and <code class="docutils literal notranslate"><span class="pre">agents</span></code>; an <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>
 with none of the five is refused. Without <code class="docutils literal notranslate"><span class="pre">panel</span></code> the app has no sidebar
 row. Without <code class="docutils literal notranslate"><span class="pre">containers</span></code> it has no backend: a <code class="docutils literal notranslate"><span class="pre">panel</span></code> is refused, and so
-is a write tool (an <code class="docutils literal notranslate"><span class="pre">approval</span></code> entry), which needs a container with
-<code class="docutils literal notranslate"><span class="pre">drives_target:</span> <span class="pre">true</span></code>; the tool server only reads or computes and keeps
-nothing between calls. Anything that holds state is a backend.</p>
+is a write tool (an <code class="docutils literal notranslate"><span class="pre">approval</span></code> entry) on a login whose tier writes, since it
+needs a container with <code class="docutils literal notranslate"><span class="pre">drives_target:</span> <span class="pre">true</span></code>; a <code class="docutils literal notranslate"><span class="pre">config:</span></code> block under the
+app’s entry is refused too, since only a backend reads it. The tool server only
+reads or computes and keeps nothing between calls. Anything that holds state is
+a backend.</p>
 <p>Every key is listed under <a class="reference internal" href="#manifest-keys">Manifest keys</a>. Unknown keys are refused, and a
 key that belongs to the container’s compose file (<code class="docutils literal notranslate"><span class="pre">volumes</span></code>, <code class="docutils literal notranslate"><span class="pre">ports</span></code>,
 <code class="docutils literal notranslate"><span class="pre">depends_on</span></code>) is refused with the place it lives instead.</p>
@@ -753,6 +758,12 @@ is; <code class="docutils literal notranslate"><span class="pre">write_channel_c
 verdict (tier, switch, session), applies the limits and records the write —
 your code does none of that. A refusal arrives as <code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code>
 and the backend passes its sentence on.</p>
+<p>A route that must tell the agent from the operator calls
+<code class="docutils literal notranslate"><span class="pre">caller_kind(request.headers)</span></code>, which answers <code class="docutils literal notranslate"><span class="pre">agent</span></code> or <code class="docutils literal notranslate"><span class="pre">panel</span></code>. The
+terminal sets that header itself and drops any <code class="docutils literal notranslate"><span class="pre">X-Osprey-Caller</span></code> a request
+arrives with. <code class="docutils literal notranslate"><span class="pre">caller_kind</span></code> trusts it only beside the launch token the
+terminal adds (<code class="docutils literal notranslate"><span class="pre">launch_token:</span> <span class="pre">true</span></code>, on a login that arms the app) and
+raises <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> without it.</p>
 <p>The scaffold adds one check of its own, and it is the pattern for every
 write you add: the write request carries the readback the operator saw on the
 card (<code class="docutils literal notranslate"><span class="pre">readback</span></code>), and the backend re-reads the channel and refuses when the
@@ -763,14 +774,21 @@ channel, <code class="docutils literal notranslate"><span class="pre">read_multi
 exist, their channels, a model’s BPMs and correctors — comes from the SDK
 (<code class="docutils literal notranslate"><span class="pre">facility_file</span></code>, <code class="docutils literal notranslate"><span class="pre">read_facts</span></code>, <code class="docutils literal notranslate"><span class="pre">model_members</span></code>,
 <code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code>), so the app carries no facility knowledge of its
-own and moves to another facility with the deployment.</p>
+own and moves to another facility with the deployment. The Bluesky bridges the
+deployment runs for a target come from <code class="docutils literal notranslate"><span class="pre">bridges_for_target(target)</span></code>: lane
+name to bridge URL, empty when none.</p>
+<p>A backend that writes its own audit records files them under
+<code class="docutils literal notranslate"><span class="pre">audit_surface()</span></code>: the app’s name, which its tool server’s records already
+carry.</p>
 </section>
 <section id="the-tool-server">
 <h2>The tool server<a class="headerlink" href="#the-tool-server" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">corrector_trim/tools.py</span></code> runs beside the agent as an MCP server. <code class="docutils literal notranslate"><span class="pre">register</span></code>
 adds one function per tool; the function’s docstring is the tool description
 the agent reads, so write it for the agent: what the tool does, what each
-argument means, what it answers.</p>
+argument means, what it answers. <code class="docutils literal notranslate"><span class="pre">serve_tools(register)</span></code> serves them; an
+app that holds something for the server’s lifetime (a session, say) passes
+<code class="docutils literal notranslate"><span class="pre">on_shutdown=</span></code>, which runs once when the server stops, returned or raised.</p>
 <p>A tool does not import the backend. It calls the backend’s routes through the
 terminal (<code class="docutils literal notranslate"><span class="pre">_panel_call</span></code>), at <code class="docutils literal notranslate"><span class="pre">/panel/&lt;app&gt;/&lt;route&gt;</span></code>, with the headers
 <code class="docutils literal notranslate"><span class="pre">agent_panel_headers</span></code> provides — so the call carries the login’s name and
@@ -804,6 +822,11 @@ does, and the terminal refuses the request on a login that does not arm the
 app, before it reaches the backend. Show that state rather than hiding the
 control: have the backend’s state say whether writes are on, and the panel
 say <em>Writes are off</em>.</p>
+<p>The page says when it can be driven, which a browser test or a recording
+waits for: <code class="docutils literal notranslate"><span class="pre">index.html</span></code> carries <code class="docutils literal notranslate"><span class="pre">&lt;html</span> <span class="pre">data-page-ready=&quot;pending&quot;&gt;</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">panel.js</span></code> imports <code class="docutils literal notranslate"><span class="pre">markPageReady</span></code> from
+<code class="docutils literal notranslate"><span class="pre">/design-system/js/page-ready.js</span></code> and calls it once the first refresh has
+drawn, error or not. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> refuses a panel without the import.</p>
 <p><code class="docutils literal notranslate"><span class="pre">tests/panel.test.js</span></code> is a Vitest test of the page’s functions in a DOM;
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> runs it. A JavaScript library the panel needs is not
 committed: list it under <code class="docutils literal notranslate"><span class="pre">vendor</span></code> with its exact version and SHA-256, and the
@@ -841,10 +864,14 @@ setpoint the write will make.</p>
 <dt><code class="docutils literal notranslate"><span class="pre">bind.state_fields</span></code></dt><dd><p>Values of the state copied into the call as <code class="docutils literal notranslate"><span class="pre">approved_*</span></code> fields: the
 readback the person saw, the plan id, a digest of the setpoints. The
 tool sends these to the backend, and the backend refuses when they no
-longer match what it holds.</p>
+longer match what it holds. A key may be a dotted path into nested
+state (<code class="docutils literal notranslate"><span class="pre">step.digest</span></code>); one that names nothing leaves its field
+unbound.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">bind.input_digests</span></code></dt><dd><p>A digest over named call arguments, so the arguments the agent sends
-after approval must be the ones that were approved.</p>
+after approval must be the ones that were approved. An app recomputes
+a digest only through the SDK’s <code class="docutils literal notranslate"><span class="pre">canonical_json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">input_digest</span></code>, the recipe the check itself uses.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">require</span></code></dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">approved_*</span></code> fields a call must carry (<code class="docutils literal notranslate"><span class="pre">all_of</span></code>, or exactly one
 of each <code class="docutils literal notranslate"><span class="pre">one_of</span></code> group). A <code class="docutils literal notranslate"><span class="pre">one_of</span></code> group holds readback
@@ -882,6 +909,13 @@ only and the terminal refuses the panel’s write requests;</p></li>
 <li><p>a <strong>shared</strong> login (<code class="docutils literal notranslate"><span class="pre">logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>, <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> in the
 preset) arms nothing, whatever its file says.</p></li>
 </ul>
+<p>A login’s <code class="docutils literal notranslate"><span class="pre">apps.&lt;name&gt;.access</span></code> says who on that login sees and opens the
+panel, in the words a shared roster card uses (<code class="docutils literal notranslate"><span class="pre">self</span></code>, <code class="docutils literal notranslate"><span class="pre">roster</span></code>,
+<code class="docutils literal notranslate"><span class="pre">user:</span></code>, <code class="docutils literal notranslate"><span class="pre">domain:</span></code>, <code class="docutils literal notranslate"><span class="pre">tier:</span></code>); without it, every user of the login does.
+A user it does not admit does not see the panel in the list and is answered
+as for an unpublished one, and the build refuses a set no browser user can
+match. The agent is judged by the login alone, so the login keeps the app’s
+tools and skill. The key never decides a write.</p>
 <p>Hide an app from one login in that login’s file:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># tiers/readonly.yml</span>
 <span class="nt">apps</span><span class="p">:</span>
@@ -905,12 +939,16 @@ and write <code class="docutils literal notranslate"><span class="pre">skills/&l
 ships one, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">new</span></code> renames with the app. The build installs
 it into every login that shows the app, so the agent that has the tools also
 has the instructions. A listed skill without its file, or a skill name two
-apps share, fails the build.</p>
+apps share, fails the build. So does <code class="docutils literal notranslate"><span class="pre">hooks</span></code> in a listed skill’s
+frontmatter, or a frontmatter that does not close on a line that is exactly
+<code class="docutils literal notranslate"><span class="pre">---</span></code>: an app ships no hook code.</p>
 <p><strong>The parity rule.</strong> Everything the operator sees in the panel, the agent can
 read through a tool; everything the operator can press, the agent can do
 through a tool or an argument. The panel and the tool server are two front
 ends to one backend, so parity needs no second implementation: each panel
-element maps to a backend route, and each route the panel uses has a tool.</p>
+element maps to a backend route, and each route the panel uses has a tool.
+A route can still tell the two apart: an agent’s tool call arrives as
+<code class="docutils literal notranslate"><span class="pre">agent</span></code> and a panel call as <code class="docutils literal notranslate"><span class="pre">panel</span></code> (<a class="reference internal" href="#the-backend">The backend</a>).</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 680 300" role="img" aria-labelledby="parity-title parity-desc">
   <title id="parity-title">Agent parity: the panel and the tool server are two front ends to the same backend routes</title>
@@ -1145,6 +1183,48 @@ one of OSPREY’s own agents each fail the build.</p>
 should do the task itself and needs to know how; use a subagent when the task
 is better done out of the main conversation; an app may carry both.</p>
 </section>
+<section id="test-your-app">
+<h2>Test your app<a class="headerlink" href="#test-your-app" title="Link to this heading">#</a></h2>
+<p>The app’s own tests build a deployment the way <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> does and run
+the backend against one login’s render. Installing the framework gives them
+two pytest fixtures from <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk.testing</span></code>: <code class="docutils literal notranslate"><span class="pre">synthetic_deployment</span></code>
+makes a deployment, <code class="docutils literal notranslate"><span class="pre">rendered_tree</span></code> makes one and builds it. Both take:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">apps</span></code> — each app’s name and its source directory;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">facility</span></code> — the <code class="docutils literal notranslate"><span class="pre">data/facility</span></code> tree. The default, <code class="docutils literal notranslate"><span class="pre">plain_tree()</span></code>, is
+one quadrupole and one BPM; <code class="docutils literal notranslate"><span class="pre">measured_tree()</span></code> is two models wired for the
+built-in measurement kinds, for a test to extend with its own kind’s records;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">logins</span></code> — each login and its <code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> ceiling, one
+<code class="docutils literal notranslate"><span class="pre">tiers/</span></code> file each (default: <code class="docutils literal notranslate"><span class="pre">operator</span></code> at <code class="docutils literal notranslate"><span class="pre">asked</span></code>);</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">profile</span></code> — profile keys laid over the generated <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, such as
+the app’s <code class="docutils literal notranslate"><span class="pre">config:</span></code>.</p></li>
+</ul>
+<p>Every login runs on the simulator served in process. <code class="docutils literal notranslate"><span class="pre">serve(login)</span></code> gives
+the app container’s environment on that login’s render; build the backend
+inside it and call it with the header the terminal sends:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">corrector_trim.server</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_app</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.testclient</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestClient</span>
+
+<span class="n">APP_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parents</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">test_state_reads_the_configured_channel</span><span class="p">(</span><span class="n">synthetic_deployment</span><span class="p">):</span>
+    <span class="n">deployment</span> <span class="o">=</span> <span class="n">synthetic_deployment</span><span class="p">(</span>
+        <span class="n">apps</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;corrector-trim&quot;</span><span class="p">:</span> <span class="n">APP_DIR</span><span class="p">},</span>
+        <span class="n">profile</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;apps&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;corrector-trim&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="s2">&quot;Q1:RB&quot;</span><span class="p">}}}},</span>
+    <span class="p">)</span>
+    <span class="n">served</span> <span class="o">=</span> <span class="n">deployment</span><span class="o">.</span><span class="n">serve</span><span class="p">(</span><span class="s2">&quot;operator&quot;</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">served</span><span class="o">.</span><span class="n">environment</span><span class="p">(),</span> <span class="n">TestClient</span><span class="p">(</span><span class="n">create_app</span><span class="p">())</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/api/state&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">served</span><span class="o">.</span><span class="n">headers</span><span class="p">())</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s2">&quot;channel&quot;</span><span class="p">],</span> <span class="n">state</span><span class="p">[</span><span class="s2">&quot;target&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="p">(</span><span class="s2">&quot;Q1:RB&quot;</span><span class="p">,</span> <span class="s2">&quot;va&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The build behind <code class="docutils literal notranslate"><span class="pre">serve</span></code> is real, so what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses fails the
+test with the build’s own message. Run pytest with the app’s directory
+on the import path, so the test can import the app’s package.</p>
+</section>
 <section id="dependencies">
 <h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> is the app’s package. The scaffold lists no dependencies:
@@ -1158,6 +1238,12 @@ delete <code class="docutils literal notranslate"><span class="pre">panel/</span
 </section>
 <section id="manifest-keys">
 <h2>Manifest keys<a class="headerlink" href="#manifest-keys" title="Link to this heading">#</a></h2>
+<p>An app ships no hook code; it declares facts in <code class="docutils literal notranslate"><span class="pre">app.yml</span></code> and OSPREY’s
+hooks act on them: <code class="docutils literal notranslate"><span class="pre">tools.approval</span></code> for a write, <code class="docutils literal notranslate"><span class="pre">tools.deny_in_jobs</span></code> for
+a job-only refusal, <code class="docutils literal notranslate"><span class="pre">tools.errors</span></code> for the agent’s guidance. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span>
+<span class="pre">check</span></code> and the build refuse a <code class="docutils literal notranslate"><span class="pre">hooks</span></code> key, a <code class="docutils literal notranslate"><span class="pre">hooks/</span></code> directory at the
+app’s root and a <code class="docutils literal notranslate"><span class="pre">.claude/</span></code> directory anywhere in it, each with rule
+<code class="docutils literal notranslate"><span class="pre">no_hooks</span></code>.</p>
 <p>Every level refuses unknown keys. Defaults in brackets.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -1178,7 +1264,8 @@ its tool server’s name.</p></td>
 <td><p>One sentence about the app.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers</span></code></p></td>
-<td><p>Optional. Required by <code class="docutils literal notranslate"><span class="pre">panel</span></code> and by any <code class="docutils literal notranslate"><span class="pre">tools.approval</span></code> entry.</p></td>
+<td><p>Optional. Required by <code class="docutils literal notranslate"><span class="pre">panel</span></code>, and by a <code class="docutils literal notranslate"><span class="pre">tools.approval</span></code> entry on
+a login whose tier writes.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;</span></code></p></td>
 <td><p>One container; the key is its service name. Exactly one of
@@ -1217,6 +1304,13 @@ zone.</p></td>
 <td><p>The sidebar row’s icon, one of the names the terminal draws (see
 <a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a>). Without it the row wears the generic
 one.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.description</span></code></p></td>
+<td><p>The sentence the sidebar row’s tooltip shows under its text.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.help</span></code></p></td>
+<td><p>The panel’s Help page: a path under the deployment’s docs root
+(no <code class="docutils literal notranslate"><span class="pre">..</span></code>), or an <code class="docutils literal notranslate"><span class="pre">https://</span></code> URL.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.container</span></code></p></td>
 <td><p>The container that serves the panel.</p></td>
@@ -1259,15 +1353,19 @@ panel.</p></td>
 <td><p>The sentences the agent sees for a backend that does not answer, and
 for a refused call.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">audit_identity</span></code> [<code class="docutils literal notranslate"><span class="pre">name</span></code>]</p></td>
+<td><p>The name the containers’ spool and state directories file under;
+refused on an app with no container.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
 <td><p>Files fetched into the app at build: <code class="docutils literal notranslate"><span class="pre">{url,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> or
 <code class="docutils literal notranslate"><span class="pre">{package,</span> <span class="pre">version,</span> <span class="pre">file,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> (an npm package through
 the CDN).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
 <td><p>The skills the app carries, each <code class="docutils literal notranslate"><span class="pre">skills/&lt;name&gt;/SKILL.md</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">agents</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agents</span></code></p></td>
 <td><p>The subagents the app carries, each <code class="docutils literal notranslate"><span class="pre">agents/&lt;name&gt;.md</span></code>
 (<a class="reference internal" href="#subagents">Subagents</a>).</p></td>
 </tr>
@@ -1299,11 +1397,11 @@ are listed in <code class="docutils literal notranslate"><span class="pre">ospre
       </div>
     </a>
     <a class="right-next"
-       href="../web-terminal/index.html"
+       href="../register-a-measurement-kind.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Web Terminal</p>
+        <p class="prev-next-title">Register a measurement kind</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1343,6 +1441,7 @@ are listed in <code class="docutils literal notranslate"><span class="pre">ospre
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#logins">Logins</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skills-and-agent-parity">Skills and agent parity</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagents">Subagents</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#test-your-app">Test your app</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependencies">Dependencies</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#manifest-keys">Manifest keys</a></li>
 </ul>

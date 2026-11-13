@@ -102,16 +102,17 @@ is refused without asking.
      - Description
    * - ``kind``
      - *(required)*
-     - ``orm``, ``dispersion``, ``trm``, ``crm`` or ``chromaticity_monitor``.
-       A kind the model's measurement file does not list is refused, naming
-       the group or instrument the model lacks, or the kinds the file lists.
+     - A kind the model's rendered measurement block lists
+       (:doc:`facility-kinds`). Any other kind is refused, naming the group or
+       instrument the model lacks, or the kinds the file lists.
    * - ``model``
      - the one model
      - The model measured; may be omitted only when exactly one model has a
        pyAML view.
    * - ``correctors``
      - every corrector
-     - Corrector setpoint addresses, for ``orm`` only.
+     - Corrector setpoint addresses, for a kind that takes them; of the
+       shipped ones, ``orm`` alone.
    * - ``modulation``
      - ``"bipolar"``; ``"unipolar"`` with ``by`` ``"group"``
      - ``"bipolar"`` steps each setting to both sides of its present value,

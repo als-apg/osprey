@@ -820,7 +820,7 @@ known.</p></td>
 </tr>
 <tr class="row-odd"><td><p>wiring</p></td>
 <td><p>Fills each wiring record’s direction, unit, value range and start
-value from its model’s engine.</p></td>
+value from its model’s engine, and marks each command channel.</p></td>
 </tr>
 <tr class="row-even"><td><p>compute</p></td>
 <td><p>Positions, places, ordinals and groups, read off the decks, and the
@@ -838,14 +838,14 @@ Warns and never stops.</p></td>
 </table>
 </div>
 <p>The second half writes. A build renders more than one tree (the deployment’s
-own, one per tier and app, one per container image) and each render receives the
+own, one per login, one per container image) and each render receives the
 same facility file and the views its configuration and served models call
 for. A view a render does not carry is named once on stderr, with the
 configuration key or the model fact that left it out; a channel-finder index
 the profile did not select is neither written nor named.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> runs the first half and the main profile’s render
 into a temporary directory, adds the response check of a Middle Layer import,
-and writes nothing into the repo. Tier, app and image renders are checked by
+and writes nothing into the repo. Login and image renders are checked by
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> alone.</p>
 </section>
 <section id="settings-the-facility-decides">
@@ -1027,7 +1027,7 @@ The graph view writes the facility file back in NARAD’s terms.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1000 600" role="img" aria-labelledby="fv-title fv-desc">
   <title id="fv-title">The shared vocabulary: what a device class and a signal say, how the build pairs a setpoint with its readback, and what the graph stores</title>
-  <desc id="fv-desc">Top: the vocabulary, src/osprey/facility/schema/vocabulary.yaml, carried from NARAD. It holds 42 device classes such as Quadrupole, BeamPositionMonitor and AcceleratingCavity, with aliases, to which a facility adds its own in classes.yaml; 121 signal roles such as current_setpoint, current_readback, gap_setpoint and gap_readback, which a facility cannot extend; and 15 properties. Middle: two channel records on the device SR/ID01, of class Undulator, which the facility adds under Magnet. SR:ID:01:GAP:SP is a setpoint with signal gap_setpoint; SR:ID:01:GAP:RB is a readback with signal gap_readback. Both name the quantity gap on the same device, which holds no other setpoint or readback of it, so the build pairs them; the Bluesky settable and every settled write wait on that readback. An unknown class or signal stops the build. Bottom: in the graph, SR/ID01, an Undulator, hasBinding SR:ID:01:GAP:RB, which readsSignal gap_readback; the agent finds channels by signal and class.</desc>
+  <desc id="fv-desc">Top: the vocabulary, src/osprey/facility/schema/vocabulary.yaml, carried from NARAD. It holds 42 device classes such as Quadrupole, BeamPositionMonitor and AcceleratingCavity, with aliases, to which a facility adds its own in classes.yaml; 121 signal roles such as current_setpoint, current_readback, gap_setpoint and gap_readback, to which a facility adds its own in signals.yaml; and 15 properties. Middle: two channel records on the device SR/ID01, of class Undulator, which the facility adds under Magnet. SR:ID:01:GAP:SP is a setpoint with signal gap_setpoint; SR:ID:01:GAP:RB is a readback with signal gap_readback. Both name the quantity gap on the same device, which holds no other setpoint or readback of it, so the build pairs them; the Bluesky settable and every settled write wait on that readback. An unknown class or signal stops the build. Bottom: in the graph, SR/ID01, an Undulator, hasBinding SR:ID:01:GAP:RB, which readsSignal gap_readback; the agent finds channels by signal and class.</desc>
   <defs>
     <marker id="fv-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fv-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
@@ -1098,10 +1098,12 @@ The graph view writes the facility file back in NARAD’s terms.</p>
 </svg>
 </div>
 <p>A facility adds device classes in <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>, each under a vocabulary
-class or one it added earlier; they reach the facts view and the graph with their aliases. Signal
-roles are closed: a channel’s <code class="docutils literal notranslate"><span class="pre">signal</span></code> is one the vocabulary lists. The
-build pairs setpoints with readbacks by the quantity their signals name, so a
-quantity the vocabulary lacks pairs only through an explicit <code class="docutils literal notranslate"><span class="pre">pair</span></code>.</p>
+class or one it added earlier; they reach the facts view and the graph with their aliases. A
+channel’s <code class="docutils literal notranslate"><span class="pre">signal</span></code> is a role the vocabulary lists or one the facility adds in
+<code class="docutils literal notranslate"><span class="pre">signals.yaml</span></code>. The build pairs setpoints with readbacks by the quantity their signals name, so a
+quantity the vocabulary lacks pairs only through an explicit <code class="docutils literal notranslate"><span class="pre">pair</span></code>. The
+roles a measurement kind and an engine use are in
+<a class="reference internal" href="../reference/contracts/facility-kinds.html"><span class="doc">Facility Kinds Contract</span></a>.</p>
 </section>
 <section id="simulation-models">
 <span id="architecture-simulation-models"></span><h2>Simulation models<a class="headerlink" href="#simulation-models" title="Link to this heading">#</a></h2>

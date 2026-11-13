@@ -399,6 +399,7 @@
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
@@ -857,7 +858,9 @@ exact, and whether a later page exists</p></td>
 <h2>Service Factory<a class="headerlink" href="#service-factory" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">get_ariel_search_service()</span></code> function provides a singleton
 <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> instance. The service is lazily initialized from
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> on first access and reused for subsequent calls.</p>
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> on first access and reused for subsequent calls. The first
+access gives the database 10 s to answer; a database that does not answer
+raises <code class="docutils literal notranslate"><span class="pre">StoreSilentError</span></code> and nothing is cached, so the next call asks again.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.services.ariel_search.capability</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">close_ariel_service</span><span class="p">,</span>
     <span class="n">get_ariel_search_service</span><span class="p">,</span>
@@ -1352,7 +1355,7 @@ App Internals</label><div class="sd-tab-content docutils">
 <ol class="arabic simple">
 <li><p class="sd-card-text"><strong>Registry bootstrap</strong> — pre-creates the framework registry singleton (without an application registry path) so that ARIEL’s search module discovery works even when running outside a full Osprey application.</p></li>
 <li><p class="sd-card-text"><strong>Config loading</strong> — searches for <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in four locations: the provided <code class="docutils literal notranslate"><span class="pre">config_path</span></code>, the <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> environment variable, <code class="docutils literal notranslate"><span class="pre">/app/config.yml</span></code> (a hand-authored container mount), and the current directory. The DSN is then resolved by <code class="docutils literal notranslate"><span class="pre">resolve_ariel_dsn</span></code>, which applies the <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> and <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_PORT</span></code> overrides for Docker networking.</p></li>
-<li><p class="sd-card-text"><strong>Service creation</strong> — creates the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> from the loaded config and stores it in <code class="docutils literal notranslate"><span class="pre">app.state.ariel_service</span></code>.</p></li>
+<li><p class="sd-card-text"><strong>Service creation</strong> — creates the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> from the loaded config and stores it in <code class="docutils literal notranslate"><span class="pre">app.state.ariel_service</span></code>. The database gets 30 s to answer. One that refuses leaves the app in degraded mode; one that does not answer raises <code class="docutils literal notranslate"><span class="pre">StoreSilentError</span></code> out of the lifespan, so start-up fails with <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">ARIEL</span> <span class="pre">store</span> <span class="pre">at</span> <span class="pre">&lt;host&gt;:&lt;port&gt;/&lt;database&gt;</span> <span class="pre">did</span> <span class="pre">not</span> <span class="pre">answer</span> <span class="pre">within</span> <span class="pre">30</span> <span class="pre">s</span></code>.</p></li>
 <li><p class="sd-card-text"><strong>Health check</strong> — validates the database connection and logs the result.</p></li>
 </ol>
 <p class="sd-card-text"><strong>Docker environment overrides:</strong></p>

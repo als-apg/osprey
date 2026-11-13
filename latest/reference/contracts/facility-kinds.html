@@ -1,0 +1,885 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Facility Kinds Contract &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/contracts/facility-kinds';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/contracts/facility-kinds.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Guarded Run Contract" href="guarded-run.html" />
+    <link rel="prev" title="Facility Graph Contracts" href="facility-graph.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 13, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/environment-variables.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/scenario-files.html">Scenario files</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Facility Kinds Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dock-engine.html">Dock Engine Contract</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../connectors-api/index.html">osprey-connectors API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/contracts.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/building.html">Building Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/errors-logging.html">Errors and Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/configuration.html">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/write-safety.html">Write Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/deployment.html">A Deployment’s Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/supervision.html">Supervising Connector Processes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contracts</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Facility Kinds Contract</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="facility-kinds-contract">
+<span id="reference-facility-kinds"></span><h1>Facility Kinds Contract<a class="headerlink" href="#facility-kinds-contract" title="Link to this heading">#</a></h1>
+<p>A <em>measurement kind</em> is a measurement a model’s measurement file lists under
+<code class="docutils literal notranslate"><span class="pre">kinds:</span></code>. OSPREY ships some; a deployment registers its own from an
+installable package, with no OSPREY change. This page is what such a package
+declares, what the build judges, what it writes for the runtime, and the
+facility words a kind leans on: signal roles, engine record words and
+scenario stops. Writing the measurement file itself is in
+<a class="reference internal" href="../../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a>; running a measurement is in
+<a class="reference internal" href="../../how-to/measure-with-pyaml.html"><span class="doc">Measure with the pyAML tools</span></a>; registering a kind step by step is in
+<a class="reference internal" href="../../how-to/register-a-measurement-kind.html"><span class="doc">Register a measurement kind</span></a>.</p>
+<p>The worked example throughout is the deployment package under
+<code class="docutils literal notranslate"><span class="pre">tests/facility/fixtures/fixture_kind/</span></code>: the kind <code class="docutils literal notranslate"><span class="pre">fixture_kind</span></code> and the
+engine <code class="docutils literal notranslate"><span class="pre">fixture_ring</span></code>, proven by <code class="docutils literal notranslate"><span class="pre">tests/facility/test_fixture_kind_deployment.py</span></code>.</p>
+<section id="registering-a-kind">
+<h2>Registering a kind<a class="headerlink" href="#registering-a-kind" title="Link to this heading">#</a></h2>
+<p>A kind is one <code class="xref py py-class docutils literal notranslate"><span class="pre">osprey.facility.kinds.KindDeclaration</span></code>, named by an entry
+point of the group <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code> in its package’s
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. The entry point’s name is the kind’s name and loads to the
+declaration (or a mapping of its fields). The kinds the <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code>
+distribution declares are the <em>built-in</em> kinds: <code class="docutils literal notranslate"><span class="pre">orm</span></code>, <code class="docutils literal notranslate"><span class="pre">dispersion</span></code>,
+<code class="docutils literal notranslate"><span class="pre">trm</span></code>, <code class="docutils literal notranslate"><span class="pre">crm</span></code> and <code class="docutils literal notranslate"><span class="pre">chromaticity_monitor</span></code>.</p>
+<p>The package must be installed in two places: the venv <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs
+in, and the project image. The deployment names the package’s source in its
+profile’s <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> (<a class="reference internal" href="../configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>); the build
+turns a local path into a wheel the project image installs. A kind is read by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> alone; the approval hook, the MCP servers and the measure
+script read what the build wrote and import neither the registry nor the
+kind’s package. A kind’s package should import OSPREY only through
+<code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code> (<a class="reference internal" href="#stability">Stability</a>).</p>
+<p>The build stops on:</p>
+<ul class="simple">
+<li><p>a measurement file listing a kind no installed package registers;</p></li>
+<li><p>a registered kind, listed or not, whose package the project image does not
+install;</p></li>
+<li><p>two distributions declaring one name (a built-in name included);</p></li>
+<li><p>an entry point that loads anything but a declaration or a mapping of its
+fields, a mapping naming a field the declaration does not have, or a
+declaration whose name differs from its entry point’s;</p></li>
+<li><p>a declaration value the build cannot use (below).</p></li>
+</ul>
+</section>
+<section id="the-declaration">
+<h2>The declaration<a class="headerlink" href="#the-declaration" title="Link to this heading">#</a></h2>
+<p>Every field is required except <code class="docutils literal notranslate"><span class="pre">member_sorts</span></code>, <code class="docutils literal notranslate"><span class="pre">facts_writer</span></code>,
+<code class="docutils literal notranslate"><span class="pre">build_stops</span></code> and <code class="docutils literal notranslate"><span class="pre">settings_from_measurement</span></code>.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>What it states</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>The word the measurement file lists.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tool</span></code></p></td>
+<td><p>The pyAML tool the kind’s view section configures, as
+<code class="docutils literal notranslate"><span class="pre">KindTool(type,</span> <span class="pre">name)</span></code>, or <code class="docutils literal notranslate"><span class="pre">None</span></code> for a kind that writes no tool
+section.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">members</span></code></p></td>
+<td><p>Each group or instrument role the kind uses, with its requirement:
+<code class="docutils literal notranslate"><span class="pre">wired</span></code> (named by the file and wired by the model), <code class="docutils literal notranslate"><span class="pre">exists</span></code> (named
+and present in the facility) or <code class="docutils literal notranslate"><span class="pre">optional</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">member_sorts</span></code></p></td>
+<td><p>For each member the pyAML view does not ship, one of <code class="docutils literal notranslate"><span class="pre">monitors</span></code>,
+<code class="docutils literal notranslate"><span class="pre">setpoints</span></code> or <code class="docutils literal notranslate"><span class="pre">instrument</span></code>; it decides whether the file names the
+role under <code class="docutils literal notranslate"><span class="pre">groups</span></code> or <code class="docutils literal notranslate"><span class="pre">instruments</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">stepped_roles</span></code></p></td>
+<td><p>The roles whose setpoints a measurement steps; none, and the kind is
+never measured.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tool_keys</span></code></p></td>
+<td><p>The measurement-file keys the kind’s tool takes; the file must state
+each.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">single_pass</span></code></p></td>
+<td><p>Whether the kind runs on a model solved in a single pass.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">matrix</span></code></p></td>
+<td><p>Whether the result is a response matrix.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">takes_by</span></code></p></td>
+<td><p>Whether the measure tool takes <code class="docutils literal notranslate"><span class="pre">by</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">corrector_roles</span></code></p></td>
+<td><p>The roles whose setpoints <code class="docutils literal notranslate"><span class="pre">correctors</span></code> may name; empty, no
+<code class="docutils literal notranslate"><span class="pre">correctors</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">view_files</span></code></p></td>
+<td><p>Each file the kind adds to the model’s pyAML view, by name, with its
+writer <code class="docutils literal notranslate"><span class="pre">(ViewContext)</span> <span class="pre">-&gt;</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> writes no file.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">measure_plan</span></code></p></td>
+<td><p>What the measure script does for the kind, as data;
+<code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds.plan_problems</span></code> states the vocabulary.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
+<td><p>The one line the agent is told about the kind.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">measurement_schema</span></code></p></td>
+<td><p>The pydantic model the kind’s sub-block <code class="docutils literal notranslate"><span class="pre">kind_blocks.&lt;kind&gt;</span></code> is
+validated by, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">view_section</span></code></p></td>
+<td><p>The writer of the kind’s pyAML tool section:
+<code class="docutils literal notranslate"><span class="pre">(ViewContext)</span> <span class="pre">-&gt;</span> <span class="pre">ViewSection(fields,</span> <span class="pre">devices)</span></code>, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facts_writer</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(facility</span> <span class="pre">file,</span> <span class="pre">sub-block)</span> <span class="pre">-&gt;</span> <span class="pre">mapping</span></code>: the facts the kind keeps
+for one model.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">build_stops</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(facility</span> <span class="pre">file,</span> <span class="pre">sub-block)</span> <span class="pre">-&gt;</span> <span class="pre">[KindStop(detail,</span> <span class="pre">remedy)]</span></code>: what the
+kind refuses beyond its schema.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">settings_from_measurement</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(model</span> <span class="pre">entry,</span> <span class="pre">measurement</span> <span class="pre">record)</span> <span class="pre">-&gt;</span> <span class="pre">{&lt;engine&gt;:</span> <span class="pre">{&lt;setting&gt;:</span> <span class="pre">value}}</span></code>:
+the engine settings the kind’s measurement needs.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Registration refuses a requirement outside the three words, a stepped,
+corrector or sorted role that is not a member, an unshipped member left
+unsorted, a sort outside the three words, and a measure plan
+<code class="docutils literal notranslate"><span class="pre">plan_problems</span></code> finds fault with.</p>
+</section>
+<section id="member-roles">
+<h2>Member roles<a class="headerlink" href="#member-roles" title="Link to this heading">#</a></h2>
+<p>The pyAML view ships these roles, each with its sort:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 30.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Role</p></th>
+<th class="head"><p>Sort</p></th>
+<th class="head"><p>Named under</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bpm</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">monitors</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">groups</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hcor</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">setpoints</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">groups</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vcor</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">setpoints</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">groups</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">quad</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">setpoints</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">groups</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sext</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">setpoints</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">groups</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tune</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">instrument</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">instruments</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">rf</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">instrument</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">instruments</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A kind sorts every other member it declares through <code class="docutils literal notranslate"><span class="pre">member_sorts</span></code>; an
+<code class="docutils literal notranslate"><span class="pre">instrument</span></code> is named under <code class="docutils literal notranslate"><span class="pre">instruments</span></code> and the other two under
+<code class="docutils literal notranslate"><span class="pre">groups</span></code>. <code class="docutils literal notranslate"><span class="pre">groups.&lt;role&gt;</span></code> and <code class="docutils literal notranslate"><span class="pre">instruments.&lt;role&gt;</span></code> accept the shipped
+roles, whether or not a listed kind uses them, plus every role a listed kind
+declares; any other role stops the build. A declaration that re-sorts a
+shipped role, or sorts a role differently from another registered kind, is
+refused at registration.</p>
+</section>
+<section id="the-kind-s-sub-block">
+<h2>The kind’s sub-block<a class="headerlink" href="#the-kind-s-sub-block" title="Link to this heading">#</a></h2>
+<p>What is a kind’s own (a trigger, settings, a chain of steps) goes in the
+measurement file’s <code class="docutils literal notranslate"><span class="pre">kind_blocks.&lt;kind&gt;</span></code>. A kind with a
+<code class="docutils literal notranslate"><span class="pre">measurement_schema</span></code> takes any block the schema accepts, an absent block
+read as <code class="docutils literal notranslate"><span class="pre">{}</span></code>; a kind without one takes no block. Only an admitted block is
+handed, with the facility file, to <code class="docutils literal notranslate"><span class="pre">build_stops</span></code>; each <code class="docutils literal notranslate"><span class="pre">KindStop</span></code> stops
+the build with its detail and remedy.</p>
+<p>A step that fires a command names a channel the facility marks <code class="docutils literal notranslate"><span class="pre">command</span></code>
+(below); a kind whose block names commands refuses any other address in
+<code class="docutils literal notranslate"><span class="pre">build_stops</span></code>, as <code class="docutils literal notranslate"><span class="pre">fixture_kind</span></code> does.</p>
+</section>
+<section id="view-files-and-the-settings-transform">
+<h2>View files and the settings transform<a class="headerlink" href="#view-files-and-the-settings-transform" title="Link to this heading">#</a></h2>
+<p>Each <code class="docutils literal notranslate"><span class="pre">view_files</span></code> writer is handed the model’s <code class="docutils literal notranslate"><span class="pre">ViewContext</span></code> (the kinds
+listed, each shipped group role’s array name, the measurement file, the device names
+and the design optics) and returns the file’s text; the files it wrote are
+named in the model’s kind block.</p>
+<p><code class="docutils literal notranslate"><span class="pre">settings_from_measurement</span></code> is handed copies of the model’s entry and its
+measurement record, and runs only on a block the kind admits. It may patch
+only the model’s own engine. The patched settings reach the facility file and
+the simulator view; the engine judges them as it judges hand-written ones.</p>
+</section>
+<section id="what-the-build-writes">
+<h2>What the build writes<a class="headerlink" href="#what-the-build-writes" title="Link to this heading">#</a></h2>
+<p>The facts document (<code class="docutils literal notranslate"><span class="pre">data/facility_facts.json</span></code>) carries:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">measurement_kinds</span></code>: once a model has a pyAML view, one row per registered
+kind (<code class="docutils literal notranslate"><span class="pre">members</span></code>,
+<code class="docutils literal notranslate"><span class="pre">stepped_roles</span></code>, <code class="docutils literal notranslate"><span class="pre">single_pass</span></code>, <code class="docutils literal notranslate"><span class="pre">matrix</span></code>, <code class="docutils literal notranslate"><span class="pre">takes_by</span></code>,
+<code class="docutils literal notranslate"><span class="pre">corrector_roles</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>);</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">measurement_models.&lt;model&gt;</span></code>: for each pyAML view, <code class="docutils literal notranslate"><span class="pre">kinds</span></code>, <code class="docutils literal notranslate"><span class="pre">names</span></code>
+(role to the view’s name: a shipped group role’s array, the RF plant, the tune
+monitor), <code class="docutils literal notranslate"><span class="pre">instruments</span></code> (role to address) and <code class="docutils literal notranslate"><span class="pre">rf</span></code> (the setpoints the
+RF plants step).</p></li>
+</ul>
+<p>Everything about a kind on a model is in that model’s kind block,
+<code class="docutils literal notranslate"><span class="pre">measurement_models.&lt;model&gt;.kinds.&lt;kind&gt;</span></code>: <code class="docutils literal notranslate"><span class="pre">members</span></code> (role to
+<code class="docutils literal notranslate"><span class="pre">{requirement,</span> <span class="pre">addresses}</span></code>), <code class="docutils literal notranslate"><span class="pre">stepped_roles</span></code>, <code class="docutils literal notranslate"><span class="pre">tool_keys</span></code>, <code class="docutils literal notranslate"><span class="pre">tool</span></code>,
+<code class="docutils literal notranslate"><span class="pre">single_pass</span></code>, <code class="docutils literal notranslate"><span class="pre">matrix</span></code>, <code class="docutils literal notranslate"><span class="pre">takes_by</span></code>, <code class="docutils literal notranslate"><span class="pre">corrector_roles</span></code>,
+<code class="docutils literal notranslate"><span class="pre">view_files</span></code>, <code class="docutils literal notranslate"><span class="pre">measure_plan</span></code> and <code class="docutils literal notranslate"><span class="pre">description</span></code>, plus:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">block</span></code>: the kind’s <code class="docutils literal notranslate"><span class="pre">kind_blocks.&lt;kind&gt;</span></code> as the measurement file states
+it (absent: <code class="docutils literal notranslate"><span class="pre">{}</span></code>), present only for a kind that declares a
+<code class="docutils literal notranslate"><span class="pre">measurement_schema</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">facts</span></code>: what the kind’s <code class="docutils literal notranslate"><span class="pre">facts_writer</span></code> wrote for that model, present
+only for a kind that declares one.</p></li>
+</ul>
+<p>Two models may give one kind different blocks, and so different facts. An
+application reads both with <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk.read_facts</span></code>.</p>
+</section>
+<section id="signal-roles-engine-words-and-scenarios">
+<h2>Signal roles, engine words and scenarios<a class="headerlink" href="#signal-roles-engine-words-and-scenarios" title="Link to this heading">#</a></h2>
+<p><strong>Signal roles.</strong> A channel’s <code class="docutils literal notranslate"><span class="pre">signal</span></code> is a role the vocabulary lists or one
+the facility adds in <code class="docutils literal notranslate"><span class="pre">signals.yaml</span></code> (<a class="reference internal" href="../../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a>).</p>
+<p><strong>Engine record words.</strong> An engine’s <code class="docutils literal notranslate"><span class="pre">describe(record)</span></code> states
+<code class="docutils literal notranslate"><span class="pre">engine_role</span></code>, <code class="docutils literal notranslate"><span class="pre">plane</span></code>, <code class="docutils literal notranslate"><span class="pre">refresh</span></code> and optional <code class="docutils literal notranslate"><span class="pre">marks</span></code> for each wiring
+record, in the facility schema’s closed enums: <code class="docutils literal notranslate"><span class="pre">engine_role</span></code> is
+<code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>; <code class="docutils literal notranslate"><span class="pre">refresh</span></code> is
+<code class="docutils literal notranslate"><span class="pre">pass</span></code>, <code class="docutils literal notranslate"><span class="pre">periodic</span></code>, <code class="docutils literal notranslate"><span class="pre">fast</span></code> or <code class="docutils literal notranslate"><span class="pre">event</span></code>; the one mark is <code class="docutils literal notranslate"><span class="pre">command</span></code>.
+An engine declares no words of its own; a word the schema does not list stops
+the build. A channel is a command (<code class="docutils literal notranslate"><span class="pre">command:</span> <span class="pre">true</span></code>) when it is a setpoint
+whose signal is a command word, or a channel some model’s engine marks
+<code class="docutils literal notranslate"><span class="pre">command</span></code>.</p>
+<p><strong>Scenario stops.</strong> An engine’s optional <code class="docutils literal notranslate"><span class="pre">scenario_stops(wiring,</span> <span class="pre">faults)</span></code>
+refuses a scenario fault it cannot honour, as <code class="docutils literal notranslate"><span class="pre">(fault,</span> <span class="pre">detail,</span> <span class="pre">remedy)</span></code>;
+<code class="docutils literal notranslate"><span class="pre">fixture_ring</span></code> refuses a fault on a record it fires, since a scenario holds
+no command. The engine contract is in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
+</section>
+<section id="stability">
+<h2>Stability<a class="headerlink" href="#stability" title="Link to this heading">#</a></h2>
+<p>Every name in <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds.__all__</span></code> keeps its name, its import
+path and its meaning across releases, as do the measurement-file and facts
+keys this page names; a change to one is a breaking change of the kind
+contract, announced in the changelog.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="facility-graph.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Facility Graph Contracts</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="guarded-run.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Guarded Run Contract</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-a-kind">Registering a kind</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-declaration">The declaration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#member-roles">Member roles</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-kind-s-sub-block">The kind’s sub-block</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#view-files-and-the-settings-transform">View files and the settings transform</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-build-writes">What the build writes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#signal-roles-engine-words-and-scenarios">Signal roles, engine words and scenarios</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#stability">Stability</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/contracts/facility-kinds.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

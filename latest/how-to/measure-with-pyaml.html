@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="apps/build-your-own-app.html">Build Your Own App</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="register-a-measurement-kind.html">Register a measurement kind</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -555,7 +556,9 @@ is the model’s <em>pyAML view</em>.</p>
 <p>A render with at least one such view registers three things: both tools, the
 <code class="docutils literal notranslate"><span class="pre">pyaml-tools</span></code> skill, and the prompt section that teaches them. A render with
 no view registers none of the three.</p>
-<p>The measurement file decides which kinds a model takes:</p>
+<p>The measurement file decides which kinds a model takes. OSPREY ships these,
+and a deployment registers its own (<a class="reference internal" href="register-a-measurement-kind.html"><span class="doc">Register a measurement kind</span></a>,
+<a class="reference internal" href="../reference/contracts/facility-kinds.html"><span class="doc">Facility Kinds Contract</span></a>):</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 25.0%" />
@@ -600,7 +603,8 @@ it.</p></li>
 <li><p>If the model has every group and instrument but the file does not list the
 kind, the refusal names the kinds the file does list.</p></li>
 </ul>
-<p>A model solved in a single pass takes <code class="docutils literal notranslate"><span class="pre">orm</span></code> alone.</p>
+<p>A model solved in a single pass takes only the kinds that run single pass;
+of the shipped ones, <code class="docutils literal notranslate"><span class="pre">orm</span></code> alone.</p>
 </section>
 <section id="ask-for-a-measurement">
 <h2>Ask for a measurement<a class="headerlink" href="#ask-for-a-measurement" title="Link to this heading">#</a></h2>

@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/watchdog.html">Watchdog Contract</a></li>
@@ -516,7 +517,7 @@ volume or image is named from it.</p></td>
 <td><p><em>required</em></p></td>
 <td><p>The deployment’s name on a host. It names the compose project, its
 volumes (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;_&lt;volume&gt;</span></code>), the <code class="docutils literal notranslate"><span class="pre">:local</span></code> images, the web
-containers and the tier and app renders (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;name&gt;</span></code>).
+containers and the login renders (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;name&gt;</span></code>).
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it from the folder name, normalized to a valid
 compose project name; after that it is a tracked value, and the folder
 the repository is checked out into plays no part. It must already be a
@@ -550,7 +551,7 @@ state it (see <a class="reference internal" href="../../how-to/control-systems/m
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>A bundled preset name, or a path relative to this file, to inherit from.
 The parent is deep-merged under this file, recursively; a cycle is
-refused. A tier or app file may not spell it, and an override that would
+refused. A login file may not spell it, and an override that would
 give a materialized profile a parent is refused (see
 <a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></td>
 </tr>
@@ -760,8 +761,12 @@ Written into the rendered <code class="docutils literal notranslate"><span class
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>The applications the deployment runs, by name; each one’s files live in
-<code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> beside the profile (see <a class="reference internal" href="../../how-to/apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>). In
-a login file, which of them the login’s card shows.</p></td>
+<code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> beside the profile or in an installed package (see
+<a class="reference internal" href="../../how-to/apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>). In
+a login file, which of them the login’s card shows, and with
+<code class="docutils literal notranslate"><span class="pre">apps.&lt;name&gt;.access</span></code> who on that login sees and opens the panel, in a
+shared roster card’s words; absent, every user of the login. The tier
+alone decides writes.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lists</span></code></p></td>
 <td><p>string</p></td>
@@ -1071,7 +1076,7 @@ what it does with an ungoverned tool nothing named</p></td>
 </tbody>
 </table>
 </div>
-<p>A render that switches the controls server off — every bundled app
+<p>A render that switches the controls server off — every bundled shared login
 does — is asked for neither control-system key: it has no
 control system to state a type for.</p>
 </section>

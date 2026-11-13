@@ -823,6 +823,18 @@ the same image and the same entrypoint; <code class="docutils literal notranslat
 <p><code class="docutils literal notranslate"><span class="pre">tests/va/test_entrypoint.py</span></code> pins what the shipped entrypoint reads and
 refuses. How to deploy a plug-in is in <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
 </section>
+<section id="measurement-kind">
+<span id="extending-measurement-kind"></span><h2>Measurement kind<a class="headerlink" href="#measurement-kind" title="Link to this heading">#</a></h2>
+<p>A measurement kind is an <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds.KindDeclaration</span></code> registered
+under the <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code> entry-point group in its package’s
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>; OSPREY’s shipped kinds are entry points of the same group.
+The package is installed where <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs and in the project image,
+through the profile’s <code class="docutils literal notranslate"><span class="pre">dependencies</span></code>. Pinning test:
+<code class="docutils literal notranslate"><span class="pre">tests/facility/test_fixture_kind_deployment.py</span></code>, whose package under
+<code class="docutils literal notranslate"><span class="pre">tests/facility/fixtures/fixture_kind/</span></code> registers a kind and an engine. The
+contract: <a class="reference internal" href="../reference/contracts/facility-kinds.html"><span class="doc">Facility Kinds Contract</span></a>; step by step:
+<a class="reference internal" href="../how-to/register-a-measurement-kind.html"><span class="doc">Register a measurement kind</span></a>.</p>
+</section>
 <section id="agent-harness">
 <span id="extending-agent-harness"></span><h2>Agent harness<a class="headerlink" href="#agent-harness" title="Link to this heading">#</a></h2>
 <p>The agent harness is not a seam. Osprey ships one harness, Claude Code, and
@@ -920,6 +932,7 @@ where it is needed. Pinning test: <code class="docutils literal notranslate"><sp
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel">Panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#login-service">Login service</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lume-model">LUME model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measurement-kind">Measurement kind</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-harness">Agent harness</a></li>
 </ul>
   </nav></div>

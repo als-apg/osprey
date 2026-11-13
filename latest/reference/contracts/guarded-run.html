@@ -62,7 +62,7 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Audit Trail Contract" href="audit-trail.html" />
-    <link rel="prev" title="Facility Graph Contracts" href="facility-graph.html" />
+    <link rel="prev" title="Facility Kinds Contract" href="facility-kinds.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
@@ -598,9 +599,10 @@ posture. Nothing about the sandbox’s writes changes.</p></li>
 <p><code class="docutils literal notranslate"><span class="pre">osprey.runtime.guarded_run.command_write(connector,</span> <span class="pre">addresses,</span> <span class="pre">value)</span></code>
 fires one value at a batch of commands (arm a monitor, request a shot) under
 the run lock. A command is the facility’s word, never the caller’s: a channel
-of the rendered facility definition whose role is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code> and whose
-signal ends in <code class="docutils literal notranslate"><span class="pre">command</span></code>. With no rendered facility definition, no command
-fires.</p>
+the rendered facility definition marks <code class="docutils literal notranslate"><span class="pre">command</span></code>. The build marks a setpoint
+whose signal ends in <code class="docutils literal notranslate"><span class="pre">command</span></code> and a channel a model’s engine marks
+<code class="docutils literal notranslate"><span class="pre">command</span></code>, and stops when an engine describes a <code class="docutils literal notranslate"><span class="pre">*_command</span></code> setpoint
+without the mark. With no rendered facility definition, no command fires.</p>
 <p>The whole batch is refused, before anything is written, unless:</p>
 <ul class="simple">
 <li><p>the process holds the run lock with a record;</p></li>
@@ -803,12 +805,12 @@ ledger.</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="facility-graph.html"
+       href="facility-kinds.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Facility Graph Contracts</p>
+        <p class="prev-next-title">Facility Kinds Contract</p>
       </div>
     </a>
     <a class="right-next"

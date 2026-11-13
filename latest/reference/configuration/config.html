@@ -399,6 +399,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/facility-kinds.html">Facility Kinds Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/watchdog.html">Watchdog Contract</a></li>
@@ -802,7 +803,7 @@ category picks one automatically:</p>
 <li><p>A deployment that serves web terminals has the choice made for it. The
 terminals run on the host’s network, where a compose service name does not
 resolve, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes <code class="docutils literal notranslate"><span class="pre">url_key:</span> <span class="pre">host_url</span></code> into each render,
-tier and app renders included. That is the same address the agent dials. Setting
+login renders included. That is the same address the agent dials. Setting
 the key to anything else in such a profile is refused at build time.</p></li>
 <li><p>Otherwise the framework detects whether the health check is itself running
 inside a container — the runtime’s own marker file, <code class="docutils literal notranslate"><span class="pre">/.dockerenv</span></code> under

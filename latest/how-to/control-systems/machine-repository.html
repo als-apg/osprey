@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../apps/build-your-own-app.html">Build Your Own App</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../register-a-measurement-kind.html">Register a measurement kind</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
@@ -612,7 +613,7 @@ same) and name its facility directory in the root <code class="docutils literal 
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> resolves and is folded into the profile hash like <code class="docutils literal notranslate"><span class="pre">data:</span></code>
 (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>), so a new machine commit reports the build out of date.
-Only the root <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> states it; every tier and app drives the same
+Only the root <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> states it; every login drives the same
 machine. A machine builds to the same facility file standalone and mounted.</p>
 <p>With <code class="docutils literal notranslate"><span class="pre">machine:</span></code> set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span></code> writes into the machine root,
 except the knowledge index, which goes under the deployment’s
@@ -632,7 +633,7 @@ repository top instead of its <code class="docutils literal notranslate"><span c
 <code class="docutils literal notranslate"><span class="pre">ariel/</span></code> and <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code>. Edit the fact in the machine repository and
 remove the deployment’s copy.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> and <code class="docutils literal notranslate"><span class="pre">data:</span></code> overlap; a tier or app states <code class="docutils literal notranslate"><span class="pre">machine:</span></code>; or the
+<dt><code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> and <code class="docutils literal notranslate"><span class="pre">data:</span></code> overlap; a login file states <code class="docutils literal notranslate"><span class="pre">machine:</span></code>; or the
 profile states <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> beside <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code> marks
 or a mounted machine. <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">null</span></code> cancels a
 preset’s value.</p>
