@@ -9,7 +9,7 @@ a Channel Access event exactly as a scalar is.
 
 The tests drive the runner's own methods on a hand-made model, with the base
 class's publishing step recorded. The serving package ships for Linux only; on
-a host without it a stand-in base class carries the two members these tests
+a host without it a stand-in base class carries the members these tests
 reach, and the runner module is imported over it for the test alone.
 """
 
@@ -35,7 +35,10 @@ ARRAYS = {f"ZZ:TBT{index}": np.arange(5, dtype=float) + index for index in range
 
 
 class _StandInRunner:
-    """The two members of ``lume_pva_apg.runner.Runner`` these tests reach."""
+    """The members of ``lume_pva_apg.runner.Runner`` these tests reach."""
+
+    # The base class's default: a pass is a periodic one only when it says so.
+    _pass_is_tick: bool = False
 
     def _post_outputs(self, out_values: dict[str, Any], ts: float) -> None:  # noqa: ARG002  # pragma: no cover
         raise AssertionError("the post is recorded by the test")
