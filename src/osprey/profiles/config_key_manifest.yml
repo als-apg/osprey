@@ -1071,6 +1071,7 @@ keys:
   services.<app-container>.health: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.image: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.launch_token_env: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.mounts: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.network: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.path: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.port: {covered-by: services.<app-container>, default: n/a}
@@ -4729,7 +4730,7 @@ render_contexts:
       claude_code.servers: <server>
       apps: <app>
       apps.<app>.approval: <tool>
-  expected_union_size: 435
+  expected_union_size: 436
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

@@ -82,6 +82,7 @@ from .build_profile_schema import (
     env_names_errors,
     http_errors,
     listens_errors,
+    mounts_errors,
     network_mode_errors,
     optimizer_errors,
     osprey_declares_binding,
@@ -703,6 +704,14 @@ class BuildProfile:
                     errors.extend(network_mode_errors(axes.network, f"{where}.network"))
                 if axes.env is not None:
                     errors.extend(env_names_errors(axes.env, f"{where}.env"))
+                if axes.mounts is not None:
+                    if manifest.containers[key].runtime is None:
+                        errors.append(
+                            f"{where}.mounts is for a runtime: osprey container; {key} runs "
+                            "its own image, whose compose fragment states its binds."
+                        )
+                    else:
+                        errors.extend(mounts_errors(axes.mounts, f"{where}.mounts"))
         return errors
 
     def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots | None:

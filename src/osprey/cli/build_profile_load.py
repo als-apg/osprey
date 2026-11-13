@@ -566,7 +566,9 @@ def _parse_apps(raw: Mapping[str, Any]) -> dict[str, AppEntry]:
             config=dict(entry.get("config") or {}),
             services={
                 str(key): AppServiceAxes(
-                    network=(axes or {}).get("network"), env=(axes or {}).get("env")
+                    network=(axes or {}).get("network"),
+                    env=(axes or {}).get("env"),
+                    mounts=(axes or {}).get("mounts"),
                 )
                 for key, axes in (entry.get("services") or {}).items()
             },

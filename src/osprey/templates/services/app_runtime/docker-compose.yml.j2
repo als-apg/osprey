@@ -27,6 +27,7 @@
 {%- set config_file = svc.config_file | default('', true) %}
 {%- set state_mounts = svc.state_mounts | default([], true) %}
 {%- set identity = svc.audit_identity | default('', true) %}
+{%- set mounts = svc.mounts | default([], true) %}
 {#- The drives_target section: the staged config carrying the login map and the
     read-only control tree are what make an owned write judgeable here, and the
     section is driven by the projected field, never by a name. A container missing
@@ -116,7 +117,7 @@ services:
       TZ: {{ system.timezone }}
 {{- hostenv.passthrough(svc) }}
 {{- net.ports(svc, ['127.0.0.1:' ~ svc.port ~ ':' ~ svc.port] if svc.port else []) }}
-{%- if config_file or state_mounts or identity or svc.drives_target %}
+{%- if config_file or state_mounts or identity or svc.drives_target or mounts %}
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT.
     volumes:
@@ -134,6 +135,15 @@ services:
       - {{ osprey_guarded_run_mount.source }}:{{ osprey_container_guarded_run_dir }}
       - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
 {%- endif %}
+{%- for mount in mounts %}
+{#- The deployment's own mounts (`apps.<name>.services.<key>.mounts`), each
+    read-only. The long form, so a source that is not there fails the start
+    instead of being created as an empty root-owned directory. #}
+      - type: bind
+        source: {{ mount.source | tojson }}
+        target: {{ mount.target | tojson }}
+        read_only: true
+{%- endfor %}
 {%- endif %}
 {{- net.network(svc) }}
 {%- if svc.port and svc.health %}

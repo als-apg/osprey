@@ -214,6 +214,7 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
         network="bridge",
         state="var/knob",
         launch_token_env="ORBIT_BUMP_LAUNCH_TOKEN",
+        mounts=[{"source": "/nfs/oag/lattices", "target": "/lattices"}],
         roster_grant={"panel_id": "orbit-bump", "single_user_alias": None},
     )
     assert set(row) - {"template", "url"} == {
@@ -226,6 +227,7 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
         "env",
         "health",
         "launch_token_env",
+        "mounts",
         "network",
         "port",
         "roster_grant",
@@ -235,6 +237,67 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
     _, svc = _render(row)
 
     assert svc["environment"]["OSPREY_APP_STATE_DIRS"]
+
+
+def test_the_deployments_mounts_are_bound_read_only() -> None:
+    mounts = [
+        {"source": "/nfs/oag/lattices", "target": "/lattices"},
+        {"source": "/usr/local/oag apps/bin", "target": "/opt/oag/bin"},
+    ]
+
+    _, svc = _render(_row(mounts=mounts))
+
+    # The long form: compose refuses a source that is not there, where the short
+    # form would create it as an empty root-owned directory.
+    assert [volume for volume in svc["volumes"] if isinstance(volume, dict)] == [
+        {"type": "bind", "source": "/nfs/oag/lattices", "target": "/lattices", "read_only": True},
+        {
+            "type": "bind",
+            "source": "/usr/local/oag apps/bin",
+            "target": "/opt/oag/bin",
+            "read_only": True,
+        },
+    ]
+    assert svc["security_opt"] == ["no-new-privileges:true"]
+
+
+def test_mounts_alone_open_the_volumes_block() -> None:
+    row = {"app": "knob", "mounts": [{"source": "/nfs/oag/lattices", "target": "/lattices"}]}
+
+    _, svc = _render(row)
+
+    assert svc["volumes"] == [
+        {"type": "bind", "source": "/nfs/oag/lattices", "target": "/lattices", "read_only": True}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "words"),
+    [
+        ("{repo}/var/guarded_run", "the guarded-run lock directory"),
+        ("{repo}/var", "the guarded-run lock directory"),
+        ("{repo}", "the guarded-run lock directory"),
+        ("/", "the guarded-run lock directory"),
+    ],
+)
+def test_a_mount_exposing_a_protected_path_is_refused(
+    tmp_path: Path, source: str, words: str
+) -> None:
+    mount = {"source": source.format(repo=tmp_path), "target": "/lattices"}
+    config = {
+        "project_name": "fixture",
+        "project_root": str(tmp_path),
+        "services": {KEY: _row(mounts=[mount])},
+        "deployed_services": [KEY],
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+    }
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _inject_project_metadata(config)
+
+    assert f"binds {mount['source']} into {KEY}, which exposes {words}" in excinfo.value.reason
+    assert "apps.orbit-bump.services" in excinfo.value.remedy
 
 
 def test_the_declared_state_survives_the_render_a_build_takes(tmp_path: Path) -> None:
