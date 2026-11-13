@@ -10,7 +10,6 @@ PyTango.
 import asyncio
 import sys
 import threading
-import time
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +25,7 @@ from osprey_connectors.control_system._tango_connector import (
     _split_address,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
+from osprey_connectors_tests._stall import Stall
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
@@ -741,77 +741,69 @@ class TestBoundedCalls:
     """A read or write given no timeout of its own is bounded by the block's.
 
     The fake's transport call does not honour the proxy timeout beneath it, so
-    only the connector's own ceiling can end the call. Every stall blocks on an
-    ``Event`` with a finite wait, released before the test returns.
+    only the connector's own ceiling can end the call. Each stall is a
+    :class:`Stall`: the connector answering while it has not yet returned is
+    what proves the ceiling fired, and the message names the ceiling that did.
+    No test reads a clock.
     """
 
     async def test_a_stalled_read_raises_timeout_error_within_timeout(self):
-        release = threading.Event()
         proxy = _make_proxy()
-        proxy.read_attribute.side_effect = lambda _attr: release.wait(10)
-        try:
-            with (
-                patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
-                patch(_LIMITS_PATCH, return_value=None),
-                patch(_TZ_PATCH, return_value=UTC),
-                patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
-            ):
-                conn = await _bounded_tango(0.2)
-                start = time.monotonic()
-                with pytest.raises(TimeoutError) as raised:
-                    await conn.read_channel(_ADDRESS)
-                elapsed = time.monotonic() - start
-        finally:
-            release.set()
+        with (
+            Stall() as read,
+            patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            proxy.read_attribute.side_effect = read
+            conn = await _bounded_tango(0.2)
+            with pytest.raises(TimeoutError) as raised:
+                await conn.read_channel(_ADDRESS)
+            answered_first = not read.returned
 
+        assert answered_first
         assert _ADDRESS in str(raised.value)
+        assert "within 0.2s" in str(raised.value)
         assert not isinstance(raised.value, ConnectionError)
-        assert elapsed < 2.0
 
     async def test_a_per_call_timeout_wins_over_the_block_timeout(self):
-        release = threading.Event()
         proxy = _make_proxy()
-        proxy.read_attribute.side_effect = lambda _attr: release.wait(10)
-        try:
-            with (
-                patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
-                patch(_LIMITS_PATCH, return_value=None),
-                patch(_TZ_PATCH, return_value=UTC),
-                patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
-            ):
-                conn = await _bounded_tango(30)
-                start = time.monotonic()
-                with pytest.raises(TimeoutError):
-                    await conn.read_channel(_ADDRESS, timeout=0.2)
-                elapsed = time.monotonic() - start
-        finally:
-            release.set()
+        with (
+            Stall() as read,
+            patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            proxy.read_attribute.side_effect = read
+            conn = await _bounded_tango(30)
+            with pytest.raises(TimeoutError) as raised:
+                await conn.read_channel(_ADDRESS, timeout=0.2)
+            answered_first = not read.returned
 
-        assert elapsed < 2.0
+        assert answered_first
+        assert "within 0.2s" in str(raised.value)
 
     async def test_a_stalled_write_is_unconfirmed_not_failed(self):
-        release = threading.Event()
         proxy = _make_proxy()
-        proxy.write_attribute.side_effect = lambda _attr, _value: release.wait(10)
-        try:
-            with (
-                patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
-                patch(_LIMITS_PATCH, return_value=None),
-                patch(_TZ_PATCH, return_value=UTC),
-                patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
-            ):
-                conn = await _bounded_tango(0.2)
-                start = time.monotonic()
-                result = await conn.write_channel(_ADDRESS, 10.0, confirm=True)
-                elapsed = time.monotonic() - start
-        finally:
-            release.set()
+        with (
+            Stall() as write,
+            patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            proxy.write_attribute.side_effect = write
+            conn = await _bounded_tango(0.2)
+            result = await conn.write_channel(_ADDRESS, 10.0, confirm=True)
+            answered_first = not write.returned
 
+        assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.error_message is not None
+        assert "within 0.2s" in result.error_message
         assert result.observed_value is None
         assert proxy.read_attribute.call_count == 0
-        assert elapsed < 2.0
 
 
 class TestWriteTextIsDisplayOnly:
